@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { getApiCalls, getBatchSummary } from '../api/metricsApi';
 import { formatCostGbp, formatCostUsd, formatTokens } from '../utils/formatCost';
+import DispositionBreakdown from './DispositionBreakdown.jsx';
 
 /**
  * Expandable detail view for a job run showing all API calls.
@@ -319,6 +320,10 @@ const JobRunDetail = ({ jobRun }) => {
           })()}
         </div>
       )}
+
+      {/* Disposition breakdown (V101) — self-hides for runs with no
+          disposition data (non-batch runs and the cycle's non-primary buckets). */}
+      <DispositionBreakdown jobRunId={jobRun.id} />
 
       {/* Failed calls detail */}
       {apiCalls.some((call) => !call.succeeded) && (

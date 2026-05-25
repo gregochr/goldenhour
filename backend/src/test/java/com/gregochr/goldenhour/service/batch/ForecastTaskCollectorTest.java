@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service.batch;
 
 import com.gregochr.goldenhour.TestAtmosphericData;
+import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.entity.LocationEntity;
@@ -13,6 +14,7 @@ import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.GridCellStabilityResult;
@@ -778,6 +780,272 @@ class ForecastTaskCollectorTest {
         collector.collectRegionFilteredBatches(List.of(1L));
 
         verify(stabilitySnapshotProvider, never()).update(any());
+    }
+
+    // ── Disposition recording (V101) ──────────────────────────────────────────
+
+    @Test
+    @DisplayName("dispositions: EVALUATED candidate recorded with location id + null detail")
+    void dispositions_evaluatedCandidate_recordedWithLocationIdAndNullDetail() {
+        LocationEntity loc = stubGoBriefingWithLocation(TODAY.plusDays(1), "Durham UK");
+        stubModels();
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        assertThat(result.dispositions()).hasSize(1);
+        CandidateDisposition d = result.dispositions().get(0);
+        assertThat(d.category()).isEqualTo(DispositionCategory.EVALUATED);
+        assertThat(d.locationName()).isEqualTo("Durham UK");
+        assertThat(d.locationId()).isEqualTo(42L);
+        assertThat(d.evaluationDate()).isEqualTo(TODAY.plusDays(1));
+        assertThat(d.eventType()).isEqualTo(TargetType.SUNRISE);
+        assertThat(d.daysAhead()).isEqualTo(1);
+        assertThat(d.detail()).isNull();
+    }
+
+    @Test
+    @DisplayName("dispositions: TRIAGED candidate recorded with triage reason as detail")
+    void dispositions_triagedCandidate_recordedWithReason() {
+        LocationEntity loc = stubGoBriefingWithLocation("Durham UK");
+        stubModels();
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(triagedPreEval(loc));
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        assertThat(result.dispositions()).hasSize(1);
+        CandidateDisposition d = result.dispositions().get(0);
+        assertThat(d.category()).isEqualTo(DispositionCategory.SKIPPED_TRIAGED);
+        assertThat(d.detail()).isEqualTo("cloud");
+        assertThat(d.locationId()).isEqualTo(42L);
+    }
+
+    @Test
+    @DisplayName("dispositions: STABILITY-gated T+3 TRANSITIONAL recorded with skip reason")
+    void dispositions_stabilityGated_recordedWithSkipReason() {
+        LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
+        loc.setGridLat(54.7500);
+        loc.setGridLng(-1.6250);
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY.plusDays(3),
+                Verdict.GO, loc.getName());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        stubModels();
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(loc, TODAY.plusDays(3), 3));
+        when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyDouble(), any()))
+                .thenReturn(new GridCellStabilityResult(
+                        loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
+                        ForecastStability.TRANSITIONAL, "frontal approach", 1));
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        assertThat(result.dispositions()).hasSize(1);
+        CandidateDisposition d = result.dispositions().get(0);
+        assertThat(d.category()).isEqualTo(DispositionCategory.SKIPPED_STABILITY);
+        assertThat(d.detail()).isEqualTo("T+3 TRANSITIONAL");
+        assertThat(d.daysAhead()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("dispositions: HARD_CONSTRAINT (tide mismatch) recorded with standdown reason")
+    void dispositions_hardConstraint_recordedWithStanddownReason() {
+        when(briefingService.getCachedBriefing())
+                .thenReturn(buildBriefingWithStanddownReason(
+                        TODAY, "Durham UK",
+                        BriefingVerdictEvaluator.StanddownReason.TIDE_MISMATCH.label()));
+        stubModels();
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        assertThat(result.dispositions()).hasSize(1);
+        CandidateDisposition d = result.dispositions().get(0);
+        assertThat(d.category()).isEqualTo(DispositionCategory.SKIPPED_HARD_CONSTRAINT);
+        // Hard-constraint skips do not perform a location lookup, so location_id stays null
+        assertThat(d.locationId()).isNull();
+        assertThat(d.locationName()).isEqualTo("Durham UK");
+        assertThat(d.detail()).isEqualTo(
+                BriefingVerdictEvaluator.StanddownReason.TIDE_MISMATCH.label());
+    }
+
+    @Test
+    @DisplayName("dispositions: CACHED region records one SKIPPED_CACHED per slot")
+    void dispositions_cachedRegion_recordsOnePerSlot() {
+        // Two-slot region, fresh cache → both slots get SKIPPED_CACHED
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY, Verdict.GO,
+                "Durham UK", "Newcastle");
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        stubModels();
+        when(briefingEvaluationService.hasFreshEvaluation(any(), any())).thenReturn(true);
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        assertThat(result.dispositions()).hasSize(2);
+        assertThat(result.dispositions())
+                .extracting(CandidateDisposition::category)
+                .containsOnly(DispositionCategory.SKIPPED_CACHED);
+        assertThat(result.dispositions())
+                .extracting(CandidateDisposition::locationName)
+                .containsExactlyInAnyOrder("Durham UK", "Newcastle");
+        assertThat(result.dispositions())
+                .allMatch(d -> d.detail() != null && d.detail().startsWith("Fresh cached"));
+    }
+
+    @Test
+    @DisplayName("dispositions: PAST_DATE day records one entry per slot in that day")
+    void dispositions_pastDateDay_recordsOnePerSlot() {
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY.minusDays(2),
+                Verdict.GO, "Durham UK");
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        stubModels();
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        assertThat(result.dispositions()).hasSize(1);
+        CandidateDisposition d = result.dispositions().get(0);
+        assertThat(d.category()).isEqualTo(DispositionCategory.SKIPPED_PAST_DATE);
+        assertThat(d.daysAhead()).isEqualTo(-2);
+        assertThat(d.locationId()).isNull();
+    }
+
+    @Test
+    @DisplayName("dispositions: UNKNOWN_LOCATION recorded when slot name has no LocationEntity")
+    void dispositions_unknownLocation_recorded() {
+        when(briefingService.getCachedBriefing())
+                .thenReturn(buildBriefingForVerdict(TODAY, Verdict.GO));
+        stubModels();
+        when(locationService.findAllEnabled()).thenReturn(List.of()); // no locations registered
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        assertThat(result.dispositions()).hasSize(1);
+        CandidateDisposition d = result.dispositions().get(0);
+        assertThat(d.category()).isEqualTo(DispositionCategory.SKIPPED_UNKNOWN_LOCATION);
+        assertThat(d.locationId()).isNull();
+        assertThat(d.locationName()).isEqualTo("Durham UK");
+    }
+
+    @Test
+    @DisplayName("dispositions: per-candidate exception recorded as SKIPPED_ERROR with message")
+    void dispositions_perCandidateException_recordedAsError() {
+        LocationEntity loc = stubGoBriefingWithLocation("Durham UK");
+        stubModels();
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenThrow(new RuntimeException("boom"));
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        assertThat(result.dispositions()).hasSize(1);
+        CandidateDisposition d = result.dispositions().get(0);
+        assertThat(d.category()).isEqualTo(DispositionCategory.SKIPPED_ERROR);
+        assertThat(d.detail()).isEqualTo("boom");
+    }
+
+    @Test
+    @DisplayName("dispositions: reconciliation — every slot the briefing contained "
+            + "produces exactly one disposition row")
+    void dispositions_reconciliation_eachSlotProducesOneRow() {
+        // The "the totals add up" guarantee. The briefing has six slots split across:
+        //   • 1 past-date slot
+        //   • 2 cached slots (one region)
+        //   • 1 hard-constraint (tide mismatch) STANDDOWN slot
+        //   • 1 unknown-location slot
+        //   • 1 valid GO slot reaching triage → EVALUATED
+        // Total dispositions MUST equal 6 — the UI arithmetic depends on this.
+        LocationEntity goLoc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
+        goLoc.setId(42L);
+
+        BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
+                20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
+
+        // Day 1 (past) — 1 slot
+        BriefingDay pastDay = buildSingleSlotDay(TODAY.minusDays(1), "Past Loc",
+                Verdict.GO, weather, null);
+
+        // Day 2 (today) — assembled from three regions:
+        //   region A: 2 slots, cached
+        //   region B: 1 slot, STANDDOWN tide mismatch
+        //   region C: 2 slots — one unknown location, one valid GO
+        BriefingSlot cached1 = new BriefingSlot("Cached1", TODAY.atTime(5, 30),
+                Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
+        BriefingSlot cached2 = new BriefingSlot("Cached2", TODAY.atTime(5, 30),
+                Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
+        BriefingRegion regionA = new BriefingRegion(
+                "Cached Region", Verdict.GO, "Cached summary", List.of(),
+                List.of(cached1, cached2), null, null, null, null, null, null);
+
+        BriefingSlot tideStanddown = new BriefingSlot("Tide Standdown", TODAY.atTime(5, 30),
+                Verdict.STANDDOWN, weather, BriefingSlot.TideInfo.NONE, List.of(),
+                BriefingVerdictEvaluator.StanddownReason.TIDE_MISMATCH.label());
+        BriefingRegion regionB = new BriefingRegion(
+                "Tide Region", Verdict.STANDDOWN, "Tide summary", List.of(),
+                List.of(tideStanddown), null, null, null, null, null, null);
+
+        BriefingSlot unknownLoc = new BriefingSlot("Unknown Loc", TODAY.atTime(5, 30),
+                Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
+        BriefingSlot goSlot = new BriefingSlot(goLoc.getName(), TODAY.atTime(5, 30),
+                Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
+        BriefingRegion regionC = new BriefingRegion(
+                "Mixed Region", Verdict.GO, "Mixed summary", List.of(),
+                List.of(unknownLoc, goSlot), null, null, null, null, null, null);
+
+        BriefingEventSummary todaySummary = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(regionA, regionB, regionC), List.of());
+        BriefingDay today = new BriefingDay(TODAY, List.of(todaySummary));
+
+        DailyBriefingResponse briefing = new DailyBriefingResponse(
+                null, null, List.of(pastDay, today), null, null, null,
+                false, false, 0, null, List.of(), List.of());
+
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(goLoc));
+        stubModels();
+        // Cached only for regionA — exact key match
+        String cachedKey = com.gregochr.goldenhour.service.evaluation.CacheKeyFactory
+                .build(regionA.regionName(), TODAY, TargetType.SUNRISE);
+        when(briefingEvaluationService.hasFreshEvaluation(org.mockito.ArgumentMatchers.eq(cachedKey),
+                any())).thenReturn(true);
+        stubPrefetchSuccess(goLoc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(goLoc, TODAY, 0));
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        // Six slots considered → six dispositions, exactly one per slot.
+        assertThat(result.dispositions()).hasSize(6);
+        Map<DispositionCategory, Long> counts = result.dispositions().stream()
+                .collect(java.util.stream.Collectors.groupingBy(
+                        CandidateDisposition::category,
+                        java.util.stream.Collectors.counting()));
+        assertThat(counts).containsEntry(DispositionCategory.SKIPPED_PAST_DATE, 1L);
+        assertThat(counts).containsEntry(DispositionCategory.SKIPPED_CACHED, 2L);
+        assertThat(counts).containsEntry(DispositionCategory.SKIPPED_HARD_CONSTRAINT, 1L);
+        assertThat(counts).containsEntry(DispositionCategory.SKIPPED_UNKNOWN_LOCATION, 1L);
+        assertThat(counts).containsEntry(DispositionCategory.EVALUATED, 1L);
+    }
+
+    private BriefingDay buildSingleSlotDay(LocalDate date, String name, Verdict verdict,
+            BriefingSlot.WeatherConditions weather, String standdownReason) {
+        BriefingSlot slot = new BriefingSlot(name, date.atTime(5, 30), verdict, weather,
+                BriefingSlot.TideInfo.NONE, List.of(), standdownReason);
+        BriefingRegion region = new BriefingRegion(
+                "Region " + name, verdict, "Summary", List.of(), List.of(slot),
+                null, null, null, null, null, null);
+        BriefingEventSummary eventSummary = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(region), List.of());
+        return new BriefingDay(date, List.of(eventSummary));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.batch;
 
+import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.entity.LocationEntity;
@@ -9,6 +10,7 @@ import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
@@ -40,6 +42,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
@@ -183,11 +186,13 @@ public class ForecastTaskCollector {
                 nearTermModel, farTermModel,
                 briefing.days() != null ? briefing.days().size() : 0);
 
-        List<ForecastCandidate> candidates = collectForecastCandidates(briefing);
+        List<CandidateDisposition> dispositions = new ArrayList<>();
+        List<ForecastCandidate> candidates = collectForecastCandidates(briefing, dispositions);
         if (candidates.isEmpty()) {
             LOG.warn("[BATCH DIAG] Forecast batch: no evaluable locations found after "
                     + "task collection, skipping submission");
-            return ScheduledBatchTasks.empty();
+            return new ScheduledBatchTasks(
+                    List.of(), List.of(), List.of(), List.of(), List.copyOf(dispositions));
         }
 
         LOG.info("Forecast batch: {} candidate task(s) — bulk pre-fetching weather",
@@ -201,7 +206,8 @@ public class ForecastTaskCollector {
         if (prefetchedWeather.isEmpty()) {
             LOG.error("Forecast batch: weather pre-fetch returned 0/{} locations "
                     + "— aborting (likely Open-Meteo outage)", uniqueLocationCount);
-            return ScheduledBatchTasks.empty();
+            return new ScheduledBatchTasks(
+                    List.of(), List.of(), List.of(), List.of(), List.copyOf(dispositions));
         }
         if (successRatio < minPrefetchSuccessRatio) {
             LOG.error("Forecast batch: weather pre-fetch too degraded — {}/{} locations "
@@ -209,7 +215,8 @@ public class ForecastTaskCollector {
                     prefetchedWeather.size(), uniqueLocationCount,
                     String.format("%.2f", successRatio),
                     String.format("%.2f", minPrefetchSuccessRatio));
-            return ScheduledBatchTasks.empty();
+            return new ScheduledBatchTasks(
+                    List.of(), List.of(), List.of(), List.of(), List.copyOf(dispositions));
         }
         if (prefetchedWeather.size() < uniqueLocationCount) {
             LOG.warn("Forecast batch: weather pre-fetch partial — {}/{} locations fetched, "
@@ -244,6 +251,7 @@ public class ForecastTaskCollector {
         LOG.warn("[BATCH DIAG] Starting triage loop — {} candidate tasks", candidates.size());
 
         for (ForecastCandidate candidate : candidates) {
+            int candidateDaysAhead = daysAheadFor(candidate.date());
             try {
                 ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
                         candidate.location(), candidate.date(), candidate.targetType(),
@@ -253,6 +261,10 @@ public class ForecastTaskCollector {
                     LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=TRIAGED ({})",
                             candidate.location().getName(), candidate.date(),
                             candidate.targetType(), preEval.triageReason());
+                    dispositions.add(new CandidateDisposition(
+                            candidate.location().getId(), candidate.location().getName(),
+                            candidate.date(), candidate.targetType(), candidateDaysAhead,
+                            DispositionCategory.SKIPPED_TRIAGED, preEval.triageReason()));
                     skippedTriage++;
                     continue;
                 }
@@ -265,6 +277,10 @@ public class ForecastTaskCollector {
                     LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=STABILITY ({})",
                             candidate.location().getName(), candidate.date(),
                             candidate.targetType(), decision.skipReason());
+                    dispositions.add(new CandidateDisposition(
+                            candidate.location().getId(), candidate.location().getName(),
+                            candidate.date(), candidate.targetType(), daysAhead,
+                            DispositionCategory.SKIPPED_STABILITY, decision.skipReason()));
                     agg.recordExcluded(daysAhead, stability);
                     skippedStability++;
                     continue;
@@ -294,6 +310,10 @@ public class ForecastTaskCollector {
                     includedFar++;
                 }
                 agg.recordIncluded(daysAhead, stability);
+                dispositions.add(new CandidateDisposition(
+                        candidate.location().getId(), candidate.location().getName(),
+                        candidate.date(), candidate.targetType(), daysAhead,
+                        DispositionCategory.EVALUATED, null));
                 LOG.warn("[BATCH DIAG] INCLUDE {} | date={} event={} | tier={} type={}",
                         candidate.location().getName(), candidate.date(),
                         candidate.targetType(),
@@ -302,6 +322,10 @@ public class ForecastTaskCollector {
                 LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=ERROR ({})",
                         candidate.location().getName(), candidate.date(),
                         candidate.targetType(), e.getMessage());
+                dispositions.add(new CandidateDisposition(
+                        candidate.location().getId(), candidate.location().getName(),
+                        candidate.date(), candidate.targetType(), candidateDaysAhead,
+                        DispositionCategory.SKIPPED_ERROR, e.getMessage()));
                 skippedError++;
             }
         }
@@ -316,10 +340,22 @@ public class ForecastTaskCollector {
 
         if (totalIncluded == 0) {
             LOG.info("Forecast batch: no evaluable locations after triage, skipping submission");
-            return ScheduledBatchTasks.empty();
+            return new ScheduledBatchTasks(
+                    List.of(), List.of(), List.of(), List.of(), List.copyOf(dispositions));
         }
 
-        return new ScheduledBatchTasks(nearInland, nearCoastal, farInland, farCoastal);
+        return new ScheduledBatchTasks(nearInland, nearCoastal, farInland, farCoastal,
+                List.copyOf(dispositions));
+    }
+
+    /**
+     * Days from today (Europe/London) to the given date. Negative for past
+     * dates. Matches the {@code today} computation used in
+     * {@link #collectForecastCandidates}.
+     */
+    private static int daysAheadFor(LocalDate date) {
+        LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
+        return (int) ChronoUnit.DAYS.between(today, date);
     }
 
     /**
@@ -409,7 +445,12 @@ public class ForecastTaskCollector {
                 ? new HashSet<>(regionIds) : null;
 
         EvaluationModel model = modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM);
-        List<ForecastCandidate> candidates = collectForecastCandidates(briefing);
+        // Admin region-filtered path does not persist dispositions — the cycle
+        // they belong to is the overnight scheduled batch, not these ad-hoc
+        // admin triggers. The throwaway list keeps the helper signature uniform.
+        List<CandidateDisposition> unusedDispositions = new ArrayList<>();
+        List<ForecastCandidate> candidates =
+                collectForecastCandidates(briefing, unusedDispositions);
 
         if (regionFilter != null) {
             candidates = candidates.stream()
@@ -483,8 +524,18 @@ public class ForecastTaskCollector {
     /**
      * First pass over the briefing: collects all GO/MARGINAL slots that are not
      * already cached. No API calls are made here.
+     *
+     * <p>Appends a {@link CandidateDisposition} to {@code dispositions} for
+     * every slot the briefing considered, both inclusions (passed to the
+     * triage loop) and skips (PAST_DATE, CACHED, HARD_CONSTRAINT,
+     * UNKNOWN_LOCATION). Skips are recorded with {@code location_id = null}
+     * since the verdict/cache/past-date paths never look the location up. The
+     * inclusion entries are NOT written here; the triage loop assigns the
+     * final disposition (EVALUATED / SKIPPED_TRIAGED / SKIPPED_STABILITY /
+     * SKIPPED_ERROR) once weather + stability data is available.
      */
-    private List<ForecastCandidate> collectForecastCandidates(DailyBriefingResponse briefing) {
+    private List<ForecastCandidate> collectForecastCandidates(DailyBriefingResponse briefing,
+            List<CandidateDisposition> dispositions) {
         List<ForecastCandidate> candidates = new ArrayList<>();
         int skippedCache = 0;
         int skippedVerdict = 0;
@@ -506,11 +557,23 @@ public class ForecastTaskCollector {
 
         for (BriefingDay day : briefing.days()) {
             LocalDate date = day.date();
+            int daysAhead = (int) ChronoUnit.DAYS.between(today, date);
             if (date.isBefore(today)) {
-                int daySlots = day.eventSummaries().stream()
-                        .flatMap(es -> es.regions().stream())
-                        .mapToInt(r -> r.slots() != null ? r.slots().size() : 0)
-                        .sum();
+                int daySlots = 0;
+                for (BriefingEventSummary eventSummary : day.eventSummaries()) {
+                    TargetType targetType = eventSummary.targetType();
+                    for (BriefingRegion region : eventSummary.regions()) {
+                        if (region.slots() == null) {
+                            continue;
+                        }
+                        for (BriefingSlot slot : region.slots()) {
+                            dispositions.add(new CandidateDisposition(
+                                    null, slot.locationName(), date, targetType, daysAhead,
+                                    DispositionCategory.SKIPPED_PAST_DATE, "Date in past"));
+                            daySlots++;
+                        }
+                    }
+                }
                 skippedPastDate += daySlots;
                 totalSlots += daySlots;
                 LOG.warn("[BATCH DIAG] SKIP date {} | reason=PAST_DATE ({} slots skipped)",
@@ -532,6 +595,16 @@ public class ForecastTaskCollector {
                                         + "(stability={}, threshold={}h, {} slots skipped)",
                                 cacheKey, regionStability,
                                 freshness.toHours(), regionSlots);
+                        String cachedDetail = String.format(
+                                "Fresh cached evaluation within %dh (%s)",
+                                freshness.toHours(), regionStability);
+                        if (region.slots() != null) {
+                            for (BriefingSlot slot : region.slots()) {
+                                dispositions.add(new CandidateDisposition(
+                                        null, slot.locationName(), date, targetType, daysAhead,
+                                        DispositionCategory.SKIPPED_CACHED, cachedDetail));
+                            }
+                        }
                         cachedByStability.get(regionStability)[0] += regionSlots;
                         skippedCache += regionSlots;
                         totalSlots += regionSlots;
@@ -547,6 +620,15 @@ public class ForecastTaskCollector {
                                             + "reason={} ({})",
                                     slot.locationName(), date, targetType,
                                     reasonLabel, slot.standdownReason());
+                            // Both hard-constraint tide skips and the (now rare,
+                            // Gate-2-redesigned) VERDICT_* skips are hard physical
+                            // gates — fold them into SKIPPED_HARD_CONSTRAINT with the
+                            // standdown reason as detail.
+                            dispositions.add(new CandidateDisposition(
+                                    null, slot.locationName(), date, targetType, daysAhead,
+                                    DispositionCategory.SKIPPED_HARD_CONSTRAINT,
+                                    slot.standdownReason() != null ? slot.standdownReason()
+                                            : reasonLabel));
                             skippedVerdict++;
                             continue;
                         }
@@ -555,6 +637,10 @@ public class ForecastTaskCollector {
                             LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | "
                                             + "reason=UNKNOWN_LOCATION",
                                     slot.locationName(), date, targetType);
+                            dispositions.add(new CandidateDisposition(
+                                    null, slot.locationName(), date, targetType, daysAhead,
+                                    DispositionCategory.SKIPPED_UNKNOWN_LOCATION,
+                                    "Location not found in enabled set"));
                             skippedUnknown++;
                             continue;
                         }

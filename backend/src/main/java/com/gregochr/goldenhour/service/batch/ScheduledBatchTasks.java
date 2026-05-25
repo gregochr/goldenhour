@@ -1,13 +1,15 @@
 package com.gregochr.goldenhour.service.batch;
 
+import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
 
 import java.util.List;
 
 /**
  * Result of {@link ForecastTaskCollector#collectScheduledBatches()} — the four
- * mutually-exclusive buckets that the scheduled forecast batch submits as
- * separate Anthropic Batch API requests.
+ * mutually-exclusive task buckets that the scheduled forecast batch submits as
+ * separate Anthropic Batch API requests, plus the per-candidate disposition
+ * trail the collector accumulated along the way.
  *
  * <p>Bucket dimensions:
  * <ul>
@@ -24,22 +26,31 @@ import java.util.List;
  * triage / stability. The caller's contract is to iterate non-empty buckets and
  * submit each separately; an all-empty value is a no-op.
  *
- * @param nearInland  near-term inland tasks
- * @param nearCoastal near-term coastal tasks
- * @param farInland   far-term inland tasks
- * @param farCoastal  far-term coastal tasks
+ * <p>{@code dispositions} carries one entry per slot the collector considered,
+ * whether it was bucketed (EVALUATED) or filtered out (SKIPPED_*). It is
+ * persisted by {@code ForecastDispositionService} against the first job_run
+ * created by the cycle's submissions, so the Job Run detail UI can reconcile
+ * the per-cycle accounting.
+ *
+ * @param nearInland   near-term inland tasks
+ * @param nearCoastal  near-term coastal tasks
+ * @param farInland    far-term inland tasks
+ * @param farCoastal   far-term coastal tasks
+ * @param dispositions per-candidate outcome trail (EVALUATED + every SKIPPED_*)
  */
 public record ScheduledBatchTasks(
         List<EvaluationTask.Forecast> nearInland,
         List<EvaluationTask.Forecast> nearCoastal,
         List<EvaluationTask.Forecast> farInland,
-        List<EvaluationTask.Forecast> farCoastal) {
+        List<EvaluationTask.Forecast> farCoastal,
+        List<CandidateDisposition> dispositions) {
 
     /**
      * @return the all-empty value (used when collection aborts or yields nothing).
      */
     public static ScheduledBatchTasks empty() {
-        return new ScheduledBatchTasks(List.of(), List.of(), List.of(), List.of());
+        return new ScheduledBatchTasks(
+                List.of(), List.of(), List.of(), List.of(), List.of());
     }
 
     /**

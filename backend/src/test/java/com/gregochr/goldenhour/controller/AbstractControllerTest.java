@@ -40,6 +40,7 @@ import com.gregochr.goldenhour.service.TurnstileService;
 import com.gregochr.goldenhour.service.UserService;
 import com.gregochr.goldenhour.service.UserSettingsService;
 import com.gregochr.goldenhour.service.batch.ForceSubmitBatchService;
+import com.gregochr.goldenhour.service.batch.ForecastDispositionService;
 import com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService;
 import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
@@ -159,6 +160,9 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected ForceSubmitBatchService forceSubmitBatchService;
+
+    @MockitoBean
+    protected ForecastDispositionService dispositionService;
 
     @MockitoBean
     protected ScheduledBatchEvaluationService scheduledBatchEvaluationService;

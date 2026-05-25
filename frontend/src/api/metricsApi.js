@@ -49,3 +49,19 @@ export const getBatchSummary = (jobRunId) => {
 export const getBuildInfo = () => {
   return axios.get('/api/admin/build-info');
 };
+
+/**
+ * Fetch per-candidate disposition breakdown for a job run (V101).
+ *
+ * Backs the Job Run detail "Disposition Breakdown" section — totals, per-category
+ * counts (EVALUATED + SKIPPED_*), and every entry (with location, date, event,
+ * detail). Returns an empty-but-well-formed response for non-batch runs and for
+ * the cycle's 2nd/3rd/4th bucket job runs (dispositions live only on the first
+ * job run created in a cycle).
+ *
+ * @param {number} jobRunId - Job run ID to fetch dispositions for
+ * @returns {Promise} Breakdown response with totalCount, countsByDisposition, entries
+ */
+export const getDispositionBreakdown = (jobRunId) => {
+  return axios.get(`/api/metrics/disposition-breakdown?jobRunId=${jobRunId}`);
+};
