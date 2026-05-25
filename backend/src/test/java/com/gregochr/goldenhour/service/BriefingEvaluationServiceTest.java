@@ -1,90 +1,59 @@
 package com.gregochr.goldenhour.service;
 
-import com.anthropic.client.AnthropicClient;
-import com.anthropic.services.blocking.MessageService;
-import com.anthropic.services.blocking.messages.BatchService;
-import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.ForecastBatchEntity;
-import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
-import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
-import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
-import com.gregochr.goldenhour.entity.JobRunEntity;
-import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.LocationType;
-import com.gregochr.goldenhour.entity.RegionEntity;
-import com.gregochr.goldenhour.entity.RunType;
-import com.gregochr.goldenhour.entity.TargetType;
-import com.gregochr.goldenhour.model.BriefingDay;
-import com.gregochr.goldenhour.model.BriefingEvaluationResult;
-import com.gregochr.goldenhour.model.BriefingEventSummary;
-import com.gregochr.goldenhour.model.BriefingRefreshedEvent;
-import com.gregochr.goldenhour.model.BriefingRegion;
-import com.gregochr.goldenhour.model.BriefingSlot;
-import com.gregochr.goldenhour.model.DailyBriefingResponse;
-import com.gregochr.goldenhour.model.ForecastPreEvalResult;
-import com.gregochr.goldenhour.model.Verdict;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.CachedEvaluationEntity;
+import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.BriefingEvaluationResult;
+import com.gregochr.goldenhour.model.BriefingRefreshedEvent;
 import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.EvaluationDeltaLogRepository;
-import com.gregochr.goldenhour.repository.ForecastBatchRepository;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link BriefingEvaluationService}.
+ * Unit tests for the batch-only surviving surface of {@link BriefingEvaluationService}.
+ *
+ * <p>The legacy SSE evaluation path ({@code evaluateRegion}, {@code evaluateSingleLocation},
+ * the cancel-outstanding-batches side-effect) was deleted in Pass 3.3.3 along with its
+ * tests; cache freshness gates live in {@link BriefingEvaluationServiceCacheFreshnessTest}
+ * and delta-log assertions in {@link EvaluationDeltaLogTest}.
+ *
+ * <p>What this file covers:
+ * <ul>
+ *   <li>{@code writeFromBatch} — in-memory cache + DB upsert, replacement semantics,
+ *       multi-result serialisation, evaluatedAt preservation across upsert</li>
+ *   <li>{@code hasEvaluation} / {@code getCachedScores} — read-side after a batch write</li>
+ *   <li>{@code clearCache} — idempotency, in-memory + DB clearing, count return</li>
+ *   <li>{@code rehydrateCacheOnStartup} — today-or-future filter, rating clamp, corrupt-row
+ *       resilience, multi-entry round-trip</li>
+ *   <li>{@code onBriefingRefreshed} — cache retention semantics</li>
+ *   <li>DB persistence failure must not break the in-memory write path</li>
+ * </ul>
  */
 @ExtendWith(MockitoExtension.class)
 class BriefingEvaluationServiceTest {
 
-    @Mock
-    private LocationService locationService;
-    @Mock
-    private BriefingService briefingService;
-    @Mock
-    private ForecastService forecastService;
-    @Mock
-    private ModelSelectionService modelSelectionService;
-    @Mock
-    private JobRunService jobRunService;
-    @Mock
-    private ForecastBatchRepository batchRepository;
-    @Mock
-    private CachedEvaluationRepository cachedEvaluationRepository;
-    @Mock
-    private EvaluationDeltaLogRepository deltaLogRepository;
-    @Mock
-    private AnthropicClient anthropicClient;
-    @Mock
-    private FreshnessResolver freshnessResolver;
-    @Mock
-    private StabilitySnapshotProvider stabilitySnapshotProvider;
+    @Mock private CachedEvaluationRepository cachedEvaluationRepository;
+    @Mock private EvaluationDeltaLogRepository deltaLogRepository;
+    @Mock private FreshnessResolver freshnessResolver;
+    @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -92,697 +61,26 @@ class BriefingEvaluationServiceTest {
 
     private static final LocalDate DATE = LocalDate.of(2026, 3, 30);
     private static final String REGION = "Northumberland";
+    private static final ZoneId UK_ZONE = ZoneId.of("Europe/London");
 
     @BeforeEach
     void setUp() {
         service = new BriefingEvaluationService(
-                locationService, briefingService, forecastService,
-                modelSelectionService, jobRunService, batchRepository,
                 cachedEvaluationRepository, deltaLogRepository,
-                anthropicClient, objectMapper,
-                freshnessResolver, stabilitySnapshotProvider);
-        // Default: all locations are colour locations
-        org.mockito.Mockito.lenient().when(briefingService.isColourLocation(any())).thenReturn(true);
-        // Default: no outstanding batches
-        org.mockito.Mockito.lenient()
-                .when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
-                .thenReturn(List.of());
+                objectMapper, freshnessResolver, stabilitySnapshotProvider);
         // Default: no existing DB cache entries
         org.mockito.Mockito.lenient()
                 .when(cachedEvaluationRepository.findByCacheKey(any()))
                 .thenReturn(java.util.Optional.empty());
     }
 
-    // ── Filtering tests ────────────────────────────────────────────────────────
-
-    @Test
-    @DisplayName("evaluateRegion evaluates eligible: GO, MARGINAL, weather-STANDDOWN; TIDE_MISMATCH skipped")
-    void evaluates_eligibleSlots_only() {
-        // Gate 2 redesign (Option B): weather-condition STANDDOWN slots reach Claude.
-        // Only hard-constraint reasons (currently TIDE_MISMATCH) still gate.
-        LocationEntity goLoc = locationInRegion("Bamburgh", REGION);
-        LocationEntity marginalLoc = locationInRegion("Dunstanburgh", REGION);
-        LocationEntity heavyCloudLoc = locationInRegion("Embleton", REGION);
-        LocationEntity tideMismatchLoc = locationInRegion("Craster", REGION);
-
-        when(locationService.findAllEnabled()).thenReturn(
-                List.of(goLoc, marginalLoc, heavyCloudLoc, tideMismatchLoc));
-        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                .thenReturn(JobRunEntity.builder().id(1L).build());
-
-        BriefingSlot goSlot = slot("Bamburgh", Verdict.GO);
-        BriefingSlot marginalSlot = slot("Dunstanburgh", Verdict.MARGINAL);
-        BriefingSlot heavyCloudSlot = slotWithStanddownReason("Embleton",
-                BriefingVerdictEvaluator.StanddownReason.HEAVY_CLOUD.label());
-        BriefingSlot tideMismatchSlot = slotWithStanddownReason("Craster",
-                BriefingVerdictEvaluator.StanddownReason.TIDE_MISMATCH.label());
-        stubBriefing(List.of(goSlot, marginalSlot, heavyCloudSlot, tideMismatchSlot));
-
-        ForecastPreEvalResult preEval = nonTriagedResult(goLoc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
-                .thenReturn(preEval);
-        when(forecastService.evaluateAndPersist(any(), any()))
-                .thenReturn(evaluationEntity(4, 72, 65, "Good conditions"));
-
-        SseEmitter emitter = mock(SseEmitter.class);
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter);
-
-        // GO + MARGINAL + weather-STANDDOWN = 3 calls
-        verify(forecastService, times(3))
-                .fetchWeatherAndTriage(any(), eq(DATE), eq(TargetType.SUNSET), any(),
-                        any(), eq(false), any());
-
-        // TIDE_MISMATCH location must never reach forecastService
-        verify(forecastService, never())
-                .fetchWeatherAndTriage(
-                        argThat(loc -> "Craster".equals(loc.getName())),
-                        any(), any(), any(), any(), eq(false), any());
-
-        Map<String, BriefingEvaluationResult> cached =
-                service.getCachedScores(REGION, DATE, TargetType.SUNSET);
-        assertThat(cached).hasSize(3);
-        assertThat(cached).containsKeys("Bamburgh", "Dunstanburgh", "Embleton");
-        assertThat(cached).doesNotContainKey("Craster");
-        assertThat(cached.get("Bamburgh").rating()).isEqualTo(4);
-    }
-
-    @Test
-    @DisplayName("Out-of-range rating from persisted entity is nulled before caching")
-    void evaluateRegion_outOfRangeRatingFromEntity_isNulled() {
-        LocationEntity loc = locationInRegion("Almscliffe Crag", REGION);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM))
-                .thenReturn(EvaluationModel.SONNET);
-        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.SONNET)))
-                .thenReturn(JobRunEntity.builder().id(1L).build());
-        stubBriefing(List.of(slot("Almscliffe Crag", Verdict.GO)));
-
-        ForecastPreEvalResult preEval = nonTriagedResult(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
-                .thenReturn(preEval);
-        // Simulates a schema-non-compliant Sonnet response that slipped into the entity
-        when(forecastService.evaluateAndPersist(any(), any()))
-                .thenReturn(evaluationEntity(491, 72, 65, "Out-of-range"));
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        Map<String, BriefingEvaluationResult> cached =
-                service.getCachedScores(REGION, DATE, TargetType.SUNSET);
-        assertThat(cached).hasSize(1);
-        BriefingEvaluationResult result = cached.get("Almscliffe Crag");
-        assertThat(result.rating()).isNull();             // 491 → null
-        assertThat(result.fierySkyPotential()).isEqualTo(72);
-        assertThat(result.goldenHourPotential()).isEqualTo(65);
-    }
-
-    @Test
-    @DisplayName("Cache hit replays results without new Claude calls")
-    void cacheHit_noCalls() {
-        LocationEntity loc = locationInRegion("Bamburgh", REGION);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                .thenReturn(JobRunEntity.builder().id(1L).build());
-        stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
-
-        ForecastPreEvalResult preEval = nonTriagedResult(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
-                .thenReturn(preEval);
-        when(forecastService.evaluateAndPersist(any(), any()))
-                .thenReturn(evaluationEntity(4, 72, 65, "Good"));
-
-        SseEmitter emitter1 = mock(SseEmitter.class);
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter1);
-
-        // Second call should use cache
-        SseEmitter emitter2 = mock(SseEmitter.class);
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter2);
-
-        // ForecastService should only be called once (first run)
-        verify(forecastService).fetchWeatherAndTriage(
-                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any());
-    }
-
-    @Test
-    @DisplayName("BriefingRefreshedEvent retains evaluation cache")
-    void eventRetainsCache() {
-        LocationEntity loc = locationInRegion("Bamburgh", REGION);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                .thenReturn(JobRunEntity.builder().id(1L).build());
-        stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
-
-        ForecastPreEvalResult preEval = nonTriagedResult(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
-                .thenReturn(preEval);
-        when(forecastService.evaluateAndPersist(any(), any()))
-                .thenReturn(evaluationEntity(4, 72, 65, "Good"));
-
-        SseEmitter emitter = mock(SseEmitter.class);
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter);
-        assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).isNotEmpty();
-
-        service.onBriefingRefreshed(new BriefingRefreshedEvent(this));
-        assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).isNotEmpty();
-    }
+    // ── getCachedScores / hasEvaluation ────────────────────────────────────────
 
     @Test
     @DisplayName("getCachedScores returns empty map when no cache exists")
     void noCacheReturnsEmpty() {
-        assertThat(service.getCachedScores("Unknown", DATE, TargetType.SUNSET)).isEmpty();
-    }
-
-    @Test
-    @DisplayName("getCachedEvaluatedAt returns null when no cache exists")
-    void getCachedEvaluatedAt_noCacheReturnsNull() {
-        assertThat(service.getCachedEvaluatedAt("Unknown", DATE, TargetType.SUNSET)).isNull();
-    }
-
-    @Test
-    @DisplayName("getCachedEvaluatedAt returns formatted UK time after evaluation")
-    void getCachedEvaluatedAt_returnsFormattedTimeAfterEvaluation() {
-        LocationEntity loc = locationInRegion("Bamburgh", REGION);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                .thenReturn(JobRunEntity.builder().id(1L).build());
-        stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
-
-        ForecastPreEvalResult preEval = nonTriagedResult(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
-                .thenReturn(preEval);
-        when(forecastService.evaluateAndPersist(any(), any()))
-                .thenReturn(evaluationEntity(4, 72, 65, "Good"));
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        String evaluatedAt = service.getCachedEvaluatedAt(REGION, DATE, TargetType.SUNSET);
-        assertThat(evaluatedAt).isNotNull();
-        assertThat(evaluatedAt).matches("\\d{2}:\\d{2}");
-    }
-
-    @Test
-    @DisplayName("getCachedEvaluatedAt returns formatted time after writeFromBatch")
-    void getCachedEvaluatedAt_returnsTimeAfterBatchWrite() {
-        BriefingEvaluationResult result =
-                new BriefingEvaluationResult("Durham", 4, 72, 65, "Good");
-        service.writeFromBatch(REGION + "|" + DATE + "|SUNSET", List.of(result));
-
-        String evaluatedAt = service.getCachedEvaluatedAt(REGION, DATE, TargetType.SUNSET);
-        assertThat(evaluatedAt).isNotNull();
-        assertThat(evaluatedAt).matches("\\d{2}:\\d{2}");
-    }
-
-    @Test
-    @DisplayName("Null briefing yields no evaluable locations")
-    void nullBriefing_noEvaluations() {
-        LocationEntity loc = locationInRegion("Bamburgh", REGION);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(briefingService.getCachedBriefing()).thenReturn(null);
-
-        SseEmitter emitter = mock(SseEmitter.class);
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter);
-
-        verifyNoInteractions(forecastService);
         assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).isEmpty();
     }
-
-    @Test
-    @DisplayName("Location without region is filtered out")
-    void locationWithoutRegion_filtered() {
-        LocationEntity noRegionLoc = LocationEntity.builder()
-                .id(99L).name("Orphan").lat(55.0).lon(-1.5)
-                .locationType(Set.of(LocationType.LANDSCAPE))
-                .region(null)
-                .build();
-        when(locationService.findAllEnabled()).thenReturn(List.of(noRegionLoc));
-        stubBriefing(List.of(slot("Orphan", Verdict.GO)));
-
-        SseEmitter emitter = mock(SseEmitter.class);
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter);
-
-        verifyNoInteractions(forecastService);
-    }
-
-    @Test
-    @DisplayName("Non-colour location (pure wildlife) is filtered out")
-    void nonColourLocation_filtered() {
-        LocationEntity wildlifeLoc = locationInRegion("Farne Islands", REGION);
-        when(locationService.findAllEnabled()).thenReturn(List.of(wildlifeLoc));
-        when(briefingService.isColourLocation(any())).thenReturn(false);
-        stubBriefing(List.of(slot("Farne Islands", Verdict.GO)));
-
-        SseEmitter emitter = mock(SseEmitter.class);
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter);
-
-        verifyNoInteractions(forecastService);
-    }
-
-    @Test
-    @DisplayName("No locations in region yields empty evaluation")
-    void noLocationsInRegion_emptyEvaluation() {
-        LocationEntity otherRegionLoc = locationInRegion("Whitby", "Yorkshire");
-        when(locationService.findAllEnabled()).thenReturn(List.of(otherRegionLoc));
-        stubBriefing(List.of(slot("Whitby", Verdict.GO)));
-
-        SseEmitter emitter = mock(SseEmitter.class);
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter);
-
-        verifyNoInteractions(forecastService);
-        assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).isEmpty();
-    }
-
-    @Test
-    @DisplayName("Evaluation error continues to next location")
-    void evaluationError_continuesProcessing() {
-        LocationEntity failLoc = locationInRegion("Bamburgh", REGION);
-        LocationEntity okLoc = locationInRegion("Dunstanburgh", REGION);
-        when(locationService.findAllEnabled()).thenReturn(List.of(failLoc, okLoc));
-        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                .thenReturn(JobRunEntity.builder().id(1L).build());
-        stubBriefing(List.of(slot("Bamburgh", Verdict.GO), slot("Dunstanburgh", Verdict.MARGINAL)));
-
-        // First call fails, second succeeds — must use broad any() for sequential chaining
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), eq(false), any()))
-                .thenThrow(new RuntimeException("API timeout"))
-                .thenReturn(nonTriagedResult(okLoc));
-        when(forecastService.evaluateAndPersist(any(), any()))
-                .thenReturn(evaluationEntity(3, 50, 45, "Decent"));
-
-        SseEmitter emitter = mock(SseEmitter.class);
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter);
-
-        Map<String, BriefingEvaluationResult> cached =
-                service.getCachedScores(REGION, DATE, TargetType.SUNSET);
-        assertThat(cached).hasSize(1);
-        assertThat(cached).containsKey("Dunstanburgh");
-        assertThat(cached).doesNotContainKey("Bamburgh");
-    }
-
-    @Test
-    @DisplayName("Different date creates separate cache entry")
-    void differentDate_separateCache() {
-        LocalDate otherDate = LocalDate.of(2026, 3, 31);
-        LocationEntity loc = locationInRegion("Bamburgh", REGION);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                .thenReturn(JobRunEntity.builder().id(1L).build());
-
-        ForecastPreEvalResult preEval = nonTriagedResult(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(LocalDate.class), any(TargetType.class), any(), any(), eq(false), any()))
-                .thenReturn(preEval);
-        when(forecastService.evaluateAndPersist(any(), any()))
-                .thenReturn(evaluationEntity(4, 72, 65, "Good"))
-                .thenReturn(evaluationEntity(2, 30, 25, "Poor"));
-
-        stubBriefingForDate(DATE, List.of(slot("Bamburgh", Verdict.GO)));
-
-        SseEmitter emitter1 = mock(SseEmitter.class);
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter1);
-
-        stubBriefingForDate(otherDate, List.of(slot("Bamburgh", Verdict.GO)));
-
-        SseEmitter emitter2 = mock(SseEmitter.class);
-        service.evaluateRegion(REGION, otherDate, TargetType.SUNSET, emitter2);
-
-        assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).hasSize(1);
-        assertThat(service.getCachedScores(REGION, otherDate, TargetType.SUNSET)).hasSize(1);
-        assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)
-                .get("Bamburgh").rating()).isEqualTo(4);
-    }
-
-    @Test
-    @DisplayName("SUNRISE targetType works independently of SUNSET")
-    void sunriseTargetType_separateCache() {
-        LocationEntity loc = locationInRegion("Bamburgh", REGION);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                .thenReturn(JobRunEntity.builder().id(1L).build());
-
-        ForecastPreEvalResult preEval = nonTriagedResult(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), eq(DATE), eq(TargetType.SUNRISE), any(), any(), eq(false), any()))
-                .thenReturn(preEval);
-        when(forecastService.evaluateAndPersist(any(), any()))
-                .thenReturn(evaluationEntity(5, 90, 85, "Spectacular"));
-
-        stubBriefingForDateAndTarget(DATE, TargetType.SUNRISE, List.of(slot("Bamburgh", Verdict.GO)));
-
-        SseEmitter emitter = mock(SseEmitter.class);
-        service.evaluateRegion(REGION, DATE, TargetType.SUNRISE, emitter);
-
-        assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNRISE)).hasSize(1);
-        assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).isEmpty();
-    }
-
-    @Test
-    @DisplayName("Triaged location surfaces reason via triageReason and triageMessage, not summary")
-    void triagedLocation_includesReasonInSummary() {
-        LocationEntity loc = locationInRegion("Bamburgh", REGION);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                .thenReturn(JobRunEntity.builder().id(1L).build());
-        stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
-
-        ForecastPreEvalResult triagedPreEval = new ForecastPreEvalResult(
-                true, "Heavy rain forecast",
-                com.gregochr.goldenhour.model.TriageReason.PRECIPITATION,
-                null, loc, DATE, TargetType.SUNSET,
-                null, null, 0, null, null, null, null);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
-                .thenReturn(triagedPreEval);
-
-        SseEmitter emitter = mock(SseEmitter.class);
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter);
-
-        BriefingEvaluationResult result =
-                service.getCachedScores(REGION, DATE, TargetType.SUNSET).get("Bamburgh");
-        assertThat(result.summary()).isNull();
-        assertThat(result.fierySkyPotential()).isNull();
-        assertThat(result.goldenHourPotential()).isNull();
-        assertThat(result.rating()).isNull();
-        assertThat(result.triageReason())
-                .isEqualTo(com.gregochr.goldenhour.model.TriageReason.PRECIPITATION);
-        assertThat(result.triageMessage()).contains("Heavy rain forecast");
-    }
-
-    @Test
-    @DisplayName("clearCache is idempotent when empty")
-    void clearCache_idempotentWhenEmpty() {
-        assertThat(service.clearCache()).isZero();
-        assertThat(service.clearCache()).isZero();
-        assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).isEmpty();
-    }
-
-    @Test
-    @DisplayName("clearCache removes all region entries")
-    void clearCache_removesAllRegions() {
-        LocationEntity loc1 = locationInRegion("Bamburgh", REGION);
-        LocationEntity loc2 = locationInRegion("Whitby", "Yorkshire");
-        when(locationService.findAllEnabled())
-                .thenReturn(List.of(loc1))
-                .thenReturn(List.of(loc2));
-        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                .thenReturn(JobRunEntity.builder().id(1L).build());
-
-        ForecastPreEvalResult preEval = nonTriagedResult(loc1);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
-                .thenReturn(preEval);
-        when(forecastService.evaluateAndPersist(any(), any()))
-                .thenReturn(evaluationEntity(4, 70, 60, "Good"));
-
-        stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        stubBriefingForRegion("Yorkshire", List.of(slot("Whitby", Verdict.GO)));
-        service.evaluateRegion("Yorkshire", DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).isNotEmpty();
-        assertThat(service.getCachedScores("Yorkshire", DATE, TargetType.SUNSET)).isNotEmpty();
-
-        assertThat(service.clearCache()).isEqualTo(2);
-
-        assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).isEmpty();
-        assertThat(service.getCachedScores("Yorkshire", DATE, TargetType.SUNSET)).isEmpty();
-    }
-
-    @Test
-    @DisplayName("Cache hit calls emitter.complete()")
-    void cacheHit_callsEmitterComplete() throws Exception {
-        LocationEntity loc = locationInRegion("Bamburgh", REGION);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                .thenReturn(JobRunEntity.builder().id(1L).build());
-        stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
-
-        ForecastPreEvalResult preEval = nonTriagedResult(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
-                .thenReturn(preEval);
-        when(forecastService.evaluateAndPersist(any(), any()))
-                .thenReturn(evaluationEntity(4, 72, 65, "Good"));
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        // Cache hit path
-        SseEmitter emitter2 = mock(SseEmitter.class);
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter2);
-
-        verify(emitter2).complete();
-    }
-
-    @Test
-    @DisplayName("evaluation-complete SSE event contains regionName, date, targetType, and evaluatedAt")
-    void evaluationComplete_sseEventContainsExpectedFields() {
-        LocationEntity loc = locationInRegion("Bamburgh", REGION);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                .thenReturn(JobRunEntity.builder().id(1L).build());
-        stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
-
-        ForecastPreEvalResult preEval = nonTriagedResult(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
-                .thenReturn(preEval);
-        when(forecastService.evaluateAndPersist(any(), any()))
-                .thenReturn(evaluationEntity(4, 72, 65, "Good"));
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        // Cache state is the source of truth for what is sent in the evaluation-complete event.
-        // SseEventBuilder content cannot be meaningfully inspected via Mockito.
-        Map<String, BriefingEvaluationResult> cached =
-                service.getCachedScores(REGION, DATE, TargetType.SUNSET);
-        assertThat(cached).containsKey("Bamburgh");
-        assertThat(service.getCachedEvaluatedAt(REGION, DATE, TargetType.SUNSET))
-                .isNotNull()
-                .matches("\\d{2}:\\d{2}");
-    }
-
-    @Test
-    @DisplayName("All-TIDE_MISMATCH STANDDOWN slots yield empty evaluation with no job run")
-    void allTideMismatchStanddown_noJobRun() {
-        // Only hard-constraint STANDDOWN slots short-circuit the evaluation pipeline
-        // post-Gate 2. Weather-STANDDOWN slots no longer do this — they reach Claude.
-        LocationEntity loc = locationInRegion("Craster", REGION);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        stubBriefing(List.of(slotWithStanddownReason("Craster",
-                BriefingVerdictEvaluator.StanddownReason.TIDE_MISMATCH.label())));
-
-        SseEmitter emitter = mock(SseEmitter.class);
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter);
-
-        verifyNoInteractions(forecastService);
-        verifyNoInteractions(modelSelectionService);
-        verifyNoInteractions(jobRunService);
-    }
-
-    @Test
-    @DisplayName("Triaged location returns rating 1")
-    void triagedLocationReturnsRating1() {
-        LocationEntity loc = locationInRegion("Bamburgh", REGION);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                .thenReturn(JobRunEntity.builder().id(1L).build());
-        stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
-
-        ForecastPreEvalResult triagedPreEval = new ForecastPreEvalResult(
-                true, "Heavy rain", null, loc, DATE, TargetType.SUNSET,
-                null, null, 0, null, null, null, null);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
-                .thenReturn(triagedPreEval);
-
-        SseEmitter emitter = mock(SseEmitter.class);
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter);
-
-        Map<String, BriefingEvaluationResult> cached =
-                service.getCachedScores(REGION, DATE, TargetType.SUNSET);
-        BriefingEvaluationResult triaged = cached.get("Bamburgh");
-        assertThat(triaged.rating()).isNull();
-        assertThat(triaged.summary()).isNull();
-        assertThat(triaged.triageReason())
-                .isEqualTo(com.gregochr.goldenhour.model.TriageReason.GENERIC);
-        assertThat(triaged.triageMessage()).isEqualTo("Heavy rain");
-    }
-
-    // ── Argument verification tests ────────────────────────────────────────────
-
-    @Nested
-    @DisplayName("Argument verification")
-    class ArgumentVerification {
-
-        @Test
-        @DisplayName("fetchWeatherAndTriage receives the correct location entity")
-        void fetchWeatherAndTriage_receives_correct_location() {
-            LocationEntity loc = locationInRegion("Bamburgh", REGION);
-            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-            when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-            when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                    .thenReturn(JobRunEntity.builder().id(1L).build());
-            stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
-
-            ForecastPreEvalResult preEval = nonTriagedResult(loc);
-            when(forecastService.fetchWeatherAndTriage(
-                    any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
-                    .thenReturn(preEval);
-            when(forecastService.evaluateAndPersist(any(), any()))
-                    .thenReturn(evaluationEntity(4, 72, 65, "Good"));
-
-            service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-            @SuppressWarnings("unchecked")
-            ArgumentCaptor<LocationEntity> locCaptor = ArgumentCaptor.forClass(LocationEntity.class);
-            verify(forecastService).fetchWeatherAndTriage(
-                    locCaptor.capture(), eq(DATE), eq(TargetType.SUNSET), any(),
-                    any(), eq(false), any());
-            assertThat(locCaptor.getValue().getName()).isEqualTo("Bamburgh");
-            assertThat(locCaptor.getValue().getLat()).isEqualTo(55.6);
-        }
-
-        @Test
-        @DisplayName("tideAlignmentEnabled is always false for briefing evaluations")
-        void tideAlignmentEnabled_always_false() {
-            LocationEntity loc = locationInRegion("Bamburgh", REGION);
-            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-            when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-            when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                    .thenReturn(JobRunEntity.builder().id(1L).build());
-            stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
-
-            ForecastPreEvalResult preEval = nonTriagedResult(loc);
-            when(forecastService.fetchWeatherAndTriage(
-                    any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
-                    .thenReturn(preEval);
-            when(forecastService.evaluateAndPersist(any(), any()))
-                    .thenReturn(evaluationEntity(4, 72, 65, "Good"));
-
-            service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-            // Verify tideAlignment (6th arg) is explicitly false, not just any boolean
-            verify(forecastService).fetchWeatherAndTriage(
-                    any(), any(), any(), any(), any(), eq(false), any());
-
-            // And never called with true
-            verify(forecastService, never()).fetchWeatherAndTriage(
-                    any(), any(), any(), any(), any(), eq(true), any());
-        }
-
-        @Test
-        @DisplayName("Model from modelSelectionService is passed to fetchWeatherAndTriage")
-        void model_passed_from_modelSelectionService() {
-            LocationEntity loc = locationInRegion("Bamburgh", REGION);
-            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-            when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.SONNET);
-            when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.SONNET)))
-                    .thenReturn(JobRunEntity.builder().id(1L).build());
-            stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
-
-            ForecastPreEvalResult preEval = nonTriagedResult(loc);
-            when(forecastService.fetchWeatherAndTriage(
-                    any(), eq(DATE), eq(TargetType.SUNSET), any(), eq(EvaluationModel.SONNET), eq(false), any()))
-                    .thenReturn(preEval);
-            when(forecastService.evaluateAndPersist(any(), any()))
-                    .thenReturn(evaluationEntity(4, 72, 65, "Good"));
-
-            service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-            verify(forecastService).fetchWeatherAndTriage(
-                    any(), eq(DATE), eq(TargetType.SUNSET), any(),
-                    eq(EvaluationModel.SONNET), eq(false), any());
-        }
-
-        @Test
-        @DisplayName("jobRun started with SHORT_TERM and manual=true")
-        void jobRun_started_with_SHORT_TERM_and_manual() {
-            LocationEntity loc = locationInRegion("Bamburgh", REGION);
-            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-            when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-            when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                    .thenReturn(JobRunEntity.builder().id(1L).build());
-            stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
-
-            ForecastPreEvalResult preEval = nonTriagedResult(loc);
-            when(forecastService.fetchWeatherAndTriage(
-                    any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
-                    .thenReturn(preEval);
-            when(forecastService.evaluateAndPersist(any(), any()))
-                    .thenReturn(evaluationEntity(4, 72, 65, "Good"));
-
-            service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-            verify(jobRunService).startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU));
-        }
-
-        @Test
-        @DisplayName("jobRun completed with correct succeeded/failed counts")
-        void jobRun_completed_with_correct_counts() {
-            LocationEntity goLoc = locationInRegion("Bamburgh", REGION);
-            LocationEntity marginalLoc = locationInRegion("Dunstanburgh", REGION);
-            when(locationService.findAllEnabled()).thenReturn(List.of(goLoc, marginalLoc));
-            when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-            when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                    .thenReturn(JobRunEntity.builder().id(1L).build());
-            stubBriefing(List.of(slot("Bamburgh", Verdict.GO), slot("Dunstanburgh", Verdict.MARGINAL)));
-
-            ForecastPreEvalResult preEval = nonTriagedResult(goLoc);
-            when(forecastService.fetchWeatherAndTriage(
-                    any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
-                    .thenReturn(preEval);
-            when(forecastService.evaluateAndPersist(any(), any()))
-                    .thenReturn(evaluationEntity(4, 72, 65, "Good"));
-
-            service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-            verify(jobRunService).completeRun(any(JobRunEntity.class), eq(2), eq(0), eq(List.of(DATE)));
-        }
-
-        @Test
-        @DisplayName("evaluateAndPersist receives the preEval output from fetchWeatherAndTriage")
-        void evaluateAndPersist_receives_preEval_output() {
-            LocationEntity loc = locationInRegion("Bamburgh", REGION);
-            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-            when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-            when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                    .thenReturn(JobRunEntity.builder().id(1L).build());
-            stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
-
-            ForecastPreEvalResult preEval = nonTriagedResult(loc);
-            when(forecastService.fetchWeatherAndTriage(
-                    any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
-                    .thenReturn(preEval);
-            when(forecastService.evaluateAndPersist(any(), any()))
-                    .thenReturn(evaluationEntity(4, 72, 65, "Good"));
-
-            service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-            // Capture the exact ForecastPreEvalResult passed to evaluateAndPersist
-            ArgumentCaptor<ForecastPreEvalResult> captor =
-                    ArgumentCaptor.forClass(ForecastPreEvalResult.class);
-            verify(forecastService).evaluateAndPersist(captor.capture(), any(JobRunEntity.class));
-            assertThat(captor.getValue()).isSameAs(preEval);
-        }
-    }
-
-    // ── Batch cache methods ──────────────────────────────────────────────────────
 
     @Test
     @DisplayName("hasEvaluation returns false when cache is empty")
@@ -826,70 +124,7 @@ class BriefingEvaluationServiceTest {
         assertThat(scores.get("Sunderland").rating()).isEqualTo(3);
     }
 
-    @Test
-    @DisplayName("writeFromBatch cache entry is retained after onBriefingRefreshed")
-    void writeFromBatch_retainedAfterBriefingRefresh() {
-        BriefingEvaluationResult result =
-                new BriefingEvaluationResult("Durham", 4, 72, 65, "Good");
-        service.writeFromBatch("North East|2026-04-07|SUNRISE", List.of(result));
-        assertThat(service.hasEvaluation("North East|2026-04-07|SUNRISE")).isTrue();
-
-        service.onBriefingRefreshed(new BriefingRefreshedEvent(this));
-
-        assertThat(service.hasEvaluation("North East|2026-04-07|SUNRISE")).isTrue();
-    }
-
-    @Test
-    @DisplayName("batch scores are retrievable with correct values after briefing refresh")
-    void writeFromBatch_scoresIntactAfterBriefingRefresh() {
-        String cacheKey = "North East|" + DATE + "|SUNRISE";
-        BriefingEvaluationResult result =
-                new BriefingEvaluationResult("Durham", 4, 72, 65, "Good conditions");
-        service.writeFromBatch(cacheKey, List.of(result));
-
-        service.onBriefingRefreshed(new BriefingRefreshedEvent(this));
-
-        Map<String, BriefingEvaluationResult> scores =
-                service.getCachedScores("North East", DATE, TargetType.SUNRISE);
-        assertThat(scores).containsKey("Durham");
-        BriefingEvaluationResult preserved = scores.get("Durham");
-        assertThat(preserved.rating()).isEqualTo(4);
-        assertThat(preserved.fierySkyPotential()).isEqualTo(72);
-        assertThat(preserved.goldenHourPotential()).isEqualTo(65);
-        assertThat(preserved.summary()).isEqualTo("Good conditions");
-    }
-
-    @Test
-    @DisplayName("evaluatedAt timestamp survives briefing refresh")
-    void writeFromBatch_evaluatedAtSurvivesBriefingRefresh() {
-        String cacheKey = REGION + "|" + DATE + "|SUNSET";
-        BriefingEvaluationResult result =
-                new BriefingEvaluationResult("Bamburgh", 3, 50, 45, "Average");
-        service.writeFromBatch(cacheKey, List.of(result));
-        String timestampBefore = service.getCachedEvaluatedAt(REGION, DATE, TargetType.SUNSET);
-        assertThat(timestampBefore).isNotNull();
-
-        service.onBriefingRefreshed(new BriefingRefreshedEvent(this));
-
-        String timestampAfter = service.getCachedEvaluatedAt(REGION, DATE, TargetType.SUNSET);
-        assertThat(timestampAfter).isEqualTo(timestampBefore);
-    }
-
-    @Test
-    @DisplayName("clearCache removes batch-written entries")
-    void clearCache_removesBatchWrittenEntries() {
-        String cacheKey = "North East|" + DATE + "|SUNRISE";
-        BriefingEvaluationResult result =
-                new BriefingEvaluationResult("Durham", 4, 72, 65, "Good");
-        service.writeFromBatch(cacheKey, List.of(result));
-        assertThat(service.hasEvaluation(cacheKey)).isTrue();
-
-        assertThat(service.clearCache()).isEqualTo(1);
-
-        assertThat(service.hasEvaluation(cacheKey)).isFalse();
-        assertThat(service.getCachedScores("North East", DATE, TargetType.SUNRISE)).isEmpty();
-        assertThat(service.getCachedEvaluatedAt("North East", DATE, TargetType.SUNRISE)).isNull();
-    }
+    // ── writeFromBatch — replace semantics ─────────────────────────────────────
 
     @Test
     @DisplayName("writeFromBatch overwrites existing cache entry for same key")
@@ -911,230 +146,7 @@ class BriefingEvaluationServiceTest {
         assertThat(scores).doesNotContainKey("Bamburgh");
     }
 
-    // ── Batch cancel-on-JFDI tests ──────────────────────────────────────────────
-
-    @Test
-    @DisplayName("cancelOutstandingForecastBatches: no submitted batches — Anthropic API never called")
-    void cancel_noBatchesSubmitted_anthropicNotCalled() {
-        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
-                .thenReturn(List.of());
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        verifyNoInteractions(anthropicClient);
-    }
-
-    @Test
-    @DisplayName("cancelOutstandingForecastBatches: FORECAST batch is cancelled and persisted as CANCELLED")
-    void cancel_forecastBatch_cancelledAndSaved() {
-        MessageService messageService = mock(MessageService.class);
-        BatchService batchService = mock(BatchService.class);
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.batches()).thenReturn(batchService);
-
-        ForecastBatchEntity batch = new ForecastBatchEntity(
-                "batch_forecast_001", BatchType.FORECAST, 10, Instant.now().plusSeconds(3600));
-        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
-                .thenReturn(List.of(batch));
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        verify(batchService).cancel(any(String.class));
-
-        ArgumentCaptor<ForecastBatchEntity> captor = ArgumentCaptor.forClass(ForecastBatchEntity.class);
-        verify(batchRepository).save(captor.capture());
-        ForecastBatchEntity saved = captor.getValue();
-        assertThat(saved.getAnthropicBatchId()).isEqualTo("batch_forecast_001");
-        assertThat(saved.getStatus()).isEqualTo(BatchStatus.CANCELLED);
-        assertThat(saved.getEndedAt()).isNotNull();
-        assertThat(saved.getErrorMessage()).contains("real-time SSE evaluation");
-    }
-
-    @Test
-    @DisplayName("cancelOutstandingForecastBatches: AURORA batch is skipped — cancel never called")
-    void cancel_auroraBatch_notCancelled() {
-        ForecastBatchEntity auroraBatch = new ForecastBatchEntity(
-                "batch_aurora_001", BatchType.AURORA, 5, Instant.now().plusSeconds(3600));
-        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
-                .thenReturn(List.of(auroraBatch));
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        verifyNoInteractions(anthropicClient);
-        verify(batchRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("cancelOutstandingForecastBatches: cancel API failure is swallowed — evaluation proceeds")
-    void cancel_apiFailure_doesNotBlockEvaluation() {
-        MessageService messageService = mock(MessageService.class);
-        BatchService batchService = mock(BatchService.class);
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.batches()).thenReturn(batchService);
-        doThrow(new RuntimeException("Batch already ended")).when(batchService).cancel(any(String.class));
-
-        ForecastBatchEntity batch = new ForecastBatchEntity(
-                "batch_forecast_002", BatchType.FORECAST, 4, Instant.now().plusSeconds(3600));
-        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
-                .thenReturn(List.of(batch));
-
-        // Evaluation should proceed without throwing
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        // Cancel was attempted
-        verify(batchService).cancel(any(String.class));
-        // But batch was never updated to CANCELLED since cancel threw
-        verify(batchRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("cancelOutstandingForecastBatches: mixed batch types — only FORECAST batch cancelled")
-    void cancel_mixedBatchTypes_onlyForecastCancelled() {
-        MessageService messageService = mock(MessageService.class);
-        BatchService batchService = mock(BatchService.class);
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.batches()).thenReturn(batchService);
-
-        ForecastBatchEntity forecastBatch = new ForecastBatchEntity(
-                "batch_forecast_003", BatchType.FORECAST, 8, Instant.now().plusSeconds(3600));
-        ForecastBatchEntity auroraBatch = new ForecastBatchEntity(
-                "batch_aurora_003", BatchType.AURORA, 3, Instant.now().plusSeconds(3600));
-        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
-                .thenReturn(List.of(forecastBatch, auroraBatch));
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        // Exactly one cancel call — for the FORECAST batch only
-        verify(batchService, times(1)).cancel(any(String.class));
-
-        // The saved entity is the FORECAST batch, now CANCELLED
-        ArgumentCaptor<ForecastBatchEntity> captor = ArgumentCaptor.forClass(ForecastBatchEntity.class);
-        verify(batchRepository, times(1)).save(captor.capture());
-        assertThat(captor.getValue().getAnthropicBatchId()).isEqualTo("batch_forecast_003");
-        assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.CANCELLED);
-    }
-
-    @Test
-    @DisplayName("evaluateRegion: location already in partial cache is skipped — no Claude call for it")
-    void evaluateRegion_partialCacheHit_skipsAlreadyCachedLocation() {
-        LocationEntity durham = locationInRegion("Durham", REGION);
-        LocationEntity bamburgh = locationInRegion("Bamburgh", REGION);
-
-        // Pre-populate cache with Durham result (simulates batch having written it)
-        BriefingEvaluationResult cachedResult =
-                new BriefingEvaluationResult("Durham", 4, 72, 65, "Batch result");
-        service.writeFromBatch(REGION + "|" + DATE + "|SUNSET", List.of(cachedResult));
-
-        when(locationService.findAllEnabled()).thenReturn(List.of(durham, bamburgh));
-        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                .thenReturn(JobRunEntity.builder().id(1L).build());
-        stubBriefing(List.of(slot("Durham", Verdict.GO), slot("Bamburgh", Verdict.GO)));
-
-        when(forecastService.fetchWeatherAndTriage(
-                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
-                .thenReturn(nonTriagedResult(bamburgh));
-        when(forecastService.evaluateAndPersist(any(), any()))
-                .thenReturn(evaluationEntity(3, 50, 45, "Fair"));
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        // Only Bamburgh triggers a Claude call — Durham was already cached
-        verify(forecastService, times(1))
-                .fetchWeatherAndTriage(any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any());
-        verify(forecastService, never())
-                .fetchWeatherAndTriage(
-                        argThat(loc -> "Durham".equals(loc.getName())),
-                        any(), any(), any(), any(), eq(false), any());
-    }
-
-    @Test
-    @DisplayName("evaluateRegion: partial cache from batch is merged with new SSE results in final cache")
-    void evaluateRegion_partialCacheHit_finalCacheMergesBatchAndSseResults() {
-        LocationEntity durham = locationInRegion("Durham", REGION);
-        LocationEntity bamburgh = locationInRegion("Bamburgh", REGION);
-
-        // Durham pre-cached via batch — Bamburgh is NOT cached
-        BriefingEvaluationResult durhamBatchResult =
-                new BriefingEvaluationResult("Durham", 4, 72, 65, "Batch result");
-        service.writeFromBatch(REGION + "|" + DATE + "|SUNSET", List.of(durhamBatchResult));
-
-        when(locationService.findAllEnabled()).thenReturn(List.of(durham, bamburgh));
-        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                .thenReturn(JobRunEntity.builder().id(1L).build());
-        stubBriefing(List.of(slot("Durham", Verdict.GO), slot("Bamburgh", Verdict.GO)));
-
-        when(forecastService.fetchWeatherAndTriage(
-                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
-                .thenReturn(nonTriagedResult(bamburgh));
-        when(forecastService.evaluateAndPersist(any(), any()))
-                .thenReturn(evaluationEntity(3, 55, 48, "SSE result"));
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        // Final cache must contain both Durham (from batch) and Bamburgh (from SSE)
-        Map<String, BriefingEvaluationResult> scores =
-                service.getCachedScores(REGION, DATE, TargetType.SUNSET);
-        assertThat(scores).hasSize(2);
-        assertThat(scores.get("Durham").summary()).isEqualTo("Batch result");
-        assertThat(scores.get("Bamburgh").summary()).isEqualTo("SSE result");
-    }
-
-    @Test
-    @DisplayName("cancelOutstandingForecastBatches: two FORECAST batches — both cancelled and saved")
-    void cancel_twoForecastBatches_bothCancelled() {
-        MessageService messageService = mock(MessageService.class);
-        BatchService batchService = mock(BatchService.class);
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.batches()).thenReturn(batchService);
-
-        ForecastBatchEntity batchA = new ForecastBatchEntity(
-                "batch_a", BatchType.FORECAST, 5, Instant.now().plusSeconds(3600));
-        ForecastBatchEntity batchB = new ForecastBatchEntity(
-                "batch_b", BatchType.FORECAST, 3, Instant.now().plusSeconds(3600));
-        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
-                .thenReturn(List.of(batchA, batchB));
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        ArgumentCaptor<ForecastBatchEntity> captor = ArgumentCaptor.forClass(ForecastBatchEntity.class);
-        verify(batchRepository, times(2)).save(captor.capture());
-        List<ForecastBatchEntity> saved = captor.getAllValues();
-        assertThat(saved).extracting(ForecastBatchEntity::getStatus)
-                .containsOnly(BatchStatus.CANCELLED);
-        assertThat(saved).extracting(ForecastBatchEntity::getAnthropicBatchId)
-                .containsExactlyInAnyOrder("batch_a", "batch_b");
-        assertThat(saved).extracting(ForecastBatchEntity::getEndedAt)
-                .doesNotContainNull();
-    }
-
-    @Test
-    @DisplayName("evaluateRegion: cancel called even when full region is already in cache")
-    void evaluateRegion_fullCacheHit_stillCancelsBatch() {
-        MessageService messageService = mock(MessageService.class);
-        BatchService batchService = mock(BatchService.class);
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.batches()).thenReturn(batchService);
-
-        ForecastBatchEntity batch = new ForecastBatchEntity(
-                "batch_forecast_004", BatchType.FORECAST, 5, Instant.now().plusSeconds(3600));
-        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
-                .thenReturn(List.of(batch));
-
-        // Pre-populate full cache for the region
-        BriefingEvaluationResult result =
-                new BriefingEvaluationResult("Bamburgh", 5, 90, 85, "Excellent");
-        service.writeFromBatch(REGION + "|" + DATE + "|SUNSET", List.of(result));
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        // Cancel still fires even though the cache returned immediately
-        verify(batchService).cancel(any(String.class));
-        verifyNoInteractions(forecastService);
-    }
-
-    // ── DB persistence tests ────────────────────────────────────────────────────
+    // ── writeFromBatch — DB persistence ────────────────────────────────────────
 
     @Test
     @DisplayName("writeFromBatch persists results to DB via cachedEvaluationRepository")
@@ -1181,217 +193,6 @@ class BriefingEvaluationServiceTest {
     }
 
     @Test
-    @DisplayName("rehydrateCacheOnStartup loads entries for today and future into in-memory cache")
-    void rehydrate_loadsTodayAndFuture() throws Exception {
-        LocalDate today = LocalDate.now(java.time.ZoneId.of("Europe/London"));
-        String cacheKey = REGION + "|" + today + "|SUNSET";
-        BriefingEvaluationResult result =
-                new BriefingEvaluationResult("Bamburgh", 4, 72, 65, "Good");
-
-        CachedEvaluationEntity entity = new CachedEvaluationEntity();
-        entity.setCacheKey(cacheKey);
-        entity.setResultsJson(objectMapper.writeValueAsString(List.of(result)));
-        entity.setEvaluatedAt(Instant.now());
-
-        when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(today))
-                .thenReturn(List.of(entity));
-
-        service.rehydrateCacheOnStartup();
-
-        Map<String, BriefingEvaluationResult> scores =
-                service.getCachedScores(REGION, today, TargetType.SUNSET);
-        assertThat(scores).containsKey("Bamburgh");
-        assertThat(scores.get("Bamburgh").rating()).isEqualTo(4);
-    }
-
-    @Test
-    @DisplayName("rehydrateCacheOnStartup nulls out-of-range ratings from persisted JSON")
-    void rehydrate_clampsOutOfRangeRatings() throws Exception {
-        LocalDate today = LocalDate.now(java.time.ZoneId.of("Europe/London"));
-        String cacheKey = REGION + "|" + today + "|SUNSET";
-
-        // Simulates a cached_evaluation row written before the guardrail existed,
-        // carrying a schema-non-compliant Sonnet rating of 491.
-        BriefingEvaluationResult bad =
-                new BriefingEvaluationResult("Almscliffe Crag", 491, 72, 65, "Out-of-range");
-        BriefingEvaluationResult good =
-                new BriefingEvaluationResult("Bamburgh", 4, 70, 60, "Good");
-
-        CachedEvaluationEntity entity = new CachedEvaluationEntity();
-        entity.setCacheKey(cacheKey);
-        entity.setRegionName(REGION);
-        entity.setEvaluationDate(today);
-        entity.setTargetType("SUNSET");
-        entity.setResultsJson(objectMapper.writeValueAsString(List.of(bad, good)));
-        entity.setEvaluatedAt(Instant.now());
-
-        when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(today))
-                .thenReturn(List.of(entity));
-
-        service.rehydrateCacheOnStartup();
-
-        Map<String, BriefingEvaluationResult> scores =
-                service.getCachedScores(REGION, today, TargetType.SUNSET);
-        assertThat(scores).containsKeys("Almscliffe Crag", "Bamburgh");
-        assertThat(scores.get("Almscliffe Crag").rating()).isNull();       // 491 → null
-        assertThat(scores.get("Almscliffe Crag").fierySkyPotential()).isEqualTo(72);
-        assertThat(scores.get("Bamburgh").rating()).isEqualTo(4);          // untouched
-    }
-
-    @Test
-    @DisplayName("rehydrateCacheOnStartup skips entries with corrupt JSON")
-    void rehydrate_skipsCorruptJson() {
-        LocalDate today = LocalDate.now(java.time.ZoneId.of("Europe/London"));
-
-        CachedEvaluationEntity entity = new CachedEvaluationEntity();
-        entity.setCacheKey(REGION + "|" + today + "|SUNSET");
-        entity.setResultsJson("NOT VALID JSON {{{{");
-        entity.setEvaluatedAt(Instant.now());
-
-        when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(today))
-                .thenReturn(List.of(entity));
-
-        service.rehydrateCacheOnStartup();
-
-        assertThat(service.getCachedScores(REGION, today, TargetType.SUNSET)).isEmpty();
-    }
-
-    @Test
-    @DisplayName("clearCache deletes all DB rows")
-    void clearCache_deletesDbRows() {
-        when(cachedEvaluationRepository.count()).thenReturn(3L);
-
-        service.clearCache();
-
-        verify(cachedEvaluationRepository).deleteAll();
-    }
-
-    @Test
-    @DisplayName("DB persistence failure does not break in-memory cache write")
-    void persistToDb_failureDoesNotBreakInMemory() {
-        when(cachedEvaluationRepository.save(any())).thenThrow(
-                new RuntimeException("DB down"));
-
-        BriefingEvaluationResult result =
-                new BriefingEvaluationResult("Bamburgh", 4, 72, 65, "Good");
-        String cacheKey = REGION + "|" + DATE + "|SUNSET";
-        service.writeFromBatch(cacheKey, List.of(result));
-
-        // In-memory cache should still work despite DB failure
-        assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET))
-                .containsKey("Bamburgh");
-    }
-
-    @Test
-    @DisplayName("evaluateRegion persists to DB with source SSE after successful evaluation")
-    void evaluateRegion_persistsToDbWithSourceSse() {
-        LocationEntity loc = locationInRegion("Bamburgh", REGION);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                .thenReturn(JobRunEntity.builder().id(1L).build());
-        stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
-
-        ForecastPreEvalResult preEval = nonTriagedResult(loc);
-        when(forecastService.fetchWeatherAndTriage(
-                eq(loc), eq(DATE), eq(TargetType.SUNSET), any(), eq(EvaluationModel.HAIKU),
-                eq(false), any()))
-                .thenReturn(preEval);
-        when(forecastService.evaluateAndPersist(eq(preEval), any()))
-                .thenReturn(evaluationEntity(4, 72, 65, "Good"));
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        ArgumentCaptor<CachedEvaluationEntity> captor =
-                ArgumentCaptor.forClass(CachedEvaluationEntity.class);
-        // Per-location cache.put does NOT persist — only final write persists
-        verify(cachedEvaluationRepository).save(captor.capture());
-
-        CachedEvaluationEntity saved = captor.getValue();
-        assertThat(saved.getSource()).isEqualTo("SSE");
-        assertThat(saved.getCacheKey()).isEqualTo(REGION + "|" + DATE + "|SUNSET");
-        assertThat(saved.getRegionName()).isEqualTo(REGION);
-        assertThat(saved.getEvaluationDate()).isEqualTo(DATE);
-        assertThat(saved.getTargetType()).isEqualTo("SUNSET");
-        assertThat(saved.getResultsJson()).contains("Bamburgh");
-        assertThat(saved.getEvaluatedAt()).isNotNull();
-        assertThat(saved.getUpdatedAt()).isNotNull();
-    }
-
-    @Test
-    @DisplayName("Per-location failure: successful locations are still cached in-memory")
-    void evaluateRegion_partialFailure_successfulLocationsCached() {
-        LocationEntity bamburgh = locationInRegion("Bamburgh", REGION);
-        LocationEntity craster = locationInRegion("Craster", REGION);
-
-        when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh, craster));
-        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                .thenReturn(JobRunEntity.builder().id(1L).build());
-        stubBriefing(List.of(slot("Bamburgh", Verdict.GO), slot("Craster", Verdict.GO)));
-
-        ForecastPreEvalResult bambPreEval = nonTriagedResult(bamburgh);
-        when(forecastService.fetchWeatherAndTriage(
-                eq(bamburgh), eq(DATE), eq(TargetType.SUNSET), any(),
-                eq(EvaluationModel.HAIKU), eq(false), any()))
-                .thenReturn(bambPreEval);
-        when(forecastService.evaluateAndPersist(eq(bambPreEval), any()))
-                .thenReturn(evaluationEntity(4, 72, 65, "Bamburgh good"));
-
-        // Craster throws
-        when(forecastService.fetchWeatherAndTriage(
-                eq(craster), eq(DATE), eq(TargetType.SUNSET), any(),
-                eq(EvaluationModel.HAIKU), eq(false), any()))
-                .thenThrow(new RuntimeException("API timeout"));
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        // Bamburgh should be cached despite Craster failing
-        Map<String, BriefingEvaluationResult> scores =
-                service.getCachedScores(REGION, DATE, TargetType.SUNSET);
-        assertThat(scores).hasSize(1);
-        assertThat(scores).containsKey("Bamburgh");
-        assertThat(scores.get("Bamburgh").rating()).isEqualTo(4);
-        assertThat(scores.get("Bamburgh").summary()).isEqualTo("Bamburgh good");
-        assertThat(scores).doesNotContainKey("Craster");
-    }
-
-    @Test
-    @DisplayName("evaluateRegion with 2 locations: DB save happens once with both results")
-    void evaluateRegion_twoLocations_finalDbSaveContainsBoth() {
-        LocationEntity bamburgh = locationInRegion("Bamburgh", REGION);
-        LocationEntity dunstanburgh = locationInRegion("Dunstanburgh", REGION);
-
-        when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh, dunstanburgh));
-        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
-                .thenReturn(JobRunEntity.builder().id(1L).build());
-        stubBriefing(List.of(slot("Bamburgh", Verdict.GO), slot("Dunstanburgh", Verdict.MARGINAL)));
-
-        when(forecastService.fetchWeatherAndTriage(
-                eq(bamburgh), eq(DATE), eq(TargetType.SUNSET), any(),
-                eq(EvaluationModel.HAIKU), eq(false), any()))
-                .thenReturn(nonTriagedResult(bamburgh));
-        when(forecastService.fetchWeatherAndTriage(
-                eq(dunstanburgh), eq(DATE), eq(TargetType.SUNSET), any(),
-                eq(EvaluationModel.HAIKU), eq(false), any()))
-                .thenReturn(nonTriagedResult(dunstanburgh));
-        when(forecastService.evaluateAndPersist(any(), any()))
-                .thenReturn(evaluationEntity(3, 55, 48, "OK"));
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        // Final DB save should contain both location names in the JSON
-        ArgumentCaptor<CachedEvaluationEntity> captor =
-                ArgumentCaptor.forClass(CachedEvaluationEntity.class);
-        // At least the final save — verify the last one has both
-        verify(cachedEvaluationRepository, times(1)).save(captor.capture());
-        String json = captor.getValue().getResultsJson();
-        assertThat(json).contains("Bamburgh");
-        assertThat(json).contains("Dunstanburgh");
-    }
-
-    @Test
     @DisplayName("writeFromBatch: multiple results all appear in DB JSON and round-trip correctly")
     void writeFromBatch_multipleResults_allSerialised() throws Exception {
         BriefingEvaluationResult durham =
@@ -1409,8 +210,7 @@ class BriefingEvaluationServiceTest {
         // Round-trip: deserialise the JSON and verify all fields
         String json = captor.getValue().getResultsJson();
         List<BriefingEvaluationResult> roundTripped = objectMapper.readValue(
-                json, new com.fasterxml.jackson.core.type.TypeReference<
-                        List<BriefingEvaluationResult>>() { });
+                json, new TypeReference<List<BriefingEvaluationResult>>() { });
         assertThat(roundTripped).hasSize(2);
         assertThat(roundTripped).extracting(BriefingEvaluationResult::locationName)
                 .containsExactlyInAnyOrder("Durham", "Sunderland");
@@ -1451,9 +251,192 @@ class BriefingEvaluationServiceTest {
     }
 
     @Test
-    @DisplayName("rehydrateCacheOnStartup loads multiple entries and preserves evaluatedAt")
-    void rehydrate_multipleEntries_allLoadedWithTimestamps() throws Exception {
-        LocalDate today = LocalDate.now(java.time.ZoneId.of("Europe/London"));
+    @DisplayName("DB persistence failure does not break in-memory cache write")
+    void persistToDb_failureDoesNotBreakInMemory() {
+        when(cachedEvaluationRepository.save(any())).thenThrow(
+                new RuntimeException("DB down"));
+
+        BriefingEvaluationResult result =
+                new BriefingEvaluationResult("Bamburgh", 4, 72, 65, "Good");
+        String cacheKey = REGION + "|" + DATE + "|SUNSET";
+        service.writeFromBatch(cacheKey, List.of(result));
+
+        // In-memory cache should still work despite DB failure
+        assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET))
+                .containsKey("Bamburgh");
+    }
+
+    // ── onBriefingRefreshed — cache retention ──────────────────────────────────
+
+    @Test
+    @DisplayName("writeFromBatch cache entry is retained after onBriefingRefreshed")
+    void writeFromBatch_retainedAfterBriefingRefresh() {
+        BriefingEvaluationResult result =
+                new BriefingEvaluationResult("Durham", 4, 72, 65, "Good");
+        service.writeFromBatch("North East|2026-04-07|SUNRISE", List.of(result));
+        assertThat(service.hasEvaluation("North East|2026-04-07|SUNRISE")).isTrue();
+
+        service.onBriefingRefreshed(new BriefingRefreshedEvent(this));
+
+        assertThat(service.hasEvaluation("North East|2026-04-07|SUNRISE")).isTrue();
+    }
+
+    @Test
+    @DisplayName("batch scores are retrievable with correct values after briefing refresh")
+    void writeFromBatch_scoresIntactAfterBriefingRefresh() {
+        String cacheKey = "North East|" + DATE + "|SUNRISE";
+        BriefingEvaluationResult result =
+                new BriefingEvaluationResult("Durham", 4, 72, 65, "Good conditions");
+        service.writeFromBatch(cacheKey, List.of(result));
+
+        service.onBriefingRefreshed(new BriefingRefreshedEvent(this));
+
+        Map<String, BriefingEvaluationResult> scores =
+                service.getCachedScores("North East", DATE, TargetType.SUNRISE);
+        assertThat(scores).containsKey("Durham");
+        BriefingEvaluationResult preserved = scores.get("Durham");
+        assertThat(preserved.rating()).isEqualTo(4);
+        assertThat(preserved.fierySkyPotential()).isEqualTo(72);
+        assertThat(preserved.goldenHourPotential()).isEqualTo(65);
+        assertThat(preserved.summary()).isEqualTo("Good conditions");
+    }
+
+    // ── clearCache ─────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("clearCache is idempotent when empty")
+    void clearCache_idempotentWhenEmpty() {
+        assertThat(service.clearCache()).isZero();
+        assertThat(service.clearCache()).isZero();
+        assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("clearCache removes batch-written entries")
+    void clearCache_removesBatchWrittenEntries() {
+        String cacheKey = "North East|" + DATE + "|SUNRISE";
+        BriefingEvaluationResult result =
+                new BriefingEvaluationResult("Durham", 4, 72, 65, "Good");
+        service.writeFromBatch(cacheKey, List.of(result));
+        assertThat(service.hasEvaluation(cacheKey)).isTrue();
+
+        assertThat(service.clearCache()).isEqualTo(1);
+
+        assertThat(service.hasEvaluation(cacheKey)).isFalse();
+        assertThat(service.getCachedScores("North East", DATE, TargetType.SUNRISE)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("clearCache deletes all DB rows")
+    void clearCache_deletesDbRows() {
+        when(cachedEvaluationRepository.count()).thenReturn(3L);
+
+        service.clearCache();
+
+        verify(cachedEvaluationRepository).deleteAll();
+    }
+
+    @Test
+    @DisplayName("clearCache returns correct count when entries exist in both stores")
+    void clearCache_returnsCorrectCount() {
+        // Pre-populate in-memory cache with 2 entries
+        service.writeFromBatch(REGION + "|" + DATE + "|SUNSET",
+                List.of(new BriefingEvaluationResult("Bamburgh", 4, 72, 65, "Good")));
+        service.writeFromBatch("Yorkshire|" + DATE + "|SUNRISE",
+                List.of(new BriefingEvaluationResult("Whitby", 3, 55, 48, "Fair")));
+        when(cachedEvaluationRepository.count()).thenReturn(2L);
+
+        int cleared = service.clearCache();
+
+        assertThat(cleared).isEqualTo(2);
+        // Both stores cleared
+        assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).isEmpty();
+        assertThat(service.getCachedScores("Yorkshire", DATE, TargetType.SUNRISE)).isEmpty();
+        verify(cachedEvaluationRepository).deleteAll();
+    }
+
+    // ── rehydrateCacheOnStartup ────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("rehydrateCacheOnStartup loads entries for today and future into in-memory cache")
+    void rehydrate_loadsTodayAndFuture() throws Exception {
+        LocalDate today = LocalDate.now(UK_ZONE);
+        String cacheKey = REGION + "|" + today + "|SUNSET";
+        BriefingEvaluationResult result =
+                new BriefingEvaluationResult("Bamburgh", 4, 72, 65, "Good");
+
+        CachedEvaluationEntity entity = new CachedEvaluationEntity();
+        entity.setCacheKey(cacheKey);
+        entity.setResultsJson(objectMapper.writeValueAsString(List.of(result)));
+        entity.setEvaluatedAt(Instant.now());
+
+        when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(today))
+                .thenReturn(List.of(entity));
+
+        service.rehydrateCacheOnStartup();
+
+        Map<String, BriefingEvaluationResult> scores =
+                service.getCachedScores(REGION, today, TargetType.SUNSET);
+        assertThat(scores).containsKey("Bamburgh");
+        assertThat(scores.get("Bamburgh").rating()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("rehydrateCacheOnStartup nulls out-of-range ratings from persisted JSON")
+    void rehydrate_clampsOutOfRangeRatings() throws Exception {
+        LocalDate today = LocalDate.now(UK_ZONE);
+        String cacheKey = REGION + "|" + today + "|SUNSET";
+
+        // Simulates a cached_evaluation row written before the guardrail existed,
+        // carrying a schema-non-compliant Sonnet rating of 491.
+        BriefingEvaluationResult bad =
+                new BriefingEvaluationResult("Almscliffe Crag", 491, 72, 65, "Out-of-range");
+        BriefingEvaluationResult good =
+                new BriefingEvaluationResult("Bamburgh", 4, 70, 60, "Good");
+
+        CachedEvaluationEntity entity = new CachedEvaluationEntity();
+        entity.setCacheKey(cacheKey);
+        entity.setRegionName(REGION);
+        entity.setEvaluationDate(today);
+        entity.setTargetType("SUNSET");
+        entity.setResultsJson(objectMapper.writeValueAsString(List.of(bad, good)));
+        entity.setEvaluatedAt(Instant.now());
+
+        when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(today))
+                .thenReturn(List.of(entity));
+
+        service.rehydrateCacheOnStartup();
+
+        Map<String, BriefingEvaluationResult> scores =
+                service.getCachedScores(REGION, today, TargetType.SUNSET);
+        assertThat(scores).containsKeys("Almscliffe Crag", "Bamburgh");
+        assertThat(scores.get("Almscliffe Crag").rating()).isNull();       // 491 → null
+        assertThat(scores.get("Almscliffe Crag").fierySkyPotential()).isEqualTo(72);
+        assertThat(scores.get("Bamburgh").rating()).isEqualTo(4);          // untouched
+    }
+
+    @Test
+    @DisplayName("rehydrateCacheOnStartup skips entries with corrupt JSON")
+    void rehydrate_skipsCorruptJson() {
+        LocalDate today = LocalDate.now(UK_ZONE);
+
+        CachedEvaluationEntity entity = new CachedEvaluationEntity();
+        entity.setCacheKey(REGION + "|" + today + "|SUNSET");
+        entity.setResultsJson("NOT VALID JSON {{{{");
+        entity.setEvaluatedAt(Instant.now());
+
+        when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(today))
+                .thenReturn(List.of(entity));
+
+        service.rehydrateCacheOnStartup();
+
+        assertThat(service.getCachedScores(REGION, today, TargetType.SUNSET)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("rehydrateCacheOnStartup loads multiple entries with distinct evaluatedAt")
+    void rehydrate_multipleEntries_allLoaded() throws Exception {
+        LocalDate today = LocalDate.now(UK_ZONE);
         LocalDate tomorrow = today.plusDays(1);
 
         Instant sunsetTime = Instant.parse("2026-03-30T18:30:00Z");
@@ -1476,7 +459,7 @@ class BriefingEvaluationServiceTest {
 
         service.rehydrateCacheOnStartup();
 
-        // Both entries loaded
+        // Both entries loaded with their respective contents
         Map<String, BriefingEvaluationResult> sunsetScores =
                 service.getCachedScores(REGION, today, TargetType.SUNSET);
         assertThat(sunsetScores).hasSize(1);
@@ -1488,39 +471,12 @@ class BriefingEvaluationServiceTest {
                 service.getCachedScores(REGION, tomorrow, TargetType.SUNRISE);
         assertThat(sunriseScores).hasSize(1);
         assertThat(sunriseScores.get("Craster").rating()).isEqualTo(3);
-
-        // evaluatedAt preserved from DB entity
-        String sunsetAt = service.getCachedEvaluatedAt(REGION, today, TargetType.SUNSET);
-        assertThat(sunsetAt).isNotNull();
-        // Verify it's using the entity's evaluatedAt, not Instant.now()
-        String sunriseAt = service.getCachedEvaluatedAt(REGION, tomorrow, TargetType.SUNRISE);
-        assertThat(sunriseAt).isNotNull();
-        assertThat(sunsetAt).isNotEqualTo(sunriseAt);
-    }
-
-    @Test
-    @DisplayName("clearCache returns correct count when entries exist in both stores")
-    void clearCache_returnsCorrectCount() {
-        // Pre-populate in-memory cache with 2 entries
-        service.writeFromBatch(REGION + "|" + DATE + "|SUNSET",
-                List.of(new BriefingEvaluationResult("Bamburgh", 4, 72, 65, "Good")));
-        service.writeFromBatch("Yorkshire|" + DATE + "|SUNRISE",
-                List.of(new BriefingEvaluationResult("Whitby", 3, 55, 48, "Fair")));
-        when(cachedEvaluationRepository.count()).thenReturn(2L);
-
-        int cleared = service.clearCache();
-
-        assertThat(cleared).isEqualTo(2);
-        // Both stores cleared
-        assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).isEmpty();
-        assertThat(service.getCachedScores("Yorkshire", DATE, TargetType.SUNRISE)).isEmpty();
-        verify(cachedEvaluationRepository).deleteAll();
     }
 
     @Test
     @DisplayName("rehydrateCacheOnStartup with no DB entries leaves cache empty")
     void rehydrate_noEntries_cacheStaysEmpty() {
-        LocalDate today = LocalDate.now(java.time.ZoneId.of("Europe/London"));
+        LocalDate today = LocalDate.now(UK_ZONE);
         when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(today))
                 .thenReturn(List.of());
 
@@ -1533,7 +489,7 @@ class BriefingEvaluationServiceTest {
     @Test
     @DisplayName("rehydrateCacheOnStartup: corrupt entry does not prevent loading valid entries")
     void rehydrate_corruptEntry_doesNotBlockOthers() throws Exception {
-        LocalDate today = LocalDate.now(java.time.ZoneId.of("Europe/London"));
+        LocalDate today = LocalDate.now(UK_ZONE);
 
         CachedEvaluationEntity corrupt = new CachedEvaluationEntity();
         corrupt.setCacheKey(REGION + "|" + today + "|SUNSET");
@@ -1557,87 +513,5 @@ class BriefingEvaluationServiceTest {
         assertThat(service.getCachedScores(REGION, today, TargetType.SUNRISE)).hasSize(1);
         assertThat(service.getCachedScores(REGION, today, TargetType.SUNRISE)
                 .get("Bamburgh").rating()).isEqualTo(5);
-    }
-
-    // ── Helpers ─────────────────────────────────────────────────────────────────
-
-    private LocationEntity locationInRegion(String name, String regionName) {
-        RegionEntity region = RegionEntity.builder().id(1L).name(regionName).build();
-        return LocationEntity.builder()
-                .id((long) name.hashCode())
-                .name(name)
-                .lat(55.6)
-                .lon(-1.7)
-                .region(region)
-                .locationType(Set.of(LocationType.LANDSCAPE))
-                .build();
-    }
-
-    private BriefingSlot slot(String locationName, Verdict verdict) {
-        return new BriefingSlot(locationName,
-                LocalDateTime.of(2026, 3, 30, 18, 30),
-                verdict,
-                new BriefingSlot.WeatherConditions(30, null, 20000, 70, 8.0, 6.0, 2, null, 0, 0),
-                new BriefingSlot.TideInfo(null, false, null, null, false, false, null, null, null),
-                List.of(), null);
-    }
-
-    /**
-     * Builds a STANDDOWN slot carrying the supplied reason label, used to distinguish
-     * weather-condition STANDDOWN from hard-constraint STANDDOWN under
-     * {@code BriefingGatingPolicy}.
-     */
-    private BriefingSlot slotWithStanddownReason(String locationName, String standdownReason) {
-        return new BriefingSlot(locationName,
-                LocalDateTime.of(2026, 3, 30, 18, 30),
-                Verdict.STANDDOWN,
-                new BriefingSlot.WeatherConditions(30, null, 20000, 70, 8.0, 6.0, 2, null, 0, 0),
-                new BriefingSlot.TideInfo(null, false, null, null, false, false, null, null, null),
-                List.of(), standdownReason);
-    }
-
-    private void stubBriefing(List<BriefingSlot> slots) {
-        stubBriefingForRegionDateTarget(REGION, DATE, TargetType.SUNSET, slots);
-    }
-
-    private void stubBriefingForDate(LocalDate date, List<BriefingSlot> slots) {
-        stubBriefingForRegionDateTarget(REGION, date, TargetType.SUNSET, slots);
-    }
-
-    private void stubBriefingForDateAndTarget(LocalDate date, TargetType target,
-            List<BriefingSlot> slots) {
-        stubBriefingForRegionDateTarget(REGION, date, target, slots);
-    }
-
-    private void stubBriefingForRegion(String regionName, List<BriefingSlot> slots) {
-        stubBriefingForRegionDateTarget(regionName, DATE, TargetType.SUNSET, slots);
-    }
-
-    private void stubBriefingForRegionDateTarget(String regionName, LocalDate date,
-            TargetType target, List<BriefingSlot> slots) {
-        BriefingRegion region = new BriefingRegion(regionName, Verdict.GO, "Clear skies",
-                List.of(), slots, 8.0, 6.0, null, null, null, null);
-        BriefingEventSummary es = new BriefingEventSummary(
-                target, List.of(region), List.of());
-        BriefingDay day = new BriefingDay(date, List.of(es));
-        DailyBriefingResponse resp = new DailyBriefingResponse(
-                LocalDateTime.now(), "Headline", List.of(day), List.of(),
-                null, null, false, false, 0, "Opus", List.of(), List.of());
-        org.mockito.Mockito.lenient().when(briefingService.getCachedBriefing()).thenReturn(resp);
-    }
-
-    private ForecastPreEvalResult nonTriagedResult(LocationEntity loc) {
-        return new ForecastPreEvalResult(
-                false, null, null, loc, DATE, TargetType.SUNSET,
-                null, null, 0, null, null, null, null);
-    }
-
-    private ForecastEvaluationEntity evaluationEntity(int rating, int fiery, int golden, String summary) {
-        return ForecastEvaluationEntity.builder()
-                .rating(rating)
-                .fierySkyPotential(fiery)
-                .goldenHourPotential(golden)
-                .summary(summary)
-                .build();
     }
 }

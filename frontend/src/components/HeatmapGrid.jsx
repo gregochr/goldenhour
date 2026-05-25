@@ -1,10 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import { computeCellTier, isCellVisible, resolveRegionDisplay } from '../utils/tierUtils.js';
-import useConfirmDialog from '../hooks/useConfirmDialog.js';
 import { formatEventTimeUk, formatTideHighlight } from '../utils/conversions.js';
 import InfoTip from './InfoTip.jsx';
-import ProPill from './shared/ProPill.jsx';
 import { RATING_COLOURS } from './markerUtils.js';
 
 // ── Pure helpers (copied from DailyBriefing — shared logic) ─────────────────
@@ -17,9 +15,6 @@ function formatTime(isoString) {
 }
 
 const AFTERGLOW_MS = 30 * 60 * 1000;
-
-/** Typical cost per call in pence, keyed by model. */
-const COST_PENCE_PER_CALL = { HAIKU: 0.16, SONNET: 0.40, OPUS: 0.63 };
 
 function isEventPast(es) {
   for (const r of es.regions || []) {
@@ -432,9 +427,8 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
 
 // ── HeatmapDrillDown ──────────────────────────────────────────────────────────
 
-function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap, typeMap, onClose, onShowOnMap,  evaluationScores = new Map(), evaluationProgress, evaluationTimestamps = new Map(), onRunEvaluation, onStopEvaluation, canRunEvaluation, activeModelName, showAllLocations = false }) {
+function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap, typeMap, onClose, onShowOnMap, evaluationScores = new Map(), isPro = false, showAllLocations = false }) {
   const day = briefingDays.find((d) => d.date === date);
-  const { openDialog, closeDialog, dialogElement } = useConfirmDialog();
 
   const events = [];
   if (day) {
@@ -455,18 +449,6 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
       slotScores.set(result.locationName, result);
     }
   }
-
-  // Match progress to this drill-down's cell
-  const progressMatch = evaluationProgress
-    && evaluationProgress.regionName === regionName
-    && evaluationProgress.date === date
-    && evaluationProgress.targetType === targetType
-    ? evaluationProgress : null;
-
-  // Count GO/MARGINAL slots for the confirmation dialog
-  const goMarginalSlots = events.flatMap(({ region }) =>
-    (region.slots || []).filter((s) => s.verdict === 'GO' || s.verdict === 'MARGINAL'),
-  );
 
   return (
     <div
@@ -539,7 +521,6 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
                     title="Show on map"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (onStopEvaluation) onStopEvaluation();
                       onShowOnMap(date, es.targetType);
                     }}
                   >
@@ -559,8 +540,8 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
                   driveMap={driveMap}
                   typeMap={typeMap}
                   scores={slotScores}
-                  evaluationComplete={progressMatch?.status === 'complete' || (!progressMatch && slotScores.size > 0) || (region.slots || []).some((s) => s.claudeRating != null)}
-                  isPro={canRunEvaluation}
+                  evaluationComplete={slotScores.size > 0 || (region.slots || []).some((s) => s.claudeRating != null)}
+                  isPro={isPro}
                   showAllLocations={showAllLocations}
                 />
               )}
@@ -568,88 +549,13 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
           );
         })}
       </div>
-
-      {/* "Run full forecast" button */}
-      {!canRunEvaluation ? (
-        <div className="mt-2 pt-1.5 border-t border-plex-border/20 flex gap-2 items-center opacity-45 pointer-events-none">
-          <button data-testid="run-forecast-btn" disabled className="btn-secondary text-xs">
-            Run full forecast
-          </button>
-          <ProPill />
-        </div>
-      ) : (() => {
-        const cachedTimestamp = evaluationTimestamps.get(`${regionName}|${date}|${targetType}`);
-        const hasCachedScores = !progressMatch && slotScores.size > 0 && cachedTimestamp;
-
-        return (
-          <div className="mt-2 pt-1.5 border-t border-plex-border/20 flex gap-2 items-center">
-            {(progressMatch?.status === 'complete' || hasCachedScores) ? (
-              <span data-testid="run-forecast-btn" className="text-green-400 text-xs font-medium">
-                Scored {progressMatch?.completed ?? slotScores.size} of {progressMatch?.total ?? slotScores.size}
-                {' · '}{progressMatch?.evaluatedAt ?? cachedTimestamp}
-              </span>
-            ) : progressMatch?.status === 'running' ? (
-              <>
-                <button data-testid="run-forecast-btn" disabled className="btn-secondary text-xs opacity-60">
-                  Evaluating… {progressMatch.completed}/{progressMatch.total}
-                </button>
-                {progressMatch.total > 0 && (
-                  <div className="flex-1 h-1 bg-plex-border/30 rounded overflow-hidden">
-                    <div
-                      className="h-full bg-green-500 transition-all duration-300"
-                      style={{ width: `${Math.round(((progressMatch.completed) / progressMatch.total) * 100)}%` }}
-                    />
-                  </div>
-                )}
-              </>
-            ) : progressMatch?.status === 'error' ? (
-              <button
-                data-testid="run-forecast-btn"
-                className="btn-secondary text-xs text-red-400 border-red-700 hover:bg-red-900/40"
-                onClick={() => onRunEvaluation?.(regionName, date, targetType)}
-              >
-                Forecast failed — retry?
-              </button>
-            ) : (
-              <button
-                data-testid="run-forecast-btn"
-                className="btn-secondary text-xs hover:bg-green-800/60 hover:text-green-200"
-                onClick={() => {
-                  const count = goMarginalSlots.length;
-                  const perCallPence = COST_PENCE_PER_CALL[activeModelName] ?? 3;
-                  const totalPence = count * perCallPence;
-                  const modelLabel = activeModelName ? activeModelName.charAt(0) + activeModelName.slice(1).toLowerCase() : 'Claude';
-                  const totalLabel = totalPence >= 10
-                    ? `~£${(totalPence / 100).toFixed(2)}`
-                    : totalPence >= 1 ? `~${Math.round(totalPence)}p` : `~${totalPence.toFixed(1)}p`;
-                  const costStr = `${totalLabel} (${count} × ~${perCallPence.toFixed(2)}p)`;
-                  openDialog({
-                    title: 'Run Claude Evaluation',
-                    message: `Evaluate ${count} location${count !== 1 ? 's' : ''} with ${modelLabel}? Estimated cost: ${costStr}.`,
-                    confirmLabel: 'Run',
-                    maxWidth: 'sm',
-                    onConfirm: () => {
-                      closeDialog();
-                      onRunEvaluation?.(regionName, date, targetType);
-                    },
-                  });
-                }}
-              >
-                Run full forecast
-              </button>
-            )}
-          </div>
-        );
-      })()}
-
-      {dialogElement}
     </div>
   );
 }
 
 // ── Sub-column cell ───────────────────────────────────────────────────────────
 
-function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map(), evaluationTimestamps = new Map(), showAllLocations = false }) {  const cellData = getSubCellData(date, regionName, targetType, briefingDays);
+function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map(), showAllLocations = false }) {  const cellData = getSubCellData(date, regionName, targetType, briefingDays);
 
   // Empty cell — region doesn't appear in this event type
   if (!cellData) {
@@ -788,7 +694,7 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
             ratings.push(result.rating);
           }
         }
-        // Fall back to backend-cached scores when no SSE scores exist
+        // Fall back to backend-cached scores from forecast_evaluation rows
         if (ratings.length === 0 && region?.slots) {
           for (const s of region.slots) {
             if (s.claudeRating != null) ratings.push(s.claudeRating);
@@ -800,17 +706,11 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
         const pillColour = meanNum >= 4 ? 'bg-green-600/60 text-green-200'
           : meanNum >= 3 ? 'bg-amber-600/60 text-amber-200'
             : 'bg-red-700/50 text-red-200';
-        const timestamp = evaluationTimestamps.get(`${regionName}|${date}|${targetType}`);
         return (
           <div className="mt-0.5" data-testid="mean-score-badge">
             <span className={`rounded px-1 font-medium ${pillColour}`} style={{ fontSize: '10px' }}>
               {mean}★
             </span>
-            {timestamp && (
-              <span className="ml-0.5 text-plex-text-muted" style={{ fontSize: '9px' }}>
-                {timestamp}
-              </span>
-            )}
           </div>
         );
       })()}
@@ -864,13 +764,8 @@ export default function HeatmapGrid({
   tomorrowStr,
   onShowOnMap,
   evaluationScores = new Map(),
-  evaluationProgress,
-  evaluationTimestamps = new Map(),
-  onRunEvaluation,
-  onStopEvaluation,
-  canRunEvaluation = false,
+  isPro = false,
   astroScoresByDate = {},
-  activeModelName = null,
   showAllLocations = false,
 }) {
   const [drillDown, setDrillDown] = useState(null); // { date, regionName, targetType }
@@ -927,7 +822,6 @@ export default function HeatmapGrid({
   const toggleDrillDown = (date, regionName, targetType) => {
     setDrillDown((prev) => {
       const isClosing = prev?.date === date && prev?.regionName === regionName && prev?.targetType === targetType;
-      if (isClosing && onStopEvaluation) onStopEvaluation();
       return isClosing ? null : { date, regionName, targetType };
     });
   };
@@ -1085,7 +979,6 @@ export default function HeatmapGrid({
                   isActive={isActive}
                   onToggle={toggleDrillDown}
                   evaluationScores={evaluationScores}
-                  evaluationTimestamps={evaluationTimestamps}
                   showAllLocations={showAllLocations}
                 />
               );
@@ -1100,15 +993,10 @@ export default function HeatmapGrid({
                 briefingDays={briefingDays}
                 driveMap={driveMap}
                 typeMap={typeMap}
-                onClose={() => { if (onStopEvaluation) onStopEvaluation(); setDrillDown(null); }}
+                onClose={() => setDrillDown(null)}
                 onShowOnMap={onShowOnMap}
                 evaluationScores={evaluationScores}
-                evaluationProgress={evaluationProgress}
-                evaluationTimestamps={evaluationTimestamps}
-                onRunEvaluation={onRunEvaluation}
-                onStopEvaluation={onStopEvaluation}
-                canRunEvaluation={canRunEvaluation}
-                activeModelName={activeModelName}
+                isPro={isPro}
                 showAllLocations={showAllLocations}
               />
             )}
@@ -1133,21 +1021,7 @@ HeatmapGrid.propTypes = {
   tomorrowStr: PropTypes.string.isRequired,
   onShowOnMap: PropTypes.func,
   evaluationScores: PropTypes.instanceOf(Map),
-  evaluationProgress: PropTypes.shape({
-    regionName: PropTypes.string,
-    date: PropTypes.string,
-    targetType: PropTypes.string,
-    completed: PropTypes.number,
-    total: PropTypes.number,
-    failed: PropTypes.number,
-    status: PropTypes.string,
-    evaluatedAt: PropTypes.string,
-  }),
-  evaluationTimestamps: PropTypes.instanceOf(Map),
-  onRunEvaluation: PropTypes.func,
-  onStopEvaluation: PropTypes.func,
-  canRunEvaluation: PropTypes.bool,
+  isPro: PropTypes.bool,
   astroScoresByDate: PropTypes.object,
-  activeModelName: PropTypes.string,
   showAllLocations: PropTypes.bool,
 };
