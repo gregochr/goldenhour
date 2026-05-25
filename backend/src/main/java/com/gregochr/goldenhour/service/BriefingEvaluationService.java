@@ -148,9 +148,6 @@ public class BriefingEvaluationService {
             SseEmitter emitter) {
         String cacheKey = CacheKeyFactory.build(regionName, date, targetType);
 
-        // Cancel any outstanding FORECAST batches — real-time evaluation takes priority
-        cancelOutstandingForecastBatches();
-
         // Track client disconnect so we stop submitting Claude calls
         AtomicBoolean cancelled = new AtomicBoolean(false);
         emitter.onCompletion(() -> cancelled.set(true));

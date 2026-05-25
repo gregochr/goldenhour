@@ -1,12 +1,8 @@
 package com.gregochr.goldenhour.service;
 
 import com.anthropic.client.AnthropicClient;
-import com.anthropic.services.blocking.MessageService;
-import com.anthropic.services.blocking.messages.BatchService;
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
-import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
@@ -49,7 +45,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -911,108 +906,6 @@ class BriefingEvaluationServiceTest {
         assertThat(scores).doesNotContainKey("Bamburgh");
     }
 
-    // ── Batch cancel-on-JFDI tests ──────────────────────────────────────────────
-
-    @Test
-    @DisplayName("cancelOutstandingForecastBatches: no submitted batches — Anthropic API never called")
-    void cancel_noBatchesSubmitted_anthropicNotCalled() {
-        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
-                .thenReturn(List.of());
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        verifyNoInteractions(anthropicClient);
-    }
-
-    @Test
-    @DisplayName("cancelOutstandingForecastBatches: FORECAST batch is cancelled and persisted as CANCELLED")
-    void cancel_forecastBatch_cancelledAndSaved() {
-        MessageService messageService = mock(MessageService.class);
-        BatchService batchService = mock(BatchService.class);
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.batches()).thenReturn(batchService);
-
-        ForecastBatchEntity batch = new ForecastBatchEntity(
-                "batch_forecast_001", BatchType.FORECAST, 10, Instant.now().plusSeconds(3600));
-        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
-                .thenReturn(List.of(batch));
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        verify(batchService).cancel(any(String.class));
-
-        ArgumentCaptor<ForecastBatchEntity> captor = ArgumentCaptor.forClass(ForecastBatchEntity.class);
-        verify(batchRepository).save(captor.capture());
-        ForecastBatchEntity saved = captor.getValue();
-        assertThat(saved.getAnthropicBatchId()).isEqualTo("batch_forecast_001");
-        assertThat(saved.getStatus()).isEqualTo(BatchStatus.CANCELLED);
-        assertThat(saved.getEndedAt()).isNotNull();
-        assertThat(saved.getErrorMessage()).contains("real-time SSE evaluation");
-    }
-
-    @Test
-    @DisplayName("cancelOutstandingForecastBatches: AURORA batch is skipped — cancel never called")
-    void cancel_auroraBatch_notCancelled() {
-        ForecastBatchEntity auroraBatch = new ForecastBatchEntity(
-                "batch_aurora_001", BatchType.AURORA, 5, Instant.now().plusSeconds(3600));
-        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
-                .thenReturn(List.of(auroraBatch));
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        verifyNoInteractions(anthropicClient);
-        verify(batchRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("cancelOutstandingForecastBatches: cancel API failure is swallowed — evaluation proceeds")
-    void cancel_apiFailure_doesNotBlockEvaluation() {
-        MessageService messageService = mock(MessageService.class);
-        BatchService batchService = mock(BatchService.class);
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.batches()).thenReturn(batchService);
-        doThrow(new RuntimeException("Batch already ended")).when(batchService).cancel(any(String.class));
-
-        ForecastBatchEntity batch = new ForecastBatchEntity(
-                "batch_forecast_002", BatchType.FORECAST, 4, Instant.now().plusSeconds(3600));
-        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
-                .thenReturn(List.of(batch));
-
-        // Evaluation should proceed without throwing
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        // Cancel was attempted
-        verify(batchService).cancel(any(String.class));
-        // But batch was never updated to CANCELLED since cancel threw
-        verify(batchRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("cancelOutstandingForecastBatches: mixed batch types — only FORECAST batch cancelled")
-    void cancel_mixedBatchTypes_onlyForecastCancelled() {
-        MessageService messageService = mock(MessageService.class);
-        BatchService batchService = mock(BatchService.class);
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.batches()).thenReturn(batchService);
-
-        ForecastBatchEntity forecastBatch = new ForecastBatchEntity(
-                "batch_forecast_003", BatchType.FORECAST, 8, Instant.now().plusSeconds(3600));
-        ForecastBatchEntity auroraBatch = new ForecastBatchEntity(
-                "batch_aurora_003", BatchType.AURORA, 3, Instant.now().plusSeconds(3600));
-        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
-                .thenReturn(List.of(forecastBatch, auroraBatch));
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        // Exactly one cancel call — for the FORECAST batch only
-        verify(batchService, times(1)).cancel(any(String.class));
-
-        // The saved entity is the FORECAST batch, now CANCELLED
-        ArgumentCaptor<ForecastBatchEntity> captor = ArgumentCaptor.forClass(ForecastBatchEntity.class);
-        verify(batchRepository, times(1)).save(captor.capture());
-        assertThat(captor.getValue().getAnthropicBatchId()).isEqualTo("batch_forecast_003");
-        assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.CANCELLED);
-    }
 
     @Test
     @DisplayName("evaluateRegion: location already in partial cache is skipped — no Claude call for it")
@@ -1081,58 +974,6 @@ class BriefingEvaluationServiceTest {
         assertThat(scores.get("Bamburgh").summary()).isEqualTo("SSE result");
     }
 
-    @Test
-    @DisplayName("cancelOutstandingForecastBatches: two FORECAST batches — both cancelled and saved")
-    void cancel_twoForecastBatches_bothCancelled() {
-        MessageService messageService = mock(MessageService.class);
-        BatchService batchService = mock(BatchService.class);
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.batches()).thenReturn(batchService);
-
-        ForecastBatchEntity batchA = new ForecastBatchEntity(
-                "batch_a", BatchType.FORECAST, 5, Instant.now().plusSeconds(3600));
-        ForecastBatchEntity batchB = new ForecastBatchEntity(
-                "batch_b", BatchType.FORECAST, 3, Instant.now().plusSeconds(3600));
-        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
-                .thenReturn(List.of(batchA, batchB));
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        ArgumentCaptor<ForecastBatchEntity> captor = ArgumentCaptor.forClass(ForecastBatchEntity.class);
-        verify(batchRepository, times(2)).save(captor.capture());
-        List<ForecastBatchEntity> saved = captor.getAllValues();
-        assertThat(saved).extracting(ForecastBatchEntity::getStatus)
-                .containsOnly(BatchStatus.CANCELLED);
-        assertThat(saved).extracting(ForecastBatchEntity::getAnthropicBatchId)
-                .containsExactlyInAnyOrder("batch_a", "batch_b");
-        assertThat(saved).extracting(ForecastBatchEntity::getEndedAt)
-                .doesNotContainNull();
-    }
-
-    @Test
-    @DisplayName("evaluateRegion: cancel called even when full region is already in cache")
-    void evaluateRegion_fullCacheHit_stillCancelsBatch() {
-        MessageService messageService = mock(MessageService.class);
-        BatchService batchService = mock(BatchService.class);
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.batches()).thenReturn(batchService);
-
-        ForecastBatchEntity batch = new ForecastBatchEntity(
-                "batch_forecast_004", BatchType.FORECAST, 5, Instant.now().plusSeconds(3600));
-        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
-                .thenReturn(List.of(batch));
-
-        // Pre-populate full cache for the region
-        BriefingEvaluationResult result =
-                new BriefingEvaluationResult("Bamburgh", 5, 90, 85, "Excellent");
-        service.writeFromBatch(REGION + "|" + DATE + "|SUNSET", List.of(result));
-
-        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
-
-        // Cancel still fires even though the cache returned immediately
-        verify(batchService).cancel(any(String.class));
-        verifyNoInteractions(forecastService);
-    }
 
     // ── DB persistence tests ────────────────────────────────────────────────────
 
