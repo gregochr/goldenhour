@@ -5,9 +5,10 @@ import JobRunDetail from '../components/JobRunDetail.jsx';
 vi.mock('../api/metricsApi', () => ({
   getApiCalls: vi.fn(),
   getBatchSummary: vi.fn(),
+  getDispositionBreakdown: vi.fn(),
 }));
 
-import { getApiCalls, getBatchSummary } from '../api/metricsApi';
+import { getApiCalls, getBatchSummary, getDispositionBreakdown } from '../api/metricsApi';
 
 const BASE_JOB_RUN = {
   id: 42,
@@ -56,6 +57,11 @@ const OPEN_METEO_CALL = {
 beforeEach(() => {
   vi.clearAllMocks();
   getBatchSummary.mockRejectedValue(new Error('not found'));
+  // Default: no dispositions for the job run (matches non-batch runs and the
+  // cycle's non-primary buckets) — keeps the section silent in existing tests.
+  getDispositionBreakdown.mockResolvedValue({ data: {
+    jobRunId: 0, totalCount: 0, countsByDisposition: {}, entries: [],
+  }});
 });
 
 describe('JobRunDetail — loading and error states', () => {
