@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service.batch;
 
 import com.gregochr.goldenhour.entity.ForecastRunDispositionEntity;
 import com.gregochr.goldenhour.model.CandidateDisposition;
+import com.gregochr.goldenhour.model.DispositionBreakdownResponse;
 import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,7 +12,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Persistence and retention for {@code forecast_run_disposition} rows.
@@ -81,6 +84,43 @@ public class ForecastDispositionService {
         repository.saveAll(entities);
         LOG.info("[DISPOSITION] Persisted {} disposition row(s) for jobRunId={}",
                 entities.size(), jobRunId);
+    }
+
+    /**
+     * Builds the breakdown response for a given job run — backs the
+     * {@code /api/metrics/disposition-breakdown?jobRunId=X} endpoint.
+     *
+     * <p>Returns an empty-but-well-formed response when the job run has no
+     * disposition rows (the cycle's 2nd/3rd/4th bucket job runs, or any
+     * non-batch job run). The UI uses {@code totalCount == 0} to decide
+     * whether to render the section at all.
+     *
+     * @param jobRunId the job run id to query
+     * @return breakdown response with counts, total, and every entry
+     */
+    @Transactional(readOnly = true)
+    public DispositionBreakdownResponse getBreakdownForJobRun(Long jobRunId) {
+        List<ForecastRunDispositionEntity> rows =
+                repository.findByJobRunIdOrderByDispositionAscLocationNameAsc(jobRunId);
+
+        // LinkedHashMap so iteration order in JSON matches groupings sort
+        // (alphabetical by disposition string — EVALUATED first, SKIPPED_* clustered).
+        Map<String, Long> counts = new LinkedHashMap<>();
+        List<DispositionBreakdownResponse.DispositionEntry> entries =
+                new ArrayList<>(rows.size());
+        for (ForecastRunDispositionEntity e : rows) {
+            counts.merge(e.getDisposition(), 1L, Long::sum);
+            entries.add(new DispositionBreakdownResponse.DispositionEntry(
+                    e.getLocationId(),
+                    e.getLocationName(),
+                    e.getEvaluationDate(),
+                    e.getEventType(),
+                    e.getDaysAhead(),
+                    e.getDisposition(),
+                    e.getDetail()));
+        }
+        return new DispositionBreakdownResponse(
+                jobRunId, rows.size(), counts, entries);
     }
 
     /**

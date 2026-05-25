@@ -4,8 +4,10 @@ import com.gregochr.goldenhour.entity.ApiCallLogEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.model.DispositionBreakdownResponse;
 import com.gregochr.goldenhour.service.BatchSummaryDeriver;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.batch.ForecastDispositionService;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
@@ -32,17 +34,21 @@ public class JobMetricsController {
 
     private final JobRunService jobRunService;
     private final BatchSummaryDeriver batchSummaryDeriver;
+    private final ForecastDispositionService dispositionService;
 
     /**
      * Constructs a {@code JobMetricsController}.
      *
      * @param jobRunService        the job run metrics service
      * @param batchSummaryDeriver  derives the read-time summary line for batch run rows
+     * @param dispositionService   serves the per-candidate disposition breakdown for a job run
      */
     public JobMetricsController(JobRunService jobRunService,
-            BatchSummaryDeriver batchSummaryDeriver) {
+            BatchSummaryDeriver batchSummaryDeriver,
+            ForecastDispositionService dispositionService) {
         this.jobRunService = jobRunService;
         this.batchSummaryDeriver = batchSummaryDeriver;
+        this.dispositionService = dispositionService;
     }
 
     /**
@@ -106,6 +112,25 @@ public class JobMetricsController {
                 .map(this::toBatchSummaryMap)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Returns the per-candidate disposition breakdown for a batch job run —
+     * the data behind the Job Run detail UI's "Disposition Breakdown" section.
+     *
+     * <p>For a given {@code jobRunId}, returns the total count, per-disposition
+     * counts, and every recorded disposition row (EVALUATED + every SKIPPED_*).
+     * Empty but well-formed when the run has no disposition rows (the cycle's
+     * non-primary bucket job runs and all non-batch job runs).
+     *
+     * @param jobRunId the job run id to query
+     * @return breakdown response (always 200, possibly with zero counts)
+     */
+    @GetMapping("/disposition-breakdown")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<DispositionBreakdownResponse> getDispositionBreakdown(
+            @RequestParam Long jobRunId) {
+        return ResponseEntity.ok(dispositionService.getBreakdownForJobRun(jobRunId));
     }
 
     private Map<String, Object> toBatchSummaryMap(ForecastBatchEntity batch) {

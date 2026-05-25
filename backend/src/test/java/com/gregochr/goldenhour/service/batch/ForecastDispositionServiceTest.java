@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.ForecastRunDispositionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CandidateDisposition;
+import com.gregochr.goldenhour.model.DispositionBreakdownResponse;
 import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -176,5 +177,90 @@ class ForecastDispositionServiceTest {
         service.persist(1L, List.of());
 
         verify(repository, never()).saveAll(anyList());
+    }
+
+    // ── getBreakdownForJobRun (read API backing Job Run detail UI) ────────────
+
+    @Test
+    @DisplayName("getBreakdownForJobRun: groups by disposition, totals across rows, "
+            + "exposes every field of each entry")
+    void getBreakdownForJobRun_groupsAndExposesAllFields() {
+        ForecastRunDispositionEntity evaluated = ForecastRunDispositionEntity.builder()
+                .id(1L).jobRunId(348L).locationId(42L).locationName("Durham UK")
+                .evaluationDate(TODAY.plusDays(1)).eventType("SUNRISE").daysAhead(1)
+                .disposition("EVALUATED").detail(null).build();
+        ForecastRunDispositionEntity triaged = ForecastRunDispositionEntity.builder()
+                .id(2L).jobRunId(348L).locationId(43L).locationName("Newcastle")
+                .evaluationDate(TODAY).eventType("SUNRISE").daysAhead(0)
+                .disposition("SKIPPED_TRIAGED")
+                .detail("Solar horizon low cloud 94% — sun blocked").build();
+        ForecastRunDispositionEntity triaged2 = ForecastRunDispositionEntity.builder()
+                .id(3L).jobRunId(348L).locationId(44L).locationName("Whitby")
+                .evaluationDate(TODAY).eventType("SUNRISE").daysAhead(0)
+                .disposition("SKIPPED_TRIAGED").detail("Heavy cloud").build();
+        when(repository.findByJobRunIdOrderByDispositionAscLocationNameAsc(348L))
+                .thenReturn(List.of(evaluated, triaged, triaged2));
+
+        DispositionBreakdownResponse response = service.getBreakdownForJobRun(348L);
+
+        assertThat(response.jobRunId()).isEqualTo(348L);
+        assertThat(response.totalCount()).isEqualTo(3);
+        assertThat(response.countsByDisposition())
+                .containsEntry("EVALUATED", 1L)
+                .containsEntry("SKIPPED_TRIAGED", 2L);
+        assertThat(response.entries()).hasSize(3);
+        DispositionBreakdownResponse.DispositionEntry firstEntry = response.entries().get(0);
+        assertThat(firstEntry.locationName()).isEqualTo("Durham UK");
+        assertThat(firstEntry.locationId()).isEqualTo(42L);
+        assertThat(firstEntry.disposition()).isEqualTo("EVALUATED");
+        assertThat(firstEntry.detail()).isNull();
+        assertThat(firstEntry.daysAhead()).isEqualTo(1);
+        DispositionBreakdownResponse.DispositionEntry secondEntry = response.entries().get(1);
+        assertThat(secondEntry.disposition()).isEqualTo("SKIPPED_TRIAGED");
+        assertThat(secondEntry.detail()).isEqualTo("Solar horizon low cloud 94% — sun blocked");
+    }
+
+    @Test
+    @DisplayName("getBreakdownForJobRun: no rows → empty-but-well-formed response, "
+            + "not null")
+    void getBreakdownForJobRun_noRows_returnsEmptyResponse() {
+        // Non-batch job runs (e.g. tide refresh, weather refresh) and the cycle's
+        // 2nd/3rd/4th bucket job runs have no disposition rows. The UI uses the
+        // zero count to decide whether to render the section — so the response
+        // must be well-formed, not null/404.
+        when(repository.findByJobRunIdOrderByDispositionAscLocationNameAsc(999L))
+                .thenReturn(List.of());
+
+        DispositionBreakdownResponse response = service.getBreakdownForJobRun(999L);
+
+        assertThat(response).isNotNull();
+        assertThat(response.jobRunId()).isEqualTo(999L);
+        assertThat(response.totalCount()).isZero();
+        assertThat(response.countsByDisposition()).isEmpty();
+        assertThat(response.entries()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("getBreakdownForJobRun: tolerates unknown future disposition values")
+    void getBreakdownForJobRun_unknownDisposition_passesThrough() {
+        // Forward-compat: a newer deployment writes "SKIPPED_NO_REFRESH_NEEDED"
+        // (or any other future value). The read path must surface it as a String
+        // in the response without crashing — the UI can show it under an
+        // "Unknown" bucket.
+        ForecastRunDispositionEntity futureRow = ForecastRunDispositionEntity.builder()
+                .id(1L).jobRunId(500L).locationId(42L).locationName("Durham UK")
+                .evaluationDate(TODAY).eventType("SUNRISE").daysAhead(0)
+                .disposition("SKIPPED_NO_REFRESH_NEEDED")
+                .detail("cached evaluation still fresh under intraday threshold").build();
+        when(repository.findByJobRunIdOrderByDispositionAscLocationNameAsc(500L))
+                .thenReturn(List.of(futureRow));
+
+        DispositionBreakdownResponse response = service.getBreakdownForJobRun(500L);
+
+        assertThat(response.totalCount()).isEqualTo(1);
+        assertThat(response.countsByDisposition())
+                .containsEntry("SKIPPED_NO_REFRESH_NEEDED", 1L);
+        assertThat(response.entries().get(0).disposition())
+                .isEqualTo("SKIPPED_NO_REFRESH_NEEDED");
     }
 }
