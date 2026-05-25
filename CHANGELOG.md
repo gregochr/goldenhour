@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Removed — Stale SSE-path whitelist in JwtAuthenticationFilter (Pass 3.3.3, commit 4 tidy)
+- **`JwtAuthenticationFilter.isSsePath`** — dropped the `/api/briefing/evaluate` entry from the SSE token-via-query-param whitelist. The endpoint was deleted in commit 2; the whitelist line was stale. The three surviving SSE endpoints (`/api/forecast/run/{id}/progress`, `/api/forecast/run/notifications`, `/api/status/stream`) remain whitelisted unchanged
+- Found during acceptance grep for `/api/briefing/evaluate` references — the only stray hit beyond the controller's `@RequestMapping` base path (which legitimately serves `/scores` and DELETE `/cache`)
+- Tests: `JwtAuthenticationFilterTest` passes; covered by integration coverage of the three surviving SSE endpoints
+
 ### Removed — SSE service methods + 7 constructor dependencies pruned (Pass 3.3.3, commit 3)
 - **`BriefingEvaluationService`** — file shrinks 660 → 348 lines. Deleted the 7 SSE-only methods (`evaluateRegion`, `evaluateSingleLocation`, `getEvaluableLocationNames`, `emitCachedResults`, `completeEmitter`, `sendSafe`, `cancelOutstandingForecastBatches`) plus the orphaned `getCachedEvaluatedAt` (only the deleted `/cache/timestamp` endpoint called it). After this commit no caller exists in the codebase — including admin features — for the Anthropic batch-cancel API; the cancel method body is gone, not just unreachable
 - **Constructor dependencies pruned (the riskiest change in this commit)** — 7 of the 12 constructor params dropped: `LocationService`, `BriefingService`, `ForecastService`, `ModelSelectionService`, `JobRunService`, `ForecastBatchRepository`, `AnthropicClient`. Each was confirmed to have zero remaining usage in the class before removal. Surviving deps: `CachedEvaluationRepository`, `EvaluationDeltaLogRepository`, `ObjectMapper`, `FreshnessResolver`, `StabilitySnapshotProvider`. The deletion is in a single deliberate commit so the test-class mock-list fan-out is visible in one diff
