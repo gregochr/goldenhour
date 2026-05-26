@@ -22,6 +22,7 @@ import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 import okhttp3.ConnectionPool;
 import okhttp3.Protocol;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.Executor;
@@ -127,6 +128,18 @@ public class AppConfig {
                 .connectionPool(new ConnectionPool(10, 2, TimeUnit.MINUTES))
                 .callTimeout(Duration.ofSeconds(90))
                 .build();
+    }
+
+    /**
+     * Provides a system-UTC {@link Clock} for services that need an injectable clock
+     * (used by the pipeline orchestrator and pipeline run service so tests can run
+     * deterministically against a fixed instant).
+     *
+     * @return a system UTC clock
+     */
+    @Bean
+    public Clock clock() {
+        return Clock.systemUTC();
     }
 
     /**

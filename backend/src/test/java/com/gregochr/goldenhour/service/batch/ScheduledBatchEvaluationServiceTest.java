@@ -25,6 +25,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -144,14 +145,16 @@ class ScheduledBatchEvaluationServiceTest {
                 .thenReturn(new ScheduledBatchTasks(
                         List.of(nearInlandTask), List.of(nearCoastalTask),
                         List.of(), List.of(), List.of()));
-        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED)))
+        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
+                ArgumentMatchers.isNull()))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_x", 1));
 
         service.submitForecastBatch();
 
         // One submit per non-empty bucket — exactly two here
         verify(evaluationService, org.mockito.Mockito.times(2))
-                .submit(any(List.class), eq(BatchTriggerSource.SCHEDULED));
+                .submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
+                        ArgumentMatchers.isNull());
     }
 
     @Test
@@ -182,7 +185,8 @@ class ScheduledBatchEvaluationServiceTest {
                         List.of(nearInlandTask), List.of(nearCoastalTask),
                         List.of(), List.of(),
                         List.of(evaluatedDispo, triagedDispo)));
-        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED)))
+        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
+                ArgumentMatchers.isNull()))
                 .thenReturn(new EvaluationHandle(100L, "msgbatch_1", 1))
                 .thenReturn(new EvaluationHandle(101L, "msgbatch_2", 1));
 
@@ -223,7 +227,8 @@ class ScheduledBatchEvaluationServiceTest {
                 .thenReturn(new ScheduledBatchTasks(
                         List.of(nearInlandTask), List.of(), List.of(), List.of(),
                         List.of(dispo)));
-        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED)))
+        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
+                ArgumentMatchers.isNull()))
                 .thenReturn(EvaluationHandle.empty());
 
         service.submitForecastBatch();
@@ -307,6 +312,8 @@ class ScheduledBatchEvaluationServiceTest {
         when(weatherTriageService.triage(any())).thenReturn(triage);
         when(modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION))
                 .thenReturn(EvaluationModel.HAIKU);
+        // Aurora batch uses the cycle-unaware 2-arg overload (aurora is parallel
+        // to, not inside, the orchestrated forecast cycle).
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED)))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_aurora", 1));
 

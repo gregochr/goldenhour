@@ -59,19 +59,42 @@ public class BatchSubmissionService {
      * Submits a batch to the Anthropic API, persists the tracking entity, and creates
      * a linked job run.
      *
-     * <p>Empty request lists return a null-batch result without contacting Anthropic.
-     * Exceptions are caught and logged at ERROR; the caller receives {@code null}
-     * (matching prior behaviour in both {@code submitBatch} variants).
+     * <p>Existing callers that aren't part of an orchestrated cycle (admin JFDI,
+     * force-submit, aurora batch) call this 4-arg overload. The orchestrator
+     * calls the 5-arg overload below with a non-null {@code pipelineRunId}.
      *
      * @param requests      the requests to submit; empty list is handled gracefully
      * @param batchType     FORECAST or AURORA
      * @param triggerSource what triggered this submission (SCHEDULED/ADMIN/FORCE/JFDI)
-     * @param logPrefix     human-readable label used in log lines (e.g. "Near-term batch (inland)")
+     * @param logPrefix     human-readable label used in log lines
      * @return a result describing the submitted batch, or {@code null} if the batch was
      *         empty or the API call failed
      */
     public BatchSubmitResult submit(List<BatchCreateParams.Request> requests,
             BatchType batchType, BatchTriggerSource triggerSource, String logPrefix) {
+        return submit(requests, batchType, triggerSource, logPrefix, null);
+    }
+
+    /**
+     * Cycle-aware variant — tags the persisted {@link ForecastBatchEntity} with
+     * the given {@code pipelineRunId} so the orchestrator can query its
+     * batch set later via
+     * {@link com.gregochr.goldenhour.repository.ForecastBatchRepository#findByPipelineRunId}.
+     *
+     * <p>Empty request lists return a null-batch result without contacting Anthropic.
+     * Exceptions are caught and logged at ERROR; the caller receives {@code null}.
+     *
+     * @param requests      the requests to submit; empty list is handled gracefully
+     * @param batchType     FORECAST or AURORA
+     * @param triggerSource what triggered this submission
+     * @param logPrefix     human-readable label used in log lines
+     * @param pipelineRunId orchestrated cycle id, or {@code null} for ad-hoc submissions
+     * @return a result describing the submitted batch, or {@code null} if the batch was
+     *         empty or the API call failed
+     */
+    public BatchSubmitResult submit(List<BatchCreateParams.Request> requests,
+            BatchType batchType, BatchTriggerSource triggerSource, String logPrefix,
+            Long pipelineRunId) {
         if (requests.isEmpty()) {
             LOG.info("{} skipped: no requests (trigger={})", logPrefix, triggerSource);
             return null;
@@ -97,11 +120,15 @@ public class BatchSubmissionService {
             if (jobRun != null) {
                 entity.setJobRunId(jobRun.getId());
             }
+            if (pipelineRunId != null) {
+                entity.setPipelineRunId(pipelineRunId);
+            }
             batchRepository.save(entity);
 
-            LOG.info("{} submitted: batchId={}, {} request(s), expires={}, jobRunId={}, trigger={}",
+            LOG.info("{} submitted: batchId={}, {} request(s), expires={}, jobRunId={}, "
+                            + "pipelineRunId={}, trigger={}",
                     logPrefix, batch.id(), requests.size(), expiresAt,
-                    jobRun != null ? jobRun.getId() : null, triggerSource);
+                    jobRun != null ? jobRun.getId() : null, pipelineRunId, triggerSource);
 
             return new BatchSubmitResult(batch.id(), requests.size());
         } catch (Exception e) {

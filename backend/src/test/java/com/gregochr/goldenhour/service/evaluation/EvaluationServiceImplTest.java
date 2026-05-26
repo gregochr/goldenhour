@@ -137,7 +137,8 @@ class EvaluationServiceImplTest {
                 eq(t2.data()), eq(EvaluationModel.HAIKU.getMaxTokens())))
                 .thenReturn(req2);
         when(batchSubmissionService.submit(
-                any(), eq(BatchType.FORECAST), eq(BatchTriggerSource.SCHEDULED), anyString()))
+                any(), eq(BatchType.FORECAST), eq(BatchTriggerSource.SCHEDULED), anyString(),
+                org.mockito.ArgumentMatchers.isNull()))
                 .thenReturn(new BatchSubmitResult("msgbatch_x", 2));
 
         EvaluationHandle handle = service.submit(
@@ -149,7 +150,8 @@ class EvaluationServiceImplTest {
                 ArgumentCaptor.forClass(List.class);
         verify(batchSubmissionService).submit(
                 captor.capture(), eq(BatchType.FORECAST),
-                eq(BatchTriggerSource.SCHEDULED), anyString());
+                eq(BatchTriggerSource.SCHEDULED), anyString(),
+                org.mockito.ArgumentMatchers.isNull());
         assertThat(captor.getValue()).containsExactly(req1, req2);
     }
 
@@ -194,7 +196,9 @@ class EvaluationServiceImplTest {
                 org.mockito.ArgumentMatchers.anyInt()))
                 .thenReturn(mock(BatchCreateParams.Request.class));
         when(batchSubmissionService.submit(
-                any(), any(), any(), anyString())).thenReturn(null);
+                any(), any(), any(), anyString(),
+                org.mockito.ArgumentMatchers.isNull()))
+                .thenReturn(null);
 
         EvaluationHandle handle = service.submit(List.of(task), BatchTriggerSource.SCHEDULED);
 
