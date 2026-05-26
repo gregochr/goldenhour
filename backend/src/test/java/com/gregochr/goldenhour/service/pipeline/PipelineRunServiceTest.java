@@ -152,4 +152,84 @@ class PipelineRunServiceTest {
         assertThat(run.getWaitingOn()).isNull();
         assertThat(run.getCompletedAt()).isEqualTo(T0);
     }
+
+    @Test
+    @DisplayName("failPhase marks the latest matching phase row FAILED with the supplied detail")
+    void failPhase_marks_failed() {
+        PipelineRunPhaseEntity briefingPhase = new PipelineRunPhaseEntity(
+                RUN_ID, PipelinePhase.BRIEFING, 3, T0.minusSeconds(30));
+        when(phaseRepository.findByPipelineRunIdOrderBySequenceOrderAsc(RUN_ID))
+                .thenReturn(List.of(
+                        new PipelineRunPhaseEntity(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT, 1,
+                                T0.minusSeconds(120)),
+                        new PipelineRunPhaseEntity(RUN_ID, PipelinePhase.FORECAST_BATCH_WAIT, 2,
+                                T0.minusSeconds(90)),
+                        briefingPhase));
+
+        service.failPhase(RUN_ID, PipelinePhase.BRIEFING, "briefing crashed");
+
+        assertThat(briefingPhase.getStatus()).isEqualTo(PipelinePhaseStatus.FAILED);
+        assertThat(briefingPhase.getCompletedAt()).isEqualTo(T0);
+        assertThat(briefingPhase.getDetail()).isEqualTo("briefing crashed");
+    }
+
+    @Test
+    @DisplayName("updateWaitingOn writes the progress text and persists")
+    void updateWaitingOn_writes_field() {
+        PipelineRunEntity run = new PipelineRunEntity(CycleType.NIGHTLY, T0);
+        run.setId(RUN_ID);
+        when(runRepository.findById(RUN_ID)).thenReturn(Optional.of(run));
+
+        service.updateWaitingOn(RUN_ID, "forecast batch set (2 of 4 complete)");
+
+        assertThat(run.getWaitingOn()).isEqualTo("forecast batch set (2 of 4 complete)");
+    }
+
+    @Test
+    @DisplayName("findRunning delegates to the RUNNING-status query, newest first")
+    void findRunning_delegates_to_repo() {
+        PipelineRunEntity running = new PipelineRunEntity(CycleType.NIGHTLY, T0);
+        when(runRepository.findByStatusOrderByTriggerTimeDesc(PipelineRunStatus.RUNNING))
+                .thenReturn(List.of(running));
+
+        List<PipelineRunEntity> result = service.findRunning();
+
+        assertThat(result).containsExactly(running);
+    }
+
+    @Test
+    @DisplayName("findById delegates to the repository")
+    void findById_delegates_to_repo() {
+        PipelineRunEntity run = new PipelineRunEntity(CycleType.NIGHTLY, T0);
+        run.setId(RUN_ID);
+        when(runRepository.findById(RUN_ID)).thenReturn(Optional.of(run));
+
+        Optional<PipelineRunEntity> result = service.findById(RUN_ID);
+
+        assertThat(result).containsSame(run);
+    }
+
+    @Test
+    @DisplayName("findRecent delegates to the top-50 query")
+    void findRecent_delegates_to_repo() {
+        PipelineRunEntity run = new PipelineRunEntity(CycleType.NIGHTLY, T0);
+        when(runRepository.findTop50ByOrderByTriggerTimeDesc()).thenReturn(List.of(run));
+
+        List<PipelineRunEntity> result = service.findRecent();
+
+        assertThat(result).containsExactly(run);
+    }
+
+    @Test
+    @DisplayName("findPhases delegates to the phase repository's ordered query")
+    void findPhases_delegates_to_repo() {
+        PipelineRunPhaseEntity phase = new PipelineRunPhaseEntity(
+                RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT, 1, T0);
+        when(phaseRepository.findByPipelineRunIdOrderBySequenceOrderAsc(RUN_ID))
+                .thenReturn(List.of(phase));
+
+        List<PipelineRunPhaseEntity> result = service.findPhases(RUN_ID);
+
+        assertThat(result).containsExactly(phase);
+    }
 }
