@@ -105,12 +105,18 @@ public class ScheduledBatchEvaluationService {
     }
 
     /**
-     * Registers job targets with the dynamic scheduler.
+     * Registers the aurora batch job target with the dynamic scheduler.
+     *
+     * <p>The {@code near_term_batch_evaluation} target is registered by
+     * {@code NightlyPipelineOrchestrator} since V102 — the cron now invokes
+     * the orchestrator's {@code runNightlyCycle()} rather than this service's
+     * {@code submitForecastBatch()} directly. The orchestrator calls
+     * {@link #submitForecastBatchForPipelineRun(Long)} as its first phase so
+     * batches are tagged with the cycle id. The legacy {@link #submitForecastBatch()}
+     * entry point is retained for admin invocations / tests.
      */
     @PostConstruct
     public void registerJobTargets() {
-        dynamicSchedulerService.registerJobTarget(
-                "near_term_batch_evaluation", this::submitForecastBatch);
         dynamicSchedulerService.registerJobTarget(
                 "aurora_batch_evaluation", this::submitAuroraBatch);
     }
@@ -136,7 +142,7 @@ public class ScheduledBatchEvaluationService {
      * <p>Guards against concurrent submissions with an {@link AtomicBoolean}. If a batch
      * submission is already in progress (e.g. triggered simultaneously by two scheduler
      * threads), the second call is silently dropped. The {@code finally} block guarantees
-     * the guard is always cleared, even if {@link #doSubmitForecastBatch()} throws.
+     * the guard is always cleared, even if {@link #doSubmitForecastBatch(Long)} throws.
      *
      * <p>Weather data for all candidate locations is pre-fetched in bulk before the
      * per-location triage loop, avoiding per-location Open-Meteo calls that would trip
@@ -148,7 +154,29 @@ public class ScheduledBatchEvaluationService {
             return;
         }
         try {
-            doSubmitForecastBatch();
+            doSubmitForecastBatch(null);
+        } finally {
+            forecastBatchRunning.set(false);
+        }
+    }
+
+    /**
+     * Cycle-aware variant called by {@code NightlyPipelineOrchestrator}. Identical to
+     * {@link #submitForecastBatch()} except every {@code forecast_batch} row it produces
+     * is tagged with the given {@code pipelineRunId} so the orchestrator can detect
+     * cycle completion later via a single DB query.
+     *
+     * @param pipelineRunId orchestrated cycle id
+     */
+    public void submitForecastBatchForPipelineRun(Long pipelineRunId) {
+        java.util.Objects.requireNonNull(pipelineRunId, "pipelineRunId");
+        if (!forecastBatchRunning.compareAndSet(false, true)) {
+            LOG.warn("Forecast batch already running — orchestrator trigger dropped "
+                    + "(pipelineRunId={})", pipelineRunId);
+            return;
+        }
+        try {
+            doSubmitForecastBatch(pipelineRunId);
         } finally {
             forecastBatchRunning.set(false);
         }
@@ -208,8 +236,11 @@ public class ScheduledBatchEvaluationService {
      * Core forecast batch logic. Delegates task collection (briefing read, weather +
      * cloud pre-fetch, triage, stability, bucketing) to {@link ForecastTaskCollector}
      * and submits each non-empty bucket separately via {@link EvaluationService}.
+     *
+     * @param pipelineRunId orchestrated cycle id to tag the submitted batches with,
+     *                      or {@code null} for legacy cron-direct invocations
      */
-    private void doSubmitForecastBatch() {
+    private void doSubmitForecastBatch(Long pipelineRunId) {
         ScheduledBatchTasks tasks = forecastTaskCollector.collectScheduledBatches();
         if (tasks.isEmpty()) {
             return;
@@ -223,26 +254,26 @@ public class ScheduledBatchEvaluationService {
         Long cycleJobRunId = null;
 
         if (!tasks.nearInland().isEmpty()) {
-            EvaluationHandle h =
-                    evaluationService.submit(tasks.nearInland(), BatchTriggerSource.SCHEDULED);
+            EvaluationHandle h = evaluationService.submit(
+                    tasks.nearInland(), BatchTriggerSource.SCHEDULED, pipelineRunId);
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
             logBatchBreakdown(tasks.nearInland(), "near-term inland");
         }
         if (!tasks.nearCoastal().isEmpty()) {
-            EvaluationHandle h =
-                    evaluationService.submit(tasks.nearCoastal(), BatchTriggerSource.SCHEDULED);
+            EvaluationHandle h = evaluationService.submit(
+                    tasks.nearCoastal(), BatchTriggerSource.SCHEDULED, pipelineRunId);
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
             logBatchBreakdown(tasks.nearCoastal(), "near-term coastal");
         }
         if (!tasks.farInland().isEmpty()) {
-            EvaluationHandle h =
-                    evaluationService.submit(tasks.farInland(), BatchTriggerSource.SCHEDULED);
+            EvaluationHandle h = evaluationService.submit(
+                    tasks.farInland(), BatchTriggerSource.SCHEDULED, pipelineRunId);
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
             logBatchBreakdown(tasks.farInland(), "far-term inland");
         }
         if (!tasks.farCoastal().isEmpty()) {
-            EvaluationHandle h =
-                    evaluationService.submit(tasks.farCoastal(), BatchTriggerSource.SCHEDULED);
+            EvaluationHandle h = evaluationService.submit(
+                    tasks.farCoastal(), BatchTriggerSource.SCHEDULED, pipelineRunId);
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
             logBatchBreakdown(tasks.farCoastal(), "far-term coastal");
         }
@@ -254,12 +285,12 @@ public class ScheduledBatchEvaluationService {
         dispositionService.persist(cycleJobRunId, tasks.dispositions());
 
         LOG.info("Forecast batch split: near-term {} ({}i + {}c), far-term {} ({}i + {}c), "
-                        + "total {} requests",
+                        + "total {} requests, pipelineRunId={}",
                 tasks.nearInland().size() + tasks.nearCoastal().size(),
                 tasks.nearInland().size(), tasks.nearCoastal().size(),
                 tasks.farInland().size() + tasks.farCoastal().size(),
                 tasks.farInland().size(), tasks.farCoastal().size(),
-                tasks.totalSize());
+                tasks.totalSize(), pipelineRunId);
     }
 
     private static Long firstNonNull(Long current, Long candidate) {

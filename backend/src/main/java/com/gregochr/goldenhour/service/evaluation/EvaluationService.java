@@ -34,14 +34,8 @@ public interface EvaluationService {
      * Anthropic Batch API. Returns a handle the caller can use to correlate later
      * polling/result-processing telemetry.
      *
-     * <p>Empty task list returns {@link EvaluationHandle#empty}; an Anthropic submission
-     * failure returns {@link EvaluationHandle#empty} (the underlying
-     * {@link com.gregochr.goldenhour.service.batch.BatchSubmissionService} has already
-     * logged the failure). The engine never throws when the submission cannot proceed.
-     *
-     * <p>Mixed-type lists are rejected with {@link IllegalArgumentException} —
-     * forecast and aurora batches use different prompt builders and Anthropic models,
-     * so collapsing them into one batch makes no business sense.
+     * <p>Equivalent to {@code submit(tasks, trigger, null)} — used by callers
+     * outside an orchestrated cycle (admin JFDI, force-submit, aurora batch).
      *
      * @param tasks    one or more tasks, all the same concrete type
      * @param trigger  what triggered this submission (logged in {@code job_run})
@@ -49,6 +43,27 @@ public interface EvaluationService {
      *         if no submission occurred
      */
     EvaluationHandle submit(List<? extends EvaluationTask> tasks, BatchTriggerSource trigger);
+
+    /**
+     * Cycle-aware variant of {@link #submit(List, BatchTriggerSource)}. Tags
+     * the persisted {@code forecast_batch} row with {@code pipelineRunId} so
+     * the nightly pipeline orchestrator can detect cycle completion via a
+     * single DB query.
+     *
+     * <p>Empty task list returns {@link EvaluationHandle#empty}; an Anthropic submission
+     * failure returns {@link EvaluationHandle#empty}. The engine never throws when
+     * the submission cannot proceed.
+     *
+     * <p>Mixed-type lists are rejected with {@link IllegalArgumentException} —
+     * forecast and aurora batches use different prompt builders and Anthropic models.
+     *
+     * @param tasks         one or more tasks, all the same concrete type
+     * @param trigger       what triggered this submission
+     * @param pipelineRunId orchestrated cycle id, or {@code null}
+     * @return a handle with the submitted batch id, or {@link EvaluationHandle#empty}
+     */
+    EvaluationHandle submit(List<? extends EvaluationTask> tasks, BatchTriggerSource trigger,
+            Long pipelineRunId);
 
     /**
      * Synchronously evaluates a single task via the Anthropic Messages API and dispatches

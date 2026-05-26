@@ -47,6 +47,7 @@ import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.service.aurora.BortleEnrichmentService;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
+import com.gregochr.goldenhour.service.pipeline.PipelineRunService;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -145,6 +146,9 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected OutcomeService outcomeService;
+
+    @MockitoBean
+    protected PipelineRunService pipelineRunService;
 
     @MockitoBean
     protected PromptTestService promptTestService;

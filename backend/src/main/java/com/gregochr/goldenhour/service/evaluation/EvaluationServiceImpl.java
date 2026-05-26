@@ -84,6 +84,12 @@ public class EvaluationServiceImpl implements EvaluationService {
     @Override
     public EvaluationHandle submit(List<? extends EvaluationTask> tasks,
             BatchTriggerSource trigger) {
+        return submit(tasks, trigger, null);
+    }
+
+    @Override
+    public EvaluationHandle submit(List<? extends EvaluationTask> tasks,
+            BatchTriggerSource trigger, Long pipelineRunId) {
         if (tasks == null || tasks.isEmpty()) {
             return EvaluationHandle.empty();
         }
@@ -99,9 +105,11 @@ public class EvaluationServiceImpl implements EvaluationService {
         }
 
         if (firstType == EvaluationTask.Forecast.class) {
-            return submitForecast(castList(tasks, EvaluationTask.Forecast.class), trigger);
+            return submitForecast(castList(tasks, EvaluationTask.Forecast.class), trigger,
+                    pipelineRunId);
         }
         if (firstType == EvaluationTask.Aurora.class) {
+            // Aurora batches are not part of an orchestrated cycle today — pass null.
             return submitAurora(castList(tasks, EvaluationTask.Aurora.class), trigger);
         }
         throw new IllegalStateException("Unhandled task type: " + firstType);
@@ -119,7 +127,7 @@ public class EvaluationServiceImpl implements EvaluationService {
     }
 
     private EvaluationHandle submitForecast(List<EvaluationTask.Forecast> tasks,
-            BatchTriggerSource trigger) {
+            BatchTriggerSource trigger, Long pipelineRunId) {
         List<BatchCreateParams.Request> requests = new ArrayList<>(tasks.size());
         for (EvaluationTask.Forecast task : tasks) {
             String customId = CustomIdFactory.forForecast(
@@ -129,7 +137,8 @@ public class EvaluationServiceImpl implements EvaluationService {
         }
         BatchSubmitResult result = batchSubmissionService.submit(
                 requests, BatchType.FORECAST, trigger,
-                "EvaluationService forecast (" + trigger + ")");
+                "EvaluationService forecast (" + trigger + ")",
+                pipelineRunId);
         return result == null
                 ? EvaluationHandle.empty()
                 : new EvaluationHandle(null, result.batchId(), result.requestCount());

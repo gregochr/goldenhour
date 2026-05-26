@@ -42,4 +42,16 @@ public interface ForecastBatchRepository extends JpaRepository<ForecastBatchEnti
      * @return the batch entity if found
      */
     Optional<ForecastBatchEntity> findByAnthropicBatchId(String anthropicBatchId);
+
+    /**
+     * Returns all batches tagged with the given pipeline run id.
+     *
+     * <p>Used by the nightly pipeline orchestrator to answer "is the batch
+     * set for this cycle complete?" — the cycle is complete when no batch
+     * in this list is still {@code SUBMITTED}.
+     *
+     * @param pipelineRunId the orchestrated cycle id
+     * @return matching batches (any status)
+     */
+    List<ForecastBatchEntity> findByPipelineRunId(Long pipelineRunId);
 }

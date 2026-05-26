@@ -95,6 +95,14 @@ public class ForecastBatchEntity {
     @Column(name = "job_run_id")
     private Long jobRunId;
 
+    /**
+     * ID of the {@link com.gregochr.goldenhour.entity.PipelineRunEntity} that submitted
+     * this batch as part of an orchestrated cycle (V102). Null for ad-hoc admin batch
+     * submissions outside any cycle (JFDI, force-submit, region-filtered admin runs).
+     */
+    @Column(name = "pipeline_run_id")
+    private Long pipelineRunId;
+
     /** Sum of input tokens across all requests in this batch. */
     @Column(name = "total_input_tokens")
     private Long totalInputTokens;
@@ -213,6 +221,25 @@ public class ForecastBatchEntity {
 
     public void setJobRunId(Long jobRunId) {
         this.jobRunId = jobRunId;
+    }
+
+    /**
+     * Returns the pipeline run that submitted this batch, or {@code null}
+     * if this was an ad-hoc admin submission outside an orchestrated cycle.
+     *
+     * @return pipeline run id or null
+     */
+    public Long getPipelineRunId() {
+        return pipelineRunId;
+    }
+
+    /**
+     * Tags this batch with the orchestrated cycle that submitted it.
+     *
+     * @param pipelineRunId pipeline run id; may be null for ad-hoc submissions
+     */
+    public void setPipelineRunId(Long pipelineRunId) {
+        this.pipelineRunId = pipelineRunId;
     }
 
     public Long getTotalInputTokens() {
