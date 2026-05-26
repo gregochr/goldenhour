@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Nightly pipeline orchestrator wired; daily_briefing cron retired (commit 2 of 3)
+- **`NightlyPipelineOrchestrator` now owns the `near_term_batch_evaluation` cron**. Constructor takes `DynamicSchedulerService`; `@PostConstruct registerJobTarget()` binds the schedule to `runNightlyCycle()`. The orchestrator is the single source of truth for when a nightly cycle runs
+- **`ScheduledBatchEvaluationService.registerJobTargets()` no longer registers `near_term_batch_evaluation`** — only `aurora_batch_evaluation` (aurora stays parallel to the orchestrated cycle). The legacy `submitForecastBatch()` entry point is retained for admin invocations and tests but is no longer wired to the cron
+- **V103 migration deletes the `daily_briefing` row from `scheduler_job_config`** — the briefing now runs as the orchestrator's BRIEFING phase on actual batch completion (~01:15 in production), not at 04:00 on a ~3h time buffer. The `ScheduledForecastService.registerJobTarget("daily_briefing", ...)` call is retained as a no-op so a one-line revert path stays open
+- **Effect in production**: the briefing runs ~2.75 hours earlier on a typical night, and is gated on actual completion of the batch set rather than a fixed clock time. The safety timeout backstop (90 min) fires only if batches genuinely stall — distinguishable from the retired coordination-timeout by the `Safety timeout:` prefix on the run's `failure_reason`
+- **Tests**: `NightlyPipelineOrchestratorTest` gains 2 cases under a `Cron wiring` nested class (verifies near-term registration and null-scheduler no-op); `ScheduledBatchEvaluationServiceTest.registerJobTargets_registersExpectedKeys` updated to assert near-term is now NOT self-registered. 57 tests pass across the 4 affected classes (up from 55 in commit 1)
+
 ### Added — Nightly pipeline orchestrator spine (commit 1 of 3)
 - **V102 migration** — new `pipeline_run` table (cycle identity + lifecycle: cycle_type / status / current_phase / waiting_on / trigger_time / completed_at / failure_reason) and `pipeline_run_phase` table (per-phase status + start/complete timestamps). Adds `forecast_batch.pipeline_run_id` so a cycle's batches are queryable as a set
 - **`CycleType` / `PipelinePhase` / `PipelinePhaseStatus` / `PipelineRunStatus`** enums. `CycleType` reserves `INTRADAY` for the intraday refresh follow-on (no intraday phases wired today — those live in code when intraday is built)

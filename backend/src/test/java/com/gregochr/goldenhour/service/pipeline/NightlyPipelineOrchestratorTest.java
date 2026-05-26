@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.entity.PipelinePhase;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.BriefingService;
+import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -72,7 +73,8 @@ class NightlyPipelineOrchestratorTest {
     void setUp() {
         Clock fixedClock = Clock.fixed(T0, ZoneOffset.UTC);
         // 1ms poll interval, 10s safety timeout — keeps the wait loop fast
-        // while leaving room for multi-iteration boundary tests.
+        // while leaving room for multi-iteration boundary tests. Null scheduler:
+        // unit tests don't exercise the @PostConstruct cron registration.
         orchestrator = new NightlyPipelineOrchestrator(
                 pipelineRunService,
                 scheduledBatchEvaluationService,
@@ -81,7 +83,8 @@ class NightlyPipelineOrchestratorTest {
                 fixedClock,
                 directExecutor,
                 Duration.ofMillis(1),
-                Duration.ofSeconds(10));
+                Duration.ofSeconds(10),
+                null);
     }
 
     private PipelineRunEntity newRun() {
@@ -252,7 +255,8 @@ class NightlyPipelineOrchestratorTest {
             NightlyPipelineOrchestrator timingOutOrch = new NightlyPipelineOrchestrator(
                     pipelineRunService, scheduledBatchEvaluationService, briefingService,
                     forecastBatchRepository, movingClock,
-                    directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10));
+                    directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
+                    null);
 
             when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
@@ -409,6 +413,37 @@ class NightlyPipelineOrchestratorTest {
         @DisplayName("CycleType enum reserves INTRADAY for future intraday refresh")
         void intraday_cycle_type_is_reserved() {
             assertThat(CycleType.values()).contains(CycleType.NIGHTLY, CycleType.INTRADAY);
+        }
+    }
+
+    @Nested
+    @DisplayName("Cron wiring")
+    class CronWiring {
+
+        @Test
+        @DisplayName("registerJobTarget binds runNightlyCycle to near_term_batch_evaluation")
+        void registers_near_term_target() {
+            DynamicSchedulerService scheduler =
+                    org.mockito.Mockito.mock(DynamicSchedulerService.class);
+            NightlyPipelineOrchestrator wired = new NightlyPipelineOrchestrator(
+                    pipelineRunService, scheduledBatchEvaluationService, briefingService,
+                    forecastBatchRepository, Clock.fixed(T0, ZoneOffset.UTC),
+                    directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
+                    scheduler);
+
+            wired.registerJobTarget();
+
+            verify(scheduler).registerJobTarget(
+                    org.mockito.ArgumentMatchers.eq("near_term_batch_evaluation"),
+                    org.mockito.ArgumentMatchers.any(Runnable.class));
+        }
+
+        @Test
+        @DisplayName("null scheduler skips registration silently (test-friendly)")
+        void null_scheduler_is_a_no_op() {
+            // The default orchestrator built in @BeforeEach has a null scheduler.
+            // Calling registerJobTarget should not throw.
+            orchestrator.registerJobTarget();
         }
     }
 }

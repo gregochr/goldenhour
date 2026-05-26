@@ -106,14 +106,17 @@ class ScheduledBatchEvaluationServiceTest {
     // ── registerJobTargets ───────────────────────────────────────────────────
 
     @Test
-    @DisplayName("registerJobTargets registers near_term_batch_evaluation and aurora_batch_evaluation")
+    @DisplayName("registerJobTargets registers aurora_batch_evaluation only "
+            + "(near_term_batch_evaluation moved to NightlyPipelineOrchestrator in V102)")
     void registerJobTargets_registersExpectedKeys() {
         service.registerJobTargets();
 
         verify(dynamicSchedulerService).registerJobTarget(
-                eq("near_term_batch_evaluation"), any(Runnable.class));
-        verify(dynamicSchedulerService).registerJobTarget(
                 eq("aurora_batch_evaluation"), any(Runnable.class));
+        // Near-term is now owned by NightlyPipelineOrchestrator — verify the legacy
+        // self-registration was removed.
+        verify(dynamicSchedulerService, org.mockito.Mockito.never()).registerJobTarget(
+                eq("near_term_batch_evaluation"), any(Runnable.class));
     }
 
     // ── Forecast: routes through ForecastTaskCollector ───────────────────────

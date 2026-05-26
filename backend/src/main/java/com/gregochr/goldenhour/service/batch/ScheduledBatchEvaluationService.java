@@ -105,12 +105,18 @@ public class ScheduledBatchEvaluationService {
     }
 
     /**
-     * Registers job targets with the dynamic scheduler.
+     * Registers the aurora batch job target with the dynamic scheduler.
+     *
+     * <p>The {@code near_term_batch_evaluation} target is registered by
+     * {@code NightlyPipelineOrchestrator} since V102 — the cron now invokes
+     * the orchestrator's {@code runNightlyCycle()} rather than this service's
+     * {@code submitForecastBatch()} directly. The orchestrator calls
+     * {@link #submitForecastBatchForPipelineRun(Long)} as its first phase so
+     * batches are tagged with the cycle id. The legacy {@link #submitForecastBatch()}
+     * entry point is retained for admin invocations / tests.
      */
     @PostConstruct
     public void registerJobTargets() {
-        dynamicSchedulerService.registerJobTarget(
-                "near_term_batch_evaluation", this::submitForecastBatch);
         dynamicSchedulerService.registerJobTarget(
                 "aurora_batch_evaluation", this::submitAuroraBatch);
     }

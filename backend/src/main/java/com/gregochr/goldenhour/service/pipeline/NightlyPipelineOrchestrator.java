@@ -7,7 +7,9 @@ import com.gregochr.goldenhour.entity.PipelinePhase;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.BriefingService;
+import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -84,6 +86,7 @@ public class NightlyPipelineOrchestrator {
     private final Executor backgroundExecutor;
     private final Duration pollInterval;
     private final Duration safetyTimeout;
+    private final DynamicSchedulerService dynamicSchedulerService;
 
     /**
      * Production constructor — uses a virtual-thread executor so the wait phase
@@ -97,17 +100,20 @@ public class NightlyPipelineOrchestrator {
      * @param briefingService                 briefing refresh entry point
      * @param forecastBatchRepository         queried for cycle completion
      * @param clock                           injected clock for deterministic tests
+     * @param dynamicSchedulerService         scheduler this orchestrator registers itself with
      */
     @Autowired
     public NightlyPipelineOrchestrator(PipelineRunService pipelineRunService,
             ScheduledBatchEvaluationService scheduledBatchEvaluationService,
             BriefingService briefingService,
             ForecastBatchRepository forecastBatchRepository,
-            Clock clock) {
+            Clock clock,
+            DynamicSchedulerService dynamicSchedulerService) {
         this(pipelineRunService, scheduledBatchEvaluationService, briefingService,
                 forecastBatchRepository, clock,
                 Executors.newVirtualThreadPerTaskExecutor(),
-                DEFAULT_POLL_INTERVAL, DEFAULT_SAFETY_TIMEOUT);
+                DEFAULT_POLL_INTERVAL, DEFAULT_SAFETY_TIMEOUT,
+                dynamicSchedulerService);
     }
 
     /**
@@ -122,6 +128,8 @@ public class NightlyPipelineOrchestrator {
      * @param backgroundExecutor              where to run the wait+briefing tail
      * @param pollInterval                    DB poll interval during FORECAST_BATCH_WAIT
      * @param safetyTimeout                   safety backstop for the wait phase
+     * @param dynamicSchedulerService         scheduler the orchestrator registers itself with;
+     *                                        tests may pass {@code null} to skip registration
      */
     public NightlyPipelineOrchestrator(PipelineRunService pipelineRunService,
             ScheduledBatchEvaluationService scheduledBatchEvaluationService,
@@ -130,7 +138,8 @@ public class NightlyPipelineOrchestrator {
             Clock clock,
             Executor backgroundExecutor,
             Duration pollInterval,
-            Duration safetyTimeout) {
+            Duration safetyTimeout,
+            DynamicSchedulerService dynamicSchedulerService) {
         this.pipelineRunService = pipelineRunService;
         this.scheduledBatchEvaluationService = scheduledBatchEvaluationService;
         this.briefingService = briefingService;
@@ -139,6 +148,24 @@ public class NightlyPipelineOrchestrator {
         this.backgroundExecutor = backgroundExecutor;
         this.pollInterval = pollInterval;
         this.safetyTimeout = safetyTimeout;
+        this.dynamicSchedulerService = dynamicSchedulerService;
+    }
+
+    /**
+     * Registers the orchestrator as the runnable for the {@code near_term_batch_evaluation}
+     * scheduled job. Previously this job invoked
+     * {@code ScheduledBatchEvaluationService.submitForecastBatch()} directly; from V102 it
+     * invokes {@link #runNightlyCycle()} so the briefing is gated on actual batch
+     * completion rather than the legacy ~3h cron buffer.
+     *
+     * <p>Skipped for tests that pass a null scheduler.
+     */
+    @PostConstruct
+    void registerJobTarget() {
+        if (dynamicSchedulerService != null) {
+            dynamicSchedulerService.registerJobTarget(
+                    "near_term_batch_evaluation", this::runNightlyCycle);
+        }
     }
 
     /**
