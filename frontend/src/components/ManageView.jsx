@@ -10,6 +10,7 @@ import ModelTestView from './ModelTestView.jsx';
 import BriefingModelTestView from './BriefingModelTestView.jsx';
 import PromptTestView from './PromptTestView.jsx';
 import SchedulerView from './SchedulerView.jsx';
+import PipelineRunsView from './PipelineRunsView.jsx';
 import HotTopicSimulation from './HotTopicSimulation.jsx';
 import TideManagementView from './TideManagementView.jsx';
 import WaitlistManagementView from './WaitlistManagementView.jsx';
@@ -30,6 +31,7 @@ const GROUPS = [
     value: 'operations',
     label: 'Operations',
     tabs: [
+      { value: 'pipelineruns', label: 'Pipeline Runs' },
       { value: 'metrics', label: 'Job Runs' },
       { value: 'models', label: 'Run Config' },
       { value: 'modeltest', label: 'Location Model Test' },
@@ -66,6 +68,8 @@ export default function ManageView({ onComplete }) {
   const [activeTab, setActiveTabState] = useState(initial.tab);
   const [activeRunId, setActiveRunId] = useState(null);
   const clearActiveRun = useCallback(() => setActiveRunId(null), []);
+  const [activePipelineRunId, setActivePipelineRunId] = useState(null);
+  const clearActivePipelineRun = useCallback(() => setActivePipelineRunId(null), []);
   const [waitlistCount, setWaitlistCount] = useState(null);
   const handleWaitlistCount = useCallback((count) => setWaitlistCount(count), []);
 
@@ -166,6 +170,16 @@ export default function ManageView({ onComplete }) {
           <div className="card flex flex-col gap-4">
             <p className="text-sm font-semibold text-plex-text">Waitlist</p>
             <WaitlistManagementView onCountChange={handleWaitlistCount} />
+          </div>
+        )}
+
+        {activeTab === 'pipelineruns' && (
+          <div className="card flex flex-col gap-4">
+            <PipelineRunsView
+              activeRunId={activePipelineRunId}
+              onSelectRun={setActivePipelineRunId}
+              onCloseDetail={clearActivePipelineRun}
+            />
           </div>
         )}
 

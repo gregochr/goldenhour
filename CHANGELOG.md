@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Pipeline Run observability UX (commit 3 of 3)
+- **New Pipeline Runs sub-tab** under Manage → Operations (added as the first sub-tab, before Job Runs). Lists the most recent 50 cycles with status pill, current phase, waiting_on / failure reason, and total duration. The list polls every 60s so a stuck cycle becomes visible without manual refresh
+- **Pipeline run detail panel** — click any row to drill in. Renders:
+  - Summary card with status, started / completed timestamps, total duration, current phase, and a prominent waiting_on (RUNNING) / failure reason (FAILED) line so the "is it stuck?" / "did the safety timeout fire?" questions answer themselves at a glance
+  - Phase timeline (SUBMIT → WAIT → BRIEFING) with per-phase status, started timestamp, duration, and the final detail (WAIT's last waiting_on, or a FAILED phase's reason)
+  - Batch list — every `forecast_batch` row tagged with this cycle id, each with a "Show dispositions" toggle that embeds the existing `DispositionBreakdown` view inline so the cycle → phase → batch → disposition hierarchy renders in one place. No SSH, no separate page navigation
+  - Auto-refreshes every 15s while the run is RUNNING so waiting_on ticks live
+- **Backend API**: `GET /api/admin/pipeline-runs` (recent list) and `GET /api/admin/pipeline-runs/{id}` (detail with phases + batches). ADMIN-only. `PipelineRunSummary` / `PipelinePhaseSummary` / `PipelineRunBatch` / `PipelineRunDetail` records carry pre-computed duration so the frontend doesn't recalculate; `PipelineRunBatch.jobRunId` is the deep-link key the frontend uses to embed `DispositionBreakdown`
+- **`PipelineRunController`** (4 MockMvc tests: list shape, detail shape, 404 for unknown id, PRO_USER 403 on ADMIN-only endpoint)
+- **`PipelineRunsView.jsx`** (7 vitest cases: list rendering with status pills, empty state, row-click selects, detail panel with phase timeline + batch list, disposition expand-on-toggle, live `waitingOn` surface, FAILED `failureReason` surface)
+- **`AbstractControllerTest`** gains `@MockitoBean PipelineRunService` so all controller tests share one context
+- The no-SSH bar is now satisfied: where is the pipeline, is it stuck, what's it waiting on, how long did each phase take, did anything fail — every question is answerable in the browser, and the cycle's batch dispositions are one click away
+
 ### Changed — Nightly pipeline orchestrator wired; daily_briefing cron retired (commit 2 of 3)
 - **`NightlyPipelineOrchestrator` now owns the `near_term_batch_evaluation` cron**. Constructor takes `DynamicSchedulerService`; `@PostConstruct registerJobTarget()` binds the schedule to `runNightlyCycle()`. The orchestrator is the single source of truth for when a nightly cycle runs
 - **`ScheduledBatchEvaluationService.registerJobTargets()` no longer registers `near_term_batch_evaluation`** — only `aurora_batch_evaluation` (aurora stays parallel to the orchestrated cycle). The legacy `submitForecastBatch()` entry point is retained for admin invocations and tests but is no longer wired to the cron
