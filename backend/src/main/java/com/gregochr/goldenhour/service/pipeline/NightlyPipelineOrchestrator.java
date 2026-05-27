@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import com.gregochr.goldenhour.entity.PipelinePhase;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
+import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
@@ -87,6 +88,7 @@ public class NightlyPipelineOrchestrator {
     private final Duration pollInterval;
     private final Duration safetyTimeout;
     private final DynamicSchedulerService dynamicSchedulerService;
+    private final PipelineRunPickService pipelineRunPickService;
 
     /**
      * Production constructor — uses a virtual-thread executor so the wait phase
@@ -101,6 +103,7 @@ public class NightlyPipelineOrchestrator {
      * @param forecastBatchRepository         queried for cycle completion
      * @param clock                           injected clock for deterministic tests
      * @param dynamicSchedulerService         scheduler this orchestrator registers itself with
+     * @param pipelineRunPickService          persists each cycle's Plan A / Plan B picks
      */
     @Autowired
     public NightlyPipelineOrchestrator(PipelineRunService pipelineRunService,
@@ -108,12 +111,13 @@ public class NightlyPipelineOrchestrator {
             BriefingService briefingService,
             ForecastBatchRepository forecastBatchRepository,
             Clock clock,
-            DynamicSchedulerService dynamicSchedulerService) {
+            DynamicSchedulerService dynamicSchedulerService,
+            PipelineRunPickService pipelineRunPickService) {
         this(pipelineRunService, scheduledBatchEvaluationService, briefingService,
                 forecastBatchRepository, clock,
                 Executors.newVirtualThreadPerTaskExecutor(),
                 DEFAULT_POLL_INTERVAL, DEFAULT_SAFETY_TIMEOUT,
-                dynamicSchedulerService);
+                dynamicSchedulerService, pipelineRunPickService);
     }
 
     /**
@@ -130,6 +134,8 @@ public class NightlyPipelineOrchestrator {
      * @param safetyTimeout                   safety backstop for the wait phase
      * @param dynamicSchedulerService         scheduler the orchestrator registers itself with;
      *                                        tests may pass {@code null} to skip registration
+     * @param pipelineRunPickService          persists each cycle's Plan A / Plan B picks;
+     *                                        tests may pass {@code null} to skip persistence
      */
     public NightlyPipelineOrchestrator(PipelineRunService pipelineRunService,
             ScheduledBatchEvaluationService scheduledBatchEvaluationService,
@@ -139,7 +145,8 @@ public class NightlyPipelineOrchestrator {
             Executor backgroundExecutor,
             Duration pollInterval,
             Duration safetyTimeout,
-            DynamicSchedulerService dynamicSchedulerService) {
+            DynamicSchedulerService dynamicSchedulerService,
+            PipelineRunPickService pipelineRunPickService) {
         this.pipelineRunService = pipelineRunService;
         this.scheduledBatchEvaluationService = scheduledBatchEvaluationService;
         this.briefingService = briefingService;
@@ -149,6 +156,7 @@ public class NightlyPipelineOrchestrator {
         this.pollInterval = pollInterval;
         this.safetyTimeout = safetyTimeout;
         this.dynamicSchedulerService = dynamicSchedulerService;
+        this.pipelineRunPickService = pipelineRunPickService;
     }
 
     /**
@@ -270,6 +278,7 @@ public class NightlyPipelineOrchestrator {
             pipelineRunService.startPhase(runId, PipelinePhase.BRIEFING);
             try {
                 briefingService.refreshBriefing();
+                persistPicksForCycle(runId);
                 pipelineRunService.completePhase(runId, PipelinePhase.BRIEFING, null);
             } catch (RuntimeException e) {
                 pipelineRunService.failPhase(runId, PipelinePhase.BRIEFING, e.getMessage());
@@ -288,6 +297,43 @@ public class NightlyPipelineOrchestrator {
         } catch (RuntimeException e) {
             LOG.error("Pipeline run {}: wait/brief tail failed — {}", runId, e.getMessage(), e);
             pipelineRunService.failRun(runId, "Wait/brief tail failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Reads the freshly-refreshed briefing's best-bet picks and persists them
+     * against this cycle. Called after a successful
+     * {@code briefingService.refreshBriefing()} and before
+     * {@code completePhase(BRIEFING)} so the picks are committed within the
+     * BRIEFING phase boundary.
+     *
+     * <p>Pick persistence is observability, not correctness — a failure here
+     * must NOT fail the BRIEFING phase or the run. The primary defense is
+     * inside {@link PipelineRunPickService#persist} (which swallows exceptions
+     * by contract). The belt-and-braces try/catch here exists so even a
+     * contract violation cannot fail a briefing that actually succeeded.
+     * The orchestrator does not see anywhere on the success path where a
+     * persist exception is the correct trigger for marking BRIEFING FAILED.
+     *
+     * <p>The {@code null} service guard exists for tests that pass a null
+     * service via the package-private constructor.
+     */
+    private void persistPicksForCycle(Long runId) {
+        if (pipelineRunPickService == null) {
+            return;
+        }
+        try {
+            DailyBriefingResponse briefing = briefingService.getCachedBriefing();
+            if (briefing == null) {
+                LOG.info("Pipeline run {}: no cached briefing after refresh — "
+                        + "skipping pick persistence", runId);
+                return;
+            }
+            pipelineRunPickService.persist(runId, briefing.bestBets());
+        } catch (RuntimeException e) {
+            LOG.warn("Pipeline run {}: pick persistence raised an exception — "
+                    + "logged and ignored (BRIEFING phase remains valid): {}",
+                    runId, e.getMessage());
         }
     }
 
