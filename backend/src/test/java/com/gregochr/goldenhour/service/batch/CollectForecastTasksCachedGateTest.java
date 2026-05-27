@@ -90,14 +90,20 @@ class CollectForecastTasksCachedGateTest {
     private List<?> invokeCollectForecastCandidates(DailyBriefingResponse briefing)
             throws Exception {
         // V101 added a second parameter (List<CandidateDisposition>) that the
-        // first pass appends to. This test exercises the cache-gate behaviour
-        // only — the dispositions list is captured into a throwaway sink.
+        // first pass appends to. Commit 2 (orchestrator extraction) added a
+        // third parameter (CandidateCollectionStrategy) so the same iteration
+        // serves nightly + intraday cycles. This test exercises the
+        // stability-driven cache-gate behaviour only and passes nightly's
+        // accept-all strategy so the iteration matches the pre-extraction
+        // behaviour bit-for-bit.
         Method method = ForecastTaskCollector.class
                 .getDeclaredMethod("collectForecastCandidates",
-                        DailyBriefingResponse.class, List.class);
+                        DailyBriefingResponse.class, List.class,
+                        CandidateCollectionStrategy.class);
         method.setAccessible(true);
         return (List<?>) method.invoke(collector, briefing,
-                new ArrayList<CandidateDisposition>());
+                new ArrayList<CandidateDisposition>(),
+                NightlyCandidateCollectionStrategy.INSTANCE);
     }
 
     private DailyBriefingResponse briefingWithOneSlot(String regionName, String locationName) {

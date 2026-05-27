@@ -107,13 +107,13 @@ class ScheduledBatchEvaluationServiceTest {
 
     @Test
     @DisplayName("registerJobTargets registers aurora_batch_evaluation only "
-            + "(near_term_batch_evaluation moved to NightlyPipelineOrchestrator in V102)")
+            + "(near_term_batch_evaluation moved to PipelineOrchestrator in V102)")
     void registerJobTargets_registersExpectedKeys() {
         service.registerJobTargets();
 
         verify(dynamicSchedulerService).registerJobTarget(
                 eq("aurora_batch_evaluation"), any(Runnable.class));
-        // Near-term is now owned by NightlyPipelineOrchestrator — verify the legacy
+        // Near-term is now owned by PipelineOrchestrator — verify the legacy
         // self-registration was removed.
         verify(dynamicSchedulerService, org.mockito.Mockito.never()).registerJobTarget(
                 eq("near_term_batch_evaluation"), any(Runnable.class));
@@ -124,7 +124,7 @@ class ScheduledBatchEvaluationServiceTest {
     @Test
     @DisplayName("submitForecastBatch: empty collector result → no submission")
     void submitForecastBatch_collectorReturnsEmpty_noSubmission() {
-        when(forecastTaskCollector.collectScheduledBatches())
+        when(forecastTaskCollector.collectScheduledBatches(any(), any()))
                 .thenReturn(ScheduledBatchTasks.empty());
 
         service.submitForecastBatch();
@@ -144,7 +144,7 @@ class ScheduledBatchEvaluationServiceTest {
                 location, TEST_DATE, TargetType.SUNRISE,
                 EvaluationModel.HAIKU, buildAtmospheric(),
                 EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
-        when(forecastTaskCollector.collectScheduledBatches())
+        when(forecastTaskCollector.collectScheduledBatches(any(), any()))
                 .thenReturn(new ScheduledBatchTasks(
                         List.of(nearInlandTask), List.of(nearCoastalTask),
                         List.of(), List.of(), List.of()));
@@ -183,7 +183,7 @@ class ScheduledBatchEvaluationServiceTest {
         CandidateDisposition triagedDispo = new CandidateDisposition(
                 43L, "Newcastle", TEST_DATE, TargetType.SUNRISE, 0,
                 DispositionCategory.SKIPPED_TRIAGED, "cloud");
-        when(forecastTaskCollector.collectScheduledBatches())
+        when(forecastTaskCollector.collectScheduledBatches(any(), any()))
                 .thenReturn(new ScheduledBatchTasks(
                         List.of(nearInlandTask), List.of(nearCoastalTask),
                         List.of(), List.of(),
@@ -202,7 +202,7 @@ class ScheduledBatchEvaluationServiceTest {
     @Test
     @DisplayName("submitForecastBatch: empty bucket result → dispositionService not called")
     void submitForecastBatch_emptyBuckets_noDispositionPersist() {
-        when(forecastTaskCollector.collectScheduledBatches())
+        when(forecastTaskCollector.collectScheduledBatches(any(), any()))
                 .thenReturn(ScheduledBatchTasks.empty());
 
         service.submitForecastBatch();
@@ -226,7 +226,7 @@ class ScheduledBatchEvaluationServiceTest {
         CandidateDisposition dispo = new CandidateDisposition(
                 42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
                 DispositionCategory.EVALUATED, null);
-        when(forecastTaskCollector.collectScheduledBatches())
+        when(forecastTaskCollector.collectScheduledBatches(any(), any()))
                 .thenReturn(new ScheduledBatchTasks(
                         List.of(nearInlandTask), List.of(), List.of(), List.of(),
                         List.of(dispo)));
@@ -365,10 +365,10 @@ class ScheduledBatchEvaluationServiceTest {
 
         service.resetBatchGuards();
 
-        when(forecastTaskCollector.collectScheduledBatches())
+        when(forecastTaskCollector.collectScheduledBatches(any(), any()))
                 .thenReturn(ScheduledBatchTasks.empty());
         service.submitForecastBatch();
-        verify(forecastTaskCollector).collectScheduledBatches();
+        verify(forecastTaskCollector).collectScheduledBatches(any(), any());
     }
 
     @Test
@@ -415,7 +415,7 @@ class ScheduledBatchEvaluationServiceTest {
     @Test
     @DisplayName("submitForecastBatch clears guard even when collector throws")
     void submitForecastBatch_exceptionInCollector_clearsGuard() {
-        when(forecastTaskCollector.collectScheduledBatches())
+        when(forecastTaskCollector.collectScheduledBatches(any(), any()))
                 .thenThrow(new RuntimeException("boom"))
                 .thenReturn(ScheduledBatchTasks.empty());
 
@@ -427,7 +427,7 @@ class ScheduledBatchEvaluationServiceTest {
 
         service.submitForecastBatch();
         verify(forecastTaskCollector, org.mockito.Mockito.times(2))
-                .collectScheduledBatches();
+                .collectScheduledBatches(any(), any());
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

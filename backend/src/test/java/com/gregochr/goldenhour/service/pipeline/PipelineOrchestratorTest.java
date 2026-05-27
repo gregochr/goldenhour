@@ -13,6 +13,8 @@ import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.batch.NightlyCandidateCollectionStrategy;
+import com.gregochr.goldenhour.service.batch.NightlyEligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -42,14 +44,14 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link NightlyPipelineOrchestrator}.
+ * Unit tests for {@link PipelineOrchestrator}.
  *
  * <p>All sequencing is exercised on the calling thread by passing a
  * {@code Runnable::run} executor and a sub-millisecond poll interval, so the
  * wait-loop deterministically reaches completion within the test.
  */
 @ExtendWith(MockitoExtension.class)
-class NightlyPipelineOrchestratorTest {
+class PipelineOrchestratorTest {
 
     /** Fixed instant for clock injection; advanced in timeout test only. */
     private static final Instant T0 = Instant.parse("2026-05-26T01:00:00Z");
@@ -71,7 +73,7 @@ class NightlyPipelineOrchestratorTest {
     @Mock
     private PipelineRunPickService pipelineRunPickService;
 
-    private NightlyPipelineOrchestrator orchestrator;
+    private PipelineOrchestrator orchestrator;
 
     /** Direct executor — runs the wait/brief tail on the calling thread. */
     private final Executor directExecutor = Runnable::run;
@@ -82,7 +84,7 @@ class NightlyPipelineOrchestratorTest {
         // 1ms poll interval, 10s safety timeout — keeps the wait loop fast
         // while leaving room for multi-iteration boundary tests. Null scheduler:
         // unit tests don't exercise the @PostConstruct cron registration.
-        orchestrator = new NightlyPipelineOrchestrator(
+        orchestrator = new PipelineOrchestrator(
                 pipelineRunService,
                 scheduledBatchEvaluationService,
                 briefingService,
@@ -144,7 +146,13 @@ class NightlyPipelineOrchestratorTest {
             verify(pipelineRunService).completePhase(eq(RUN_ID),
                     eq(PipelinePhase.BRIEFING), isNull());
 
-            verify(scheduledBatchEvaluationService).submitForecastBatchForPipelineRun(RUN_ID);
+            // Orchestrator passes nightly's strategy + policy explicitly through the
+            // submit chain — pin both for nightly so a regression that drops them or
+            // swaps in different ones (intraday's, say) is loud.
+            verify(scheduledBatchEvaluationService).submitForecastBatchForPipelineRun(
+                    eq(RUN_ID),
+                    eq(NightlyCandidateCollectionStrategy.INSTANCE),
+                    eq(NightlyEligibilityPolicy.INSTANCE));
             verify(briefingService).refreshBriefing();
             verify(pipelineRunService).completeRun(RUN_ID);
             verify(pipelineRunService, never()).failRun(eq(RUN_ID), eq(""));
@@ -215,7 +223,7 @@ class NightlyPipelineOrchestratorTest {
                     batch(BatchStatus.COMPLETED),
                     batch(BatchStatus.COMPLETED),
                     batch(BatchStatus.SUBMITTED)));
-            NightlyPipelineOrchestrator.BatchCompletionResult notDone =
+            PipelineOrchestrator.BatchCompletionResult notDone =
                     orchestrator.currentCompletionState(RUN_ID);
             assertThat(notDone.allTerminal()).isFalse();
             assertThat(notDone.waitingOnText()).isEqualTo("forecast batch set (2 of 3 complete)");
@@ -225,7 +233,7 @@ class NightlyPipelineOrchestratorTest {
                     batch(BatchStatus.COMPLETED),
                     batch(BatchStatus.COMPLETED),
                     batch(BatchStatus.COMPLETED)));
-            NightlyPipelineOrchestrator.BatchCompletionResult done =
+            PipelineOrchestrator.BatchCompletionResult done =
                     orchestrator.currentCompletionState(RUN_ID);
             assertThat(done.allTerminal()).isTrue();
         }
@@ -260,7 +268,7 @@ class NightlyPipelineOrchestratorTest {
                     return instants.hasNext() ? instants.next() : T0.plusSeconds(10_000);
                 }
             };
-            NightlyPipelineOrchestrator timingOutOrch = new NightlyPipelineOrchestrator(
+            PipelineOrchestrator timingOutOrch = new PipelineOrchestrator(
                     pipelineRunService, scheduledBatchEvaluationService, briefingService,
                     forecastBatchRepository, movingClock,
                     directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
@@ -297,7 +305,10 @@ class NightlyPipelineOrchestratorTest {
         void submit_failure_short_circuits() {
             when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
             doThrow(new RuntimeException("anthropic 5xx"))
-                    .when(scheduledBatchEvaluationService).submitForecastBatchForPipelineRun(RUN_ID);
+                    .when(scheduledBatchEvaluationService).submitForecastBatchForPipelineRun(
+                            eq(RUN_ID),
+                            eq(NightlyCandidateCollectionStrategy.INSTANCE),
+                            eq(NightlyEligibilityPolicy.INSTANCE));
 
             orchestrator.runNightlyCycle();
 
@@ -539,7 +550,7 @@ class NightlyPipelineOrchestratorTest {
         void registers_near_term_target() {
             DynamicSchedulerService scheduler =
                     org.mockito.Mockito.mock(DynamicSchedulerService.class);
-            NightlyPipelineOrchestrator wired = new NightlyPipelineOrchestrator(
+            PipelineOrchestrator wired = new PipelineOrchestrator(
                     pipelineRunService, scheduledBatchEvaluationService, briefingService,
                     forecastBatchRepository, Clock.fixed(T0, ZoneOffset.UTC),
                     directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),

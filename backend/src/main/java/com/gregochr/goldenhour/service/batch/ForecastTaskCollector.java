@@ -170,7 +170,32 @@ public class ForecastTaskCollector {
      *
      * @return bucketed tasks (possibly all-empty)
      */
+    /**
+     * Convenience overload: collects scheduled batches with nightly's
+     * candidate-collection strategy and eligibility policy. Preserves the
+     * legacy zero-arg API for callers (notably the admin {@code submitForecastBatch()}
+     * path and any test harnesses) that don't supply a cycle-specific override.
+     *
+     * @return bucketed tasks (possibly all-empty)
+     */
     public ScheduledBatchTasks collectScheduledBatches() {
+        return collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE);
+    }
+
+    /**
+     * Cycle-aware variant: same triage and bucketing as the nightly path, but
+     * the candidate set and eligibility decisions are delegated to the supplied
+     * strategy + policy.
+     *
+     * @param candidateStrategy filter deciding which event slots enter the candidate set
+     * @param eligibilityPolicy per-candidate include/skip decision function
+     * @return bucketed tasks (possibly all-empty)
+     */
+    public ScheduledBatchTasks collectScheduledBatches(
+            CandidateCollectionStrategy candidateStrategy,
+            EligibilityPolicy eligibilityPolicy) {
         DailyBriefingResponse briefing = briefingService.getCachedBriefing();
         if (briefing == null) {
             LOG.warn("[BATCH DIAG] Forecast batch skipped: no cached briefing available");
@@ -187,7 +212,8 @@ public class ForecastTaskCollector {
                 briefing.days() != null ? briefing.days().size() : 0);
 
         List<CandidateDisposition> dispositions = new ArrayList<>();
-        List<ForecastCandidate> candidates = collectForecastCandidates(briefing, dispositions);
+        List<ForecastCandidate> candidates =
+                collectForecastCandidates(briefing, dispositions, candidateStrategy);
         if (candidates.isEmpty()) {
             LOG.warn("[BATCH DIAG] Forecast batch: no evaluable locations found after "
                     + "task collection, skipping submission");
@@ -271,7 +297,7 @@ public class ForecastTaskCollector {
                 int daysAhead = preEval.daysAhead();
                 ForecastStability stability = stabilityFor(
                         candidate.location(), preEval, stabilityByCell);
-                EligibilityDecision decision = resolveEligibility(
+                EligibilityDecision decision = eligibilityPolicy.resolve(
                         daysAhead, stability, nearTermModel, farTermModel);
                 if (!decision.eligible()) {
                     LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=STABILITY ({})",
@@ -387,17 +413,13 @@ public class ForecastTaskCollector {
      */
     static EligibilityDecision resolveEligibility(int daysAhead, ForecastStability stability,
             EvaluationModel nearTermModel, EvaluationModel farTermModel) {
-        return switch (daysAhead) {
-            case 0, 1 -> EligibilityDecision.include(nearTermModel);
-            case 2 -> (stability == ForecastStability.SETTLED
-                       || stability == ForecastStability.TRANSITIONAL)
-                    ? EligibilityDecision.include(farTermModel)
-                    : EligibilityDecision.skip("T+2 " + stability);
-            case 3 -> stability == ForecastStability.SETTLED
-                    ? EligibilityDecision.include(farTermModel)
-                    : EligibilityDecision.skip("T+3 " + stability);
-            default -> EligibilityDecision.skip("T+" + daysAhead + " beyond horizon");
-        };
+        // Behaviour preserved for legacy callers and existing tests by delegating
+        // to the policy where the table's authoritative implementation now lives.
+        // Cycle-aware callers should pass an {@link EligibilityPolicy} directly
+        // to {@link #collectScheduledBatches(CandidateCollectionStrategy,
+        // EligibilityPolicy)} instead of calling this helper.
+        return NightlyEligibilityPolicy.INSTANCE.resolve(
+                daysAhead, stability, nearTermModel, farTermModel);
     }
 
     /**
@@ -450,7 +472,8 @@ public class ForecastTaskCollector {
         // admin triggers. The throwaway list keeps the helper signature uniform.
         List<CandidateDisposition> unusedDispositions = new ArrayList<>();
         List<ForecastCandidate> candidates =
-                collectForecastCandidates(briefing, unusedDispositions);
+                collectForecastCandidates(briefing, unusedDispositions,
+                        NightlyCandidateCollectionStrategy.INSTANCE);
 
         if (regionFilter != null) {
             candidates = candidates.stream()
@@ -498,7 +521,7 @@ public class ForecastTaskCollector {
                 // Region-filtered admin batches only ever use the near-term model
                 // (legacy contract). Pass `model` as both tiers so the policy's
                 // include branch lands with the right model regardless of horizon.
-                EligibilityDecision decision = resolveEligibility(
+                EligibilityDecision decision = NightlyEligibilityPolicy.INSTANCE.resolve(
                         daysAhead, stability, model, model);
                 if (!decision.eligible()) {
                     continue;
@@ -535,7 +558,8 @@ public class ForecastTaskCollector {
      * SKIPPED_ERROR) once weather + stability data is available.
      */
     private List<ForecastCandidate> collectForecastCandidates(DailyBriefingResponse briefing,
-            List<CandidateDisposition> dispositions) {
+            List<CandidateDisposition> dispositions,
+            CandidateCollectionStrategy candidateStrategy) {
         List<ForecastCandidate> candidates = new ArrayList<>();
         int skippedCache = 0;
         int skippedVerdict = 0;
@@ -582,6 +606,14 @@ public class ForecastTaskCollector {
             }
             for (BriefingEventSummary eventSummary : day.eventSummaries()) {
                 TargetType targetType = eventSummary.targetType();
+                // Cycle-specific window filter. Slots outside the cycle's window
+                // are silently skipped — they are not "decided against", they
+                // simply aren't this cycle's responsibility. Nightly's strategy
+                // accepts everything; the intraday refresh will use this to
+                // restrict to its decision window.
+                if (!candidateStrategy.includes(date, targetType)) {
+                    continue;
+                }
                 for (BriefingRegion region : eventSummary.regions()) {
                     String cacheKey = com.gregochr.goldenhour.service.evaluation.CacheKeyFactory
                             .build(region.regionName(), date, targetType);
