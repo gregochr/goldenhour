@@ -65,6 +65,20 @@ public class ForecastDispositionService {
      */
     @Transactional
     public void persist(Long jobRunId, List<CandidateDisposition> dispositions) {
+        int dispositionCount = dispositions != null ? dispositions.size() : 0;
+        if (jobRunId == null && dispositionCount > 0) {
+            // The exact silent-failure mode that hid the V101 disposition write bug
+            // in production for two days. If a caller hands us dispositions to
+            // persist but no jobRunId to anchor them, that is itself a signal —
+            // either the seam that should have supplied the id is broken, or the
+            // call site is using the wrong overload. Either way, scream so the
+            // next regression of this class is visible immediately.
+            LOG.warn("[DISPOSITION] persist() called with {} dispositions but null jobRunId "
+                    + "— dispositions will NOT be persisted. Check the seam from "
+                    + "BatchSubmissionService → EvaluationHandle → caller.",
+                    dispositionCount);
+            return;
+        }
         if (jobRunId == null || dispositions == null || dispositions.isEmpty()) {
             return;
         }

@@ -645,7 +645,7 @@ class BatchAdminControllerTest extends AbstractControllerTest {
                     .thenReturn(List.of());
             when(scheduledBatchEvaluationService
                     .submitScheduledBatchForRegions(eq(List.of(1L))))
-                    .thenReturn(new BatchSubmitResult("batch-123", 42));
+                    .thenReturn(new BatchSubmitResult(null, "batch-123", 42));
 
             mockMvc.perform(post("/api/admin/batches/submit-scheduled")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -666,7 +666,7 @@ class BatchAdminControllerTest extends AbstractControllerTest {
                     .thenReturn(List.of());
             when(scheduledBatchEvaluationService
                     .submitScheduledBatchForRegions(eq(List.of(3L, 7L, 12L))))
-                    .thenReturn(new BatchSubmitResult("batch-multi", 90));
+                    .thenReturn(new BatchSubmitResult(null, "batch-multi", 90));
 
             mockMvc.perform(post("/api/admin/batches/submit-scheduled")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -687,7 +687,7 @@ class BatchAdminControllerTest extends AbstractControllerTest {
                     .thenReturn(List.of());
             when(scheduledBatchEvaluationService
                     .submitScheduledBatchForRegions(isNull()))
-                    .thenReturn(new BatchSubmitResult("batch-all", 100));
+                    .thenReturn(new BatchSubmitResult(null, "batch-all", 100));
 
             mockMvc.perform(post("/api/admin/batches/submit-scheduled")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -707,7 +707,7 @@ class BatchAdminControllerTest extends AbstractControllerTest {
                     .thenReturn(List.of());
             when(scheduledBatchEvaluationService
                     .submitScheduledBatchForRegions(isNull()))
-                    .thenReturn(new BatchSubmitResult("batch-empty", 50));
+                    .thenReturn(new BatchSubmitResult(null, "batch-empty", 50));
 
             mockMvc.perform(post("/api/admin/batches/submit-scheduled")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -807,7 +807,7 @@ class BatchAdminControllerTest extends AbstractControllerTest {
             when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
                     .thenReturn(List.of());
             when(forceSubmitBatchService.submitJfdiBatch(eq(List.of(2L))))
-                    .thenReturn(new BatchSubmitResult("jfdi-456", 80));
+                    .thenReturn(new BatchSubmitResult(null, "jfdi-456", 80));
 
             mockMvc.perform(post("/api/admin/batches/submit-jfdi")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -826,7 +826,7 @@ class BatchAdminControllerTest extends AbstractControllerTest {
             when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
                     .thenReturn(List.of());
             when(forceSubmitBatchService.submitJfdiBatch(eq(List.of(5L, 10L))))
-                    .thenReturn(new BatchSubmitResult("jfdi-multi", 120));
+                    .thenReturn(new BatchSubmitResult(null, "jfdi-multi", 120));
 
             mockMvc.perform(post("/api/admin/batches/submit-jfdi")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -846,7 +846,7 @@ class BatchAdminControllerTest extends AbstractControllerTest {
             when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
                     .thenReturn(List.of());
             when(forceSubmitBatchService.submitJfdiBatch(isNull()))
-                    .thenReturn(new BatchSubmitResult("jfdi-all", 200));
+                    .thenReturn(new BatchSubmitResult(null, "jfdi-all", 200));
 
             mockMvc.perform(post("/api/admin/batches/submit-jfdi")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -864,7 +864,7 @@ class BatchAdminControllerTest extends AbstractControllerTest {
             when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
                     .thenReturn(List.of());
             when(forceSubmitBatchService.submitJfdiBatch(isNull()))
-                    .thenReturn(new BatchSubmitResult("jfdi-empty", 60));
+                    .thenReturn(new BatchSubmitResult(null, "jfdi-empty", 60));
 
             mockMvc.perform(post("/api/admin/batches/submit-jfdi")
                             .contentType(MediaType.APPLICATION_JSON)

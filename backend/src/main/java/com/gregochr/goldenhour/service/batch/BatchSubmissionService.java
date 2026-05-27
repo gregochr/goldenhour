@@ -125,12 +125,13 @@ public class BatchSubmissionService {
             }
             batchRepository.save(entity);
 
+            Long jobRunId = jobRun != null ? jobRun.getId() : null;
             LOG.info("{} submitted: batchId={}, {} request(s), expires={}, jobRunId={}, "
                             + "pipelineRunId={}, trigger={}",
                     logPrefix, batch.id(), requests.size(), expiresAt,
-                    jobRun != null ? jobRun.getId() : null, pipelineRunId, triggerSource);
+                    jobRunId, pipelineRunId, triggerSource);
 
-            return new BatchSubmitResult(batch.id(), requests.size());
+            return new BatchSubmitResult(jobRunId, batch.id(), requests.size());
         } catch (Exception e) {
             LOG.error("{} submission failed (trigger={}): {}",
                     logPrefix, triggerSource, e.getMessage(), e);

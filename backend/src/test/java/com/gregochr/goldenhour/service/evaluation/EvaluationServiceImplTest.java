@@ -139,11 +139,17 @@ class EvaluationServiceImplTest {
         when(batchSubmissionService.submit(
                 any(), eq(BatchType.FORECAST), eq(BatchTriggerSource.SCHEDULED), anyString(),
                 org.mockito.ArgumentMatchers.isNull()))
-                .thenReturn(new BatchSubmitResult("msgbatch_x", 2));
+                .thenReturn(new BatchSubmitResult(777L, "msgbatch_x", 2));
 
         EvaluationHandle handle = service.submit(
                 List.of(t1, t2), BatchTriggerSource.SCHEDULED);
 
+        // Guard against the V101 seam bug: jobRunId from BatchSubmitResult must
+        // propagate to the returned EvaluationHandle. Prior to the fix this
+        // assertion would have failed (handle.jobRunId() was hard-coded null),
+        // but the test was instead asserting only batchId and submittedCount —
+        // letting the seam bug hide in production for two days.
+        assertThat(handle.jobRunId()).isEqualTo(777L);
         assertThat(handle.batchId()).isEqualTo("msgbatch_x");
         assertThat(handle.submittedCount()).isEqualTo(2);
         ArgumentCaptor<List<BatchCreateParams.Request>> captor =
@@ -166,11 +172,13 @@ class EvaluationServiceImplTest {
                 .thenReturn("user-message");
         when(batchSubmissionService.submit(
                 any(), eq(BatchType.AURORA), eq(BatchTriggerSource.SCHEDULED), anyString()))
-                .thenReturn(new BatchSubmitResult("msgbatch_aurora", 1));
+                .thenReturn(new BatchSubmitResult(888L, "msgbatch_aurora", 1));
 
         EvaluationHandle handle = service.submit(
                 List.of(task), BatchTriggerSource.SCHEDULED);
 
+        // Same V101 seam guard for the aurora path.
+        assertThat(handle.jobRunId()).isEqualTo(888L);
         assertThat(handle.batchId()).isEqualTo("msgbatch_aurora");
         verify(batchSubmissionService).submit(
                 any(), eq(BatchType.AURORA),
