@@ -102,6 +102,11 @@ class BatchSubmissionServiceTest {
         assertThat(result).isNotNull();
         assertThat(result.batchId()).isEqualTo("msgbatch_scheduled");
         assertThat(result.requestCount()).isEqualTo(1);
+        // V101 disposition write fix: the BatchSubmitResult must carry the
+        // jobRunId of the JobRunEntity that JobRunService.startBatchRun created.
+        // Before the fix this field did not exist and the disposition write
+        // downstream silently no-opped on a null jobRunId in EvaluationHandle.
+        assertThat(result.jobRunId()).isEqualTo(42L);
 
         ArgumentCaptor<ForecastBatchEntity> entityCaptor =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);
@@ -177,6 +182,10 @@ class BatchSubmissionServiceTest {
                 BatchTriggerSource.SCHEDULED, "Aurora");
 
         assertThat(result).isNotNull();
+        // Null JobRun → BatchSubmitResult.jobRunId is also null (the corner
+        // case where JobRunService.startBatchRun failed; the batch still went
+        // out but no run was created to anchor dispositions against).
+        assertThat(result.jobRunId()).isNull();
         ArgumentCaptor<ForecastBatchEntity> entityCaptor =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);
         verify(batchRepository).save(entityCaptor.capture());

@@ -152,7 +152,8 @@ public class ForceSubmitBatchService {
         if (handle == null || handle.batchId() == null) {
             return null;
         }
-        return new BatchSubmitResult(handle.batchId(), handle.submittedCount());
+        return new BatchSubmitResult(handle.jobRunId(), handle.batchId(),
+                handle.submittedCount());
     }
 
     /**

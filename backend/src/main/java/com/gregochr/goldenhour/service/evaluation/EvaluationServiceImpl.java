@@ -141,7 +141,8 @@ public class EvaluationServiceImpl implements EvaluationService {
                 pipelineRunId);
         return result == null
                 ? EvaluationHandle.empty()
-                : new EvaluationHandle(null, result.batchId(), result.requestCount());
+                : new EvaluationHandle(result.jobRunId(), result.batchId(),
+                        result.requestCount());
     }
 
     private EvaluationHandle submitAurora(List<EvaluationTask.Aurora> tasks,
@@ -170,7 +171,8 @@ public class EvaluationServiceImpl implements EvaluationService {
                 "EvaluationService aurora (" + trigger + ")");
         return result == null
                 ? EvaluationHandle.empty()
-                : new EvaluationHandle(null, result.batchId(), result.requestCount());
+                : new EvaluationHandle(result.jobRunId(), result.batchId(),
+                        result.requestCount());
     }
 
     private EvaluationResult evaluateNowForecast(EvaluationTask.Forecast task,

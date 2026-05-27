@@ -281,7 +281,12 @@ public class ScheduledBatchEvaluationService {
         // Persist every disposition the collector recorded (EVALUATED plus all
         // SKIPPED_*) against the cycle's first real job_run. Skipped if every
         // bucket's submission failed at the Anthropic call — the [BATCH DIAG]
-        // logs still cover that case for live tailing.
+        // logs still cover that case for live tailing. The log line below is
+        // the operator's smoke check that the write actually happens — the V101
+        // bug hid for two days behind a null jobRunId at the seam and a silent
+        // no-op in persist().
+        LOG.info("[DISPOSITION] Persisting {} dispositions for cycle jobRunId={}",
+                tasks.dispositions().size(), cycleJobRunId);
         dispositionService.persist(cycleJobRunId, tasks.dispositions());
 
         LOG.info("Forecast batch split: near-term {} ({}i + {}c), far-term {} ({}i + {}c), "
@@ -375,7 +380,8 @@ public class ScheduledBatchEvaluationService {
         if (handle == null || handle.batchId() == null) {
             return null;
         }
-        return new BatchSubmitResult(handle.batchId(), handle.submittedCount());
+        return new BatchSubmitResult(handle.jobRunId(), handle.batchId(),
+                handle.submittedCount());
     }
 
     // BatchSubmitResult was promoted to a top-level record in the same package.
