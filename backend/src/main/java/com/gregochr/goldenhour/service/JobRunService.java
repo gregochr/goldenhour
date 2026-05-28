@@ -417,6 +417,54 @@ public class JobRunService {
     }
 
     /**
+     * Creates and immediately completes a job run that exists solely to anchor a
+     * cycle's per-candidate disposition rows when that cycle submitted no batch.
+     *
+     * <p>An overnight cycle where every candidate is cached/skipped/triaged
+     * submits zero Anthropic batches, so no {@link #startBatchRun} job run is
+     * created — yet the collector still recorded a disposition for every
+     * candidate (e.g. all {@code SKIPPED_CACHED}). Those rows are exactly the
+     * accounting an operator needs to answer "why was nothing evaluated this
+     * cycle?", so they must still be persisted and surfaced. This run is their
+     * anchor: it shows up in the Job Run list as a zero-cost batch run whose
+     * Disposition Breakdown explains the cycle.
+     *
+     * <p>Completed immediately (no batch to poll), with a distinguishing note so
+     * it is not mistaken for a real submission.
+     *
+     * @param candidateCount number of candidates considered this cycle (for display)
+     * @return the id of the newly created, already-completed job run
+     */
+    public Long startDispositionAnchorRun(int candidateCount) {
+        Double exchangeRate = null;
+        try {
+            exchangeRate = exchangeRateService.getCurrentRate();
+        } catch (Exception e) {
+            LOG.warn("Failed to fetch exchange rate for disposition anchor run: {}",
+                    e.getMessage());
+        }
+
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        JobRunEntity jobRun = JobRunEntity.builder()
+                .runType(RunType.SCHEDULED_BATCH)
+                .startedAt(now)
+                .completedAt(now)
+                .durationMs(0L)
+                .locationsProcessed(candidateCount)
+                .succeeded(0)
+                .failed(0)
+                .totalCostPence(0)
+                .totalCostMicroDollars(0L)
+                .triggeredManually(false)
+                .exchangeRateGbpPerUsd(exchangeRate)
+                .notes("Disposition-only cycle — no batch submitted "
+                        + "(all candidates cached/skipped)")
+                .appVersion(appVersion)
+                .build();
+        return jobRunRepository.save(jobRun).getId();
+    }
+
+    /**
      * Updates the progress counters on an in-progress batch job run.
      *
      * <p>Called on each poll while the batch is still processing.
