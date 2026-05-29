@@ -114,7 +114,7 @@ public class ScheduledBatchEvaluationService {
      * Registers the aurora batch job target with the dynamic scheduler.
      *
      * <p>The {@code near_term_batch_evaluation} target is registered by
-     * {@code NightlyPipelineOrchestrator} since V102 — the cron now invokes
+     * {@code PipelineOrchestrator} since V102 — the cron now invokes
      * the orchestrator's {@code runNightlyCycle()} rather than this service's
      * {@code submitForecastBatch()} directly. The orchestrator calls
      * {@link #submitForecastBatchForPipelineRun(Long)} as its first phase so
@@ -160,29 +160,56 @@ public class ScheduledBatchEvaluationService {
             return;
         }
         try {
-            doSubmitForecastBatch(null);
+            doSubmitForecastBatch(null,
+                    NightlyCandidateCollectionStrategy.INSTANCE,
+                    NightlyEligibilityPolicy.INSTANCE);
         } finally {
             forecastBatchRunning.set(false);
         }
     }
 
     /**
-     * Cycle-aware variant called by {@code NightlyPipelineOrchestrator}. Identical to
+     * Cycle-aware variant called by {@code PipelineOrchestrator}. Identical to
      * {@link #submitForecastBatch()} except every {@code forecast_batch} row it produces
      * is tagged with the given {@code pipelineRunId} so the orchestrator can detect
      * cycle completion later via a single DB query.
      *
+     * <p>Defaults to the nightly cycle's candidate strategy + eligibility policy.
+     * Callers that need a different cycle's behaviour use
+     * {@link #submitForecastBatchForPipelineRun(Long, CandidateCollectionStrategy,
+     * EligibilityPolicy)} directly.
+     *
      * @param pipelineRunId orchestrated cycle id
      */
     public void submitForecastBatchForPipelineRun(Long pipelineRunId) {
+        submitForecastBatchForPipelineRun(pipelineRunId,
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE);
+    }
+
+    /**
+     * Fully-parameterised cycle-aware variant. The strategy + policy are the only
+     * difference between cycles; the rest of the submit pipeline (briefing read,
+     * weather pre-fetch, cloud pre-fetch, triage, bucketing) is shared single
+     * code path. Used by the orchestrator for any cycle type.
+     *
+     * @param pipelineRunId        orchestrated cycle id
+     * @param candidateStrategy    filter deciding which event slots enter the candidate set
+     * @param eligibilityPolicy    per-candidate include/skip decision function
+     */
+    public void submitForecastBatchForPipelineRun(Long pipelineRunId,
+            CandidateCollectionStrategy candidateStrategy,
+            EligibilityPolicy eligibilityPolicy) {
         java.util.Objects.requireNonNull(pipelineRunId, "pipelineRunId");
+        java.util.Objects.requireNonNull(candidateStrategy, "candidateStrategy");
+        java.util.Objects.requireNonNull(eligibilityPolicy, "eligibilityPolicy");
         if (!forecastBatchRunning.compareAndSet(false, true)) {
             LOG.warn("Forecast batch already running — orchestrator trigger dropped "
                     + "(pipelineRunId={})", pipelineRunId);
             return;
         }
         try {
-            doSubmitForecastBatch(pipelineRunId);
+            doSubmitForecastBatch(pipelineRunId, candidateStrategy, eligibilityPolicy);
         } finally {
             forecastBatchRunning.set(false);
         }
@@ -243,11 +270,22 @@ public class ScheduledBatchEvaluationService {
      * cloud pre-fetch, triage, stability, bucketing) to {@link ForecastTaskCollector}
      * and submits each non-empty bucket separately via {@link EvaluationService}.
      *
-     * @param pipelineRunId orchestrated cycle id to tag the submitted batches with,
-     *                      or {@code null} for legacy cron-direct invocations
+     * @param pipelineRunId       orchestrated cycle id to tag the submitted batches with,
+     *                            or {@code null} for legacy cron-direct invocations
+     * @param candidateStrategy   cycle-specific event-window filter
+     * @param eligibilityPolicy   cycle-specific stability decision function
      */
-    private void doSubmitForecastBatch(Long pipelineRunId) {
-        ScheduledBatchTasks tasks = forecastTaskCollector.collectScheduledBatches();
+    private void doSubmitForecastBatch(Long pipelineRunId,
+            CandidateCollectionStrategy candidateStrategy,
+            EligibilityPolicy eligibilityPolicy) {
+        ScheduledBatchTasks tasks = forecastTaskCollector.collectScheduledBatches(
+                candidateStrategy, eligibilityPolicy);
+        // NOTE: deliberately no `if (tasks.isEmpty()) return;` here. PR #112
+        // removed that early-return so the cycle's dispositions persist
+        // unconditionally (the all-cached / all-skipped cycle still produced a
+        // full disposition list that the guard used to drop). The strategy +
+        // policy parameters from the orchestrator-extraction change thread
+        // through unchanged.
 
         // Submit each non-empty bucket; capture the first non-null jobRunId so
         // every disposition the collector accumulated (across all four buckets,

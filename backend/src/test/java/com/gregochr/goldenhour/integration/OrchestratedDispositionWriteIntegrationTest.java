@@ -19,9 +19,11 @@ import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.batch.ForecastTaskCollector;
+import com.gregochr.goldenhour.service.batch.NightlyCandidateCollectionStrategy;
+import com.gregochr.goldenhour.service.batch.NightlyEligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.ScheduledBatchTasks;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
-import com.gregochr.goldenhour.service.pipeline.NightlyPipelineOrchestrator;
+import com.gregochr.goldenhour.service.pipeline.PipelineOrchestrator;
 import com.gregochr.goldenhour.service.pipeline.PipelineRunService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -54,7 +56,7 @@ import static org.mockito.Mockito.when;
  * line was never reached.
  *
  * <p><b>Why this test would have caught it.</b> It drives the REAL
- * {@link NightlyPipelineOrchestrator} cycle — orchestrator → submit phase →
+ * {@link PipelineOrchestrator} cycle — orchestrator → submit phase →
  * {@code ScheduledBatchEvaluationService.submitForecastBatchForPipelineRun} →
  * {@code doSubmitForecastBatch} → real {@code ForecastDispositionService} → real
  * Postgres — and asserts rows land. Only two collaborators are stubbed, and
@@ -68,7 +70,7 @@ import static org.mockito.Mockito.when;
 class OrchestratedDispositionWriteIntegrationTest extends IntegrationTestBase {
 
     @Autowired
-    private NightlyPipelineOrchestrator orchestrator;
+    private PipelineOrchestrator orchestrator;
 
     @Autowired
     private com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService
@@ -140,7 +142,14 @@ class OrchestratedDispositionWriteIntegrationTest extends IntegrationTestBase {
                 new CandidateDisposition(null, "Tide Loc", date,
                         TargetType.SUNRISE, 1, DispositionCategory.SKIPPED_HARD_CONSTRAINT,
                         "Tide mismatch"));
-        when(forecastTaskCollector.collectScheduledBatches())
+        // The orchestrated nightly cycle passes the nightly strategy + policy
+        // singletons down to the collector; stub on those exact instances (not
+        // any()) so a future change that routes a different strategy/policy
+        // through the nightly path fails this test loudly instead of silently
+        // matching.
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE))
                 .thenReturn(new ScheduledBatchTasks(
                         List.of(), List.of(), List.of(), List.of(), dispositions));
 
@@ -199,7 +208,9 @@ class OrchestratedDispositionWriteIntegrationTest extends IntegrationTestBase {
                 new CandidateDisposition(99L, "Triaged Loc", date,
                         TargetType.SUNSET, 1, DispositionCategory.SKIPPED_TRIAGED,
                         "Solar horizon low cloud 94% — sun blocked"));
-        when(forecastTaskCollector.collectScheduledBatches())
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE))
                 .thenReturn(new ScheduledBatchTasks(
                         List.of(task), List.of(), List.of(), List.of(), dispositions));
 

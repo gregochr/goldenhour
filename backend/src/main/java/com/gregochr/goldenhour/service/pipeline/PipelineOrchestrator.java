@@ -5,9 +5,14 @@ import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import com.gregochr.goldenhour.entity.PipelinePhase;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
+import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.batch.CandidateCollectionStrategy;
+import com.gregochr.goldenhour.service.batch.EligibilityPolicy;
+import com.gregochr.goldenhour.service.batch.NightlyCandidateCollectionStrategy;
+import com.gregochr.goldenhour.service.batch.NightlyEligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -26,22 +31,30 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
 /**
- * Sequencer for the nightly forecast pipeline.
+ * Sequencer for the forecast pipeline — any cycle type, single code path.
  *
- * <p>Replaces the implicit time-buffer coupling between the forecast batch (01:00,
- * completes ~10 min) and the daily briefing (04:00) with an explicit, completion-
- * gated sequence. The body of {@link #runCycleSynchronously(PipelineRunEntity)}
- * reads top-to-bottom as the pipeline:
+ * <p>Replaces the implicit time-buffer coupling between the forecast batch
+ * and the daily briefing with an explicit, completion-gated sequence. The body
+ * of {@link #runCycleSynchronously(PipelineRunEntity)} reads top-to-bottom as
+ * the pipeline:
  *
  * <pre>
  *   1. start FORECAST_BATCH_SUBMIT phase
- *   2. submit forecast batches (tagged with this pipeline_run id)
+ *   2. submit forecast batches with the cycle's candidate strategy +
+ *      eligibility policy (tagged with this pipeline_run id)
  *   3. start FORECAST_BATCH_WAIT phase; poll the DB until every tagged batch
  *      reaches a terminal status, or the safety timeout fires
  *   4. start BRIEFING phase; call BriefingService.refreshBriefing()
- *      (gloss + best-bet run synchronously inside that call)
+ *      (gloss + best-bet run synchronously inside that call); persist the
+ *      cycle's Plan A / Plan B picks
  *   5. mark COMPLETED
  * </pre>
+ *
+ * <p><b>Cycle parameterisation.</b> The strategy + policy are the ONLY
+ * difference between cycles. Everything else — submit, wait-for-batches,
+ * briefing, pick persistence, complete — is shared single code path. The
+ * intraday refresh is a different {@link CycleType} + different strategy +
+ * different policy and reuses this sequencer end-to-end.
  *
  * <p><b>The DB poll in step 3 is deliberately simple and synchronous.</b> It is
  * the one and only "wait" in this sequencer. We chose DB polling over callbacks
@@ -57,16 +70,12 @@ import java.util.concurrent.Executors;
  * <p><b>Aurora is outside this cycle.</b> The orchestrator never invokes aurora
  * polling or aurora batch logic. The briefing's read of {@code AuroraStateCache}
  * is a non-blocking volatile lookup unrelated to cycle ordering.
- *
- * <p>Intraday reuse: this orchestrator is forecast-only today, but parameterising
- * on {@code cycleType} and accepting different phase sets is the future path —
- * the intraday refresh will run its own cycle through this same sequencer.
  */
 @Service
-public class NightlyPipelineOrchestrator {
+public class PipelineOrchestrator {
 
     private static final Logger LOG =
-            LoggerFactory.getLogger(NightlyPipelineOrchestrator.class);
+            LoggerFactory.getLogger(PipelineOrchestrator.class);
 
     /** Default interval between DB polls while waiting for batches to complete. */
     public static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(60);
@@ -87,6 +96,7 @@ public class NightlyPipelineOrchestrator {
     private final Duration pollInterval;
     private final Duration safetyTimeout;
     private final DynamicSchedulerService dynamicSchedulerService;
+    private final PipelineRunPickService pipelineRunPickService;
 
     /**
      * Production constructor — uses a virtual-thread executor so the wait phase
@@ -101,19 +111,21 @@ public class NightlyPipelineOrchestrator {
      * @param forecastBatchRepository         queried for cycle completion
      * @param clock                           injected clock for deterministic tests
      * @param dynamicSchedulerService         scheduler this orchestrator registers itself with
+     * @param pipelineRunPickService          persists each cycle's Plan A / Plan B picks
      */
     @Autowired
-    public NightlyPipelineOrchestrator(PipelineRunService pipelineRunService,
+    public PipelineOrchestrator(PipelineRunService pipelineRunService,
             ScheduledBatchEvaluationService scheduledBatchEvaluationService,
             BriefingService briefingService,
             ForecastBatchRepository forecastBatchRepository,
             Clock clock,
-            DynamicSchedulerService dynamicSchedulerService) {
+            DynamicSchedulerService dynamicSchedulerService,
+            PipelineRunPickService pipelineRunPickService) {
         this(pipelineRunService, scheduledBatchEvaluationService, briefingService,
                 forecastBatchRepository, clock,
                 Executors.newVirtualThreadPerTaskExecutor(),
                 DEFAULT_POLL_INTERVAL, DEFAULT_SAFETY_TIMEOUT,
-                dynamicSchedulerService);
+                dynamicSchedulerService, pipelineRunPickService);
     }
 
     /**
@@ -130,8 +142,10 @@ public class NightlyPipelineOrchestrator {
      * @param safetyTimeout                   safety backstop for the wait phase
      * @param dynamicSchedulerService         scheduler the orchestrator registers itself with;
      *                                        tests may pass {@code null} to skip registration
+     * @param pipelineRunPickService          persists each cycle's Plan A / Plan B picks;
+     *                                        tests may pass {@code null} to skip persistence
      */
-    public NightlyPipelineOrchestrator(PipelineRunService pipelineRunService,
+    public PipelineOrchestrator(PipelineRunService pipelineRunService,
             ScheduledBatchEvaluationService scheduledBatchEvaluationService,
             BriefingService briefingService,
             ForecastBatchRepository forecastBatchRepository,
@@ -139,7 +153,8 @@ public class NightlyPipelineOrchestrator {
             Executor backgroundExecutor,
             Duration pollInterval,
             Duration safetyTimeout,
-            DynamicSchedulerService dynamicSchedulerService) {
+            DynamicSchedulerService dynamicSchedulerService,
+            PipelineRunPickService pipelineRunPickService) {
         this.pipelineRunService = pipelineRunService;
         this.scheduledBatchEvaluationService = scheduledBatchEvaluationService;
         this.briefingService = briefingService;
@@ -149,6 +164,7 @@ public class NightlyPipelineOrchestrator {
         this.pollInterval = pollInterval;
         this.safetyTimeout = safetyTimeout;
         this.dynamicSchedulerService = dynamicSchedulerService;
+        this.pipelineRunPickService = pipelineRunPickService;
     }
 
     /**
@@ -169,19 +185,43 @@ public class NightlyPipelineOrchestrator {
     }
 
     /**
-     * Entry point invoked by the scheduler (commit 2 wires this to
-     * {@code near_term_batch_evaluation}). Creates the pipeline run, runs the
-     * SUBMIT phase synchronously on the caller's scheduler thread, then
-     * dispatches the WAIT+BRIEFING tail to a virtual thread so the scheduler
-     * thread is freed for other jobs.
+     * Nightly cycle entry point — thin caller of
+     * {@link #runCycle(CycleType, CandidateCollectionStrategy, EligibilityPolicy)}
+     * with the nightly strategy + policy. Bound to the
+     * {@code near_term_batch_evaluation} cron via
+     * {@link #registerJobTarget()}.
      */
     public void runNightlyCycle() {
-        PipelineRunEntity run = pipelineRunService.startRun(CycleType.NIGHTLY);
+        runCycle(CycleType.NIGHTLY,
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE);
+    }
+
+    /**
+     * Generic cycle entry point. Creates the pipeline run with the given
+     * {@link CycleType}, runs SUBMIT synchronously on the caller's scheduler
+     * thread, then dispatches the WAIT+BRIEFING tail to a virtual thread so
+     * the scheduler thread is freed for other jobs.
+     *
+     * <p>This is the single shared code path; the {@code candidateStrategy}
+     * and {@code eligibilityPolicy} arguments are the only cycle-specific
+     * inputs the sequencer needs.
+     *
+     * @param cycleType         which cycle is being run (NIGHTLY today;
+     *                          INTRADAY reserved)
+     * @param candidateStrategy filter deciding which event slots enter the
+     *                          candidate set
+     * @param eligibilityPolicy per-candidate include/skip decision function
+     */
+    public void runCycle(CycleType cycleType,
+            CandidateCollectionStrategy candidateStrategy,
+            EligibilityPolicy eligibilityPolicy) {
+        PipelineRunEntity run = pipelineRunService.startRun(cycleType);
         try {
-            submitPhase(run.getId());
+            submitPhase(run.getId(), candidateStrategy, eligibilityPolicy);
         } catch (Exception e) {
-            LOG.error("Pipeline run {}: submission phase failed — {}", run.getId(),
-                    e.getMessage(), e);
+            LOG.error("Pipeline run {} ({}): submission phase failed — {}", run.getId(),
+                    cycleType, e.getMessage(), e);
             pipelineRunService.failRun(run.getId(), "Submit phase failed: " + e.getMessage());
             return;
         }
@@ -189,9 +229,10 @@ public class NightlyPipelineOrchestrator {
     }
 
     /**
-     * Synchronous variant — runs the full cycle on the calling thread. Used in
-     * unit tests for deterministic ordering. The production wiring uses
-     * {@link #runNightlyCycle()}.
+     * Synchronous variant — runs the full cycle on the calling thread using the
+     * nightly strategy + policy. Used in unit tests for deterministic ordering.
+     * The production wiring uses {@link #runNightlyCycle()} /
+     * {@link #runCycle(CycleType, CandidateCollectionStrategy, EligibilityPolicy)}.
      *
      * @param preCreatedRun a pipeline run previously created via
      *                      {@link PipelineRunService#startRun(CycleType)}
@@ -199,7 +240,9 @@ public class NightlyPipelineOrchestrator {
     public void runCycleSynchronously(PipelineRunEntity preCreatedRun) {
         Long runId = preCreatedRun.getId();
         try {
-            submitPhase(runId);
+            submitPhase(runId,
+                    NightlyCandidateCollectionStrategy.INSTANCE,
+                    NightlyEligibilityPolicy.INSTANCE);
         } catch (Exception e) {
             pipelineRunService.failRun(runId, "Submit phase failed: " + e.getMessage());
             return;
@@ -238,10 +281,13 @@ public class NightlyPipelineOrchestrator {
         }
     }
 
-    private void submitPhase(Long runId) {
+    private void submitPhase(Long runId,
+            CandidateCollectionStrategy candidateStrategy,
+            EligibilityPolicy eligibilityPolicy) {
         pipelineRunService.startPhase(runId, PipelinePhase.FORECAST_BATCH_SUBMIT);
         try {
-            scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(runId);
+            scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
+                    runId, candidateStrategy, eligibilityPolicy);
             pipelineRunService.completePhase(runId, PipelinePhase.FORECAST_BATCH_SUBMIT, null);
         } catch (RuntimeException e) {
             pipelineRunService.failPhase(runId, PipelinePhase.FORECAST_BATCH_SUBMIT,
@@ -270,6 +316,7 @@ public class NightlyPipelineOrchestrator {
             pipelineRunService.startPhase(runId, PipelinePhase.BRIEFING);
             try {
                 briefingService.refreshBriefing();
+                persistPicksForCycle(runId);
                 pipelineRunService.completePhase(runId, PipelinePhase.BRIEFING, null);
             } catch (RuntimeException e) {
                 pipelineRunService.failPhase(runId, PipelinePhase.BRIEFING, e.getMessage());
@@ -288,6 +335,56 @@ public class NightlyPipelineOrchestrator {
         } catch (RuntimeException e) {
             LOG.error("Pipeline run {}: wait/brief tail failed — {}", runId, e.getMessage(), e);
             pipelineRunService.failRun(runId, "Wait/brief tail failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Reads the freshly-refreshed briefing's best-bet picks and persists them
+     * against this cycle. Called after a successful
+     * {@code briefingService.refreshBriefing()} and before
+     * {@code completePhase(BRIEFING)} so the picks are committed within the
+     * BRIEFING phase boundary.
+     *
+     * <p>Pick persistence is observability, not correctness — a failure here
+     * must NOT fail the BRIEFING phase or the run. The primary defense is
+     * inside {@link PipelineRunPickService#persist} (which swallows exceptions
+     * by contract). The belt-and-braces try/catch here exists so even a
+     * contract violation cannot fail a briefing that actually succeeded.
+     * The orchestrator does not see anywhere on the success path where a
+     * persist exception is the correct trigger for marking BRIEFING FAILED.
+     *
+     * <p>The {@code null} service guard exists for tests that pass a null
+     * service via the package-private constructor.
+     *
+     * <p>A stale briefing is skipped: on a below-threshold run
+     * {@code BriefingService.refreshBriefing()} serves the last-known-good
+     * briefing, whose {@code bestBets} are the PREVIOUS cycle's picks carried
+     * forward — not this run's. Persisting them would record the prior run's
+     * picks against this {@code runId}, silently corrupting the cross-run
+     * "did Plan A change?" comparison this table exists to power.
+     */
+    private void persistPicksForCycle(Long runId) {
+        if (pipelineRunPickService == null) {
+            return;
+        }
+        try {
+            DailyBriefingResponse briefing = briefingService.getCachedBriefing();
+            if (briefing == null) {
+                LOG.info("Pipeline run {}: no cached briefing after refresh — "
+                        + "skipping pick persistence", runId);
+                return;
+            }
+            if (briefing.stale()) {
+                LOG.info("Pipeline run {}: briefing served stale (below-threshold run) — "
+                        + "its picks are carried-forward last-known-good, not this cycle's; "
+                        + "skipping pick persistence", runId);
+                return;
+            }
+            pipelineRunPickService.persist(runId, briefing.bestBets());
+        } catch (RuntimeException e) {
+            LOG.warn("Pipeline run {}: pick persistence raised an exception — "
+                    + "logged and ignored (BRIEFING phase remains valid): {}",
+                    runId, e.getMessage());
         }
     }
 
