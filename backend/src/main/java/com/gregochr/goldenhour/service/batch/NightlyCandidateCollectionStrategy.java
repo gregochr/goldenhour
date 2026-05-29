@@ -24,9 +24,10 @@ public final class NightlyCandidateCollectionStrategy implements CandidateCollec
             new NightlyCandidateCollectionStrategy();
 
     /**
-     * Private constructor; use {@link #INSTANCE} or {@code new} for tests.
+     * Private constructor — the strategy is stateless, so all callers share
+     * {@link #INSTANCE}.
      */
-    public NightlyCandidateCollectionStrategy() {
+    private NightlyCandidateCollectionStrategy() {
     }
 
     @Override

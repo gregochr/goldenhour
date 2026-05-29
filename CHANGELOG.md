@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Stale briefings no longer record carried-forward picks (best-bet persistence follow-up)
+- **`PipelineOrchestrator.persistPicksForCycle` now skips persistence when the briefing is stale.** On a below-threshold run, `BriefingService.refreshBriefing()` serves the last-known-good briefing whose `bestBets` are the *previous* cycle's picks carried forward. Persisting those against the current `runId` would have recorded the prior run's picks as this run's, silently corrupting the cross-run "did Plan A change?" comparison the table exists to power. The orchestrator now checks `briefing.stale()` and skips — only genuinely fresh picks are recorded
+- **Minor cleanups** from a quality pass on the best-bet-persistence + orchestrator-extraction commits: `NightlyCandidateCollectionStrategy` / `NightlyEligibilityPolicy` constructors made private (all callers use the shared `INSTANCE`)
+
 ### Changed — Pipeline orchestrator extracted for cycle reuse (intraday refresh prep, commit 2 of 4)
 - **`NightlyPipelineOrchestrator` renamed to `PipelineOrchestrator`** — the class is now the sequencer for any cycle type, not nightly's alone. Its mechanics (start run → submit → wait → brief → persist picks → complete) are shared single code path; cycles differ only in their strategy + policy
 - **`runCycle(CycleType, CandidateCollectionStrategy, EligibilityPolicy)`** is the new generic entry point. `runNightlyCycle()` is now a thin caller of `runCycle(NIGHTLY, NIGHTLY_STRATEGY, NIGHTLY_POLICY)`. The intraday cycle (commit 3) will be another caller of the same `runCycle` with intraday's strategy + policy — no parallel orchestrator

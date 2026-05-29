@@ -355,6 +355,13 @@ public class PipelineOrchestrator {
      *
      * <p>The {@code null} service guard exists for tests that pass a null
      * service via the package-private constructor.
+     *
+     * <p>A stale briefing is skipped: on a below-threshold run
+     * {@code BriefingService.refreshBriefing()} serves the last-known-good
+     * briefing, whose {@code bestBets} are the PREVIOUS cycle's picks carried
+     * forward — not this run's. Persisting them would record the prior run's
+     * picks against this {@code runId}, silently corrupting the cross-run
+     * "did Plan A change?" comparison this table exists to power.
      */
     private void persistPicksForCycle(Long runId) {
         if (pipelineRunPickService == null) {
@@ -364,6 +371,12 @@ public class PipelineOrchestrator {
             DailyBriefingResponse briefing = briefingService.getCachedBriefing();
             if (briefing == null) {
                 LOG.info("Pipeline run {}: no cached briefing after refresh — "
+                        + "skipping pick persistence", runId);
+                return;
+            }
+            if (briefing.stale()) {
+                LOG.info("Pipeline run {}: briefing served stale (below-threshold run) — "
+                        + "its picks are carried-forward last-known-good, not this cycle's; "
                         + "skipping pick persistence", runId);
                 return;
             }

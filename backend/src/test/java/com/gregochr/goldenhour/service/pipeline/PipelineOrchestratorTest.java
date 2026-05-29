@@ -441,6 +441,10 @@ class PipelineOrchestratorTest {
     class PickPersistence {
 
         private DailyBriefingResponse briefingWithPicks(List<BestBet> picks) {
+            return briefingWithPicks(picks, false);
+        }
+
+        private DailyBriefingResponse briefingWithPicks(List<BestBet> picks, boolean stale) {
             return new DailyBriefingResponse(
                     java.time.LocalDateTime.of(2026, 5, 26, 4, 0),
                     "test headline",
@@ -448,7 +452,7 @@ class PipelineOrchestratorTest {
                     picks,
                     null,
                     null,
-                    false,
+                    stale,
                     false,
                     0,
                     "Haiku",
@@ -492,6 +496,27 @@ class PipelineOrchestratorTest {
             orchestrator.runNightlyCycle();
 
             verify(pipelineRunPickService).persist(RUN_ID, List.of());
+            verify(pipelineRunService).completeRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("stale briefing (below-threshold run, LKG picks) → persist NOT called")
+        void skips_persist_when_briefing_stale() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
+                    .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
+            // Below-threshold run: the cache holds the last-known-good briefing whose
+            // bestBets are the PREVIOUS cycle's picks. Recording them against this
+            // runId would corrupt the cross-run comparison, so persistence is skipped.
+            when(briefingService.getCachedBriefing())
+                    .thenReturn(briefingWithPicks(List.of(pick(1)), true));
+
+            orchestrator.runNightlyCycle();
+
+            verifyNoInteractions(pipelineRunPickService);
+            verify(pipelineRunService).completePhase(eq(RUN_ID),
+                    eq(PipelinePhase.BRIEFING), isNull());
             verify(pipelineRunService).completeRun(RUN_ID);
         }
 

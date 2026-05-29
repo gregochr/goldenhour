@@ -33,9 +33,10 @@ public final class NightlyEligibilityPolicy implements EligibilityPolicy {
     public static final NightlyEligibilityPolicy INSTANCE = new NightlyEligibilityPolicy();
 
     /**
-     * Public constructor for tests that want a non-singleton instance.
+     * Private constructor — the policy is stateless, so all callers share
+     * {@link #INSTANCE}.
      */
-    public NightlyEligibilityPolicy() {
+    private NightlyEligibilityPolicy() {
     }
 
     @Override
