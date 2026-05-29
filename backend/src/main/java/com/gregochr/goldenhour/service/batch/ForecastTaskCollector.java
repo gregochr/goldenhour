@@ -381,13 +381,14 @@ public class ForecastTaskCollector {
                         forced = true;
                         forcedCount++;
                     } else {
-                        LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=STABILITY ({})",
+                        LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason={} ({})",
                                 candidate.location().getName(), candidate.date(),
-                                candidate.targetType(), decision.skipReason());
+                                candidate.targetType(), decision.skipDisposition(),
+                                decision.skipReason());
                         dispositions.add(new CandidateDisposition(
                                 candidate.location().getId(), candidate.location().getName(),
                                 candidate.date(), candidate.targetType(), daysAhead,
-                                DispositionCategory.SKIPPED_STABILITY, decision.skipReason()));
+                                decision.skipDisposition(), decision.skipReason()));
                         agg.recordExcluded(daysAhead, stability);
                         skippedStability++;
                         continue;

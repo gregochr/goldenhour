@@ -927,6 +927,81 @@ class ForecastTaskCollectorTest {
     }
 
     @Test
+    @DisplayName("dispositions: intraday SETTLED candidate skipped as SKIPPED_NO_REFRESH_NEEDED "
+            + "(through the real collect path, IntradayEligibilityPolicy)")
+    void dispositions_intradaySettled_recordedAsNoRefreshNeeded() {
+        // Exercises the policy → disposition-category mapping through the real
+        // collector, NOT a mocked seam: a SETTLED location under the intraday
+        // cost-gate is skipped and recorded as SKIPPED_NO_REFRESH_NEEDED (the
+        // category the disposition acceptance bar checks for), distinct from
+        // nightly's SKIPPED_STABILITY.
+        LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
+        loc.setGridLat(54.7500);
+        loc.setGridLng(-1.6250);
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY.plusDays(1),
+                Verdict.GO, loc.getName());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        stubModels();
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
+        when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyDouble(), any()))
+                .thenReturn(new GridCellStabilityResult(
+                        loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
+                        ForecastStability.SETTLED, "stable", 3));
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                IntradayEligibilityPolicy.INSTANCE,
+                true);
+
+        // Settled → no Claude call this afternoon; not bucketed.
+        assertThat(result.isEmpty()).isTrue();
+        assertThat(result.dispositions()).hasSize(1);
+        CandidateDisposition d = result.dispositions().get(0);
+        assertThat(d.category()).isEqualTo(DispositionCategory.SKIPPED_NO_REFRESH_NEEDED);
+        assertThat(d.detail()).contains("settled");
+        assertThat(d.locationName()).isEqualTo("Durham UK");
+    }
+
+    @Test
+    @DisplayName("dispositions: intraday TRANSITIONAL candidate is EVALUATED (refresh worth it)")
+    void dispositions_intradayTransitional_recordedAsEvaluated() {
+        LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
+        loc.setGridLat(54.7500);
+        loc.setGridLng(-1.6250);
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY.plusDays(1),
+                Verdict.GO, loc.getName());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        stubModels();
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
+        when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyDouble(), any()))
+                .thenReturn(new GridCellStabilityResult(
+                        loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
+                        ForecastStability.TRANSITIONAL, "mixed signals", 1));
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                IntradayEligibilityPolicy.INSTANCE,
+                true);
+
+        assertThat(result.nearInland()).hasSize(1);
+        assertThat(result.dispositions()).hasSize(1);
+        assertThat(result.dispositions().get(0).category())
+                .isEqualTo(DispositionCategory.EVALUATED);
+        // Intraday evaluates on the near-term model.
+        assertThat(result.nearInland().get(0).model()).isEqualTo(EvaluationModel.SONNET);
+    }
+
+    @Test
     @DisplayName("dispositions: HARD_CONSTRAINT (tide mismatch) recorded with standdown reason")
     void dispositions_hardConstraint_recordedWithStanddownReason() {
         when(briefingService.getCachedBriefing())

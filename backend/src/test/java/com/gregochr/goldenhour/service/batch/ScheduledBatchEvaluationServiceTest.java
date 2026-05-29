@@ -129,7 +129,8 @@ class ScheduledBatchEvaluationServiceTest {
     void submitForecastBatch_collectorReturnsEmpty_noSubmission() {
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE,
-                NightlyEligibilityPolicy.INSTANCE))
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
                 .thenReturn(ScheduledBatchTasks.empty());
 
         service.submitForecastBatch();
@@ -151,7 +152,8 @@ class ScheduledBatchEvaluationServiceTest {
                 EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE,
-                NightlyEligibilityPolicy.INSTANCE))
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
                 .thenReturn(new ScheduledBatchTasks(
                         List.of(nearInlandTask), List.of(nearCoastalTask),
                         List.of(), List.of(), List.of()));
@@ -192,7 +194,8 @@ class ScheduledBatchEvaluationServiceTest {
                 DispositionCategory.SKIPPED_TRIAGED, "cloud");
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE,
-                NightlyEligibilityPolicy.INSTANCE))
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
                 .thenReturn(new ScheduledBatchTasks(
                         List.of(nearInlandTask), List.of(nearCoastalTask),
                         List.of(), List.of(),
@@ -216,7 +219,8 @@ class ScheduledBatchEvaluationServiceTest {
         // briefing). Nothing to account for, so neither persist nor anchor fire.
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE,
-                NightlyEligibilityPolicy.INSTANCE))
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
                 .thenReturn(ScheduledBatchTasks.empty());
 
         service.submitForecastBatch();
@@ -241,7 +245,8 @@ class ScheduledBatchEvaluationServiceTest {
                 DispositionCategory.SKIPPED_CACHED, "Fresh cached evaluation");
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE,
-                NightlyEligibilityPolicy.INSTANCE))
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
                 .thenReturn(new ScheduledBatchTasks(
                         List.of(), List.of(), List.of(), List.of(),
                         List.of(cached1, cached2)));
@@ -274,7 +279,8 @@ class ScheduledBatchEvaluationServiceTest {
                 DispositionCategory.EVALUATED, null);
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE,
-                NightlyEligibilityPolicy.INSTANCE))
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
                 .thenReturn(new ScheduledBatchTasks(
                         List.of(nearInlandTask), List.of(), List.of(), List.of(),
                         List.of(dispo)));
@@ -417,12 +423,14 @@ class ScheduledBatchEvaluationServiceTest {
 
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE,
-                NightlyEligibilityPolicy.INSTANCE))
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
                 .thenReturn(ScheduledBatchTasks.empty());
         service.submitForecastBatch();
         verify(forecastTaskCollector).collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE,
-                NightlyEligibilityPolicy.INSTANCE);
+                NightlyEligibilityPolicy.INSTANCE,
+                false);
     }
 
     @Test
@@ -471,7 +479,8 @@ class ScheduledBatchEvaluationServiceTest {
     void submitForecastBatch_exceptionInCollector_clearsGuard() {
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE,
-                NightlyEligibilityPolicy.INSTANCE))
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
                 .thenThrow(new RuntimeException("boom"))
                 .thenReturn(ScheduledBatchTasks.empty());
 
@@ -485,7 +494,8 @@ class ScheduledBatchEvaluationServiceTest {
         verify(forecastTaskCollector, org.mockito.Mockito.times(2))
                 .collectScheduledBatches(
                         NightlyCandidateCollectionStrategy.INSTANCE,
-                        NightlyEligibilityPolicy.INSTANCE);
+                        NightlyEligibilityPolicy.INSTANCE,
+                        false);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

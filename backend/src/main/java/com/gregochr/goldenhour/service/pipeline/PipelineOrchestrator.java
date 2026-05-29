@@ -11,8 +11,11 @@ import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.batch.CandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.EligibilityPolicy;
+import com.gregochr.goldenhour.service.batch.IntradayCandidateCollectionStrategy;
+import com.gregochr.goldenhour.service.batch.IntradayEligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.NightlyCandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.NightlyEligibilityPolicy;
+import com.gregochr.goldenhour.service.batch.ReclassSummary;
 import com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -29,6 +32,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 
 /**
  * Sequencer for the forecast pipeline — any cycle type, single code path.
@@ -181,6 +185,8 @@ public class PipelineOrchestrator {
         if (dynamicSchedulerService != null) {
             dynamicSchedulerService.registerJobTarget(
                     "near_term_batch_evaluation", this::runNightlyCycle);
+            dynamicSchedulerService.registerJobTarget(
+                    "intraday_forecast_refresh", this::runIntradayCycle);
         }
     }
 
@@ -195,6 +201,32 @@ public class PipelineOrchestrator {
         runCycle(CycleType.NIGHTLY,
                 NightlyCandidateCollectionStrategy.INSTANCE,
                 NightlyEligibilityPolicy.INSTANCE);
+    }
+
+    /**
+     * Intraday refresh entry point — a peer of {@link #runNightlyCycle()} that
+     * reuses the exact same {@link #runCycle(CycleType, CandidateCollectionStrategy,
+     * EligibilityPolicy)} machinery. It differs only in the two cycle-specific
+     * inputs:
+     *
+     * <ul>
+     *   <li>{@link IntradayCandidateCollectionStrategy} — the decision window
+     *       (T sunset, T+1 sunrise, T+1 sunset), built against this orchestrator's
+     *       {@link Clock} so "today" is stable for the cycle;</li>
+     *   <li>{@link IntradayEligibilityPolicy} — the skip-settled cost-gate.</li>
+     * </ul>
+     *
+     * <p>Bound to the {@code intraday_forecast_refresh} cron (14:00 UTC) via
+     * {@link #registerJobTarget()}. Because it goes through {@code runCycle} with
+     * {@link CycleType#INTRADAY}, the submit phase runs ephemerally (the morning
+     * snapshot is preserved) and records a {@code STABILITY_RECLASSIFY} phase
+     * before {@code FORECAST_BATCH_SUBMIT}; wait, briefing and best-bet persistence
+     * are identical to nightly.
+     */
+    public void runIntradayCycle() {
+        runCycle(CycleType.INTRADAY,
+                new IntradayCandidateCollectionStrategy(clock),
+                IntradayEligibilityPolicy.INSTANCE);
     }
 
     /**
@@ -218,7 +250,7 @@ public class PipelineOrchestrator {
             EligibilityPolicy eligibilityPolicy) {
         PipelineRunEntity run = pipelineRunService.startRun(cycleType);
         try {
-            submitPhase(run.getId(), candidateStrategy, eligibilityPolicy);
+            submitPhase(run.getId(), cycleType, candidateStrategy, eligibilityPolicy);
         } catch (Exception e) {
             LOG.error("Pipeline run {} ({}): submission phase failed — {}", run.getId(),
                     cycleType, e.getMessage(), e);
@@ -240,7 +272,7 @@ public class PipelineOrchestrator {
     public void runCycleSynchronously(PipelineRunEntity preCreatedRun) {
         Long runId = preCreatedRun.getId();
         try {
-            submitPhase(runId,
+            submitPhase(runId, CycleType.NIGHTLY,
                     NightlyCandidateCollectionStrategy.INSTANCE,
                     NightlyEligibilityPolicy.INSTANCE);
         } catch (Exception e) {
@@ -256,9 +288,11 @@ public class PipelineOrchestrator {
      *
      * <p>Mid-WAIT or mid-BRIEFING: re-dispatches the wait+brief tail (which
      * picks up where it left off — the wait loop's progress is driven by the
-     * DB state, not in-memory). Mid-SUBMIT: marks FAILED because batches may
-     * have been submitted to Anthropic in a partial state we can't safely
-     * resume; the next scheduled cron creates a fresh cycle.
+     * DB state, not in-memory). Mid-RECLASSIFY or mid-SUBMIT (the pre-submission
+     * phases): marks FAILED because batches may have been submitted to Anthropic
+     * in a partial state we can't safely resume — and resuming from RECLASSIFY
+     * would jump straight to a zero-batch WAIT and brief on stale data; the next
+     * scheduled cron creates a fresh cycle.
      */
     @EventListener(ApplicationReadyEvent.class)
     @Profile("!integration-test")
@@ -271,9 +305,10 @@ public class PipelineOrchestrator {
                 running.size());
         for (PipelineRunEntity run : running) {
             PipelinePhase phase = run.getCurrentPhase();
-            if (phase == PipelinePhase.FORECAST_BATCH_SUBMIT || phase == null) {
+            if (phase == PipelinePhase.STABILITY_RECLASSIFY
+                    || phase == PipelinePhase.FORECAST_BATCH_SUBMIT || phase == null) {
                 pipelineRunService.failRun(run.getId(),
-                        "Process restarted during submit phase — cannot safely resume");
+                        "Process restarted during pre-submission phase — cannot safely resume");
             } else {
                 LOG.info("Resuming pipeline run {} from phase {}", run.getId(), phase);
                 backgroundExecutor.execute(() -> waitAndBriefPhase(run.getId()));
@@ -281,17 +316,55 @@ public class PipelineOrchestrator {
         }
     }
 
-    private void submitPhase(Long runId,
+    /**
+     * Runs the submission step, recording phases per cycle type.
+     *
+     * <p><b>Nightly</b> records a single {@link PipelinePhase#FORECAST_BATCH_SUBMIT}
+     * phase spanning collection and submission (classification is published; not a
+     * distinct phase). <b>Intraday</b> records two phases:
+     * {@link PipelinePhase#STABILITY_RECLASSIFY} around the ephemeral
+     * re-classification + cost-gate, then {@link PipelinePhase#FORECAST_BATCH_SUBMIT}
+     * around the actual batch submission. The boundary is driven by the
+     * between-collect-and-submit hook the batch service fires while still holding
+     * its concurrency guard — so the two intraday phases have real, separate
+     * durations rather than a synthetic near-simultaneous completion.
+     *
+     * <p>The collect + submit <em>logic</em> is one shared implementation in the
+     * batch service; only this phase recording differs by cycle.
+     */
+    private void submitPhase(Long runId, CycleType cycleType,
             CandidateCollectionStrategy candidateStrategy,
             EligibilityPolicy eligibilityPolicy) {
-        pipelineRunService.startPhase(runId, PipelinePhase.FORECAST_BATCH_SUBMIT);
+        boolean intraday = cycleType == CycleType.INTRADAY;
+        PipelinePhase firstPhase = intraday
+                ? PipelinePhase.STABILITY_RECLASSIFY
+                : PipelinePhase.FORECAST_BATCH_SUBMIT;
+        pipelineRunService.startPhase(runId, firstPhase);
+
+        // For intraday only, the hook closes STABILITY_RECLASSIFY (recording the
+        // cost-gate summary) and opens FORECAST_BATCH_SUBMIT between the collect
+        // and submit steps. For nightly the hook is a no-op and the single
+        // FORECAST_BATCH_SUBMIT phase spans both steps.
+        Consumer<ReclassSummary> betweenSteps = intraday
+                ? summary -> {
+                    pipelineRunService.completePhase(runId,
+                            PipelinePhase.STABILITY_RECLASSIFY, summary.detail());
+                    pipelineRunService.startPhase(runId, PipelinePhase.FORECAST_BATCH_SUBMIT);
+                }
+                : summary -> { };
+
         try {
             scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
-                    runId, candidateStrategy, eligibilityPolicy);
+                    runId, candidateStrategy, eligibilityPolicy, intraday, betweenSteps);
             pipelineRunService.completePhase(runId, PipelinePhase.FORECAST_BATCH_SUBMIT, null);
         } catch (RuntimeException e) {
-            pipelineRunService.failPhase(runId, PipelinePhase.FORECAST_BATCH_SUBMIT,
-                    e.getMessage());
+            // Fail whichever phase was in flight when the exception fired — for
+            // intraday that's STABILITY_RECLASSIFY if collection failed before the
+            // hook, FORECAST_BATCH_SUBMIT if submission failed after it.
+            PipelinePhase failed = pipelineRunService.findById(runId)
+                    .map(PipelineRunEntity::getCurrentPhase)
+                    .orElse(firstPhase);
+            pipelineRunService.failPhase(runId, failed, e.getMessage());
             throw e;
         }
     }
