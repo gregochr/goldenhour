@@ -11,9 +11,19 @@ const RUNNING_POLL_INTERVAL_MS = 15_000;
 const LIST_REFRESH_INTERVAL_MS = 60_000;
 
 const PHASE_LABEL = {
+  STABILITY_RECLASSIFY: 'Re-classify (cost-gate)',
   FORECAST_BATCH_SUBMIT: 'Submit batches',
   FORECAST_BATCH_WAIT: 'Wait for completion',
   BRIEFING: 'Briefing (gloss + best-bet)',
+};
+
+/** Human labels for the cross-run comparison's changed dimensions. */
+const DIMENSION_LABEL = {
+  REGION: 'region',
+  DATE: 'date',
+  EVENT: 'event',
+  RATING: 'rating',
+  PRESENCE: 'added/dropped',
 };
 
 const STATUS_PILL_CLASSES = {
@@ -205,6 +215,111 @@ PipelineRunsView.defaultProps = {
   activeRunId: null,
 };
 
+/** Renders one pick's slot (region · event · date · rating) compactly. */
+function PickCell({ pick }) {
+  if (!pick) {
+    return <span className="text-plex-text-muted italic">none</span>;
+  }
+  const ratingText = pick.claudeAverageRating != null ? pick.claudeAverageRating.toFixed(1) : '—';
+  return (
+    <span className="text-plex-text-secondary">
+      <span className="text-plex-text">{pick.region || 'stay home'}</span>
+      {pick.eventType ? ` · ${pick.eventType}` : ''}
+      {pick.eventDate ? ` · ${pick.eventDate}` : ''}
+      {` · ★${ratingText}`}
+    </span>
+  );
+}
+
+PickCell.propTypes = {
+  pick: PropTypes.shape({
+    region: PropTypes.string,
+    eventType: PropTypes.string,
+    eventDate: PropTypes.string,
+    claudeAverageRating: PropTypes.number,
+  }),
+};
+
+PickCell.defaultProps = { pick: null };
+
+/**
+ * The intraday-vs-nightly best-bet comparison — the value signal that answers
+ * "did Plan A or Plan B change since this morning's nightly forecast?". Only
+ * present on an INTRADAY run with a same-day nightly baseline.
+ */
+function CrossRunComparison({ comparison }) {
+  const RANK_LABEL = { 1: 'Plan A', 2: 'Plan B' };
+  const anyChanged = comparison.diffs.some((d) => d.changed);
+  return (
+    <div className="card flex flex-col gap-2" data-testid="cross-run-comparison">
+      <div className="flex items-center gap-2">
+        <p className="text-sm font-semibold text-plex-text">vs this morning&apos;s nightly</p>
+        <span
+          className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
+            anyChanged ? 'bg-amber-900/30 text-amber-400' : 'bg-green-900/30 text-green-400'
+          }`}
+          data-testid="cross-run-verdict"
+        >
+          {anyChanged ? 'plan changed' : 'no change'}
+        </span>
+      </div>
+      <p className="text-xs text-plex-text-muted">
+        Baseline: nightly run{' '}
+        <span className="font-mono">#{comparison.baselineRunId}</span> ·{' '}
+        {formatTimestampUk(comparison.baselineTriggerTime)}
+      </p>
+      <table className="w-full text-sm" data-testid="cross-run-table">
+        <thead>
+          <tr className="text-left text-plex-text-secondary text-xs uppercase">
+            <th className="py-1 pr-3">Pick</th>
+            <th className="py-1 pr-3">Changed</th>
+            <th className="py-1 pr-3">Now (intraday)</th>
+            <th className="py-1 pr-3">This morning (nightly)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {comparison.diffs.map((d) => (
+            <tr
+              key={d.rank}
+              className="border-t border-plex-border"
+              data-testid={`cross-run-diff-${d.rank}`}
+            >
+              <td className="py-1 pr-3 text-plex-text font-medium">
+                {RANK_LABEL[d.rank] || `Rank ${d.rank}`}
+              </td>
+              <td className="py-1 pr-3 text-xs">
+                {d.changed ? (
+                  <span className="text-amber-400" data-testid={`cross-run-changed-${d.rank}`}>
+                    {d.changedDimensions.length
+                      ? d.changedDimensions.map((dim) => DIMENSION_LABEL[dim] || dim).join(', ')
+                      : 'changed'}
+                  </span>
+                ) : (
+                  <span className="text-plex-text-muted">—</span>
+                )}
+              </td>
+              <td className="py-1 pr-3 text-xs">
+                <PickCell pick={d.intraday} />
+              </td>
+              <td className="py-1 pr-3 text-xs">
+                <PickCell pick={d.nightly} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+CrossRunComparison.propTypes = {
+  comparison: PropTypes.shape({
+    baselineRunId: PropTypes.number,
+    baselineTriggerTime: PropTypes.string,
+    diffs: PropTypes.arrayOf(PropTypes.object).isRequired,
+  }).isRequired,
+};
+
 /**
  * Detail panel for one pipeline run: phase timeline + batch list with
  * embedded disposition breakdowns.
@@ -256,7 +371,7 @@ function PipelineRunDetail({ runId, onClose }) {
     );
   }
 
-  const { run, phases, batches } = detail;
+  const { run, phases, batches, comparison } = detail;
 
   const toggleBatch = (jobRunId) => {
     if (!jobRunId) return;
@@ -341,6 +456,9 @@ function PipelineRunDetail({ runId, onClose }) {
           </p>
         )}
       </div>
+
+      {/* Cross-run comparison — the intraday value signal (intraday runs only) */}
+      {comparison && <CrossRunComparison comparison={comparison} />}
 
       {/* Phase timeline */}
       <div className="card flex flex-col gap-2">

@@ -151,6 +151,10 @@ abstract class AbstractControllerTest {
     protected PipelineRunService pipelineRunService;
 
     @MockitoBean
+    protected com.gregochr.goldenhour.service.pipeline.PipelineRunComparisonService
+            pipelineRunComparisonService;
+
+    @MockitoBean
     protected PromptTestService promptTestService;
 
     @MockitoBean

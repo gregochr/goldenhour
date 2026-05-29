@@ -253,4 +253,102 @@ describe('PipelineRunsView', () => {
       screen.getByText(/Failure: Safety timeout: Batch set did not reach/),
     ).toBeInTheDocument();
   });
+
+  it('does NOT render the cross-run comparison when comparison is absent (nightly)', async () => {
+    fetchPipelineRunDetail.mockResolvedValue(MOCK_DETAIL);
+
+    render(
+      <PipelineRunsView activeRunId={42} onSelectRun={() => {}} onCloseDetail={() => {}} />,
+    );
+
+    await screen.findByTestId('pipeline-run-detail-42');
+    expect(screen.queryByTestId('cross-run-comparison')).not.toBeInTheDocument();
+  });
+
+  it('renders the intraday-vs-nightly comparison with a "plan changed" verdict', async () => {
+    const intradayDetail = {
+      run: {
+        ...MOCK_RUNS[1],
+        id: 50,
+        cycleType: 'INTRADAY',
+      },
+      phases: [
+        {
+          phase: 'STABILITY_RECLASSIFY',
+          sequenceOrder: 1,
+          status: 'COMPLETED',
+          startedAt: T,
+          completedAt: '2026-05-26T14:00:30Z',
+          durationSeconds: 30,
+          detail: '8 considered, 5 settled-skipped, 3 unsettled-evaluated',
+        },
+      ],
+      batches: [],
+      comparison: {
+        baselineRunId: 42,
+        baselineTriggerTime: T,
+        diffs: [
+          {
+            rank: 1,
+            changed: true,
+            changedDimensions: ['REGION', 'RATING'],
+            intraday: {
+              headline: 'Coast tonight',
+              region: 'North Yorkshire Coast',
+              eventDate: '2026-05-26',
+              eventType: 'sunset',
+              confidence: 'HIGH',
+              claudeAverageRating: 4.2,
+            },
+            nightly: {
+              headline: 'Hills tonight',
+              region: 'Northumberland',
+              eventDate: '2026-05-26',
+              eventType: 'sunset',
+              confidence: 'MEDIUM',
+              claudeAverageRating: 3.1,
+            },
+          },
+          {
+            rank: 2,
+            changed: false,
+            changedDimensions: [],
+            intraday: {
+              region: 'Lake District',
+              eventDate: '2026-05-27',
+              eventType: 'sunrise',
+              claudeAverageRating: 3.5,
+            },
+            nightly: {
+              region: 'Lake District',
+              eventDate: '2026-05-27',
+              eventType: 'sunrise',
+              claudeAverageRating: 3.5,
+            },
+          },
+        ],
+      },
+    };
+    fetchPipelineRunDetail.mockResolvedValue(intradayDetail);
+
+    render(
+      <PipelineRunsView activeRunId={50} onSelectRun={() => {}} onCloseDetail={() => {}} />,
+    );
+
+    await screen.findByTestId('pipeline-run-detail-50');
+    expect(screen.getByTestId('cross-run-comparison')).toBeInTheDocument();
+    // A change in either plan flips the headline verdict to "plan changed".
+    expect(screen.getByTestId('cross-run-verdict')).toHaveTextContent('plan changed');
+    // Plan A shows the changed dimensions; Plan B is unchanged.
+    expect(screen.getByTestId('cross-run-changed-1')).toHaveTextContent('region, rating');
+    expect(screen.getByTestId('cross-run-diff-2')).toBeInTheDocument();
+    expect(screen.queryByTestId('cross-run-changed-2')).not.toBeInTheDocument();
+    // Both sides of the Plan A slot are shown.
+    expect(screen.getByText('North Yorkshire Coast')).toBeInTheDocument();
+    expect(screen.getByText('Northumberland')).toBeInTheDocument();
+    // And the reclassify phase's cost-gate detail is visible in the timeline.
+    expect(
+      screen.getByText('8 considered, 5 settled-skipped, 3 unsettled-evaluated'),
+    ).toBeInTheDocument();
+  });
 });
