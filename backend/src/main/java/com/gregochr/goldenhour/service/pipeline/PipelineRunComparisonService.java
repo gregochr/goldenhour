@@ -132,7 +132,8 @@ public class PipelineRunComparisonService {
     private static boolean ratingChanged(Double a, Double b) {
         if (a == null || b == null) {
             // A rating appearing or disappearing is a change; both-null is not.
-            return a != b;
+            // Compare null-presence (boolean), not the Double references.
+            return (a == null) != (b == null);
         }
         return Math.abs(a - b) >= RATING_CHANGE_THRESHOLD;
     }
