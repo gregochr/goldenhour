@@ -22,6 +22,17 @@ public enum DispositionCategory {
     EVALUATED,
 
     /**
+     * Candidate would have been gated out by the Gate 4 stability policy but was
+     * force-evaluated anyway because it was a top GO + tide-aligned far-out
+     * headline contender for the best-bet pick. Capped per cycle (see
+     * {@code photocast.batch.force-eval-cap}) so "targeted" never becomes
+     * "blanket". Submitted through the same far-term bucket as every other
+     * evaluation — it is a rule within the one eligibility policy, not a
+     * parallel path.
+     */
+    FORCE_EVALUATED,
+
+    /**
      * STANDDOWN slot whose reason is a hard physical constraint (currently only
      * tide mismatch on a coastal location whose tide preference does not match
      * the event-time tide state). Cannot be revised by Claude, so never reaches it.

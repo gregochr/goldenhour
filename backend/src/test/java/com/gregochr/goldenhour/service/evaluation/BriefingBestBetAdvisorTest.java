@@ -545,6 +545,238 @@ class BriefingBestBetAdvisorTest {
         }
     }
 
+    // ── applyCoverageAwareRanking — the headline coverage floor ──
+
+    @Nested
+    @DisplayName("applyCoverageAwareRanking — headline coverage floor")
+    class CoverageAwareRankingTests {
+
+        private static final String NEAR_EVENT = "2026-03-29_sunrise";
+        private static final String FAR_EVENT = "2026-03-30_sunrise";
+        private static final String NORTHUMBERLAND = "Northumberland";
+        private static final String NORTH_YORKS = "North Yorkshire Coast";
+
+        private BestBet pick(int rank, String event, String region, Relationship rel) {
+            return new BestBet(rank, "H" + rank, "D" + rank, event, region,
+                    Confidence.HIGH, null, null, null, null, rel,
+                    rel == null ? List.of() : List.of(DiffersBy.DATE));
+        }
+
+        private BriefingBestBetAdvisor.CandidateCoverage cov(int rated, int daysAhead) {
+            return new BriefingBestBetAdvisor.CandidateCoverage(rated, daysAhead, 4.0);
+        }
+
+        @Test
+        @DisplayName("The inversion case: thin far headline yields to well-covered nearer pick")
+        void inversionCaseFlips() {
+            // Northumberland T+2 thin (2 Claude-rated) crowned over North Yorkshire
+            // T+1 well-covered (5 rated). The well-evaluated nearer pick must win.
+            BestBet thinFar = pick(1, FAR_EVENT, NORTHUMBERLAND, null);
+            BestBet coveredNear = pick(2, NEAR_EVENT, NORTH_YORKS, Relationship.DIFFERENT_SLOT);
+            Map<String, BriefingBestBetAdvisor.CandidateCoverage> coverage = Map.of(
+                    FAR_EVENT + "|" + NORTHUMBERLAND, cov(2, 2),
+                    NEAR_EVENT + "|" + NORTH_YORKS, cov(5, 1));
+
+            List<BestBet> result = advisor.applyCoverageAwareRanking(
+                    List.of(thinFar, coveredNear), coverage);
+
+            assertThat(result).hasSize(2);
+            assertThat(result.get(0).region()).isEqualTo(NORTH_YORKS);
+            assertThat(result.get(0).rank()).isEqualTo(1);
+            assertThat(result.get(0).relationship()).isNull();
+            assertThat(result.get(0).differsBy()).isEmpty();
+            assertThat(result.get(1).region()).isEqualTo(NORTHUMBERLAND);
+            assertThat(result.get(1).rank()).isEqualTo(2);
+            // Demoted pick's relationship is recomputed relative to the new headline:
+            // different date AND different region → DIFFERENT_SLOT with both dimensions.
+            assertThat(result.get(1).relationship()).isEqualTo(Relationship.DIFFERENT_SLOT);
+            assertThat(result.get(1).differsBy())
+                    .containsExactlyInAnyOrder(DiffersBy.DATE, DiffersBy.REGION);
+        }
+
+        @Test
+        @DisplayName("Boundary: headline at exactly the floor is kept")
+        void boundaryAtFloorKept() {
+            // claudeRatedCount == MIN_HEADLINE_CLAUDE_COVERAGE (3) clears the floor.
+            BestBet head = pick(1, FAR_EVENT, NORTHUMBERLAND, null);
+            BestBet alt = pick(2, NEAR_EVENT, NORTH_YORKS, Relationship.DIFFERENT_SLOT);
+            Map<String, BriefingBestBetAdvisor.CandidateCoverage> coverage = Map.of(
+                    FAR_EVENT + "|" + NORTHUMBERLAND,
+                    cov(BriefingBestBetAdvisor.MIN_HEADLINE_CLAUDE_COVERAGE, 2),
+                    NEAR_EVENT + "|" + NORTH_YORKS, cov(5, 1));
+
+            List<BestBet> result = advisor.applyCoverageAwareRanking(List.of(head, alt), coverage);
+
+            assertThat(result.get(0).region()).isEqualTo(NORTHUMBERLAND);
+        }
+
+        @Test
+        @DisplayName("Boundary: headline one below the floor is demoted")
+        void boundaryBelowFloorDemoted() {
+            BestBet head = pick(1, FAR_EVENT, NORTHUMBERLAND, null);
+            BestBet alt = pick(2, NEAR_EVENT, NORTH_YORKS, Relationship.DIFFERENT_SLOT);
+            Map<String, BriefingBestBetAdvisor.CandidateCoverage> coverage = Map.of(
+                    FAR_EVENT + "|" + NORTHUMBERLAND,
+                    cov(BriefingBestBetAdvisor.MIN_HEADLINE_CLAUDE_COVERAGE - 1, 2),
+                    NEAR_EVENT + "|" + NORTH_YORKS,
+                    cov(BriefingBestBetAdvisor.MIN_HEADLINE_CLAUDE_COVERAGE, 1));
+
+            List<BestBet> result = advisor.applyCoverageAwareRanking(List.of(head, alt), coverage);
+
+            assertThat(result.get(0).region()).isEqualTo(NORTH_YORKS);
+        }
+
+        @Test
+        @DisplayName("Far-out region with sufficient coverage CAN keep the headline")
+        void wellCoveredFarOutKept() {
+            // The whole point of Option C: a far-out region that IS evaluated
+            // (force-eval gives it coverage) stays crownable over a nearer pick.
+            BestBet coveredFar = pick(1, FAR_EVENT, NORTHUMBERLAND, null);
+            BestBet near = pick(2, NEAR_EVENT, NORTH_YORKS, Relationship.DIFFERENT_SLOT);
+            Map<String, BriefingBestBetAdvisor.CandidateCoverage> coverage = Map.of(
+                    FAR_EVENT + "|" + NORTHUMBERLAND, cov(6, 2),
+                    NEAR_EVENT + "|" + NORTH_YORKS, cov(5, 1));
+
+            List<BestBet> result = advisor.applyCoverageAwareRanking(
+                    List.of(coveredFar, near), coverage);
+
+            assertThat(result.get(0).region()).isEqualTo(NORTHUMBERLAND);
+            assertThat(result.get(0).rank()).isEqualTo(1);
+            // No reorder → pick 2's original relationship is preserved untouched.
+            assertThat(result.get(1).relationship()).isEqualTo(Relationship.DIFFERENT_SLOT);
+        }
+
+        @Test
+        @DisplayName("No covered alternative: thin headline is left untouched")
+        void noCoveredAlternativeUnchanged() {
+            // Both thin → the gate is comparative, so nothing is demoted. (Force-eval
+            // is what raises a contender above the floor; the advisor never invents one.)
+            BestBet thinHead = pick(1, FAR_EVENT, NORTHUMBERLAND, null);
+            BestBet thinAlt = pick(2, NEAR_EVENT, NORTH_YORKS, Relationship.DIFFERENT_SLOT);
+            Map<String, BriefingBestBetAdvisor.CandidateCoverage> coverage = Map.of(
+                    FAR_EVENT + "|" + NORTHUMBERLAND, cov(2, 2),
+                    NEAR_EVENT + "|" + NORTH_YORKS, cov(1, 1));
+
+            List<BestBet> result = advisor.applyCoverageAwareRanking(
+                    List.of(thinHead, thinAlt), coverage);
+
+            assertThat(result.get(0).region()).isEqualTo(NORTHUMBERLAND);
+            assertThat(result).isEqualTo(List.of(thinHead, thinAlt));
+        }
+
+        @Test
+        @DisplayName("Single pick is never reordered")
+        void singlePickUnchanged() {
+            BestBet only = pick(1, FAR_EVENT, NORTHUMBERLAND, null);
+            Map<String, BriefingBestBetAdvisor.CandidateCoverage> coverage =
+                    Map.of(FAR_EVENT + "|" + NORTHUMBERLAND, cov(1, 2));
+
+            List<BestBet> result = advisor.applyCoverageAwareRanking(List.of(only), coverage);
+
+            assertThat(result).containsExactly(only);
+        }
+
+        @Test
+        @DisplayName("Aurora headline is exempt from the coverage floor")
+        void auroraHeadlineExempt() {
+            BestBet aurora = pick(1, "2026-03-29_aurora", NORTHUMBERLAND, null);
+            BestBet covered = pick(2, NEAR_EVENT, NORTH_YORKS, Relationship.DIFFERENT_SLOT);
+            Map<String, BriefingBestBetAdvisor.CandidateCoverage> coverage =
+                    Map.of(NEAR_EVENT + "|" + NORTH_YORKS, cov(5, 1));
+
+            List<BestBet> result = advisor.applyCoverageAwareRanking(
+                    List.of(aurora, covered), coverage);
+
+            assertThat(result.get(0).event()).isEqualTo("2026-03-29_aurora");
+        }
+
+        @Test
+        @DisplayName("Stay-home headline is exempt from the coverage floor")
+        void stayHomeHeadlineExempt() {
+            BestBet stayHome = pick(1, null, null, null);
+            BestBet covered = pick(2, NEAR_EVENT, NORTH_YORKS, Relationship.DIFFERENT_SLOT);
+            Map<String, BriefingBestBetAdvisor.CandidateCoverage> coverage =
+                    Map.of(NEAR_EVENT + "|" + NORTH_YORKS, cov(5, 1));
+
+            List<BestBet> result = advisor.applyCoverageAwareRanking(
+                    List.of(stayHome, covered), coverage);
+
+            assertThat(result.get(0).event()).isNull();
+            assertThat(result.get(0).region()).isNull();
+        }
+
+        @Test
+        @DisplayName("End-to-end advise(): cache coverage flips the inversion through the real path")
+        void adviseEndToEndInversionFlips() {
+            // Full path: getCachedScores → buildRollupJson coverage map → gate.
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate nearDate = LocalDate.now(ZoneId.of("Europe/London")).plusDays(1);
+            LocalDate farDate = LocalDate.now(ZoneId.of("Europe/London")).plusDays(2);
+            String nearEvent = nearDate + "_sunset";
+            String farEvent = farDate + "_sunset";
+
+            // Far Northumberland: thinly evaluated (2). Near North Yorkshire: well-covered (5).
+            when(briefingEvaluationService.getCachedScores(NORTHUMBERLAND, farDate, TargetType.SUNSET))
+                    .thenReturn(Map.of(
+                            "Bamburgh", new BriefingEvaluationResult("Bamburgh", 4, 80, 70, "Good"),
+                            "Dunstanburgh", new BriefingEvaluationResult("Dunstanburgh", 4, 78, 66, "Good")));
+            when(briefingEvaluationService.getCachedScores(NORTH_YORKS, nearDate, TargetType.SUNSET))
+                    .thenReturn(Map.of(
+                            "Whitby", new BriefingEvaluationResult("Whitby", 4, 70, 60, "Good"),
+                            "Sandsend", new BriefingEvaluationResult("Sandsend", 3, 55, 50, "Decent"),
+                            "Saltburn", new BriefingEvaluationResult("Saltburn", 4, 72, 61, "Good"),
+                            "Runswick", new BriefingEvaluationResult("Runswick", 3, 52, 48, "Decent"),
+                            "Staithes", new BriefingEvaluationResult("Staithes", 4, 75, 63, "Good")));
+
+            TextBlock textBlock = mock(TextBlock.class);
+            when(textBlock.text()).thenReturn(
+                    "{\"picks\":["
+                    + "{\"rank\":1,\"headline\":\"Best\",\"detail\":\"Clear.\",\"event\":\""
+                    + farEvent + "\",\"region\":\"" + NORTHUMBERLAND + "\",\"confidence\":\"high\"},"
+                    + "{\"rank\":2,\"headline\":\"Also\",\"detail\":\"Clear.\",\"event\":\""
+                    + nearEvent + "\",\"region\":\"" + NORTH_YORKS + "\",\"confidence\":\"high\","
+                    + "\"relationship\":\"DIFFERENT_SLOT\",\"differsBy\":[\"DATE\",\"REGION\"]}"
+                    + "]}");
+            ContentBlock contentBlock = mock(ContentBlock.class);
+            when(contentBlock.isText()).thenReturn(true);
+            when(contentBlock.asText()).thenReturn(textBlock);
+            Message message = mock(Message.class);
+            when(message.content()).thenReturn(List.of(contentBlock));
+            when(anthropicApiClient.createMessage(any())).thenReturn(message);
+
+            List<BriefingDay> days = List.of(
+                    new BriefingDay(nearDate, List.of(new BriefingEventSummary(TargetType.SUNSET,
+                            List.of(region(NORTH_YORKS, Verdict.GO, 5, 0, 0)), List.of()))),
+                    new BriefingDay(farDate, List.of(new BriefingEventSummary(TargetType.SUNSET,
+                            List.of(region(NORTHUMBERLAND, Verdict.GO, 23, 0, 0)), List.of()))));
+
+            List<BestBet> picks = advisor.advise(days, 42L, Map.of());
+
+            assertThat(picks).hasSize(2);
+            assertThat(picks.get(0).region()).isEqualTo(NORTH_YORKS);
+            assertThat(picks.get(0).rank()).isEqualTo(1);
+            assertThat(picks.get(1).region()).isEqualTo(NORTHUMBERLAND);
+        }
+
+        @Test
+        @DisplayName("Same date and event, different region → promoted pick gets SAME_SLOT")
+        void sameSlotRecomputedOnPromotion() {
+            BestBet thin = pick(1, NEAR_EVENT, NORTHUMBERLAND, null);
+            BestBet covered = pick(2, NEAR_EVENT, NORTH_YORKS, Relationship.DIFFERENT_SLOT);
+            Map<String, BriefingBestBetAdvisor.CandidateCoverage> coverage = Map.of(
+                    NEAR_EVENT + "|" + NORTHUMBERLAND, cov(1, 1),
+                    NEAR_EVENT + "|" + NORTH_YORKS, cov(5, 1));
+
+            List<BestBet> result = advisor.applyCoverageAwareRanking(List.of(thin, covered), coverage);
+
+            assertThat(result.get(0).region()).isEqualTo(NORTH_YORKS);
+            // Demoted Northumberland shares the slot (same date+event) with new headline.
+            assertThat(result.get(1).relationship()).isEqualTo(Relationship.SAME_SLOT);
+            assertThat(result.get(1).differsBy()).isEmpty();
+        }
+    }
+
     // ── buildRollupJson ──
 
     @Nested

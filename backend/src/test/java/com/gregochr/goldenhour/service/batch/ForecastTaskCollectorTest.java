@@ -105,11 +105,14 @@ class ForecastTaskCollectorTest {
 
     @BeforeEach
     void setUp() {
+        // Force-eval disabled (cap 0) so these legacy-behaviour cases assert the
+        // pure Gate 4 stability economics. Force-eval is covered separately in
+        // ForecastTaskCollectorForceEvalTest.
         collector = new ForecastTaskCollector(
                 locationService, briefingService, briefingEvaluationService,
                 forecastService, stabilityClassifier, modelSelectionService,
                 openMeteoService, solarService, freshnessResolver,
-                stabilitySnapshotProvider, MIN_PREFETCH_RATIO);
+                stabilitySnapshotProvider, MIN_PREFETCH_RATIO, 0);
         // Default freshness threshold (matches UNSETTLED-equivalent default in legacy code)
         lenient().when(freshnessResolver.maxAgeFor(any())).thenReturn(Duration.ofHours(6));
     }
