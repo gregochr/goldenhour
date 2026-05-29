@@ -47,7 +47,9 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -75,6 +77,27 @@ public class BriefingBestBetAdvisor {
 
     /** Maximum number of solar events to include in the rollup (matches frontend grid). */
     private static final int MAX_VISIBLE_EVENTS = 6;
+
+    /**
+     * Minimum number of Claude-evaluated locations a region must have to hold the
+     * headline (rank 1) best bet when a better-covered alternative is available.
+     *
+     * <p>This is the coverage floor that prevents the "crowned on cheap thresholds"
+     * inversion: a region with many triage GO verdicts but only a couple of actual
+     * Claude evaluations cannot outrank a nearer, better-evaluated region purely on
+     * GO count + peak rating. Calibrated against the observed Northumberland case
+     * (2 Claude-rated, demote) versus the North Yorkshire Coast alternative
+     * (5 Claude-rated, keep): the floor sits between those two so the well-evidenced
+     * pick wins the headline.
+     *
+     * <p>The gate is comparative — it only demotes a thin-coverage headline when a
+     * pick meeting this floor exists to crown instead. When no covered alternative
+     * is available the picks are left as Claude ranked them (thin coverage is then
+     * the best evidence we have; the {@code targeted force-evaluation} path in
+     * {@code ForecastTaskCollector} is what guarantees headline contenders actually
+     * reach this floor).
+     */
+    static final int MIN_HEADLINE_CLAUDE_COVERAGE = 3;
 
     /** All English day names, used for narrative date validation. */
     private static final List<String> ALL_DAY_NAMES = List.of(
@@ -177,6 +200,16 @@ public class BriefingBestBetAdvisor {
             - claudeHighRatedCount > 0 is a strong positive signal — real photographic potential
             - A region with goCount=5 but claudeAverageRating=2.0 is weaker than it looks
             - A MARGINAL region with claudeAverageRating=4.0 is better than the verdict suggests
+
+            **COVERAGE MATTERS FOR THE HEADLINE (Pick 1)**
+            A high goCount is NOT evidence on its own — GO is a cheap threshold verdict, not a
+            full evaluation. Only claudeRatedCount tells you how many locations were actually
+            assessed. Do NOT crown a region as Pick 1 on a large goCount when only a couple of
+            its locations were Claude-evaluated (low claudeRatedCount) — especially a further-out
+            day. Prefer a nearer, better-evaluated region (higher claudeRatedCount) for the
+            headline even if its peak rating is slightly lower. A strong-looking but thinly
+            evaluated further-out region belongs in Pick 2 framed as a "firming up / worth
+            watching" forward look, not as the confident headline.
 
             When Claude scores are absent, fall back to the triage verdicts as before.
 
@@ -356,9 +389,35 @@ public class BriefingBestBetAdvisor {
      * @param validEvents   all event identifiers present in the rollup (e.g. {@code "2026-03-30_sunset"})
      * @param validRegions  all region names present in the rollup
      * @param validDayNames day names (e.g. {@code "Monday"}) for all dates in the forecast window
+     * @param coverageByKey Claude-evaluation coverage per {@code event|region} key — the same
+     *                      data the prompt sees, surfaced for the deterministic coverage gate
      */
     record RollupResult(String json, Set<String> validEvents,
-            Set<String> validRegions, Set<String> validDayNames) {
+            Set<String> validRegions, Set<String> validDayNames,
+            Map<String, CandidateCoverage> coverageByKey) {
+    }
+
+    /**
+     * Per-(event, region) Claude-evaluation coverage extracted while building the
+     * rollup, used by {@link #applyCoverageAwareRanking} to enforce the headline
+     * coverage floor without re-querying the cache.
+     *
+     * @param claudeRatedCount     number of locations in this region/event with a Claude rating
+     * @param daysAhead            forecast horizon of the event (T+0 = 0)
+     * @param claudeAverageRating  mean Claude star rating (0.0 when none rated)
+     */
+    record CandidateCoverage(int claudeRatedCount, int daysAhead, double claudeAverageRating) {
+    }
+
+    /**
+     * Builds the {@code event|region} key used to look up {@link CandidateCoverage}.
+     *
+     * @param event  event identifier (e.g. {@code "2026-03-30_sunset"})
+     * @param region region name
+     * @return the composite lookup key
+     */
+    private static String coverageKey(String event, String region) {
+        return event + "|" + region;
     }
 
     /**
@@ -411,7 +470,8 @@ public class BriefingBestBetAdvisor {
             List<BestBet> parsed = parseBestBets(raw);
             List<BestBet> validated = validateAndFilterPicks(
                     parsed, rollup.validEvents(), rollup.validRegions(), rollup.validDayNames());
-            return enrichWithEventData(validated, days);
+            List<BestBet> covered = applyCoverageAwareRanking(validated, rollup.coverageByKey());
+            return enrichWithEventData(covered, days);
         } catch (Exception e) {
             LOG.warn("Best-bet advisor failed — returning empty picks (fallback to headline)", e);
             return List.of();
@@ -572,6 +632,165 @@ public class BriefingBestBetAdvisor {
     }
 
     /**
+     * Enforces the headline coverage floor: a region cannot hold rank 1 on cheap
+     * GO-count merit when only a couple of its locations were actually
+     * Claude-evaluated and a better-covered alternative pick is available.
+     *
+     * <p>Extends the principle behind {@code BriefingHonestyFilter} (which rewrites
+     * regions with <em>zero</em> Claude scores on the read path) to the
+     * <em>insufficient</em>-coverage case at the crowning decision: the headline
+     * must clear {@link #MIN_HEADLINE_CLAUDE_COVERAGE} when a pick that does clear
+     * it exists. The gate is deliberately comparative — it demotes a thin headline
+     * only by promoting a genuinely better-evidenced pick. When no pick clears the
+     * floor the order is left untouched (thin coverage is then the best evidence
+     * available; the targeted force-evaluation path is what raises headline
+     * contenders above the floor in the first place).
+     *
+     * <p>Stay-home picks and aurora picks are exempt — a stay-home pick crowns
+     * nothing and aurora has its own clear-sky gate in the prompt.
+     *
+     * <p>When a promotion happens the new headline's relationship/differsBy are
+     * cleared (rank 1 carries neither) and the trailing picks' relationship fields
+     * are recomputed relative to the new headline so they stay coherent.
+     *
+     * @param picks    validated picks in Claude's ranked order
+     * @param coverage per-{@code event|region} Claude coverage from the rollup
+     * @return the picks, possibly reordered so a covered pick holds the headline
+     */
+    List<BestBet> applyCoverageAwareRanking(List<BestBet> picks,
+            Map<String, CandidateCoverage> coverage) {
+        if (picks.size() < 2) {
+            return picks;
+        }
+        BestBet head = picks.get(0);
+        if (isHeadlineEligible(head, coverage)) {
+            return picks;
+        }
+        // Only a genuinely better-EVIDENCED pick (clears the coverage floor) may
+        // demote a thin headline. An exempt aurora/stay-home pick is allowed to
+        // hold the headline if Claude crowned it, but is never used to displace
+        // another pick — it carries no per-region Claude coverage of its own.
+        BestBet replacement = null;
+        for (BestBet p : picks) {
+            if (p != head && ratedCount(p, coverage) >= MIN_HEADLINE_CLAUDE_COVERAGE) {
+                replacement = p;
+                break;
+            }
+        }
+        if (replacement == null) {
+            return picks;
+        }
+        LOG.info("Best-bet coverage gate: demoting thin-coverage headline '{}' (rated={}) "
+                        + "in favour of better-evaluated '{}' (rated={})",
+                head.region(), ratedCount(head, coverage),
+                replacement.region(), ratedCount(replacement, coverage));
+        List<BestBet> reordered = new ArrayList<>();
+        reordered.add(replacement);
+        for (BestBet p : picks) {
+            if (p != replacement) {
+                reordered.add(p);
+            }
+        }
+        return rerankWithRecomputedRelationships(reordered);
+    }
+
+    /**
+     * Returns {@code true} if a pick may hold the headline: stay-home and aurora
+     * picks are exempt; every other pick must clear {@link #MIN_HEADLINE_CLAUDE_COVERAGE}.
+     */
+    private boolean isHeadlineEligible(BestBet pick, Map<String, CandidateCoverage> coverage) {
+        if (pick.event() == null && pick.region() == null) {
+            return true;
+        }
+        if (pick.event() != null && pick.event().endsWith("_aurora")) {
+            return true;
+        }
+        return ratedCount(pick, coverage) >= MIN_HEADLINE_CLAUDE_COVERAGE;
+    }
+
+    private int ratedCount(BestBet pick, Map<String, CandidateCoverage> coverage) {
+        if (pick.event() == null || pick.region() == null) {
+            return 0;
+        }
+        CandidateCoverage c = coverage.get(coverageKey(pick.event(), pick.region()));
+        return c == null ? 0 : c.claudeRatedCount();
+    }
+
+    /**
+     * Re-ranks an already-ordered pick list, assigning rank 1..n. The head pick has
+     * its relationship/differsBy cleared; trailing picks have those recomputed
+     * relative to the head so a promotion does not leave stale relationships behind.
+     */
+    private List<BestBet> rerankWithRecomputedRelationships(List<BestBet> ordered) {
+        List<BestBet> result = new ArrayList<>();
+        BestBet head = ordered.get(0);
+        result.add(new BestBet(1, head.headline(), head.detail(), head.event(),
+                head.region(), head.confidence(), head.nearestDriveMinutes(),
+                head.dayName(), head.eventType(), head.eventTime(), null, List.of()));
+        for (int i = 1; i < ordered.size(); i++) {
+            BestBet p = ordered.get(i);
+            Relationship rel = deriveRelationship(head, p);
+            List<DiffersBy> diffs = rel == Relationship.DIFFERENT_SLOT
+                    ? deriveDiffersBy(head, p) : List.of();
+            result.add(new BestBet(i + 1, p.headline(), p.detail(), p.event(), p.region(),
+                    p.confidence(), p.nearestDriveMinutes(), p.dayName(), p.eventType(),
+                    p.eventTime(), rel, diffs));
+        }
+        return List.copyOf(result);
+    }
+
+    /**
+     * Derives the relationship of a trailing pick to the headline: SAME_SLOT when
+     * the date and event type match, DIFFERENT_SLOT otherwise (the default for
+     * aurora/stay-home or unparseable events).
+     */
+    private Relationship deriveRelationship(BestBet head, BestBet other) {
+        String[] h = splitEvent(head.event());
+        String[] o = splitEvent(other.event());
+        if (h == null || o == null) {
+            return Relationship.DIFFERENT_SLOT;
+        }
+        return h[0].equals(o[0]) && h[1].equals(o[1])
+                ? Relationship.SAME_SLOT : Relationship.DIFFERENT_SLOT;
+    }
+
+    /**
+     * Derives which dimensions a DIFFERENT_SLOT pick differs from the headline by.
+     */
+    private List<DiffersBy> deriveDiffersBy(BestBet head, BestBet other) {
+        List<DiffersBy> diffs = new ArrayList<>();
+        String[] h = splitEvent(head.event());
+        String[] o = splitEvent(other.event());
+        if (h != null && o != null) {
+            if (!h[0].equals(o[0])) {
+                diffs.add(DiffersBy.DATE);
+            }
+            if (!h[1].equals(o[1])) {
+                diffs.add(DiffersBy.EVENT);
+            }
+        }
+        if (head.region() != null && !head.region().equals(other.region())) {
+            diffs.add(DiffersBy.REGION);
+        }
+        return List.copyOf(diffs);
+    }
+
+    /**
+     * Splits an event id {@code "YYYY-MM-DD_type"} into {@code [date, type]}, or
+     * {@code null} when the id is null or not in that form (e.g. aurora/stay-home).
+     */
+    private static String[] splitEvent(String event) {
+        if (event == null) {
+            return null;
+        }
+        int idx = event.lastIndexOf('_');
+        if (idx <= 0 || idx == event.length() - 1) {
+            return null;
+        }
+        return new String[]{event.substring(0, idx), event.substring(idx + 1)};
+    }
+
+    /**
      * Builds the region-level rollup JSON sent to Claude as the user message, plus the
      * validation sets derived from the same data.
      *
@@ -592,6 +811,7 @@ public class BriefingBestBetAdvisor {
         Set<String> validRegions = new LinkedHashSet<>();
         Set<String> validDayNames = new LinkedHashSet<>();
         Set<String> includedDates = new LinkedHashSet<>();
+        Map<String, CandidateCoverage> coverageByKey = new HashMap<>();
 
         ObjectNode root = objectMapper.createObjectNode();
         root.put("currentTime", now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
@@ -621,10 +841,13 @@ public class BriefingBestBetAdvisor {
                 if (eventTime != null) {
                     eventNode.put("eventTime", eventTime);
                 }
+                int daysAhead = (int) ChronoUnit.DAYS.between(today, day.date());
                 ArrayNode regionsNode = eventNode.putArray("regions");
                 for (BriefingRegion region : es.regions()) {
-                    appendRegionNode(regionsNode, region, day.date(), es.targetType());
+                    CandidateCoverage coverage = appendRegionNode(
+                            regionsNode, region, day.date(), es.targetType(), daysAhead);
                     validRegions.add(region.regionName());
+                    coverageByKey.put(coverageKey(eventId, region.regionName()), coverage);
                 }
             }
             if (eventCount >= MAX_VISIBLE_EVENTS) {
@@ -657,7 +880,29 @@ public class BriefingBestBetAdvisor {
         root.set("events", eventsNode);
 
         logCacheCoverage(days, validEvents);
-        return new RollupResult(objectMapper.writeValueAsString(root), validEvents, validRegions, validDayNames);
+        return new RollupResult(objectMapper.writeValueAsString(root), validEvents,
+                validRegions, validDayNames, coverageByKey);
+    }
+
+    /**
+     * Looks up cached Claude scores for a region/event and reduces them to
+     * {@link BriefingRatingStats.Stats}, or {@code null} when none are cached or
+     * none are valid. Shared by the rollup JSON builder and the coverage extractor
+     * so both read identical figures.
+     */
+    private BriefingRatingStats.Stats computeRegionStats(String regionName, LocalDate date,
+            TargetType targetType) {
+        Map<String, BriefingEvaluationResult> cached =
+                briefingEvaluationService.getCachedScores(regionName, date, targetType);
+        if (cached.isEmpty()) {
+            return null;
+        }
+        List<BriefingRatingStats.Entry> entries = cached.values().stream()
+                .map(r -> new BriefingRatingStats.Entry(r.locationName(), r.rating()))
+                .toList();
+        BriefingRatingStats.Stats stats =
+                BriefingRatingStats.compute(entries, regionName, date, targetType);
+        return stats.isEmpty() ? null : stats;
     }
 
     /**
@@ -691,8 +936,8 @@ public class BriefingBestBetAdvisor {
         }
     }
 
-    private void appendRegionNode(ArrayNode regionsNode, BriefingRegion region,
-            LocalDate date, TargetType targetType) {
+    private CandidateCoverage appendRegionNode(ArrayNode regionsNode, BriefingRegion region,
+            LocalDate date, TargetType targetType, int daysAhead) {
         long goCount = region.slots().stream()
                 .filter(s -> s.verdict() == Verdict.GO).count();
         long marginalCount = region.slots().stream()
@@ -775,37 +1020,31 @@ public class BriefingBestBetAdvisor {
         regionNode.put("coastalLocationCount", coastalCount);
         regionNode.put("inlandLocationCount", region.slots().size() - coastalCount);
 
-        // Claude evaluation score distribution (from cached drill-down scores)
-        appendClaudeScores(regionNode, region.regionName(), date, targetType);
+        // Claude evaluation score distribution (from cached drill-down scores).
+        // Computed once and reused for the coverage gate so the cache is hit a
+        // single time per region (matching the pre-coverage call count).
+        BriefingRatingStats.Stats stats =
+                computeRegionStats(region.regionName(), date, targetType);
+        appendClaudeScores(regionNode, stats);
 
         // Stability rollup: worst-case across grid cells containing this region's locations
         appendStabilityToRegion(regionNode, region);
+
+        return stats == null
+                ? new CandidateCoverage(0, daysAhead, 0.0)
+                : new CandidateCoverage(stats.count(), daysAhead, stats.averageRating());
     }
 
     /**
-     * Looks up cached Claude evaluation scores for the given region/date/event
-     * and appends score distribution fields to the region JSON node.
+     * Appends the Claude evaluation score distribution to the region JSON node.
      *
-     * <p>When no cached scores are available, the fields are omitted and the
-     * prompt falls back to verdict-only data.
+     * <p>When {@code stats} is {@code null} (no cached scores) the fields are
+     * omitted and the prompt falls back to verdict-only data.
      */
-    private void appendClaudeScores(ObjectNode regionNode, String regionName,
-            LocalDate date, TargetType targetType) {
-        Map<String, BriefingEvaluationResult> cached =
-                briefingEvaluationService.getCachedScores(regionName, date, targetType);
-        if (cached.isEmpty()) {
+    private void appendClaudeScores(ObjectNode regionNode, BriefingRatingStats.Stats stats) {
+        if (stats == null) {
             return;
         }
-
-        List<BriefingRatingStats.Entry> entries = cached.values().stream()
-                .map(r -> new BriefingRatingStats.Entry(r.locationName(), r.rating()))
-                .toList();
-        BriefingRatingStats.Stats stats =
-                BriefingRatingStats.compute(entries, regionName, date, targetType);
-        if (stats.isEmpty()) {
-            return;
-        }
-
         regionNode.put("claudeRatedCount", stats.count());
         regionNode.put("claudeHighRatedCount", stats.highRated());
         regionNode.put("claudeMediumRatedCount", stats.mediumRated());
@@ -1003,7 +1242,8 @@ public class BriefingBestBetAdvisor {
             List<BestBet> parsed = parseBestBets(raw);
             List<BestBet> validated = validateAndFilterPicks(
                     parsed, rollup.validEvents(), rollup.validRegions(), rollup.validDayNames());
-            List<BestBet> enriched = enrichWithEventData(validated, days);
+            List<BestBet> covered = applyCoverageAwareRanking(validated, rollup.coverageByKey());
+            List<BestBet> enriched = enrichWithEventData(covered, days);
 
             LOG.info("Model comparison {} completed ({}ms, {} picks, thinking={})",
                     model, durationMs, enriched.size(), thinkingText != null);
