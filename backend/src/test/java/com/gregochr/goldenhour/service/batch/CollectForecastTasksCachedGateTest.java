@@ -83,7 +83,7 @@ class CollectForecastTasksCachedGateTest {
                 locationService, briefingService,
                 briefingEvaluationService, forecastService, stabilityClassifier,
                 modelSelectionService, openMeteoService, solarService,
-                freshnessResolver, stabilitySnapshotProvider, 0.5);
+                freshnessResolver, stabilitySnapshotProvider, 0.5, 0);
     }
 
     @SuppressWarnings("unchecked")
