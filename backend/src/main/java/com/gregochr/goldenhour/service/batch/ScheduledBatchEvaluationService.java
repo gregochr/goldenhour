@@ -29,6 +29,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
@@ -63,6 +64,13 @@ public class ScheduledBatchEvaluationService {
     private final ForecastTaskCollector forecastTaskCollector;
     private final ForecastDispositionService dispositionService;
     private final JobRunService jobRunService;
+
+    /**
+     * No-op between-steps hook for paths that do not split the submit into
+     * distinct {@code STABILITY_RECLASSIFY} + {@code FORECAST_BATCH_SUBMIT}
+     * phases (legacy admin submit, nightly's single SUBMIT phase).
+     */
+    private static final Consumer<ReclassSummary> NO_OP_BETWEEN_STEPS = s -> { };
 
     /** Prevents concurrent forecast batch submissions. */
     private final AtomicBoolean forecastBatchRunning = new AtomicBoolean(false);
@@ -162,7 +170,8 @@ public class ScheduledBatchEvaluationService {
         try {
             doSubmitForecastBatch(null,
                     NightlyCandidateCollectionStrategy.INSTANCE,
-                    NightlyEligibilityPolicy.INSTANCE);
+                    NightlyEligibilityPolicy.INSTANCE,
+                    false, NO_OP_BETWEEN_STEPS);
         } finally {
             forecastBatchRunning.set(false);
         }
@@ -188,10 +197,11 @@ public class ScheduledBatchEvaluationService {
     }
 
     /**
-     * Fully-parameterised cycle-aware variant. The strategy + policy are the only
-     * difference between cycles; the rest of the submit pipeline (briefing read,
-     * weather pre-fetch, cloud pre-fetch, triage, bucketing) is shared single
-     * code path. Used by the orchestrator for any cycle type.
+     * Cycle-aware variant with default (non-ephemeral, single-phase) semantics.
+     * Delegates to {@link #submitForecastBatchForPipelineRun(Long,
+     * CandidateCollectionStrategy, EligibilityPolicy, boolean, Consumer)} with
+     * {@code ephemeral=false} and a no-op between-steps hook — i.e. the nightly
+     * behaviour: classify-and-publish, one combined submit step.
      *
      * @param pipelineRunId        orchestrated cycle id
      * @param candidateStrategy    filter deciding which event slots enter the candidate set
@@ -200,16 +210,54 @@ public class ScheduledBatchEvaluationService {
     public void submitForecastBatchForPipelineRun(Long pipelineRunId,
             CandidateCollectionStrategy candidateStrategy,
             EligibilityPolicy eligibilityPolicy) {
+        submitForecastBatchForPipelineRun(pipelineRunId, candidateStrategy, eligibilityPolicy,
+                false, NO_OP_BETWEEN_STEPS);
+    }
+
+    /**
+     * Fully-parameterised cycle-aware variant. The strategy + policy are the only
+     * difference between cycles; the rest of the submit pipeline (briefing read,
+     * weather pre-fetch, cloud pre-fetch, triage, bucketing, submission, disposition
+     * persistence) is one shared code path. Used by the orchestrator for any cycle
+     * type.
+     *
+     * <p><b>The collect→submit seam is one guarded critical section.</b> The
+     * {@code betweenCollectAndSubmit} hook fires after collection (which includes
+     * the stability re-classification + cost-gate) and before the batches are
+     * submitted, while the concurrency guard is still held — so a concurrent
+     * trigger cannot interleave between the two steps. This is how the orchestrator
+     * records intraday's {@code STABILITY_RECLASSIFY} phase around collection and
+     * {@code FORECAST_BATCH_SUBMIT} around submission without splitting the logic
+     * into two divergent paths: nightly passes a no-op hook (one SUBMIT phase),
+     * intraday passes a hook that closes RECLASSIFY and opens SUBMIT.
+     *
+     * @param pipelineRunId          orchestrated cycle id
+     * @param candidateStrategy      filter deciding which event slots enter the candidate set
+     * @param eligibilityPolicy      per-candidate include/skip decision function
+     * @param ephemeral              when {@code true}, the stability re-classification
+     *                               is computed for gating but the snapshot is NOT
+     *                               published (intraday); nightly passes {@code false}
+     * @param betweenCollectAndSubmit hook invoked with the cost-gate summary after
+     *                               collection and before submission (used for
+     *                               cycle-specific phase recording)
+     */
+    public void submitForecastBatchForPipelineRun(Long pipelineRunId,
+            CandidateCollectionStrategy candidateStrategy,
+            EligibilityPolicy eligibilityPolicy,
+            boolean ephemeral,
+            Consumer<ReclassSummary> betweenCollectAndSubmit) {
         java.util.Objects.requireNonNull(pipelineRunId, "pipelineRunId");
         java.util.Objects.requireNonNull(candidateStrategy, "candidateStrategy");
         java.util.Objects.requireNonNull(eligibilityPolicy, "eligibilityPolicy");
+        java.util.Objects.requireNonNull(betweenCollectAndSubmit, "betweenCollectAndSubmit");
         if (!forecastBatchRunning.compareAndSet(false, true)) {
             LOG.warn("Forecast batch already running — orchestrator trigger dropped "
                     + "(pipelineRunId={})", pipelineRunId);
             return;
         }
         try {
-            doSubmitForecastBatch(pipelineRunId, candidateStrategy, eligibilityPolicy);
+            doSubmitForecastBatch(pipelineRunId, candidateStrategy, eligibilityPolicy,
+                    ephemeral, betweenCollectAndSubmit);
         } finally {
             forecastBatchRunning.set(false);
         }
@@ -266,20 +314,50 @@ public class ScheduledBatchEvaluationService {
     static final int NEAR_TERM_MAX_DAYS = 1;
 
     /**
-     * Core forecast batch logic. Delegates task collection (briefing read, weather +
-     * cloud pre-fetch, triage, stability, bucketing) to {@link ForecastTaskCollector}
-     * and submits each non-empty bucket separately via {@link EvaluationService}.
+     * Core forecast batch logic, split into two steps around a hook. Step 1
+     * (collect) delegates briefing read, weather + cloud pre-fetch, triage,
+     * stability re-classification + cost-gate, and bucketing to
+     * {@link ForecastTaskCollector}. The {@code betweenCollectAndSubmit} hook
+     * then fires with the cost-gate summary (this is the seam the orchestrator
+     * uses to record intraday's RECLASSIFY→SUBMIT phase boundary). Step 2
+     * (submit) sends each non-empty bucket via {@link EvaluationService} and
+     * persists the cycle's dispositions.
      *
-     * @param pipelineRunId       orchestrated cycle id to tag the submitted batches with,
-     *                            or {@code null} for legacy cron-direct invocations
-     * @param candidateStrategy   cycle-specific event-window filter
-     * @param eligibilityPolicy   cycle-specific stability decision function
+     * <p>Both nightly and intraday run these same two steps; only the hook
+     * differs (no-op for nightly, phase-transition for intraday).
+     *
+     * @param pipelineRunId            orchestrated cycle id to tag the submitted batches
+     *                                 with, or {@code null} for legacy cron-direct invocations
+     * @param candidateStrategy        cycle-specific event-window filter
+     * @param eligibilityPolicy        cycle-specific stability decision function
+     * @param ephemeral                whether the stability snapshot write-through is suppressed
+     * @param betweenCollectAndSubmit  hook invoked with the cost-gate summary between steps
      */
     private void doSubmitForecastBatch(Long pipelineRunId,
             CandidateCollectionStrategy candidateStrategy,
-            EligibilityPolicy eligibilityPolicy) {
+            EligibilityPolicy eligibilityPolicy,
+            boolean ephemeral,
+            Consumer<ReclassSummary> betweenCollectAndSubmit) {
         ScheduledBatchTasks tasks = forecastTaskCollector.collectScheduledBatches(
-                candidateStrategy, eligibilityPolicy);
+                candidateStrategy, eligibilityPolicy, ephemeral);
+
+        // Hook fires between collect and submit, inside the concurrency guard.
+        // Nightly: no-op. Intraday: closes STABILITY_RECLASSIFY, opens
+        // FORECAST_BATCH_SUBMIT — so the cost-gate decision is a truthfully-timed
+        // phase of its own.
+        betweenCollectAndSubmit.accept(ReclassSummary.from(tasks.dispositions()));
+
+        submitBuckets(pipelineRunId, tasks);
+    }
+
+    /**
+     * Submission step: sends each non-empty bucket to the Batch API and persists
+     * the cycle's dispositions. Shared by every cycle type.
+     *
+     * @param pipelineRunId orchestrated cycle id to tag batches with, or {@code null}
+     * @param tasks         the bucketed tasks + dispositions from collection
+     */
+    private void submitBuckets(Long pipelineRunId, ScheduledBatchTasks tasks) {
         // NOTE: deliberately no `if (tasks.isEmpty()) return;` here. PR #112
         // removed that early-return so the cycle's dispositions persist
         // unconditionally (the all-cached / all-skipped cycle still produced a

@@ -6,8 +6,10 @@ import com.gregochr.goldenhour.entity.PipelineRunPhaseEntity;
 import com.gregochr.goldenhour.model.PipelinePhaseSummary;
 import com.gregochr.goldenhour.model.PipelineRunBatch;
 import com.gregochr.goldenhour.model.PipelineRunDetail;
+import com.gregochr.goldenhour.model.PipelineRunPickComparison;
 import com.gregochr.goldenhour.model.PipelineRunSummary;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
+import com.gregochr.goldenhour.service.pipeline.PipelineRunComparisonService;
 import com.gregochr.goldenhour.service.pipeline.PipelineRunService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -38,17 +40,21 @@ public class PipelineRunController {
 
     private final PipelineRunService pipelineRunService;
     private final ForecastBatchRepository forecastBatchRepository;
+    private final PipelineRunComparisonService comparisonService;
 
     /**
      * Constructs the controller.
      *
      * @param pipelineRunService      pipeline run persistence layer
      * @param forecastBatchRepository queried for the cycle's batch list
+     * @param comparisonService       builds the intraday-vs-nightly pick comparison
      */
     public PipelineRunController(PipelineRunService pipelineRunService,
-            ForecastBatchRepository forecastBatchRepository) {
+            ForecastBatchRepository forecastBatchRepository,
+            PipelineRunComparisonService comparisonService) {
         this.pipelineRunService = pipelineRunService;
         this.forecastBatchRepository = forecastBatchRepository;
+        this.comparisonService = comparisonService;
     }
 
     /**
@@ -82,8 +88,11 @@ public class PipelineRunController {
         List<PipelineRunBatch> batches = forecastBatchRepository.findByPipelineRunId(id).stream()
                 .map(PipelineRunController::toBatch)
                 .toList();
+        PipelineRunPickComparison comparison =
+                comparisonService.compareToSameDayNightly(run);
 
-        return ResponseEntity.ok(new PipelineRunDetail(toSummary(run), phases, batches));
+        return ResponseEntity.ok(
+                new PipelineRunDetail(toSummary(run), phases, batches, comparison));
     }
 
     private static PipelineRunSummary toSummary(PipelineRunEntity run) {

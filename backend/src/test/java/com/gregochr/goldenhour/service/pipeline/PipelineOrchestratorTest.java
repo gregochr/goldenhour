@@ -13,8 +13,11 @@ import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.batch.IntradayCandidateCollectionStrategy;
+import com.gregochr.goldenhour.service.batch.IntradayEligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.NightlyCandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.NightlyEligibilityPolicy;
+import com.gregochr.goldenhour.service.batch.ReclassSummary;
 import com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -34,8 +37,11 @@ import java.util.Optional;
 import java.util.concurrent.Executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isA;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -147,12 +153,18 @@ class PipelineOrchestratorTest {
                     eq(PipelinePhase.BRIEFING), isNull());
 
             // Orchestrator passes nightly's strategy + policy explicitly through the
-            // submit chain — pin both for nightly so a regression that drops them or
-            // swaps in different ones (intraday's, say) is loud.
+            // submit chain, with ephemeral=false (publish the snapshot) — pin all of
+            // these for nightly so a regression that drops them or swaps in different
+            // ones (intraday's, say, or ephemeral=true) is loud.
             verify(scheduledBatchEvaluationService).submitForecastBatchForPipelineRun(
                     eq(RUN_ID),
                     eq(NightlyCandidateCollectionStrategy.INSTANCE),
-                    eq(NightlyEligibilityPolicy.INSTANCE));
+                    eq(NightlyEligibilityPolicy.INSTANCE),
+                    eq(false),
+                    any());
+            // Nightly records no STABILITY_RECLASSIFY phase — that's intraday-only.
+            verify(pipelineRunService, never())
+                    .startPhase(RUN_ID, PipelinePhase.STABILITY_RECLASSIFY);
             verify(briefingService).refreshBriefing();
             verify(pipelineRunService).completeRun(RUN_ID);
             verify(pipelineRunService, never()).failRun(eq(RUN_ID), eq(""));
@@ -308,7 +320,9 @@ class PipelineOrchestratorTest {
                     .when(scheduledBatchEvaluationService).submitForecastBatchForPipelineRun(
                             eq(RUN_ID),
                             eq(NightlyCandidateCollectionStrategy.INSTANCE),
-                            eq(NightlyEligibilityPolicy.INSTANCE));
+                            eq(NightlyEligibilityPolicy.INSTANCE),
+                            eq(false),
+                            any());
 
             orchestrator.runNightlyCycle();
 
@@ -393,7 +407,7 @@ class PipelineOrchestratorTest {
             orchestrator.resumeRunningCyclesOnStartup();
 
             verify(pipelineRunService).failRun(eq(RUN_ID),
-                    org.mockito.ArgumentMatchers.contains("restarted during submit"));
+                    org.mockito.ArgumentMatchers.contains("restarted during pre-submission"));
             verify(briefingService, never()).refreshBriefing();
         }
 
@@ -587,6 +601,9 @@ class PipelineOrchestratorTest {
             verify(scheduler).registerJobTarget(
                     org.mockito.ArgumentMatchers.eq("near_term_batch_evaluation"),
                     org.mockito.ArgumentMatchers.any(Runnable.class));
+            verify(scheduler).registerJobTarget(
+                    org.mockito.ArgumentMatchers.eq("intraday_forecast_refresh"),
+                    org.mockito.ArgumentMatchers.any(Runnable.class));
         }
 
         @Test
@@ -595,6 +612,93 @@ class PipelineOrchestratorTest {
             // The default orchestrator built in @BeforeEach has a null scheduler.
             // Calling registerJobTarget should not throw.
             orchestrator.registerJobTarget();
+        }
+    }
+
+    @Nested
+    @DisplayName("Intraday cycle")
+    class IntradayCycle {
+
+        private PipelineRunEntity newIntradayRun() {
+            PipelineRunEntity run = new PipelineRunEntity(CycleType.INTRADAY, T0);
+            run.setId(RUN_ID);
+            // After submit, the orchestrator's wait/brief tail reads this — set it to a
+            // post-submit phase so the tail proceeds rather than restarting submit.
+            run.setCurrentPhase(PipelinePhase.FORECAST_BATCH_SUBMIT);
+            return run;
+        }
+
+        @Test
+        @DisplayName("runIntradayCycle goes through the SAME runCycle path with INTRADAY "
+                + "inputs + ephemeral=true (no parallel orchestrator method)")
+        void intraday_uses_shared_runCycle_with_intraday_inputs() {
+            when(pipelineRunService.startRun(CycleType.INTRADAY)).thenReturn(newIntradayRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newIntradayRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+            when(briefingService.getCachedBriefing()).thenReturn(null);
+
+            orchestrator.runIntradayCycle();
+
+            // Same code path as nightly: a run is started with INTRADAY, then the
+            // shared submit method is invoked — with intraday's strategy + policy and
+            // ephemeral=true (don't overwrite the morning snapshot).
+            verify(pipelineRunService).startRun(CycleType.INTRADAY);
+            verify(scheduledBatchEvaluationService).submitForecastBatchForPipelineRun(
+                    eq(RUN_ID),
+                    isA(IntradayCandidateCollectionStrategy.class),
+                    eq(IntradayEligibilityPolicy.INSTANCE),
+                    eq(true),
+                    any());
+            // And it reaches briefing through the identical tail.
+            verify(briefingService).refreshBriefing();
+            verify(pipelineRunService).completeRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("records STABILITY_RECLASSIFY then FORECAST_BATCH_SUBMIT as distinct "
+                + "phases, with the cost-gate summary as the reclassify detail")
+        void intraday_records_reclassify_then_submit_phases() {
+            when(pipelineRunService.startRun(CycleType.INTRADAY)).thenReturn(newIntradayRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newIntradayRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+            when(briefingService.getCachedBriefing()).thenReturn(null);
+            // Simulate the real batch service firing the between-collect-and-submit hook
+            // with a cost-gate summary, which is what drives the phase boundary.
+            doAnswer(inv -> {
+                @SuppressWarnings("unchecked")
+                java.util.function.Consumer<ReclassSummary> hook = inv.getArgument(4);
+                hook.accept(new ReclassSummary(3, 1, 2));
+                return null;
+            }).when(scheduledBatchEvaluationService).submitForecastBatchForPipelineRun(
+                    eq(RUN_ID), any(), any(), eq(true), any());
+
+            orchestrator.runIntradayCycle();
+
+            // RECLASSIFY opens first, completes with the cost-gate summary; SUBMIT then
+            // opens (from the hook) and completes (after the call). Real, separate phases.
+            verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.STABILITY_RECLASSIFY);
+            verify(pipelineRunService).completePhase(eq(RUN_ID),
+                    eq(PipelinePhase.STABILITY_RECLASSIFY),
+                    eq("3 considered, 1 settled-skipped, 2 unsettled-evaluated"));
+            verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT);
+            verify(pipelineRunService).completePhase(eq(RUN_ID),
+                    eq(PipelinePhase.FORECAST_BATCH_SUBMIT), isNull());
+        }
+
+        @Test
+        @DisplayName("a RUNNING intraday run mid-RECLASSIFY is marked FAILED — pre-submission, "
+                + "unsafe to resume")
+        void mid_reclassify_marked_failed() {
+            PipelineRunEntity midReclassify = new PipelineRunEntity(CycleType.INTRADAY, T0);
+            midReclassify.setId(RUN_ID);
+            midReclassify.setCurrentPhase(PipelinePhase.STABILITY_RECLASSIFY);
+            when(pipelineRunService.findRunning()).thenReturn(List.of(midReclassify));
+
+            orchestrator.resumeRunningCyclesOnStartup();
+
+            verify(pipelineRunService).failRun(eq(RUN_ID),
+                    org.mockito.ArgumentMatchers.contains("restarted during pre-submission"));
+            verify(briefingService, never()).refreshBriefing();
         }
     }
 }

@@ -213,7 +213,8 @@ public class ForecastTaskCollector {
     /**
      * Cycle-aware variant: same triage and bucketing as the nightly path, but
      * the candidate set and eligibility decisions are delegated to the supplied
-     * strategy + policy.
+     * strategy + policy. Publishes (persists) the stability snapshot, as the
+     * nightly path requires.
      *
      * @param candidateStrategy filter deciding which event slots enter the candidate set
      * @param eligibilityPolicy per-candidate include/skip decision function
@@ -222,6 +223,36 @@ public class ForecastTaskCollector {
     public ScheduledBatchTasks collectScheduledBatches(
             CandidateCollectionStrategy candidateStrategy,
             EligibilityPolicy eligibilityPolicy) {
+        return collectScheduledBatches(candidateStrategy, eligibilityPolicy, false);
+    }
+
+    /**
+     * Fully-parameterised cycle-aware variant. Identical to
+     * {@link #collectScheduledBatches(CandidateCollectionStrategy, EligibilityPolicy)}
+     * except the caller controls whether the stability classification computed
+     * during collection is persisted to the authoritative snapshot.
+     *
+     * <p><b>The {@code ephemeral} flag is the one real seam the intraday refresh
+     * needs.</b> Nightly classifies and <em>publishes</em> ({@code ephemeral=false}),
+     * making the morning's snapshot authoritative. Intraday re-classifies the
+     * decision-window cells with fresh afternoon weather purely to drive its own
+     * cost-gate, then <em>discards</em> ({@code ephemeral=true}) — the morning's
+     * snapshot stays authoritative for everything else (other run types, the
+     * admin stability view). The in-memory classification is always returned for
+     * this cycle's eligibility decisions either way; only the {@code update()}
+     * write-through is suppressed.
+     *
+     * @param candidateStrategy filter deciding which event slots enter the candidate set
+     * @param eligibilityPolicy per-candidate include/skip decision function
+     * @param ephemeral         when {@code true}, suppress the stability snapshot
+     *                          write-through (compute-only); the morning snapshot
+     *                          is left untouched
+     * @return bucketed tasks (possibly all-empty)
+     */
+    public ScheduledBatchTasks collectScheduledBatches(
+            CandidateCollectionStrategy candidateStrategy,
+            EligibilityPolicy eligibilityPolicy,
+            boolean ephemeral) {
         DailyBriefingResponse briefing = briefingService.getCachedBriefing();
         if (briefing == null) {
             LOG.warn("[BATCH DIAG] Forecast batch skipped: no cached briefing available");
@@ -286,7 +317,7 @@ public class ForecastTaskCollector {
         }
 
         Map<String, GridCellStabilityResult> stabilityByCell =
-                classifyGridCellsAndPublishSnapshot(candidates, prefetchedWeather);
+                classifyGridCellsAndPublishSnapshot(candidates, prefetchedWeather, ephemeral);
 
         List<EvaluationTask.Forecast> nearInland = new ArrayList<>();
         List<EvaluationTask.Forecast> nearCoastal = new ArrayList<>();
@@ -350,13 +381,14 @@ public class ForecastTaskCollector {
                         forced = true;
                         forcedCount++;
                     } else {
-                        LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=STABILITY ({})",
+                        LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason={} ({})",
                                 candidate.location().getName(), candidate.date(),
-                                candidate.targetType(), decision.skipReason());
+                                candidate.targetType(), decision.skipDisposition(),
+                                decision.skipReason());
                         dispositions.add(new CandidateDisposition(
                                 candidate.location().getId(), candidate.location().getName(),
                                 candidate.date(), candidate.targetType(), daysAhead,
-                                DispositionCategory.SKIPPED_STABILITY, decision.skipReason()));
+                                decision.skipDisposition(), decision.skipReason()));
                         agg.recordExcluded(daysAhead, stability);
                         skippedStability++;
                         continue;
@@ -938,11 +970,16 @@ public class ForecastTaskCollector {
      *
      * @param candidates        surviving briefing candidates
      * @param prefetchedWeather coord-key → prefetched forecast/air-quality result
+     * @param ephemeral         when {@code true}, the classification is computed and
+     *                          returned but the snapshot is NOT published — used by
+     *                          the intraday refresh so its in-memory cost-gate does
+     *                          not overwrite the morning's authoritative snapshot
      * @return classification keyed by grid-cell key (empty if no cells classified)
      */
     private Map<String, GridCellStabilityResult> classifyGridCellsAndPublishSnapshot(
             List<ForecastCandidate> candidates,
-            Map<String, WeatherExtractionResult> prefetchedWeather) {
+            Map<String, WeatherExtractionResult> prefetchedWeather,
+            boolean ephemeral) {
         Map<String, GridCellStabilityResult> stabilityByCell = new LinkedHashMap<>();
         Map<String, Set<String>> locationsByCell = new LinkedHashMap<>();
 
@@ -990,9 +1027,15 @@ public class ForecastTaskCollector {
         StabilitySummaryResponse summary = new StabilitySummaryResponse(
                 Instant.now(), stabilityByCell.size(), countsByStability, cellDetails);
 
-        LOG.info("[STABILITY] Built snapshot for {} grid cells (counts: {})",
-                stabilityByCell.size(), countsByStability);
-        stabilitySnapshotProvider.update(summary);
+        if (ephemeral) {
+            LOG.info("[STABILITY] Ephemeral re-classification of {} grid cells "
+                    + "(counts: {}) — snapshot NOT published (morning snapshot preserved)",
+                    stabilityByCell.size(), countsByStability);
+        } else {
+            LOG.info("[STABILITY] Built snapshot for {} grid cells (counts: {})",
+                    stabilityByCell.size(), countsByStability);
+            stabilitySnapshotProvider.update(summary);
+        }
 
         return stabilityByCell;
     }

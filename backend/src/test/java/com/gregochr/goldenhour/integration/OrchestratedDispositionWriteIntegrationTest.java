@@ -149,7 +149,8 @@ class OrchestratedDispositionWriteIntegrationTest extends IntegrationTestBase {
         // matching.
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE,
-                NightlyEligibilityPolicy.INSTANCE))
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
                 .thenReturn(new ScheduledBatchTasks(
                         List.of(), List.of(), List.of(), List.of(), dispositions));
 
@@ -210,7 +211,8 @@ class OrchestratedDispositionWriteIntegrationTest extends IntegrationTestBase {
                         "Solar horizon low cloud 94% — sun blocked"));
         when(forecastTaskCollector.collectScheduledBatches(
                 NightlyCandidateCollectionStrategy.INSTANCE,
-                NightlyEligibilityPolicy.INSTANCE))
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
                 .thenReturn(new ScheduledBatchTasks(
                         List.of(task), List.of(), List.of(), List.of(), dispositions));
 
@@ -241,6 +243,53 @@ class OrchestratedDispositionWriteIntegrationTest extends IntegrationTestBase {
         assertThat(forecastBatchRepository.findByPipelineRunId(run.getId()))
                 .as("Batch must be tagged with the pipeline run id")
                 .hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Intraday cycle persists SKIPPED_NO_REFRESH_NEEDED rows through the real "
+            + "submit → ForecastDispositionService → DB path (the new disposition value lands)")
+    void orchestratedIntradaySubmit_settledSkip_writesNoRefreshNeededRows() {
+        // The intraday acceptance bar: a settled decision-window candidate is
+        // skipped and recorded as SKIPPED_NO_REFRESH_NEEDED. This test proves the
+        // VALUE round-trips through the real persistence path (VARCHAR column,
+        // disposition-anchor run for a zero-bucket cycle) — not a mocked seam.
+        LocalDate date = LocalDate.now().plusDays(1);
+        List<CandidateDisposition> dispositions = List.of(
+                new CandidateDisposition(null, "Settled Loc A", date,
+                        TargetType.SUNSET, 0, DispositionCategory.SKIPPED_NO_REFRESH_NEEDED,
+                        "settled — no intraday refresh needed"),
+                new CandidateDisposition(null, "Unsettled Loc B", date.plusDays(1),
+                        TargetType.SUNRISE, 1, DispositionCategory.EVALUATED, null));
+        // Intraday passes its own policy + ephemeral=true; the candidate strategy
+        // is a fresh per-cycle instance, so match it with any().
+        when(forecastTaskCollector.collectScheduledBatches(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq(
+                        com.gregochr.goldenhour.service.batch.IntradayEligibilityPolicy.INSTANCE),
+                org.mockito.ArgumentMatchers.eq(true)))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(), List.of(), List.of(), List.of(), dispositions));
+
+        // Exercise the real orchestrated submit entry directly with intraday's
+        // inputs (the exact 5-arg method the orchestrator's submit phase calls for
+        // an INTRADAY cycle). No buckets → disposition-anchor run → persist.
+        PipelineRunEntity run = pipelineRunService.startRun(CycleType.INTRADAY);
+        scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
+                run.getId(),
+                new com.gregochr.goldenhour.service.batch.IntradayCandidateCollectionStrategy(
+                        java.time.Clock.systemUTC()),
+                com.gregochr.goldenhour.service.batch.IntradayEligibilityPolicy.INSTANCE,
+                true,
+                s -> { });
+
+        List<ForecastRunDispositionEntity> rows = dispositionRepository.findAll();
+        assertThat(rows).hasSize(2);
+        assertThat(rows)
+                .filteredOn(r -> "SKIPPED_NO_REFRESH_NEEDED".equals(r.getDisposition()))
+                .as("The new intraday disposition value must persist to the DB")
+                .hasSize(1)
+                .allSatisfy(r -> assertThat(r.getDetail()).contains("settled"));
+        assertThat(rows).filteredOn(r -> "EVALUATED".equals(r.getDisposition())).hasSize(1);
     }
 
     private LocationEntity seedLocation(String name, double lat, double lon) {
