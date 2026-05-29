@@ -621,6 +621,73 @@ class ForecastTaskCollectorTest {
     }
 
     @Test
+    @DisplayName("collectScheduledBatches: ephemeral=true → classification drives gating "
+            + "but snapshot is NOT published (morning snapshot preserved)")
+    void collectScheduledBatches_ephemeralTrue_classifiesButDoesNotPublish() {
+        LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
+        loc.setGridLat(54.7500);
+        loc.setGridLng(-1.6250);
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY.plusDays(1),
+                Verdict.GO, loc.getName());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        stubModels();
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
+        when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyDouble(), any()))
+                .thenReturn(new GridCellStabilityResult(
+                        loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
+                        ForecastStability.SETTLED, "stable", 3));
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                true);
+
+        // The classification still happened (the cell was consulted and the
+        // near-term task is bucketed), but the authoritative snapshot was left
+        // untouched — the whole point of the ephemeral intraday re-classify.
+        assertThat(result.nearInland()).hasSize(1);
+        verify(stabilityClassifier, org.mockito.Mockito.times(1))
+                .classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
+                        org.mockito.ArgumentMatchers.anyDouble(), any());
+        verify(stabilitySnapshotProvider, never()).update(any());
+    }
+
+    @Test
+    @DisplayName("collectScheduledBatches: ephemeral=false → snapshot IS published "
+            + "(parameter respected both ways)")
+    void collectScheduledBatches_ephemeralFalse_publishesSnapshot() {
+        LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
+        loc.setGridLat(54.7500);
+        loc.setGridLng(-1.6250);
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY.plusDays(1),
+                Verdict.GO, loc.getName());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        stubModels();
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
+        when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyDouble(), any()))
+                .thenReturn(new GridCellStabilityResult(
+                        loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
+                        ForecastStability.SETTLED, "stable", 3));
+
+        collector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false);
+
+        verify(stabilitySnapshotProvider).update(any());
+    }
+
+    @Test
     @DisplayName("collectScheduledBatches: multiple locations sharing one grid cell → "
             + "snapshot has single cell with both location names")
     void collectScheduledBatches_sharedGridCell_singleCellMultipleNames() {
