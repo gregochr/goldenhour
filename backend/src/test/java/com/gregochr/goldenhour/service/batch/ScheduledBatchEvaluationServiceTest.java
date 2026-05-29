@@ -91,6 +91,8 @@ class ScheduledBatchEvaluationServiceTest {
     private ForecastTaskCollector forecastTaskCollector;
     @Mock
     private ForecastDispositionService dispositionService;
+    @Mock
+    private com.gregochr.goldenhour.service.JobRunService jobRunService;
 
     private ScheduledBatchEvaluationService service;
 
@@ -100,7 +102,8 @@ class ScheduledBatchEvaluationServiceTest {
                 modelSelectionService, noaaSwpcClient,
                 weatherTriageService, auroraOrchestrator,
                 locationRepository, auroraProperties, dynamicSchedulerService,
-                evaluationService, forecastTaskCollector, dispositionService);
+                evaluationService, forecastTaskCollector, dispositionService,
+                jobRunService);
     }
 
     // ── registerJobTargets ───────────────────────────────────────────────────
@@ -200,24 +203,57 @@ class ScheduledBatchEvaluationServiceTest {
     }
 
     @Test
-    @DisplayName("submitForecastBatch: empty bucket result → dispositionService not called")
-    void submitForecastBatch_emptyBuckets_noDispositionPersist() {
+    @DisplayName("submitForecastBatch: empty buckets AND empty dispositions → "
+            + "no persist, no anchor run")
+    void submitForecastBatch_emptyBucketsEmptyDispositions_noPersist() {
+        // ScheduledBatchTasks.empty() has empty dispositions too (e.g. no cached
+        // briefing). Nothing to account for, so neither persist nor anchor fire.
         when(forecastTaskCollector.collectScheduledBatches(any(), any()))
                 .thenReturn(ScheduledBatchTasks.empty());
 
         service.submitForecastBatch();
 
         verifyNoInteractions(dispositionService);
+        verifyNoInteractions(jobRunService);
     }
 
     @Test
-    @DisplayName("submitForecastBatch: all submissions return null jobRunId → "
-            + "persist called with null (no-op in service)")
-    void submitForecastBatch_allHandlesReturnNullJobRunId_persistsWithNull() {
-        // When every bucket's submit() returns EvaluationHandle.empty() (no Anthropic
-        // submission happened), persist is still invoked but with a null jobRunId — the
-        // service's null-guard turns it into a no-op. We assert persist was called
-        // with null specifically rather than relying on no-op inference.
+    @DisplayName("submitForecastBatch: empty buckets but NON-empty dispositions "
+            + "(all-cached cycle) → anchor run created + dispositions persisted")
+    void submitForecastBatch_emptyBucketsWithDispositions_persistsAgainstAnchorRun() {
+        // This is the live bug the [DISPOSITION] log never firing pointed to: a
+        // cycle where every candidate is cached/skipped submits no bucket, so the
+        // old `if (tasks.isEmpty()) return;` dropped the dispositions. Now an
+        // anchor run is created and the dispositions persist against it.
+        CandidateDisposition cached1 = new CandidateDisposition(
+                null, "Cached A", TEST_DATE, TargetType.SUNRISE, 1,
+                DispositionCategory.SKIPPED_CACHED, "Fresh cached evaluation");
+        CandidateDisposition cached2 = new CandidateDisposition(
+                null, "Cached B", TEST_DATE, TargetType.SUNSET, 1,
+                DispositionCategory.SKIPPED_CACHED, "Fresh cached evaluation");
+        when(forecastTaskCollector.collectScheduledBatches(any(), any()))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(), List.of(), List.of(), List.of(),
+                        List.of(cached1, cached2)));
+        when(jobRunService.startDispositionAnchorRun(2)).thenReturn(555L);
+
+        service.submitForecastBatch();
+
+        // No batch submitted...
+        verifyNoInteractions(evaluationService);
+        // ...but the anchor run was created and dispositions persisted against it.
+        verify(jobRunService).startDispositionAnchorRun(2);
+        verify(dispositionService).persist(eq(555L), eq(List.of(cached1, cached2)));
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: buckets submitted but all handles return null "
+            + "jobRunId → anchor run created so dispositions still land")
+    void submitForecastBatch_bucketsSubmittedButNullJobRunIds_anchorsDispositions() {
+        // Defensive: if every bucket's submit() returns EvaluationHandle.empty()
+        // (Anthropic submission failed after the collector produced work), there
+        // is no batch job_run to anchor to — but the dispositions are still real
+        // and must not be dropped. An anchor run catches them.
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
@@ -233,10 +269,12 @@ class ScheduledBatchEvaluationServiceTest {
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
                 ArgumentMatchers.isNull()))
                 .thenReturn(EvaluationHandle.empty());
+        when(jobRunService.startDispositionAnchorRun(1)).thenReturn(999L);
 
         service.submitForecastBatch();
 
-        verify(dispositionService).persist(eq(null), eq(List.of(dispo)));
+        verify(jobRunService).startDispositionAnchorRun(1);
+        verify(dispositionService).persist(eq(999L), eq(List.of(dispo)));
     }
 
     @Test

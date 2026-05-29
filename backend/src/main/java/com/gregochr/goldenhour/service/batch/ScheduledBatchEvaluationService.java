@@ -6,9 +6,11 @@ import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.TriggerType;
@@ -60,6 +62,7 @@ public class ScheduledBatchEvaluationService {
     private final EvaluationService evaluationService;
     private final ForecastTaskCollector forecastTaskCollector;
     private final ForecastDispositionService dispositionService;
+    private final JobRunService jobRunService;
 
     /** Prevents concurrent forecast batch submissions. */
     private final AtomicBoolean forecastBatchRunning = new AtomicBoolean(false);
@@ -80,6 +83,7 @@ public class ScheduledBatchEvaluationService {
      * @param evaluationService           Pass 3.2 engine — builds requests + submits + processes
      * @param forecastTaskCollector       Pass 3.2.1 collector — task construction + triage + bucketing
      * @param dispositionService          persists per-candidate disposition rows tied to the cycle's first job_run
+     * @param jobRunService               creates the disposition-anchor run for zero-batch cycles
      */
     public ScheduledBatchEvaluationService(
             ModelSelectionService modelSelectionService,
@@ -91,7 +95,8 @@ public class ScheduledBatchEvaluationService {
             DynamicSchedulerService dynamicSchedulerService,
             EvaluationService evaluationService,
             ForecastTaskCollector forecastTaskCollector,
-            ForecastDispositionService dispositionService) {
+            ForecastDispositionService dispositionService,
+            JobRunService jobRunService) {
         this.modelSelectionService = modelSelectionService;
         this.noaaSwpcClient = noaaSwpcClient;
         this.weatherTriageService = weatherTriageService;
@@ -102,6 +107,7 @@ public class ScheduledBatchEvaluationService {
         this.evaluationService = evaluationService;
         this.forecastTaskCollector = forecastTaskCollector;
         this.dispositionService = dispositionService;
+        this.jobRunService = jobRunService;
     }
 
     /**
@@ -274,15 +280,25 @@ public class ScheduledBatchEvaluationService {
             EligibilityPolicy eligibilityPolicy) {
         ScheduledBatchTasks tasks = forecastTaskCollector.collectScheduledBatches(
                 candidateStrategy, eligibilityPolicy);
-        if (tasks.isEmpty()) {
-            return;
-        }
+        // NOTE: deliberately no `if (tasks.isEmpty()) return;` here. PR #112
+        // removed that early-return so the cycle's dispositions persist
+        // unconditionally (the all-cached / all-skipped cycle still produced a
+        // full disposition list that the guard used to drop). The strategy +
+        // policy parameters from the orchestrator-extraction change thread
+        // through unchanged.
 
         // Submit each non-empty bucket; capture the first non-null jobRunId so
         // every disposition the collector accumulated (across all four buckets,
         // plus skips) can be persisted against the cycle's representative
         // job_run. The other buckets create their own job_runs for cost/API
         // tracking but do not re-persist dispositions.
+        //
+        // cycleJobRunId stays null when no bucket is submitted — the all-cached /
+        // all-skipped / all-triaged cycle. That is exactly the case where the
+        // earlier `if (tasks.isEmpty()) return;` guard silently dropped the
+        // collector's dispositions before persistence. Persistence is now
+        // unconditional (see persistCycleDispositions below) and the empty case
+        // gets a disposition-anchor run instead of being discarded.
         Long cycleJobRunId = null;
 
         if (!tasks.nearInland().isEmpty()) {
@@ -310,24 +326,54 @@ public class ScheduledBatchEvaluationService {
             logBatchBreakdown(tasks.farCoastal(), "far-term coastal");
         }
 
-        // Persist every disposition the collector recorded (EVALUATED plus all
-        // SKIPPED_*) against the cycle's first real job_run. Skipped if every
-        // bucket's submission failed at the Anthropic call — the [BATCH DIAG]
-        // logs still cover that case for live tailing. The log line below is
-        // the operator's smoke check that the write actually happens — the V101
-        // bug hid for two days behind a null jobRunId at the seam and a silent
-        // no-op in persist().
-        LOG.info("[DISPOSITION] Persisting {} dispositions for cycle jobRunId={}",
-                tasks.dispositions().size(), cycleJobRunId);
-        dispositionService.persist(cycleJobRunId, tasks.dispositions());
+        // Persist the cycle's per-candidate accounting UNCONDITIONALLY. This is
+        // the single chokepoint every forecast submission path funnels through
+        // (legacy submitForecastBatch + orchestrated submitForecastBatchForPipelineRun
+        // + the future intraday cycle, all via this method), so the persist
+        // cannot be routed around again.
+        persistCycleDispositions(cycleJobRunId, tasks.dispositions());
 
-        LOG.info("Forecast batch split: near-term {} ({}i + {}c), far-term {} ({}i + {}c), "
-                        + "total {} requests, pipelineRunId={}",
-                tasks.nearInland().size() + tasks.nearCoastal().size(),
-                tasks.nearInland().size(), tasks.nearCoastal().size(),
-                tasks.farInland().size() + tasks.farCoastal().size(),
-                tasks.farInland().size(), tasks.farCoastal().size(),
-                tasks.totalSize(), pipelineRunId);
+        if (!tasks.isEmpty()) {
+            LOG.info("Forecast batch split: near-term {} ({}i + {}c), far-term {} ({}i + {}c), "
+                            + "total {} requests, pipelineRunId={}",
+                    tasks.nearInland().size() + tasks.nearCoastal().size(),
+                    tasks.nearInland().size(), tasks.nearCoastal().size(),
+                    tasks.farInland().size() + tasks.farCoastal().size(),
+                    tasks.farInland().size(), tasks.farCoastal().size(),
+                    tasks.totalSize(), pipelineRunId);
+        }
+    }
+
+    /**
+     * Persists the cycle's disposition rows, anchoring them to a job_run that is
+     * visible in the Job Run detail UI.
+     *
+     * <p>When at least one batch was submitted, {@code cycleJobRunId} is the
+     * first batch's job_run and the dispositions hang off it. When NO batch was
+     * submitted (every candidate cached/skipped/triaged), there is no batch
+     * job_run, so a disposition-anchor run is created — otherwise the cycle's
+     * accounting would be invisible, which is precisely the "why was nothing
+     * evaluated?" case an operator needs. The {@code [DISPOSITION] Persisting}
+     * log is the operator's per-cycle smoke check that the write happened.
+     *
+     * @param cycleJobRunId the first submitted batch's job_run id, or null if none
+     * @param dispositions  every candidate's disposition for this cycle
+     */
+    private void persistCycleDispositions(Long cycleJobRunId,
+            List<CandidateDisposition> dispositions) {
+        if (dispositions.isEmpty()) {
+            LOG.info("[DISPOSITION] No candidates considered this cycle — nothing to persist");
+            return;
+        }
+        Long anchorJobRunId = cycleJobRunId;
+        String anchorKind = "batch job_run";
+        if (anchorJobRunId == null) {
+            anchorJobRunId = jobRunService.startDispositionAnchorRun(dispositions.size());
+            anchorKind = "disposition-only anchor run";
+        }
+        LOG.info("[DISPOSITION] Persisting {} dispositions for cycle jobRunId={} ({})",
+                dispositions.size(), anchorJobRunId, anchorKind);
+        dispositionService.persist(anchorJobRunId, dispositions);
     }
 
     private static Long firstNonNull(Long current, Long candidate) {
