@@ -5,6 +5,7 @@ import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.Model;
+import com.anthropic.models.messages.OutputTokensDetails;
 import com.anthropic.models.messages.ServerToolUsage;
 import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlock;
@@ -83,6 +84,7 @@ class OpusEvaluationStrategyTest {
                 .content(List.of(contentBlock))
                 .stopReason(StopReason.END_TURN)
                 .stopSequence(Optional.empty())
+                .stopDetails(Optional.empty())
                 .usage(Usage.builder()
                         .inputTokens(10)
                         .outputTokens(20)
@@ -98,6 +100,9 @@ class OpusEvaluationStrategyTest {
                                 .webFetchRequests(0)
                                 .build())
                         .serviceTier(Usage.ServiceTier.of("standard"))
+                        .outputTokensDetails(OutputTokensDetails.builder()
+                                .thinkingTokens(0)
+                                .build())
                         .build())
                 .build();
     }
