@@ -7,6 +7,7 @@ import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.Model;
+import com.anthropic.models.messages.OutputTokensDetails;
 import com.anthropic.models.messages.ServerToolUsage;
 import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlock;
@@ -94,6 +95,7 @@ class ClaudeEvaluationStrategyTest {
                 .content(List.of())
                 .stopReason(StopReason.END_TURN)
                 .stopSequence(Optional.empty())
+                .stopDetails(Optional.empty())
                 .usage(buildUsage(10, 20, 0, 0))
                 .build();
 
@@ -781,6 +783,7 @@ class ClaudeEvaluationStrategyTest {
                 .content(List.of(contentBlock))
                 .stopReason(StopReason.END_TURN)
                 .stopSequence(Optional.empty())
+                .stopDetails(Optional.empty())
                 .usage(buildUsage(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens))
                 .build();
     }
@@ -802,6 +805,9 @@ class ClaudeEvaluationStrategyTest {
                         .webFetchRequests(0)
                         .build())
                 .serviceTier(Usage.ServiceTier.of("standard"))
+                .outputTokensDetails(OutputTokensDetails.builder()
+                        .thinkingTokens(0)
+                        .build())
                 .build();
     }
 
