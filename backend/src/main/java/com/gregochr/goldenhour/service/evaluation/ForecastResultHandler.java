@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.evaluation.visitor.RatingCombiner;
 import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,6 +53,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
     private final ClaudeEvaluationStrategy parsingStrategy;
     private final JobRunService jobRunService;
     private final ObjectMapper objectMapper;
+    private final RatingCombiner ratingCombiner;
 
     /**
      * Constructs the handler.
@@ -65,11 +67,15 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * @param evaluationStrategies      the strategy bean map; only HAIKU's parser is used
      * @param jobRunService             writer of {@code api_call_log} rows
      * @param objectMapper              Jackson mapper threaded through to the parser
+     * @param ratingCombiner            v2.13 visitor combiner — derives the persisted star
+     *                                  rating from the parsed evaluation. This is the single
+     *                                  result seam both transports (batch + sync) flow through.
      */
     public ForecastResultHandler(BriefingEvaluationService briefingEvaluationService,
             Map<EvaluationModel, EvaluationStrategy> evaluationStrategies,
             JobRunService jobRunService,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            RatingCombiner ratingCombiner) {
         this.briefingEvaluationService = briefingEvaluationService;
         EvaluationStrategy strategy = evaluationStrategies.get(EvaluationModel.HAIKU);
         if (!(strategy instanceof ClaudeEvaluationStrategy claude)) {
@@ -80,6 +86,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         this.parsingStrategy = claude;
         this.jobRunService = jobRunService;
         this.objectMapper = objectMapper;
+        this.ratingCombiner = ratingCombiner;
     }
 
     @Override
@@ -140,8 +147,9 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
 
         try {
             SunsetEvaluation eval = parsingStrategy.parseEvaluation(outcome.rawText(), objectMapper);
+            Integer combinedRating = ratingCombiner.combine(location, eval);
             Integer safeRating = RatingValidator.validateRating(
-                    eval.rating(), regionName, parsed.date(), parsed.targetType(),
+                    combinedRating, regionName, parsed.date(), parsed.targetType(),
                     location.getName(),
                     outcome.model() != null ? outcome.model().name() : "UNKNOWN");
 
@@ -201,8 +209,9 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             return new EvaluationResult.Errored("parse_error", e.getMessage());
         }
 
+        Integer combinedRating = ratingCombiner.combine(task.location(), eval);
         Integer safeRating = RatingValidator.validateRating(
-                eval.rating(), regionName, task.date(), task.targetType(),
+                combinedRating, regionName, task.date(), task.targetType(),
                 task.location().getName(), task.model().name());
         BriefingEvaluationResult result = new BriefingEvaluationResult(
                 task.location().getName(), safeRating,
@@ -215,7 +224,10 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             briefingEvaluationService.writeFromBatch(cacheKey, List.of(result));
         }
 
-        return new EvaluationResult.Scored(eval);
+        // Carry the combiner-derived rating into the payload so forecast_evaluation
+        // (written by ForecastService from this Scored result) also flows through the
+        // combiner. In v2.13.1 combinedRating equals eval.rating(), so this is field-equal.
+        return new EvaluationResult.Scored(eval.withRating(combinedRating));
     }
 
     private void persistBatchLog(ResultContext context, ClaudeBatchOutcome outcome,

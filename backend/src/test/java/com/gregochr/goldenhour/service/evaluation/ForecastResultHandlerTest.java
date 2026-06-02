@@ -14,6 +14,8 @@ import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.batch.BatchTriggerSource;
 import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler.BatchSuccess;
 import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler.ForecastIdentity;
+import com.gregochr.goldenhour.service.evaluation.visitor.RatingCombiner;
+import com.gregochr.goldenhour.service.evaluation.visitor.SkyVisitor;
 import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -68,7 +70,8 @@ class ForecastResultHandlerTest {
         handler = new ForecastResultHandler(
                 briefingEvaluationService,
                 Map.of(EvaluationModel.HAIKU, parsingStrategy),
-                jobRunService, objectMapper);
+                jobRunService, objectMapper,
+                new RatingCombiner(List.of(new SkyVisitor())));
     }
 
     @Test
@@ -82,7 +85,8 @@ class ForecastResultHandlerTest {
         assertThatThrownBy(() -> new ForecastResultHandler(
                 briefingEvaluationService,
                 Map.of(EvaluationModel.HAIKU, notClaude),
-                jobRunService, objectMapper))
+                jobRunService, objectMapper,
+                new RatingCombiner(List.of(new SkyVisitor()))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("ClaudeEvaluationStrategy");
     }
