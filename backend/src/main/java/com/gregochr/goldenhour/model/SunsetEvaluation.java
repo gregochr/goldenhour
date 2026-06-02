@@ -118,4 +118,22 @@ public record SunsetEvaluation(
                 basicFierySkyPotential, basicGoldenHourPotential, basicSummary,
                 inversionScore, inversionPotential, bluebellScore, bluebellSummary, null);
     }
+
+    /**
+     * Returns a copy of this evaluation with the rating replaced.
+     *
+     * <p>Used by the v2.13 visitor layer ({@code RatingCombiner}) so the persisted star
+     * rating flows through the combiner rather than being read directly off the raw Claude
+     * response. In v2.13.1 the combiner returns the same value (a single applied visitor),
+     * so the copy is field-equal to the original; the indirection is what later passes
+     * (tide and beyond) build on.
+     *
+     * @param newRating the rating to set (may be null)
+     * @return a new evaluation identical to this one but with {@code rating == newRating}
+     */
+    public SunsetEvaluation withRating(Integer newRating) {
+        return new SunsetEvaluation(newRating, fierySkyPotential, goldenHourPotential, summary,
+                basicFierySkyPotential, basicGoldenHourPotential, basicSummary,
+                inversionScore, inversionPotential, bluebellScore, bluebellSummary, headline);
+    }
 }
