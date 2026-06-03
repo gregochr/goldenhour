@@ -907,6 +907,65 @@ class JobRunServiceTest {
         }
 
         @Test
+        @DisplayName("11-arg overload stores null response_body (happy path stays trivial)")
+        void logBatchResult_noResponseBody_storesNull() {
+            ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
+            when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.logBatchResult(
+                    42L, "msgbatch_ok", "fc-1-2026-04-20-SUNRISE",
+                    true, "SUCCESS",
+                    null, null,
+                    EvaluationModel.HAIKU, new TokenUsage(1, 1, 0, 0),
+                    LocalDate.of(2026, 4, 20), TargetType.SUNRISE);
+
+            assertThat(captor.getValue().getResponseBody()).isNull();
+        }
+
+        @Test
+        @DisplayName("regex_fallback case persists raw response_body + marker; succeeded stays true")
+        void logBatchResult_regexFallback_persistsRawAndMarkerSucceededTrue() {
+            ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
+            when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            String raw = "{\"rating\":4,\"summary\":\"Clear horizon.\",'headline\"}";
+
+            jobRunService.logBatchResult(
+                    42L, "msgbatch_fb", "fc-42-2026-04-20-SUNRISE",
+                    true, "SUCCESS",
+                    "regex_fallback", null,
+                    EvaluationModel.HAIKU, new TokenUsage(1, 1, 0, 0),
+                    LocalDate.of(2026, 4, 20), TargetType.SUNRISE, raw);
+
+            ApiCallLogEntity logged = captor.getValue();
+            assertThat(logged.getSucceeded()).isTrue();
+            assertThat(logged.getErrorType()).isEqualTo("regex_fallback");
+            assertThat(logged.getResponseBody()).isEqualTo(raw);
+        }
+
+        @Test
+        @DisplayName("response_body at the 16000 cap is stored whole; over the cap is truncated + marked")
+        void logBatchResult_longResponseBody_truncatedAt16000() {
+            ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
+            when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            String atCap = "x".repeat(16000);
+            jobRunService.logBatchResult(
+                    1L, "b", "fc-1-2026-04-20-SUNRISE", true, "SUCCESS",
+                    "regex_fallback", null, EvaluationModel.HAIKU, null,
+                    LocalDate.of(2026, 4, 20), TargetType.SUNRISE, atCap);
+            assertThat(captor.getValue().getResponseBody()).isEqualTo(atCap);
+
+            String overCap = "y".repeat(16001);
+            jobRunService.logBatchResult(
+                    1L, "b", "fc-1-2026-04-20-SUNRISE", true, "SUCCESS",
+                    "regex_fallback", null, EvaluationModel.HAIKU, null,
+                    LocalDate.of(2026, 4, 20), TargetType.SUNRISE, overCap);
+            String stored = captor.getValue().getResponseBody();
+            assertThat(stored).startsWith("y".repeat(16000));
+            assertThat(stored).contains("[truncated 16001 chars]");
+        }
+
+        @Test
         @DisplayName("sets all token fields to null and costMicroDollars to 0 when tokenUsage is null")
         void logBatchResult_nullTokenUsage_tokensNullAndCostZero() {
             ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);

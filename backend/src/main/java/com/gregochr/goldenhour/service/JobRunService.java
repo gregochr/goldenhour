@@ -32,6 +32,9 @@ public class JobRunService {
 
     private static final Logger LOG = LoggerFactory.getLogger(JobRunService.class);
 
+    /** Cap on diagnostic raw response bodies stored in {@code api_call_log.response_body}. */
+    private static final int RESPONSE_BODY_MAX_CHARS = 16000;
+
     private final JobRunRepository jobRunRepository;
     private final ApiCallLogRepository apiCallLogRepository;
     private final ForecastBatchRepository forecastBatchRepository;
@@ -190,6 +193,37 @@ public class JobRunService {
             String errorType, String errorMessage,
             EvaluationModel model, TokenUsage tokenUsage,
             LocalDate targetDate, TargetType targetType) {
+        logBatchResult(jobRunId, batchId, customId, succeeded, status, errorType, errorMessage,
+                model, tokenUsage, targetDate, targetType, null);
+    }
+
+    /**
+     * Records a batch result with an optional raw {@code response_body}.
+     *
+     * <p>The raw response is persisted ONLY for diagnostic cases — currently when the JSON
+     * regex fallback was used (Bug B capture), where {@code errorType} is set to a findable
+     * marker (e.g. {@code "regex_fallback"}) even though {@code succeeded} may be {@code true}.
+     * Happy-path calls pass {@code responseBody == null}, so {@code response_body} stays NULL and
+     * storage remains trivial. The body is capped at {@value #RESPONSE_BODY_MAX_CHARS} chars.
+     *
+     * @param jobRunId      the linked job run ID
+     * @param batchId       the Anthropic batch ID
+     * @param customId      the per-request custom ID
+     * @param succeeded     true if the request succeeded
+     * @param status        result status string
+     * @param errorType     error type / diagnostic marker, or null
+     * @param errorMessage  error message, or null
+     * @param model         evaluation model, or null if unknown
+     * @param tokenUsage    token counts, or null
+     * @param targetDate    target date decoded from customId, or null
+     * @param targetType    target type decoded from customId, or null
+     * @param responseBody  raw response text to persist for diagnosis, or null to store nothing
+     */
+    public void logBatchResult(Long jobRunId, String batchId, String customId,
+            boolean succeeded, String status,
+            String errorType, String errorMessage,
+            EvaluationModel model, TokenUsage tokenUsage,
+            LocalDate targetDate, TargetType targetType, String responseBody) {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
 
         long costMicroDollars = 0;
@@ -214,6 +248,7 @@ public class JobRunService {
                 .completedAt(now)
                 .succeeded(succeeded)
                 .errorMessage(truncate(errorMessage, 2000))
+                .responseBody(truncateRaw(responseBody, RESPONSE_BODY_MAX_CHARS))
                 .isBatch(true)
                 .costMicroDollars(costMicroDollars)
                 .evaluationModel(model)
@@ -567,5 +602,22 @@ public class JobRunService {
             return value;
         }
         return value.substring(0, maxLength);
+    }
+
+    /**
+     * Truncates a raw response body for diagnostic storage, appending a visible marker when
+     * clipped so a reviewer knows the sample was cut. Null passes through (happy-path calls
+     * store no body). The cap is high ({@value #RESPONSE_BODY_MAX_CHARS}) because malformations
+     * can appear after a long summary — a tight cap risks clipping the very artifact we capture.
+     *
+     * @param value     the raw response text, or null
+     * @param maxLength the maximum stored length before truncation
+     * @return the value unchanged, or truncated with a {@code …[truncated]} marker, or null
+     */
+    private static String truncateRaw(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength) + "…[truncated " + value.length() + " chars]";
     }
 }

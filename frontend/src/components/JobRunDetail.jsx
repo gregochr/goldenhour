@@ -25,6 +25,19 @@ const JobRunDetail = ({ jobRun }) => {
   const [batchSummary, setBatchSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [expandedFallback, setExpandedFallback] = useState(() => new Set());
+
+  const toggleFallback = (key) => {
+    setExpandedFallback((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -60,6 +73,11 @@ const JobRunDetail = ({ jobRun }) => {
   }
 
   const exchangeRate = jobRun.exchangeRateGbpPerUsd;
+
+  // Diagnostic: responses whose JSON needed the regex fallback (possible Bug B over-capture).
+  // The raw response is captured into api_call_log.response_body and marked error_type=regex_fallback,
+  // even when the call otherwise succeeded. Admin-only screen, so no extra role gating here.
+  const fallbackCalls = apiCalls.filter((c) => c.errorType === 'regex_fallback');
 
   // Group API calls by service
   const serviceStats = apiCalls.reduce((acc, call) => {
@@ -339,6 +357,49 @@ const JobRunDetail = ({ jobRun }) => {
                 </div>
               ))}
           </div>
+        </div>
+      )}
+
+      {/* Fallback-parsed responses (diagnostic, admin-only screen). Hidden when none. */}
+      {fallbackCalls.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-plex-border" data-testid="fallback-parses">
+          <h4 className="font-semibold text-plex-text text-sm">
+            Fallback-parsed responses: {fallbackCalls.length}
+          </h4>
+          <p className="text-xs text-plex-text-muted mt-1">
+            Responses whose JSON needed the regex fallback (possible over-capture). Raw text
+            captured for diagnosis.
+          </p>
+          <ul className="mt-2 space-y-1">
+            {fallbackCalls.map((call) => {
+              const key = call.id ?? call.customId;
+              const isOpen = expandedFallback.has(key);
+              return (
+                <li key={key} className="bg-plex-surface rounded border border-plex-border">
+                  <button
+                    type="button"
+                    onClick={() => toggleFallback(key)}
+                    data-testid="fallback-parse-toggle"
+                    className="w-full text-left px-2 py-1 flex justify-between items-center"
+                  >
+                    <span className="text-xs text-plex-text" style={{ fontFamily: 'monospace' }}>
+                      {call.customId}
+                    </span>
+                    <span className="text-xs text-plex-text-muted">{isOpen ? '▲' : '▼'}</span>
+                  </button>
+                  {isOpen && (
+                    <pre
+                      data-testid="fallback-parse-raw"
+                      className="text-xs text-plex-text-muted px-2 py-1 border-t border-plex-border overflow-x-auto whitespace-pre-wrap"
+                      style={{ fontFamily: 'monospace' }}
+                    >
+                      {call.responseBody}
+                    </pre>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
 

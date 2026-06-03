@@ -13,8 +13,6 @@ import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.regex.Matcher;
@@ -33,10 +31,18 @@ import java.util.regex.Pattern;
  */
 public class ClaudeEvaluationStrategy implements EvaluationStrategy {
 
-    private static final Logger LOG = LoggerFactory.getLogger(ClaudeEvaluationStrategy.class);
-
-    /** Max characters of raw response logged by the Bug B capture instrumentation. */
-    private static final int RAW_CAPTURE_MAX_CHARS = 4000;
+    /**
+     * Outcome of {@link #parseEvaluationWithMetadata}: the parsed evaluation plus whether the
+     * greedy regex fallback was used (i.e. strict JSON parsing failed). The fallback can
+     * over-capture adjacent fields and then SUCCEED silently, so callers persist the raw
+     * response for diagnosis when this flag is set (the Bug B capture).
+     *
+     * @param evaluation        the parsed evaluation
+     * @param usedRegexFallback {@code true} when strict {@code readTree} failed and the regex
+     *                          fallback produced the result
+     */
+    public record ParseResult(SunsetEvaluation evaluation, boolean usedRegexFallback) {
+    }
 
     /**
      * Extracts the summary text from Claude's response using a greedy match.
@@ -176,6 +182,25 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
      * @throws IllegalArgumentException if the response cannot be parsed
      */
     public SunsetEvaluation parseEvaluation(String text, ObjectMapper mapper) {
+        return parseEvaluationWithMetadata(text, mapper).evaluation();
+    }
+
+    /**
+     * Parses Claude's JSON response, reporting whether the regex fallback was used.
+     *
+     * <p>Attempts strict JSON parsing first; on failure, falls back to regex extraction and
+     * sets {@link ParseResult#usedRegexFallback()}. The fallback can over-capture adjacent
+     * fields (e.g. swallow {@code headline} into {@code summary}) and still SUCCEED, so the flag
+     * lets the batch result handler persist the raw response for diagnosis (the Bug B capture)
+     * without changing any parsing behaviour. Parsing itself is identical to
+     * {@link #parseEvaluation}.
+     *
+     * @param text   the raw text returned by Claude
+     * @param mapper Jackson mapper for JSON parsing
+     * @return the parsed evaluation and whether the regex fallback was used
+     * @throws IllegalArgumentException if neither strict parsing nor the regex fallback succeeds
+     */
+    public ParseResult parseEvaluationWithMetadata(String text, ObjectMapper mapper) {
         String cleaned = text.trim()
                 .replaceAll("(?s)^```(?:json)?\\s*", "")
                 .replaceAll("(?s)\\s*```$", "")
@@ -203,42 +228,16 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
                     ? node.get("bluebell_summary").textValue() : null;
             String headline = node.has("headline")
                     ? node.get("headline").stringValue() : null;
-            return new SunsetEvaluation(rating, fierySky, goldenHour, summary,
+            return new ParseResult(new SunsetEvaluation(rating, fierySky, goldenHour, summary,
                     basicFierySky, basicGoldenHour, basicSummary,
                     inversionScore, inversionPotential, bluebellScore, bluebellSummary,
-                    headline);
+                    headline), false);
         } catch (Exception jsonException) {
-            // Bug B capture instrumentation (v2.13.2 precursor). Strict JSON parse failed, so we
-            // resort to the greedy regex fallback — which can over-capture adjacent fields (e.g.
-            // swallow `headline` into `summary`) and then SUCCEED silently, persisting a mangled
-            // summary with no trace of the raw input. Logging the raw response here is the only
-            // way to capture a real malformed sample (the over-capture case is a success, so it is
-            // never logged elsewhere and the raw text is never persisted to api_call_log). This is
-            // diagnostic only: it does not change parsing behaviour. Grep production logs for
-            // "Bug B capture" to recover a real fixture for the forthcoming fallback fix.
-            LOG.warn("Bug B capture — strict JSON parse failed ({}); using regex fallback. "
-                    + "Raw response (<= {} chars): {}",
-                    jsonException.getMessage(), RAW_CAPTURE_MAX_CHARS, truncateForCapture(text));
-            return parseWithRegexFallback(text, jsonException);
+            // Strict JSON parse failed — fall through to the greedy regex fallback and flag it so
+            // the caller can persist the raw response for diagnosis (Bug B). Diagnostic only:
+            // parsing behaviour is unchanged.
+            return new ParseResult(parseWithRegexFallback(text, jsonException), true);
         }
-    }
-
-    /**
-     * Truncates raw response text for the Bug B capture log so a malformed sample is recoverable
-     * without flooding the log. Malformed evaluation responses are small, so truncation rarely
-     * triggers; the bound is a safety cap only.
-     *
-     * @param text the raw response text (may be null)
-     * @return the text, truncated to {@link #RAW_CAPTURE_MAX_CHARS} with an ellipsis marker if longer
-     */
-    static String truncateForCapture(String text) {
-        if (text == null) {
-            return "null";
-        }
-        if (text.length() <= RAW_CAPTURE_MAX_CHARS) {
-            return text;
-        }
-        return text.substring(0, RAW_CAPTURE_MAX_CHARS) + "…[truncated " + text.length() + " chars]";
     }
 
     /**

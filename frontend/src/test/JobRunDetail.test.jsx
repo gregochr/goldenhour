@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import JobRunDetail from '../components/JobRunDetail.jsx';
 
 vi.mock('../api/metricsApi', () => ({
@@ -642,5 +642,50 @@ describe('JobRunDetail — Batch Summary Card', () => {
     await waitFor(() => {
       expect(screen.getByText('No API calls recorded')).toBeInTheDocument();
     });
+  });
+});
+
+describe('JobRunDetail — Fallback-parsed responses', () => {
+  const FALLBACK_CALL = {
+    ...ANTHROPIC_CALL,
+    id: 7,
+    customId: 'fc-42-2026-04-20-SUNRISE',
+    errorType: 'regex_fallback',
+    responseBody: '{"rating":4,"summary":"Clear horizon.",\'headline"}',
+    succeeded: true,
+  };
+
+  it('shows the count and customId when a regex_fallback call is present', async () => {
+    getApiCalls.mockResolvedValue({ data: [ANTHROPIC_CALL, FALLBACK_CALL] });
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('fallback-parses')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Fallback-parsed responses: 1')).toBeInTheDocument();
+    expect(screen.getByText('fc-42-2026-04-20-SUNRISE')).toBeInTheDocument();
+    // Collapsed by default — raw text not rendered until expanded.
+    expect(screen.queryByTestId('fallback-parse-raw')).not.toBeInTheDocument();
+  });
+
+  it('expands to reveal the raw response_body (monospace) on click', async () => {
+    getApiCalls.mockResolvedValue({ data: [FALLBACK_CALL] });
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('fallback-parse-toggle')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('fallback-parse-toggle'));
+    const raw = screen.getByTestId('fallback-parse-raw');
+    expect(raw.textContent).toContain('Clear horizon.');
+    expect(raw.style.fontFamily).toBe('monospace');
+  });
+
+  it('hides the section entirely when there are no fallback parses (N=0)', async () => {
+    getApiCalls.mockResolvedValue({ data: [ANTHROPIC_CALL] });
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByText('ANTHROPIC')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('fallback-parses')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Fallback-parsed responses/)).not.toBeInTheDocument();
   });
 });
