@@ -13,6 +13,8 @@ import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.regex.Matcher;
@@ -30,6 +32,11 @@ import java.util.regex.Pattern;
  * the core evaluation pipeline: prompt → API → parse.
  */
 public class ClaudeEvaluationStrategy implements EvaluationStrategy {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ClaudeEvaluationStrategy.class);
+
+    /** Max characters of raw response logged by the Bug B capture instrumentation. */
+    private static final int RAW_CAPTURE_MAX_CHARS = 4000;
 
     /**
      * Extracts the summary text from Claude's response using a greedy match.
@@ -201,8 +208,37 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
                     inversionScore, inversionPotential, bluebellScore, bluebellSummary,
                     headline);
         } catch (Exception jsonException) {
+            // Bug B capture instrumentation (v2.13.2 precursor). Strict JSON parse failed, so we
+            // resort to the greedy regex fallback — which can over-capture adjacent fields (e.g.
+            // swallow `headline` into `summary`) and then SUCCEED silently, persisting a mangled
+            // summary with no trace of the raw input. Logging the raw response here is the only
+            // way to capture a real malformed sample (the over-capture case is a success, so it is
+            // never logged elsewhere and the raw text is never persisted to api_call_log). This is
+            // diagnostic only: it does not change parsing behaviour. Grep production logs for
+            // "Bug B capture" to recover a real fixture for the forthcoming fallback fix.
+            LOG.warn("Bug B capture — strict JSON parse failed ({}); using regex fallback. "
+                    + "Raw response (<= {} chars): {}",
+                    jsonException.getMessage(), RAW_CAPTURE_MAX_CHARS, truncateForCapture(text));
             return parseWithRegexFallback(text, jsonException);
         }
+    }
+
+    /**
+     * Truncates raw response text for the Bug B capture log so a malformed sample is recoverable
+     * without flooding the log. Malformed evaluation responses are small, so truncation rarely
+     * triggers; the bound is a safety cap only.
+     *
+     * @param text the raw response text (may be null)
+     * @return the text, truncated to {@link #RAW_CAPTURE_MAX_CHARS} with an ellipsis marker if longer
+     */
+    static String truncateForCapture(String text) {
+        if (text == null) {
+            return "null";
+        }
+        if (text.length() <= RAW_CAPTURE_MAX_CHARS) {
+            return text;
+        }
+        return text.substring(0, RAW_CAPTURE_MAX_CHARS) + "…[truncated " + text.length() + " chars]";
     }
 
     /**
