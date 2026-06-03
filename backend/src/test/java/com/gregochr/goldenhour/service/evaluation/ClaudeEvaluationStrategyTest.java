@@ -381,6 +381,33 @@ class ClaudeEvaluationStrategyTest {
     }
 
     @Test
+    @DisplayName("parseEvaluationWithMetadata() flags usedRegexFallback=false on a strict parse")
+    void parseEvaluationWithMetadata_strictParse_flagFalse() {
+        String json = "{\"rating\":3,\"fiery_sky\":50,\"golden_hour\":55,\"summary\":\"Calm.\"}";
+
+        ClaudeEvaluationStrategy.ParseResult result =
+                strategy.parseEvaluationWithMetadata(json, new ObjectMapper());
+
+        assertThat(result.usedRegexFallback()).isFalse();
+        assertThat(result.evaluation().rating()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("parseEvaluationWithMetadata() flags usedRegexFallback=true when strict parse fails")
+    void parseEvaluationWithMetadata_regexFallback_flagTrue() {
+        // Unescaped inner quotes break strict JSON → regex fallback is used.
+        String text = "{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":65,"
+                + "\"summary\":\"Beautiful \"orange\" sky.\"}";
+
+        ClaudeEvaluationStrategy.ParseResult result =
+                strategy.parseEvaluationWithMetadata(text, new ObjectMapper());
+
+        assertThat(result.usedRegexFallback()).isTrue();
+        // Rating is extracted by its own pattern, so it stays correct even on fallback.
+        assertThat(result.evaluation().rating()).isEqualTo(4);
+    }
+
+    @Test
     @DisplayName("parseEvaluation() throws when regex fallback also fails")
     void parseEvaluation_totalGarbage_throws() {
         String text = "This is not JSON and has no matching patterns.";

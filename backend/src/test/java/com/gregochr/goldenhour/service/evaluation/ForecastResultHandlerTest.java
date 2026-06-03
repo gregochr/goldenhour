@@ -103,8 +103,9 @@ class ForecastResultHandlerTest {
                 "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
                 new TokenUsage(500, 200, 0, 1000),
                 EvaluationModel.HAIKU);
-        when(parsingStrategy.parseEvaluation(outcome.rawText(), objectMapper))
-                .thenReturn(new SunsetEvaluation(4, 70, 65, "X"));
+        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
 
         ResultContext context = ResultContext.forBatch(
                 99L, "msgbatch_x", BatchTriggerSource.SCHEDULED);
@@ -121,7 +122,40 @@ class ForecastResultHandlerTest {
                 eq(true), eq("SUCCESS"),
                 eq(null), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
-                eq(DATE), eq(SUNRISE));
+                eq(DATE), eq(SUNRISE), eq(null));
+    }
+
+    @Test
+    @DisplayName("parseBatchResponse: regex fallback used → persists raw response_body + "
+            + "regex_fallback marker, succeeded stays true")
+    void parseBatchResponse_regexFallback_persistsRawAndMarker() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE);
+        // Realistic malformed-ish raw that would force strict-parse failure (resembles the
+        // observed Bug B artifact). The parser is mocked, so this is the raw that must be
+        // persisted verbatim — it is NOT a Bug B fix fixture.
+        String rawText = "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,"
+                + "\"summary\":\"Clear horizon.\",'headline\"}";
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE", rawText,
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "Clear horizon."), true));
+
+        Optional<BatchSuccess> result = handler.parseBatchResponse(
+                location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().result().rating()).isEqualTo(4);
+        // succeeded stays TRUE (the marker, not the flag, makes it findable); raw + marker stored.
+        verify(jobRunService).logBatchResult(
+                eq(99L), eq("msgbatch_x"), eq("fc-42-2026-04-16-SUNRISE"),
+                eq(true), eq("SUCCESS"),
+                eq(ForecastResultHandler.REGEX_FALLBACK_MARKER), eq(null),
+                eq(EvaluationModel.HAIKU), any(TokenUsage.class),
+                eq(DATE), eq(SUNRISE), eq(rawText));
     }
 
     @Test
@@ -144,7 +178,7 @@ class ForecastResultHandlerTest {
                 eq(false), eq("OVERLOADED_ERROR"),
                 eq("overloaded_error"), eq("busy"),
                 eq(null), eq(null),
-                eq(DATE), eq(SUNRISE));
+                eq(DATE), eq(SUNRISE), eq(null));
         verifyNoInteractions(parsingStrategy);
     }
 
@@ -156,7 +190,7 @@ class ForecastResultHandlerTest {
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 "fc-42-2026-04-16-SUNRISE", "garbage",
                 new TokenUsage(0, 0, 0, 0), EvaluationModel.HAIKU);
-        when(parsingStrategy.parseEvaluation(outcome.rawText(), objectMapper))
+        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
                 .thenThrow(new IllegalArgumentException("bad json"));
 
         ResultContext context = ResultContext.forBatch(
@@ -171,7 +205,7 @@ class ForecastResultHandlerTest {
                 eq(false), statusCaptor.capture(),
                 eq("parse_error"), eq("bad json"),
                 eq(null), eq(null),
-                eq(DATE), eq(SUNRISE));
+                eq(DATE), eq(SUNRISE), eq(null));
         assertThat(statusCaptor.getValue()).isEqualTo("PARSE_FAILED");
     }
 
@@ -185,8 +219,9 @@ class ForecastResultHandlerTest {
                 "{\"rating\":7,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
                 new TokenUsage(500, 200, 0, 1000),
                 EvaluationModel.HAIKU);
-        when(parsingStrategy.parseEvaluation(outcome.rawText(), objectMapper))
-                .thenReturn(new SunsetEvaluation(7, 70, 65, "X"));
+        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+                        new SunsetEvaluation(7, 70, 65, "X"), false));
 
         Optional<BatchSuccess> result = handler.parseBatchResponse(
                 location, identity, outcome, ResultContext.forBatch(
@@ -209,8 +244,9 @@ class ForecastResultHandlerTest {
                 "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
                 new TokenUsage(500, 200, 0, 1000),
                 EvaluationModel.HAIKU);
-        when(parsingStrategy.parseEvaluation(outcome.rawText(), objectMapper))
-                .thenReturn(new SunsetEvaluation(4, 70, 65, "X"));
+        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
 
         Optional<BatchSuccess> result = handler.parseBatchResponse(
                 location, identity, outcome, ResultContext.forBatch(
@@ -230,8 +266,9 @@ class ForecastResultHandlerTest {
                 "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
                 new TokenUsage(500, 200, 0, 1000),
                 EvaluationModel.HAIKU);
-        when(parsingStrategy.parseEvaluation(outcome.rawText(), objectMapper))
-                .thenReturn(new SunsetEvaluation(4, 70, 65, "X"));
+        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
 
         Optional<BatchSuccess> result = handler.parseBatchResponse(
                 location, identity, outcome,
@@ -251,12 +288,13 @@ class ForecastResultHandlerTest {
                 "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
                 new TokenUsage(500, 200, 0, 1000),
                 EvaluationModel.HAIKU);
-        when(parsingStrategy.parseEvaluation(outcome.rawText(), objectMapper))
-                .thenReturn(new SunsetEvaluation(4, 70, 65, "X"));
+        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
         org.mockito.Mockito.doThrow(new RuntimeException("DB down"))
                 .when(jobRunService).logBatchResult(
                         any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean(),
-                        any(), any(), any(), any(), any(), any(), any());
+                        any(), any(), any(), any(), any(), any(), any(), any());
 
         Optional<BatchSuccess> result = handler.parseBatchResponse(
                 location, identity, outcome, ResultContext.forBatch(

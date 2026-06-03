@@ -49,6 +49,13 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
 
     private static final Logger LOG = LoggerFactory.getLogger(ForecastResultHandler.class);
 
+    /**
+     * {@code error_type} marker stamped on the {@code api_call_log} row when the JSON regex
+     * fallback was used (Bug B). Makes the silent over-capture successes findable on the admin
+     * Job Run screen even though {@code succeeded} is {@code true}.
+     */
+    public static final String REGEX_FALLBACK_MARKER = "regex_fallback";
+
     private final BriefingEvaluationService briefingEvaluationService;
     private final ClaudeEvaluationStrategy parsingStrategy;
     private final JobRunService jobRunService;
@@ -146,7 +153,9 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         }
 
         try {
-            SunsetEvaluation eval = parsingStrategy.parseEvaluation(outcome.rawText(), objectMapper);
+            ClaudeEvaluationStrategy.ParseResult parsed0 =
+                    parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper);
+            SunsetEvaluation eval = parsed0.evaluation();
             Integer combinedRating = ratingCombiner.combine(location, eval);
             Integer safeRating = RatingValidator.validateRating(
                     combinedRating, regionName, parsed.date(), parsed.targetType(),
@@ -158,7 +167,16 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                     eval.fierySkyPotential(), eval.goldenHourPotential(), eval.summary(),
                     null, null, eval.headline());
 
-            persistBatchLog(context, outcome, parsed.date(), parsed.targetType(), outcome.model());
+            if (parsed0.usedRegexFallback()) {
+                // Strict JSON parse failed and the regex fallback recovered the result (possibly
+                // over-capturing — the Bug B trigger). This is a silent success, so persist the raw
+                // response and mark it findable for the admin Job Run screen / a real fixture.
+                persistBatchLog(context, outcome, parsed.date(), parsed.targetType(),
+                        outcome.model(), REGEX_FALLBACK_MARKER, outcome.rawText());
+            } else {
+                persistBatchLog(context, outcome, parsed.date(), parsed.targetType(),
+                        outcome.model());
+            }
             return Optional.of(new BatchSuccess(cacheKey, result));
         } catch (Exception e) {
             LOG.warn("Forecast batch: parse failed for '{}': {}", outcome.customId(), e.getMessage());
@@ -232,6 +250,12 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
 
     private void persistBatchLog(ResultContext context, ClaudeBatchOutcome outcome,
             LocalDate targetDate, TargetType targetType, EvaluationModel model) {
+        persistBatchLog(context, outcome, targetDate, targetType, model, null, null);
+    }
+
+    private void persistBatchLog(ResultContext context, ClaudeBatchOutcome outcome,
+            LocalDate targetDate, TargetType targetType, EvaluationModel model,
+            String errorTypeOverride, String responseBody) {
         if (context == null || context.jobRunId() == null) {
             return;
         }
@@ -239,9 +263,10 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             jobRunService.logBatchResult(
                     context.jobRunId(), context.batchId(), outcome.customId(),
                     outcome.succeeded(), outcome.status(),
-                    outcome.errorType(), outcome.errorMessage(),
+                    errorTypeOverride != null ? errorTypeOverride : outcome.errorType(),
+                    outcome.errorMessage(),
                     model, outcome.tokenUsage(),
-                    targetDate, targetType);
+                    targetDate, targetType, responseBody);
         } catch (Exception e) {
             LOG.warn("Forecast batch: failed to persist api_call_log for customId={}: {}",
                     outcome.customId(), e.getMessage());
