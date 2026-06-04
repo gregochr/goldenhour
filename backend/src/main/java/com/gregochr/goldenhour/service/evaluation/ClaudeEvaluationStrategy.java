@@ -45,11 +45,22 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
     }
 
     /**
-     * Extracts the summary text from Claude's response using a greedy match.
-     * The greedy {@code .*} captures everything up to the last {@code "} before the
-     * closing {@code }} — correctly handling unescaped quote characters in the text.
+     * Extracts the summary text — bounded so it CANNOT over-capture into a following field
+     * (Bug B). {@code (?:[^"\\]|\\.)*} matches any run of non-quote / escaped characters and
+     * stops at the first genuine (unescaped) closing quote, so it physically cannot swallow
+     * {@code ","headline":"..."}. If the value itself contains unescaped quotes this finds no
+     * match; {@link #SUMMARY_PATTERN_SALVAGE} then salvages the field so the fallback never
+     * loses the rating.
      */
     static final Pattern SUMMARY_PATTERN =
+            Pattern.compile("\"summary\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"\\s*[,}]");
+
+    /**
+     * Legacy greedy summary extractor, used ONLY when {@link #SUMMARY_PATTERN} (bounded) finds no
+     * match — i.e. the summary value itself contains unescaped quotes. It can over-capture, but it
+     * keeps a (mangled) summary and the correct rating rather than failing the whole fallback.
+     */
+    static final Pattern SUMMARY_PATTERN_SALVAGE =
             Pattern.compile("(?s)\"summary\"\\s*:\\s*\"(.*)\"\\s*[,}]");
 
     /** Extracts the integer rating from Claude's response. */
@@ -69,8 +80,12 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
     static final Pattern BASIC_GOLDEN_HOUR_PATTERN =
             Pattern.compile("\"basic_golden_hour\"\\s*:\\s*(\\d{1,3})");
 
-    /** Extracts the basic summary from Claude's response. */
+    /** Extracts the basic summary — bounded against over-capture, same as {@link #SUMMARY_PATTERN}. */
     static final Pattern BASIC_SUMMARY_PATTERN =
+            Pattern.compile("\"basic_summary\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"\\s*[,}]");
+
+    /** Greedy salvage for basic summary, used only when {@link #BASIC_SUMMARY_PATTERN} finds no match. */
+    static final Pattern BASIC_SUMMARY_PATTERN_SALVAGE =
             Pattern.compile("(?s)\"basic_summary\"\\s*:\\s*\"(.*)\"\\s*[,}]");
 
     /** Extracts the cloud inversion score (0-10) from Claude's response. */
@@ -293,23 +308,22 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
         Matcher ratingMatcher = RATING_PATTERN.matcher(text);
         Matcher fierySkyMatcher = FIERY_SKY_PATTERN.matcher(text);
         Matcher goldenHourMatcher = GOLDEN_HOUR_PATTERN.matcher(text);
-        Matcher summaryMatcher = SUMMARY_PATTERN.matcher(text);
+        // Bounded first (no over-capture), greedy salvage only if the value has unescaped quotes.
+        String summary = extractField(SUMMARY_PATTERN, SUMMARY_PATTERN_SALVAGE, text);
 
         Integer rating = ratingMatcher.find() ? Integer.parseInt(ratingMatcher.group(1)) : null;
-        if (fierySkyMatcher.find() && goldenHourMatcher.find() && summaryMatcher.find()) {
+        if (fierySkyMatcher.find() && goldenHourMatcher.find() && summary != null) {
             int fierySky = Integer.parseInt(fierySkyMatcher.group(1));
             int goldenHour = Integer.parseInt(goldenHourMatcher.group(1));
-            String summary = summaryMatcher.group(1);
 
             Matcher basicFierySkyMatcher = BASIC_FIERY_SKY_PATTERN.matcher(text);
             Matcher basicGoldenHourMatcher = BASIC_GOLDEN_HOUR_PATTERN.matcher(text);
-            Matcher basicSummaryMatcher = BASIC_SUMMARY_PATTERN.matcher(text);
             Integer basicFierySky = basicFierySkyMatcher.find()
                     ? Integer.parseInt(basicFierySkyMatcher.group(1)) : null;
             Integer basicGoldenHour = basicGoldenHourMatcher.find()
                     ? Integer.parseInt(basicGoldenHourMatcher.group(1)) : null;
-            String basicSummary = basicSummaryMatcher.find()
-                    ? basicSummaryMatcher.group(1) : null;
+            String basicSummary = extractField(
+                    BASIC_SUMMARY_PATTERN, BASIC_SUMMARY_PATTERN_SALVAGE, text);
 
             Matcher inversionScoreMatcher = INVERSION_SCORE_PATTERN.matcher(text);
             Matcher inversionPotentialMatcher = INVERSION_POTENTIAL_PATTERN.matcher(text);
@@ -336,6 +350,27 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
 
         throw new IllegalArgumentException(
                 "Failed to parse evaluation response: " + text, cause);
+    }
+
+    /**
+     * Extracts a string field from malformed JSON, preferring a bounded pattern that cannot
+     * over-capture into the following field (the Bug B fix), and only falling back to the legacy
+     * greedy pattern when the bounded one finds no match — i.e. the value itself contains unescaped
+     * quotes. The greedy salvage keeps the fallback resilient: it never loses the rating just
+     * because a summary is internally mangled. Returns {@code null} if neither pattern matches.
+     *
+     * @param bounded the bounded (non-over-capturing) pattern, group 1 = value
+     * @param salvage the greedy fallback pattern, group 1 = value
+     * @param text    the raw response text
+     * @return the extracted field value, or null if neither pattern matches
+     */
+    private static String extractField(Pattern bounded, Pattern salvage, String text) {
+        Matcher boundedMatcher = bounded.matcher(text);
+        if (boundedMatcher.find()) {
+            return boundedMatcher.group(1);
+        }
+        Matcher salvageMatcher = salvage.matcher(text);
+        return salvageMatcher.find() ? salvageMatcher.group(1) : null;
     }
 
     /**
