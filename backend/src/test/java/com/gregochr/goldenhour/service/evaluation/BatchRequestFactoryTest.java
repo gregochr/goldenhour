@@ -109,7 +109,10 @@ class BatchRequestFactoryTest {
 
         String systemText = request.params().system().get()
                 .asTextBlockParams().get(0).text();
-        assertThat(systemText).contains("COASTAL TIDE GUIDANCE");
+        // v2.13.2: coastal guidance is surge-only; tide is scored separately by TideVisitor.
+        assertThat(systemText)
+                .contains("COASTAL CONDITIONS GUIDANCE")
+                .doesNotContain("COASTAL TIDE GUIDANCE");
     }
 
     @Test

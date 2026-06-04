@@ -702,7 +702,7 @@ class ClaudeEvaluationStrategyTest {
     // ── Builder Selection (coastal vs inland) ───────────────────────────────
 
     @Test
-    @DisplayName("evaluateWithDetails() sends coastal system prompt when data has tide")
+    @DisplayName("evaluateWithDetails() sends coastal (surge) system prompt when data has tide")
     void evaluateWithDetails_withTide_sendsCoastalSystemPrompt() {
         AtmosphericData data = TestAtmosphericData.builder()
                 .tide(new TideSnapshot(
@@ -731,7 +731,10 @@ class ClaudeEvaluationStrategyTest {
         MessageCreateParams params = captor.getValue();
         String systemPrompt = params.system().get().asTextBlockParams().get(0).text();
 
-        assertThat(systemPrompt).contains("COASTAL TIDE GUIDANCE:");
+        // v2.13.2: coastal guidance is now surge-only; the tide-boost guidance is gone.
+        assertThat(systemPrompt)
+                .contains("COASTAL CONDITIONS GUIDANCE:")
+                .doesNotContain("COASTAL TIDE GUIDANCE");
     }
 
     @Test
@@ -781,8 +784,9 @@ class ClaudeEvaluationStrategyTest {
     }
 
     @Test
-    @DisplayName("evaluateWithDetails() user message includes tide block for coastal data")
-    void evaluateWithDetails_withTide_userMessageContainsTideBlock() {
+    @DisplayName("evaluateWithDetails() user message omits the tide block even for coastal data "
+            + "(v2.13.2: tide is scored separately by TideVisitor, not in the prompt)")
+    void evaluateWithDetails_withTide_userMessageOmitsTideBlock() {
         AtmosphericData data = TestAtmosphericData.builder()
                 .tide(new TideSnapshot(
                         TideState.HIGH,
@@ -803,9 +807,9 @@ class ClaudeEvaluationStrategyTest {
 
         EvaluationDetail detail = strategy.evaluateWithDetails(data);
 
-        assertThat(detail.promptSent()).contains("Tide: KING TIDE");
-        assertThat(detail.promptSent()).contains("moon: New Moon");
-        assertThat(detail.promptSent()).contains("perigee: yes");
+        assertThat(detail.promptSent())
+                .doesNotContain("Tide:")
+                .doesNotContain("KING TIDE");
     }
 
     @Test
@@ -824,8 +828,8 @@ class ClaudeEvaluationStrategyTest {
     }
 
     @Test
-    @DisplayName("evaluateWithDetails() coastal data with surge includes both tide and surge in message")
-    void evaluateWithDetails_coastalWithSurge_includesTideAndSurge() {
+    @DisplayName("evaluateWithDetails() coastal data with surge includes the surge block (no tide line)")
+    void evaluateWithDetails_coastalWithSurge_includesSurgeNotTide() {
         StormSurgeBreakdown surge = new StormSurgeBreakdown(
                 0.23, 0.12, 0.35, 990.0, 15.0, 60.0, 0.85,
                 TideRiskLevel.MODERATE, "Moderate surge");
@@ -850,8 +854,9 @@ class ClaudeEvaluationStrategyTest {
 
         EvaluationDetail detail = strategy.evaluateWithDetails(data);
 
+        // v2.13.2: surge block kept (foreground/safety), tide line removed (scored separately).
         assertThat(detail.promptSent())
-                .contains("Tide: SPRING TIDE")
+                .doesNotContain("Tide:")
                 .contains("STORM SURGE FORECAST:")
                 .contains("Risk level: MODERATE");
 
@@ -859,7 +864,7 @@ class ClaudeEvaluationStrategyTest {
                 ArgumentCaptor.forClass(MessageCreateParams.class);
         verify(anthropicApiClient).createMessage(captor.capture());
         String systemPrompt = captor.getValue().system().get().asTextBlockParams().get(0).text();
-        assertThat(systemPrompt).contains("COASTAL TIDE GUIDANCE:");
+        assertThat(systemPrompt).contains("COASTAL CONDITIONS GUIDANCE:");
     }
 
     @Test
