@@ -377,7 +377,101 @@ class ClaudeEvaluationStrategyTest {
         assertThat(result.rating()).isEqualTo(4);
         assertThat(result.fierySkyPotential()).isEqualTo(72);
         assertThat(result.goldenHourPotential()).isEqualTo(65);
+        // Internal unescaped quotes → bounded pattern can't match → greedy salvage keeps the
+        // summary (and the rating). This case has no following field, so there is no over-capture.
         assertThat(result.summary()).contains("orange");
+    }
+
+    // ── Bug B: regex-fallback over-capture fix (bounded summary capture) ──────
+
+    // SYNTHETIC fixture — reconstructs the over-capture trigger from the real
+    // cached_evaluation artifact ("…horizon.','headline\"}", Tyne and Wear /
+    // Angel of the North, observed 2026-06). Not a captured production rawText
+    // (over-capture is a silent success and was never persisted pre-instrumentation).
+    // Purpose: demonstrate the bounded-regex fix handles the over-capture CLASS.
+    // A single-quoted headline value breaks strict JSON (sending it to the fallback) and,
+    // with the OLD greedy pattern, the summary swallowed up to the last quote
+    // (…horizon.","headline). The headline is single-quoted so it is unextractable — that is
+    // the model's malformation; the FIX's job is to stop the summary swallowing it.
+    private static final String SYNTHETIC_OVERCAPTURE_SINGLE_QUOTED_HEADLINE =
+            "{\"rating\":2,\"fiery_sky\":15,\"golden_hour\":20,"
+            + "\"summary\":\"Heavy blanket over the horizon.\",\"headline\":'no colour'}";
+
+    @Test
+    @DisplayName("Bug B: over-capture fixed — summary stays clean, does not swallow the next field")
+    void parseEvaluation_overCapture_summaryNotPolluted() {
+        SunsetEvaluation result = strategy.parseEvaluation(
+                SYNTHETIC_OVERCAPTURE_SINGLE_QUOTED_HEADLINE, new ObjectMapper());
+
+        assertThat(result.summary()).isEqualTo("Heavy blanket over the horizon.");
+        assertThat(result.summary()).doesNotContain("headline");
+        assertThat(result.summary()).doesNotContain("','");
+        // Rating extracted by its independent pattern — always safe.
+        assertThat(result.rating()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("Bug B: bounded summary + a well-formed following headline both extract cleanly")
+    void parseEvaluation_overCapture_summaryCleanHeadlineExtracted() {
+        // Trailing comma breaks strict JSON → fallback; summary and headline are both well-formed.
+        String text = "{\"rating\":3,\"fiery_sky\":50,\"golden_hour\":55,"
+                + "\"summary\":\"Soft pastels over the western ridge.\","
+                + "\"headline\":\"Pastel skies\",}";
+
+        SunsetEvaluation result = strategy.parseEvaluation(text, new ObjectMapper());
+
+        assertThat(result.summary()).isEqualTo("Soft pastels over the western ridge.");
+        assertThat(result.summary()).doesNotContain("headline");
+        assertThat(result.headline()).isEqualTo("Pastel skies");
+        assertThat(result.rating()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("Bug B boundary: bounded summary preserves escaped quotes (does not truncate early)")
+    void parseEvaluation_overCapture_escapedQuotesPreserved() {
+        // Valid \" escapes inside the summary; trailing comma breaks strict → fallback.
+        String text = "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,"
+                + "\"summary\":\"A so-called \\\"golden\\\" hour over the bay.\","
+                + "\"headline\":\"Golden hour\",}";
+
+        SunsetEvaluation result = strategy.parseEvaluation(text, new ObjectMapper());
+
+        // The escaped quotes did not cut the summary short, and it did not over-capture.
+        assertThat(result.summary()).contains("golden");
+        assertThat(result.summary()).contains("bay");
+        assertThat(result.summary()).doesNotContain("headline");
+        assertThat(result.headline()).isEqualTo("Golden hour");
+        assertThat(result.rating()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("Bug B: basic_summary is also bounded against over-capture")
+    void parseEvaluation_overCapture_basicSummaryNotPolluted() {
+        String text = "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,"
+                + "\"summary\":\"Clear horizon.\",\"basic_summary\":\"Looks clear.\","
+                + "\"headline\":\"Clear\",}";
+
+        SunsetEvaluation result = strategy.parseEvaluation(text, new ObjectMapper());
+
+        assertThat(result.basicSummary()).isEqualTo("Looks clear.");
+        assertThat(result.basicSummary()).doesNotContain("headline");
+        assertThat(result.rating()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("Bug B: happy path unchanged — well-formed JSON parses strictly, fields exact")
+    void parseEvaluation_wellFormed_strictPathUnchanged() {
+        String text = "{\"rating\":5,\"fiery_sky\":88,\"golden_hour\":72,"
+                + "\"summary\":\"Pre-frontal fire — mid cloud catches colour.\","
+                + "\"headline\":\"Pre-frontal fire\"}";
+
+        SunsetEvaluation result = strategy.parseEvaluation(text, new ObjectMapper());
+
+        assertThat(result.rating()).isEqualTo(5);
+        assertThat(result.fierySkyPotential()).isEqualTo(88);
+        assertThat(result.goldenHourPotential()).isEqualTo(72);
+        assertThat(result.summary()).isEqualTo("Pre-frontal fire — mid cloud catches colour.");
+        assertThat(result.headline()).isEqualTo("Pre-frontal fire");
     }
 
     @Test
