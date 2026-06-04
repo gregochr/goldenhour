@@ -1,7 +1,6 @@
 package com.gregochr.goldenhour.service.evaluation.visitor;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.model.SunsetEvaluation;
 
 import java.util.OptionalInt;
 
@@ -63,10 +62,10 @@ public interface Visitor {
      * This visitor's score for the location on a 1–5 scale, or
      * {@link OptionalInt#empty()} if it has no number to contribute for this evaluation.
      *
-     * @param location   the location under evaluation
-     * @param evaluation the already-produced Claude evaluation (see class Javadoc for why
-     *                   v2.13.1 consumes the produced result rather than forecast inputs)
+     * @param location the location under evaluation
+     * @param context  the inputs to score from — the produced Claude evaluation and, for coastal
+     *                 locations, the re-derived tide context (see {@link VisitorContext})
      * @return the 1–5 contribution, or empty when there is no score
      */
-    OptionalInt evaluate(LocationEntity location, SunsetEvaluation evaluation);
+    OptionalInt evaluate(LocationEntity location, VisitorContext context);
 }

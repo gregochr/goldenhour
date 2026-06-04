@@ -6,19 +6,25 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
+import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import com.gregochr.goldenhour.model.TideContext;
+import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.ForecastDataAugmentor;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.batch.BatchTriggerSource;
 import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler.BatchSuccess;
 import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler.ForecastIdentity;
 import com.gregochr.goldenhour.service.evaluation.visitor.RatingCombiner;
 import com.gregochr.goldenhour.service.evaluation.visitor.SkyVisitor;
+import com.gregochr.goldenhour.service.evaluation.visitor.TideVisitor;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -108,6 +114,8 @@ class CachePayloadGoldenMasterTest {
     private ClaudeEvaluationStrategy parsingStrategy;
     @Mock
     private JobRunService jobRunService;
+    @Mock
+    private ForecastDataAugmentor forecastDataAugmentor;
 
     /**
      * Parser handle the handler passes to the (stubbed) parser. A real Jackson-3 mapper rather
@@ -126,29 +134,35 @@ class CachePayloadGoldenMasterTest {
             new com.fasterxml.jackson.databind.ObjectMapper().registerModule(new JavaTimeModule());
 
     @Test
-    @DisplayName("coastal with aligned tide: blended rating (sky+tide folded by Claude today)")
+    @DisplayName("coastal with aligned tide: sky 3 (sky-only) + spring tide 5 → averaged to 4")
     void coastalAligned() {
-        // Berwick-Upon-Tweed (SEASCAPE) — today Claude folds an aligned tide into a single
-        // rating: a 3★ sky + aligned tide reads as 4★. Step 3 strips tide from the prompt
-        // (sky-only → 3★) and re-adds it via TideVisitor; this fixture pins today's blended 4★.
+        // Berwick-Upon-Tweed (SEASCAPE). Post-decomposition: Claude scores the SKY ALONE (3★ —
+        // the old +1 tide boost is gone from the prompt), and the TideVisitor re-adds an aligned
+        // spring tide (5★). RatingCombiner averages: avg(3, 5) = 4. The fixture pins the new
+        // provenance; the value happens to land back on 4.
         LocationEntity location = seascape("Berwick-Upon-Tweed", 1L, "Northumberland Coast");
         SunsetEvaluation eval = new SunsetEvaluation(
-                4, 72, 68, "Aligned high tide under a clearing western sky.",
+                3, 72, 68, "Clearing western sky over the harbour.",
                 null, null, null, null, null, null, null,
                 "Fiery tide-lit finish");
+        when(forecastDataAugmentor.deriveTideContext(location, DATE, SUNSET))
+                .thenReturn(Optional.of(tideContext(true, true, LunarTideType.SPRING_TIDE)));
         assertGolden("coastal-aligned", location, eval);
     }
 
     @Test
-    @DisplayName("coastal misaligned: scored on sky alone today (no aligned-tide boost)")
+    @DisplayName("coastal misaligned: sky 3 + tide 1 → dragged to 2 (R1 — misaligned penalises)")
     void coastalMisaligned() {
-        // Spittal Beach (SEASCAPE) — tide not aligned, so today Claude scores on sky alone (3★).
-        // Step 3 should leave this ~unchanged; this fixture is the proof.
+        // Spittal Beach (SEASCAPE). Sky-only is still 3★, but under R1 a misaligned tide at a
+        // tidal location now scores 1★ and averages in: avg(3, 1) = 2. This fixture CHANGES from
+        // the pre-decomposition 3★ — the intended R1 behaviour (misaligned tide = no foreground).
         LocationEntity location = seascape("Spittal Beach", 2L, "Northumberland Coast");
         SunsetEvaluation eval = new SunsetEvaluation(
                 3, 55, 60, "Decent western light but the tide is out of phase.",
                 null, null, null, null, null, null, null,
                 "Soft light, low water");
+        when(forecastDataAugmentor.deriveTideContext(location, DATE, SUNSET))
+                .thenReturn(Optional.of(tideContext(false, false, LunarTideType.REGULAR_TIDE)));
         assertGolden("coastal-misaligned", location, eval);
     }
 
@@ -161,6 +175,46 @@ class CachePayloadGoldenMasterTest {
         SunsetEvaluation eval = new SunsetEvaluation(
                 3, 58, 62, "Broken cloud over the fells with a chance of colour.");
         assertGolden("inland", location, eval);
+    }
+
+    @Test
+    @DisplayName("sky not forecast (inland): 1★ + exact not-forecast summary, null headline, no triage")
+    void skyNotForecast() {
+        // Buttermere (LANDSCAPE) — a parseable Claude response that omitted the rating. Decision B
+        // changes inland sky-empty from a silent null to a visible 1★ with an honest label. This
+        // fixture (inland-shaped: no TideVisitor) guards that change. The substituted summary is
+        // deterministic code-injected text, so it is pinned EXACTLY (not normalised to a
+        // placeholder like Claude prose).
+        LocationEntity location = landscape("Buttermere", 4L, "Lake District");
+        SunsetEvaluation eval = new SunsetEvaluation(
+                null, 40, 45, "Claude prose that must be overridden by the not-forecast summary.");
+
+        String serialised = serialisePayload(location, eval);
+        JsonNode array = readTree(serialised);
+        JsonNode element = array.get(0);
+        assertThat(element.get("rating").asInt())
+                .as("sky-not-forecast must substitute 1★").isEqualTo(1);
+        assertThat(element.get("summary").asText())
+                .as("sky-not-forecast summary is pinned exactly (code-injected, not Claude prose)")
+                .isEqualTo(ForecastResultHandler.SKY_NOT_FORECAST_SUMMARY);
+        assertThat(element.has("headline"))
+                .as("null headline must be omitted (NON_NULL)").isFalse();
+        assertThat(element.has("triageReason"))
+                .as("must NOT render with triage stand-down treatment").isFalse();
+        assertThat(element.has("triageMessage"))
+                .as("must NOT render with triage stand-down treatment").isFalse();
+
+        // Structural golden (prose normalised) guards field order/presence + the 1★ rating.
+        String normalised = normalise(array);
+        if (Boolean.getBoolean("cache.golden.regenerate")) {
+            writeFixture("sky-not-forecast", normalised);
+            return;
+        }
+        assertThat(normalised)
+                .as("Serialised sky-not-forecast payload differs from golden master "
+                        + "src/test/resources/%s/sky-not-forecast.json. Regenerate with "
+                        + "-Dcache.golden.regenerate=true and review the diff.", FIXTURE_DIR)
+                .isEqualTo(readFixture("sky-not-forecast"));
     }
 
     /**
@@ -202,7 +256,8 @@ class CachePayloadGoldenMasterTest {
                 briefingEvaluationService,
                 Map.of(EvaluationModel.HAIKU, parsingStrategy),
                 jobRunService, parserHandle,
-                new RatingCombiner(List.of(new SkyVisitor())));
+                new RatingCombiner(List.of(new SkyVisitor(), new TideVisitor())),
+                forecastDataAugmentor);
 
         String customId = "fc-" + location.getId() + "-2026-06-21-SUNSET";
         String rawText = "{\"injected-by-stub\":true}";
@@ -278,6 +333,15 @@ class CachePayloadGoldenMasterTest {
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             throw new IllegalStateException("Failed to parse serialised payload", e);
         }
+    }
+
+    /** Builds a re-derived {@link TideContext} with the given alignment and lunar classification. */
+    private static TideContext tideContext(boolean tightAligned, boolean widenedAligned,
+            LunarTideType lunar) {
+        TideSnapshot snapshot = new TideSnapshot(
+                TideState.HIGH, null, null, null, null,
+                tightAligned, null, null, lunar, null, null, null);
+        return new TideContext(snapshot, widenedAligned);
     }
 
     private LocationEntity seascape(String name, long id, String regionName) {

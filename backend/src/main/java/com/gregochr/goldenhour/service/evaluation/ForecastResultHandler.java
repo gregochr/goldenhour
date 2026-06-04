@@ -3,12 +3,16 @@ package com.gregochr.goldenhour.service.evaluation;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import com.gregochr.goldenhour.model.TideContext;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.ForecastDataAugmentor;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.evaluation.visitor.RatingCombiner;
+import com.gregochr.goldenhour.service.evaluation.visitor.VisitorContext;
 import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +22,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * {@link ResultHandler} for forecast colour evaluations.
@@ -56,11 +61,26 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      */
     public static final String REGEX_FALLBACK_MARKER = "regex_fallback";
 
+    /**
+     * Rating substituted when Claude returned a parseable response but omitted the sky rating
+     * ("sky not forecast"). A low default that drops the location in ranking but keeps it visible
+     * in the result set rather than silently dropping it (the old {@code null} behaviour).
+     */
+    static final int SKY_NOT_FORECAST_RATING = 1;
+
+    /**
+     * Summary substituted for the sky-not-forecast state, overriding any prose Claude returned.
+     * Distinct from the normal low-score "poor sky" wording — this is "evaluated but unscoreable".
+     */
+    static final String SKY_NOT_FORECAST_SUMMARY =
+            "Claude did not forecast the fiery sky and golden hour for this location";
+
     private final BriefingEvaluationService briefingEvaluationService;
     private final ClaudeEvaluationStrategy parsingStrategy;
     private final JobRunService jobRunService;
     private final ObjectMapper objectMapper;
     private final RatingCombiner ratingCombiner;
+    private final ForecastDataAugmentor forecastDataAugmentor;
 
     /**
      * Constructs the handler.
@@ -77,12 +97,16 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * @param ratingCombiner            v2.13 visitor combiner — derives the persisted star
      *                                  rating from the parsed evaluation. This is the single
      *                                  result seam both transports (batch + sync) flow through.
+     * @param forecastDataAugmentor     re-derives the tide context (option B) at the combine seam
+     *                                  for coastal locations, so the {@code TideVisitor} can score
+     *                                  the tide separately from the sky
      */
     public ForecastResultHandler(BriefingEvaluationService briefingEvaluationService,
             Map<EvaluationModel, EvaluationStrategy> evaluationStrategies,
             JobRunService jobRunService,
             ObjectMapper objectMapper,
-            RatingCombiner ratingCombiner) {
+            RatingCombiner ratingCombiner,
+            ForecastDataAugmentor forecastDataAugmentor) {
         this.briefingEvaluationService = briefingEvaluationService;
         EvaluationStrategy strategy = evaluationStrategies.get(EvaluationModel.HAIKU);
         if (!(strategy instanceof ClaudeEvaluationStrategy claude)) {
@@ -94,6 +118,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         this.jobRunService = jobRunService;
         this.objectMapper = objectMapper;
         this.ratingCombiner = ratingCombiner;
+        this.forecastDataAugmentor = forecastDataAugmentor;
     }
 
     @Override
@@ -156,16 +181,9 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             ClaudeEvaluationStrategy.ParseResult parsed0 =
                     parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper);
             SunsetEvaluation eval = parsed0.evaluation();
-            Integer combinedRating = ratingCombiner.combine(location, eval);
-            Integer safeRating = RatingValidator.validateRating(
-                    combinedRating, regionName, parsed.date(), parsed.targetType(),
-                    location.getName(),
-                    outcome.model() != null ? outcome.model().name() : "UNKNOWN");
-
-            BriefingEvaluationResult result = new BriefingEvaluationResult(
-                    location.getName(), safeRating,
-                    eval.fierySkyPotential(), eval.goldenHourPotential(), eval.summary(),
-                    null, null, eval.headline());
+            String modelName = outcome.model() != null ? outcome.model().name() : "UNKNOWN";
+            BriefingEvaluationResult result = buildResult(
+                    location, eval, parsed.date(), parsed.targetType(), regionName, modelName);
 
             if (parsed0.usedRegexFallback()) {
                 // Strict JSON parse failed and the regex fallback recovered the result (possibly
@@ -227,14 +245,9 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             return new EvaluationResult.Errored("parse_error", e.getMessage());
         }
 
-        Integer combinedRating = ratingCombiner.combine(task.location(), eval);
-        Integer safeRating = RatingValidator.validateRating(
-                combinedRating, regionName, task.date(), task.targetType(),
-                task.location().getName(), task.model().name());
-        BriefingEvaluationResult result = new BriefingEvaluationResult(
-                task.location().getName(), safeRating,
-                eval.fierySkyPotential(), eval.goldenHourPotential(), eval.summary(),
-                null, null, eval.headline());
+        BriefingEvaluationResult result = buildResult(
+                task.location(), eval, task.date(), task.targetType(),
+                regionName, task.model().name());
 
         persistSyncLog(context, outcome, task);
         if (task.writeTarget() == EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE) {
@@ -242,10 +255,55 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             briefingEvaluationService.writeFromBatch(cacheKey, List.of(result));
         }
 
-        // Carry the combiner-derived rating into the payload so forecast_evaluation
-        // (written by ForecastService from this Scored result) also flows through the
-        // combiner. In v2.13.1 combinedRating equals eval.rating(), so this is field-equal.
-        return new EvaluationResult.Scored(eval.withRating(combinedRating));
+        // Carry the result's rating into the payload so forecast_evaluation (written by
+        // ForecastService from this Scored result) stays consistent with the cache/briefing
+        // surface — including the sky-not-forecast 1★ substitution handled in buildResult.
+        return new EvaluationResult.Scored(eval.withRating(result.rating()));
+    }
+
+    /**
+     * Builds the {@link BriefingEvaluationResult} for a successfully-parsed evaluation, shared by
+     * both transports so batch and sync behave identically.
+     *
+     * <p>Two cases:
+     * <ul>
+     *   <li><b>Sky not forecast</b> ({@code eval.rating() == null}): a parseable response that
+     *       omitted the rating. Substitute {@link #SKY_NOT_FORECAST_RATING} + the
+     *       {@link #SKY_NOT_FORECAST_SUMMARY} (overriding Claude's prose) + a null headline +
+     *       no triage fields, and do NOT combine. Branching here, before the combine, also
+     *       structurally prevents a coastal sky-empty location from being scored on tide alone —
+     *       the tide is never averaged.</li>
+     *   <li><b>Sky scored:</b> re-derive the tide context (coastal only) and run the combiner over
+     *       the sky + tide visitors, then validate.</li>
+     * </ul>
+     *
+     * @param location   the location under evaluation
+     * @param eval       the parsed Claude evaluation
+     * @param date       the evaluation date
+     * @param targetType SUNRISE or SUNSET
+     * @param regionName region name for the rating guardrail log context
+     * @param modelName  model id for the rating guardrail log context
+     * @return the result to persist (cache payload element)
+     */
+    private BriefingEvaluationResult buildResult(LocationEntity location, SunsetEvaluation eval,
+            LocalDate date, TargetType targetType, String regionName, String modelName) {
+        if (eval.rating() == null) {
+            return new BriefingEvaluationResult(
+                    location.getName(), SKY_NOT_FORECAST_RATING,
+                    eval.fierySkyPotential(), eval.goldenHourPotential(), SKY_NOT_FORECAST_SUMMARY,
+                    null, null, null);
+        }
+        Set<TideType> tideTypes = location.getTideType();
+        TideContext tide = (tideTypes != null && !tideTypes.isEmpty())
+                ? forecastDataAugmentor.deriveTideContext(location, date, targetType).orElse(null)
+                : null;
+        Integer combinedRating = ratingCombiner.combine(location, new VisitorContext(eval, tide));
+        Integer safeRating = RatingValidator.validateRating(
+                combinedRating, regionName, date, targetType, location.getName(), modelName);
+        return new BriefingEvaluationResult(
+                location.getName(), safeRating,
+                eval.fierySkyPotential(), eval.goldenHourPotential(), eval.summary(),
+                null, null, eval.headline());
     }
 
     private void persistBatchLog(ResultContext context, ClaudeBatchOutcome outcome,
