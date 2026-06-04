@@ -37,8 +37,8 @@ class RatingCombinerTest {
         return loc;
     }
 
-    private static SunsetEvaluation evalWithRating(Integer rating) {
-        return new SunsetEvaluation(rating, 70, 65, "summary");
+    private static VisitorContext contextWithRating(Integer rating) {
+        return new VisitorContext(new SunsetEvaluation(rating, 70, 65, "summary"), null);
     }
 
     /** Stub visitor with fixed applicability and a fixed (or absent) score. */
@@ -50,7 +50,7 @@ class RatingCombinerTest {
             }
 
             @Override
-            public OptionalInt evaluate(LocationEntity loc, SunsetEvaluation evaluation) {
+            public OptionalInt evaluate(LocationEntity loc, VisitorContext context) {
                 return score != null ? OptionalInt.of(score) : OptionalInt.empty();
             }
         };
@@ -63,7 +63,7 @@ class RatingCombinerTest {
     @DisplayName("inland: combined rating equals the evaluation rating (sky only)")
     void inland_combinedEqualsRating(int rating) {
         RatingCombiner combiner = new RatingCombiner(List.of(new SkyVisitor()));
-        assertThat(combiner.combine(location("Hadrians Wall"), evalWithRating(rating)))
+        assertThat(combiner.combine(location("Hadrians Wall"), contextWithRating(rating)))
                 .isEqualTo(rating);
     }
 
@@ -74,7 +74,7 @@ class RatingCombinerTest {
         // The coastal rating already folds in tide via CoastalPromptBuilder; the combiner does
         // not add a separate tide score in v2.13.1, so the rating passes through unchanged.
         RatingCombiner combiner = new RatingCombiner(List.of(new SkyVisitor()));
-        assertThat(combiner.combine(location("Saltwick Bay"), evalWithRating(rating)))
+        assertThat(combiner.combine(location("Saltwick Bay"), contextWithRating(rating)))
                 .isEqualTo(rating);
     }
 
@@ -82,7 +82,7 @@ class RatingCombinerTest {
     @DisplayName("null sky rating -> combined null (preserves today's no-rating behaviour)")
     void nullRating_combinesToNull() {
         RatingCombiner combiner = new RatingCombiner(List.of(new SkyVisitor()));
-        assertThat(combiner.combine(location("X"), evalWithRating(null))).isNull();
+        assertThat(combiner.combine(location("X"), contextWithRating(null))).isNull();
     }
 
     // ── Boundary: no phantom tide on inland (reframed for v2.13.1) ────────────
@@ -105,14 +105,14 @@ class RatingCombinerTest {
     @DisplayName("plain average of two applied visitors (5 and 1 -> 3), no weakest-link")
     void average_twoVisitors_noWeakestLink() {
         RatingCombiner combiner = new RatingCombiner(List.of(stub(true, 5), stub(true, 1)));
-        assertThat(combiner.combine(location("X"), evalWithRating(5))).isEqualTo(3);
+        assertThat(combiner.combine(location("X"), contextWithRating(5))).isEqualTo(3);
     }
 
     @Test
     @DisplayName("average rounds half up (4 and 5 -> 4.5 -> 5)")
     void average_roundsHalfUp() {
         RatingCombiner combiner = new RatingCombiner(List.of(stub(true, 4), stub(true, 5)));
-        assertThat(combiner.combine(location("X"), evalWithRating(4))).isEqualTo(5);
+        assertThat(combiner.combine(location("X"), contextWithRating(4))).isEqualTo(5);
     }
 
     @Test
@@ -120,20 +120,20 @@ class RatingCombinerTest {
     void average_excludesNonApplicable() {
         // Applicable 4, plus a non-applicable 1 that must NOT pull the mean down.
         RatingCombiner combiner = new RatingCombiner(List.of(stub(true, 4), stub(false, 1)));
-        assertThat(combiner.combine(location("X"), evalWithRating(4))).isEqualTo(4);
+        assertThat(combiner.combine(location("X"), contextWithRating(4))).isEqualTo(4);
     }
 
     @Test
     @DisplayName("visitors returning empty are excluded from the average")
     void average_excludesEmptyScores() {
         RatingCombiner combiner = new RatingCombiner(List.of(stub(true, 4), stub(true, null)));
-        assertThat(combiner.combine(location("X"), evalWithRating(4))).isEqualTo(4);
+        assertThat(combiner.combine(location("X"), contextWithRating(4))).isEqualTo(4);
     }
 
     @Test
     @DisplayName("empty case: no applicable visitor -> null, never a nonsense value")
     void emptyCase_noApplicableVisitor_returnsNull() {
         RatingCombiner combiner = new RatingCombiner(List.of(stub(false, 5)));
-        assertThat(combiner.combine(location("X"), evalWithRating(5))).isNull();
+        assertThat(combiner.combine(location("X"), contextWithRating(5))).isNull();
     }
 }

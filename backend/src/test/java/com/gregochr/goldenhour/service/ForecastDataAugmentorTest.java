@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.TestAtmosphericData;
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TideState;
@@ -11,6 +12,7 @@ import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
+import com.gregochr.goldenhour.model.TideContext;
 import com.gregochr.goldenhour.model.TideData;
 import com.gregochr.goldenhour.model.TideStats;
 import org.junit.jupiter.api.BeforeEach;
@@ -636,5 +638,131 @@ class ForecastDataAugmentorTest {
         verify(openMeteoService, never()).fetchCloudApproachData(
                 anyDouble(), anyDouble(), anyInt(), any(), any(), any(),
                 anyInt(), anyDouble(), any());
+    }
+
+    // ── deriveTideContext: tight + widened (±60) alignment ───────────────────
+
+    /** Stubs the lunar + stats services for a coastal tide derivation. */
+    private void stubLunarAndStats() {
+        when(lunarPhaseService.classifyTide(EVENT_TIME.toLocalDate()))
+                .thenReturn(LunarTideType.SPRING_TIDE);
+        when(lunarPhaseService.getMoonPhase(EVENT_TIME.toLocalDate())).thenReturn("Full Moon");
+        when(lunarPhaseService.isMoonAtPerigee(EVENT_TIME.toLocalDate())).thenReturn(false);
+        when(tideService.getTideStats(1L)).thenReturn(Optional.empty());
+    }
+
+    @Test
+    @DisplayName("deriveTideContext: widened check uses the tight window + 60 and reuses "
+            + "calculateTideAligned (3★ band — widened aligned, not tight)")
+    void deriveTideContext_widenedWindowIsTightPlus60() {
+        stubCoastalSolarWindow(); // tight window half-width = 30 min
+        LocalDateTime highTide = EVENT_TIME.plusHours(2);
+        TideData tightData = new TideData(TideState.MID, false,
+                highTide, new BigDecimal("4.5"), EVENT_TIME.minusHours(4), new BigDecimal("1.2"),
+                highTide, null);
+        TideData widerData = new TideData(TideState.HIGH, false,
+                highTide, new BigDecimal("4.5"), EVENT_TIME.minusHours(4), new BigDecimal("1.2"),
+                highTide, null);
+        // Tight (30 min) → not aligned; widened (30 + 60 = 90 min) → aligned.
+        when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.of(tightData));
+        when(tideService.deriveTideData(1L, EVENT_TIME, 90L)).thenReturn(Optional.of(widerData));
+        when(tideService.calculateTideAligned(tightData, Set.of(TideType.HIGH))).thenReturn(false);
+        when(tideService.calculateTideAligned(widerData, Set.of(TideType.HIGH))).thenReturn(true);
+        stubLunarAndStats();
+
+        Optional<TideContext> result = augmentor.deriveTideContext(
+                1L, EVENT_TIME, Set.of(TideType.HIGH), 55.0, -1.5, TargetType.SUNSET);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().snapshot().tideAligned()).as("tight not aligned").isFalse();
+        assertThat(result.get().widenedAligned()).as("widened (+60) aligned").isTrue();
+        // Proves the widened derivation used exactly tight + 60 minutes.
+        verify(tideService).deriveTideData(1L, EVENT_TIME, 90L);
+    }
+
+    @Test
+    @DisplayName("deriveTideContext: outside even the widened window → both flags false (1★ band)")
+    void deriveTideContext_outsideWidenedWindow_bothFalse() {
+        stubCoastalSolarWindow();
+        LocalDateTime highTide = EVENT_TIME.plusHours(5);
+        TideData data = new TideData(TideState.MID, false,
+                highTide, new BigDecimal("4.5"), EVENT_TIME.minusHours(4), new BigDecimal("1.2"),
+                highTide, null);
+        when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.of(data));
+        when(tideService.deriveTideData(1L, EVENT_TIME, 90L)).thenReturn(Optional.of(data));
+        when(tideService.calculateTideAligned(data, Set.of(TideType.HIGH))).thenReturn(false);
+        stubLunarAndStats();
+
+        Optional<TideContext> result = augmentor.deriveTideContext(
+                1L, EVENT_TIME, Set.of(TideType.HIGH), 55.0, -1.5, TargetType.SUNSET);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().snapshot().tideAligned()).isFalse();
+        assertThat(result.get().widenedAligned()).isFalse();
+    }
+
+    @Test
+    @DisplayName("deriveTideContext: inland (empty tideType) → empty, no service interaction")
+    void deriveTideContext_inland_returnsEmpty() {
+        Optional<TideContext> result = augmentor.deriveTideContext(
+                1L, EVENT_TIME, Set.of(), 55.0, -1.5, TargetType.SUNSET);
+
+        assertThat(result).isEmpty();
+        verifyNoInteractions(tideService);
+    }
+
+    @Test
+    @DisplayName("deriveTideContext: no stored extremes (data gap) → empty (abstain, not 1★)")
+    void deriveTideContext_noExtremes_returnsEmpty() {
+        stubCoastalSolarWindow();
+        when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.empty());
+
+        Optional<TideContext> result = augmentor.deriveTideContext(
+                1L, EVENT_TIME, Set.of(TideType.HIGH), 55.0, -1.5, TargetType.SUNSET);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("deriveTideContext(location, date, SUNSET): derives eventTime via SolarService")
+    void deriveTideContext_viaLocation_computesEventTime() {
+        when(solarService.sunsetUtc(55.0, -1.5, EVENT_TIME.toLocalDate())).thenReturn(EVENT_TIME);
+        stubCoastalSolarWindow();
+        LocalDateTime highTide = EVENT_TIME.plusHours(2);
+        TideData data = new TideData(TideState.HIGH, false,
+                highTide, new BigDecimal("4.5"), EVENT_TIME.minusHours(4), new BigDecimal("1.2"),
+                highTide, null);
+        when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.of(data));
+        when(tideService.deriveTideData(1L, EVENT_TIME, 90L)).thenReturn(Optional.of(data));
+        when(tideService.calculateTideAligned(data, Set.of(TideType.HIGH))).thenReturn(true);
+        stubLunarAndStats();
+
+        LocationEntity location = new LocationEntity();
+        location.setId(1L);
+        location.setName("Coastal");
+        location.setLat(55.0);
+        location.setLon(-1.5);
+        location.setTideType(Set.of(TideType.HIGH));
+
+        Optional<TideContext> result = augmentor.deriveTideContext(
+                location, EVENT_TIME.toLocalDate(), TargetType.SUNSET);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().snapshot().tideAligned()).isTrue();
+    }
+
+    @Test
+    @DisplayName("deriveTideContext(location): inland location short-circuits to empty")
+    void deriveTideContext_viaLocationInland_returnsEmpty() {
+        LocationEntity location = new LocationEntity();
+        location.setId(1L);
+        location.setName("Inland");
+        location.setTideType(Set.of());
+
+        Optional<TideContext> result = augmentor.deriveTideContext(
+                location, EVENT_TIME.toLocalDate(), TargetType.SUNSET);
+
+        assertThat(result).isEmpty();
+        verifyNoInteractions(solarService, tideService);
     }
 }

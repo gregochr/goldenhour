@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.JobRunEntity;
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.SolarEventType;
@@ -15,6 +16,7 @@ import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.CoastalParameters;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.model.TideContext;
 import com.gregochr.goldenhour.model.TideData;
 import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.TideStats;
@@ -42,6 +44,14 @@ import java.util.Set;
 public class ForecastDataAugmentor {
 
     private static final Logger LOG = LoggerFactory.getLogger(ForecastDataAugmentor.class);
+
+    /**
+     * Minutes by which the tight golden/blue-hour alignment window is extended <em>beyond each
+     * edge</em> to form the widened window used for the {@code TideVisitor}'s 3★ "imperfect but
+     * workable tide" band. The widened check reuses {@code TideService.calculateTideAligned}
+     * unchanged — only the window passed to {@code deriveTideData} is wider.
+     */
+    public static final long WIDENED_ALIGNMENT_EXTENSION_MINUTES = 60;
 
     private final OpenMeteoService openMeteoService;
     private final SolarService solarService;
@@ -136,20 +146,86 @@ public class ForecastDataAugmentor {
     public AtmosphericData augmentWithTideData(AtmosphericData base, Long locationId,
             LocalDateTime eventTime, Set<TideType> tideTypes,
             double lat, double lon, TargetType targetType) {
+        return buildTideSnapshot(locationId, eventTime, tideTypes, lat, lon, targetType)
+                .map(base::withTide)
+                .orElse(base);
+    }
+
+    /**
+     * Re-derives the tide context for a coastal location at the post-batch combine seam, computing
+     * eventTime from the solar event itself (a pure, deterministic function of lat/lon/date — the
+     * identical instant the prompt pipeline used).
+     *
+     * <p>Inland locations (empty {@code tideType}) yield {@link Optional#empty()} so they are
+     * scored on sky alone.
+     *
+     * @param location   the location under evaluation
+     * @param date       the evaluation date
+     * @param targetType SUNRISE or SUNSET
+     * @return the tide context (snapshot + widened-alignment flag), or empty when inland or the
+     *         tide could not be derived (a data gap)
+     */
+    public Optional<TideContext> deriveTideContext(LocationEntity location, LocalDate date,
+            TargetType targetType) {
+        Set<TideType> tideTypes = location.getTideType();
+        if (tideTypes == null || tideTypes.isEmpty()) {
+            return Optional.empty();
+        }
+        LocalDateTime eventTime = targetType == TargetType.SUNRISE
+                ? solarService.sunriseUtc(location.getLat(), location.getLon(), date)
+                : solarService.sunsetUtc(location.getLat(), location.getLon(), date);
+        return deriveTideContext(location.getId(), eventTime, tideTypes,
+                location.getLat(), location.getLon(), targetType);
+    }
+
+    /**
+     * Re-derives the tide context for explicit coordinates and a known event time.
+     *
+     * <p>Returns the same {@link TideSnapshot} {@link #augmentWithTideData} would produce (tight
+     * alignment baked in), plus a widened-alignment flag computed by re-running the existing
+     * {@code calculateTideAligned} rule over tide data derived with the window extended by
+     * {@link #WIDENED_ALIGNMENT_EXTENSION_MINUTES} minutes beyond each edge. The extra widened
+     * derivation runs only here (the combine seam), not in the forecast prompt path.
+     *
+     * @param locationId the location primary key
+     * @param eventTime  UTC time of the solar event
+     * @param tideTypes  the location's tide preferences
+     * @param lat        observer latitude (for the golden/blue window width)
+     * @param lon        observer longitude (for the golden/blue window width)
+     * @param targetType SUNRISE or SUNSET
+     * @return the tide context, or empty when inland or the tide could not be derived
+     */
+    public Optional<TideContext> deriveTideContext(Long locationId, LocalDateTime eventTime,
+            Set<TideType> tideTypes, double lat, double lon, TargetType targetType) {
+        Optional<TideSnapshot> snapshotMaybe = buildTideSnapshot(
+                locationId, eventTime, tideTypes, lat, lon, targetType);
+        if (snapshotMaybe.isEmpty()) {
+            return Optional.empty();
+        }
+        long widenedWindowMinutes = alignmentWindowMinutes(lat, lon, eventTime, targetType)
+                + WIDENED_ALIGNMENT_EXTENSION_MINUTES;
+        boolean widenedAligned = tideService
+                .deriveTideData(locationId, eventTime, widenedWindowMinutes)
+                .map(widerData -> tideService.calculateTideAligned(widerData, tideTypes))
+                .orElse(false);
+        return Optional.of(new TideContext(snapshotMaybe.get(), widenedAligned));
+    }
+
+    /**
+     * Builds the tide snapshot for a coastal location, or empty when inland or the tide cannot be
+     * derived. Shared by {@link #augmentWithTideData} (the forecast prompt path) and
+     * {@link #deriveTideContext} (the combine seam) so the snapshot is constructed in one place.
+     */
+    private Optional<TideSnapshot> buildTideSnapshot(Long locationId, LocalDateTime eventTime,
+            Set<TideType> tideTypes, double lat, double lon, TargetType targetType) {
         boolean isCoastal = locationId != null && tideTypes != null && !tideTypes.isEmpty();
         if (!isCoastal) {
-            return base;
+            return Optional.empty();
         }
-        boolean isSunrise = targetType == TargetType.SUNRISE;
-        SolarService.SolarWindow window = solarService.goldenBlueWindow(
-                lat, lon, eventTime.toLocalDate(), isSunrise);
-        long windowMinutes = java.time.Duration.between(
-                isSunrise ? window.blueHourStart() : window.goldenHourStart(),
-                isSunrise ? window.goldenHourEnd() : window.blueHourEnd()
-        ).toMinutes() / 2;
+        long windowMinutes = alignmentWindowMinutes(lat, lon, eventTime, targetType);
         var tideMaybe = tideService.deriveTideData(locationId, eventTime, windowMinutes);
         if (tideMaybe.isEmpty()) {
-            return base;
+            return Optional.empty();
         }
         TideData tideData = tideMaybe.get();
         Boolean tideAligned = tideService.calculateTideAligned(tideData, tideTypes);
@@ -164,7 +240,7 @@ public class ForecastDataAugmentor {
         TideStatisticalSize statisticalSize = deriveStatisticalSize(
                 locationId, tideData.nextHighTideHeightMetres());
 
-        return base.withTide(new TideSnapshot(
+        return Optional.of(new TideSnapshot(
                 tideData.tideState(),
                 tideData.nextHighTideTime(),
                 tideData.nextHighTideHeightMetres(),
@@ -177,6 +253,21 @@ public class ForecastDataAugmentor {
                 lunarPhase,
                 moonAtPerigee,
                 statisticalSize));
+    }
+
+    /**
+     * Computes the tight alignment window half-width in minutes: half the blue+golden hour span
+     * around the solar event, matching the existing forecast-pipeline derivation.
+     */
+    private long alignmentWindowMinutes(double lat, double lon, LocalDateTime eventTime,
+            TargetType targetType) {
+        boolean isSunrise = targetType == TargetType.SUNRISE;
+        SolarService.SolarWindow window = solarService.goldenBlueWindow(
+                lat, lon, eventTime.toLocalDate(), isSunrise);
+        return java.time.Duration.between(
+                isSunrise ? window.blueHourStart() : window.goldenHourStart(),
+                isSunrise ? window.goldenHourEnd() : window.blueHourEnd()
+        ).toMinutes() / 2;
     }
 
     /**

@@ -29,8 +29,8 @@ class SkyVisitorTest {
         return loc;
     }
 
-    private static SunsetEvaluation evalWithRating(Integer rating) {
-        return new SunsetEvaluation(rating, 70, 65, "summary");
+    private static VisitorContext contextWithRating(Integer rating) {
+        return new VisitorContext(new SunsetEvaluation(rating, 70, 65, "summary"), null);
     }
 
     @Test
@@ -44,14 +44,14 @@ class SkyVisitorTest {
     @ValueSource(ints = {1, 2, 3, 4, 5})
     @DisplayName("evaluate returns the evaluation's rating across the whole 1-5 range")
     void evaluate_returnsRating(int rating) {
-        assertThat(visitor.evaluate(location("X"), evalWithRating(rating)))
+        assertThat(visitor.evaluate(location("X"), contextWithRating(rating)))
                 .isEqualTo(OptionalInt.of(rating));
     }
 
     @Test
     @DisplayName("evaluate returns empty when the rating is null (preserves today's null)")
     void evaluate_nullRating_returnsEmpty() {
-        assertThat(visitor.evaluate(location("X"), evalWithRating(null)))
+        assertThat(visitor.evaluate(location("X"), contextWithRating(null)))
                 .isEqualTo(OptionalInt.empty());
     }
 }

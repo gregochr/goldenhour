@@ -3,19 +3,26 @@ package com.gregochr.goldenhour.service.evaluation;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.TideState;
+import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import com.gregochr.goldenhour.model.TideContext;
+import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.ForecastDataAugmentor;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.batch.BatchTriggerSource;
 import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler.BatchSuccess;
 import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler.ForecastIdentity;
 import com.gregochr.goldenhour.service.evaluation.visitor.RatingCombiner;
 import com.gregochr.goldenhour.service.evaluation.visitor.SkyVisitor;
+import com.gregochr.goldenhour.service.evaluation.visitor.TideVisitor;
 import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -62,6 +69,8 @@ class ForecastResultHandlerTest {
     private JobRunService jobRunService;
     @Mock
     private ObjectMapper objectMapper;
+    @Mock
+    private ForecastDataAugmentor forecastDataAugmentor;
 
     private ForecastResultHandler handler;
 
@@ -71,7 +80,8 @@ class ForecastResultHandlerTest {
                 briefingEvaluationService,
                 Map.of(EvaluationModel.HAIKU, parsingStrategy),
                 jobRunService, objectMapper,
-                new RatingCombiner(List.of(new SkyVisitor())));
+                new RatingCombiner(List.of(new SkyVisitor(), new TideVisitor())),
+                forecastDataAugmentor);
     }
 
     @Test
@@ -86,7 +96,8 @@ class ForecastResultHandlerTest {
                 briefingEvaluationService,
                 Map.of(EvaluationModel.HAIKU, notClaude),
                 jobRunService, objectMapper,
-                new RatingCombiner(List.of(new SkyVisitor()))))
+                new RatingCombiner(List.of(new SkyVisitor())),
+                forecastDataAugmentor))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("ClaudeEvaluationStrategy");
     }
@@ -315,6 +326,134 @@ class ForecastResultHandlerTest {
                 eq("Lake District|2026-04-16|SUNRISE"), eq(List.of(res)));
     }
 
+    // ── v2.13.2: sky-tide decomposition ──────────────────────────────────────
+
+    @Test
+    @DisplayName("coastal aligned (regular) tide: sky 3 + tide 4 → averaged to 4")
+    void parseBatchResponse_coastalAlignedTide_averagesSkyAndTide() {
+        LocationEntity location = coastalLocation(50L, "Berwick", "Northumberland");
+        ForecastIdentity identity = new ForecastIdentity(50L, DATE, SUNRISE);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-50-2026-04-16-SUNRISE",
+                "{\"rating\":3,\"fiery_sky\":55,\"golden_hour\":60,\"summary\":\"sky\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+                        new SunsetEvaluation(3, 55, 60, "sky-only summary"), false));
+        when(forecastDataAugmentor.deriveTideContext(location, DATE, SUNRISE))
+                .thenReturn(Optional.of(tideContext(true, false, LunarTideType.REGULAR_TIDE)));
+
+        Optional<BatchSuccess> result = handler.parseBatchResponse(
+                location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isPresent();
+        // avg(sky 3, tide 4) = 3.5 → 4 (half-up)
+        assertThat(result.get().result().rating()).isEqualTo(4);
+        assertThat(result.get().result().summary()).isEqualTo("sky-only summary");
+    }
+
+    @Test
+    @DisplayName("coastal misaligned tide: sky 3 + tide 1 → dragged to 2")
+    void parseBatchResponse_coastalMisalignedTide_dragsRating() {
+        LocationEntity location = coastalLocation(51L, "Spittal", "Northumberland");
+        ForecastIdentity identity = new ForecastIdentity(51L, DATE, SUNRISE);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-51-2026-04-16-SUNRISE",
+                "{\"rating\":3,\"fiery_sky\":55,\"golden_hour\":60,\"summary\":\"sky\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+                        new SunsetEvaluation(3, 55, 60, "sky-only summary"), false));
+        when(forecastDataAugmentor.deriveTideContext(location, DATE, SUNRISE))
+                .thenReturn(Optional.of(tideContext(false, false, LunarTideType.REGULAR_TIDE)));
+
+        Optional<BatchSuccess> result = handler.parseBatchResponse(
+                location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isPresent();
+        // avg(sky 3, tide 1) = 2 — a misaligned tide at a tidal location drags the rating
+        assertThat(result.get().result().rating()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("coastal un-derivable tide (data gap): scores on sky alone, not penalised")
+    void parseBatchResponse_coastalTideUnderivable_scoresSkyAlone() {
+        LocationEntity location = coastalLocation(52L, "Seahouses", "Northumberland");
+        ForecastIdentity identity = new ForecastIdentity(52L, DATE, SUNRISE);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-52-2026-04-16-SUNRISE",
+                "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"sky\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "sky-only summary"), false));
+        when(forecastDataAugmentor.deriveTideContext(location, DATE, SUNRISE))
+                .thenReturn(Optional.empty());
+
+        Optional<BatchSuccess> result = handler.parseBatchResponse(
+                location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isPresent();
+        // Tide visitor abstains on a data gap → sky alone (4), never dragged to 1.
+        assertThat(result.get().result().rating()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("sky not forecast (inland, rating null): 1★ + not-forecast summary, no triage")
+    void parseBatchResponse_skyNotForecastInland_substitutesOneStar() {
+        LocationEntity location = locationWithRegion(53L, "Keswick", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-53-2026-04-16-SUNRISE",
+                "{\"fiery_sky\":40,\"golden_hour\":45,\"summary\":\"ignored\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+                        new SunsetEvaluation(null, 40, 45, "Claude prose to be overridden"), false));
+
+        Optional<BatchSuccess> result = handler.parseBatchResponse(
+                location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isPresent();
+        BriefingEvaluationResult res = result.get().result();
+        assertThat(res.rating()).isEqualTo(1);
+        assertThat(res.summary()).isEqualTo(ForecastResultHandler.SKY_NOT_FORECAST_SUMMARY);
+        assertThat(res.headline()).isNull();
+        assertThat(res.triageReason()).isNull();
+        assertThat(res.triageMessage()).isNull();
+        assertThat(res.fierySkyPotential()).isEqualTo(40);
+    }
+
+    @Test
+    @DisplayName("sky not forecast (coastal): 1★ substituted BEFORE combine — tide never averaged")
+    void parseBatchResponse_skyNotForecastCoastal_neverScoresOnTideAlone() {
+        LocationEntity location = coastalLocation(54L, "St Marys", "Northumberland");
+        ForecastIdentity identity = new ForecastIdentity(54L, DATE, SUNRISE);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-54-2026-04-16-SUNRISE",
+                "{\"fiery_sky\":40,\"golden_hour\":45,\"summary\":\"ignored\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+                        new SunsetEvaluation(null, 40, 45, "prose"), false));
+
+        Optional<BatchSuccess> result = handler.parseBatchResponse(
+                location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().result().rating()).isEqualTo(1);
+        assertThat(result.get().result().summary())
+                .isEqualTo(ForecastResultHandler.SKY_NOT_FORECAST_SUMMARY);
+        // The pre-combine branch must fire BEFORE tide re-derivation — proving a coastal
+        // sky-empty location can never be scored on tide alone (which would yield 4/5).
+        verify(forecastDataAugmentor, never()).deriveTideContext(any(), any(), any());
+    }
+
     // ── Sync path ────────────────────────────────────────────────────────────
 
     @Test
@@ -449,5 +588,20 @@ class ForecastResultHandlerTest {
         region.setName(regionName);
         loc.setRegion(region);
         return loc;
+    }
+
+    private LocationEntity coastalLocation(long id, String name, String regionName) {
+        LocationEntity loc = locationWithRegion(id, name, regionName);
+        loc.setTideType(java.util.Set.of(TideType.HIGH));
+        return loc;
+    }
+
+    /** Builds a {@link TideContext} with the given tight/widened alignment and lunar type. */
+    private static TideContext tideContext(boolean tightAligned, boolean widenedAligned,
+            LunarTideType lunar) {
+        TideSnapshot snapshot = new TideSnapshot(
+                TideState.HIGH, null, null, null, null,
+                tightAligned, null, null, lunar, null, null, null);
+        return new TideContext(snapshot, widenedAligned);
     }
 }

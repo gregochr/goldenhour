@@ -1,7 +1,6 @@
 package com.gregochr.goldenhour.service.evaluation.visitor;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.model.SunsetEvaluation;
 import org.springframework.stereotype.Component;
 
 import java.util.OptionalInt;
@@ -40,8 +39,8 @@ public class SkyVisitor implements Visitor {
     }
 
     @Override
-    public OptionalInt evaluate(LocationEntity location, SunsetEvaluation evaluation) {
-        Integer rating = evaluation.rating();
+    public OptionalInt evaluate(LocationEntity location, VisitorContext context) {
+        Integer rating = context.evaluation().rating();
         return rating != null ? OptionalInt.of(rating) : OptionalInt.empty();
     }
 }
