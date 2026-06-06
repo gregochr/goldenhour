@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -25,16 +26,27 @@ class BriefingEvaluationControllerTest extends AbstractControllerTest {
     private MockMvc mockMvc;
 
     @Test
-    @DisplayName("DELETE /cache clears cache and returns count for ADMIN")
+    @DisplayName("DELETE /cache?confirm=true clears cache and returns count for ADMIN")
     @WithMockUser(roles = "ADMIN")
-    void clearCache_adminReturnsCount() throws Exception {
+    void clearCache_adminWithConfirmReturnsCount() throws Exception {
         when(evaluationService.clearCache()).thenReturn(5);
 
-        mockMvc.perform(delete("/api/briefing/evaluate/cache"))
+        mockMvc.perform(delete("/api/briefing/evaluate/cache").param("confirm", "true"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.cleared").value(5));
 
         verify(evaluationService).clearCache();
+    }
+
+    @Test
+    @DisplayName("DELETE /cache without confirm is rejected and does not clear")
+    @WithMockUser(roles = "ADMIN")
+    void clearCache_withoutConfirmRejected() throws Exception {
+        mockMvc.perform(delete("/api/briefing/evaluate/cache"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Confirmation required"));
+
+        verify(evaluationService, never()).clearCache();
     }
 
     @Test
