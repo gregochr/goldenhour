@@ -1,5 +1,9 @@
 package com.gregochr.goldenhour.service;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.CachedEvaluationEntity;
@@ -8,13 +12,16 @@ import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingRefreshedEvent;
 import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.EvaluationDeltaLogRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -23,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -513,5 +521,139 @@ class BriefingEvaluationServiceTest {
         assertThat(service.getCachedScores(REGION, today, TargetType.SUNRISE)).hasSize(1);
         assertThat(service.getCachedScores(REGION, today, TargetType.SUNRISE)
                 .get("Bamburgh").rating()).isEqualTo(5);
+    }
+
+    // ── cache-health heartbeat + delete audit ───────────────────────────────────
+
+    @Nested
+    @DisplayName("Cache-health heartbeat and delete audit logging")
+    class CacheHealthAndAudit {
+
+        private static final Instant T_EARLY = Instant.parse("2026-06-05T14:11:00Z");
+        private static final Instant T_LATE = Instant.parse("2026-06-06T14:08:00Z");
+
+        private ListAppender<ILoggingEvent> appender;
+        private Logger serviceLogger;
+
+        @BeforeEach
+        void attachAppender() {
+            serviceLogger = (Logger) LoggerFactory.getLogger(BriefingEvaluationService.class);
+            appender = new ListAppender<>();
+            appender.start();
+            serviceLogger.addAppender(appender);
+        }
+
+        @AfterEach
+        void detachAppender() {
+            serviceLogger.detachAppender(appender);
+        }
+
+        private boolean warnContains(String fragment) {
+            return appender.list.stream()
+                    .filter(e -> e.getLevel() == Level.WARN)
+                    .anyMatch(e -> e.getFormattedMessage().contains(fragment));
+        }
+
+        @Test
+        @DisplayName("WARNs when maxEvaluatedAt moves backwards between heartbeats")
+        void heartbeat_backwardsTimestamp_warns() {
+            when(cachedEvaluationRepository.count()).thenReturn(100L, 100L);
+            when(cachedEvaluationRepository.findMaxEvaluatedAt()).thenReturn(T_LATE, T_EARLY);
+            when(cachedEvaluationRepository.countDistinctCacheKeys()).thenReturn(100L, 100L);
+
+            service.recordCacheHealthHeartbeat(); // baseline at T_LATE
+            service.recordCacheHealthHeartbeat(); // now at T_EARLY → backwards
+
+            assertThat(warnContains("went BACKWARDS")).isTrue();
+        }
+
+        @Test
+        @DisplayName("WARNs when row count drops beyond tolerance with no admin clear")
+        void heartbeat_rowCountDrops_warns() {
+            when(cachedEvaluationRepository.count()).thenReturn(100L, 50L);
+            when(cachedEvaluationRepository.findMaxEvaluatedAt()).thenReturn(T_LATE, T_LATE);
+            when(cachedEvaluationRepository.countDistinctCacheKeys()).thenReturn(100L, 50L);
+
+            service.recordCacheHealthHeartbeat();
+            service.recordCacheHealthHeartbeat();
+
+            assertThat(warnContains("went BACKWARDS")).isTrue();
+        }
+
+        @Test
+        @DisplayName("does NOT warn on normal forward movement")
+        void heartbeat_forwardMovement_noWarn() {
+            when(cachedEvaluationRepository.count()).thenReturn(100L, 110L);
+            when(cachedEvaluationRepository.findMaxEvaluatedAt()).thenReturn(T_EARLY, T_LATE);
+            when(cachedEvaluationRepository.countDistinctCacheKeys()).thenReturn(100L, 110L);
+
+            service.recordCacheHealthHeartbeat();
+            service.recordCacheHealthHeartbeat();
+
+            assertThat(warnContains("went BACKWARDS")).isFalse();
+        }
+
+        @Test
+        @DisplayName("does NOT warn for a drop within tolerance (boundary)")
+        void heartbeat_dropWithinTolerance_noWarn() {
+            // ROW_COUNT_DROP_TOLERANCE = 1, so a drop of exactly 1 must not warn.
+            when(cachedEvaluationRepository.count()).thenReturn(100L, 99L);
+            when(cachedEvaluationRepository.findMaxEvaluatedAt()).thenReturn(T_LATE, T_LATE);
+            when(cachedEvaluationRepository.countDistinctCacheKeys()).thenReturn(100L, 99L);
+
+            service.recordCacheHealthHeartbeat();
+            service.recordCacheHealthHeartbeat();
+
+            assertThat(warnContains("went BACKWARDS")).isFalse();
+        }
+
+        @Test
+        @DisplayName("first heartbeat establishes a baseline without warning")
+        void heartbeat_firstCall_noWarn() {
+            when(cachedEvaluationRepository.count()).thenReturn(42L);
+            when(cachedEvaluationRepository.findMaxEvaluatedAt()).thenReturn(T_LATE);
+            when(cachedEvaluationRepository.countDistinctCacheKeys()).thenReturn(42L);
+
+            service.recordCacheHealthHeartbeat();
+
+            assertThat(warnContains("went BACKWARDS")).isFalse();
+        }
+
+        @Test
+        @DisplayName("never throws into the caller when the repository fails")
+        void heartbeat_repositoryThrows_swallowed() {
+            when(cachedEvaluationRepository.count())
+                    .thenThrow(new RuntimeException("db down"));
+
+            assertThatCode(() -> service.recordCacheHealthHeartbeat())
+                    .doesNotThrowAnyException();
+            assertThat(warnContains("heartbeat failed")).isTrue();
+        }
+
+        @Test
+        @DisplayName("an admin clear resets the baseline so the next heartbeat does not warn")
+        void clearCache_resetsBaseline_suppressesDropWarn() {
+            // clearCache reads count() once for its audit line; the heartbeat reads it after.
+            when(cachedEvaluationRepository.count()).thenReturn(100L, 5L);
+            when(cachedEvaluationRepository.findMaxEvaluatedAt()).thenReturn(T_LATE);
+            when(cachedEvaluationRepository.countDistinctCacheKeys()).thenReturn(5L);
+
+            service.clearCache();                  // baseline reset to (0, null)
+            service.recordCacheHealthHeartbeat();  // 5 rows vs baseline 0 → growth, no warn
+
+            assertThat(warnContains("went BACKWARDS")).isFalse();
+        }
+
+        @Test
+        @DisplayName("clearCache logs a WARN with the row count before deleting")
+        void clearCache_logsAuditWarnWithCount() {
+            when(cachedEvaluationRepository.count()).thenReturn(7L);
+
+            service.clearCache();
+
+            verify(cachedEvaluationRepository).deleteAll();
+            assertThat(warnContains("cached_evaluation DELETE")).isTrue();
+            assertThat(warnContains("removing 7 rows")).isTrue();
+        }
     }
 }

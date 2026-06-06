@@ -2,8 +2,10 @@ package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.CachedEvaluationEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -31,9 +33,22 @@ public interface CachedEvaluationRepository extends JpaRepository<CachedEvaluati
     List<CachedEvaluationEntity> findByEvaluationDateGreaterThanEqual(LocalDate date);
 
     /**
-     * Delete entries older than the given date (housekeeping).
+     * Returns the newest {@code evaluated_at} across all cache rows, or {@code null} when
+     * the table is empty. Used by the cache-health heartbeat to detect a backwards jump
+     * (the 2026-06-06 signature: rows written then disappearing).
      *
-     * @param date entries with evaluation_date before this are deleted
+     * @return the maximum {@code evaluated_at}, or {@code null} if there are no rows
      */
-    void deleteByEvaluationDateBefore(LocalDate date);
+    @Query("SELECT MAX(c.evaluatedAt) FROM CachedEvaluationEntity c")
+    Instant findMaxEvaluatedAt();
+
+    /**
+     * Counts distinct cache keys. Under the unique constraint on {@code cache_key} this
+     * equals the row count; logging it alongside the row count in the heartbeat doubles as
+     * a cheap integrity cross-check (a divergence would indicate duplicate-key corruption).
+     *
+     * @return the number of distinct cache keys
+     */
+    @Query("SELECT COUNT(DISTINCT c.cacheKey) FROM CachedEvaluationEntity c")
+    long countDistinctCacheKeys();
 }

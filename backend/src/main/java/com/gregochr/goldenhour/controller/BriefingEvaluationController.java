@@ -10,6 +10,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
@@ -70,11 +71,22 @@ public class BriefingEvaluationController {
      * Clears all cached evaluation results. Admin escape hatch for when scores
      * become genuinely stale or corrupted.
      *
-     * @return the number of entries cleared
+     * <p>Requires an explicit {@code ?confirm=true} so this destructive full-table wipe
+     * cannot be triggered accidentally. The service logs a WARN with the caller and the row
+     * count removed.
+     *
+     * @param confirm must be {@code true} to proceed; otherwise the request is rejected
+     * @return the number of entries cleared, or a 400 when confirmation is missing
      */
     @DeleteMapping("/cache")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, Object>> clearCache() {
+    public ResponseEntity<Map<String, Object>> clearCache(
+            @RequestParam(name = "confirm", defaultValue = "false") boolean confirm) {
+        if (!confirm) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Confirmation required",
+                    "message", "Pass ?confirm=true to clear the evaluation cache"));
+        }
         int cleared = evaluationService.clearCache();
         return ResponseEntity.ok(Map.of("cleared", cleared));
     }
