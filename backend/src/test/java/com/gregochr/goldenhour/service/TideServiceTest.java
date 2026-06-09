@@ -274,6 +274,46 @@ class TideServiceTest {
     }
 
     // -------------------------------------------------------------------------
+    // deriveDualWindowTideData
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("deriveDualWindowTideData() returns both windows from a single extremes fetch")
+    void deriveDualWindowTideData_fetchesOnce_returnsBothWindows() {
+        Long locationId = 1L;
+        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 7, 0);
+
+        List<TideExtremeEntity> extremes = List.of(
+                extreme(LocalDateTime.of(2026, 2, 24, 3, 0), TideExtremeType.HIGH, 1.9),
+                extreme(LocalDateTime.of(2026, 2, 24, 9, 0), TideExtremeType.LOW, -0.4));
+
+        when(tideExtremeRepository.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                eq(locationId), any(), any())).thenReturn(extremes);
+
+        Optional<TideService.DualWindowTideData> result =
+                tideService.deriveDualWindowTideData(locationId, event, 30L, 90L);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().tight()).isNotNull();
+        assertThat(result.get().widened()).isNotNull();
+        // Both window classifications come from ONE database read — the fold's whole point.
+        verify(tideExtremeRepository)
+                .findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(eq(locationId), any(), any());
+    }
+
+    @Test
+    @DisplayName("deriveDualWindowTideData() returns empty when DB has no extremes")
+    void deriveDualWindowTideData_noExtremes_returnsEmpty() {
+        when(tideExtremeRepository.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                anyLong(), any(), any())).thenReturn(List.of());
+
+        Optional<TideService.DualWindowTideData> result =
+                tideService.deriveDualWindowTideData(1L, LocalDateTime.now(), 30L, 90L);
+
+        assertThat(result).isEmpty();
+    }
+
+    // -------------------------------------------------------------------------
     // fetchAndStoreTideExtremes
     // -------------------------------------------------------------------------
 

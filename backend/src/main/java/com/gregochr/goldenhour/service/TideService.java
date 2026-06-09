@@ -386,18 +386,64 @@ public class TideService {
      */
     public Optional<TideData> deriveTideData(Long locationId, LocalDateTime eventTime,
             long windowMinutes) {
-        List<TideExtremeEntity> extremes = tideExtremeRepository
-                .findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
-                        locationId,
-                        eventTime.minusDays(QUERY_WINDOW_DAYS),
-                        eventTime.plusDays(QUERY_WINDOW_DAYS));
-
+        List<TideExtremeEntity> extremes = fetchExtremesAround(locationId, eventTime);
         if (extremes.isEmpty()) {
             LOG.warn("No tide extremes in DB for locationId={} around {}", locationId, eventTime);
             return Optional.empty();
         }
-
         return Optional.of(buildTideData(extremes, eventTime, windowMinutes));
+    }
+
+    /**
+     * Tide data classified at two alignment windows from a single extremes fetch.
+     *
+     * @param tight   tide data classified at the tight alignment window
+     * @param widened tide data classified at the widened alignment window
+     */
+    public record DualWindowTideData(TideData tight, TideData widened) {
+    }
+
+    /**
+     * Derives tide data at two alignment windows from a <em>single</em> extremes fetch.
+     *
+     * <p>The underlying extremes query depends only on {@code locationId} and {@code eventTime}
+     * (a fixed ± day range), never on the window — so both windows classify the <em>same</em>
+     * fetched tide curve. This lets the single tide-fact derivation seam obtain the tight-window
+     * snapshot and the widened-window alignment flag without fetching twice.
+     *
+     * @param locationId           the location primary key
+     * @param eventTime            UTC time of sunrise or sunset
+     * @param tightWindowMinutes   the tight alignment window half-width in minutes
+     * @param widenedWindowMinutes the widened alignment window half-width in minutes
+     * @return both tide-data classifications, or empty if no extremes are available
+     */
+    public Optional<DualWindowTideData> deriveDualWindowTideData(Long locationId,
+            LocalDateTime eventTime, long tightWindowMinutes, long widenedWindowMinutes) {
+        List<TideExtremeEntity> extremes = fetchExtremesAround(locationId, eventTime);
+        if (extremes.isEmpty()) {
+            LOG.warn("No tide extremes in DB for locationId={} around {}", locationId, eventTime);
+            return Optional.empty();
+        }
+        return Optional.of(new DualWindowTideData(
+                buildTideData(extremes, eventTime, tightWindowMinutes),
+                buildTideData(extremes, eventTime, widenedWindowMinutes)));
+    }
+
+    /**
+     * Fetches the stored tide extremes around an event time. The query range depends only on
+     * {@code locationId} and {@code eventTime} (a fixed ± day window), never on the alignment
+     * window — so the same fetched curve can be classified at any number of windows.
+     *
+     * @param locationId the location primary key
+     * @param eventTime  UTC time of the solar event
+     * @return the stored extremes in the ± day range, ascending by event time (possibly empty)
+     */
+    private List<TideExtremeEntity> fetchExtremesAround(Long locationId, LocalDateTime eventTime) {
+        return tideExtremeRepository
+                .findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                        locationId,
+                        eventTime.minusDays(QUERY_WINDOW_DAYS),
+                        eventTime.plusDays(QUERY_WINDOW_DAYS));
     }
 
     /**

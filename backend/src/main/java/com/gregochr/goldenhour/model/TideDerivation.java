@@ -23,10 +23,10 @@ import java.time.LocalDateTime;
  * springThreshold} — which is not guaranteed. Carrying both booleans makes both consumers'
  * reconstructions exact regardless of threshold ordering.
  *
- * <p>{@code widenedAligned} is deliberately <em>not</em> part of this record: it is a scoring-only
- * overlay (a second, wider-window alignment check) computed by
- * {@code ForecastDataAugmentor.deriveTideContext} on top of this derivation. It is not duplicated
- * and the briefing path never consumes it.
+ * <p>{@code widenedAligned} is the second alignment flag the scoring path's {@code TideContext}
+ * needs (its 3★ "imperfect but workable tide" band). It is derived from the <em>same</em> fetched
+ * tide curve as {@code tideAligned} — only the ± window differs — so it is produced here in the one
+ * seam rather than by a second fetch. The briefing path simply ignores it.
  *
  * @param tideState                  tide state at the solar event
  * @param nextHighTideTime           time of the next high tide
@@ -35,6 +35,9 @@ import java.time.LocalDateTime;
  * @param nextLowTideHeightMetres    height of the next low tide, or {@code null} if unavailable
  * @param tideAligned                whether the tide aligns with the location's preference within
  *                                   the tight golden/blue-hour window
+ * @param widenedAligned             whether the tide aligns within the tight window widened by 60
+ *                                   minutes each edge (the scoring 3★ band); the briefing path
+ *                                   ignores this
  * @param nearestHighTideTime        time of the nearest high tide to the solar event
  * @param nearestLowTideTime         time of the nearest low tide to the solar event
  * @param lunarTideType              lunar classification (king / spring / regular) for the date
@@ -52,6 +55,7 @@ public record TideDerivation(
         LocalDateTime nextLowTideTime,
         BigDecimal nextLowTideHeightMetres,
         boolean tideAligned,
+        boolean widenedAligned,
         LocalDateTime nearestHighTideTime,
         LocalDateTime nearestLowTideTime,
         LunarTideType lunarTideType,

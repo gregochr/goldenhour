@@ -13,10 +13,10 @@ package com.gregochr.goldenhour.model;
  * a snapshot alone cannot answer "would this have aligned within a window widened by 60 minutes
  * on each edge?". That second question is answered by re-running the same
  * {@code TideService.calculateTideAligned} over tide data derived with the window widened by
- * {@code ForecastDataAugmentor.WIDENED_ALIGNMENT_EXTENSION_MINUTES}. Computing it during
- * derivation (where the window width is known) and carrying it here keeps the widening a single,
- * additive extension of the existing rule — and avoids adding a field to the heavily-constructed
- * {@link TideSnapshot} record.
+ * {@code TideFactDeriver.WIDENED_ALIGNMENT_EXTENSION_MINUTES} — both classifications coming from a
+ * single extremes fetch in the derivation seam. Computing it during derivation (where the window
+ * width is known) and carrying it here keeps the widening a single, additive extension of the
+ * existing rule — and avoids adding a field to the heavily-constructed {@link TideSnapshot} record.
  *
  * @param snapshot       the tide snapshot for the solar event (tight alignment baked in)
  * @param widenedAligned true if the tide aligns within the existing window widened by 60 minutes

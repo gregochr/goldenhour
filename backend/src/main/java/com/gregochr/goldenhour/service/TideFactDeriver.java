@@ -33,6 +33,12 @@ import java.util.Set;
 @Component
 public class TideFactDeriver {
 
+    /**
+     * Minutes by which the tight golden/blue-hour alignment window is extended beyond each edge to
+     * form the widened window used for the scoring path's 3★ "imperfect but workable tide" band.
+     */
+    public static final long WIDENED_ALIGNMENT_EXTENSION_MINUTES = 60;
+
     private final TideService tideService;
     private final LunarPhaseService lunarPhaseService;
     private final SolarService solarService;
@@ -57,11 +63,13 @@ public class TideFactDeriver {
      * location is inland (no tide preference) or the tide cannot be derived (a data gap — no stored
      * extremes).
      *
-     * <p>This is the one place {@link TideService#deriveTideData} and
-     * {@link LunarPhaseService#classifyTide} are called for the tight-window derivation. The
-     * statistical signals are raw and <em>ungated</em>: each consumer applies its own gating (the
-     * briefing path gates the king/spring flags on a high tide within ±90 minutes of the event; the
-     * scoring path leaves them ungated).
+     * <p>This is the one place {@link TideService#deriveDualWindowTideData} and
+     * {@link LunarPhaseService#classifyTide} are called. The tight and widened alignment flags are
+     * both derived from a single extremes fetch (same tide curve, two windows), so the scoring
+     * path's 3★ widened band needs no second fetch. The statistical signals are raw and
+     * <em>ungated</em>: each consumer applies its own gating (the briefing path gates the
+     * king/spring flags on a high tide within ±90 minutes of the event; the scoring path leaves
+     * them ungated).
      *
      * @param locationId the location primary key, or {@code null} for inland
      * @param eventTime  UTC time of the solar event
@@ -77,13 +85,16 @@ public class TideFactDeriver {
         if (!isCoastal) {
             return Optional.empty();
         }
-        long windowMinutes = tightAlignmentWindowMinutes(lat, lon, eventTime, targetType);
-        Optional<TideData> tideMaybe = tideService.deriveTideData(locationId, eventTime, windowMinutes);
-        if (tideMaybe.isEmpty()) {
+        long tightWindowMinutes = tightAlignmentWindowMinutes(lat, lon, eventTime, targetType);
+        long widenedWindowMinutes = tightWindowMinutes + WIDENED_ALIGNMENT_EXTENSION_MINUTES;
+        Optional<TideService.DualWindowTideData> dualMaybe = tideService.deriveDualWindowTideData(
+                locationId, eventTime, tightWindowMinutes, widenedWindowMinutes);
+        if (dualMaybe.isEmpty()) {
             return Optional.empty();
         }
-        TideData tideData = tideMaybe.get();
+        TideData tideData = dualMaybe.get().tight();
         boolean tideAligned = tideService.calculateTideAligned(tideData, tideTypes);
+        boolean widenedAligned = tideService.calculateTideAligned(dualMaybe.get().widened(), tideTypes);
 
         // Lunar classification (deterministic, from moon phase + perigee).
         LocalDate eventDate = eventTime.toLocalDate();
@@ -114,6 +125,7 @@ public class TideFactDeriver {
                 tideData.nextLowTideTime(),
                 tideData.nextLowTideHeightMetres(),
                 tideAligned,
+                widenedAligned,
                 tideData.nearestHighTideTime(),
                 tideData.nearestLowTideTime(),
                 lunarTideType,

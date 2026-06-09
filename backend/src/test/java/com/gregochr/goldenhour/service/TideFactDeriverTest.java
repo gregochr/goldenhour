@@ -90,8 +90,8 @@ class TideFactDeriverTest {
 
     private void stubDerivable(TideData tideData, boolean aligned) {
         stubSolarWindow();
-        when(tideService.deriveTideData(eq(LOC_ID), eq(EVENT_TIME), anyLong()))
-                .thenReturn(Optional.of(tideData));
+        when(tideService.deriveDualWindowTideData(eq(LOC_ID), eq(EVENT_TIME), anyLong(), anyLong()))
+                .thenReturn(Optional.of(new TideService.DualWindowTideData(tideData, tideData)));
         when(tideService.calculateTideAligned(any(), any())).thenReturn(aligned);
     }
 
@@ -114,10 +114,10 @@ class TideFactDeriverTest {
     }
 
     @Test
-    @DisplayName("no stored extremes (deriveTideData empty) → empty")
+    @DisplayName("no stored extremes (deriveDualWindowTideData empty) → empty")
     void noExtremes_returnsEmpty() {
         stubSolarWindow();
-        when(tideService.deriveTideData(eq(LOC_ID), eq(EVENT_TIME), anyLong()))
+        when(tideService.deriveDualWindowTideData(eq(LOC_ID), eq(EVENT_TIME), anyLong(), anyLong()))
                 .thenReturn(Optional.empty());
 
         Optional<TideDerivation> result =
@@ -260,6 +260,7 @@ class TideFactDeriverTest {
 
         assertThat(d.tideState()).isEqualTo(TideState.HIGH);
         assertThat(d.tideAligned()).isTrue();
+        assertThat(d.widenedAligned()).isTrue();
         assertThat(d.nextHighTideTime()).isEqualTo(tideData.nextHighTideTime());
         assertThat(d.nextHighTideHeightMetres()).isEqualTo(tideData.nextHighTideHeightMetres());
         assertThat(d.nextLowTideTime()).isEqualTo(tideData.nextLowTideTime());
@@ -269,6 +270,29 @@ class TideFactDeriverTest {
         assertThat(d.lunarTideType()).isEqualTo(LunarTideType.KING_TIDE);
         assertThat(d.lunarPhase()).isEqualTo("Full Moon");
         assertThat(d.moonAtPerigee()).isTrue();
+    }
+
+    @Test
+    @DisplayName("widenedAligned is derived independently of tideAligned from the same fetch")
+    void widenedAligned_independentOfTightAligned() {
+        // Same curve, two windows: tight not aligned, widened aligned (the scoring 3-star band).
+        TideData tight = new TideData(TideState.HIGH, false, EVENT_TIME.plusMinutes(20), null,
+                EVENT_TIME.plusHours(6), new BigDecimal("0.80"),
+                EVENT_TIME.plusMinutes(20), EVENT_TIME.minusHours(6));
+        TideData widened = new TideData(TideState.HIGH, false, EVENT_TIME.plusMinutes(25), null,
+                EVENT_TIME.plusHours(6), new BigDecimal("0.80"),
+                EVENT_TIME.plusMinutes(25), EVENT_TIME.minusHours(6));
+        stubSolarWindow();
+        when(tideService.deriveDualWindowTideData(eq(LOC_ID), eq(EVENT_TIME), anyLong(), anyLong()))
+                .thenReturn(Optional.of(new TideService.DualWindowTideData(tight, widened)));
+        when(tideService.calculateTideAligned(tight, COASTAL)).thenReturn(false);
+        when(tideService.calculateTideAligned(widened, COASTAL)).thenReturn(true);
+
+        TideDerivation d = deriver()
+                .derive(LOC_ID, EVENT_TIME, COASTAL, LAT, LON, TargetType.SUNSET).orElseThrow();
+
+        assertThat(d.tideAligned()).isFalse();
+        assertThat(d.widenedAligned()).isTrue();
     }
 
     // ── alignment-window sizing ─────────────────────────────────────────────

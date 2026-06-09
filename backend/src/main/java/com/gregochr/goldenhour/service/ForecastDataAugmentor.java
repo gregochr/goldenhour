@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.CoastalParameters;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.TideContext;
+import com.gregochr.goldenhour.model.TideDerivation;
 import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.util.TimeSlotUtils;
@@ -41,14 +42,6 @@ import java.util.Set;
 public class ForecastDataAugmentor {
 
     private static final Logger LOG = LoggerFactory.getLogger(ForecastDataAugmentor.class);
-
-    /**
-     * Minutes by which the tight golden/blue-hour alignment window is extended <em>beyond each
-     * edge</em> to form the widened window used for the {@code TideVisitor}'s 3★ "imperfect but
-     * workable tide" band. The widened check reuses {@code TideService.calculateTideAligned}
-     * unchanged — only the window passed to {@code deriveTideData} is wider.
-     */
-    public static final long WIDENED_ALIGNMENT_EXTENSION_MINUTES = 60;
 
     private final OpenMeteoService openMeteoService;
     private final SolarService solarService;
@@ -179,10 +172,9 @@ public class ForecastDataAugmentor {
      * Re-derives the tide context for explicit coordinates and a known event time.
      *
      * <p>Returns the same {@link TideSnapshot} {@link #augmentWithTideData} would produce (tight
-     * alignment baked in), plus a widened-alignment flag computed by re-running the existing
-     * {@code calculateTideAligned} rule over tide data derived with the window extended by
-     * {@link #WIDENED_ALIGNMENT_EXTENSION_MINUTES} minutes beyond each edge. The extra widened
-     * derivation runs only here (the combine seam), not in the forecast prompt path.
+     * alignment baked in), plus the widened-alignment flag. Both flags come from the single
+     * {@link TideFactDeriver#derive} call — the seam derives them from one extremes fetch (same
+     * tide curve, two windows), so the combine seam no longer fetches a second time.
      *
      * @param locationId the location primary key
      * @param eventTime  UTC time of the solar event
@@ -194,19 +186,8 @@ public class ForecastDataAugmentor {
      */
     public Optional<TideContext> deriveTideContext(Long locationId, LocalDateTime eventTime,
             Set<TideType> tideTypes, double lat, double lon, TargetType targetType) {
-        Optional<TideSnapshot> snapshotMaybe = buildTideSnapshot(
-                locationId, eventTime, tideTypes, lat, lon, targetType);
-        if (snapshotMaybe.isEmpty()) {
-            return Optional.empty();
-        }
-        long widenedWindowMinutes = tideFactDeriver.tightAlignmentWindowMinutes(
-                lat, lon, eventTime, targetType)
-                + WIDENED_ALIGNMENT_EXTENSION_MINUTES;
-        boolean widenedAligned = tideService
-                .deriveTideData(locationId, eventTime, widenedWindowMinutes)
-                .map(widerData -> tideService.calculateTideAligned(widerData, tideTypes))
-                .orElse(false);
-        return Optional.of(new TideContext(snapshotMaybe.get(), widenedAligned));
+        return tideFactDeriver.derive(locationId, eventTime, tideTypes, lat, lon, targetType)
+                .map(d -> new TideContext(toSnapshot(d), d.widenedAligned()));
     }
 
     /**
@@ -217,19 +198,31 @@ public class ForecastDataAugmentor {
     private Optional<TideSnapshot> buildTideSnapshot(Long locationId, LocalDateTime eventTime,
             Set<TideType> tideTypes, double lat, double lon, TargetType targetType) {
         return tideFactDeriver.derive(locationId, eventTime, tideTypes, lat, lon, targetType)
-                .map(d -> new TideSnapshot(
-                        d.tideState(),
-                        d.nextHighTideTime(),
-                        d.nextHighTideHeightMetres(),
-                        d.nextLowTideTime(),
-                        d.nextLowTideHeightMetres(),
-                        d.tideAligned(),
-                        d.nearestHighTideTime(),
-                        d.nearestLowTideTime(),
-                        d.lunarTideType(),
-                        d.lunarPhase(),
-                        d.moonAtPerigee(),
-                        d.statisticalSize()));
+                .map(this::toSnapshot);
+    }
+
+    /**
+     * Maps a {@link TideDerivation} to the scoring path's {@link TideSnapshot}, collapsing the two
+     * statistical height booleans into {@link TideDerivation#statisticalSize()} and dropping the
+     * widened-alignment flag (which the snapshot does not carry — it lives on {@link TideContext}).
+     *
+     * @param d the derived tide facts
+     * @return the equivalent tide snapshot
+     */
+    private TideSnapshot toSnapshot(TideDerivation d) {
+        return new TideSnapshot(
+                d.tideState(),
+                d.nextHighTideTime(),
+                d.nextHighTideHeightMetres(),
+                d.nextLowTideTime(),
+                d.nextLowTideHeightMetres(),
+                d.tideAligned(),
+                d.nearestHighTideTime(),
+                d.nearestLowTideTime(),
+                d.lunarTideType(),
+                d.lunarPhase(),
+                d.moonAtPerigee(),
+                d.statisticalSize());
     }
 
     /**
