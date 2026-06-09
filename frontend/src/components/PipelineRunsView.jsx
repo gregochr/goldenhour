@@ -14,6 +14,7 @@ const PHASE_LABEL = {
   STABILITY_RECLASSIFY: 'Re-classify (cost-gate)',
   FORECAST_BATCH_SUBMIT: 'Submit batches',
   FORECAST_BATCH_WAIT: 'Wait for completion',
+  RETRY_FAILED: 'Retry failed requests',
   BRIEFING: 'Briefing (gloss + best-bet)',
 };
 
@@ -534,6 +535,15 @@ function PipelineRunDetail({ runId, onClose }) {
                     >
                       <td className="py-1 pr-3 font-mono text-xs text-plex-text-secondary">
                         {b.anthropicBatchId}
+                        {b.retry && (
+                          <span
+                            className="ml-2 rounded bg-sky-900/30 px-1.5 py-0.5 font-sans text-[10px] uppercase tracking-wide text-sky-400"
+                            data-testid={`pipeline-batch-retry-badge-${b.id}`}
+                            title="Retry of transient failures from this cycle's precursor batch(es)"
+                          >
+                            Retry
+                          </span>
+                        )}
                       </td>
                       <td className="py-1 pr-3">
                         <StatusPill

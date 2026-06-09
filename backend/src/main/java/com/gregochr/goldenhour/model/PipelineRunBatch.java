@@ -18,6 +18,9 @@ import java.time.Instant;
  * @param erroredCount    number of errored results (null until processed)
  * @param submittedAt     submission timestamp
  * @param endedAt         when the batch reached a terminal status; null while SUBMITTED
+ * @param retry           {@code true} if this is a RETRY_FAILED-phase batch (re-submitting
+ *                        the precursor batches' transient failures); the view flags it
+ *                        distinctly and ties it to its precursor(s) via the shared cycle
  */
 public record PipelineRunBatch(
         Long id,
@@ -28,5 +31,6 @@ public record PipelineRunBatch(
         Integer succeededCount,
         Integer erroredCount,
         Instant submittedAt,
-        Instant endedAt) {
+        Instant endedAt,
+        boolean retry) {
 }
