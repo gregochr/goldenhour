@@ -19,7 +19,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -58,14 +57,19 @@ class ForecastDataAugmentorTest {
     @Mock
     private LunarPhaseService lunarPhaseService;
 
-    @InjectMocks
     private ForecastDataAugmentor augmentor;
 
     private static final LocalDateTime EVENT_TIME = LocalDateTime.of(2026, 6, 21, 20, 47);
 
     @BeforeEach
     void setUp() {
-        // stubs added per-test to avoid lenient() and unused-stubbing violations
+        // stubs added per-test to avoid lenient() and unused-stubbing violations.
+        // A real TideFactDeriver is injected (built from the same mocks) so the existing
+        // tide-service / lunar stubs and assertions continue to drive behaviour unchanged
+        // through the extracted single derivation seam.
+        augmentor = new ForecastDataAugmentor(openMeteoService, solarService, tideService,
+                new TideFactDeriver(tideService, lunarPhaseService, solarService),
+                null, null, null);
     }
 
     /** Stubs the solar window for coastal augmentWithTideData tests. */
@@ -116,7 +120,8 @@ class ForecastDataAugmentorTest {
         TideData tideData = new TideData(TideState.HIGH, false,
                 highTide, new BigDecimal("4.5"), lowTide, new BigDecimal("1.2"),
                 highTide, null);
-        when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.of(tideData));
+        when(tideService.deriveDualWindowTideData(1L, EVENT_TIME, 30L, 90L))
+                .thenReturn(Optional.of(new TideService.DualWindowTideData(tideData, tideData)));
         when(tideService.calculateTideAligned(tideData, Set.of(TideType.HIGH))).thenReturn(true);
         when(lunarPhaseService.classifyTide(EVENT_TIME.toLocalDate()))
                 .thenReturn(LunarTideType.SPRING_TIDE);
@@ -149,7 +154,8 @@ class ForecastDataAugmentorTest {
         TideData tideData = new TideData(TideState.HIGH, false,
                 highTide, new BigDecimal("6.2"), lowTide, new BigDecimal("0.8"),
                 highTide, null);
-        when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.of(tideData));
+        when(tideService.deriveDualWindowTideData(1L, EVENT_TIME, 30L, 90L))
+                .thenReturn(Optional.of(new TideService.DualWindowTideData(tideData, tideData)));
         when(tideService.calculateTideAligned(tideData, Set.of(TideType.HIGH))).thenReturn(true);
         when(lunarPhaseService.classifyTide(EVENT_TIME.toLocalDate()))
                 .thenReturn(LunarTideType.KING_TIDE);
@@ -178,7 +184,8 @@ class ForecastDataAugmentorTest {
         TideData tideData = new TideData(TideState.HIGH, false,
                 highTide, new BigDecimal("6.50"), lowTide, new BigDecimal("0.80"),
                 highTide, null);
-        when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.of(tideData));
+        when(tideService.deriveDualWindowTideData(1L, EVENT_TIME, 30L, 90L))
+                .thenReturn(Optional.of(new TideService.DualWindowTideData(tideData, tideData)));
         when(tideService.calculateTideAligned(tideData, Set.of(TideType.HIGH))).thenReturn(true);
         when(lunarPhaseService.classifyTide(EVENT_TIME.toLocalDate()))
                 .thenReturn(LunarTideType.KING_TIDE);
@@ -213,7 +220,8 @@ class ForecastDataAugmentorTest {
         TideData tideData = new TideData(TideState.HIGH, false,
                 highTide, new BigDecimal("5.80"), lowTide, new BigDecimal("0.80"),
                 highTide, null);
-        when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.of(tideData));
+        when(tideService.deriveDualWindowTideData(1L, EVENT_TIME, 30L, 90L))
+                .thenReturn(Optional.of(new TideService.DualWindowTideData(tideData, tideData)));
         when(tideService.calculateTideAligned(tideData, Set.of(TideType.HIGH))).thenReturn(true);
         when(lunarPhaseService.classifyTide(EVENT_TIME.toLocalDate()))
                 .thenReturn(LunarTideType.SPRING_TIDE);
@@ -248,7 +256,8 @@ class ForecastDataAugmentorTest {
         TideData tideData = new TideData(TideState.HIGH, false,
                 highTide, new BigDecimal("4.00"), lowTide, new BigDecimal("1.20"),
                 highTide, null);
-        when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.of(tideData));
+        when(tideService.deriveDualWindowTideData(1L, EVENT_TIME, 30L, 90L))
+                .thenReturn(Optional.of(new TideService.DualWindowTideData(tideData, tideData)));
         when(tideService.calculateTideAligned(tideData, Set.of(TideType.HIGH))).thenReturn(true);
         when(lunarPhaseService.classifyTide(EVENT_TIME.toLocalDate()))
                 .thenReturn(LunarTideType.REGULAR_TIDE);
@@ -318,7 +327,7 @@ class ForecastDataAugmentorTest {
     void augmentWithTideData_noTideData_returnsOriginal() {
         stubCoastalSolarWindow();
         AtmosphericData base = TestAtmosphericData.defaults();
-        when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.empty());
+        when(tideService.deriveDualWindowTideData(1L, EVENT_TIME, 30L, 90L)).thenReturn(Optional.empty());
 
         AtmosphericData result = augmentor.augmentWithTideData(
                 base, 1L, EVENT_TIME, Set.of(TideType.HIGH),
@@ -664,8 +673,8 @@ class ForecastDataAugmentorTest {
                 highTide, new BigDecimal("4.5"), EVENT_TIME.minusHours(4), new BigDecimal("1.2"),
                 highTide, null);
         // Tight (30 min) → not aligned; widened (30 + 60 = 90 min) → aligned.
-        when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.of(tightData));
-        when(tideService.deriveTideData(1L, EVENT_TIME, 90L)).thenReturn(Optional.of(widerData));
+        when(tideService.deriveDualWindowTideData(1L, EVENT_TIME, 30L, 90L))
+                .thenReturn(Optional.of(new TideService.DualWindowTideData(tightData, widerData)));
         when(tideService.calculateTideAligned(tightData, Set.of(TideType.HIGH))).thenReturn(false);
         when(tideService.calculateTideAligned(widerData, Set.of(TideType.HIGH))).thenReturn(true);
         stubLunarAndStats();
@@ -676,8 +685,8 @@ class ForecastDataAugmentorTest {
         assertThat(result).isPresent();
         assertThat(result.get().snapshot().tideAligned()).as("tight not aligned").isFalse();
         assertThat(result.get().widenedAligned()).as("widened (+60) aligned").isTrue();
-        // Proves the widened derivation used exactly tight + 60 minutes.
-        verify(tideService).deriveTideData(1L, EVENT_TIME, 90L);
+        // Proves the widened derivation used exactly tight + 60 minutes (one fetch, two windows).
+        verify(tideService).deriveDualWindowTideData(1L, EVENT_TIME, 30L, 90L);
     }
 
     @Test
@@ -688,8 +697,8 @@ class ForecastDataAugmentorTest {
         TideData data = new TideData(TideState.MID, false,
                 highTide, new BigDecimal("4.5"), EVENT_TIME.minusHours(4), new BigDecimal("1.2"),
                 highTide, null);
-        when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.of(data));
-        when(tideService.deriveTideData(1L, EVENT_TIME, 90L)).thenReturn(Optional.of(data));
+        when(tideService.deriveDualWindowTideData(1L, EVENT_TIME, 30L, 90L))
+                .thenReturn(Optional.of(new TideService.DualWindowTideData(data, data)));
         when(tideService.calculateTideAligned(data, Set.of(TideType.HIGH))).thenReturn(false);
         stubLunarAndStats();
 
@@ -715,7 +724,7 @@ class ForecastDataAugmentorTest {
     @DisplayName("deriveTideContext: no stored extremes (data gap) → empty (abstain, not 1★)")
     void deriveTideContext_noExtremes_returnsEmpty() {
         stubCoastalSolarWindow();
-        when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.empty());
+        when(tideService.deriveDualWindowTideData(1L, EVENT_TIME, 30L, 90L)).thenReturn(Optional.empty());
 
         Optional<TideContext> result = augmentor.deriveTideContext(
                 1L, EVENT_TIME, Set.of(TideType.HIGH), 55.0, -1.5, TargetType.SUNSET);
@@ -732,8 +741,8 @@ class ForecastDataAugmentorTest {
         TideData data = new TideData(TideState.HIGH, false,
                 highTide, new BigDecimal("4.5"), EVENT_TIME.minusHours(4), new BigDecimal("1.2"),
                 highTide, null);
-        when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.of(data));
-        when(tideService.deriveTideData(1L, EVENT_TIME, 90L)).thenReturn(Optional.of(data));
+        when(tideService.deriveDualWindowTideData(1L, EVENT_TIME, 30L, 90L))
+                .thenReturn(Optional.of(new TideService.DualWindowTideData(data, data)));
         when(tideService.calculateTideAligned(data, Set.of(TideType.HIGH))).thenReturn(true);
         stubLunarAndStats();
 

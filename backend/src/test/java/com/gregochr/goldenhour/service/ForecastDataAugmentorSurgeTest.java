@@ -58,7 +58,8 @@ class ForecastDataAugmentorSurgeTest {
     @BeforeEach
     void setUp() {
         augmentor = new ForecastDataAugmentor(openMeteoService, solarService, tideService,
-                new LunarPhaseService(), weatherAugmentedTideService, surgeCalibrationLogger,
+                new TideFactDeriver(tideService, new LunarPhaseService(), solarService),
+                weatherAugmentedTideService, surgeCalibrationLogger,
                 new BluebellConditionService());
     }
 
