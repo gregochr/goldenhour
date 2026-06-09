@@ -66,6 +66,23 @@ public interface EvaluationService {
             Long pipelineRunId);
 
     /**
+     * Retry-aware variant of {@link #submit(List, BatchTriggerSource, Long)}. When
+     * {@code isRetry} is {@code true} the persisted {@code forecast_batch} row is
+     * stamped {@code is_retry = true} so the RETRY_FAILED-phase batch is
+     * distinguishable from its precursor(s) and its recovered results are ingested
+     * via the merge (not replace) cache write. Forecast tasks only; aurora retries
+     * are not supported.
+     *
+     * @param tasks         one or more forecast tasks
+     * @param trigger       what triggered this submission (typically {@link BatchTriggerSource#RETRY})
+     * @param pipelineRunId orchestrated cycle id
+     * @param isRetry       {@code true} to mark the batch as a retry
+     * @return a handle with the submitted batch id, or {@link EvaluationHandle#empty}
+     */
+    EvaluationHandle submit(List<? extends EvaluationTask> tasks, BatchTriggerSource trigger,
+            Long pipelineRunId, boolean isRetry);
+
+    /**
      * Synchronously evaluates a single task via the Anthropic Messages API and dispatches
      * the result through the per-task-type {@link ResultHandler}.
      *

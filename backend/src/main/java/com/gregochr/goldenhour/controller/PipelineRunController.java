@@ -131,7 +131,8 @@ public class PipelineRunController {
                 batch.getSucceededCount(),
                 batch.getErroredCount(),
                 batch.getSubmittedAt(),
-                batch.getEndedAt());
+                batch.getEndedAt(),
+                batch.isRetry());
     }
 
     private static Long durationSeconds(Instant start, Instant end) {

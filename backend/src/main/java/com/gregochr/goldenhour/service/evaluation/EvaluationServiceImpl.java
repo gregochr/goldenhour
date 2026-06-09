@@ -90,6 +90,12 @@ public class EvaluationServiceImpl implements EvaluationService {
     @Override
     public EvaluationHandle submit(List<? extends EvaluationTask> tasks,
             BatchTriggerSource trigger, Long pipelineRunId) {
+        return submit(tasks, trigger, pipelineRunId, false);
+    }
+
+    @Override
+    public EvaluationHandle submit(List<? extends EvaluationTask> tasks,
+            BatchTriggerSource trigger, Long pipelineRunId, boolean isRetry) {
         if (tasks == null || tasks.isEmpty()) {
             return EvaluationHandle.empty();
         }
@@ -106,9 +112,12 @@ public class EvaluationServiceImpl implements EvaluationService {
 
         if (firstType == EvaluationTask.Forecast.class) {
             return submitForecast(castList(tasks, EvaluationTask.Forecast.class), trigger,
-                    pipelineRunId);
+                    pipelineRunId, isRetry);
         }
         if (firstType == EvaluationTask.Aurora.class) {
+            if (isRetry) {
+                throw new IllegalArgumentException("Aurora retry batches are not supported");
+            }
             // Aurora batches are not part of an orchestrated cycle today — pass null.
             return submitAurora(castList(tasks, EvaluationTask.Aurora.class), trigger);
         }
@@ -127,7 +136,7 @@ public class EvaluationServiceImpl implements EvaluationService {
     }
 
     private EvaluationHandle submitForecast(List<EvaluationTask.Forecast> tasks,
-            BatchTriggerSource trigger, Long pipelineRunId) {
+            BatchTriggerSource trigger, Long pipelineRunId, boolean isRetry) {
         List<BatchCreateParams.Request> requests = new ArrayList<>(tasks.size());
         for (EvaluationTask.Forecast task : tasks) {
             String customId = CustomIdFactory.forForecast(
@@ -138,7 +147,7 @@ public class EvaluationServiceImpl implements EvaluationService {
         BatchSubmitResult result = batchSubmissionService.submit(
                 requests, BatchType.FORECAST, trigger,
                 "EvaluationService forecast (" + trigger + ")",
-                pipelineRunId);
+                pipelineRunId, isRetry);
         return result == null
                 ? EvaluationHandle.empty()
                 : new EvaluationHandle(result.jobRunId(), result.batchId(),

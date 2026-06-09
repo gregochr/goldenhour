@@ -196,6 +196,54 @@ describe('PipelineRunsView', () => {
     ).toBeInTheDocument();
   });
 
+  it('flags the retry batch and shows the RETRY_FAILED phase with its recovery detail', async () => {
+    fetchPipelineRunDetail.mockResolvedValue({
+      ...MOCK_DETAIL,
+      phases: [
+        ...MOCK_DETAIL.phases.slice(0, 2),
+        {
+          phase: 'RETRY_FAILED',
+          sequenceOrder: 3,
+          status: 'COMPLETED',
+          startedAt: '2026-05-26T01:13:00Z',
+          completedAt: '2026-05-26T01:14:00Z',
+          durationSeconds: 60,
+          detail: '1 failed, 1 retried, 1 recovered, 0 still-failed',
+        },
+        MOCK_DETAIL.phases[2],
+      ],
+      batches: [
+        MOCK_DETAIL.batches[0],
+        {
+          id: 8,
+          jobRunId: 102,
+          anthropicBatchId: 'msgbatch_retry',
+          status: 'COMPLETED',
+          requestCount: 1,
+          succeededCount: 1,
+          erroredCount: 0,
+          submittedAt: '2026-05-26T01:13:00Z',
+          endedAt: '2026-05-26T01:14:00Z',
+          retry: true,
+        },
+      ],
+    });
+
+    render(
+      <PipelineRunsView activeRunId={42} onSelectRun={() => {}} onCloseDetail={() => {}} />,
+    );
+
+    await screen.findByTestId('pipeline-run-detail-42');
+    // The RETRY_FAILED phase shows in the timeline with its recovery summary.
+    expect(screen.getByTestId('pipeline-phase-row-RETRY_FAILED')).toBeInTheDocument();
+    expect(
+      screen.getByText('1 failed, 1 retried, 1 recovered, 0 still-failed'),
+    ).toBeInTheDocument();
+    // The retry batch is flagged distinctly; the precursor batch (id 7) is not.
+    expect(screen.getByTestId('pipeline-batch-retry-badge-8')).toBeInTheDocument();
+    expect(screen.queryByTestId('pipeline-batch-retry-badge-7')).not.toBeInTheDocument();
+  });
+
   it('expands a batch row to show the disposition breakdown', async () => {
     fetchPipelineRunDetail.mockResolvedValue(MOCK_DETAIL);
 

@@ -54,4 +54,29 @@ public interface ForecastBatchRepository extends JpaRepository<ForecastBatchEnti
      * @return matching batches (any status)
      */
     List<ForecastBatchEntity> findByPipelineRunId(Long pipelineRunId);
+
+    /**
+     * Returns the precursor (non-retry) batches for a cycle.
+     *
+     * <p>The RETRY_FAILED phase selects its retry set from these batches' failed
+     * requests only — never from a retry batch's own failures — which makes the
+     * single-retry guarantee structural.
+     *
+     * @param pipelineRunId the orchestrated cycle id
+     * @return matching {@code is_retry = false} batches (any status)
+     */
+    List<ForecastBatchEntity> findByPipelineRunIdAndRetryFalse(Long pipelineRunId);
+
+    /**
+     * Returns the retry batches already submitted for a cycle.
+     *
+     * <p>Used as the idempotency guard: a non-empty result means the RETRY_FAILED
+     * phase has already submitted a retry for this cycle, so submission is skipped
+     * (the existing retry batch is waited on instead). Bounds each cycle to one
+     * retry.
+     *
+     * @param pipelineRunId the orchestrated cycle id
+     * @return matching {@code is_retry = true} batches (any status)
+     */
+    List<ForecastBatchEntity> findByPipelineRunIdAndRetryTrue(Long pipelineRunId);
 }

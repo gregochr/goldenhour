@@ -20,5 +20,13 @@ public enum BatchTriggerSource {
     FORCE,
 
     /** Admin UI JFDI (just-do-it) — bypasses all gates across T+0..T+3 × SUNRISE/SUNSET. */
-    JFDI
+    JFDI,
+
+    /**
+     * Orchestrator RETRY_FAILED phase — re-submits a cycle's genuinely-failed
+     * forecast requests (parse failures / API errors) once, capped. Reconstructs
+     * the same (location, date, event) requests the precursor batch sent; it does
+     * not re-run candidate collection or any gate.
+     */
+    RETRY
 }
