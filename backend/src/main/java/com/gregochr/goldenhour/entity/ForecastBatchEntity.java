@@ -103,6 +103,19 @@ public class ForecastBatchEntity {
     @Column(name = "pipeline_run_id")
     private Long pipelineRunId;
 
+    /**
+     * {@code true} when this batch is a retry of genuinely-failed requests
+     * (parse failures / API errors) from one or more precursor batches in the
+     * same {@code pipeline_run_id} (V106). The precursor set is the
+     * {@code is_retry = false} forecast batches sharing the cycle id; the retry
+     * carries the same {@code pipeline_run_id} so the Pipeline Run view ties the
+     * two together. Failure selection reads only {@code is_retry = false}
+     * batches, and at most one retry batch is submitted per cycle — so a retry's
+     * own failures are never themselves retried (single-retry guarantee).
+     */
+    @Column(name = "is_retry", nullable = false)
+    private boolean retry = false;
+
     /** Sum of input tokens across all requests in this batch. */
     @Column(name = "total_input_tokens")
     private Long totalInputTokens;
@@ -240,6 +253,25 @@ public class ForecastBatchEntity {
      */
     public void setPipelineRunId(Long pipelineRunId) {
         this.pipelineRunId = pipelineRunId;
+    }
+
+    /**
+     * Returns whether this batch is a retry of failed requests from a precursor
+     * batch in the same cycle.
+     *
+     * @return {@code true} for a RETRY_FAILED-phase batch, {@code false} otherwise
+     */
+    public boolean isRetry() {
+        return retry;
+    }
+
+    /**
+     * Marks this batch as a retry of failed requests from a precursor batch.
+     *
+     * @param retry {@code true} for a retry batch
+     */
+    public void setRetry(boolean retry) {
+        this.retry = retry;
     }
 
     public Long getTotalInputTokens() {

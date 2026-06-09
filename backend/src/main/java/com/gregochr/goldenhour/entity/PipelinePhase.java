@@ -38,6 +38,19 @@ public enum PipelinePhase {
     /** Polling the DB until every forecast_batch for this cycle reaches a terminal status. */
     FORECAST_BATCH_WAIT,
 
+    /**
+     * Conditional phase (both cycle types). After WAIT completes, re-submits the
+     * cycle's genuinely-failed forecast requests (parse failures / API errors) as
+     * a single capped retry batch, so a transient model hiccup does not leave a
+     * location unevaluated for the cycle. Runs only when there are retryable
+     * failures within the cap; a clean cycle records no RETRY_FAILED phase, and a
+     * cycle whose failures exceed the cap records the phase as a no-retry
+     * systematic-failure marker. Placed before BRIEFING so recovered locations are
+     * in the data the briefing synthesises. Deliberate skips (SKIPPED_*) are never
+     * retried.
+     */
+    RETRY_FAILED,
+
     /** Running BriefingService.refreshBriefing() (which calls gloss + best-bet inline). */
     BRIEFING
 }
