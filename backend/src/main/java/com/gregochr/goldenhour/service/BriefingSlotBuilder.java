@@ -6,8 +6,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
-import com.gregochr.goldenhour.model.TideData;
-import com.gregochr.goldenhour.model.TideStats;
+import com.gregochr.goldenhour.model.TideDerivation;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.util.TimeSlotUtils;
 import org.slf4j.Logger;
@@ -18,7 +17,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
@@ -40,8 +38,7 @@ public class BriefingSlotBuilder {
 
     private final SolarService solarService;
     private final LocationService locationService;
-    private final TideService tideService;
-    private final LunarPhaseService lunarPhaseService;
+    private final TideFactDeriver tideFactDeriver;
     private final BriefingVerdictEvaluator verdictEvaluator;
 
     /**
@@ -49,17 +46,15 @@ public class BriefingSlotBuilder {
      *
      * @param solarService      service for calculating sunrise/sunset times
      * @param locationService   service for location metadata (coastal checks)
-     * @param tideService       service for tide data lookups
-     * @param lunarPhaseService service for lunar phase and tide classification
+     * @param tideFactDeriver   the single seam for deriving tide facts
      * @param verdictEvaluator  evaluator for slot verdicts and flag generation
      */
     public BriefingSlotBuilder(SolarService solarService, LocationService locationService,
-            TideService tideService, LunarPhaseService lunarPhaseService,
+            TideFactDeriver tideFactDeriver,
             BriefingVerdictEvaluator verdictEvaluator) {
         this.solarService = solarService;
         this.locationService = locationService;
-        this.tideService = tideService;
-        this.lunarPhaseService = lunarPhaseService;
+        this.tideFactDeriver = tideFactDeriver;
         this.verdictEvaluator = verdictEvaluator;
     }
 
@@ -129,7 +124,7 @@ public class BriefingSlotBuilder {
         List<Integer> lowCloudTrend = extractLowCloudTrend(h, idx);
 
         // Tide data from DB (using elevation-based window)
-        TideResult tideResult = calculateTideData(loc, solarTime, date, eventType);
+        TideResult tideResult = calculateTideData(loc, solarTime, eventType);
 
         // Determine weather verdict (base check)
         Verdict verdict = verdictEvaluator.determineVerdict(lowCloud, precip, visibility, humidity);
@@ -218,58 +213,32 @@ public class BriefingSlotBuilder {
      * @return tide calculation result
      */
     private TideResult calculateTideData(LocationEntity loc, LocalDateTime solarTime,
-            LocalDate date, TargetType eventType) {
+            TargetType eventType) {
         if (!locationService.isCoastal(loc)) {
             return TideResult.NONE;
         }
-        boolean isSunrise = eventType == TargetType.SUNRISE;
-        SolarService.SolarWindow window = solarService.goldenBlueWindow(
-                loc.getLat(), loc.getLon(), date, isSunrise);
-        long windowMinutes = Duration.between(
-                isSunrise ? window.blueHourStart() : window.goldenHourStart(),
-                isSunrise ? window.goldenHourEnd() : window.blueHourEnd()
-        ).toMinutes() / 2;
-        Optional<TideData> tideOpt = tideService.deriveTideData(loc.getId(), solarTime,
-                windowMinutes);
-        if (tideOpt.isEmpty()) {
+        Optional<TideDerivation> derived = tideFactDeriver.derive(
+                loc.getId(), solarTime, loc.getTideType(), loc.getLat(), loc.getLon(), eventType);
+        if (derived.isEmpty()) {
             return TideResult.NONE;
         }
+        TideDerivation d = derived.get();
 
-        TideData td = tideOpt.get();
-        String tideState = td.tideState().name();
-        boolean tideAligned = tideService.calculateTideAligned(td, loc.getTideType());
-        LocalDateTime nearestHighTime = td.nearestHighTideTime();
-        BigDecimal nearestHighHeight = td.nextHighTideHeightMetres();
+        // Apply the briefing's high-tide alignment gate around the raw statistical signals from the
+        // single derivation. The deriver returns ungated king/spring height flags; the briefing only
+        // surfaces them when a high tide falls within +/-90 minutes of the solar event.
         boolean isKingTide = false;
         boolean isSpringTide = false;
-
-        if (td.tideState() == TideState.HIGH && nearestHighTime != null
-                && Math.abs(ChronoUnit.MINUTES.between(nearestHighTime, solarTime))
+        if (d.tideState() == TideState.HIGH && d.nearestHighTideTime() != null
+                && Math.abs(ChronoUnit.MINUTES.between(d.nearestHighTideTime(), solarTime))
                         <= TIDE_WINDOW_MINUTES) {
-            Optional<TideStats> statsOpt = tideService.getTideStats(loc.getId());
-            if (statsOpt.isPresent()) {
-                TideStats stats = statsOpt.get();
-                BigDecimal height = td.nextHighTideHeightMetres();
-                if (height != null && stats.p95HighMetres() != null
-                        && height.compareTo(stats.p95HighMetres()) > 0) {
-                    isKingTide = true;
-                }
-                if (height != null && stats.springTideThreshold() != null
-                        && height.compareTo(stats.springTideThreshold()) > 0) {
-                    isSpringTide = true;
-                }
-            }
+            isKingTide = d.heightAboveP95();
+            isSpringTide = d.heightAboveSpringThreshold();
         }
 
-        // Lunar classification — deterministic from date
-        LocalDate eventDate = solarTime.toLocalDate();
-        LunarTideType lunarTideType = lunarPhaseService.classifyTide(eventDate);
-        String lunarPhase = lunarPhaseService.getMoonPhase(eventDate);
-        Boolean moonAtPerigee = lunarPhaseService.isMoonAtPerigee(eventDate);
-
-        return new TideResult(tideState, tideAligned, nearestHighTime,
-                nearestHighHeight, isKingTide, isSpringTide,
-                lunarTideType, lunarPhase, moonAtPerigee);
+        return new TideResult(d.tideState().name(), d.tideAligned(), d.nearestHighTideTime(),
+                d.nextHighTideHeightMetres(), isKingTide, isSpringTide,
+                d.lunarTideType(), d.lunarPhase(), d.moonAtPerigee());
     }
 
     /**

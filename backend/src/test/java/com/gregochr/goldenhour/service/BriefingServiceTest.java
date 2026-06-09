@@ -120,7 +120,8 @@ class BriefingServiceTest {
         BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
         LunarPhaseService lunarPhaseService = new LunarPhaseService();
         BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
-                solarService, locationService, tideService, lunarPhaseService, verdictEvaluator);
+                solarService, locationService,
+                new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator);
         briefingService = new BriefingService(
                 locationService, openMeteoClient,
                 jobRunService, briefingCacheRepository, locationRepository,
@@ -430,7 +431,8 @@ class BriefingServiceTest {
         BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
         LunarPhaseService lunarPhaseService = new LunarPhaseService();
         BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
-                solarService, locationService, tideService, lunarPhaseService, verdictEvaluator);
+                solarService, locationService,
+                new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator);
         BriefingService freshService = new BriefingService(
                 locationService, openMeteoClient,
                 jobRunService, briefingCacheRepository, locationRepository, mapper,
@@ -459,7 +461,8 @@ class BriefingServiceTest {
         BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
         LunarPhaseService lunarPhaseService = new LunarPhaseService();
         BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
-                solarService, locationService, tideService, lunarPhaseService, verdictEvaluator);
+                solarService, locationService,
+                new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator);
         BriefingService freshService = new BriefingService(
                 locationService, openMeteoClient,
                 jobRunService, briefingCacheRepository, locationRepository,
@@ -482,7 +485,8 @@ class BriefingServiceTest {
         BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
         LunarPhaseService lunarPhaseService = new LunarPhaseService();
         BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
-                solarService, locationService, tideService, lunarPhaseService, verdictEvaluator);
+                solarService, locationService,
+                new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator);
         BriefingService freshService = new BriefingService(
                 locationService, openMeteoClient,
                 jobRunService, briefingCacheRepository, locationRepository,
@@ -1020,7 +1024,8 @@ class BriefingServiceTest {
             BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
             LunarPhaseService lunarPhaseService = new LunarPhaseService();
             BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
-                    solarService, locationService, tideService, lunarPhaseService, verdictEvaluator);
+                    solarService, locationService,
+                    new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator);
             BriefingService freshService = new BriefingService(
                     locationService, openMeteoClient,
                     jobRunService, briefingCacheRepository, locationRepository, mapper,

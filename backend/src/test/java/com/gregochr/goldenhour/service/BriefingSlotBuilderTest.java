@@ -55,7 +55,8 @@ class BriefingSlotBuilderTest {
     @BeforeEach
     void setUp() {
         slotBuilder = new BriefingSlotBuilder(solarService, locationService,
-                tideService, lunarPhaseService, new BriefingVerdictEvaluator());
+                new TideFactDeriver(tideService, lunarPhaseService, solarService),
+                new BriefingVerdictEvaluator());
     }
 
     /**

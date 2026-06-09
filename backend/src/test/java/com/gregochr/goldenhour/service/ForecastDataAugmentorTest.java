@@ -19,7 +19,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -58,14 +57,19 @@ class ForecastDataAugmentorTest {
     @Mock
     private LunarPhaseService lunarPhaseService;
 
-    @InjectMocks
     private ForecastDataAugmentor augmentor;
 
     private static final LocalDateTime EVENT_TIME = LocalDateTime.of(2026, 6, 21, 20, 47);
 
     @BeforeEach
     void setUp() {
-        // stubs added per-test to avoid lenient() and unused-stubbing violations
+        // stubs added per-test to avoid lenient() and unused-stubbing violations.
+        // A real TideFactDeriver is injected (built from the same mocks) so the existing
+        // tide-service / lunar stubs and assertions continue to drive behaviour unchanged
+        // through the extracted single derivation seam.
+        augmentor = new ForecastDataAugmentor(openMeteoService, solarService, tideService,
+                new TideFactDeriver(tideService, lunarPhaseService, solarService),
+                null, null, null);
     }
 
     /** Stubs the solar window for coastal augmentWithTideData tests. */

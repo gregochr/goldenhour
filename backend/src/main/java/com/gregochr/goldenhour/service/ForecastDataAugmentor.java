@@ -4,9 +4,7 @@ import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
-import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.SolarEventType;
-import com.gregochr.goldenhour.entity.TideStatisticalSize;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
@@ -17,7 +15,6 @@ import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.CoastalParameters;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.TideContext;
-import com.gregochr.goldenhour.model.TideData;
 import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.util.TimeSlotUtils;
@@ -56,7 +53,7 @@ public class ForecastDataAugmentor {
     private final OpenMeteoService openMeteoService;
     private final SolarService solarService;
     private final TideService tideService;
-    private final LunarPhaseService lunarPhaseService;
+    private final TideFactDeriver tideFactDeriver;
     private final WeatherAugmentedTideService weatherAugmentedTideService;
     private final SurgeCalibrationLogger surgeCalibrationLogger;
     private final BluebellConditionService bluebellConditionService;
@@ -67,21 +64,21 @@ public class ForecastDataAugmentor {
      * @param openMeteoService             retrieves directional cloud data from Open-Meteo
      * @param solarService                 calculates solar event times and golden/blue windows
      * @param tideService                  fetches tide data for coastal locations
-     * @param lunarPhaseService            computes lunar tide classification and moon phase
+     * @param tideFactDeriver              the single seam for deriving tide facts (snapshot)
      * @param weatherAugmentedTideService  storm surge calculation service
      * @param surgeCalibrationLogger       structured logging for surge calibration
      * @param bluebellConditionService     scores bluebell photography conditions
      */
     public ForecastDataAugmentor(OpenMeteoService openMeteoService, SolarService solarService,
             TideService tideService,
-            LunarPhaseService lunarPhaseService,
+            TideFactDeriver tideFactDeriver,
             WeatherAugmentedTideService weatherAugmentedTideService,
             SurgeCalibrationLogger surgeCalibrationLogger,
             BluebellConditionService bluebellConditionService) {
         this.openMeteoService = openMeteoService;
         this.solarService = solarService;
         this.tideService = tideService;
-        this.lunarPhaseService = lunarPhaseService;
+        this.tideFactDeriver = tideFactDeriver;
         this.weatherAugmentedTideService = weatherAugmentedTideService;
         this.surgeCalibrationLogger = surgeCalibrationLogger;
         this.bluebellConditionService = bluebellConditionService;
@@ -202,7 +199,8 @@ public class ForecastDataAugmentor {
         if (snapshotMaybe.isEmpty()) {
             return Optional.empty();
         }
-        long widenedWindowMinutes = alignmentWindowMinutes(lat, lon, eventTime, targetType)
+        long widenedWindowMinutes = tideFactDeriver.tightAlignmentWindowMinutes(
+                lat, lon, eventTime, targetType)
                 + WIDENED_ALIGNMENT_EXTENSION_MINUTES;
         boolean widenedAligned = tideService
                 .deriveTideData(locationId, eventTime, widenedWindowMinutes)
@@ -218,87 +216,20 @@ public class ForecastDataAugmentor {
      */
     private Optional<TideSnapshot> buildTideSnapshot(Long locationId, LocalDateTime eventTime,
             Set<TideType> tideTypes, double lat, double lon, TargetType targetType) {
-        boolean isCoastal = locationId != null && tideTypes != null && !tideTypes.isEmpty();
-        if (!isCoastal) {
-            return Optional.empty();
-        }
-        long windowMinutes = alignmentWindowMinutes(lat, lon, eventTime, targetType);
-        var tideMaybe = tideService.deriveTideData(locationId, eventTime, windowMinutes);
-        if (tideMaybe.isEmpty()) {
-            return Optional.empty();
-        }
-        TideData tideData = tideMaybe.get();
-        Boolean tideAligned = tideService.calculateTideAligned(tideData, tideTypes);
-
-        // Lunar classification (deterministic, from moon phase + perigee)
-        var eventDate = eventTime.toLocalDate();
-        LunarTideType lunarTideType = lunarPhaseService.classifyTide(eventDate);
-        String lunarPhase = lunarPhaseService.getMoonPhase(eventDate);
-        Boolean moonAtPerigee = lunarPhaseService.isMoonAtPerigee(eventDate);
-
-        // Statistical size (empirical, from historical tide data)
-        TideStatisticalSize statisticalSize = deriveStatisticalSize(
-                locationId, tideData.nextHighTideHeightMetres());
-
-        return Optional.of(new TideSnapshot(
-                tideData.tideState(),
-                tideData.nextHighTideTime(),
-                tideData.nextHighTideHeightMetres(),
-                tideData.nextLowTideTime(),
-                tideData.nextLowTideHeightMetres(),
-                tideAligned,
-                tideData.nearestHighTideTime(),
-                tideData.nearestLowTideTime(),
-                lunarTideType,
-                lunarPhase,
-                moonAtPerigee,
-                statisticalSize));
-    }
-
-    /**
-     * Computes the tight alignment window half-width in minutes: half the blue+golden hour span
-     * around the solar event, matching the existing forecast-pipeline derivation.
-     */
-    private long alignmentWindowMinutes(double lat, double lon, LocalDateTime eventTime,
-            TargetType targetType) {
-        boolean isSunrise = targetType == TargetType.SUNRISE;
-        SolarService.SolarWindow window = solarService.goldenBlueWindow(
-                lat, lon, eventTime.toLocalDate(), isSunrise);
-        return java.time.Duration.between(
-                isSunrise ? window.blueHourStart() : window.goldenHourStart(),
-                isSunrise ? window.goldenHourEnd() : window.blueHourEnd()
-        ).toMinutes() / 2;
-    }
-
-    /**
-     * Derives the statistical tide size by comparing the next high tide height against
-     * historical percentiles for the location.
-     *
-     * @param locationId the location primary key
-     * @param highTideHeight the next high tide height, or null
-     * @return the statistical classification, or null if data is insufficient
-     */
-    private TideStatisticalSize deriveStatisticalSize(Long locationId, BigDecimal highTideHeight) {
-        if (highTideHeight == null) {
-            return null;
-        }
-        return tideService.getTideStats(locationId)
-                .map(stats -> classifyStatisticalSize(highTideHeight, stats))
-                .orElse(null);
-    }
-
-    /**
-     * Classifies tide height against historical thresholds.
-     */
-    private static TideStatisticalSize classifyStatisticalSize(BigDecimal height, TideStats stats) {
-        if (stats.p95HighMetres() != null && height.compareTo(stats.p95HighMetres()) > 0) {
-            return TideStatisticalSize.EXTRA_EXTRA_HIGH;
-        }
-        if (stats.springTideThreshold() != null
-                && height.compareTo(stats.springTideThreshold()) > 0) {
-            return TideStatisticalSize.EXTRA_HIGH;
-        }
-        return null;
+        return tideFactDeriver.derive(locationId, eventTime, tideTypes, lat, lon, targetType)
+                .map(d -> new TideSnapshot(
+                        d.tideState(),
+                        d.nextHighTideTime(),
+                        d.nextHighTideHeightMetres(),
+                        d.nextLowTideTime(),
+                        d.nextLowTideHeightMetres(),
+                        d.tideAligned(),
+                        d.nearestHighTideTime(),
+                        d.nearestLowTideTime(),
+                        d.lunarTideType(),
+                        d.lunarPhase(),
+                        d.moonAtPerigee(),
+                        d.statisticalSize()));
     }
 
     /**
