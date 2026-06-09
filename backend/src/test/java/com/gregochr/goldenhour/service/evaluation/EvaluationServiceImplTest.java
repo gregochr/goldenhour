@@ -138,7 +138,7 @@ class EvaluationServiceImplTest {
                 .thenReturn(req2);
         when(batchSubmissionService.submit(
                 any(), eq(BatchType.FORECAST), eq(BatchTriggerSource.SCHEDULED), anyString(),
-                org.mockito.ArgumentMatchers.isNull()))
+                org.mockito.ArgumentMatchers.isNull(), eq(false)))
                 .thenReturn(new BatchSubmitResult(777L, "msgbatch_x", 2));
 
         EvaluationHandle handle = service.submit(
@@ -157,7 +157,7 @@ class EvaluationServiceImplTest {
         verify(batchSubmissionService).submit(
                 captor.capture(), eq(BatchType.FORECAST),
                 eq(BatchTriggerSource.SCHEDULED), anyString(),
-                org.mockito.ArgumentMatchers.isNull());
+                org.mockito.ArgumentMatchers.isNull(), eq(false));
         assertThat(captor.getValue()).containsExactly(req1, req2);
     }
 
@@ -205,7 +205,7 @@ class EvaluationServiceImplTest {
                 .thenReturn(mock(BatchCreateParams.Request.class));
         when(batchSubmissionService.submit(
                 any(), any(), any(), anyString(),
-                org.mockito.ArgumentMatchers.isNull()))
+                org.mockito.ArgumentMatchers.isNull(), eq(false)))
                 .thenReturn(null);
 
         EvaluationHandle handle = service.submit(List.of(task), BatchTriggerSource.SCHEDULED);

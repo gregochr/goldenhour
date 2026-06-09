@@ -285,8 +285,19 @@ public class BatchResultProcessor {
                     batch.getAnthropicBatchId(), errorSummary);
         }
 
+        // A retry batch carries only the locations that failed in its precursor(s);
+        // its results MERGE into the existing region entries (preserving the
+        // originally-successful locations) rather than replacing them. A normal
+        // batch holds the whole region and replaces. Parsing, api_call_log, token
+        // accounting and status are identical for both — only the terminal cache
+        // write differs, keyed on the batch's retry flag.
+        boolean merge = batch.isRetry();
         for (Map.Entry<String, List<BriefingEvaluationResult>> entry : byKey.entrySet()) {
-            forecastResultHandler.flushCacheKey(entry.getKey(), entry.getValue());
+            if (merge) {
+                forecastResultHandler.mergeCacheKey(entry.getKey(), entry.getValue());
+            } else {
+                forecastResultHandler.flushCacheKey(entry.getKey(), entry.getValue());
+            }
         }
 
         LOG.info("Forecast batch complete: batchId={}, {} succeeded, {} errored, {} cache keys written",

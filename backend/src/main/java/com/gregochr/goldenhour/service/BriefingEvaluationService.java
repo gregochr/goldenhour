@@ -190,6 +190,82 @@ public class BriefingEvaluationService {
     }
 
     /**
+     * Merges recovered results from a RETRY_FAILED-phase batch into the existing
+     * cache entry for a key, rather than replacing it.
+     *
+     * <p>This is the critical difference from {@link #writeFromBatch}. A retry batch
+     * carries only the handful of locations that failed in the precursor batch — for
+     * a region whose other locations succeeded, calling {@code writeFromBatch} with
+     * just the recovered location would <b>replace</b> the region's entry and wipe
+     * the originally-successful locations (the {@code results_json} blob holds the
+     * whole region). Merging overlays the recovered locations onto the prior entry so
+     * the region's other results are preserved.
+     *
+     * <p>The prior entry is read from the in-memory cache, falling back to the
+     * {@code cached_evaluation} row if the process restarted after the precursor write
+     * but before startup rehydration populated the in-memory map — so a retry can
+     * never silently shrink a region's result set.
+     *
+     * @param cacheKey the cache key in the format "regionName|date|targetType"
+     * @param results  the recovered results to overlay onto the existing entry
+     */
+    public void mergeFromBatch(String cacheKey, List<BriefingEvaluationResult> results) {
+        CachedEvaluation prior = cache.get(cacheKey);
+        ConcurrentHashMap<String, BriefingEvaluationResult> merged = new ConcurrentHashMap<>();
+        if (prior != null) {
+            merged.putAll(prior.results());
+        } else {
+            merged.putAll(loadResultsFromDb(cacheKey));
+        }
+        int priorSize = merged.size();
+        results.forEach(r -> merged.put(r.locationName(), r));
+        Instant now = Instant.now();
+        cache.put(cacheKey, new CachedEvaluation(merged, now));
+        persistToDb(cacheKey, merged, "BATCH");
+        // Deltas reflect only the merged-in (recovered) locations; the untouched
+        // locations did not change this write.
+        ConcurrentHashMap<String, BriefingEvaluationResult> recovered = new ConcurrentHashMap<>();
+        results.forEach(r -> recovered.put(r.locationName(), r));
+        logEvaluationDeltas(cacheKey, prior, recovered, now);
+        LOG.info("RETRY_FAILED merge for key {}: {} prior + {} recovered = {} total",
+                cacheKey, priorSize, results.size(), merged.size());
+    }
+
+    /**
+     * Loads the persisted results for a cache key from the database, for use as the
+     * merge base when the in-memory cache has no entry (post-restart). Returns an
+     * empty map on a missing row or a deserialisation failure (a failure must never
+     * break the merge — at worst the merge starts from empty, matching the no-prior
+     * case).
+     */
+    private Map<String, BriefingEvaluationResult> loadResultsFromDb(String cacheKey) {
+        try {
+            return cachedEvaluationRepository.findByCacheKey(cacheKey)
+                    .map(entity -> {
+                        try {
+                            List<BriefingEvaluationResult> list = objectMapper.readValue(
+                                    entity.getResultsJson(),
+                                    new TypeReference<List<BriefingEvaluationResult>>() { });
+                            Map<String, BriefingEvaluationResult> map = new java.util.HashMap<>();
+                            for (BriefingEvaluationResult r : list) {
+                                map.put(r.locationName(), r);
+                            }
+                            return map;
+                        } catch (Exception e) {
+                            LOG.warn("RETRY_FAILED merge: could not parse prior results_json "
+                                    + "for {} — merging from empty: {}", cacheKey, e.getMessage());
+                            return Map.<String, BriefingEvaluationResult>of();
+                        }
+                    })
+                    .orElseGet(Map::of);
+        } catch (Exception e) {
+            LOG.warn("RETRY_FAILED merge: could not load prior cached_evaluation for {} "
+                    + "— merging from empty: {}", cacheKey, e.getMessage());
+            return Map.of();
+        }
+    }
+
+    /**
      * Logs rating deltas to {@code evaluation_delta_log} for empirical freshness
      * threshold refinement. Only inserts rows when a prior cache entry existed.
      * Failures are logged at WARN and never break the cache write path.

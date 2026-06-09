@@ -95,6 +95,32 @@ public class BatchSubmissionService {
     public BatchSubmitResult submit(List<BatchCreateParams.Request> requests,
             BatchType batchType, BatchTriggerSource triggerSource, String logPrefix,
             Long pipelineRunId) {
+        return submit(requests, batchType, triggerSource, logPrefix, pipelineRunId, false);
+    }
+
+    /**
+     * Retry-aware variant — additionally stamps {@code forecast_batch.is_retry} so a
+     * RETRY_FAILED-phase batch is distinguishable from its precursor(s) sharing the
+     * same {@code pipelineRunId}.
+     *
+     * <p>The flag is set at row creation (not patched afterwards) so it is visible
+     * the instant the batch becomes pollable — closing the window in which the 60s
+     * {@code BatchPollingService} could otherwise process a retry batch as a
+     * non-retry and route its results through the destructive (replace) cache write
+     * rather than the merge.
+     *
+     * @param requests      the requests to submit; empty list is handled gracefully
+     * @param batchType     FORECAST or AURORA
+     * @param triggerSource what triggered this submission
+     * @param logPrefix     human-readable label used in log lines
+     * @param pipelineRunId orchestrated cycle id, or {@code null} for ad-hoc submissions
+     * @param isRetry       {@code true} to mark the persisted batch as a retry
+     * @return a result describing the submitted batch, or {@code null} if the batch was
+     *         empty or the API call failed
+     */
+    public BatchSubmitResult submit(List<BatchCreateParams.Request> requests,
+            BatchType batchType, BatchTriggerSource triggerSource, String logPrefix,
+            Long pipelineRunId, boolean isRetry) {
         if (requests.isEmpty()) {
             LOG.info("{} skipped: no requests (trigger={})", logPrefix, triggerSource);
             return null;
@@ -123,6 +149,7 @@ public class BatchSubmissionService {
             if (pipelineRunId != null) {
                 entity.setPipelineRunId(pipelineRunId);
             }
+            entity.setRetry(isRetry);
             batchRepository.save(entity);
 
             Long jobRunId = jobRun != null ? jobRun.getId() : null;

@@ -13,9 +13,11 @@ import com.gregochr.goldenhour.service.batch.CandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.EligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.IntradayCandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.IntradayEligibilityPolicy;
+import com.gregochr.goldenhour.service.batch.BatchRetryService;
 import com.gregochr.goldenhour.service.batch.NightlyCandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.NightlyEligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.ReclassSummary;
+import com.gregochr.goldenhour.service.batch.RetrySelection;
 import com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -101,6 +103,7 @@ public class PipelineOrchestrator {
     private final Duration safetyTimeout;
     private final DynamicSchedulerService dynamicSchedulerService;
     private final PipelineRunPickService pipelineRunPickService;
+    private final BatchRetryService batchRetryService;
 
     /**
      * Production constructor — uses a virtual-thread executor so the wait phase
@@ -116,6 +119,7 @@ public class PipelineOrchestrator {
      * @param clock                           injected clock for deterministic tests
      * @param dynamicSchedulerService         scheduler this orchestrator registers itself with
      * @param pipelineRunPickService          persists each cycle's Plan A / Plan B picks
+     * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
      */
     @Autowired
     public PipelineOrchestrator(PipelineRunService pipelineRunService,
@@ -124,12 +128,13 @@ public class PipelineOrchestrator {
             ForecastBatchRepository forecastBatchRepository,
             Clock clock,
             DynamicSchedulerService dynamicSchedulerService,
-            PipelineRunPickService pipelineRunPickService) {
+            PipelineRunPickService pipelineRunPickService,
+            BatchRetryService batchRetryService) {
         this(pipelineRunService, scheduledBatchEvaluationService, briefingService,
                 forecastBatchRepository, clock,
                 Executors.newVirtualThreadPerTaskExecutor(),
                 DEFAULT_POLL_INTERVAL, DEFAULT_SAFETY_TIMEOUT,
-                dynamicSchedulerService, pipelineRunPickService);
+                dynamicSchedulerService, pipelineRunPickService, batchRetryService);
     }
 
     /**
@@ -148,6 +153,7 @@ public class PipelineOrchestrator {
      *                                        tests may pass {@code null} to skip registration
      * @param pipelineRunPickService          persists each cycle's Plan A / Plan B picks;
      *                                        tests may pass {@code null} to skip persistence
+     * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
      */
     public PipelineOrchestrator(PipelineRunService pipelineRunService,
             ScheduledBatchEvaluationService scheduledBatchEvaluationService,
@@ -158,7 +164,8 @@ public class PipelineOrchestrator {
             Duration pollInterval,
             Duration safetyTimeout,
             DynamicSchedulerService dynamicSchedulerService,
-            PipelineRunPickService pipelineRunPickService) {
+            PipelineRunPickService pipelineRunPickService,
+            BatchRetryService batchRetryService) {
         this.pipelineRunService = pipelineRunService;
         this.scheduledBatchEvaluationService = scheduledBatchEvaluationService;
         this.briefingService = briefingService;
@@ -169,6 +176,7 @@ public class PipelineOrchestrator {
         this.safetyTimeout = safetyTimeout;
         this.dynamicSchedulerService = dynamicSchedulerService;
         this.pipelineRunPickService = pipelineRunPickService;
+        this.batchRetryService = batchRetryService;
     }
 
     /**
@@ -286,9 +294,11 @@ public class PipelineOrchestrator {
      * Resumes any pipeline runs left in {@code RUNNING} status when the
      * application starts — covers the mid-cycle restart case.
      *
-     * <p>Mid-WAIT or mid-BRIEFING: re-dispatches the wait+brief tail (which
-     * picks up where it left off — the wait loop's progress is driven by the
-     * DB state, not in-memory). Mid-RECLASSIFY or mid-SUBMIT (the pre-submission
+     * <p>Mid-WAIT, mid-RETRY_FAILED, or mid-BRIEFING: re-dispatches the
+     * wait+retry+brief tail (which picks up where it left off — the wait loop's
+     * progress is driven by the DB state, not in-memory, and the retry submission
+     * is idempotent: it skips if a retry batch already exists for the cycle).
+     * Mid-RECLASSIFY or mid-SUBMIT (the pre-submission
      * phases): marks FAILED because batches may have been submitted to Anthropic
      * in a partial state we can't safely resume — and resuming from RECLASSIFY
      * would jump straight to a zero-batch WAIT and brief on stale data; the next
@@ -371,19 +381,30 @@ public class PipelineOrchestrator {
 
     private void waitAndBriefPhase(Long runId) {
         try {
-            // Idempotent re-entry: if we're resuming a run already mid-WAIT or
-            // mid-BRIEFING, don't double-start the phase row.
+            // Idempotent re-entry: if we're resuming a run already mid-WAIT,
+            // mid-RETRY_FAILED, or mid-BRIEFING, don't re-run earlier phases or
+            // double-start their rows. The phases run in order WAIT → RETRY_FAILED
+            // (conditional) → BRIEFING.
             PipelineRunEntity run = pipelineRunService.findById(runId).orElseThrow();
             PipelinePhase phase = run.getCurrentPhase();
+            boolean atOrPastBrief = phase == PipelinePhase.BRIEFING;
+            boolean atOrPastRetry = atOrPastBrief || phase == PipelinePhase.RETRY_FAILED;
 
-            if (phase != PipelinePhase.FORECAST_BATCH_WAIT
-                    && phase != PipelinePhase.BRIEFING) {
+            if (!atOrPastRetry && phase != PipelinePhase.FORECAST_BATCH_WAIT) {
                 pipelineRunService.startPhase(runId, PipelinePhase.FORECAST_BATCH_WAIT);
             }
-            if (phase != PipelinePhase.BRIEFING) {
+            if (!atOrPastRetry) {
                 BatchCompletionResult result = waitForBatchSetComplete(runId);
                 pipelineRunService.completePhase(runId, PipelinePhase.FORECAST_BATCH_WAIT,
                         result.summary());
+            }
+
+            // RETRY_FAILED — conditional phase. Runs only when the cycle's precursor
+            // batches left retryable transient failures within the cap; a clean cycle
+            // records no phase. Placed before BRIEFING so recovered locations are in
+            // the data the briefing synthesises.
+            if (!atOrPastBrief) {
+                retryFailedPhase(runId, phase == PipelinePhase.RETRY_FAILED);
             }
 
             pipelineRunService.startPhase(runId, PipelinePhase.BRIEFING);
@@ -401,13 +422,71 @@ public class PipelineOrchestrator {
         } catch (BatchSafetyTimeoutException e) {
             // Safety backstop fired — log loudly and mark the run failed so the
             // next cron schedules a fresh cycle. The user-visible failureReason
-            // makes this distinguishable from a genuine phase failure.
-            LOG.error("Pipeline run {}: SAFETY TIMEOUT hit — {}", runId, e.getMessage());
-            pipelineRunService.failPhase(runId, PipelinePhase.FORECAST_BATCH_WAIT, e.getMessage());
+            // makes this distinguishable from a genuine phase failure. The retry
+            // batch shares this same timeout, so the fired-in phase is whichever
+            // wait was in flight (WAIT or RETRY_FAILED).
+            PipelinePhase failedPhase = pipelineRunService.findById(runId)
+                    .map(PipelineRunEntity::getCurrentPhase)
+                    .orElse(PipelinePhase.FORECAST_BATCH_WAIT);
+            LOG.error("Pipeline run {}: SAFETY TIMEOUT hit in phase {} — {}",
+                    runId, failedPhase, e.getMessage());
+            pipelineRunService.failPhase(runId, failedPhase, e.getMessage());
             pipelineRunService.failRun(runId, "Safety timeout: " + e.getMessage());
         } catch (RuntimeException e) {
             LOG.error("Pipeline run {}: wait/brief tail failed — {}", runId, e.getMessage(), e);
             pipelineRunService.failRun(runId, "Wait/brief tail failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * The conditional RETRY_FAILED phase: after the precursor batches are terminal,
+     * re-submit the cycle's genuinely-failed forecast requests (parse failures / API
+     * errors) once, capped, and wait for the recovered results to land.
+     *
+     * <ul>
+     *   <li><b>NONE</b> (no failures): on a fresh run records no phase at all (keeps
+     *       the timeline clean for the common clean cycle); on a resume records the
+     *       no-op detail to close the already-started phase row.</li>
+     *   <li><b>SYSTEMATIC</b> (over cap): records the phase with a "not retried —
+     *       systematic failure" detail. Not retried — re-submitting en masse would be
+     *       expensive and useless.</li>
+     *   <li><b>RETRY</b> (within cap): submits one retry batch tagged with this cycle
+     *       (idempotent — skipped if a retry batch already exists from a pre-restart
+     *       attempt), waits for it to reach terminal status (sharing the safety
+     *       timeout; recovered results merge into the cache via the normal polling
+     *       path before the batch is terminal), then records the recovery summary.</li>
+     * </ul>
+     *
+     * @param runId    pipeline run id
+     * @param resuming {@code true} when re-entering an already-started RETRY_FAILED
+     *                 phase after a restart (do not re-start the phase row)
+     */
+    private void retryFailedPhase(Long runId, boolean resuming) {
+        RetrySelection selection = batchRetryService.selectFailures(runId);
+
+        if (selection.decision() == RetrySelection.Decision.NONE && !resuming) {
+            return;
+        }
+        if (!resuming) {
+            pipelineRunService.startPhase(runId, PipelinePhase.RETRY_FAILED);
+        }
+
+        switch (selection.decision()) {
+            case NONE -> pipelineRunService.completePhase(runId, PipelinePhase.RETRY_FAILED,
+                    "0 failed, nothing to retry");
+            case SYSTEMATIC -> pipelineRunService.completePhase(runId, PipelinePhase.RETRY_FAILED,
+                    selection.failureCount() + " failed — exceeds cap " + selection.cap()
+                            + ", NOT retried (systematic failure — investigate)");
+            case RETRY -> {
+                batchRetryService.submitRetry(runId, selection);
+                waitForBatchSetComplete(runId);
+                String detail = batchRetryService.summariseRecovery(
+                        runId, selection.failureCount());
+                pipelineRunService.completePhase(runId, PipelinePhase.RETRY_FAILED, detail);
+                LOG.info("Pipeline run {}: RETRY_FAILED — {}", runId, detail);
+            }
+            default -> throw new IllegalStateException(
+                    "Unhandled retry decision: " + selection.decision());
         }
     }
 

@@ -15,9 +15,11 @@ import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.batch.IntradayCandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.IntradayEligibilityPolicy;
+import com.gregochr.goldenhour.service.batch.BatchRetryService;
 import com.gregochr.goldenhour.service.batch.NightlyCandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.NightlyEligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.ReclassSummary;
+import com.gregochr.goldenhour.service.batch.RetrySelection;
 import com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -43,6 +45,7 @@ import static org.mockito.ArgumentMatchers.isA;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -79,6 +82,9 @@ class PipelineOrchestratorTest {
     @Mock
     private PipelineRunPickService pipelineRunPickService;
 
+    @Mock
+    private BatchRetryService batchRetryService;
+
     private PipelineOrchestrator orchestrator;
 
     /** Direct executor — runs the wait/brief tail on the calling thread. */
@@ -100,7 +106,13 @@ class PipelineOrchestratorTest {
                 Duration.ofMillis(1),
                 Duration.ofSeconds(10),
                 null,
-                pipelineRunPickService);
+                pipelineRunPickService,
+                batchRetryService);
+        // Default: clean cycle (no transient failures), so RETRY_FAILED is a silent
+        // no-op and the existing sequence assertions are unaffected. Lenient because
+        // the pre-submission-failure and timeout tests never reach the retry phase.
+        lenient().when(batchRetryService.selectFailures(any()))
+                .thenReturn(RetrySelection.none(5));
     }
 
     private PipelineRunEntity newRun() {
@@ -285,7 +297,8 @@ class PipelineOrchestratorTest {
                     forecastBatchRepository, movingClock,
                     directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
                     null,
-                    pipelineRunPickService);
+                    pipelineRunPickService,
+                    batchRetryService);
 
             when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
@@ -594,7 +607,8 @@ class PipelineOrchestratorTest {
                     forecastBatchRepository, Clock.fixed(T0, ZoneOffset.UTC),
                     directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
                     scheduler,
-                    pipelineRunPickService);
+                    pipelineRunPickService,
+                    batchRetryService);
 
             wired.registerJobTarget();
 
@@ -699,6 +713,110 @@ class PipelineOrchestratorTest {
             verify(pipelineRunService).failRun(eq(RUN_ID),
                     org.mockito.ArgumentMatchers.contains("restarted during pre-submission"));
             verify(briefingService, never()).refreshBriefing();
+        }
+    }
+
+    @Nested
+    @DisplayName("RETRY_FAILED phase")
+    class RetryFailedPhase {
+
+        @Test
+        @DisplayName("clean cycle (no transient failures) records NO RETRY_FAILED phase and "
+                + "never submits a retry")
+        void clean_cycle_no_retry_phase() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
+                    .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
+            // setUp's lenient default already returns RetrySelection.none(5).
+
+            orchestrator.runNightlyCycle();
+
+            verify(pipelineRunService, never())
+                    .startPhase(RUN_ID, PipelinePhase.RETRY_FAILED);
+            verify(batchRetryService, never()).submitRetry(eq(RUN_ID), any());
+            verify(briefingService).refreshBriefing();
+            verify(pipelineRunService).completeRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("within-cap failures → RETRY_FAILED phase submits a retry, waits, "
+                + "records the recovery summary, then briefs")
+        void within_cap_retries_and_records_recovery() {
+            RetrySelection selection = RetrySelection.retry(List.of(
+                    new RetrySelection.RetryFailure("fc-42-2026-05-26-SUNSET", 42L,
+                            java.time.LocalDate.of(2026, 5, 26),
+                            com.gregochr.goldenhour.entity.TargetType.SUNSET)), 5);
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
+                    .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
+            when(batchRetryService.selectFailures(RUN_ID)).thenReturn(selection);
+            when(batchRetryService.summariseRecovery(RUN_ID, 1))
+                    .thenReturn("1 failed, 1 retried, 1 recovered, 0 still-failed");
+
+            orchestrator.runNightlyCycle();
+
+            verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.RETRY_FAILED);
+            verify(batchRetryService).submitRetry(RUN_ID, selection);
+            verify(pipelineRunService).completePhase(RUN_ID, PipelinePhase.RETRY_FAILED,
+                    "1 failed, 1 retried, 1 recovered, 0 still-failed");
+            // RETRY_FAILED sits between WAIT and BRIEFING.
+            verify(pipelineRunService).completePhase(eq(RUN_ID),
+                    eq(PipelinePhase.FORECAST_BATCH_WAIT), any());
+            verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.BRIEFING);
+            verify(briefingService).refreshBriefing();
+            verify(pipelineRunService).completeRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("over-cap failures → RETRY_FAILED phase records systematic failure, "
+                + "does NOT submit a retry, still briefs")
+        void over_cap_records_systematic_no_retry() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
+                    .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
+            when(batchRetryService.selectFailures(RUN_ID))
+                    .thenReturn(RetrySelection.systematic(7, 5));
+
+            orchestrator.runNightlyCycle();
+
+            verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.RETRY_FAILED);
+            verify(batchRetryService, never()).submitRetry(eq(RUN_ID), any());
+            verify(pipelineRunService).completePhase(eq(RUN_ID),
+                    eq(PipelinePhase.RETRY_FAILED),
+                    org.mockito.ArgumentMatchers.contains("exceeds cap"));
+            verify(briefingService).refreshBriefing();
+            verify(pipelineRunService).completeRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("INTRADAY cycle gets RETRY_FAILED through the SAME shared tail "
+                + "(single code path)")
+        void intraday_uses_same_retry_path() {
+            PipelineRunEntity intraday = new PipelineRunEntity(CycleType.INTRADAY, T0);
+            intraday.setId(RUN_ID);
+            intraday.setCurrentPhase(PipelinePhase.FORECAST_BATCH_SUBMIT);
+            RetrySelection selection = RetrySelection.retry(List.of(
+                    new RetrySelection.RetryFailure("fc-42-2026-05-26-SUNSET", 42L,
+                            java.time.LocalDate.of(2026, 5, 26),
+                            com.gregochr.goldenhour.entity.TargetType.SUNSET)), 5);
+            when(pipelineRunService.startRun(CycleType.INTRADAY)).thenReturn(intraday);
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(intraday));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
+                    .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
+            when(briefingService.getCachedBriefing()).thenReturn(null);
+            when(batchRetryService.selectFailures(RUN_ID)).thenReturn(selection);
+            when(batchRetryService.summariseRecovery(RUN_ID, 1))
+                    .thenReturn("1 failed, 1 retried, 1 recovered, 0 still-failed");
+
+            orchestrator.runIntradayCycle();
+
+            verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.RETRY_FAILED);
+            verify(batchRetryService).submitRetry(RUN_ID, selection);
+            verify(briefingService).refreshBriefing();
+            verify(pipelineRunService).completeRun(RUN_ID);
         }
     }
 }

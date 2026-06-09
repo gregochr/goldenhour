@@ -359,6 +359,35 @@ class BatchResultProcessorTest {
                 eq("North East|2026-04-07|SUNRISE"), eq(List.of(res2)));
     }
 
+    @Test
+    @DisplayName("FORECAST retry batch → recovered results routed through mergeCacheKey, "
+            + "NEVER flushCacheKey (so the region's other locations are preserved)")
+    void forecast_retryBatch_mergesInsteadOfFlushing() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+        batch.setRetry(true);
+        LocationEntity loc = buildLocationWithRegion(10L, "Craster", "North East");
+        when(locationRepository.findById(10L)).thenReturn(Optional.of(loc));
+
+        MessageBatchIndividualResponse r1 = succeededResponse(
+                "fc-10-2026-04-07-SUNRISE", "{\"rating\":5}");
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(r1));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        BriefingEvaluationResult res = new BriefingEvaluationResult("Craster", 5, 80, 75, "X");
+        when(forecastResultHandler.parseBatchResponse(eq(loc), any(), any(), any()))
+                .thenReturn(Optional.of(new BatchSuccess(
+                        "North East|2026-04-07|SUNRISE", res)));
+
+        processor.processResults(batch);
+
+        verify(forecastResultHandler).mergeCacheKey(
+                eq("North East|2026-04-07|SUNRISE"), eq(List.of(res)));
+        verify(forecastResultHandler, never()).flushCacheKey(any(), any());
+    }
+
     // ── AURORA ───────────────────────────────────────────────────────────────
 
     @Test

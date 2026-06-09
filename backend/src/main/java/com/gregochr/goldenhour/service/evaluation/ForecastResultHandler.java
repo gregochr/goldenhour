@@ -219,6 +219,23 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         briefingEvaluationService.writeFromBatch(cacheKey, results);
     }
 
+    /**
+     * Writes a group of RETRY_FAILED-phase batch results by <em>merging</em> them into
+     * the existing cache entry rather than replacing it.
+     *
+     * <p>A retry batch carries only the locations that failed in the precursor batch.
+     * Routing those through {@link #flushCacheKey} would replace the region's entry and
+     * lose the locations that originally succeeded. {@link #mergeCacheKey} overlays the
+     * recovered locations onto the prior entry, preserving the rest. The processor
+     * selects this path when the batch is flagged {@code is_retry}.
+     *
+     * @param cacheKey region cache key
+     * @param results  the recovered locations for that cache key
+     */
+    public void mergeCacheKey(String cacheKey, List<BriefingEvaluationResult> results) {
+        briefingEvaluationService.mergeFromBatch(cacheKey, results);
+    }
+
     @Override
     public EvaluationResult handleSyncResult(EvaluationTask.Forecast task,
             ClaudeSyncOutcome outcome, ResultContext context) {

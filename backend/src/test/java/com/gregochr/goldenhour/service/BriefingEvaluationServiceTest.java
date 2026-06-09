@@ -154,6 +154,93 @@ class BriefingEvaluationServiceTest {
         assertThat(scores).doesNotContainKey("Bamburgh");
     }
 
+    // ── mergeFromBatch — retry recovery (must NOT clobber the region) ──────────
+
+    @Nested
+    @DisplayName("mergeFromBatch (RETRY_FAILED recovery)")
+    class MergeFromBatch {
+
+        private final String cacheKey = REGION + "|" + DATE + "|SUNSET";
+
+        @Test
+        @DisplayName("merges the recovered location into the existing in-memory entry "
+                + "without dropping the originally-successful locations")
+        void mergePreservesPriorInMemoryResults() {
+            // Precursor batch wrote 3 of 4 locations (Craster failed and is absent).
+            service.writeFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Bamburgh", 4, 72, 65, "good"),
+                    new BriefingEvaluationResult("Dunstanburgh", 3, 50, 45, "marginal"),
+                    new BriefingEvaluationResult("Seahouses", 2, 30, 25, "poor")));
+
+            // Retry batch recovers ONLY Craster.
+            service.mergeFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Craster", 5, 88, 80, "recovered")));
+
+            Map<String, BriefingEvaluationResult> scores =
+                    service.getCachedScores(REGION, DATE, TargetType.SUNSET);
+            assertThat(scores).hasSize(4);
+            assertThat(scores).containsKeys("Bamburgh", "Dunstanburgh", "Seahouses", "Craster");
+            assertThat(scores.get("Craster").rating()).isEqualTo(5);
+            // The three originally-successful locations survive — the data-loss guard.
+            assertThat(scores.get("Bamburgh").rating()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("persisted results_json after merge contains prior AND recovered locations")
+        void mergePersistsCombinedSet() {
+            service.writeFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Bamburgh", 4, 72, 65, "good")));
+
+            service.mergeFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Craster", 5, 88, 80, "recovered")));
+
+            ArgumentCaptor<CachedEvaluationEntity> captor =
+                    ArgumentCaptor.forClass(CachedEvaluationEntity.class);
+            // save() is called once by the precursor write and once by the merge; the
+            // last value is the merged set.
+            verify(cachedEvaluationRepository, org.mockito.Mockito.atLeastOnce())
+                    .save(captor.capture());
+            CachedEvaluationEntity saved = captor.getValue();
+            assertThat(saved.getResultsJson()).contains("Bamburgh").contains("Craster");
+        }
+
+        @Test
+        @DisplayName("with no in-memory prior (post-restart) merges onto the persisted "
+                + "results_json so a retry cannot shrink the region")
+        void mergeFallsBackToDbPriorWhenInMemoryAbsent() throws Exception {
+            // Fresh service with an empty in-memory cache, but the DB row from the
+            // precursor write survives a restart.
+            String json = objectMapper.writeValueAsString(List.of(
+                    new BriefingEvaluationResult("Bamburgh", 4, 72, 65, "good"),
+                    new BriefingEvaluationResult("Seahouses", 2, 30, 25, "poor")));
+            CachedEvaluationEntity priorRow = new CachedEvaluationEntity();
+            priorRow.setCacheKey(cacheKey);
+            priorRow.setResultsJson(json);
+            when(cachedEvaluationRepository.findByCacheKey(cacheKey))
+                    .thenReturn(java.util.Optional.of(priorRow));
+
+            service.mergeFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Craster", 5, 88, 80, "recovered")));
+
+            Map<String, BriefingEvaluationResult> scores =
+                    service.getCachedScores(REGION, DATE, TargetType.SUNSET);
+            assertThat(scores).hasSize(3);
+            assertThat(scores).containsKeys("Bamburgh", "Seahouses", "Craster");
+        }
+
+        @Test
+        @DisplayName("with no prior at all (whole region failed) writes just the recovered set")
+        void mergeWithNoPriorWritesRecoveredOnly() {
+            service.mergeFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Craster", 5, 88, 80, "recovered")));
+
+            Map<String, BriefingEvaluationResult> scores =
+                    service.getCachedScores(REGION, DATE, TargetType.SUNSET);
+            assertThat(scores).hasSize(1);
+            assertThat(scores).containsKey("Craster");
+        }
+    }
+
     // ── writeFromBatch — DB persistence ────────────────────────────────────────
 
     @Test
