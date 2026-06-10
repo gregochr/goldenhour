@@ -23,6 +23,7 @@ import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Profile;
 import org.springframework.context.event.EventListener;
@@ -71,7 +72,10 @@ import java.util.function.Consumer;
  * mechanism.</b> It exists only so a genuinely broken cycle does not hang
  * forever. The normal path is completion-gated by step 3's loop; the timeout
  * only fires when batches never transition out of SUBMITTED. Do not confuse it
- * with the retired 3-hour cron buffer.
+ * with the retired 3-hour cron buffer. The value is configurable via
+ * {@code photocast.pipeline.safety-timeout} (ISO-8601 duration, default PT4H)
+ * because Anthropic batch latency is load-dependent — see
+ * {@link #DEFAULT_SAFETY_TIMEOUT} for the empirical calibration.
  *
  * <p><b>Aurora is outside this cycle.</b> The orchestrator never invokes aurora
  * polling or aurora batch logic. The briefing's read of {@code AuroraStateCache}
@@ -87,11 +91,17 @@ public class PipelineOrchestrator {
     public static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(60);
 
     /**
-     * Default safety-timeout backstop. Genuine production batches complete in
-     * ~10 min; this is the "something is broken" ceiling. NOT the normal
-     * coordination mechanism — see class javadoc.
+     * Default safety-timeout backstop — the "something is broken" ceiling, NOT
+     * the normal coordination mechanism (see class javadoc).
+     *
+     * <p>Calibrated empirically: nightly (01:00 UTC) batches reach terminal in
+     * 2–5 min, but afternoon (~14:00 UTC, peak Anthropic load) batches were
+     * observed taking 98–173 min with every request succeeding. 4 hours clears
+     * the worst observed afternoon latency with margin while still bounding a
+     * genuinely dead cycle. Tunable without a deploy via the
+     * {@code photocast.pipeline.safety-timeout} property.
      */
-    public static final Duration DEFAULT_SAFETY_TIMEOUT = Duration.ofMinutes(90);
+    public static final Duration DEFAULT_SAFETY_TIMEOUT = Duration.ofHours(4);
 
     private final PipelineRunService pipelineRunService;
     private final ScheduledBatchEvaluationService scheduledBatchEvaluationService;
@@ -107,7 +117,7 @@ public class PipelineOrchestrator {
 
     /**
      * Production constructor — uses a virtual-thread executor so the wait phase
-     * does not occupy a scheduler thread, and the default poll/timeout values.
+     * does not occupy a scheduler thread, and the default poll interval.
      *
      * <p>Spring auto-wires this constructor; the package-private full-argument
      * constructor below exists only for tests.
@@ -117,6 +127,9 @@ public class PipelineOrchestrator {
      * @param briefingService                 briefing refresh entry point
      * @param forecastBatchRepository         queried for cycle completion
      * @param clock                           injected clock for deterministic tests
+     * @param safetyTimeout                   safety backstop for the wait phase
+     *                                        ({@code photocast.pipeline.safety-timeout},
+     *                                        default {@link #DEFAULT_SAFETY_TIMEOUT})
      * @param dynamicSchedulerService         scheduler this orchestrator registers itself with
      * @param pipelineRunPickService          persists each cycle's Plan A / Plan B picks
      * @param batchRetryService               selects + re-submits transient failures (RETRY_FAILED)
@@ -127,13 +140,14 @@ public class PipelineOrchestrator {
             BriefingService briefingService,
             ForecastBatchRepository forecastBatchRepository,
             Clock clock,
+            @Value("${photocast.pipeline.safety-timeout:PT4H}") Duration safetyTimeout,
             DynamicSchedulerService dynamicSchedulerService,
             PipelineRunPickService pipelineRunPickService,
             BatchRetryService batchRetryService) {
         this(pipelineRunService, scheduledBatchEvaluationService, briefingService,
                 forecastBatchRepository, clock,
                 Executors.newVirtualThreadPerTaskExecutor(),
-                DEFAULT_POLL_INTERVAL, DEFAULT_SAFETY_TIMEOUT,
+                DEFAULT_POLL_INTERVAL, safetyTimeout,
                 dynamicSchedulerService, pipelineRunPickService, batchRetryService);
     }
 
