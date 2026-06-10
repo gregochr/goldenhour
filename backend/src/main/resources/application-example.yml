@@ -126,6 +126,12 @@ photocast:
     enabled: true
   batch:
     min-prefetch-success-ratio: 0.5  # abort batch if fewer than 50% of weather fetches succeed
+  pipeline:
+    safety-timeout: PT4H   # failure backstop for the batch wait phase (ISO-8601 duration).
+                           # Anthropic batch latency is load-dependent: nightly (01:00 UTC) batches
+                           # finish in minutes, but afternoon (~14:00 UTC, peak load) batches were
+                           # observed taking up to ~3h. 4h clears the worst observed with margin
+                           # while still bounding a genuinely dead cycle.
   freshness:
     settled-hours: 36              # blocking highs — once-daily refresh rhythm
     transitional-hours: 12         # half synoptic cycle — catches frontal transitions
