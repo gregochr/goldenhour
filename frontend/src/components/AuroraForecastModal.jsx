@@ -23,11 +23,10 @@ function AuroraForecastModal({ onClose, onComplete }) {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState(null);
 
-  // Fetch the 3-night preview on mount
+  // Fetch the 3-night preview on mount. loading/error already start at their
+  // pending values (true/null), so no synchronous reset is needed here.
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
     getAuroraForecastPreview()
       .then((data) => {
         if (cancelled) return;

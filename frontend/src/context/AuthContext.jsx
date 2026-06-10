@@ -145,6 +145,9 @@ export function AuthProvider({ children }) {
 
   const sessionDaysRemaining = useMemo(() => {
     if (!refreshExpiresAt) return null;
+    // Coarse days-until-expiry snapshot, recomputed whenever the expiry changes
+    // (login/refresh). Reading the current time here is intentional.
+    // eslint-disable-next-line react-hooks/purity
     const diff = new Date(refreshExpiresAt) - Date.now();
     if (diff <= 0) return 0;
     return Math.round(diff / (1000 * 60 * 60 * 24));

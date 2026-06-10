@@ -175,9 +175,9 @@ export default function TideManagementView() {
 
   const { pageItems, ...pagination } = usePagination(filteredRows);
 
+  // Mount-only load. loading/error already start at their pending values
+  // (true/''), so no synchronous reset is needed here.
   useEffect(() => {
-    setLoading(true);
-    setError('');
     fetchAllTideStats()
       .then((data) => {
         const mapped = Object.entries(data).map(([name, stats]) => ({ name, stats }));

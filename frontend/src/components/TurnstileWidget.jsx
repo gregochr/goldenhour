@@ -18,10 +18,14 @@ export default function TurnstileWidget({ onVerify, onExpire, onLoadFail }) {
   const onExpireRef = useRef(onExpire);
   const onLoadFailRef = useRef(onLoadFail);
 
-  // Keep refs up to date without re-running the effect
-  onVerifyRef.current = onVerify;
-  onExpireRef.current = onExpire;
-  onLoadFailRef.current = onLoadFail;
+  // Keep refs up to date without re-running the render effect below.
+  // Written in an effect (not during render) so the latest callbacks are
+  // captured for the async render/poll logic after each commit.
+  useEffect(() => {
+    onVerifyRef.current = onVerify;
+    onExpireRef.current = onExpire;
+    onLoadFailRef.current = onLoadFail;
+  });
 
   useEffect(() => {
     if (!containerRef.current) return;

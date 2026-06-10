@@ -103,6 +103,9 @@ export default function HealthIndicator({
     : null;
 
   const loginAgo = session?.loginTime
+    // Snapshot of elapsed time since login, recomputed on each render of this
+    // popup; a live clock is unnecessary for a coarse "logged in X ago" label.
+    // eslint-disable-next-line react-hooks/purity
     ? formatDuration(Date.now() - new Date(session.loginTime).getTime())
     : null;
 
