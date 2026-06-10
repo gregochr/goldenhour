@@ -21,10 +21,7 @@ export function useAuroraViewline(enabled, triggerType = null) {
   const intervalRef = useRef(null);
 
   useEffect(() => {
-    if (!enabled) {
-      setViewline(null);
-      return;
-    }
+    if (!enabled) return;
 
     const isForecast = triggerType === 'forecast';
 
@@ -51,5 +48,7 @@ export function useAuroraViewline(enabled, triggerType = null) {
     };
   }, [enabled, triggerType]);
 
-  return { viewline };
+  // Derive rather than store: when disabled, present no viewline without a
+  // synchronous setState-in-effect that would trigger a cascading render.
+  return { viewline: enabled ? viewline : null };
 }

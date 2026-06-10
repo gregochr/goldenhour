@@ -82,6 +82,9 @@ export default function ManageView({ onComplete }) {
   /** Update tab and sync to URL hash. */
   const setActiveTab = (tab) => {
     setActiveTabState(tab);
+    // Intentional browser navigation side effect in an event handler: sync the
+    // selected tab to the URL hash so it survives reloads and back/forward.
+    // eslint-disable-next-line react-hooks/immutability
     window.location.hash = `manage/${tab}`;
   };
 

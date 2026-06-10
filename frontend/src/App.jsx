@@ -36,6 +36,9 @@ function AuthGate() {
   useEffect(() => {
     if (token && verifyToken) {
       window.history.replaceState({}, '', window.location.pathname);
+      // One-time cleanup coupled to the history side effect above: clear the
+      // consumed verify token so RegisterPage stops rendering in verify mode.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setVerifyToken(null);
     }
   }, [token, verifyToken]);
@@ -170,6 +173,9 @@ function AppInner() {
   // Show banner when a run completes, auto-dismiss after 15 seconds
   useEffect(() => {
     if (!lastCompletedRun) return;
+    // Effect-driven banner: show on each newly completed run, then auto-dismiss
+    // via the timer below. The reveal is the effect's purpose, not derivable state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setShowRunBanner(true);
     const timer = setTimeout(() => setShowRunBanner(false), 15000);
     return () => clearTimeout(timer);
