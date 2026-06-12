@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
+import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.batch.BatchPollingService;
@@ -133,13 +134,18 @@ class ForecastBatchPipelineRealApiE2ETest {
     private ApiCallLogRepository apiCallLogRepository;
 
     @Autowired
+    private ForecastScoreRepository forecastScoreRepository;
+
+    @Autowired
     private ObjectMapper objectMapper;
 
     @AfterEach
     void clearDataAfterTest() {
+        // forecast_score references locations (fk_score_location) — clear it first.
         apiCallLogRepository.deleteAll();
         cachedEvaluationRepository.deleteAll();
         forecastBatchRepository.deleteAll();
+        forecastScoreRepository.deleteAll();
         locationRepository.deleteAll();
         regionRepository.deleteAll();
     }
