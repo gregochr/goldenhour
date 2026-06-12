@@ -81,6 +81,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
     private final ObjectMapper objectMapper;
     private final RatingCombiner ratingCombiner;
     private final ForecastDataAugmentor forecastDataAugmentor;
+    private final ForecastScoreWriter forecastScoreWriter;
 
     /**
      * Constructs the handler.
@@ -100,13 +101,17 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * @param forecastDataAugmentor     re-derives the tide context (option B) at the combine seam
      *                                  for coastal locations, so the {@code TideVisitor} can score
      *                                  the tide separately from the sky
+     * @param forecastScoreWriter       Pass 2 dual-write: persists the combiner's component scores
+     *                                  to {@code forecast_score} alongside the serving path,
+     *                                  isolated so its failure never fails the evaluation
      */
     public ForecastResultHandler(BriefingEvaluationService briefingEvaluationService,
             Map<EvaluationModel, EvaluationStrategy> evaluationStrategies,
             JobRunService jobRunService,
             ObjectMapper objectMapper,
             RatingCombiner ratingCombiner,
-            ForecastDataAugmentor forecastDataAugmentor) {
+            ForecastDataAugmentor forecastDataAugmentor,
+            ForecastScoreWriter forecastScoreWriter) {
         this.briefingEvaluationService = briefingEvaluationService;
         EvaluationStrategy strategy = evaluationStrategies.get(EvaluationModel.HAIKU);
         if (!(strategy instanceof ClaudeEvaluationStrategy claude)) {
@@ -119,6 +124,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         this.objectMapper = objectMapper;
         this.ratingCombiner = ratingCombiner;
         this.forecastDataAugmentor = forecastDataAugmentor;
+        this.forecastScoreWriter = forecastScoreWriter;
     }
 
     @Override
@@ -183,7 +189,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             SunsetEvaluation eval = parsed0.evaluation();
             String modelName = outcome.model() != null ? outcome.model().name() : "UNKNOWN";
             BriefingEvaluationResult result = buildResult(
-                    location, eval, parsed.date(), parsed.targetType(), regionName, modelName);
+                    location, eval, parsed.date(), parsed.targetType(), regionName, modelName,
+                    context != null ? context.pipelineRunId() : null);
 
             if (parsed0.usedRegexFallback()) {
                 // Strict JSON parse failed and the regex fallback recovered the result (possibly
@@ -264,7 +271,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
 
         BriefingEvaluationResult result = buildResult(
                 task.location(), eval, task.date(), task.targetType(),
-                regionName, task.model().name());
+                regionName, task.model().name(),
+                context != null ? context.pipelineRunId() : null);
 
         persistSyncLog(context, outcome, task);
         if (task.writeTarget() == EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE) {
@@ -298,13 +306,18 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * @param eval       the parsed Claude evaluation
      * @param date       the evaluation date
      * @param targetType SUNRISE or SUNSET
-     * @param regionName region name for the rating guardrail log context
-     * @param modelName  model id for the rating guardrail log context
+     * @param regionName    region name for the rating guardrail log context
+     * @param modelName     model id for the rating guardrail log context
+     * @param pipelineRunId the orchestrated pipeline run id for forecast_score provenance, or
+     *                      {@code null} on the sync/admin path
      * @return the result to persist (cache payload element)
      */
     private BriefingEvaluationResult buildResult(LocationEntity location, SunsetEvaluation eval,
-            LocalDate date, TargetType targetType, String regionName, String modelName) {
+            LocalDate date, TargetType targetType, String regionName, String modelName,
+            Long pipelineRunId) {
         if (eval.rating() == null) {
+            // Sky not forecast: Claude omitted the rating. The combiner never runs, so there is
+            // no genuine component score to record — no forecast_score dual-write here (Pass 2).
             return new BriefingEvaluationResult(
                     location.getName(), SKY_NOT_FORECAST_RATING,
                     eval.fierySkyPotential(), eval.goldenHourPotential(), SKY_NOT_FORECAST_SUMMARY,
@@ -318,10 +331,33 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                 ratingCombiner.combine(location, new VisitorContext(eval, tide));
         Integer safeRating = RatingValidator.validateRating(
                 combined.rating(), regionName, date, targetType, location.getName(), modelName);
+
+        dualWriteForecastScore(location, date, targetType, eval, combined, pipelineRunId);
+
         return new BriefingEvaluationResult(
                 location.getName(), safeRating,
                 eval.fierySkyPotential(), eval.goldenHourPotential(), eval.summary(),
                 null, null, eval.headline());
+    }
+
+    /**
+     * Pass 2 dual-write seam: persists the combiner's component scores to {@code forecast_score}
+     * alongside the serving payload, never instead of it. Isolated so a write failure logs
+     * loudly at ERROR (with the component key) and the evaluation proceeds — the serving path is
+     * the live product, {@code forecast_score} is the record being proven. The
+     * {@code REQUIRES_NEW} boundary inside the writer confines any rollback to the dual-write.
+     */
+    private void dualWriteForecastScore(LocationEntity location, LocalDate date,
+            TargetType targetType, SunsetEvaluation eval, RatingCombiner.CombinedRating combined,
+            Long pipelineRunId) {
+        try {
+            forecastScoreWriter.write(
+                    location, date, targetType, eval, combined.components(), pipelineRunId);
+        } catch (Exception e) {
+            LOG.error("forecast_score dual-write FAILED for component key "
+                    + "(location={}, date={}, event={}); evaluation proceeds unaffected: {}",
+                    location.getName(), date, targetType, e.getMessage(), e);
+        }
     }
 
     private void persistBatchLog(ResultContext context, ClaudeBatchOutcome outcome,

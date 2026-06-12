@@ -31,8 +31,10 @@ import java.time.LocalDate;
  * {@code cached_evaluation} semantics. {@code pipelineRunId} is provenance
  * only, never part of the key, and null for sync-path (admin) writes.
  *
- * <p>Pass 1 scaffolding: nothing writes or reads this entity yet. The
- * dual-write lands in Pass 2; until then the table stays empty.
+ * <p>Written by the Pass 2 dual-write ({@code ForecastScoreWriter}) behind the
+ * {@code photocast.forecast-score.dual-write} flag. Nothing reads it yet — the
+ * read migration is Pass 4, gated on the reconciliation queries in
+ * {@code docs/engineering/forecast-score-reconciliation.md}.
  */
 @Entity
 @Table(name = "forecast_score",
@@ -87,7 +89,10 @@ public class ForecastScoreEntity {
     @Column(name = "score", nullable = false)
     private Integer score;
 
-    /** User-facing prose; null for deterministic types (TIDAL). */
+    /**
+     * User-facing prose: Claude's summary on SKY rows, the deterministic state clause on TIDAL
+     * rows (Pass 2 — the tide's rebuilt narrative channel), null on the 0–100 display products.
+     */
     @Column(name = "summary", columnDefinition = "text")
     private String summary;
 

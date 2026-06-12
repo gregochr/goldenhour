@@ -137,6 +137,10 @@ photocast:
     transitional-hours: 12         # half synoptic cycle — catches frontal transitions
     unsettled-hours: 4             # nowcasting window — convective evolution
     safety-floor-hours: 2          # absolute minimum to prevent rapid successive triggers
+  forecast-score:
+    dual-write: true               # Pass 2: dual-write component scores to forecast_score
+                                   # alongside the serving path (results_json untouched). Whole-pass
+                                   # rollback = set false (no redeploy); nothing reads the table yet.
 
 cors:
   extra-origins: https://app.example.com,https://www.example.com  # comma-separated list

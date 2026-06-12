@@ -23,6 +23,10 @@ import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler.Forecast
 import com.gregochr.goldenhour.service.evaluation.visitor.RatingCombiner;
 import com.gregochr.goldenhour.service.evaluation.visitor.SkyVisitor;
 import com.gregochr.goldenhour.service.evaluation.visitor.TideVisitor;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import org.slf4j.LoggerFactory;
 import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -40,7 +44,9 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -71,6 +77,8 @@ class ForecastResultHandlerTest {
     private ObjectMapper objectMapper;
     @Mock
     private ForecastDataAugmentor forecastDataAugmentor;
+    @Mock
+    private ForecastScoreWriter forecastScoreWriter;
 
     private ForecastResultHandler handler;
 
@@ -81,7 +89,7 @@ class ForecastResultHandlerTest {
                 Map.of(EvaluationModel.HAIKU, parsingStrategy),
                 jobRunService, objectMapper,
                 new RatingCombiner(List.of(new SkyVisitor(), new TideVisitor())),
-                forecastDataAugmentor);
+                forecastDataAugmentor, forecastScoreWriter);
     }
 
     @Test
@@ -97,7 +105,7 @@ class ForecastResultHandlerTest {
                 Map.of(EvaluationModel.HAIKU, notClaude),
                 jobRunService, objectMapper,
                 new RatingCombiner(List.of(new SkyVisitor())),
-                forecastDataAugmentor))
+                forecastDataAugmentor, forecastScoreWriter))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("ClaudeEvaluationStrategy");
     }
@@ -240,6 +248,46 @@ class ForecastResultHandlerTest {
 
         assertThat(result).isPresent();
         assertThat(result.get().result().rating()).isNull();
+    }
+
+    @Test
+    @DisplayName("dual-write failure is isolated: evaluation still succeeds and logs at ERROR")
+    void parseBatchResponse_dualWriteThrows_evaluationProceedsAndLogsError() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE",
+                "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000),
+                EvaluationModel.HAIKU);
+        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
+        // The forecast_score dual-write blows up — it must NOT take down the evaluation.
+        doThrow(new RuntimeException("DB down")).when(forecastScoreWriter)
+                .write(any(), any(), any(), any(), anyList(), any());
+
+        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
+                LoggerFactory.getLogger(ForecastResultHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            Optional<BatchSuccess> result = handler.parseBatchResponse(
+                    location, identity, outcome, ResultContext.forBatch(
+                            99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+            // Evaluation proceeds: the serving result is returned with its rating intact.
+            assertThat(result).isPresent();
+            assertThat(result.get().result().rating()).isEqualTo(4);
+            // The failure is surfaced loudly at ERROR with the component key, not swallowed.
+            assertThat(appender.list)
+                    .anyMatch(event -> event.getLevel() == Level.ERROR
+                            && event.getFormattedMessage().contains("dual-write FAILED")
+                            && event.getFormattedMessage().contains("Castlerigg"));
+        } finally {
+            logger.detachAppender(appender);
+        }
     }
 
     @Test
