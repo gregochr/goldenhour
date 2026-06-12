@@ -314,9 +314,10 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         TideContext tide = (tideTypes != null && !tideTypes.isEmpty())
                 ? forecastDataAugmentor.deriveTideContext(location, date, targetType).orElse(null)
                 : null;
-        Integer combinedRating = ratingCombiner.combine(location, new VisitorContext(eval, tide));
+        RatingCombiner.CombinedRating combined =
+                ratingCombiner.combine(location, new VisitorContext(eval, tide));
         Integer safeRating = RatingValidator.validateRating(
-                combinedRating, regionName, date, targetType, location.getName(), modelName);
+                combined.rating(), regionName, date, targetType, location.getName(), modelName);
         return new BriefingEvaluationResult(
                 location.getName(), safeRating,
                 eval.fierySkyPotential(), eval.goldenHourPotential(), eval.summary(),

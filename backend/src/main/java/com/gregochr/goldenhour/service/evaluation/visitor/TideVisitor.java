@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.evaluation.visitor;
 
+import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TideType;
@@ -7,6 +8,7 @@ import com.gregochr.goldenhour.model.TideContext;
 import com.gregochr.goldenhour.model.TideSnapshot;
 import org.springframework.stereotype.Component;
 
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 
@@ -62,25 +64,88 @@ public class TideVisitor implements Visitor {
 
     @Override
     public OptionalInt evaluate(LocationEntity location, VisitorContext context) {
-        TideContext tide = context.tide();
-        if (tide == null || tide.snapshot() == null) {
-            // Data gap: the tide could not be derived (e.g. no stored extremes). Abstain.
-            return OptionalInt.empty();
-        }
-        TideSnapshot snapshot = tide.snapshot();
-
-        if (Boolean.TRUE.equals(snapshot.tideAligned())) {
-            return OptionalInt.of(isKingOrSpring(snapshot)
-                    ? SCORE_KING_OR_SPRING_ALIGNED : SCORE_TIGHT_ALIGNED);
-        }
-        if (tide.widenedAligned()) {
-            return OptionalInt.of(SCORE_WIDENED_ALIGNED);
-        }
-        return OptionalInt.of(SCORE_MISALIGNED);
+        Band band = classify(context.tide());
+        return band == null ? OptionalInt.empty() : OptionalInt.of(band.score);
     }
 
-    private boolean isKingOrSpring(TideSnapshot snapshot) {
-        LunarTideType lunar = snapshot.lunarTideType();
-        return lunar == LunarTideType.KING_TIDE || lunar == LunarTideType.SPRING_TIDE;
+    @Override
+    public ForecastType type() {
+        return ForecastType.TIDAL;
+    }
+
+    /**
+     * The deterministic one-line clause for this tide's state, derived from the same
+     * {@link Band} classification that produces the score. Abstains (empty) on a data gap,
+     * exactly as {@link #evaluate} does, so the combiner never records a tide clause without
+     * a tide score.
+     */
+    @Override
+    public Optional<String> summary(LocationEntity location, VisitorContext context) {
+        Band band = classify(context.tide());
+        return band == null ? Optional.empty() : Optional.of(band.clause);
+    }
+
+    /**
+     * Classifies the tide into its scoring band, or {@code null} when the tide could not be
+     * derived (a data gap — no context or no snapshot). The single source of truth shared by
+     * {@link #evaluate} (band → score) and {@link #summary} (band → clause) so the two can
+     * never disagree about the tide's state.
+     *
+     * @param tide the re-derived tide context, or {@code null}
+     * @return the scoring band, or {@code null} on a data gap (abstain)
+     */
+    private Band classify(TideContext tide) {
+        if (tide == null || tide.snapshot() == null) {
+            return null;
+        }
+        TideSnapshot snapshot = tide.snapshot();
+        if (Boolean.TRUE.equals(snapshot.tideAligned())) {
+            LunarTideType lunar = snapshot.lunarTideType();
+            if (lunar == LunarTideType.KING_TIDE) {
+                return Band.KING_ALIGNED;
+            }
+            if (lunar == LunarTideType.SPRING_TIDE) {
+                return Band.SPRING_ALIGNED;
+            }
+            return Band.REGULAR_ALIGNED;
+        }
+        if (tide.widenedAligned()) {
+            return Band.WIDENED_ALIGNED;
+        }
+        return Band.MISALIGNED;
+    }
+
+    /**
+     * The five tide-alignment bands, each pairing its 1–5 score with the deterministic clause
+     * recorded on the {@link ForecastType#TIDAL} component row. King and spring both score 5
+     * but carry distinct wording.
+     */
+    private enum Band {
+
+        /** Tight-aligned king tide — the most dramatic foreground. */
+        KING_ALIGNED(SCORE_KING_OR_SPRING_ALIGNED,
+                "King tide aligns with the event — dramatic water levels at golden hour"),
+
+        /** Tight-aligned spring tide — strong water movement. */
+        SPRING_ALIGNED(SCORE_KING_OR_SPRING_ALIGNED,
+                "Spring tide aligns with the event — strong water movement at golden hour"),
+
+        /** Tight-aligned regular tide — a well-timed tide. */
+        REGULAR_ALIGNED(SCORE_TIGHT_ALIGNED, "Tide aligns well with the event"),
+
+        /** Aligned only within the widened window — imperfect but workable. */
+        WIDENED_ALIGNED(SCORE_WIDENED_ALIGNED, "Tide alignment is workable but not ideal"),
+
+        /** Misaligned beyond even the widened window — no foreground. */
+        MISALIGNED(SCORE_MISALIGNED,
+                "Tide works against this slot — no aligned foreground through the event");
+
+        private final int score;
+        private final String clause;
+
+        Band(int score, String clause) {
+            this.score = score;
+            this.clause = clause;
+        }
     }
 }

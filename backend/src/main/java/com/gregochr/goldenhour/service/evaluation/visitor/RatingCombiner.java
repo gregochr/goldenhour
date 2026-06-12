@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalInt;
 
 /**
@@ -47,25 +48,63 @@ public class RatingCombiner {
     }
 
     /**
-     * Combines the applicable visitors' scores for a location into a star rating.
+     * The combiner's full result: the averaged star {@code rating} (the serving-path product,
+     * unchanged) plus the per-visitor {@link ComponentScore}s it was averaged from. The
+     * components are exposed for the Pass 2 dual-write to {@code forecast_score}; callers that
+     * want only the headline rating read {@link #rating()} and get the identical value the
+     * combiner has always produced.
+     *
+     * @param rating     the averaged 1–5 rating, or {@code null} when no applicable visitor
+     *                   produced a score (preserving today's null-rating behaviour)
+     * @param components the applied visitors' component scores, in registration order; empty
+     *                   when {@code rating} is {@code null}
+     */
+    public record CombinedRating(Integer rating, List<ComponentScore> components) {
+    }
+
+    /**
+     * Combines the applicable visitors' scores for a location into a star rating, exposing the
+     * component scores it averaged.
+     *
+     * <p>The {@code rating} is computed exactly as before — the half-up rounded mean of the
+     * applied visitors that returned a value — so wiring this richer return shape in does not
+     * move any persisted rating. The {@link CombinedRating#components()} list is the new,
+     * additive output.
      *
      * @param location the location under evaluation
      * @param context  the inputs the visitors read (sky evaluation + re-derived tide context)
-     * @return the averaged 1–5 rating, or {@code null} when no applicable visitor produced a
-     *         score (preserving today's null-rating behaviour)
+     * @return the combined rating and its component scores
      */
-    public Integer combine(LocationEntity location, VisitorContext context) {
-        int[] scores = visitors.stream()
+    public CombinedRating combine(LocationEntity location, VisitorContext context) {
+        List<ComponentScore> components = visitors.stream()
                 .filter(v -> v.appliesTo(location))
-                .map(v -> v.evaluate(location, context))
-                .filter(OptionalInt::isPresent)
-                .mapToInt(OptionalInt::getAsInt)
-                .toArray();
-        if (scores.length == 0) {
-            return null;
+                .map(v -> toComponent(location, context, v))
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .toList();
+        if (components.isEmpty()) {
+            return new CombinedRating(null, List.of());
         }
-        double average = java.util.Arrays.stream(scores).average().orElseThrow();
-        return (int) Math.round(average);
+        double average = components.stream()
+                .mapToInt(ComponentScore::score)
+                .average()
+                .orElseThrow();
+        return new CombinedRating((int) Math.round(average), components);
+    }
+
+    /**
+     * Resolves one applied visitor's component score, pairing its 1–5 value with its type and
+     * authored clause. Empty when the visitor abstained ({@link OptionalInt#empty()}).
+     */
+    private Optional<ComponentScore> toComponent(LocationEntity location, VisitorContext context,
+            Visitor visitor) {
+        OptionalInt score = visitor.evaluate(location, context);
+        if (score.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(new ComponentScore(
+                visitor.type(), score.getAsInt(),
+                visitor.summary(location, context).orElse(null)));
     }
 
     /**
