@@ -54,4 +54,18 @@ class SkyVisitorTest {
         assertThat(visitor.evaluate(location("X"), contextWithRating(null)))
                 .isEqualTo(OptionalInt.empty());
     }
+
+    @Test
+    @DisplayName("type is SKY — the component its score is recorded under")
+    void type_isSky() {
+        assertThat(visitor.type())
+                .isEqualTo(com.gregochr.goldenhour.entity.ForecastType.SKY);
+    }
+
+    @Test
+    @DisplayName("summary re-exposes Claude's prose as the sky component clause")
+    void summary_reExposesClaudeProse() {
+        assertThat(visitor.summary(location("X"), contextWithRating(3)))
+                .contains("summary");
+    }
 }

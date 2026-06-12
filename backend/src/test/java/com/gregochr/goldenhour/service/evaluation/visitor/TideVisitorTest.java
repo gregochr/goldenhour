@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.evaluation.visitor;
 
+import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TideState;
@@ -137,5 +138,59 @@ class TideVisitorTest {
         assertThat(visitor.evaluate(location(Set.of(TideType.HIGH)),
                 context(tide(false, false, LunarTideType.SPRING_TIDE))))
                 .isEqualTo(OptionalInt.of(1));
+    }
+
+    // ── type + summary clause (Pass 2 component exposure) ────────────────────
+
+    @Test
+    @DisplayName("type is TIDAL — the component its score is recorded under")
+    void type_isTidal() {
+        assertThat(visitor.type()).isEqualTo(ForecastType.TIDAL);
+    }
+
+    @Test
+    @DisplayName("data gap → summary abstains (empty), exactly as the score does")
+    void summary_dataGap_abstains() {
+        assertThat(visitor.summary(location(Set.of(TideType.HIGH)), context(null))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("king-tide aligned summary names the king tide (score 5 state)")
+    void summary_kingTideAligned_namesKing() {
+        assertThat(visitor.summary(location(Set.of(TideType.HIGH)),
+                context(tide(true, true, LunarTideType.KING_TIDE))))
+                .get().asString().contains("King tide");
+    }
+
+    @Test
+    @DisplayName("spring-tide aligned summary names the spring tide (score 5 state)")
+    void summary_springTideAligned_namesSpring() {
+        assertThat(visitor.summary(location(Set.of(TideType.HIGH)),
+                context(tide(true, true, LunarTideType.SPRING_TIDE))))
+                .get().asString().contains("Spring tide");
+    }
+
+    @Test
+    @DisplayName("regular aligned summary reads as a well-timed tide (score 4 state)")
+    void summary_regularAligned_alignsWell() {
+        assertThat(visitor.summary(location(Set.of(TideType.HIGH)),
+                context(tide(true, true, LunarTideType.REGULAR_TIDE))))
+                .get().asString().contains("aligns well");
+    }
+
+    @Test
+    @DisplayName("widened-window summary reads as workable but not ideal (score 3 state)")
+    void summary_widenedAligned_workable() {
+        assertThat(visitor.summary(location(Set.of(TideType.HIGH)),
+                context(tide(false, true, LunarTideType.REGULAR_TIDE))))
+                .get().asString().contains("workable but not ideal");
+    }
+
+    @Test
+    @DisplayName("misaligned summary reads as the tide working against the slot (score 1 state)")
+    void summary_misaligned_worksAgainst() {
+        assertThat(visitor.summary(location(Set.of(TideType.HIGH)),
+                context(tide(false, false, LunarTideType.REGULAR_TIDE))))
+                .get().asString().contains("works against this slot");
     }
 }

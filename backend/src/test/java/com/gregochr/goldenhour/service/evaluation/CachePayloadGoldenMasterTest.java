@@ -116,6 +116,8 @@ class CachePayloadGoldenMasterTest {
     private JobRunService jobRunService;
     @Mock
     private ForecastDataAugmentor forecastDataAugmentor;
+    @Mock
+    private ForecastScoreWriter forecastScoreWriter;
 
     /**
      * Parser handle the handler passes to the (stubbed) parser. A real Jackson-3 mapper rather
@@ -257,7 +259,7 @@ class CachePayloadGoldenMasterTest {
                 Map.of(EvaluationModel.HAIKU, parsingStrategy),
                 jobRunService, parserHandle,
                 new RatingCombiner(List.of(new SkyVisitor(), new TideVisitor())),
-                forecastDataAugmentor);
+                forecastDataAugmentor, forecastScoreWriter);
 
         String customId = "fc-" + location.getId() + "-2026-06-21-SUNSET";
         String rawText = "{\"injected-by-stub\":true}";

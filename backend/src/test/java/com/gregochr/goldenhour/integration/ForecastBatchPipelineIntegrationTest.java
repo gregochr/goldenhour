@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
+import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.batch.BatchPollingService;
@@ -97,14 +98,20 @@ class ForecastBatchPipelineIntegrationTest extends IntegrationTestBase {
     private ApiCallLogRepository apiCallLogRepository;
 
     @Autowired
+    private ForecastScoreRepository forecastScoreRepository;
+
+    @Autowired
     private ObjectMapper objectMapper;
 
     @AfterEach
     void clearDataBetweenTests() {
-        // Order matters — child rows first, then parents.
+        // Order matters — child rows first, then parents. forecast_score rows are written
+        // by the Pass 2 dual-write on every scored evaluation and reference locations
+        // (fk_score_location), so they must clear before locationRepository.
         apiCallLogRepository.deleteAll();
         cachedEvaluationRepository.deleteAll();
         forecastBatchRepository.deleteAll();
+        forecastScoreRepository.deleteAll();
         locationRepository.deleteAll();
         regionRepository.deleteAll();
     }

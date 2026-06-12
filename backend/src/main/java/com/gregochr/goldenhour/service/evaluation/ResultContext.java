@@ -16,33 +16,49 @@ import com.gregochr.goldenhour.service.batch.BatchTriggerSource;
  *
  * @param jobRunId       linked job run id, or {@code null}
  * @param batchId        Anthropic batch id (batch path only), else {@code null}
+ * @param pipelineRunId  the orchestrated pipeline run id (batch path only), else {@code null} —
+ *                       threaded to the Pass 2 {@code forecast_score} dual-write as provenance
  * @param triggerSource  what triggered the underlying submission/call
  */
-public record ResultContext(Long jobRunId, String batchId,
+public record ResultContext(Long jobRunId, String batchId, Long pipelineRunId,
                             BatchTriggerSource triggerSource) {
 
     /**
-     * Convenience factory for the batch path.
+     * Convenience factory for the batch path with no pipeline run linkage (ad-hoc submissions).
      *
      * @param jobRunId      the linked job run id
      * @param batchId       the Anthropic batch id
      * @param triggerSource what triggered the batch submission
-     * @return a context configured for batch result handling
+     * @return a context configured for batch result handling, with a {@code null} pipeline run id
      */
     public static ResultContext forBatch(Long jobRunId, String batchId,
             BatchTriggerSource triggerSource) {
-        return new ResultContext(jobRunId, batchId, triggerSource);
+        return new ResultContext(jobRunId, batchId, null, triggerSource);
     }
 
     /**
-     * Convenience factory for the synchronous path. {@code batchId} is always
-     * {@code null} for sync calls.
+     * Convenience factory for the batch path linked to an orchestrated pipeline run.
+     *
+     * @param jobRunId      the linked job run id
+     * @param batchId       the Anthropic batch id
+     * @param pipelineRunId the orchestrated pipeline run id (forecast_score provenance), or null
+     * @param triggerSource what triggered the batch submission
+     * @return a context configured for batch result handling
+     */
+    public static ResultContext forBatch(Long jobRunId, String batchId, Long pipelineRunId,
+            BatchTriggerSource triggerSource) {
+        return new ResultContext(jobRunId, batchId, pipelineRunId, triggerSource);
+    }
+
+    /**
+     * Convenience factory for the synchronous path. {@code batchId} and {@code pipelineRunId}
+     * are always {@code null} for sync calls — the admin/sync path has no pipeline run.
      *
      * @param jobRunId      the linked job run id
      * @param triggerSource what triggered the synchronous evaluation
      * @return a context configured for sync result handling
      */
     public static ResultContext forSync(Long jobRunId, BatchTriggerSource triggerSource) {
-        return new ResultContext(jobRunId, null, triggerSource);
+        return new ResultContext(jobRunId, null, null, triggerSource);
     }
 }

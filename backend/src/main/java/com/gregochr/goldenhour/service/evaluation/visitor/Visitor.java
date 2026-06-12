@@ -1,7 +1,9 @@
 package com.gregochr.goldenhour.service.evaluation.visitor;
 
+import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 
+import java.util.Optional;
 import java.util.OptionalInt;
 
 /**
@@ -68,4 +70,32 @@ public interface Visitor {
      * @return the 1–5 contribution, or empty when there is no score
      */
     OptionalInt evaluate(LocationEntity location, VisitorContext context);
+
+    /**
+     * The score product this visitor contributes — the {@link ForecastType} its
+     * {@link #evaluate} score is recorded under (Pass 2 dual-write). {@link SkyVisitor}
+     * contributes {@link ForecastType#SKY}; {@code TideVisitor} contributes
+     * {@link ForecastType#TIDAL}. A visitor maps to exactly one type.
+     *
+     * @return this visitor's component type
+     */
+    ForecastType type();
+
+    /**
+     * A one-line, human-readable explanation of this visitor's score for the evaluation,
+     * surfaced alongside {@link #evaluate} so the Pass 2 dual-write can persist it on the
+     * component row. Only meaningful when {@link #evaluate} returned a score; the combiner
+     * queries it only for applied visitors that produced a value.
+     *
+     * <p>Deterministic visitors (the tide) author a clause that derives from their state at
+     * visit time; {@link SkyVisitor} re-exposes Claude's prose. Defaults to
+     * {@link Optional#empty()} — a visitor with no clause to contribute.
+     *
+     * @param location the location under evaluation
+     * @param context  the same inputs passed to {@link #evaluate}
+     * @return the explanatory clause, or empty when this visitor has none
+     */
+    default Optional<String> summary(LocationEntity location, VisitorContext context) {
+        return Optional.empty();
+    }
 }

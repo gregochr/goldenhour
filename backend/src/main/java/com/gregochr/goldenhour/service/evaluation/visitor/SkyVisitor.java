@@ -1,8 +1,10 @@
 package com.gregochr.goldenhour.service.evaluation.visitor;
 
+import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import org.springframework.stereotype.Component;
 
+import java.util.Optional;
 import java.util.OptionalInt;
 
 /**
@@ -42,5 +44,21 @@ public class SkyVisitor implements Visitor {
     public OptionalInt evaluate(LocationEntity location, VisitorContext context) {
         Integer rating = context.evaluation().rating();
         return rating != null ? OptionalInt.of(rating) : OptionalInt.empty();
+    }
+
+    @Override
+    public ForecastType type() {
+        return ForecastType.SKY;
+    }
+
+    /**
+     * Re-exposes Claude's plain-English summary as the sky component's clause — the same
+     * prose served on the rating surface. The combiner only queries this when
+     * {@link #evaluate} returned a score (sky rating present), so it is paired with a real
+     * sky score.
+     */
+    @Override
+    public Optional<String> summary(LocationEntity location, VisitorContext context) {
+        return Optional.ofNullable(context.evaluation().summary());
     }
 }

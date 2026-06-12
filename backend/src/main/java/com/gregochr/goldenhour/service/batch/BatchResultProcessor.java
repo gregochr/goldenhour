@@ -140,7 +140,8 @@ public class BatchResultProcessor {
         boolean firstError = true;
 
         ResultContext context = ResultContext.forBatch(
-                batch.getJobRunId(), batch.getAnthropicBatchId(), null);
+                batch.getJobRunId(), batch.getAnthropicBatchId(),
+                batch.getPipelineRunId(), null);
 
         try (var streamResp = anthropicClient.messages().batches()
                 .resultsStreaming(batch.getAnthropicBatchId())) {

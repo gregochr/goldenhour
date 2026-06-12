@@ -12,10 +12,10 @@ import java.util.Optional;
 /**
  * Repository for normalised component-score rows (V108).
  *
- * <p>Pass 1 scaffolding: no production code writes or reads through this
- * yet. The find-by-unique-key accessor is the shape the Pass 2 dual-write
- * upsert needs (look up the component row, update score/summary/provenance
- * or insert a new row).
+ * <p>Written through by the Pass 2 dual-write ({@code ForecastScoreWriter}):
+ * the find-by-unique-key accessor is the upsert's lookup (find the component
+ * row, update score/summary/provenance, or insert a new row). Nothing reads
+ * the table yet — the read migration is Pass 4.
  */
 @Repository
 public interface ForecastScoreRepository extends JpaRepository<ForecastScoreEntity, Long> {
