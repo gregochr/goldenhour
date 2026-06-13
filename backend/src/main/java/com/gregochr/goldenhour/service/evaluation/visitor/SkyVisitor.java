@@ -42,6 +42,11 @@ public class SkyVisitor implements Visitor {
 
     @Override
     public OptionalInt evaluate(LocationEntity location, VisitorContext context) {
+        // The sky evaluation can be null in Pass 3: an in-season WOODLAND bluebell site is scored
+        // by the bluebell prompt alone, with no sky call. No sky result → sky abstains.
+        if (context.evaluation() == null) {
+            return OptionalInt.empty();
+        }
         Integer rating = context.evaluation().rating();
         return rating != null ? OptionalInt.of(rating) : OptionalInt.empty();
     }

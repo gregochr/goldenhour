@@ -1,5 +1,7 @@
 package com.gregochr.goldenhour.service.evaluation.visitor;
 
+import com.gregochr.goldenhour.entity.BluebellExposure;
+import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import org.springframework.stereotype.Component;
 
@@ -85,11 +87,47 @@ public class RatingCombiner {
         if (components.isEmpty()) {
             return new CombinedRating(null, List.of());
         }
-        double average = components.stream()
+        // All applied components are always RECORDED (the dual-write persists every one). Only the
+        // RATING is computed from a selected peer subset — for the bluebell exposure rule below.
+        List<ComponentScore> peers = selectRatingPeers(location, components);
+        double average = peers.stream()
                 .mapToInt(ComponentScore::score)
                 .average()
                 .orElseThrow();
         return new CombinedRating((int) Math.round(average), components);
+    }
+
+    /**
+     * Selects which component scores feed the headline rating (the OQ3 exposure-differentiated
+     * bluebell rule). The {@code components} list itself is unaffected — every applied component
+     * is still recorded; this only governs the average.
+     *
+     * <ul>
+     *   <li><b>In-season WOODLAND bluebell site</b> (a BLUEBELL component is present and the
+     *       location's exposure is {@link BluebellExposure#WOODLAND}): the bluebell score IS the
+     *       rating — the sky is NOT a peer. Perfect woodland bluebell light is calm bright
+     *       overcast, which scores ~2-3 as a sky; averaging would cap woodland sites at ~4 on
+     *       their best mornings.</li>
+     *   <li><b>Everything else</b> — inland sky-only, coastal sky+tide, and OPEN_FELL bluebell
+     *       (where bluebell is a peer averaged with the sky, because golden light flatters fell
+     *       and flowers alike): every applied component is a peer. This is the unchanged
+     *       pre-Pass-3 behaviour, so no existing rating moves.</li>
+     * </ul>
+     *
+     * @param location   the location under evaluation
+     * @param components the applied component scores (non-empty)
+     * @return the subset of components that determine the rating
+     */
+    private List<ComponentScore> selectRatingPeers(LocationEntity location,
+            List<ComponentScore> components) {
+        boolean hasBluebell = components.stream()
+                .anyMatch(c -> c.type() == ForecastType.BLUEBELL);
+        if (hasBluebell && location.getBluebellExposure() == BluebellExposure.WOODLAND) {
+            return components.stream()
+                    .filter(c -> c.type() == ForecastType.BLUEBELL)
+                    .toList();
+        }
+        return components;
     }
 
     /**

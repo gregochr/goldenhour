@@ -56,6 +56,15 @@ class SkyVisitorTest {
     }
 
     @Test
+    @DisplayName("evaluate abstains when there is no sky evaluation (Pass 3 woodland bluebell-only)")
+    void evaluate_nullEvaluation_returnsEmpty() {
+        // An in-season WOODLAND bluebell site runs the bluebell prompt alone — the sky slice is
+        // null. SkyVisitor must abstain rather than NPE.
+        assertThat(visitor.evaluate(location("X"), new VisitorContext(null, null)))
+                .isEqualTo(OptionalInt.empty());
+    }
+
+    @Test
     @DisplayName("type is SKY — the component its score is recorded under")
     void type_isSky() {
         assertThat(visitor.type())
