@@ -592,6 +592,44 @@ class ClaudeAuroraInterpreterTest {
         assertThat(scores.get(0).stars()).isEqualTo(1);
     }
 
+    @Test
+    @DisplayName("parseResponse salvages complete entries from a response truncated mid-array")
+    void parseResponse_truncatedArray_salvagesCompletePrefix() {
+        LocationEntity locA = buildLocation(1L, "A", 55.0, -2.0, 2);
+        LocationEntity locB = buildLocation(2L, "B", 55.0, -3.0, 2);
+        LocationEntity locC = buildLocation(3L, "C", 55.0, -4.0, 2);
+        // Token budget exhausted: array cut off partway through C's object (no closing brace).
+        String truncated = "[{\"name\":\"A\",\"stars\":4,\"summary\":\"Good\",\"detail\":\"–\"},"
+                + "{\"name\":\"B\",\"stars\":3,\"summary\":\"Fair\",\"detail\":\"–\"},"
+                + "{\"name\":\"C\",\"stars\":2,\"summary\":\"Partial cut o";
+
+        List<AuroraForecastScore> scores = interpreter.parseResponse(truncated, AlertLevel.MODERATE,
+                List.of(locA, locB, locC), Map.of(locA, 20, locB, 30, locC, 40));
+
+        assertThat(scores).hasSize(3);
+        // A and B were complete in the truncated text and keep their real scores.
+        assertThat(scores.get(0).stars()).isEqualTo(4);
+        assertThat(scores.get(1).stars()).isEqualTo(3);
+        // Only the genuinely cut-off C falls back, instead of all three.
+        assertThat(scores.get(2).stars()).isEqualTo(1);
+        assertThat(scores.get(2).summary()).contains("could not be assessed");
+    }
+
+    @Test
+    @DisplayName("maxTokensFor scales the response budget with the location count")
+    void maxTokensFor_scalesWithLocationCount() {
+        int oneLocation = ClaudeAuroraInterpreter.maxTokensFor(1);
+        int tenLocations = ClaudeAuroraInterpreter.maxTokensFor(10);
+
+        // Ten locations must get a meaningfully larger budget than one, and well above the
+        // old fixed 1024 cap that truncated multi-location responses.
+        assertThat(tenLocations).isGreaterThan(oneLocation);
+        assertThat(tenLocations).isGreaterThan(1024);
+        // Non-negative guard: a zero/negative count never produces a smaller-than-base budget.
+        assertThat(ClaudeAuroraInterpreter.maxTokensFor(0))
+                .isEqualTo(ClaudeAuroraInterpreter.maxTokensFor(-5));
+    }
+
     // -------------------------------------------------------------------------
     // parseResponse — name-based matching
     // -------------------------------------------------------------------------

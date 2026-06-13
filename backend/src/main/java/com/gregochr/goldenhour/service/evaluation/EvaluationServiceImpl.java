@@ -170,7 +170,8 @@ public class EvaluationServiceImpl implements EvaluationService {
                     .customId(customId)
                     .params(BatchCreateParams.Request.Params.builder()
                             .model(task.model().getModelId())
-                            .maxTokens(1024)
+                            .maxTokens(ClaudeAuroraInterpreter.maxTokensFor(
+                                    task.viableLocations().size()))
                             .addUserMessage(userMessage)
                             .build())
                     .build());
@@ -258,7 +259,8 @@ public class EvaluationServiceImpl implements EvaluationService {
             Message response = anthropicApiClient.createMessage(
                     MessageCreateParams.builder()
                             .model(task.model().getModelId())
-                            .maxTokens(1024)
+                            .maxTokens(ClaudeAuroraInterpreter.maxTokensFor(
+                                    task.viableLocations().size()))
                             .addUserMessage(userMessage)
                             .build());
             String text = response.content().stream()
