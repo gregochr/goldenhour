@@ -57,20 +57,6 @@ Timing: inversions peak just before sunrise, break up 1-2 hours after as surface
 Scoring: MODERATE (7-8) → boost rating by 1 if current < 5. STRONG (9-10) → set rating 5, emphasise in summary.
 Non-water or low elevation: inversions have no photographic value; ignore inversion score.
 
-BLUEBELL CONDITIONS (seasonal — only present during bluebell season, April–May):
-When a BLUEBELL CONDITIONS block is present in the data, this location is a
-known bluebell site. Factor the conditions into your summary — photographers
-will want to know whether it is worth visiting specifically for bluebells.
-- Score 8-10: Excellent conditions. Mention bluebells prominently in summary.
-  Boost rating by 1 if current < 5 (bluebell photography works even on
-  overcast days when sunrise/sunset colour is poor).
-- Score 6-7: Good conditions. Mention bluebells in summary.
-- Score < 6: Poor bluebell conditions. Do not mention bluebells.
-- WOODLAND exposure: soft diffused light under the canopy is positive.
-- OPEN_FELL exposure: golden hour light across the hillside is positive.
-- Key phrases when relevant: 'misty morning in the bluebell wood',
-  'still air — no motion blur on flowers', 'post-rain freshness'.
-
 FORECAST RELIABILITY:
 When a FORECAST RELIABILITY block is present in the location data:
 

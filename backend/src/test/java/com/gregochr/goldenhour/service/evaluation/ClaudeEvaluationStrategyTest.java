@@ -16,6 +16,7 @@ import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.BluebellEvaluation;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
@@ -169,6 +170,51 @@ class ClaudeEvaluationStrategyTest {
         assertThat(result.rating()).isNull();
         assertThat(result.fierySkyPotential()).isEqualTo(50);
         assertThat(result.goldenHourPotential()).isEqualTo(60);
+    }
+
+    @Test
+    @DisplayName("parseBluebellEvaluation() parses rating, summary and headline (strict JSON)")
+    void parseBluebellEvaluation_strictJson_parsesAllFields() {
+        BluebellEvaluation result = strategy.parseBluebellEvaluation(
+                "{\"rating\": 4, \"summary\": \"Soft even light if they're in flower.\","
+                + " \"headline\": \"Bright overcast over the carpet\"}",
+                new ObjectMapper());
+
+        assertThat(result.rating()).isEqualTo(4);
+        assertThat(result.summary()).isEqualTo("Soft even light if they're in flower.");
+        assertThat(result.headline()).isEqualTo("Bright overcast over the carpet");
+    }
+
+    @Test
+    @DisplayName("parseBluebellEvaluation() tolerates a missing headline (optional field)")
+    void parseBluebellEvaluation_noHeadline_returnsNullHeadline() {
+        BluebellEvaluation result = strategy.parseBluebellEvaluation(
+                "{\"rating\": 2, \"summary\": \"Too breezy under a part-leafed canopy.\"}",
+                new ObjectMapper());
+
+        assertThat(result.rating()).isEqualTo(2);
+        assertThat(result.headline()).isNull();
+    }
+
+    @Test
+    @DisplayName("parseBluebellEvaluation() falls back to regex when the summary has raw quotes")
+    void parseBluebellEvaluation_unescapedQuotes_recoversViaRegex() {
+        // An unescaped inner quote breaks strict JSON; the bounded/salvage regex still recovers
+        // the rating and summary rather than dropping the slot.
+        BluebellEvaluation result = strategy.parseBluebellEvaluation(
+                "{\"rating\": 5, \"summary\": \"Mist and low sun \"crepuscular\" rays.\"}",
+                new ObjectMapper());
+
+        assertThat(result.rating()).isEqualTo(5);
+        assertThat(result.summary()).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("parseBluebellEvaluation() throws when neither JSON nor regex recovers a summary")
+    void parseBluebellEvaluation_unparseable_throws() {
+        assertThatThrownBy(() -> strategy.parseBluebellEvaluation(
+                "not json at all", new ObjectMapper()))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

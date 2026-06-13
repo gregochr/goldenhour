@@ -388,13 +388,13 @@ public class PromptBuilderTest {
         }
 
         @Test
-        @DisplayName("Output config JSON contains bluebell fields")
-        void outputConfig_containsBluebellFields() {
-            var config = promptBuilder.buildOutputConfig();
-            String configStr = config.toString();
+        @DisplayName("Output config JSON has NO bluebell fields (extracted to bluebell prompt)")
+        void outputConfig_hasNoBluebellFields() {
+            String configStr = promptBuilder.buildOutputConfig().toString();
 
-            assertThat(configStr).contains("bluebell_score");
-            assertThat(configStr).contains("bluebell_summary");
+            // Pass 3 moved bluebell to its own prompt/schema (BluebellPromptBuilder).
+            assertThat(configStr).doesNotContain("bluebell_score");
+            assertThat(configStr).doesNotContain("bluebell_summary");
         }
 
         @Test
@@ -1471,319 +1471,38 @@ public class PromptBuilderTest {
         }
     }
 
-    // ── Bluebell Conditions Tests ──────────────────────────────────────────
-
-    @Nested
-    @DisplayName("Bluebell conditions in user message")
-    class BluebellUserMessageTests {
-
-        /** Date inside the bluebell window (April 18 – May 18). */
-        private static final LocalDateTime IN_SEASON =
-                LocalDateTime.of(2026, 4, 25, 6, 30);
-
-        /** Date outside the bluebell window (June). */
-        private static final LocalDateTime OUT_OF_SEASON =
-                LocalDateTime.of(2026, 6, 21, 20, 47);
-
-        private BluebellConditionScore excellentWoodland() {
-            return new BluebellConditionScore(
-                    9, true, true, true, false, false, true,
-                    BluebellExposure.WOODLAND,
-                    "Misty and still — perfect morning conditions");
-        }
-
-        private BluebellConditionScore fairOpenFell() {
-            return new BluebellConditionScore(
-                    5, false, false, false, true, true, true,
-                    BluebellExposure.OPEN_FELL,
-                    "Golden hour light but breezy");
-        }
-
-        @Test
-        @DisplayName("bluebell block appears when score is present and date is in season")
-        void inSeason_withScore_includesBluebellBlock() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(IN_SEASON)
-                    .bluebellConditionScore(excellentWoodland())
-                    .build();
-
-            String message = promptBuilder.buildUserMessage(data);
-
-            assertThat(message).contains("BLUEBELL CONDITIONS:");
-        }
-
-        @Test
-        @DisplayName("bluebell block is absent when date is outside season")
-        void outOfSeason_withScore_omitsBluebellBlock() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(OUT_OF_SEASON)
-                    .bluebellConditionScore(excellentWoodland())
-                    .build();
-
-            String message = promptBuilder.buildUserMessage(data);
-
-            assertThat(message).doesNotContain("BLUEBELL CONDITIONS:");
-        }
-
-        @Test
-        @DisplayName("bluebell block is absent when score is null even in season")
-        void inSeason_nullScore_omitsBluebellBlock() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(IN_SEASON)
-                    .bluebellConditionScore(null)
-                    .build();
-
-            String message = promptBuilder.buildUserMessage(data);
-
-            assertThat(message).doesNotContain("BLUEBELL CONDITIONS:");
-        }
-
-        @Test
-        @DisplayName("bluebell block renders score value and quality label")
-        void inSeason_rendersScoreAndLabel() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(IN_SEASON)
-                    .bluebellConditionScore(excellentWoodland())
-                    .build();
-
-            String message = promptBuilder.buildUserMessage(data);
-
-            assertThat(message).contains("Score: 9/10 (Excellent)");
-        }
-
-        @Test
-        @DisplayName("bluebell block renders exposure name")
-        void inSeason_rendersExposure() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(IN_SEASON)
-                    .bluebellConditionScore(excellentWoodland())
-                    .build();
-
-            String message = promptBuilder.buildUserMessage(data);
-
-            assertThat(message).contains("Exposure: WOODLAND");
-        }
-
-        @Test
-        @DisplayName("bluebell block renders OPEN_FELL exposure for fell locations")
-        void inSeason_openFell_rendersExposure() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(IN_SEASON)
-                    .bluebellConditionScore(fairOpenFell())
-                    .build();
-
-            String message = promptBuilder.buildUserMessage(data);
-
-            assertThat(message).contains("Exposure: OPEN_FELL");
-        }
-
-        @Test
-        @DisplayName("bluebell block renders condition summary text")
-        void inSeason_rendersConditionSummary() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(IN_SEASON)
-                    .bluebellConditionScore(excellentWoodland())
-                    .build();
-
-            String message = promptBuilder.buildUserMessage(data);
-
-            assertThat(message)
-                    .contains("Conditions: Misty and still — perfect morning conditions");
-        }
-
-        @Test
-        @DisplayName("bluebell block renders all boolean detail flags")
-        void inSeason_rendersAllBooleanFlags() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(IN_SEASON)
-                    .bluebellConditionScore(excellentWoodland())
-                    .build();
-
-            String message = promptBuilder.buildUserMessage(data);
-
-            assertThat(message)
-                    .contains("misty=true")
-                    .contains("calm=true")
-                    .contains("softLight=true")
-                    .contains("goldenHourLight=false")
-                    .contains("postRain=false")
-                    .contains("dryNow=true");
-        }
-
-        @Test
-        @DisplayName("bluebell block renders false boolean flags for opposite conditions")
-        void inSeason_fairConditions_rendersFalseFlags() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(IN_SEASON)
-                    .bluebellConditionScore(fairOpenFell())
-                    .build();
-
-            String message = promptBuilder.buildUserMessage(data);
-
-            assertThat(message)
-                    .contains("misty=false")
-                    .contains("calm=false")
-                    .contains("softLight=false")
-                    .contains("goldenHourLight=true")
-                    .contains("postRain=true")
-                    .contains("dryNow=true");
-        }
-
-        @Test
-        @DisplayName("output instruction for bluebell fields appears only in bluebell block")
-        void inSeason_includesOutputFieldInstruction() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(IN_SEASON)
-                    .bluebellConditionScore(excellentWoodland())
-                    .build();
-
-            String message = promptBuilder.buildUserMessage(data);
-
-            assertThat(message).contains(
-                    "In addition to the standard output fields, also include: "
-                    + "bluebell_score (integer, 0-100) and bluebell_summary (string).");
-        }
-
-        @Test
-        @DisplayName("output instruction is absent when bluebell block is absent")
-        void outOfSeason_omitsOutputFieldInstruction() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(OUT_OF_SEASON)
-                    .bluebellConditionScore(excellentWoodland())
-                    .build();
-
-            String message = promptBuilder.buildUserMessage(data);
-
-            assertThat(message).doesNotContain("bluebell_score");
-            assertThat(message).doesNotContain("bluebell_summary");
-        }
-
-        @Test
-        @DisplayName("output instruction is absent when score is null in season")
-        void inSeason_nullScore_omitsOutputFieldInstruction() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(IN_SEASON)
-                    .build();
-
-            String message = promptBuilder.buildUserMessage(data);
-
-            assertThat(message).doesNotContain("bluebell_score");
-            assertThat(message).doesNotContain("bluebell_summary");
-        }
-
-        @Test
-        @DisplayName("bluebell block renders different score and label for fair conditions")
-        void inSeason_fairScore_rendersCorrectLabel() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(IN_SEASON)
-                    .bluebellConditionScore(fairOpenFell())
-                    .build();
-
-            String message = promptBuilder.buildUserMessage(data);
-
-            assertThat(message).contains("Score: 5/10 (Fair)");
-        }
-
-        @Test
-        @DisplayName("date at start of bluebell window (April 18) includes block")
-        void windowStartBoundary_includesBlock() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(LocalDateTime.of(2026, 4, 18, 6, 0))
-                    .bluebellConditionScore(excellentWoodland())
-                    .build();
-
-            String message = promptBuilder.buildUserMessage(data);
-
-            assertThat(message).contains("BLUEBELL CONDITIONS:");
-        }
-
-        @Test
-        @DisplayName("date at end of bluebell window (May 18) includes block")
-        void windowEndBoundary_includesBlock() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(LocalDateTime.of(2026, 5, 18, 20, 0))
-                    .bluebellConditionScore(excellentWoodland())
-                    .build();
-
-            String message = promptBuilder.buildUserMessage(data);
-
-            assertThat(message).contains("BLUEBELL CONDITIONS:");
-        }
-
-        @Test
-        @DisplayName("date one day before bluebell window (April 17) omits block")
-        void dayBeforeWindow_omitsBlock() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(LocalDateTime.of(2026, 4, 17, 6, 0))
-                    .bluebellConditionScore(excellentWoodland())
-                    .build();
-
-            String message = promptBuilder.buildUserMessage(data);
-
-            assertThat(message).doesNotContain("BLUEBELL CONDITIONS:");
-        }
-
-        @Test
-        @DisplayName("date one day after bluebell window (May 19) omits block")
-        void dayAfterWindow_omitsBlock() {
-            AtmosphericData data = TestAtmosphericData.builder()
-                    .solarEventTime(LocalDateTime.of(2026, 5, 19, 6, 0))
-                    .bluebellConditionScore(excellentWoodland())
-                    .build();
-
-            String message = promptBuilder.buildUserMessage(data);
-
-            assertThat(message).doesNotContain("BLUEBELL CONDITIONS:");
-        }
-    }
-
-    @Nested
-    @DisplayName("Output config includes bluebell fields as optional")
-    class OutputConfigBluebellInclusionTests {
-
-        @Test
-        @DisplayName("output config contains bluebell_score in properties")
-        void outputConfig_containsBluebellScore() {
-            String configStr = promptBuilder.buildOutputConfig().toString();
-
-            assertThat(configStr).contains("bluebell_score");
-        }
-
-        @Test
-        @DisplayName("output config contains bluebell_summary in properties")
-        void outputConfig_containsBluebellSummary() {
-            String configStr = promptBuilder.buildOutputConfig().toString();
-
-            assertThat(configStr).contains("bluebell_summary");
-        }
-
-        @Test
-        @DisplayName("bluebell fields are not in the required list")
-        void outputConfig_bluebellFieldsNotRequired() {
-            String configStr = promptBuilder.buildOutputConfig().toString();
-            // required list should not mention bluebell
-            String requiredSection = configStr.substring(
-                    configStr.indexOf("required="));
-            String requiredList = requiredSection.substring(0,
-                    requiredSection.indexOf("]") + 1);
-
-            assertThat(requiredList).doesNotContain("bluebell_score");
-            assertThat(requiredList).doesNotContain("bluebell_summary");
-        }
-    }
+    // ── Bluebell extraction guard (Pass 3) ─────────────────────────────────
+    // The detailed bluebell-prompt behaviour now lives in BluebellPromptBuilder and is
+    // golden-mastered by BluebellPromptGoldenMasterTest. Here we only guard that bluebell has
+    // LEFT the standard prompt — it must never moonlight as a sky-rating lever again.
 
     @Test
-    @DisplayName("system prompt contains bluebell scoring guidance")
-    void getSystemPrompt_containsBluebellGuidance() {
+    @DisplayName("standard system prompt has NO bluebell guidance (extracted in Pass 3)")
+    void getSystemPrompt_hasNoBluebellGuidance() {
         String prompt = promptBuilder.getSystemPrompt();
 
         assertThat(prompt)
-                .contains("BLUEBELL CONDITIONS")
-                .contains("bluebell site")
-                .contains("Score 8-10")
-                .contains("Score 6-7")
-                .contains("Score < 6")
-                .contains("WOODLAND exposure")
-                .contains("OPEN_FELL exposure");
+                .doesNotContain("BLUEBELL CONDITIONS")
+                .doesNotContain("bluebell site")
+                .doesNotContain("Mention bluebells");
+        // The adjacent inversion rule (the easy over-deletion) must remain.
+        assertThat(prompt).contains("CLOUD INVERSION GUIDANCE");
+    }
+
+    @Test
+    @DisplayName("standard user message ignores bluebell data even in season (Pass 3)")
+    void buildUserMessage_ignoresBluebellInSeason() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .solarEventTime(LocalDateTime.of(2026, 4, 25, 6, 30))
+                .bluebellConditionScore(new BluebellConditionScore(
+                        9, true, true, true, false, false, true,
+                        BluebellExposure.WOODLAND, "Misty and still"))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .doesNotContain("BLUEBELL CONDITIONS")
+                .doesNotContain("bluebell_score");
     }
 }
