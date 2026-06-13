@@ -468,10 +468,15 @@ class PipelineOrchestratorTest {
     class PickPersistence {
 
         private DailyBriefingResponse briefingWithPicks(List<BestBet> picks) {
-            return briefingWithPicks(picks, false);
+            return briefing(picks, false, com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_WITH_PICKS);
         }
 
         private DailyBriefingResponse briefingWithPicks(List<BestBet> picks, boolean stale) {
+            return briefing(picks, stale, com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_WITH_PICKS);
+        }
+
+        private DailyBriefingResponse briefing(List<BestBet> picks, boolean stale,
+                com.gregochr.goldenhour.model.BestBetStatus status) {
             return new DailyBriefingResponse(
                     java.time.LocalDateTime.of(2026, 5, 26, 4, 0),
                     "test headline",
@@ -484,7 +489,8 @@ class PipelineOrchestratorTest {
                     0,
                     "Haiku",
                     List.<HotTopic>of(),
-                    List.of());
+                    List.of(),
+                    status);
         }
 
         private BestBet pick(int rank) {
@@ -505,6 +511,8 @@ class PipelineOrchestratorTest {
 
             orchestrator.runNightlyCycle();
 
+            verify(pipelineRunService).recordBestBetStatus(RUN_ID,
+                    com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_WITH_PICKS);
             verify(pipelineRunPickService).persist(RUN_ID, picks);
             verify(pipelineRunService).completePhase(eq(RUN_ID),
                     eq(PipelinePhase.BRIEFING), isNull());
@@ -512,17 +520,43 @@ class PipelineOrchestratorTest {
         }
 
         @Test
-        @DisplayName("empty bestBets → persist called with empty list (service handles internally)")
-        void persists_empty_picks_when_advisor_failed() {
+        @DisplayName("FAILED advisor → status recorded, NO pick rows persisted")
+        void records_status_but_no_picks_when_advisor_failed() {
             when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
             when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
                     .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
-            when(briefingService.getCachedBriefing()).thenReturn(briefingWithPicks(List.of()));
+            when(briefingService.getCachedBriefing()).thenReturn(
+                    briefing(List.of(), false, com.gregochr.goldenhour.model.BestBetStatus.FAILED));
 
             orchestrator.runNightlyCycle();
 
-            verify(pipelineRunPickService).persist(RUN_ID, List.of());
+            // A failed advisor records its outcome but must not write pick rows — absence of
+            // rows now means "no successful picks", which the fallback relies on.
+            verify(pipelineRunService).recordBestBetStatus(RUN_ID,
+                    com.gregochr.goldenhour.model.BestBetStatus.FAILED);
+            verify(pipelineRunPickService, never()).persist(eq(RUN_ID),
+                    org.mockito.ArgumentMatchers.anyList());
+            verify(pipelineRunService).completeRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("honest decline (SUCCESS_NO_PICKS) → status recorded, NO pick rows persisted")
+        void records_status_but_no_picks_when_honest_decline() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
+                    .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
+            when(briefingService.getCachedBriefing()).thenReturn(
+                    briefing(List.of(), false,
+                            com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_NO_PICKS));
+
+            orchestrator.runNightlyCycle();
+
+            verify(pipelineRunService).recordBestBetStatus(RUN_ID,
+                    com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_NO_PICKS);
+            verify(pipelineRunPickService, never()).persist(eq(RUN_ID),
+                    org.mockito.ArgumentMatchers.anyList());
             verify(pipelineRunService).completeRun(RUN_ID);
         }
 

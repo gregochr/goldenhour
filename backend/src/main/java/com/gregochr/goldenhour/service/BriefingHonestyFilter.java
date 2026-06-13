@@ -86,7 +86,8 @@ final class BriefingHonestyFilter {
                 response.generatedAt(), response.headline(), rewrittenDays,
                 response.bestBets(), response.auroraTonight(), response.auroraTomorrow(),
                 response.stale(), response.partialFailure(), response.failedLocationCount(),
-                response.bestBetModel(), response.hotTopics(), response.seasonalFeatures());
+                response.bestBetModel(), response.hotTopics(), response.seasonalFeatures(),
+                response.bestBetStatus());
     }
 
     private static BriefingDay rewriteDay(BriefingDay day) {

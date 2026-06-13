@@ -25,6 +25,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -151,6 +153,30 @@ class PipelineRunServiceTest {
         assertThat(run.getFailureReason()).isEqualTo("Safety timeout: ...");
         assertThat(run.getWaitingOn()).isNull();
         assertThat(run.getCompletedAt()).isEqualTo(T0);
+    }
+
+    @Test
+    @DisplayName("recordBestBetStatus persists the best-bet outcome on the run")
+    void recordBestBetStatus_persists() {
+        PipelineRunEntity run = new PipelineRunEntity(CycleType.NIGHTLY, T0.minusSeconds(60));
+        run.setId(RUN_ID);
+        when(runRepository.findById(RUN_ID)).thenReturn(Optional.of(run));
+
+        service.recordBestBetStatus(RUN_ID,
+                com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_NO_PICKS);
+
+        assertThat(run.getBestBetStatus())
+                .isEqualTo(com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_NO_PICKS);
+        verify(runRepository).save(run);
+    }
+
+    @Test
+    @DisplayName("recordBestBetStatus is a no-op on a null status (nothing to record)")
+    void recordBestBetStatus_nullIsNoOp() {
+        service.recordBestBetStatus(RUN_ID, null);
+
+        verify(runRepository, never()).findById(RUN_ID);
+        verify(runRepository, never()).save(org.mockito.ArgumentMatchers.any());
     }
 
     @Test

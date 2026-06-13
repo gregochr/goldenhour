@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import com.gregochr.goldenhour.entity.PipelinePhase;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
+import com.gregochr.goldenhour.model.BestBetStatus;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.BriefingService;
@@ -546,7 +547,19 @@ public class PipelineOrchestrator {
                         + "skipping pick persistence", runId);
                 return;
             }
-            pipelineRunPickService.persist(runId, briefing.bestBets());
+            // Record this run's best-bet outcome regardless of whether picks exist, so the
+            // run history distinguishes "good picks" / "honest decline" / "advisor failed".
+            BestBetStatus status = briefing.bestBetStatus();
+            pipelineRunService.recordBestBetStatus(runId, status);
+            // Persist pick rows ONLY for a genuine SUCCESS_WITH_PICKS — a SUCCESS_NO_PICKS
+            // (honest decline) or FAILED run has no picks of its own to record, and the
+            // fallback reads pick rows expecting them to belong to a successful run.
+            if (status == BestBetStatus.SUCCESS_WITH_PICKS) {
+                pipelineRunPickService.persist(runId, briefing.bestBets());
+            } else {
+                LOG.info("Pipeline run {}: best-bet status {} — no own picks to persist",
+                        runId, status);
+            }
         } catch (RuntimeException e) {
             LOG.warn("Pipeline run {}: pick persistence raised an exception — "
                     + "logged and ignored (BRIEFING phase remains valid): {}",

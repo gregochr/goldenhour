@@ -10,6 +10,8 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AuroraTonightSummary;
 import com.gregochr.goldenhour.model.AuroraTomorrowSummary;
 import com.gregochr.goldenhour.model.BestBet;
+import com.gregochr.goldenhour.model.BestBetResult;
+import com.gregochr.goldenhour.model.BestBetStatus;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingRefreshedEvent;
@@ -78,6 +80,7 @@ public class BriefingService {
     private final HotTopicAggregator hotTopicAggregator;
     private final BriefingEvaluationService briefingEvaluationService;
     private final EvaluationViewService evaluationViewService;
+    private final com.gregochr.goldenhour.service.pipeline.BestBetFallbackService bestBetFallbackService;
     /** Horizon offset distance in metres — geometric horizon for low cloud at ~1 km altitude. */
     private static final double HORIZON_OFFSET_METRES = 113_000.0;
 
@@ -113,6 +116,7 @@ public class BriefingService {
      * @param hotTopicAggregator         aggregator for seasonal and special-interest hot topics
      * @param briefingEvaluationService  cached Claude evaluation scores (lazy to break cycle)
      * @param evaluationViewService      merged evaluation view service (lazy to break cycle)
+     * @param bestBetFallbackService     serves the fail-safe stale best-bet fallback on FAILED
      */
     public BriefingService(LocationService locationService,
             OpenMeteoClient openMeteoClient,
@@ -128,7 +132,8 @@ public class BriefingService {
             ApplicationEventPublisher eventPublisher,
             HotTopicAggregator hotTopicAggregator,
             @Lazy BriefingEvaluationService briefingEvaluationService,
-            @Lazy EvaluationViewService evaluationViewService) {
+            @Lazy EvaluationViewService evaluationViewService,
+            com.gregochr.goldenhour.service.pipeline.BestBetFallbackService bestBetFallbackService) {
         this.locationService = locationService;
         this.openMeteoClient = openMeteoClient;
         this.jobRunService = jobRunService;
@@ -146,6 +151,7 @@ public class BriefingService {
         this.hotTopicAggregator = hotTopicAggregator;
         this.briefingEvaluationService = briefingEvaluationService;
         this.evaluationViewService = evaluationViewService;
+        this.bestBetFallbackService = bestBetFallbackService;
     }
 
     /**
@@ -227,7 +233,37 @@ public class BriefingService {
      *         if no briefing has been built yet
      */
     public DailyBriefingResponse getCachedBriefingForApi() {
-        return BriefingHonestyFilter.apply(getCachedBriefing());
+        return applyBestBetFallback(BriefingHonestyFilter.apply(getCachedBriefing()));
+    }
+
+    /**
+     * Fail-safe best-bet fallback applied at serve time: when the served response's best-bet
+     * outcome is {@link BestBetStatus#FAILED} and a fresh-enough prior successful pick exists,
+     * substitute those picks (the frontend renders them with a stale chip, since the status
+     * stays {@code FAILED}). Re-evaluated on every request so freshness (event-not-passed, within
+     * the age ceiling) is always current — the fallback is never baked into the persisted cache.
+     *
+     * <p>No-op unless the status is {@code FAILED}: an honest {@code SUCCESS_NO_PICKS} keeps its
+     * empty state, and a {@code FAILED} with no fresh-enough prior pick falls through to the
+     * honest empty state rather than resurrecting a stale or passed pick.
+     *
+     * @param response the honesty-filtered response (may be null)
+     * @return the response, possibly decorated with fallback picks
+     */
+    private DailyBriefingResponse applyBestBetFallback(DailyBriefingResponse response) {
+        if (response == null || response.bestBetStatus() != BestBetStatus.FAILED) {
+            return response;
+        }
+        List<BestBet> fallback = bestBetFallbackService.findFreshFallback();
+        if (fallback.isEmpty()) {
+            return response;
+        }
+        return new DailyBriefingResponse(
+                response.generatedAt(), response.headline(), response.days(),
+                fallback, response.auroraTonight(), response.auroraTomorrow(),
+                response.stale(), response.partialFailure(), response.failedLocationCount(),
+                response.bestBetModel(), response.hotTopics(), response.seasonalFeatures(),
+                response.bestBetStatus());
     }
 
     /**
@@ -315,9 +351,15 @@ public class BriefingService {
         }
 
         String headline = headlineGenerator.generateHeadline(days);
-        List<BestBet> bestBets = succeeded > 0
+        // The advisor reports an explicit outcome status so the served response can tell an
+        // honest empty result apart from a failure (and the latter can trigger the fallback).
+        // With zero successful locations the advisor is not run — that is an honest no-data
+        // empty, not a failure.
+        BestBetResult bestBetResult = succeeded > 0
                 ? bestBetAdvisor.advise(days, jobRun.getId(), Map.of())
-                : List.of();
+                : BestBetResult.noPicks();
+        List<BestBet> bestBets = bestBetResult.picks();
+        BestBetStatus bestBetStatus = bestBetResult.status();
         AuroraTonightSummary auroraTonight = auroraSummaryBuilder.buildAuroraTonight();
         AuroraTomorrowSummary auroraTomorrow = auroraSummaryBuilder.buildAuroraTomorrow();
 
@@ -337,7 +379,8 @@ public class BriefingService {
             DailyBriefingResponse response = new DailyBriefingResponse(
                     LocalDateTime.now(ZoneOffset.UTC), headline, days, bestBets,
                     auroraTonight, auroraTomorrow, false, partialFailure, failed,
-                    bestBetAdvisor.getModelDisplayName(), hotTopics, seasonalFeatures);
+                    bestBetAdvisor.getModelDisplayName(), hotTopics, seasonalFeatures,
+                    bestBetStatus);
             cache.set(response);
             lastKnownGood.set(response);
             persistBriefing(response);
@@ -351,7 +394,8 @@ public class BriefingService {
                 DailyBriefingResponse staleResponse = new DailyBriefingResponse(
                         lkg.generatedAt(), lkg.headline(), lkg.days(), lkg.bestBets(),
                         auroraTonight, auroraTomorrow, true, true, failed,
-                        lkg.bestBetModel(), hotTopics, seasonalFeatures);
+                        lkg.bestBetModel(), hotTopics, seasonalFeatures,
+                        lkg.bestBetStatus());
                 cache.set(staleResponse);
                 LOG.warn("Briefing complete: {}/{} succeeded, {} failed — below 50% threshold, "
                         + "serving stale=true (LKG from {}), circuit={}, duration={}ms",
@@ -360,7 +404,8 @@ public class BriefingService {
                 DailyBriefingResponse response = new DailyBriefingResponse(
                         LocalDateTime.now(ZoneOffset.UTC), headline, days, bestBets,
                         auroraTonight, auroraTomorrow, false, partialFailure, failed,
-                        bestBetAdvisor.getModelDisplayName(), hotTopics, seasonalFeatures);
+                        bestBetAdvisor.getModelDisplayName(), hotTopics, seasonalFeatures,
+                        bestBetStatus);
                 cache.set(response);
                 LOG.warn("Briefing complete: {}/{} succeeded, {} failed — below threshold, "
                         + "no LKG; using partial, circuit={}, duration={}ms",

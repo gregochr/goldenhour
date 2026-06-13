@@ -654,11 +654,22 @@ function MobileRegionCard({ date, regionName, briefingDays, driveMap, typeMap, i
 
 // ── BestBetBanner (updated: side-by-side on sm+, pick ② muted) ───────────────
 
-function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick }) {
+function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick, stale = false }) {
   if (!picks || picks.length === 0) return null;
 
   return (
     <div className="mb-3" data-testid="best-bet-banner">
+      {stale && (
+        <div
+          data-testid="best-bet-stale"
+          className="mb-1.5 flex items-center gap-1.5 text-amber-400"
+          style={{ fontSize: '11px' }}
+          title="This run's best-bet advisor failed — showing the last successful recommendation. Conditions may have changed."
+        >
+          <span aria-hidden="true">⚠</span>
+          <span>From an earlier forecast — today&apos;s update didn&apos;t complete, so conditions may have changed.</span>
+        </div>
+      )}
       <div className="flex flex-col sm:flex-row gap-1.5">
         {picks.map((pick) => {
           const eventKey = resolveEventKey(pick.event, todayStr, tomorrowStr);
@@ -751,6 +762,7 @@ BestBetBanner.propTypes = {
   todayStr: PropTypes.string.isRequired,
   tomorrowStr: PropTypes.string.isRequired,
   onPickClick: PropTypes.func.isRequired,
+  stale: PropTypes.bool,
 };
 
 /**
@@ -1097,13 +1109,19 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
         </button>
       </div>
 
-      {/* ── Best bet banner — ADMIN and PRO only; placeholder for LITE; empty state ── */}
+      {/* ── Best bet banner — ADMIN and PRO only; placeholder for LITE; empty state ──
+          Switch on the explicit bestBetStatus, not an inferred empty array:
+          - picks present → render them (FAILED + picks means a serve-time fallback,
+            so flag them stale; SUCCESS_WITH_PICKS / legacy render normally)
+          - no picks → the honest empty state (SUCCESS_NO_PICKS, or FAILED with no
+            fresh-enough fallback). Empty copy is now reserved for genuinely-empty. */}
       {isPro && briefing.bestBets && briefing.bestBets.length > 0 ? (
         <BestBetBanner
           picks={briefing.bestBets}
           todayStr={todayStr}
           tomorrowStr={tomorrowStr}
           onPickClick={handlePickClick}
+          stale={briefing.bestBetStatus === 'FAILED'}
         />
       ) : !isPro && briefing.bestBets?.length > 0 ? (
         <BestBetPlaceholder />
