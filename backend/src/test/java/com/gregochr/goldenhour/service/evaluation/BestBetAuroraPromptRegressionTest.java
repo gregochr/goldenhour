@@ -109,7 +109,7 @@ class BestBetAuroraPromptRegressionTest {
         BriefingBestBetAdvisor advisor = new BriefingBestBetAdvisor(
                 apiClient, objectMapper, mock(JobRunService.class), mss, cache,
                 mock(StabilitySnapshotProvider.class),
-                mock(BriefingEvaluationService.class));
+                mock(BriefingEvaluationService.class), 4096);
 
         BriefingBestBetAdvisor.RollupResult rollup =
                 advisor.buildRollupJson(List.of(day), now);
@@ -173,7 +173,7 @@ class BestBetAuroraPromptRegressionTest {
         BriefingBestBetAdvisor advisor = new BriefingBestBetAdvisor(
                 apiClient, objectMapper, mock(JobRunService.class), mss, cache,
                 mock(StabilitySnapshotProvider.class),
-                mock(BriefingEvaluationService.class));
+                mock(BriefingEvaluationService.class), 4096);
 
         BriefingBestBetAdvisor.RollupResult rollup =
                 advisor.buildRollupJson(List.of(day), now);
@@ -217,7 +217,7 @@ class BestBetAuroraPromptRegressionTest {
         BriefingBestBetAdvisor advisor = new BriefingBestBetAdvisor(
                 apiClient, objectMapper, mock(JobRunService.class), mss, cache,
                 mock(StabilitySnapshotProvider.class),
-                mock(BriefingEvaluationService.class));
+                mock(BriefingEvaluationService.class), 4096);
 
         BriefingBestBetAdvisor.RollupResult rollup =
                 advisor.buildRollupJson(List.of(day), now);

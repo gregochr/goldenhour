@@ -104,10 +104,33 @@ public final class PromptUtils {
         if (start == -1) {
             return raw;
         }
+        String balanced = balancedObjectAt(raw, start);
+        // Unbalanced — return the original so Jackson reports a clear error
+        return balanced != null ? balanced : raw;
+    }
+
+    /**
+     * Extracts the balanced JSON object beginning at {@code startIndex} (which must point
+     * at a {@code '{'}). Returns {@code null} if the braces never balance — for example
+     * when the input is truncated mid-object.
+     *
+     * <p>Unlike {@link #extractJsonObject}, this distinguishes a complete object from a
+     * truncated one (null) rather than falling back to the original string, which lets a
+     * caller salvage the complete leading elements of a partially-truncated array.
+     *
+     * @param raw        the source text
+     * @param startIndex index of the opening brace to scan from
+     * @return the balanced {@code {...}} substring, or {@code null} if it never closes
+     */
+    public static String balancedObjectAt(String raw, int startIndex) {
+        if (raw == null || startIndex < 0 || startIndex >= raw.length()
+                || raw.charAt(startIndex) != '{') {
+            return null;
+        }
         int depth = 0;
         boolean inString = false;
         boolean escape = false;
-        for (int i = start; i < raw.length(); i++) {
+        for (int i = startIndex; i < raw.length(); i++) {
             char c = raw.charAt(i);
             if (escape) {
                 escape = false;
@@ -129,12 +152,11 @@ public final class PromptUtils {
             } else if (c == '}') {
                 depth--;
                 if (depth == 0) {
-                    return raw.substring(start, i + 1);
+                    return raw.substring(startIndex, i + 1);
                 }
             }
         }
-        // Unbalanced — return the original so Jackson reports a clear error
-        return raw;
+        return null;
     }
 
     /**

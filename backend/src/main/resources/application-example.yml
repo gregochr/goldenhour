@@ -124,6 +124,12 @@ photocast:
     max-users: 3             # early-access cap (excludes admin accounts)
     default-role: PRO_USER   # role assigned to new self-registered users
     enabled: true
+  best-bet:
+    max-tokens: 4096        # response-token ceiling for the best-bet advisor JSON.
+                            # A 1024 ceiling was observed truncating a verbose two-pick
+                            # response mid-field (~3656 chars), producing invalid JSON and
+                            # zero persisted picks. 4096 clears a full reasoning-plus-two-picks
+                            # response with headroom. Configurable without a redeploy.
   batch:
     min-prefetch-success-ratio: 0.5  # abort batch if fewer than 50% of weather fetches succeed
   pipeline:

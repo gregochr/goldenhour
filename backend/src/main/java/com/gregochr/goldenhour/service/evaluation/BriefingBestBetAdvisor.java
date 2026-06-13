@@ -7,6 +7,7 @@ import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.TextBlockParam;
 import com.anthropic.models.messages.ThinkingBlock;
 import com.anthropic.models.messages.ThinkingConfigAdaptive;
+import com.anthropic.models.messages.StopReason;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -35,6 +36,7 @@ import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
@@ -54,6 +56,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -69,8 +72,17 @@ public class BriefingBestBetAdvisor {
 
     private static final Logger LOG = LoggerFactory.getLogger(BriefingBestBetAdvisor.class);
 
-    /** Maximum response tokens for the best-bet JSON (standard calls). */
-    private static final int MAX_TOKENS = 1024;
+    /**
+     * Default response-token ceiling for the best-bet JSON (standard, non-thinking calls)
+     * when {@code photocast.best-bet.max-tokens} is not overridden.
+     *
+     * <p>Sized with deliberate headroom over the previous 1024 ceiling. A 1024-token cap
+     * was observed truncating a verbose two-pick response mid-field at ~3656 chars
+     * (1024 output tokens ≈ ~3.6 KB of JSON/prose), which produced structurally invalid
+     * JSON and zero persisted picks. 4096 comfortably clears a full reasoning-plus-two-picks
+     * response even when the model is verbose in the output channel.
+     */
+    private static final int DEFAULT_MAX_TOKENS = 4096;
 
     /** Maximum response tokens for extended-thinking calls (thinking budget + response). */
     private static final int MAX_TOKENS_THINKING = 16000;
@@ -347,6 +359,13 @@ public class BriefingBestBetAdvisor {
     private final BriefingEvaluationService briefingEvaluationService;
 
     /**
+     * Response-token ceiling for the best-bet JSON on standard (non-thinking) calls.
+     * Configurable without a redeploy via {@code photocast.best-bet.max-tokens}; defaults
+     * to {@link #DEFAULT_MAX_TOKENS}.
+     */
+    private final int maxTokens;
+
+    /**
      * Constructs a {@code BriefingBestBetAdvisor}.
      *
      * @param anthropicApiClient         resilient Anthropic API client
@@ -356,13 +375,16 @@ public class BriefingBestBetAdvisor {
      * @param auroraStateCache           read-only access to the current aurora alert state
      * @param stabilitySnapshotProvider  provides the latest stability summary for region rollup
      * @param briefingEvaluationService  cached Claude evaluation scores from drill-down
+     * @param maxTokens                  response-token ceiling for standard best-bet calls
+     *                                   ({@code photocast.best-bet.max-tokens})
      */
     public BriefingBestBetAdvisor(AnthropicApiClient anthropicApiClient,
             ObjectMapper objectMapper, JobRunService jobRunService,
             ModelSelectionService modelSelectionService,
             AuroraStateCache auroraStateCache,
             StabilitySnapshotProvider stabilitySnapshotProvider,
-            @Lazy BriefingEvaluationService briefingEvaluationService) {
+            @Lazy BriefingEvaluationService briefingEvaluationService,
+            @Value("${photocast.best-bet.max-tokens:" + DEFAULT_MAX_TOKENS + "}") int maxTokens) {
         this.anthropicApiClient = anthropicApiClient;
         this.objectMapper = objectMapper;
         this.jobRunService = jobRunService;
@@ -370,6 +392,7 @@ public class BriefingBestBetAdvisor {
         this.auroraStateCache = auroraStateCache;
         this.stabilitySnapshotProvider = stabilitySnapshotProvider;
         this.briefingEvaluationService = briefingEvaluationService;
+        this.maxTokens = maxTokens;
     }
 
     /**
@@ -443,7 +466,7 @@ public class BriefingBestBetAdvisor {
 
             MessageCreateParams.Builder paramsBuilder = MessageCreateParams.builder()
                     .model(model.getModelId())
-                    .maxTokens(useExtendedThinking ? MAX_TOKENS_THINKING : MAX_TOKENS)
+                    .maxTokens(useExtendedThinking ? MAX_TOKENS_THINKING : maxTokens)
                     .systemOfTextBlockParams(List.of(
                             TextBlockParam.builder().text(SYSTEM_PROMPT).build()))
                     .addUserMessage(rollup.json());
@@ -460,14 +483,17 @@ public class BriefingBestBetAdvisor {
                     .map(TextBlock::text)
                     .findFirst()
                     .orElse("");
+            Optional<StopReason> stopReason = response.stopReason();
 
-            LOG.info("Best-bet advisor completed ({}ms, model={})", durationMs, model);
+            LOG.info("Best-bet advisor completed ({}ms, model={}, stopReason={})",
+                    durationMs, model, stopReason.map(Object::toString).orElse("unknown"));
             jobRunService.logApiCall(jobRunId, ServiceName.ANTHROPIC,
                     "POST", "briefing-best-bet", null,
                     durationMs, 200, raw, true, null,
                     model, null, null);
 
             List<BestBet> parsed = parseBestBets(raw);
+            logResponseDisposition(stopReason, parsed.size(), raw.length(), jobRunId);
             List<BestBet> validated = validateAndFilterPicks(
                     parsed, rollup.validEvents(), rollup.validRegions(), rollup.validDayNames());
             List<BestBet> covered = applyCoverageAwareRanking(validated, rollup.coverageByKey());
@@ -475,6 +501,51 @@ public class BriefingBestBetAdvisor {
         } catch (Exception e) {
             LOG.warn("Best-bet advisor failed — returning empty picks (fallback to headline)", e);
             return List.of();
+        }
+    }
+
+    /**
+     * Emits a single classifiable disposition log so a truncated advisor response can never
+     * again hide as an honest empty-pick result — the camouflage that let this bug persist.
+     *
+     * <p>Distinguishes the three cases the forensic dig had to separate by hand:
+     * <ul>
+     *   <li><b>(a) honest zero</b> — the model returned valid JSON with no picks; logged at INFO.</li>
+     *   <li><b>(b) truncation</b> — the response stopped on the token limit and nothing survived;
+     *       logged at WARN with the correlating {@code jobRunId} (the api_call_log key) and the
+     *       remediation hint.</li>
+     *   <li><b>(c) salvage</b> — the response was token-limited but valid leading pick(s) were
+     *       recovered; logged at WARN noting how many survived.</li>
+     * </ul>
+     *
+     * @param stopReason    the SDK-reported stop reason (max_tokens drives truncation detection)
+     * @param pickCount     number of picks parsed (after any salvage)
+     * @param responseChars length of the raw response text
+     * @param jobRunId      the briefing job run id — correlates to the {@code api_call_log} row
+     */
+    private void logResponseDisposition(Optional<StopReason> stopReason, int pickCount,
+            int responseChars, Long jobRunId) {
+        boolean tokenLimited = stopReason
+                .filter(sr -> sr.equals(StopReason.MAX_TOKENS)).isPresent();
+        if (tokenLimited) {
+            if (pickCount > 0) {
+                LOG.warn("[BEST-BET TRUNCATION] Advisor response stopped on the token limit "
+                        + "(stopReason=max_tokens, responseChars={}, jobRunId={}, maxTokens={}) "
+                        + "but {} valid pick(s) were salvaged. Raise photocast.best-bet.max-tokens "
+                        + "if this recurs.", responseChars, jobRunId, maxTokens, pickCount);
+            } else {
+                LOG.warn("[BEST-BET TRUNCATION] Advisor response stopped on the token limit "
+                        + "(stopReason=max_tokens, responseChars={}, jobRunId={}, maxTokens={}) "
+                        + "and no picks could be salvaged — the Planner falls back to the "
+                        + "mechanical headline. Raise photocast.best-bet.max-tokens.",
+                        responseChars, jobRunId, maxTokens);
+            }
+            return;
+        }
+        if (pickCount == 0) {
+            LOG.info("[BEST-BET] Advisor returned no picks — honest decline "
+                    + "(stopReason={}, responseChars={}, jobRunId={})",
+                    stopReason.map(Object::toString).orElse("unknown"), responseChars, jobRunId);
         }
     }
 
@@ -1204,7 +1275,7 @@ public class BriefingBestBetAdvisor {
 
             MessageCreateParams.Builder builder = MessageCreateParams.builder()
                     .model(model.getModelId())
-                    .maxTokens(extendedThinking ? MAX_TOKENS_THINKING : MAX_TOKENS)
+                    .maxTokens(extendedThinking ? MAX_TOKENS_THINKING : maxTokens)
                     .systemOfTextBlockParams(List.of(
                             TextBlockParam.builder().text(SYSTEM_PROMPT).build()))
                     .addUserMessage(rollup.json());
@@ -1264,50 +1335,131 @@ public class BriefingBestBetAdvisor {
         if (raw == null || raw.isBlank()) {
             return List.of();
         }
+        String cleaned = PromptUtils.stripCodeFences(raw);
         try {
-            String cleaned = PromptUtils.stripCodeFences(raw);
             String extracted = PromptUtils.extractJsonObject(cleaned);
             JsonNode root = objectMapper.readTree(extracted);
             JsonNode picksNode = root.get("picks");
-            if (picksNode == null || !picksNode.isArray() || picksNode.isEmpty()) {
-                LOG.warn("Best-bet response missing or empty 'picks' array");
+            if (picksNode == null || !picksNode.isArray()) {
+                LOG.warn("Best-bet response missing 'picks' array");
+                return List.of();
+            }
+            if (picksNode.isEmpty()) {
+                LOG.info("Best-bet response contained an empty 'picks' array (honest decline)");
                 return List.of();
             }
             List<BestBet> picks = new ArrayList<>();
             for (JsonNode pick : picksNode) {
-                int rank = pick.path("rank").asInt(1);
-                String headline = pick.path("headline").asText(null);
-                String detail = pick.path("detail").asText(null);
-                String event = pick.path("event").isNull()
-                        ? null : pick.path("event").asText(null);
-                String region = pick.path("region").isNull()
-                        ? null : pick.path("region").asText(null);
-                Confidence confidence = Confidence.fromString(
-                        pick.path("confidence").asText("medium"));
-                Relationship relationship = Relationship.fromString(
-                        pick.path("relationship").asText(null));
-                List<DiffersBy> differsBy = new ArrayList<>();
-                JsonNode differsByNode = pick.get("differsBy");
-                if (differsByNode != null && differsByNode.isArray()) {
-                    for (JsonNode d : differsByNode) {
-                        DiffersBy dim = DiffersBy.fromString(d.asText(null));
-                        if (dim != null) {
-                            differsBy.add(dim);
-                        }
-                    }
-                }
-                picks.add(new BestBet(rank, headline, detail, event, region, confidence,
-                        null, null, null, null, relationship, differsBy));
+                picks.add(parsePickNode(pick));
             }
             LOG.info("Best-bet advisor returned {} pick(s)", picks.size());
             return List.copyOf(picks);
         } catch (Exception e) {
+            // Atomic parse failed — the response is structurally invalid, the classic
+            // signature being a response truncated mid-pick when the model hit max_tokens.
+            // Salvage any complete leading picks rather than discarding a valid rank-1
+            // because a later pick was cut off (a single malformed pick must not zero out
+            // a valid one). Salvaged picks are still subject to validateAndFilterPicks.
+            List<BestBet> salvaged = salvagePicks(cleaned);
+            if (!salvaged.isEmpty()) {
+                LOG.warn("Best-bet response was not valid JSON (likely truncated mid-pick) — "
+                        + "salvaged {} complete pick(s) from the partial response", salvaged.size());
+                return salvaged;
+            }
             String preview = raw.length() > 4000
                     ? raw.substring(0, 4000) + "...<truncated>"
                     : raw;
-            LOG.warn("Failed to parse best-bet response — returning empty. Raw response was:\n{}",
-                    preview, e);
+            LOG.warn("Failed to parse best-bet response and no picks could be salvaged — "
+                    + "returning empty. Raw response was:\n{}", preview, e);
             return List.of();
         }
+    }
+
+    /**
+     * Parses a single {@code pick} JSON node into a {@link BestBet}. Shared by the atomic
+     * parse path and the {@link #salvagePicks} recovery path so both extract fields
+     * identically. Missing fields degrade to nulls/defaults; the resulting pick is still
+     * subject to downstream validation in {@link #validateAndFilterPicks}.
+     *
+     * @param pick a single pick object node
+     * @return the parsed pick (display fields left null — they are enriched later)
+     */
+    private BestBet parsePickNode(JsonNode pick) {
+        int rank = pick.path("rank").asInt(1);
+        String headline = pick.path("headline").asText(null);
+        String detail = pick.path("detail").asText(null);
+        String event = pick.path("event").isNull()
+                ? null : pick.path("event").asText(null);
+        String region = pick.path("region").isNull()
+                ? null : pick.path("region").asText(null);
+        Confidence confidence = Confidence.fromString(
+                pick.path("confidence").asText("medium"));
+        Relationship relationship = Relationship.fromString(
+                pick.path("relationship").asText(null));
+        List<DiffersBy> differsBy = new ArrayList<>();
+        JsonNode differsByNode = pick.get("differsBy");
+        if (differsByNode != null && differsByNode.isArray()) {
+            for (JsonNode d : differsByNode) {
+                DiffersBy dim = DiffersBy.fromString(d.asText(null));
+                if (dim != null) {
+                    differsBy.add(dim);
+                }
+            }
+        }
+        return new BestBet(rank, headline, detail, event, region, confidence,
+                null, null, null, null, relationship, differsBy);
+    }
+
+    /**
+     * Recovers the complete leading pick objects from a structurally invalid best-bet
+     * response (typically one truncated mid-pick when the model hit its token ceiling).
+     *
+     * <p>Locates the {@code "picks"} array and walks it element by element, extracting each
+     * balanced {@code {...}} object and parsing it. Recovery stops at the first object that
+     * is truncated (never closes) or fails to parse, so only the structurally-valid prefix is
+     * returned. This restores the common case where rank 1 is complete but rank 2 was cut.
+     *
+     * <p>This is a pure mechanism: it recovers picks the model already emitted. It does not
+     * relax validation — the survivors still pass through {@link #validateAndFilterPicks}.
+     *
+     * @param cleaned the code-fence-stripped raw response
+     * @return the complete leading picks (possibly empty)
+     */
+    private List<BestBet> salvagePicks(String cleaned) {
+        if (cleaned == null) {
+            return List.of();
+        }
+        int picksKeyIdx = cleaned.indexOf("\"picks\"");
+        if (picksKeyIdx < 0) {
+            return List.of();
+        }
+        int arrayStart = cleaned.indexOf('[', picksKeyIdx);
+        if (arrayStart < 0) {
+            return List.of();
+        }
+        List<BestBet> picks = new ArrayList<>();
+        int i = arrayStart + 1;
+        while (i < cleaned.length()) {
+            while (i < cleaned.length()
+                    && (Character.isWhitespace(cleaned.charAt(i)) || cleaned.charAt(i) == ',')) {
+                i++;
+            }
+            if (i >= cleaned.length() || cleaned.charAt(i) != '{') {
+                // End of array (']'), or a truncated/garbled element — stop salvaging.
+                break;
+            }
+            String objStr = PromptUtils.balancedObjectAt(cleaned, i);
+            if (objStr == null) {
+                // Trailing object never closes (truncated) — keep what we have.
+                break;
+            }
+            try {
+                picks.add(parsePickNode(objectMapper.readTree(objStr)));
+            } catch (Exception e) {
+                break;
+            }
+            i += objStr.length();
+        }
+        return List.copyOf(picks);
     }
 }

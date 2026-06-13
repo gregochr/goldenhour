@@ -1,7 +1,11 @@
 package com.gregochr.goldenhour.service.evaluation;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
+import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.ThinkingBlock;
 import com.anthropic.models.messages.Usage;
@@ -29,6 +33,7 @@ import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -36,6 +41,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -70,6 +76,9 @@ class BriefingBestBetAdvisorTest {
     @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
     @Mock private BriefingEvaluationService briefingEvaluationService;
 
+    /** Response-token ceiling injected into the advisor under test. */
+    private static final int TEST_MAX_TOKENS = 4096;
+
     private BriefingBestBetAdvisor advisor;
 
     @BeforeEach
@@ -77,7 +86,7 @@ class BriefingBestBetAdvisorTest {
         advisor = new BriefingBestBetAdvisor(
                 anthropicApiClient, new ObjectMapper().findAndRegisterModules(),
                 jobRunService, modelSelectionService, auroraStateCache,
-                stabilitySnapshotProvider, briefingEvaluationService);
+                stabilitySnapshotProvider, briefingEvaluationService, TEST_MAX_TOKENS);
     }
 
     // ── parseBestBets ──
@@ -225,6 +234,204 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Completely malformed response returns empty list")
         void completelyMalformed() {
             assertThat(advisor.parseBestBets("I cannot provide forecast data.")).isEmpty();
+        }
+    }
+
+    // ── Truncation hotfix: salvage, observability, configurable max-tokens ──
+
+    @Nested
+    @DisplayName("Truncation hotfix — salvage, observability, configurable max-tokens")
+    class TruncationHotfixTests {
+
+        private ListAppender<ILoggingEvent> appender;
+        private ch.qos.logback.classic.Logger advisorLogger;
+
+        @BeforeEach
+        void attachAppender() {
+            advisorLogger = (ch.qos.logback.classic.Logger)
+                    LoggerFactory.getLogger(BriefingBestBetAdvisor.class);
+            appender = new ListAppender<>();
+            appender.start();
+            advisorLogger.addAppender(appender);
+        }
+
+        @AfterEach
+        void detachAppender() {
+            advisorLogger.detachAppender(appender);
+        }
+
+        /**
+         * The shape of the real pipeline_run #32 response: a complete rank-1, then rank-2
+         * cut off mid-field at {@code "differsBy} — no closing quote/brace/bracket. The
+         * atomic parse cannot read this; salvage must recover rank-1.
+         */
+        private static final String TRUNCATED_RANK2 = """
+                {
+                  "picks": [
+                    {
+                      "rank": 1,
+                      "headline": "Best overall light with settled skies",
+                      "detail": "Clear conditions and a high-rated forecast.",
+                      "event": "2026-06-15_sunset",
+                      "region": "The North York Moors",
+                      "confidence": "high"
+                    },
+                    {
+                      "rank": 2,
+                      "headline": "Spring tide alternative on the coast",
+                      "detail": "Same evening, dramatic foreground from the spring tide.",
+                      "event": "2026-06-15_sunset",
+                      "region": "The North Yorkshire Coast",
+                      "confidence": "high",
+                      "relationship": "SAME_SLOT",
+                      "differsBy""";
+
+        @Test
+        @DisplayName("Truncated rank-2 salvages the complete rank-1 (does not zero out)")
+        void truncatedSecondPickSalvagesFirst() {
+            List<BestBet> picks = advisor.parseBestBets(TRUNCATED_RANK2);
+
+            assertThat(picks).hasSize(1);
+            assertThat(picks.get(0).rank()).isEqualTo(1);
+            assertThat(picks.get(0).region()).isEqualTo("The North York Moors");
+            assertThat(picks.get(0).event()).isEqualTo("2026-06-15_sunset");
+            assertThat(appender.list).anyMatch(e -> e.getLevel() == Level.WARN
+                    && e.getFormattedMessage().contains("salvaged 1 complete pick"));
+        }
+
+        @Test
+        @DisplayName("Valid full two-pick response parses both — no salvage regression")
+        void validFullResponseParsesBoth() {
+            String raw = """
+                    {"picks":[
+                      {"rank":1,"headline":"A","detail":"d","event":"2026-06-15_sunset",
+                       "region":"R1","confidence":"high"},
+                      {"rank":2,"headline":"B","detail":"d","event":"2026-06-16_sunrise",
+                       "region":"R2","confidence":"medium","relationship":"DIFFERENT_SLOT",
+                       "differsBy":["DATE","EVENT"]}
+                    ]}""";
+
+            List<BestBet> picks = advisor.parseBestBets(raw);
+
+            assertThat(picks).hasSize(2);
+            assertThat(appender.list).noneMatch(e ->
+                    e.getFormattedMessage().contains("salvaged"));
+        }
+
+        @Test
+        @DisplayName("Honest empty picks array yields zero picks and no salvage")
+        void honestEmptyPicksArray() {
+            List<BestBet> picks = advisor.parseBestBets("{\"picks\":[]}");
+
+            assertThat(picks).isEmpty();
+            assertThat(appender.list).noneMatch(e ->
+                    e.getFormattedMessage().contains("salvaged"));
+            assertThat(appender.list).anyMatch(e -> e.getLevel() == Level.INFO
+                    && e.getFormattedMessage().contains("honest decline"));
+        }
+
+        @Test
+        @DisplayName("Salvaged pick with an invalid region is still rejected by validation")
+        void salvagedPickStillValidated() {
+            // Truncated response whose one complete pick names a region not in validRegions.
+            String raw = """
+                    {"picks":[
+                      {"rank":1,"headline":"A","detail":"d","event":"2026-06-15_sunset",
+                       "region":"Atlantis","confidence":"high"},
+                      {"rank":2,"headline":"B","detail":"d","differsBy""";
+
+            List<BestBet> salvaged = advisor.parseBestBets(raw);
+            assertThat(salvaged).hasSize(1); // salvage recovered the complete object...
+
+            List<BestBet> validated = advisor.validateAndFilterPicks(salvaged,
+                    Set.of("2026-06-15_sunset"), Set.of("The North York Moors"), Set.of());
+            assertThat(validated).isEmpty(); // ...but validation rejects the invalid region.
+        }
+
+        @Test
+        @DisplayName("advise(): token-limited response logs a truncation WARN and salvages picks")
+        void adviseTokenLimitedLogsTruncationWarn() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneId.of("Europe/London")).plusDays(1);
+            String event = tomorrow + "_sunset";
+            String truncated = "{\"picks\":[{\"rank\":1,\"headline\":\"Best\",\"detail\":\"Clear.\","
+                    + "\"event\":\"" + event + "\",\"region\":\"Northumberland\",\"confidence\":\"high\"},"
+                    + "{\"rank\":2,\"headline\":\"Also\",\"detail\":\"Clear.\",\"event\":\"" + event
+                    + "\",\"region\":\"Lake District\",\"confidence\":\"high\",\"differsBy";
+            Message message = messageWithStopReason(truncated, StopReason.MAX_TOKENS);
+            when(anthropicApiClient.createMessage(any())).thenReturn(message);
+
+            List<BriefingDay> days = List.of(new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET,
+                            List.of(region("Northumberland", Verdict.GO, 3, 0, 0)), List.of()))));
+
+            List<BestBet> picks = advisor.advise(days, 99L, Map.of());
+
+            assertThat(picks).hasSize(1);
+            assertThat(picks.get(0).region()).isEqualTo("Northumberland");
+            ILoggingEvent warn = appender.list.stream()
+                    .filter(e -> e.getLevel() == Level.WARN
+                            && e.getFormattedMessage().contains("[BEST-BET TRUNCATION]"))
+                    .findFirst().orElseThrow();
+            assertThat(warn.getFormattedMessage()).contains("jobRunId=99");
+            assertThat(warn.getFormattedMessage()).contains("salvaged");
+        }
+
+        @Test
+        @DisplayName("advise(): honest empty response logs case (a), not a truncation WARN")
+        void adviseHonestEmptyLogsHonestZero() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneId.of("Europe/London")).plusDays(1);
+            Message message = messageWithStopReason("{\"picks\":[]}", StopReason.END_TURN);
+            when(anthropicApiClient.createMessage(any())).thenReturn(message);
+
+            List<BriefingDay> days = List.of(new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET,
+                            List.of(region("Northumberland", Verdict.GO, 3, 0, 0)), List.of()))));
+
+            List<BestBet> picks = advisor.advise(days, 7L, Map.of());
+
+            assertThat(picks).isEmpty();
+            assertThat(appender.list).noneMatch(e ->
+                    e.getFormattedMessage().contains("[BEST-BET TRUNCATION]"));
+            assertThat(appender.list).anyMatch(e -> e.getLevel() == Level.INFO
+                    && e.getFormattedMessage().contains("honest decline")
+                    && e.getFormattedMessage().contains("jobRunId=7"));
+        }
+
+        @Test
+        @DisplayName("max-tokens is read from config (not hardcoded): a distinct value reaches the request")
+        void maxTokensReadFromConfig() {
+            int customMax = 2048;
+            BriefingBestBetAdvisor custom = new BriefingBestBetAdvisor(
+                    anthropicApiClient, new ObjectMapper().findAndRegisterModules(),
+                    jobRunService, modelSelectionService, auroraStateCache,
+                    stabilitySnapshotProvider, briefingEvaluationService, customMax);
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.HAIKU);
+            when(anthropicApiClient.createMessage(any()))
+                    .thenThrow(new RuntimeException("stop after capture"));
+
+            custom.advise(List.of(), 1L, Map.of());
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            assertThat(captor.getValue()._body().maxTokens()).isEqualTo((long) customMax);
+        }
+
+        private Message messageWithStopReason(String text, StopReason stopReason) {
+            TextBlock textBlock = mock(TextBlock.class);
+            when(textBlock.text()).thenReturn(text);
+            ContentBlock contentBlock = mock(ContentBlock.class);
+            when(contentBlock.isText()).thenReturn(true);
+            when(contentBlock.asText()).thenReturn(textBlock);
+            Message message = mock(Message.class);
+            when(message.content()).thenReturn(List.of(contentBlock));
+            when(message.stopReason()).thenReturn(java.util.Optional.of(stopReason));
+            return message;
         }
     }
 
@@ -1527,7 +1734,7 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
-        @DisplayName("ET enabled + HAIKU: no thinking block (HAIKU guard), maxTokens=1024")
+        @DisplayName("ET enabled + HAIKU: no thinking block (HAIKU guard), maxTokens=configured")
         void etEnabled_haiku_noThinkingBlock() {
             when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
                     .thenReturn(EvaluationModel.HAIKU);
@@ -1543,11 +1750,11 @@ class BriefingBestBetAdvisorTest {
             verify(anthropicApiClient).createMessage(captor.capture());
             MessageCreateParams params = captor.getValue();
             assertThat(params._body().thinking()).isEmpty();
-            assertThat(params._body().maxTokens()).isEqualTo(1024L);
+            assertThat(params._body().maxTokens()).isEqualTo((long) TEST_MAX_TOKENS);
         }
 
         @Test
-        @DisplayName("ET disabled + SONNET: no thinking block, maxTokens=1024")
+        @DisplayName("ET disabled + SONNET: no thinking block, maxTokens=configured")
         void etDisabled_noThinkingBlock() {
             when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
                     .thenReturn(EvaluationModel.SONNET);
@@ -1562,7 +1769,7 @@ class BriefingBestBetAdvisorTest {
                     ArgumentCaptor.forClass(MessageCreateParams.class);
             verify(anthropicApiClient).createMessage(captor.capture());
             assertThat(captor.getValue()._body().thinking()).isEmpty();
-            assertThat(captor.getValue()._body().maxTokens()).isEqualTo(1024L);
+            assertThat(captor.getValue()._body().maxTokens()).isEqualTo((long) TEST_MAX_TOKENS);
         }
     }
 
@@ -1905,7 +2112,7 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
-        @DisplayName("Standard variants send maxTokens=1024 and no thinking config")
+        @DisplayName("Standard variants send the configured maxTokens and no thinking config")
         void standardVariants_sendDefaultMaxTokensNoThinking() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
@@ -1924,13 +2131,13 @@ class BriefingBestBetAdvisorTest {
             List<MessageCreateParams> params = captor.getAllValues();
 
             // HAIKU (0), SONNET (1), OPUS (3) — no thinking
-            assertThat(params.get(0)._body().maxTokens()).isEqualTo(1024L);
+            assertThat(params.get(0)._body().maxTokens()).isEqualTo((long) TEST_MAX_TOKENS);
             assertThat(params.get(0)._body().thinking()).isEmpty();
 
-            assertThat(params.get(1)._body().maxTokens()).isEqualTo(1024L);
+            assertThat(params.get(1)._body().maxTokens()).isEqualTo((long) TEST_MAX_TOKENS);
             assertThat(params.get(1)._body().thinking()).isEmpty();
 
-            assertThat(params.get(3)._body().maxTokens()).isEqualTo(1024L);
+            assertThat(params.get(3)._body().maxTokens()).isEqualTo((long) TEST_MAX_TOKENS);
             assertThat(params.get(3)._body().thinking()).isEmpty();
         }
 

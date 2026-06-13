@@ -182,6 +182,63 @@ class PromptUtilsTest {
         }
     }
 
+    // ── balancedObjectAt ─────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("balancedObjectAt")
+    class BalancedObjectAtTests {
+
+        @Test
+        void returnsBalancedObjectFromStart() {
+            String input = "{\"rank\":1}, {\"rank\":2}";
+            assertThat(PromptUtils.balancedObjectAt(input, 0)).isEqualTo("{\"rank\":1}");
+        }
+
+        @Test
+        void returnsBalancedObjectFromMidString() {
+            String input = "[{\"rank\":1},{\"rank\":2}]";
+            int second = input.lastIndexOf('{');
+            assertThat(PromptUtils.balancedObjectAt(input, second)).isEqualTo("{\"rank\":2}");
+        }
+
+        @Test
+        void truncatedObjectReturnsNull() {
+            // The distinguishing behaviour: a never-closing object yields null, not the original.
+            String input = "{\"rank\":2,\"differsBy";
+            assertThat(PromptUtils.balancedObjectAt(input, 0)).isNull();
+        }
+
+        @Test
+        void bracesInsideStringsDoNotCount() {
+            String input = "{\"detail\":\"a } brace { inside\"}";
+            assertThat(PromptUtils.balancedObjectAt(input, 0)).isEqualTo(input);
+        }
+
+        @Test
+        void escapedQuoteInsideStringHandled() {
+            String input = "{\"detail\":\"she said \\\"hi\\\"\"}";
+            assertThat(PromptUtils.balancedObjectAt(input, 0)).isEqualTo(input);
+        }
+
+        @Test
+        void nestedObjectsBalanced() {
+            String input = "{\"a\":{\"b\":1}}trailing";
+            assertThat(PromptUtils.balancedObjectAt(input, 0)).isEqualTo("{\"a\":{\"b\":1}}");
+        }
+
+        @Test
+        void indexNotAtBraceReturnsNull() {
+            assertThat(PromptUtils.balancedObjectAt("x{\"a\":1}", 0)).isNull();
+        }
+
+        @Test
+        void nullOrOutOfRangeReturnsNull() {
+            assertThat(PromptUtils.balancedObjectAt(null, 0)).isNull();
+            assertThat(PromptUtils.balancedObjectAt("{}", -1)).isNull();
+            assertThat(PromptUtils.balancedObjectAt("{}", 5)).isNull();
+        }
+    }
+
     // ── insertBeforeSuffix ──────────────────────────────────────────────
 
     @Nested
