@@ -314,8 +314,11 @@ public class BriefingBestBetAdvisor {
             - Do NOT include relationship or differsBy on Pick 1.
             - If neither tier produces a strong candidate, return a single-element array.
             If everything is STANDDOWN, return a single pick with event and region as null.
-            Return ONLY a JSON object — no preamble, no explanation, no code fences,
-            no markdown. Your entire response must begin with { and end with }.
+            Reason concisely, then output ONLY the JSON object. Keep any deliberation to a
+            few short lines — do NOT write extended "key observations", repeated same-slot
+            analysis, or back-and-forth "actually, wait..." paragraphs. That verbosity has
+            consumed the response budget and truncated the JSON before it could finish.
+            Emit no code fences and no markdown, and write nothing after the closing brace.
 
             CRITICAL CONSTRAINTS — violating any of these makes your response invalid:
             - Only recommend events present in the "validEvents" array. Never invent,
