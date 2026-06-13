@@ -130,6 +130,10 @@ photocast:
                             # response mid-field (~3656 chars), producing invalid JSON and
                             # zero persisted picks. 4096 clears a full reasoning-plus-two-picks
                             # response with headroom. Configurable without a redeploy.
+    fallback-max-age-hours: 30  # age ceiling for the fail-safe stale fallback served when a
+                                # cycle's advisor FAILED: a prior successful pick older than this
+                                # (or whose event has passed) is NOT resurrected — the API shows
+                                # the honest empty state instead. ~30h ≈ one nightly + intraday.
   batch:
     min-prefetch-success-ratio: 0.5  # abort batch if fewer than 50% of weather fetches succeed
   pipeline:

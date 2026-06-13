@@ -11,6 +11,8 @@ import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AuroraTonightSummary;
 import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.BestBet;
+import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRefreshedEvent;
@@ -90,6 +92,8 @@ class BriefingServiceTest {
     private BriefingEvaluationService briefingEvaluationService;
     @Mock
     private EvaluationViewService evaluationViewService;
+    @Mock
+    private com.gregochr.goldenhour.service.pipeline.BestBetFallbackService bestBetFallbackService;
 
     private BriefingService briefingService;
 
@@ -130,7 +134,7 @@ class BriefingServiceTest {
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
-                briefingEvaluationService, evaluationViewService);
+                briefingEvaluationService, evaluationViewService, bestBetFallbackService);
     }
 
     @Nested
@@ -207,6 +211,73 @@ class BriefingServiceTest {
         assertThat(cached).isNotNull();
         assertThat(cached.days()).hasSize(4);
         assertThat(cached.headline()).isNotBlank();
+    }
+
+    @Nested
+    @DisplayName("Serve-time best-bet fallback (getCachedBriefingForApi)")
+    class ServeTimeFallback {
+
+        /** Drives a refresh whose advisor returns the given outcome, leaving it in the cache. */
+        private void refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult result) {
+            LocationEntity loc = location("Durham", null);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+            when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                    .thenAnswer(inv -> ((List<?>) inv.getArgument(0)).stream()
+                            .map(c -> buildForecastResponse()).toList());
+            when(bestBetAdvisor.advise(anyList(), any(), any())).thenReturn(result);
+            briefingService.refreshBriefing();
+        }
+
+        private BestBet fallbackPick() {
+            return new BestBet(1, "Last good pick", "From earlier.", "2026-06-14_sunset",
+                    "Northumberland", Confidence.HIGH, null, "Tomorrow", "sunset", null);
+        }
+
+        @Test
+        @DisplayName("FAILED status + fresh fallback → API substitutes the stale picks")
+        void failedWithFallback_substitutesStalePicks() {
+            refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult.failed());
+            when(bestBetFallbackService.findFreshFallback()).thenReturn(List.of(fallbackPick()));
+
+            DailyBriefingResponse api = briefingService.getCachedBriefingForApi();
+
+            assertThat(api.bestBetStatus())
+                    .isEqualTo(com.gregochr.goldenhour.model.BestBetStatus.FAILED);
+            assertThat(api.bestBets()).hasSize(1);
+            assertThat(api.bestBets().get(0).headline()).isEqualTo("Last good pick");
+        }
+
+        @Test
+        @DisplayName("FAILED status + no fresh fallback → honest empty state preserved")
+        void failedWithoutFallback_keepsEmpty() {
+            refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult.failed());
+            when(bestBetFallbackService.findFreshFallback()).thenReturn(List.of());
+
+            DailyBriefingResponse api = briefingService.getCachedBriefingForApi();
+
+            assertThat(api.bestBetStatus())
+                    .isEqualTo(com.gregochr.goldenhour.model.BestBetStatus.FAILED);
+            assertThat(api.bestBets()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("SUCCESS_NO_PICKS (honest decline) → fallback NOT consulted, empty preserved")
+        void honestDecline_doesNotConsultFallback() {
+            refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult.noPicks());
+
+            DailyBriefingResponse api = briefingService.getCachedBriefingForApi();
+
+            assertThat(api.bestBetStatus())
+                    .isEqualTo(com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_NO_PICKS);
+            assertThat(api.bestBets()).isEmpty();
+            verify(bestBetFallbackService, never()).findFreshFallback();
+        }
     }
 
     @Nested
@@ -440,7 +511,7 @@ class BriefingServiceTest {
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
-                briefingEvaluationService, evaluationViewService);
+                briefingEvaluationService, evaluationViewService, bestBetFallbackService);
         freshService.loadPersistedBriefing();
 
         DailyBriefingResponse cached = freshService.getCachedBriefing();
@@ -471,7 +542,7 @@ class BriefingServiceTest {
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
-                briefingEvaluationService, evaluationViewService);
+                briefingEvaluationService, evaluationViewService, bestBetFallbackService);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -495,7 +566,7 @@ class BriefingServiceTest {
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
-                briefingEvaluationService, evaluationViewService);
+                briefingEvaluationService, evaluationViewService, bestBetFallbackService);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -1033,7 +1104,7 @@ class BriefingServiceTest {
                     bluebellGlossService, auroraSummaryBuilder,
                     new BriefingHierarchyBuilder(verdictEvaluator),
                     slotBuilder, eventPublisher, hotTopicAggregator,
-                    briefingEvaluationService, evaluationViewService);
+                    briefingEvaluationService, evaluationViewService, bestBetFallbackService);
             freshService.loadPersistedBriefing();
 
             // Trigger below-threshold refresh: 1 location, batch throws → succeeded=0, failed=1
