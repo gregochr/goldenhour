@@ -1174,6 +1174,63 @@ describe('DailyBriefing', () => {
       expect(screen.getByTestId('best-bet-empty')).toBeInTheDocument();
     });
 
+    it('FAILED status with fallback picks → banner WITH stale chip', async () => {
+      useAuth.mockReturnValue({ role: 'PRO_USER' });
+      getDailyBriefing.mockResolvedValue({
+        ...buildBriefing(),
+        bestBetStatus: 'FAILED',
+        bestBets: [
+          { rank: 1, headline: 'Last good pick', detail: 'From earlier.',
+            event: 'tomorrow_sunset', region: 'Northumberland', confidence: 'high' },
+        ],
+      });
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('best-bet-banner'));
+      expect(screen.getByTestId('best-bet-stale')).toBeInTheDocument();
+      expect(screen.queryByTestId('best-bet-empty')).toBeNull();
+    });
+
+    it('SUCCESS_WITH_PICKS → banner WITHOUT stale chip', async () => {
+      useAuth.mockReturnValue({ role: 'PRO_USER' });
+      getDailyBriefing.mockResolvedValue({
+        ...buildBriefing(),
+        bestBetStatus: 'SUCCESS_WITH_PICKS',
+        bestBets: [
+          { rank: 1, headline: 'Fresh pick', detail: 'Clear.',
+            event: 'tomorrow_sunset', region: 'Northumberland', confidence: 'high' },
+        ],
+      });
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('best-bet-banner'));
+      expect(screen.queryByTestId('best-bet-stale')).toBeNull();
+    });
+
+    it('FAILED status with no fallback picks → honest empty state (no stale chip)', async () => {
+      useAuth.mockReturnValue({ role: 'PRO_USER' });
+      getDailyBriefing.mockResolvedValue({
+        ...buildBriefing(),
+        bestBetStatus: 'FAILED',
+        bestBets: [],
+      });
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      expect(screen.queryByTestId('best-bet-banner')).toBeNull();
+      expect(screen.queryByTestId('best-bet-stale')).toBeNull();
+      expect(screen.getByTestId('best-bet-empty')).toBeInTheDocument();
+    });
+
+    it('SUCCESS_NO_PICKS → honest empty state', async () => {
+      useAuth.mockReturnValue({ role: 'PRO_USER' });
+      getDailyBriefing.mockResolvedValue({
+        ...buildBriefing(),
+        bestBetStatus: 'SUCCESS_NO_PICKS',
+        bestBets: [],
+      });
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      expect(screen.getByTestId('best-bet-empty')).toBeInTheDocument();
+    });
+
     it('does not render empty state for LITE_USER when bestBets is absent', async () => {
       useAuth.mockReturnValue({ role: 'LITE_USER' });
       getDailyBriefing.mockResolvedValue(buildBriefing());

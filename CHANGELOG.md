@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Best-bet status contract (commit 2/3: frontend switches on the status)
+- **Why.** With the backend now asserting `bestBetStatus`, the Planner stops inferring failure-vs-honest from an empty array. The empty-state copy ("No standout recommendations…") is reserved for genuine no-picks; a failure shows the fallback picks (commit 3) flagged stale instead of a misleading blank.
+- **The switch.** `DailyBriefing` keys off `briefing.bestBetStatus`: picks present → `BestBetBanner` (a `FAILED` status means commit 3 served a fallback, so the banner shows a stale chip — "From an earlier forecast — today's update didn't complete…"); no picks → the honest empty state (`SUCCESS_NO_PICKS`, or `FAILED` with no fresh-enough fallback). A missing/legacy status falls back to the previous infer-from-length behaviour, so old cached payloads render unchanged.
+- **Proof.** New `DailyBriefing` tests: `FAILED` + fallback picks → banner with `best-bet-stale` chip; `SUCCESS_WITH_PICKS` → banner, no chip; `FAILED` + no picks → honest empty, no chip; `SUCCESS_NO_PICKS` → honest empty. 116 frontend tests green.
+
 ### Added — Best-bet outcome status contract (commit 1/3: backend truth)
 - **Why.** An empty Best Bet had two opposite meanings the API could not express: the advisor ran and honestly found nothing (a flat week — show the empty state) versus the advisor failed and lost a good pick (fall back to the last good pick). They look identical as an empty array, which is exactly what let the truncation bug masquerade as honest-decline for weeks. The fix: the advisor layer — the only layer that knows which happened — returns an explicit status, and downstream layers switch on it.
 - **The contract.** New `BestBetStatus { SUCCESS_WITH_PICKS, SUCCESS_NO_PICKS, FAILED }` and `BestBetResult(status, picks)`. `BriefingBestBetAdvisor.advise()` now returns `BestBetResult`: parsed/salvaged picks → `SUCCESS_WITH_PICKS`; a clean `{"picks":[]}` → `SUCCESS_NO_PICKS`; an exception, unparseable-with-nothing-salvageable, or every pick rejected by validation → `FAILED`. The status REPORTS which existing path was taken — selection, ranking, salvage, and coverage gates are untouched. Salvaging ≥1 valid pick from a truncated response is `SUCCESS_WITH_PICKS`, not `FAILED`.
