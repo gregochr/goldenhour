@@ -18,6 +18,8 @@ import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BestBet;
+import com.gregochr.goldenhour.model.BestBetResult;
+import com.gregochr.goldenhour.model.BestBetStatus;
 import com.gregochr.goldenhour.model.DiffersBy;
 import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.model.BriefingDay;
@@ -447,17 +449,24 @@ public class BriefingBestBetAdvisor {
     }
 
     /**
-     * Produces Claude-generated best-bet picks from the post-triage region rollup data.
+     * Produces Claude-generated best-bet picks from the post-triage region rollup data,
+     * carrying an explicit {@link BestBetStatus} so callers can tell an honest empty result
+     * apart from a failure.
      *
-     * <p>Any failure (network error, timeout, parse failure) returns an empty list so the
-     * briefing always loads — the frontend falls back to the mechanical headline.
+     * <p>The status REPORTS which internal path was taken; it never changes the selection or
+     * ranking. {@link BestBetStatus#SUCCESS_WITH_PICKS} when usable picks survived (including
+     * picks salvaged from a truncated response); {@link BestBetStatus#SUCCESS_NO_PICKS} when
+     * the advisor honestly returned an empty pick set; {@link BestBetStatus#FAILED} on an
+     * exception, an unparseable response with nothing salvageable, or when every parsed pick
+     * was rejected by validation (nothing usable came back). The briefing always loads
+     * regardless — the frontend switches on the status.
      *
      * @param days      the fully assembled briefing days (triage complete)
      * @param jobRunId  the current briefing job run ID for API call logging
      * @param driveMap  unused — retained for API compatibility (pass {@code Map.of()})
-     * @return list of best-bet picks (1–2 items normally; empty on failure)
+     * @return the advisor outcome (status + picks)
      */
-    public List<BestBet> advise(List<BriefingDay> days, Long jobRunId,
+    public BestBetResult advise(List<BriefingDay> days, Long jobRunId,
             Map<String, Integer> driveMap) {
         try {
             EvaluationModel model = modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET);
@@ -495,15 +504,26 @@ public class BriefingBestBetAdvisor {
                     durationMs, 200, raw, true, null,
                     model, null, null);
 
-            List<BestBet> parsed = parseBestBets(raw);
-            logResponseDisposition(stopReason, parsed.size(), raw.length(), jobRunId);
+            BestBetResult parsed = classifyAndParse(raw);
+            logResponseDisposition(stopReason, parsed.picks().size(), raw.length(), jobRunId);
+            if (parsed.status() != BestBetStatus.SUCCESS_WITH_PICKS) {
+                // SUCCESS_NO_PICKS (honest decline) or FAILED — nothing to validate/enrich.
+                return parsed;
+            }
             List<BestBet> validated = validateAndFilterPicks(
-                    parsed, rollup.validEvents(), rollup.validRegions(), rollup.validDayNames());
+                    parsed.picks(), rollup.validEvents(), rollup.validRegions(), rollup.validDayNames());
             List<BestBet> covered = applyCoverageAwareRanking(validated, rollup.coverageByKey());
-            return enrichWithEventData(covered, days);
+            List<BestBet> enriched = enrichWithEventData(covered, days);
+            if (enriched.isEmpty()) {
+                // Picks parsed but none survived validation — nothing usable came back.
+                LOG.warn("Best-bet advisor parsed picks but all failed validation — FAILED "
+                        + "(jobRunId={})", jobRunId);
+                return BestBetResult.failed();
+            }
+            return BestBetResult.withPicks(enriched);
         } catch (Exception e) {
-            LOG.warn("Best-bet advisor failed — returning empty picks (fallback to headline)", e);
-            return List.of();
+            LOG.warn("Best-bet advisor failed — returning FAILED status (fallback to headline)", e);
+            return BestBetResult.failed();
         }
     }
 
@@ -1331,12 +1351,37 @@ public class BriefingBestBetAdvisor {
     /**
      * Parses the Claude JSON response into a list of {@link BestBet} records.
      *
+     * <p>Thin convenience wrapper over {@link #classifyAndParse(String)} that discards the
+     * outcome status. Retained for callers that only need the picks (e.g. the model-comparison
+     * utility); {@link #advise} uses {@code classifyAndParse} directly so it can report the
+     * status.
+     *
      * @param raw the raw Claude response text
      * @return parsed picks, or empty list if parsing fails
      */
     List<BestBet> parseBestBets(String raw) {
+        return classifyAndParse(raw).picks();
+    }
+
+    /**
+     * Parses the Claude JSON response and classifies the outcome into a {@link BestBetResult}.
+     *
+     * <p>Mapping:
+     * <ul>
+     *   <li>blank/missing content, a missing or non-array {@code picks} field, or an
+     *       unparseable response from which nothing could be salvaged → {@code FAILED};</li>
+     *   <li>a valid but empty {@code picks} array → {@code SUCCESS_NO_PICKS} (honest decline);</li>
+     *   <li>one or more parsed picks, including picks salvaged from a truncated response →
+     *       {@code SUCCESS_WITH_PICKS}.</li>
+     * </ul>
+     *
+     * @param raw the raw Claude response text
+     * @return the parse outcome (status + picks)
+     */
+    BestBetResult classifyAndParse(String raw) {
         if (raw == null || raw.isBlank()) {
-            return List.of();
+            LOG.warn("Best-bet response was blank — FAILED");
+            return BestBetResult.failed();
         }
         String cleaned = PromptUtils.stripCodeFences(raw);
         try {
@@ -1344,19 +1389,19 @@ public class BriefingBestBetAdvisor {
             JsonNode root = objectMapper.readTree(extracted);
             JsonNode picksNode = root.get("picks");
             if (picksNode == null || !picksNode.isArray()) {
-                LOG.warn("Best-bet response missing 'picks' array");
-                return List.of();
+                LOG.warn("Best-bet response missing 'picks' array — FAILED");
+                return BestBetResult.failed();
             }
             if (picksNode.isEmpty()) {
                 LOG.info("Best-bet response contained an empty 'picks' array (honest decline)");
-                return List.of();
+                return BestBetResult.noPicks();
             }
             List<BestBet> picks = new ArrayList<>();
             for (JsonNode pick : picksNode) {
                 picks.add(parsePickNode(pick));
             }
             LOG.info("Best-bet advisor returned {} pick(s)", picks.size());
-            return List.copyOf(picks);
+            return BestBetResult.withPicks(picks);
         } catch (Exception e) {
             // Atomic parse failed — the response is structurally invalid, the classic
             // signature being a response truncated mid-pick when the model hit max_tokens.
@@ -1367,14 +1412,14 @@ public class BriefingBestBetAdvisor {
             if (!salvaged.isEmpty()) {
                 LOG.warn("Best-bet response was not valid JSON (likely truncated mid-pick) — "
                         + "salvaged {} complete pick(s) from the partial response", salvaged.size());
-                return salvaged;
+                return BestBetResult.withPicks(salvaged);
             }
             String preview = raw.length() > 4000
                     ? raw.substring(0, 4000) + "...<truncated>"
                     : raw;
             LOG.warn("Failed to parse best-bet response and no picks could be salvaged — "
-                    + "returning empty. Raw response was:\n{}", preview, e);
-            return List.of();
+                    + "FAILED. Raw response was:\n{}", preview, e);
+            return BestBetResult.failed();
         }
     }
 

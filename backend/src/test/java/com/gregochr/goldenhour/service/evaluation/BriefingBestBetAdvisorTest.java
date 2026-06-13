@@ -16,6 +16,8 @@ import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.model.BestBet;
+import com.gregochr.goldenhour.model.BestBetResult;
+import com.gregochr.goldenhour.model.BestBetStatus;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.DiffersBy;
@@ -366,7 +368,7 @@ class BriefingBestBetAdvisorTest {
                     new BriefingEventSummary(TargetType.SUNSET,
                             List.of(region("Northumberland", Verdict.GO, 3, 0, 0)), List.of()))));
 
-            List<BestBet> picks = advisor.advise(days, 99L, Map.of());
+            List<BestBet> picks = advisor.advise(days, 99L, Map.of()).picks();
 
             assertThat(picks).hasSize(1);
             assertThat(picks.get(0).region()).isEqualTo("Northumberland");
@@ -391,7 +393,7 @@ class BriefingBestBetAdvisorTest {
                     new BriefingEventSummary(TargetType.SUNSET,
                             List.of(region("Northumberland", Verdict.GO, 3, 0, 0)), List.of()))));
 
-            List<BestBet> picks = advisor.advise(days, 7L, Map.of());
+            List<BestBet> picks = advisor.advise(days, 7L, Map.of()).picks();
 
             assertThat(picks).isEmpty();
             assertThat(appender.list).noneMatch(e ->
@@ -432,6 +434,102 @@ class BriefingBestBetAdvisorTest {
             when(message.content()).thenReturn(List.of(contentBlock));
             when(message.stopReason()).thenReturn(java.util.Optional.of(stopReason));
             return message;
+        }
+    }
+
+    // ── classifyAndParse — status mapping ──
+
+    @Nested
+    @DisplayName("classifyAndParse — outcome status mapping")
+    class StatusMappingTests {
+
+        @Test
+        @DisplayName("Parsed picks → SUCCESS_WITH_PICKS")
+        void picksMapToSuccessWithPicks() {
+            String raw = "{\"picks\":[{\"rank\":1,\"headline\":\"h\",\"detail\":\"d\","
+                    + "\"event\":\"2026-06-15_sunset\",\"region\":\"R\",\"confidence\":\"high\"}]}";
+            BestBetResult result = advisor.classifyAndParse(raw);
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_WITH_PICKS);
+            assertThat(result.picks()).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("Clean empty picks array → SUCCESS_NO_PICKS (honest decline)")
+        void emptyArrayMapsToNoPicks() {
+            BestBetResult result = advisor.classifyAndParse("{\"picks\":[]}");
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_NO_PICKS);
+            assertThat(result.picks()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Unparseable response with nothing salvageable → FAILED")
+        void unparseableMapsToFailed() {
+            BestBetResult result = advisor.classifyAndParse("I cannot help with that.");
+            assertThat(result.status()).isEqualTo(BestBetStatus.FAILED);
+            assertThat(result.picks()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Blank response → FAILED")
+        void blankMapsToFailed() {
+            assertThat(advisor.classifyAndParse("   ").status()).isEqualTo(BestBetStatus.FAILED);
+        }
+
+        @Test
+        @DisplayName("Missing 'picks' key → FAILED")
+        void missingPicksKeyMapsToFailed() {
+            BestBetResult result = advisor.classifyAndParse("{\"other\":true}");
+            assertThat(result.status()).isEqualTo(BestBetStatus.FAILED);
+        }
+
+        @Test
+        @DisplayName("Truncated rank-2 with salvageable rank-1 → SUCCESS_WITH_PICKS")
+        void salvagedOneOfTwoMapsToSuccessWithPicks() {
+            String raw = "{\"picks\":[{\"rank\":1,\"headline\":\"h\",\"detail\":\"d\","
+                    + "\"event\":\"2026-06-15_sunset\",\"region\":\"R\",\"confidence\":\"high\"},"
+                    + "{\"rank\":2,\"headline\":\"h2\",\"differsBy";
+            BestBetResult result = advisor.classifyAndParse(raw);
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_WITH_PICKS);
+            assertThat(result.picks()).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("advise(): parsed picks all fail validation → FAILED (nothing usable)")
+        void adviseAllInvalidMapsToFailed() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneId.of("Europe/London")).plusDays(1);
+            // Pick names a region NOT present in the rollup → validation drops it.
+            String raw = "{\"picks\":[{\"rank\":1,\"headline\":\"h\",\"detail\":\"d\",\"event\":\""
+                    + tomorrow + "_sunset\",\"region\":\"Atlantis\",\"confidence\":\"high\"}]}";
+            TextBlock tb = mock(TextBlock.class);
+            when(tb.text()).thenReturn(raw);
+            ContentBlock cb = mock(ContentBlock.class);
+            when(cb.isText()).thenReturn(true);
+            when(cb.asText()).thenReturn(tb);
+            Message message = mock(Message.class);
+            when(message.content()).thenReturn(List.of(cb));
+            when(anthropicApiClient.createMessage(any())).thenReturn(message);
+
+            List<BriefingDay> days = List.of(new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET,
+                            List.of(region("Northumberland", Verdict.GO, 3, 0, 0)), List.of()))));
+
+            BestBetResult result = advisor.advise(days, 1L, Map.of());
+            assertThat(result.status()).isEqualTo(BestBetStatus.FAILED);
+            assertThat(result.picks()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("advise(): exception from API → FAILED")
+        void adviseExceptionMapsToFailed() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            when(anthropicApiClient.createMessage(any()))
+                    .thenThrow(new RuntimeException("boom"));
+
+            BestBetResult result = advisor.advise(List.of(), 1L, Map.of());
+            assertThat(result.status()).isEqualTo(BestBetStatus.FAILED);
         }
     }
 
@@ -958,7 +1056,7 @@ class BriefingBestBetAdvisorTest {
                     new BriefingDay(farDate, List.of(new BriefingEventSummary(TargetType.SUNSET,
                             List.of(region(NORTHUMBERLAND, Verdict.GO, 23, 0, 0)), List.of()))));
 
-            List<BestBet> picks = advisor.advise(days, 42L, Map.of());
+            List<BestBet> picks = advisor.advise(days, 42L, Map.of()).picks();
 
             assertThat(picks).hasSize(2);
             assertThat(picks.get(0).region()).isEqualTo(NORTH_YORKS);
@@ -1370,7 +1468,7 @@ class BriefingBestBetAdvisorTest {
                     .thenThrow(new RuntimeException("overloaded — simulated failure"));
             when(auroraStateCache.isActive()).thenReturn(false);
 
-            List<BestBet> picks = advisor.advise(List.of(), 42L, Map.of());
+            List<BestBet> picks = advisor.advise(List.of(), 42L, Map.of()).picks();
             assertThat(picks).isEmpty();
         }
 
@@ -1397,7 +1495,7 @@ class BriefingBestBetAdvisorTest {
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
                             region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
-            List<BestBet> picks = advisor.advise(List.of(day), 42L, Map.of());
+            List<BestBet> picks = advisor.advise(List.of(day), 42L, Map.of()).picks();
             assertThat(picks).hasSize(1);
             assertThat(picks.get(0).region()).isEqualTo("Northumberland");
         }
@@ -1427,7 +1525,7 @@ class BriefingBestBetAdvisorTest {
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
                             regionWithTime("Northumberland", Verdict.GO, 3, 0, 0, eventTime)
                     ), List.of())));
-            List<BestBet> picks = advisor.advise(List.of(day), 42L, Map.of());
+            List<BestBet> picks = advisor.advise(List.of(day), 42L, Map.of()).picks();
             assertThat(picks).hasSize(1);
             BestBet pick = picks.get(0);
             assertThat(pick.dayName()).isEqualTo("Tomorrow");
@@ -1453,7 +1551,7 @@ class BriefingBestBetAdvisorTest {
             when(message.content()).thenReturn(List.of(contentBlock));
             when(anthropicApiClient.createMessage(any())).thenReturn(message);
 
-            List<BestBet> picks = advisor.advise(List.of(), 42L, Map.of());
+            List<BestBet> picks = advisor.advise(List.of(), 42L, Map.of()).picks();
             assertThat(picks).hasSize(1);
             BestBet pick = picks.get(0);
             assertThat(pick.dayName()).isNull();
@@ -1531,7 +1629,7 @@ class BriefingBestBetAdvisorTest {
                             regionWithTime("Northumberland", Verdict.GO, 2, 0, 0, sunsetTime)),
                             List.of())));
 
-            List<BestBet> picks = advisor.advise(List.of(day), 42L, Map.of());
+            List<BestBet> picks = advisor.advise(List.of(day), 42L, Map.of()).picks();
 
             assertThat(picks).hasSize(2);
             // Rank 1 should have null relationship (not set by Claude)
@@ -1579,7 +1677,7 @@ class BriefingBestBetAdvisorTest {
                             regionWithTime("The Lake District", Verdict.GO, 2, 0, 0, sunsetTime)),
                             List.of())));
 
-            List<BestBet> picks = advisor.advise(List.of(day), 42L, Map.of());
+            List<BestBet> picks = advisor.advise(List.of(day), 42L, Map.of()).picks();
 
             assertThat(picks).hasSize(2);
             assertThat(picks.get(1).relationship()).isEqualTo(Relationship.SAME_SLOT);
@@ -1627,7 +1725,7 @@ class BriefingBestBetAdvisorTest {
                             regionWithTime("Northumberland", Verdict.GO, 2, 0, 0, sunsetTime)),
                             List.of())));
 
-            List<BestBet> picks = advisor.advise(List.of(day), 42L, Map.of());
+            List<BestBet> picks = advisor.advise(List.of(day), 42L, Map.of()).picks();
 
             // Find the aurora pick (may be rank 1 or 2 after validation)
             BestBet auroraPick = picks.stream()

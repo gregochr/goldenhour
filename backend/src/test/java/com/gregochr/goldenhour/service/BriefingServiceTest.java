@@ -99,7 +99,7 @@ class BriefingServiceTest {
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any()))
-                .thenReturn(java.util.List.of());
+                .thenReturn(com.gregochr.goldenhour.model.BestBetResult.noPicks());
         // Gloss service: pass-through by default (return input days unchanged)
         org.mockito.Mockito.lenient().when(glossService.generateGlosses(
                 org.mockito.ArgumentMatchers.anyList(),

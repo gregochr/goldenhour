@@ -53,6 +53,16 @@ public class PipelineRunEntity {
     @Column(name = "failure_reason", length = 500)
     private String failureReason;
 
+    /**
+     * The best-bet advisor's outcome for this cycle: {@code SUCCESS_WITH_PICKS},
+     * {@code SUCCESS_NO_PICKS} (honest decline), or {@code FAILED}. Distinguishes "flat week"
+     * from "advisor broke" in the run history and feeds the cross-run comparison; null on runs
+     * that predate the status contract or whose briefing was served stale.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "best_bet_status", length = 20)
+    private com.gregochr.goldenhour.model.BestBetStatus bestBetStatus;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -153,6 +163,14 @@ public class PipelineRunEntity {
 
     public void setFailureReason(String failureReason) {
         this.failureReason = failureReason;
+    }
+
+    public com.gregochr.goldenhour.model.BestBetStatus getBestBetStatus() {
+        return bestBetStatus;
+    }
+
+    public void setBestBetStatus(com.gregochr.goldenhour.model.BestBetStatus bestBetStatus) {
+        this.bestBetStatus = bestBetStatus;
     }
 
     public Instant getCreatedAt() {

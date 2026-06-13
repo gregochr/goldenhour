@@ -172,6 +172,27 @@ public class PipelineRunService {
     }
 
     /**
+     * Records the best-bet advisor's outcome for this run.
+     *
+     * <p>Distinct from the run's lifecycle {@code status}: a COMPLETED run can carry any of
+     * the three best-bet outcomes. A no-op on a null status (nothing to record). Never throws
+     * into the caller's path beyond a missing-run lookup, which is a programmer error.
+     *
+     * @param runId  pipeline run id
+     * @param status the best-bet outcome (ignored if null)
+     */
+    @Transactional
+    public void recordBestBetStatus(Long runId, com.gregochr.goldenhour.model.BestBetStatus status) {
+        if (status == null) {
+            return;
+        }
+        PipelineRunEntity run = pipelineRunRepository.findById(runId).orElseThrow();
+        run.setBestBetStatus(status);
+        pipelineRunRepository.save(run);
+        LOG.info("Pipeline run {}: best-bet status {}", runId, status);
+    }
+
+    /**
      * Finds all pipeline runs currently in RUNNING status.
      *
      * <p>Called on application startup by the orchestrator to detect runs that
