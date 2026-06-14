@@ -56,8 +56,24 @@ public class ClaudeAuroraInterpreter {
 
     private static final Logger LOG = LoggerFactory.getLogger(ClaudeAuroraInterpreter.class);
 
-    /** Maximum tokens for the aurora scoring response. */
-    static final int MAX_TOKENS = 1024;
+    /**
+     * Base token budget for the response envelope (array brackets, leading whitespace,
+     * any short preamble Claude emits despite the JSON-only instruction).
+     */
+    private static final int BASE_RESPONSE_TOKENS = 256;
+
+    /**
+     * Per-location token budget. Each entry carries a name, a star integer, a summary
+     * (up to 120 chars) and a 3–5 bullet detail block — roughly 150 tokens worst case;
+     * 220 leaves comfortable headroom so the JSON array is never truncated mid-object.
+     */
+    private static final int TOKENS_PER_LOCATION = 220;
+
+    /**
+     * Number of trailing {@code '}'} positions to probe when salvaging a truncated array.
+     * Bounds the recovery scan so a pathological response cannot spin.
+     */
+    private static final int MAX_SALVAGE_ATTEMPTS = 8;
 
     private static final DateTimeFormatter TIME_FMT =
             DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.of("Europe/London"));
@@ -171,7 +187,7 @@ public class ClaudeAuroraInterpreter {
         Message response = anthropicApiClient.createMessage(
                 MessageCreateParams.builder()
                         .model(model.getModelId())
-                        .maxTokens(MAX_TOKENS)
+                        .maxTokens(maxTokensFor(viableLocations.size()))
                         .systemOfTextBlockParams(List.of(
                                 TextBlockParam.builder().text(SYSTEM_PROMPT).build()))
                         .addUserMessage(userMessage)
@@ -185,6 +201,23 @@ public class ClaudeAuroraInterpreter {
                 .orElseThrow(() -> new IllegalStateException("Claude returned no text content"));
 
         return parseResponse(raw, level, viableLocations, cloudByLocation);
+    }
+
+    /**
+     * Computes the output token budget for an aurora response covering {@code locationCount}
+     * locations.
+     *
+     * <p>The aurora call scores every viable location in a single response, so a fixed cap
+     * truncates the JSON array once enough dark-sky locations are viable — leaving an
+     * unparseable response and an all-locations error fallback. Scaling the budget with the
+     * location count keeps the array complete. Shared by the synchronous and batch paths so
+     * they cannot drift.
+     *
+     * @param locationCount number of locations being scored (0 returns the base budget)
+     * @return max output tokens for the response
+     */
+    public static int maxTokensFor(int locationCount) {
+        return BASE_RESPONSE_TOKENS + Math.max(0, locationCount) * TOKENS_PER_LOCATION;
     }
 
     /**
@@ -375,7 +408,7 @@ public class ClaudeAuroraInterpreter {
 
         List<AuroraForecastScore> results = new ArrayList<>();
         try {
-            JsonNode root = objectMapper.readTree(cleaned);
+            JsonNode root = readArrayOrSalvage(cleaned);
 
             // Build a name→node lookup from the response for name-based matching
             Map<String, JsonNode> byName = new java.util.LinkedHashMap<>();
@@ -414,6 +447,63 @@ public class ClaudeAuroraInterpreter {
             }
         }
         return results;
+    }
+
+    /**
+     * Parses {@code cleaned} as a JSON array, salvaging the leading complete objects when the
+     * response was truncated mid-array (the typical symptom of an exhausted token budget).
+     *
+     * <p>Without salvage a single overrun makes {@link ObjectMapper#readTree} throw, which
+     * sends <em>every</em> location to the error fallback. Recovering the complete prefix means
+     * only the genuinely cut-off tail loses its score.
+     *
+     * @param cleaned fence-stripped response text
+     * @return the parsed (possibly salvaged) array node
+     * @throws RuntimeException if the text is neither valid JSON nor a salvageable array
+     */
+    private JsonNode readArrayOrSalvage(String cleaned) {
+        try {
+            return objectMapper.readTree(cleaned);
+        } catch (RuntimeException parseError) {
+            JsonNode salvaged = salvageTruncatedArray(cleaned);
+            if (salvaged == null) {
+                throw parseError;
+            }
+            LOG.warn("Aurora response was truncated; salvaged {} complete entries before the cut-off",
+                    salvaged.size());
+            return salvaged;
+        }
+    }
+
+    /**
+     * Attempts to recover a valid JSON array from a response truncated mid-object by trimming
+     * back to the last closing brace that yields a parseable array.
+     *
+     * @param cleaned fence-stripped response text
+     * @return the salvaged array node, or {@code null} if nothing could be recovered
+     */
+    private JsonNode salvageTruncatedArray(String cleaned) {
+        if (!cleaned.startsWith("[")) {
+            return null;
+        }
+        int searchEnd = cleaned.length();
+        for (int attempt = 0; attempt < MAX_SALVAGE_ATTEMPTS; attempt++) {
+            int lastBrace = cleaned.lastIndexOf('}', searchEnd - 1);
+            if (lastBrace < 0) {
+                return null;
+            }
+            String candidate = cleaned.substring(0, lastBrace + 1) + "]";
+            try {
+                JsonNode node = objectMapper.readTree(candidate);
+                if (node.isArray() && !node.isEmpty()) {
+                    return node;
+                }
+            } catch (RuntimeException ignored) {
+                // Truncation fell inside an earlier object — step back to the previous brace.
+            }
+            searchEnd = lastBrace;
+        }
+        return null;
     }
 
     private AuroraForecastScore fallbackScore(LocationEntity loc, AlertLevel level, int cloud) {
