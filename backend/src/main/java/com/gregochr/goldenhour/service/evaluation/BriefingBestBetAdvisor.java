@@ -197,19 +197,19 @@ public class BriefingBestBetAdvisor {
               Rationale: The best bet card is generated hours in advance and may be stale by
               the time the user reads it. The aurora banner handles real-time action prompts —
               the best bet card handles planning and preparation.
-            **CLAUDE EVALUATION SCORES**
+            **PHOTOCAST EVALUATION SCORES**
 
-            Some regions may include pre-computed Claude evaluation scores from the per-location \
-            drill-down. When present, these are MORE RELIABLE than the triage verdict counts \
-            (goCount, marginalCount) because they reflect full atmospheric analysis, not just \
-            threshold heuristics.
+            Some regions may include pre-computed PhotoCast evaluation scores from the \
+            per-location drill-down. When present, these are MORE RELIABLE than the triage \
+            verdict counts (goCount, marginalCount) because they reflect full atmospheric \
+            analysis, not just threshold heuristics.
 
-            - claudeRatedCount: how many locations were Claude-evaluated
+            - claudeRatedCount: how many locations were fully evaluated
             - claudeHighRatedCount: how many scored 4-5 stars (strong prospects)
             - claudeMediumRatedCount: how many scored exactly 3 stars (decent but not special)
             - claudeAverageRating: mean star rating across rated locations (1.0-5.0)
 
-            When Claude scores are present:
+            When PhotoCast scores are present:
             - Prefer regions with high claudeAverageRating (>3.5 is promising, >4.0 is excellent)
             - claudeHighRatedCount > 0 is a strong positive signal — real photographic potential
             - A region with goCount=5 but claudeAverageRating=2.0 is weaker than it looks
@@ -219,13 +219,13 @@ public class BriefingBestBetAdvisor {
             A high goCount is NOT evidence on its own — GO is a cheap threshold verdict, not a
             full evaluation. Only claudeRatedCount tells you how many locations were actually
             assessed. Do NOT crown a region as Pick 1 on a large goCount when only a couple of
-            its locations were Claude-evaluated (low claudeRatedCount) — especially a further-out
+            its locations were fully evaluated (low claudeRatedCount) — especially a further-out
             day. Prefer a nearer, better-evaluated region (higher claudeRatedCount) for the
             headline even if its peak rating is slightly lower. A strong-looking but thinly
             evaluated further-out region belongs in Pick 2 framed as a "firming up / worth
             watching" forward look, not as the confident headline.
 
-            When Claude scores are absent, fall back to the triage verdicts as before.
+            When PhotoCast scores are absent, fall back to the triage verdicts as before.
 
             - Lower wind speeds are better for long exposures and reflections
             - Comfort matters — extreme cold or high wind reduces the appeal
@@ -353,6 +353,12 @@ public class BriefingBestBetAdvisor {
             - weatherCode values → "clear skies", "partly cloudy", "overcast", "light rain", "fog" etc.
             - windSpeedMs → describe as "calm", "light wind", "breezy", or convert to mph (multiply by 2.24)
             - Do not write "weatherCode 0" or "windSpeedMs 3.5" — write "clear skies" or "8mph wind"
+
+            BRANDING: Never name the evaluation engine "Claude" or "Anthropic" in the headline
+            or detail. The product is "PhotoCast". Where you would credit the evaluation, write
+            "PhotoCast-rated", "PhotoCast-evaluated", or simply "rated"/"evaluated".
+            Good: "All ten locations rated excellent", "PhotoCast-evaluated locations all score top marks"
+            Bad: "All ten locations Claude-rated excellent", "all eight Claude-evaluated locations"
             """;
 
     private final AnthropicApiClient anthropicApiClient;
@@ -1434,8 +1440,8 @@ public class BriefingBestBetAdvisor {
      */
     private BestBet parsePickNode(JsonNode pick) {
         int rank = pick.path("rank").asInt(1);
-        String headline = pick.path("headline").asText(null);
-        String detail = pick.path("detail").asText(null);
+        String headline = PromptUtils.sanitizeBrand(pick.path("headline").asText(null));
+        String detail = PromptUtils.sanitizeBrand(pick.path("detail").asText(null));
         String event = pick.path("event").isNull()
                 ? null : pick.path("event").asText(null);
         String region = pick.path("region").isNull()

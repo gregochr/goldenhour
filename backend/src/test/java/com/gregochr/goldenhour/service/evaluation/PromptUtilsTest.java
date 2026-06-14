@@ -294,4 +294,53 @@ class PromptUtilsTest {
             assertThat(PromptUtils.median(new int[]{42})).isEqualTo(42);
         }
     }
+
+    // ── sanitizeBrand ───────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("sanitizeBrand")
+    class SanitizeBrandTests {
+
+        @Test
+        @DisplayName("replaces standalone Claude with PhotoCast")
+        void replacesStandaloneClaude() {
+            assertThat(PromptUtils.sanitizeBrand("Claude rated this excellent"))
+                    .isEqualTo("PhotoCast rated this excellent");
+        }
+
+        @Test
+        @DisplayName("replaces hyphenated forms, preserving the suffix")
+        void replacesHyphenatedForms() {
+            assertThat(PromptUtils.sanitizeBrand("All ten locations Claude-rated excellent"))
+                    .isEqualTo("All ten locations PhotoCast-rated excellent");
+            assertThat(PromptUtils.sanitizeBrand("all eight Claude-evaluated coastal locations"))
+                    .isEqualTo("all eight PhotoCast-evaluated coastal locations");
+        }
+
+        @Test
+        @DisplayName("replaces Anthropic and possessive forms")
+        void replacesAnthropicAndPossessive() {
+            assertThat(PromptUtils.sanitizeBrand("Anthropic's model says")).isEqualTo("PhotoCast's model says");
+            assertThat(PromptUtils.sanitizeBrand("Claude's verdict")).isEqualTo("PhotoCast's verdict");
+        }
+
+        @Test
+        @DisplayName("is case-insensitive")
+        void caseInsensitive() {
+            assertThat(PromptUtils.sanitizeBrand("CLAUDE and claude")).isEqualTo("PhotoCast and PhotoCast");
+        }
+
+        @Test
+        @DisplayName("does not touch substrings inside other words")
+        void leavesSubstringsAlone() {
+            assertThat(PromptUtils.sanitizeBrand("claudette clauded")).isEqualTo("claudette clauded");
+        }
+
+        @Test
+        @DisplayName("returns null and empty unchanged")
+        void handlesNullAndEmpty() {
+            assertThat(PromptUtils.sanitizeBrand(null)).isNull();
+            assertThat(PromptUtils.sanitizeBrand("")).isEmpty();
+        }
+    }
 }

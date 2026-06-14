@@ -1079,7 +1079,7 @@ class BriefingGlossServiceTest {
         }
 
         @Test
-        @DisplayName("System prompt mentions CLAUDE SCORES guidance")
+        @DisplayName("System prompt mentions PHOTOCAST SCORES guidance")
         void systemPromptContainsClaudeScoreGuidance() {
             stubModelSelection();
             Message response = mockResponse(
@@ -1097,7 +1097,7 @@ class BriefingGlossServiceTest {
             String systemPrompt = captor.getValue().system().get()
                     .asTextBlockParams().get(0).text();
 
-            assertThat(systemPrompt).contains("CLAUDE SCORES");
+            assertThat(systemPrompt).contains("PHOTOCAST SCORES");
             assertThat(systemPrompt).contains("claudeRatedCount");
             assertThat(systemPrompt).contains("claudeAverageRating");
         }

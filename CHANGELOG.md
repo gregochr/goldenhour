@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Rebrand model self-references to "PhotoCast" in briefing narratives
+- **Why.** The best-bet ("PhotoCast Planner") cards and per-region glosses surfaced phrases like "All ten locations Claude-rated excellent" — the model echoing "Claude" from the `claude*`-prefixed evaluation-score fields it reads in its input. User-facing copy should name the product, not the underlying model.
+- **Prompt-first fix.** Rebranded the prose in `BriefingBestBetAdvisor` and `BriefingGlossService` system prompts (section headers and descriptions now say "PhotoCast", e.g. "how many locations were fully evaluated") and added an explicit BRANDING rule instructing the model never to write "Claude"/"Anthropic" in the headline or detail. The JSON data keys (`claudeRatedCount` etc.) are unchanged — they are internal and depended on by the DB schema (V104), entity, frontend, and tests; only the human-readable vocabulary moved.
+- **Regex backstop.** New `PromptUtils.sanitizeBrand` replaces whole-word `Claude`/`Anthropic` (case-insensitive, hyphen/possessive-preserving) with `PhotoCast`. Applied to headline/detail at parse time in both services as a defensive net, since LLM output is never guaranteed. Tested in `PromptUtilsTest`; existing prompt-content assertions updated to the new headers.
+
 ### Added — Bluebell extraction (Pass 3, commit 2/5: BluebellVisitor + exposure rating role)
 - **Why.** With bluebell extracted into its own prompt (commit 1), the combiner needs a third visitor to fold the bluebell score into the rating — and to do so differently by exposure (OQ3), because woodland and open-fell bluebells photograph under opposite ideal weather.
 - **`BluebellVisitor`** (`type() == BLUEBELL`): applies to bluebell sites (a `BLUEBELL` location type with an exposure set) and produces a 1-5 score + the prompt's prose from a `BluebellEvaluation` on `VisitorContext`. The season gate is the same data-gap abstain `TideVisitor` uses — out of season the orchestration runs no bluebell prompt, the slice is null, and the visitor abstains (never a penalty). The summary re-exposes the bluebell prose so the persisted BLUEBELL component row carries its own narrative (consistent with Pass 2).
