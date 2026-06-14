@@ -9,7 +9,6 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -73,22 +72,6 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
      */
     Optional<ForecastEvaluationEntity> findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
             Long locationId, LocalDate targetDate, TargetType targetType);
-
-    /**
-     * Returns all evaluations for a set of locations within a date range that have a bluebell
-     * score populated. Used by {@code BluebellHotTopicStrategy} to surface seasonal hot topics.
-     *
-     * @param locationIds the location primary keys to query
-     * @param from        the start of the date range (inclusive)
-     * @param to          the end of the date range (inclusive)
-     * @return evaluations with non-null bluebell scores for the given locations and dates
-     */
-    @Query("SELECT e FROM ForecastEvaluationEntity e WHERE e.location.id IN :locationIds"
-            + " AND e.targetDate BETWEEN :from AND :to AND e.bluebellScore IS NOT NULL")
-    List<ForecastEvaluationEntity> findBluebellEvaluations(
-            @Param("locationIds") Collection<Long> locationIds,
-            @Param("from") LocalDate from,
-            @Param("to") LocalDate to);
 
     /**
      * Counts coastal locations with tide alignment for a given date, grouped by target type.

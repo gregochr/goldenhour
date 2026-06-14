@@ -273,11 +273,10 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
             String headline = node.has("headline")
                     ? node.get("headline").stringValue() : null;
             // Bluebell left the standard prompt in Pass 3 — it now has its own prompt/parser
-            // (parseBluebellEvaluation). The standard response no longer carries bluebell fields,
-            // so they are always null here until the legacy columns drop (Pass 3 commit 5).
+            // (parseBluebellEvaluation), so the colour evaluation carries no bluebell score.
             return new ParseResult(new SunsetEvaluation(rating, fierySky, goldenHour, summary,
                     basicFierySky, basicGoldenHour, basicSummary,
-                    inversionScore, inversionPotential, null, null,
+                    inversionScore, inversionPotential,
                     headline), false);
         } catch (Exception jsonException) {
             // Strict JSON parse failed — fall through to the greedy regex fallback and flag it so
@@ -367,10 +366,10 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
             Matcher headlineMatcher = HEADLINE_PATTERN.matcher(text);
             String headline = headlineMatcher.find() ? headlineMatcher.group(1) : null;
 
-            // Bluebell fields left the standard prompt in Pass 3 (own prompt/parser) — null here.
+            // Bluebell fields left the standard prompt in Pass 3 (own prompt/parser).
             return new SunsetEvaluation(rating, fierySky, goldenHour, summary,
                     basicFierySky, basicGoldenHour, basicSummary,
-                    inversionScore, inversionPotential, null, null,
+                    inversionScore, inversionPotential,
                     headline);
         }
 

@@ -1,10 +1,13 @@
 package com.gregochr.goldenhour.model;
 
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.ForecastScoreEntity;
+import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.service.LunarPhaseService;
 import com.gregochr.goldenhour.service.SolarService;
 import org.springframework.stereotype.Component;
@@ -30,19 +33,22 @@ public class ForecastDtoMapper {
     private final LunarPhaseService lunarPhaseService;
     private final SolarService solarService;
     private final SeasonalWindow bluebellSeason;
+    private final ForecastScoreRepository forecastScoreRepository;
 
     /**
      * Constructs a {@code ForecastDtoMapper}.
      *
-     * @param lunarPhaseService service for lunar phase and tide classification
-     * @param solarService      service for solar window calculations
-     * @param bluebellSeason    the configured bluebell season window
+     * @param lunarPhaseService       service for lunar phase and tide classification
+     * @param solarService            service for solar window calculations
+     * @param bluebellSeason          the configured bluebell season window
+     * @param forecastScoreRepository source of the Claude BLUEBELL rating (1–5) for the DTO
      */
     public ForecastDtoMapper(LunarPhaseService lunarPhaseService, SolarService solarService,
-            SeasonalWindow bluebellSeason) {
+            SeasonalWindow bluebellSeason, ForecastScoreRepository forecastScoreRepository) {
         this.lunarPhaseService = lunarPhaseService;
         this.solarService = solarService;
         this.bluebellSeason = bluebellSeason;
+        this.forecastScoreRepository = forecastScoreRepository;
     }
 
     /**
@@ -115,7 +121,10 @@ public class ForecastDtoMapper {
             }
         }
 
-        // Bluebell fields — only populated during season for bluebell sites
+        // Bluebell fields — only populated during season for bluebell sites. The score is the
+        // Claude BLUEBELL rating (1–5) read from forecast_score, not the legacy deterministic
+        // 0–10 condition score (dropped in V112). The lookup is gated on in-season + BLUEBELL
+        // type, so it runs only for the handful of bluebell-site rows in season.
         Integer bluebellScore = null;
         String bluebellSummary = null;
         String bluebellExposure = null;
@@ -124,8 +133,15 @@ public class ForecastDtoMapper {
                 && loc.getLocationType().contains(LocationType.BLUEBELL)
                 && entity.getTargetDate() != null
                 && bluebellSeason.isActive(entity.getTargetDate())) {
-            bluebellScore = entity.getBluebellScore();
-            bluebellSummary = entity.getBluebellSummary();
+            if (loc.getId() != null && entity.getTargetType() != null) {
+                ForecastScoreEntity bluebellRow = forecastScoreRepository.findComponent(
+                        ForecastType.BLUEBELL, loc.getId(), entity.getTargetDate(),
+                        entity.getTargetType()).orElse(null);
+                if (bluebellRow != null) {
+                    bluebellScore = bluebellRow.getScore();
+                    bluebellSummary = bluebellRow.getSummary();
+                }
+            }
             if (loc.getBluebellExposure() != null) {
                 bluebellExposure = loc.getBluebellExposure().name();
             }

@@ -462,19 +462,19 @@ export default function MarkerPopupContent({
               </span>
             </div>
           )}
-          {forecast.bluebellScore != null && forecast.bluebellScore >= 4 && (
+          {forecast.bluebellScore != null && forecast.bluebellScore >= 2 && (
             <div style={{ marginBottom: '6px' }} data-testid="bluebell-badge">
               <span style={{
                 ...POPUP_PILL,
-                background: forecast.bluebellScore >= 8
+                background: forecast.bluebellScore >= 4
                   ? 'rgba(99, 102, 241, 0.15)' : 'rgba(99, 102, 241, 0.08)',
                 color: '#a5b4fc',
-                border: `1px solid rgba(99, 102, 241, ${forecast.bluebellScore >= 8 ? '0.4' : '0.25'})`,
+                border: `1px solid rgba(99, 102, 241, ${forecast.bluebellScore >= 4 ? '0.4' : '0.25'})`,
                 ...(role === 'LITE_USER' ? { opacity: 0.45, pointerEvents: 'none' } : {}),
               }}>
                 🌸 {role === 'LITE_USER'
                   ? 'Bluebell conditions — Upgrade to Pro'
-                  : `Bluebell: ${forecast.bluebellSummary ?? `${forecast.bluebellScore}/10`}`}
+                  : `Bluebell: ${forecast.bluebellSummary ?? `${forecast.bluebellScore}/5`}`}
               </span>
             </div>
           )}

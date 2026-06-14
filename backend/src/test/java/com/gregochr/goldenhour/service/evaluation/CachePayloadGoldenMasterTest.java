@@ -145,7 +145,7 @@ class CachePayloadGoldenMasterTest {
         LocationEntity location = seascape("Berwick-Upon-Tweed", 1L, "Northumberland Coast");
         SunsetEvaluation eval = new SunsetEvaluation(
                 3, 72, 68, "Clearing western sky over the harbour.",
-                null, null, null, null, null, null, null,
+                null, null, null, null, null,
                 "Fiery tide-lit finish");
         when(forecastDataAugmentor.deriveTideContext(location, DATE, SUNSET))
                 .thenReturn(Optional.of(tideContext(true, true, LunarTideType.SPRING_TIDE)));
@@ -161,7 +161,7 @@ class CachePayloadGoldenMasterTest {
         LocationEntity location = seascape("Spittal Beach", 2L, "Northumberland Coast");
         SunsetEvaluation eval = new SunsetEvaluation(
                 3, 55, 60, "Decent western light but the tide is out of phase.",
-                null, null, null, null, null, null, null,
+                null, null, null, null, null,
                 "Soft light, low water");
         when(forecastDataAugmentor.deriveTideContext(location, DATE, SUNSET))
                 .thenReturn(Optional.of(tideContext(false, false, LunarTideType.REGULAR_TIDE)));
