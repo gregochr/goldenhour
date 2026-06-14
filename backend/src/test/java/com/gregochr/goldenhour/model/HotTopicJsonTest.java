@@ -198,9 +198,9 @@ class HotTopicJsonTest {
     @Test
     @DisplayName("expandedDetail round-trips through JSON")
     void expandedDetail_roundTrips() throws Exception {
-        var metrics = new ExpandedHotTopicDetail.BluebellMetrics(8, "Good", 3);
+        var metrics = new ExpandedHotTopicDetail.BluebellMetrics(4, "Good", 3);
         var locMetrics = new ExpandedHotTopicDetail.BluebellLocationMetrics(
-                8, "WOODLAND", "Misty and still");
+                4, "WOODLAND", "Misty and still");
         var locEntry = new ExpandedHotTopicDetail.LocationEntry(
                 "Rannerdale Knotts", "Woodland", "Best", locMetrics, null);
         var regionGroup = new ExpandedHotTopicDetail.RegionGroup(
@@ -222,8 +222,8 @@ class HotTopicJsonTest {
                 .isEqualTo("Misty dawn light");
         assertThat(restored.expandedDetail().regionGroups().get(0).locations()).hasSize(1);
         assertThat(restored.expandedDetail().regionGroups().get(0).locations().get(0)
-                .bluebellLocationMetrics().score()).isEqualTo(8);
-        assertThat(restored.expandedDetail().bluebellMetrics().bestScore()).isEqualTo(8);
+                .bluebellLocationMetrics().score()).isEqualTo(4);
+        assertThat(restored.expandedDetail().bluebellMetrics().bestScore()).isEqualTo(4);
         assertThat(restored.expandedDetail().bluebellMetrics().qualityLabel()).isEqualTo("Good");
     }
 

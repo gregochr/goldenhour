@@ -184,6 +184,9 @@ public class BluebellGlossService {
 
                 node.put("bestScore", bestScore);
                 node.put("avgScore", Math.round(avgScore * 10.0) / 10.0);
+                // The bluebell ratings are on the 1–5 Claude rubric (5 = exceptional); state the
+                // scale so the gloss does not read a 4 as a mediocre "/10".
+                node.put("scoreScale", "1-5");
                 node.put("locationCount", regionGroup.locations().size());
 
                 // Derive exposure mix
