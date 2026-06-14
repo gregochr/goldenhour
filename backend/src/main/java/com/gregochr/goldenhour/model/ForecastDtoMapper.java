@@ -29,16 +29,20 @@ public class ForecastDtoMapper {
 
     private final LunarPhaseService lunarPhaseService;
     private final SolarService solarService;
+    private final SeasonalWindow bluebellSeason;
 
     /**
      * Constructs a {@code ForecastDtoMapper}.
      *
      * @param lunarPhaseService service for lunar phase and tide classification
      * @param solarService      service for solar window calculations
+     * @param bluebellSeason    the configured bluebell season window
      */
-    public ForecastDtoMapper(LunarPhaseService lunarPhaseService, SolarService solarService) {
+    public ForecastDtoMapper(LunarPhaseService lunarPhaseService, SolarService solarService,
+            SeasonalWindow bluebellSeason) {
         this.lunarPhaseService = lunarPhaseService;
         this.solarService = solarService;
+        this.bluebellSeason = bluebellSeason;
     }
 
     /**
@@ -119,7 +123,7 @@ public class ForecastDtoMapper {
         if (loc != null && loc.getLocationType() != null
                 && loc.getLocationType().contains(LocationType.BLUEBELL)
                 && entity.getTargetDate() != null
-                && SeasonalWindow.BLUEBELL.isActive(entity.getTargetDate())) {
+                && bluebellSeason.isActive(entity.getTargetDate())) {
             bluebellScore = entity.getBluebellScore();
             bluebellSummary = entity.getBluebellSummary();
             if (loc.getBluebellExposure() != null) {
@@ -285,7 +289,7 @@ public class ForecastDtoMapper {
         if (location.getLocationType() != null
                 && location.getLocationType().contains(LocationType.BLUEBELL)
                 && date != null
-                && SeasonalWindow.BLUEBELL.isActive(date)
+                && bluebellSeason.isActive(date)
                 && location.getBluebellExposure() != null) {
             bluebellExposure = location.getBluebellExposure().name();
         }

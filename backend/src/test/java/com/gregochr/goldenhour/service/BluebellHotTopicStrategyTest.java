@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.time.MonthDay;
 import java.util.List;
 import java.util.Set;
 
@@ -48,7 +50,8 @@ class BluebellHotTopicStrategyTest {
 
     @BeforeEach
     void setUp() {
-        strategy = new BluebellHotTopicStrategy(locationRepository, evaluationRepository);
+        strategy = new BluebellHotTopicStrategy(locationRepository, evaluationRepository,
+                new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"));
     }
 
     @Test

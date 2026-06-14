@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CoastalParameters;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 import com.gregochr.goldenhour.model.TideRiskLevel;
 import com.gregochr.goldenhour.model.TideSnapshot;
@@ -18,6 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.MonthDay;
 import java.util.List;
 import java.util.Optional;
 
@@ -60,7 +62,8 @@ class ForecastDataAugmentorSurgeTest {
         augmentor = new ForecastDataAugmentor(openMeteoService, solarService, tideService,
                 new TideFactDeriver(tideService, new LunarPhaseService(), solarService),
                 weatherAugmentedTideService, surgeCalibrationLogger,
-                new BluebellConditionService());
+                new BluebellConditionService(),
+                new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"));
     }
 
     private AtmosphericData baseDataWithTide() {

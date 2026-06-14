@@ -13,15 +13,17 @@ import java.time.MonthDay;
  * feature needs year-wrapping (e.g. winter aurora Oct–Feb), extend
  * {@link #isActive(LocalDate)} accordingly.</p>
  *
+ * <p>The bluebell window is no longer a hardcoded constant: it is built from
+ * {@code photocast.season.bluebell.start/end} config by
+ * {@link com.gregochr.goldenhour.config.SeasonConfig#bluebellSeasonWindow} and
+ * injected (as the {@code bluebellSeasonWindow} bean) into every site that gates on
+ * bluebell season, so the window is tunable without a redeploy and all sites agree.</p>
+ *
  * @param start the first active day of the season (inclusive)
  * @param end   the last active day of the season (inclusive)
  * @param name  the canonical name of this seasonal window (e.g. {@code "BLUEBELL"})
  */
 public record SeasonalWindow(MonthDay start, MonthDay end, String name) {
-
-    /** Bluebell season: mid-April to mid-May. */
-    public static final SeasonalWindow BLUEBELL =
-            new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL");
 
     /**
      * Returns true if the given date falls within this seasonal window

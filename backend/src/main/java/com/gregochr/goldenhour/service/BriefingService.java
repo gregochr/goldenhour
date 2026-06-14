@@ -81,6 +81,7 @@ public class BriefingService {
     private final BriefingEvaluationService briefingEvaluationService;
     private final EvaluationViewService evaluationViewService;
     private final com.gregochr.goldenhour.service.pipeline.BestBetFallbackService bestBetFallbackService;
+    private final SeasonalWindow bluebellSeason;
     /** Horizon offset distance in metres — geometric horizon for low cloud at ~1 km altitude. */
     private static final double HORIZON_OFFSET_METRES = 113_000.0;
 
@@ -117,6 +118,7 @@ public class BriefingService {
      * @param briefingEvaluationService  cached Claude evaluation scores (lazy to break cycle)
      * @param evaluationViewService      merged evaluation view service (lazy to break cycle)
      * @param bestBetFallbackService     serves the fail-safe stale best-bet fallback on FAILED
+     * @param bluebellSeason             the configured bluebell season window
      */
     public BriefingService(LocationService locationService,
             OpenMeteoClient openMeteoClient,
@@ -133,7 +135,8 @@ public class BriefingService {
             HotTopicAggregator hotTopicAggregator,
             @Lazy BriefingEvaluationService briefingEvaluationService,
             @Lazy EvaluationViewService evaluationViewService,
-            com.gregochr.goldenhour.service.pipeline.BestBetFallbackService bestBetFallbackService) {
+            com.gregochr.goldenhour.service.pipeline.BestBetFallbackService bestBetFallbackService,
+            SeasonalWindow bluebellSeason) {
         this.locationService = locationService;
         this.openMeteoClient = openMeteoClient;
         this.jobRunService = jobRunService;
@@ -152,6 +155,7 @@ public class BriefingService {
         this.briefingEvaluationService = briefingEvaluationService;
         this.evaluationViewService = evaluationViewService;
         this.bestBetFallbackService = bestBetFallbackService;
+        this.bluebellSeason = bluebellSeason;
     }
 
     /**
@@ -372,7 +376,7 @@ public class BriefingService {
 
         List<HotTopic> hotTopics = hotTopicAggregator.getHotTopics(today, today.plusDays(3));
         hotTopics = bluebellGlossService.enrichGlosses(hotTopics);
-        List<String> seasonalFeatures = SeasonalWindow.BLUEBELL.isActive(today)
+        List<String> seasonalFeatures = bluebellSeason.isActive(today)
                 ? List.of("BLUEBELL") : List.of();
 
         if (aboveThreshold) {

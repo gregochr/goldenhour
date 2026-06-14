@@ -27,7 +27,7 @@ import java.util.stream.Collectors;
 /**
  * Detects bluebell photography hot topics from stored forecast evaluations.
  *
- * <p>Runs only during bluebell season ({@link SeasonalWindow#BLUEBELL}). For each day
+ * <p>Runs only during the configured bluebell season ({@link SeasonalWindow}). For each day
  * in the requested window, scans stored {@code bluebell_score} values across all
  * enabled bluebell locations. When the best score is &ge; 6 ("good"), a
  * {@link HotTopic} is emitted. Makes no external API calls — purely read-only
@@ -47,17 +47,21 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
 
     private final LocationRepository locationRepository;
     private final ForecastEvaluationRepository evaluationRepository;
+    private final SeasonalWindow bluebellSeason;
 
     /**
      * Constructs a {@code BluebellHotTopicStrategy}.
      *
      * @param locationRepository   repository for location lookups
      * @param evaluationRepository repository for forecast evaluation lookups
+     * @param bluebellSeason       the configured bluebell season window
      */
     public BluebellHotTopicStrategy(LocationRepository locationRepository,
-            ForecastEvaluationRepository evaluationRepository) {
+            ForecastEvaluationRepository evaluationRepository,
+            SeasonalWindow bluebellSeason) {
         this.locationRepository = locationRepository;
         this.evaluationRepository = evaluationRepository;
+        this.bluebellSeason = bluebellSeason;
     }
 
     /**
@@ -69,7 +73,7 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        if (!SeasonalWindow.BLUEBELL.isActive(fromDate)) {
+        if (!bluebellSeason.isActive(fromDate)) {
             return List.of();
         }
 
@@ -91,7 +95,7 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
 
         List<HotTopic> topics = new ArrayList<>();
         for (LocalDate date = fromDate; !date.isAfter(toDate); date = date.plusDays(1)) {
-            if (!SeasonalWindow.BLUEBELL.isActive(date)) {
+            if (!bluebellSeason.isActive(date)) {
                 continue;
             }
             List<ForecastEvaluationEntity> dayEvals = byDate.getOrDefault(date, List.of());

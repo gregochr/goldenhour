@@ -20,6 +20,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.MonthDay;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -47,7 +48,8 @@ class ForecastDtoMapperTest {
     void setUp() {
         lenient().when(solarService.goldenBlueWindow(anyDouble(), anyDouble(), any(), anyBoolean()))
                 .thenReturn(new SolarWindow(null, null, null, null));
-        mapper = new ForecastDtoMapper(new LunarPhaseService(), solarService);
+        mapper = new ForecastDtoMapper(new LunarPhaseService(), solarService,
+                new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"));
     }
 
     private static final LocationEntity LOCATION = LocationEntity.builder()

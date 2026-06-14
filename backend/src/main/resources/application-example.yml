@@ -151,6 +151,13 @@ photocast:
     dual-write: true               # Pass 2: dual-write component scores to forecast_score
                                    # alongside the serving path (results_json untouched). Whole-pass
                                    # rollback = set false (no redeploy); nothing reads the table yet.
+  season:
+    bluebell:
+      start: "04-18"               # bluebell season first active day (MM-dd, inclusive).
+                                   # Gates the dedicated bluebell prompt, hot topic, and DTO
+                                   # surfacing. Tunable without a redeploy to track an early or
+                                   # late spring.
+      end: "05-18"                 # bluebell season last active day (MM-dd, inclusive)
 
 cors:
   extra-origins: https://app.example.com,https://www.example.com  # comma-separated list
