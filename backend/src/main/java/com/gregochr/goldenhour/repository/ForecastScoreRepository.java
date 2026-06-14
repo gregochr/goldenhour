@@ -4,9 +4,13 @@ import com.gregochr.goldenhour.entity.ForecastScoreEntity;
 import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.TargetType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -55,4 +59,28 @@ public interface ForecastScoreRepository extends JpaRepository<ForecastScoreEnti
         return findByForecastTypeIdAndLocationIdAndEvaluationDateAndEventType(
                 forecastType.getId(), locationId, evaluationDate, eventType);
     }
+
+    /**
+     * Finds the component rows of a given type for a set of locations within a date range,
+     * eagerly fetching each row's location and its region so callers can group by region without
+     * a lazy-load. Used by the bluebell hot topic to read the Claude {@code BLUEBELL} rows (1–5)
+     * straight from the nightly pipeline's dual-write, replacing the legacy
+     * {@code forecast_evaluation.bluebell_score} read.
+     *
+     * @param forecastTypeId the score product's lookup id (e.g. {@code ForecastType.BLUEBELL.getId()})
+     * @param locationIds    the candidate location ids
+     * @param from           inclusive start date
+     * @param to             inclusive end date
+     * @return matching component rows (location + region fetched), in no guaranteed order
+     */
+    @Query("SELECT s FROM ForecastScoreEntity s "
+            + "JOIN FETCH s.location l LEFT JOIN FETCH l.region "
+            + "WHERE s.forecastTypeId = :forecastTypeId "
+            + "AND l.id IN :locationIds "
+            + "AND s.evaluationDate BETWEEN :from AND :to")
+    List<ForecastScoreEntity> findComponentsForLocations(
+            @Param("forecastTypeId") Long forecastTypeId,
+            @Param("locationIds") Collection<Long> locationIds,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to);
 }

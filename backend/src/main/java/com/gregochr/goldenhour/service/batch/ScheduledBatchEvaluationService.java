@@ -403,6 +403,14 @@ public class ScheduledBatchEvaluationService {
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
             logBatchBreakdown(tasks.farCoastal(), "far-term coastal");
         }
+        // Bluebell mini-batch: homogeneous bluebell-prompt tasks submitted as their own batch
+        // so the bluebell system prompt caches across requests. Empty out of season.
+        if (!tasks.bluebell().isEmpty()) {
+            EvaluationHandle h = evaluationService.submit(
+                    tasks.bluebell(), BatchTriggerSource.SCHEDULED, pipelineRunId);
+            cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
+            logBatchBreakdown(tasks.bluebell(), "bluebell");
+        }
 
         // Persist the cycle's per-candidate accounting UNCONDITIONALLY. This is
         // the single chokepoint every forecast submission path funnels through
@@ -413,11 +421,12 @@ public class ScheduledBatchEvaluationService {
 
         if (!tasks.isEmpty()) {
             LOG.info("Forecast batch split: near-term {} ({}i + {}c), far-term {} ({}i + {}c), "
-                            + "total {} requests, pipelineRunId={}",
+                            + "bluebell {}, total {} requests, pipelineRunId={}",
                     tasks.nearInland().size() + tasks.nearCoastal().size(),
                     tasks.nearInland().size(), tasks.nearCoastal().size(),
                     tasks.farInland().size() + tasks.farCoastal().size(),
                     tasks.farInland().size(), tasks.farCoastal().size(),
+                    tasks.bluebell().size(),
                     tasks.totalSize(), pipelineRunId);
         }
     }

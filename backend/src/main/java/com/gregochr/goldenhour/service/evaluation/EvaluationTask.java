@@ -65,6 +65,11 @@ public sealed interface EvaluationTask
      *                    ({@link WriteTarget#NONE} → caller owns persistence;
      *                    {@link WriteTarget#BRIEFING_CACHE} → engine writes
      *                    {@code cached_evaluation} via the result handler)
+     * @param promptKind  which prompt evaluates this task — {@link PromptKind#SKY} (the
+     *                    colour rubric) or {@link PromptKind#BLUEBELL} (the dedicated bluebell
+     *                    rubric). Selects both the prompt builder at submit time and the
+     *                    parser/visitor path at result time; carried on the custom id so the
+     *                    async batch round-trip knows which produced a response
      */
     record Forecast(
             LocationEntity location,
@@ -72,7 +77,8 @@ public sealed interface EvaluationTask
             TargetType targetType,
             EvaluationModel model,
             AtmosphericData data,
-            WriteTarget writeTarget
+            WriteTarget writeTarget,
+            PromptKind promptKind
     ) implements EvaluationTask {
 
         /**
@@ -89,6 +95,18 @@ public sealed interface EvaluationTask
             BRIEFING_CACHE
         }
 
+        /**
+         * Which prompt evaluates a forecast task. A bluebell site in season is evaluated by the
+         * dedicated bluebell prompt ({@link #BLUEBELL}); everything else uses the colour
+         * {@link #SKY} prompt. Open-fell sites in season produce one task of each kind.
+         */
+        public enum PromptKind {
+            /** The standard colour (fiery-sky / golden-hour) evaluation. */
+            SKY,
+            /** The dedicated bluebell-conditions evaluation. */
+            BLUEBELL
+        }
+
         public Forecast {
             Objects.requireNonNull(location, "location");
             if (location.getId() == null) {
@@ -100,11 +118,32 @@ public sealed interface EvaluationTask
             Objects.requireNonNull(model, "model");
             Objects.requireNonNull(data, "data");
             Objects.requireNonNull(writeTarget, "writeTarget");
+            Objects.requireNonNull(promptKind, "promptKind");
+        }
+
+        /**
+         * Convenience constructor for the common {@link PromptKind#SKY} case — the six-arg
+         * shape every pre-Pass-3 caller uses. Bluebell tasks pass {@link PromptKind#BLUEBELL}
+         * explicitly via the canonical constructor.
+         *
+         * @param location    target location entity
+         * @param date        evaluation date
+         * @param targetType  SUNRISE / SUNSET / HOURLY
+         * @param model       Claude model to use
+         * @param data        fully prepared atmospheric data
+         * @param writeTarget where the engine should write the parsed result
+         */
+        public Forecast(LocationEntity location, LocalDate date, TargetType targetType,
+                EvaluationModel model, AtmosphericData data, WriteTarget writeTarget) {
+            this(location, date, targetType, model, data, writeTarget, PromptKind.SKY);
         }
 
         @Override
         public String taskKey() {
-            return location.getId() + "/" + date + "/" + targetType.name();
+            // SKY keeps the historic id (no suffix) so existing keys are byte-identical; a
+            // BLUEBELL task for the same slot is disambiguated by its suffix.
+            return location.getId() + "/" + date + "/" + targetType.name()
+                    + (promptKind == PromptKind.BLUEBELL ? "/BLUEBELL" : "");
         }
     }
 

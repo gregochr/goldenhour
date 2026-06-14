@@ -143,13 +143,13 @@ class BluebellGlossServiceTest {
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private HotTopic bluebellTopic(String regionName) {
-        var locMetrics = new BluebellLocationMetrics(7, "WOODLAND", "Misty and still");
+        var locMetrics = new BluebellLocationMetrics(4, "WOODLAND", "Misty and still");
         var locEntry = new LocationEntry("Rannerdale Knotts", "Woodland", "Best",
                 locMetrics, null);
         var regionGroup = new RegionGroup(regionName, null, null, null, List.of(locEntry));
         var detail = new ExpandedHotTopicDetail(
                 List.of(regionGroup),
-                new BluebellMetrics(7, "Good", 1), null);
+                new BluebellMetrics(4, "Good", 1), null);
 
         return new HotTopic("BLUEBELL", "Bluebell conditions", "Misty today",
                 DATE, 3, "BLUEBELL", List.of(regionName), "desc", detail);
@@ -157,14 +157,14 @@ class BluebellGlossServiceTest {
 
     private HotTopic bluebellTopicWithTwoRegions() {
         var loc1 = new LocationEntry("Rannerdale", "Woodland", "Best",
-                new BluebellLocationMetrics(8, "WOODLAND", "Misty"), null);
+                new BluebellLocationMetrics(5, "WOODLAND", "Misty"), null);
         var loc2 = new LocationEntry("Allen Banks", "Woodland", null,
-                new BluebellLocationMetrics(6, "WOODLAND", "Light wind"), null);
+                new BluebellLocationMetrics(3, "WOODLAND", "Light wind"), null);
         var group1 = new RegionGroup("Lake District", null, null, null, List.of(loc1));
         var group2 = new RegionGroup("Northumberland", null, null, null, List.of(loc2));
         var detail = new ExpandedHotTopicDetail(
                 List.of(group1, group2),
-                new BluebellMetrics(8, "Good", 2), null);
+                new BluebellMetrics(5, "Good", 2), null);
 
         return new HotTopic("BLUEBELL", "Bluebell conditions", "Good tomorrow",
                 DATE, 1, "BLUEBELL",

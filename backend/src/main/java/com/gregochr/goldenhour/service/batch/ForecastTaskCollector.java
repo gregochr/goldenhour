@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.batch;
 
+import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastStability;
@@ -275,7 +276,7 @@ public class ForecastTaskCollector {
             LOG.warn("[BATCH DIAG] Forecast batch: no evaluable locations found after "
                     + "task collection, skipping submission");
             return new ScheduledBatchTasks(
-                    List.of(), List.of(), List.of(), List.of(), List.copyOf(dispositions));
+                    List.of(), List.of(), List.of(), List.of(), List.of(), List.copyOf(dispositions));
         }
 
         LOG.info("Forecast batch: {} candidate task(s) — bulk pre-fetching weather",
@@ -290,7 +291,7 @@ public class ForecastTaskCollector {
             LOG.error("Forecast batch: weather pre-fetch returned 0/{} locations "
                     + "— aborting (likely Open-Meteo outage)", uniqueLocationCount);
             return new ScheduledBatchTasks(
-                    List.of(), List.of(), List.of(), List.of(), List.copyOf(dispositions));
+                    List.of(), List.of(), List.of(), List.of(), List.of(), List.copyOf(dispositions));
         }
         if (successRatio < minPrefetchSuccessRatio) {
             LOG.error("Forecast batch: weather pre-fetch too degraded — {}/{} locations "
@@ -299,7 +300,7 @@ public class ForecastTaskCollector {
                     String.format("%.2f", successRatio),
                     String.format("%.2f", minPrefetchSuccessRatio));
             return new ScheduledBatchTasks(
-                    List.of(), List.of(), List.of(), List.of(), List.copyOf(dispositions));
+                    List.of(), List.of(), List.of(), List.of(), List.of(), List.copyOf(dispositions));
         }
         if (prefetchedWeather.size() < uniqueLocationCount) {
             LOG.warn("Forecast batch: weather pre-fetch partial — {}/{} locations fetched, "
@@ -323,6 +324,7 @@ public class ForecastTaskCollector {
         List<EvaluationTask.Forecast> nearCoastal = new ArrayList<>();
         List<EvaluationTask.Forecast> farInland = new ArrayList<>();
         List<EvaluationTask.Forecast> farCoastal = new ArrayList<>();
+        List<EvaluationTask.Forecast> bluebell = new ArrayList<>();
 
         int skippedTriage = 0;
         int skippedStability = 0;
@@ -330,6 +332,7 @@ public class ForecastTaskCollector {
         int includedNear = 0;
         int includedFar = 0;
         int includedForced = 0;
+        int includedBluebell = 0;
         EligibilityAggregator agg = new EligibilityAggregator();
 
         // Best-bet headline contenders that would otherwise be stability-gated.
@@ -349,7 +352,19 @@ public class ForecastTaskCollector {
                         candidate.location(), candidate.date(), candidate.targetType(),
                         candidate.location().getTideType(), nearTermModel, false, null,
                         prefetchedWeather, cloudCache);
-                if (preEval.triaged()) {
+                // A non-null bluebell condition score is the in-season-bluebell-site signal
+                // (the augmentor only populates it for a BLUEBELL site with an exposure, in
+                // season). Null out of season → every branch below is a no-op, so the gate is
+                // dormant and behaviour is unchanged.
+                boolean bluebellInSeason = preEval.atmosphericData() != null
+                        && preEval.atmosphericData().bluebellConditionScore() != null;
+                boolean woodlandOnly = bluebellInSeason
+                        && candidate.location().getBluebellExposure() == BluebellExposure.WOODLAND;
+                // Woodland bluebell sites in season are evaluated by the bluebell prompt ALONE,
+                // so the colour triage verdict does not gate them (bright overcast — ideal for a
+                // bluebell carpet — would otherwise stand them down as a poor sky). Every other
+                // candidate still respects the triage verdict.
+                if (preEval.triaged() && !woodlandOnly) {
                     LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=TRIAGED ({})",
                             candidate.location().getName(), candidate.date(),
                             candidate.targetType(), preEval.triageReason());
@@ -396,6 +411,24 @@ public class ForecastTaskCollector {
                 }
 
                 boolean isNearTerm = daysAhead <= NEAR_TERM_MAX_DAYS;
+
+                if (woodlandOnly) {
+                    // Bluebell-only: ONE bluebell task, no sky task, no colour bucket (the OQ3
+                    // exposure rule makes the bluebell score the rating for woodland).
+                    bluebell.add(bluebellTaskFor(candidate, decision, preEval));
+                    includedBluebell++;
+                    agg.recordIncluded(daysAhead, stability);
+                    if (forced) {
+                        includedForced++;
+                    }
+                    dispositions.add(includeDisposition(candidate, daysAhead, forced));
+                    LOG.warn("[BATCH DIAG] INCLUDE {} | date={} event={} | tier=bluebell "
+                                    + "type=woodland{}",
+                            candidate.location().getName(), candidate.date(),
+                            candidate.targetType(), forced ? " (forced)" : "");
+                    continue;
+                }
+
                 EvaluationTask.Forecast eval = new EvaluationTask.Forecast(
                         candidate.location(), candidate.date(), candidate.targetType(),
                         decision.model(), preEval.atmosphericData(),
@@ -418,20 +451,29 @@ public class ForecastTaskCollector {
                     }
                     includedFar++;
                 }
+
+                // OPEN_FELL in season is scored by BOTH prompts: a sky task (above) and a paired
+                // bluebell task (golden light flatters fell and flowers alike, so the combiner
+                // averages the two). The bluebell result recombines with the sky at the
+                // cache-merge step (C3b).
+                boolean openFellPaired = bluebellInSeason
+                        && candidate.location().getBluebellExposure()
+                                == BluebellExposure.OPEN_FELL;
+                if (openFellPaired) {
+                    bluebell.add(bluebellTaskFor(candidate, decision, preEval));
+                    includedBluebell++;
+                }
+
                 agg.recordIncluded(daysAhead, stability);
                 if (forced) {
                     includedForced++;
                 }
-                dispositions.add(new CandidateDisposition(
-                        candidate.location().getId(), candidate.location().getName(),
-                        candidate.date(), candidate.targetType(), daysAhead,
-                        forced ? DispositionCategory.FORCE_EVALUATED
-                                : DispositionCategory.EVALUATED,
-                        forced ? "Force-evaluated best-bet headline candidate" : null));
-                LOG.warn("[BATCH DIAG] INCLUDE {} | date={} event={} | tier={} type={}{}",
+                dispositions.add(includeDisposition(candidate, daysAhead, forced));
+                LOG.warn("[BATCH DIAG] INCLUDE {} | date={} event={} | tier={} type={}{}{}",
                         candidate.location().getName(), candidate.date(),
                         candidate.targetType(),
                         isNearTerm ? "near" : "far", locationType,
+                        openFellPaired ? "+bluebell" : "",
                         forced ? " (forced)" : "");
             } catch (Exception e) {
                 LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=ERROR ({})",
@@ -445,10 +487,10 @@ public class ForecastTaskCollector {
             }
         }
 
-        int totalIncluded = includedNear + includedFar;
-        LOG.warn("[BATCH DIAG] Triage complete — {} included (near={}, far={}, forced={}), "
-                        + "{} skipped (triage={}, stability={}, error={})",
-                totalIncluded, includedNear, includedFar, includedForced,
+        int totalIncluded = includedNear + includedFar + includedBluebell;
+        LOG.warn("[BATCH DIAG] Triage complete — {} included (near={}, far={}, bluebell={}, "
+                        + "forced={}), {} skipped (triage={}, stability={}, error={})",
+                totalIncluded, includedNear, includedFar, includedBluebell, includedForced,
                 skippedTriage + skippedStability + skippedError,
                 skippedTriage, skippedStability, skippedError);
         LOG.info("[BATCH ELIG] {}", agg.formatSummary());
@@ -456,11 +498,11 @@ public class ForecastTaskCollector {
         if (totalIncluded == 0) {
             LOG.info("Forecast batch: no evaluable locations after triage, skipping submission");
             return new ScheduledBatchTasks(
-                    List.of(), List.of(), List.of(), List.of(), List.copyOf(dispositions));
+                    List.of(), List.of(), List.of(), List.of(), List.of(), List.copyOf(dispositions));
         }
 
         return new ScheduledBatchTasks(nearInland, nearCoastal, farInland, farCoastal,
-                List.copyOf(dispositions));
+                bluebell, List.copyOf(dispositions));
     }
 
     /**
@@ -547,6 +589,30 @@ public class ForecastTaskCollector {
     private static String forceEvalKey(String locationName, LocalDate date,
             TargetType targetType) {
         return locationName + "|" + date + "|" + targetType.name();
+    }
+
+    /**
+     * Builds a {@link EvaluationTask.Forecast.PromptKind#BLUEBELL} task for an in-season bluebell
+     * candidate, reusing the same atmospheric data (which already carries the bluebell condition
+     * score) and the eligibility decision's model as the sky path.
+     */
+    private static EvaluationTask.Forecast bluebellTaskFor(ForecastCandidate candidate,
+            EligibilityDecision decision, ForecastPreEvalResult preEval) {
+        return new EvaluationTask.Forecast(
+                candidate.location(), candidate.date(), candidate.targetType(),
+                decision.model(), preEval.atmosphericData(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
+                EvaluationTask.Forecast.PromptKind.BLUEBELL);
+    }
+
+    /** Builds the EVALUATED / FORCE_EVALUATED disposition for an included candidate. */
+    private static CandidateDisposition includeDisposition(ForecastCandidate candidate,
+            int daysAhead, boolean forced) {
+        return new CandidateDisposition(
+                candidate.location().getId(), candidate.location().getName(),
+                candidate.date(), candidate.targetType(), daysAhead,
+                forced ? DispositionCategory.FORCE_EVALUATED : DispositionCategory.EVALUATED,
+                forced ? "Force-evaluated best-bet headline candidate" : null);
     }
 
     /**

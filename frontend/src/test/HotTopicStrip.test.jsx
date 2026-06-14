@@ -1820,13 +1820,13 @@ describe('HotTopicStrip — bluebell expanded card', () => {
             locationName: 'Allen Banks',
             locationType: 'Woodland',
             badge: 'Best',
-            bluebellLocationMetrics: { score: 9, exposure: 'WOODLAND', summary: 'Misty and still' },
+            bluebellLocationMetrics: { score: 5, exposure: 'WOODLAND', summary: 'Misty and still' },
           },
           {
             locationName: 'Briarwood Banks',
             locationType: 'Woodland',
             badge: null,
-            bluebellLocationMetrics: { score: 7, exposure: 'WOODLAND', summary: 'Calm morning' },
+            bluebellLocationMetrics: { score: 4, exposure: 'WOODLAND', summary: 'Calm morning' },
           },
         ],
       },
@@ -1838,12 +1838,12 @@ describe('HotTopicStrip — bluebell expanded card', () => {
             locationName: 'Rannerdale',
             locationType: 'Open fell',
             badge: 'Best',
-            bluebellLocationMetrics: { score: 8, exposure: 'OPEN_FELL', summary: 'Golden hour light' },
+            bluebellLocationMetrics: { score: 4, exposure: 'OPEN_FELL', summary: 'Golden hour light' },
           },
         ],
       },
     ],
-    bluebellMetrics: { bestScore: 9, qualityLabel: 'Excellent', scoringLocationCount: 3 },
+    bluebellMetrics: { bestScore: 5, qualityLabel: 'Excellent', scoringLocationCount: 3 },
   };
 
   const bluebellTopic = {
@@ -1898,10 +1898,10 @@ describe('HotTopicStrip — bluebell expanded card', () => {
     fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
 
     const scores = screen.getAllByTestId('bluebell-score');
-    expect(scores.some((s) => s.textContent === '9/10')).toBe(true);
-    // Score 9 should be green
-    const score9 = scores.find((s) => s.textContent === '9/10');
-    expect(score9.style.color).toBe('rgb(74, 222, 128)');
+    expect(scores.some((s) => s.textContent === '5/5')).toBe(true);
+    // Rating 5 should be green
+    const score5 = scores.find((s) => s.textContent === '5/5');
+    expect(score5.style.color).toBe('rgb(74, 222, 128)');
   });
 
   it('shows Best badge on top location', () => {
@@ -2033,13 +2033,13 @@ describe('HotTopicStrip — subtitle line', () => {
       regions: [],
       expandedDetail: {
         regionGroups: [],
-        bluebellMetrics: { bestScore: 8, qualityLabel: 'Good', scoringLocationCount: 5 },
+        bluebellMetrics: { bestScore: 4, qualityLabel: 'Good', scoringLocationCount: 5 },
       },
     };
     render(<HotTopicStrip hotTopics={[topic]} />);
     const subtitle = screen.getByTestId('subtitle-BLUEBELL');
     expect(subtitle.textContent).toContain('5 locations scoring');
-    expect(subtitle.textContent).toContain('best 8/10');
+    expect(subtitle.textContent).toContain('best 4/5');
   });
 
   it('tide subtitle shows classification, lunar phase and alignment counts', () => {
@@ -2204,46 +2204,32 @@ describe('HotTopicStrip — bluebell score colour coding', () => {
     },
   });
 
-  it('score 9 renders green', () => {
-    render(<HotTopicStrip hotTopics={[makeBluebellTopic(9)]} />);
-    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
-    const scoreEl = screen.getByTestId('bluebell-score');
-    expect(scoreEl.textContent).toBe('9/10');
-    expect(scoreEl.style.color).toBe('rgb(74, 222, 128)');
-  });
-
-  it('score 10 renders green', () => {
-    render(<HotTopicStrip hotTopics={[makeBluebellTopic(10)]} />);
-    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
-    const scoreEl = screen.getByTestId('bluebell-score');
-    expect(scoreEl.style.color).toBe('rgb(74, 222, 128)');
-  });
-
-  it('score 7 renders amber', () => {
-    render(<HotTopicStrip hotTopics={[makeBluebellTopic(7)]} />);
-    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
-    const scoreEl = screen.getByTestId('bluebell-score');
-    expect(scoreEl.textContent).toBe('7/10');
-    expect(scoreEl.style.color).toBe('rgb(251, 191, 36)');
-  });
-
-  it('score 8 renders amber', () => {
-    render(<HotTopicStrip hotTopics={[makeBluebellTopic(8)]} />);
-    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
-    const scoreEl = screen.getByTestId('bluebell-score');
-    expect(scoreEl.style.color).toBe('rgb(251, 191, 36)');
-  });
-
-  it('score 5 renders muted', () => {
+  it('rating 5 renders green', () => {
     render(<HotTopicStrip hotTopics={[makeBluebellTopic(5)]} />);
     fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
     const scoreEl = screen.getByTestId('bluebell-score');
-    expect(scoreEl.textContent).toBe('5/10');
+    expect(scoreEl.textContent).toBe('5/5');
+    expect(scoreEl.style.color).toBe('rgb(74, 222, 128)');
+  });
+
+  it('rating 4 renders amber', () => {
+    render(<HotTopicStrip hotTopics={[makeBluebellTopic(4)]} />);
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+    const scoreEl = screen.getByTestId('bluebell-score');
+    expect(scoreEl.textContent).toBe('4/5');
+    expect(scoreEl.style.color).toBe('rgb(251, 191, 36)');
+  });
+
+  it('rating 3 renders muted', () => {
+    render(<HotTopicStrip hotTopics={[makeBluebellTopic(3)]} />);
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+    const scoreEl = screen.getByTestId('bluebell-score');
+    expect(scoreEl.textContent).toBe('3/5');
     expect(scoreEl.style.color).toBe('rgba(255, 255, 255, 0.45)');
   });
 
-  it('score 6 renders muted', () => {
-    render(<HotTopicStrip hotTopics={[makeBluebellTopic(6)]} />);
+  it('rating 2 renders muted', () => {
+    render(<HotTopicStrip hotTopics={[makeBluebellTopic(2)]} />);
     fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
     const scoreEl = screen.getByTestId('bluebell-score');
     expect(scoreEl.style.color).toBe('rgba(255, 255, 255, 0.45)');
@@ -2369,10 +2355,10 @@ describe('HotTopicStrip — null metrics guards', () => {
             locationName: 'Allen Banks',
             locationType: 'Woodland',
             badge: null,
-            bluebellLocationMetrics: { score: 7, exposure: 'WOODLAND', summary: 'Calm' },
+            bluebellLocationMetrics: { score: 4, exposure: 'WOODLAND', summary: 'Calm' },
           }],
         }],
-        bluebellMetrics: { bestScore: 7, qualityLabel: 'Good', scoringLocationCount: 1 },
+        bluebellMetrics: { bestScore: 4, qualityLabel: 'Good', scoringLocationCount: 1 },
       },
     };
     render(<HotTopicStrip hotTopics={[topic]} />);

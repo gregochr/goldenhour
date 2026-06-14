@@ -83,7 +83,7 @@ import java.time.LocalDateTime;
  * @param goldenHourEnd                  UTC end of the elevation-based golden hour window (nullable)
  * @param blueHourStart                  UTC start of the elevation-based blue hour window (nullable)
  * @param blueHourEnd                    UTC end of the elevation-based blue hour window (nullable)
- * @param bluebellScore                  bluebell photography score 0–10 (nullable — season + site only)
+ * @param bluebellScore                  Claude bluebell rating 1–5 (nullable — season + site only)
  * @param bluebellSummary                bluebell condition summary from Claude (nullable)
  * @param bluebellExposure               WOODLAND or OPEN_FELL (nullable — bluebell sites only)
  * @param triageReason                   categorised stand-down reason, or null if Claude-scored

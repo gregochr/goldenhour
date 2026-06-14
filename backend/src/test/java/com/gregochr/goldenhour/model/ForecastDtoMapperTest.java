@@ -1,8 +1,12 @@
 package com.gregochr.goldenhour.model;
 
+import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.ForecastScoreEntity;
+import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
@@ -20,6 +24,9 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.MonthDay;
+import java.util.Optional;
+import java.util.Set;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -41,13 +48,18 @@ class ForecastDtoMapperTest {
     @Mock
     private SolarService solarService;
 
+    @Mock
+    private com.gregochr.goldenhour.repository.ForecastScoreRepository forecastScoreRepository;
+
     private ForecastDtoMapper mapper;
 
     @BeforeEach
     void setUp() {
         lenient().when(solarService.goldenBlueWindow(anyDouble(), anyDouble(), any(), anyBoolean()))
                 .thenReturn(new SolarWindow(null, null, null, null));
-        mapper = new ForecastDtoMapper(new LunarPhaseService(), solarService);
+        mapper = new ForecastDtoMapper(new LunarPhaseService(), solarService,
+                new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"),
+                forecastScoreRepository);
     }
 
     private static final LocationEntity LOCATION = LocationEntity.builder()
@@ -93,6 +105,62 @@ class ForecastDtoMapperTest {
         assertThat(dto.surgeRiskLevel()).isEqualTo("MODERATE");
         assertThat(dto.surgeAdjustedRangeMetres()).isEqualTo(3.65);
         assertThat(dto.surgeAstronomicalRangeMetres()).isEqualTo(3.30);
+    }
+
+    @Test
+    @DisplayName("toDto() sources the bluebell rating (1-5) from forecast_score for an in-season "
+            + "bluebell site")
+    void toDto_inSeasonBluebellSite_sourcesRatingFromForecastScore() {
+        // An in-season bluebell site (date inside the configured Apr 18 - May 18 window).
+        LocalDate inSeason = LocalDate.of(2026, 5, 1);
+        LocationEntity bluebellLoc = LocationEntity.builder()
+                .id(9L).name("Bluebell Wood").lat(54.5).lon(-3.0)
+                .locationType(Set.of(LocationType.BLUEBELL))
+                .bluebellExposure(BluebellExposure.WOODLAND)
+                .build();
+        ForecastEvaluationEntity entity = new ForecastEvaluationEntity();
+        entity.setLocation(bluebellLoc);
+        entity.setTargetDate(inSeason);
+        entity.setTargetType(TargetType.SUNRISE);
+
+        ForecastScoreEntity bluebellRow = new ForecastScoreEntity();
+        bluebellRow.setForecastType(ForecastType.BLUEBELL);
+        bluebellRow.setScore(4);
+        bluebellRow.setSummary("Bright still light if they are in flower.");
+        when(forecastScoreRepository.findComponent(
+                eq(ForecastType.BLUEBELL), eq(9L), eq(inSeason), eq(TargetType.SUNRISE)))
+                .thenReturn(Optional.of(bluebellRow));
+
+        ForecastEvaluationDto dto = mapper.toDto(entity, false);
+
+        assertThat(dto.bluebellScore()).isEqualTo(4);
+        assertThat(dto.bluebellSummary()).isEqualTo("Bright still light if they are in flower.");
+        assertThat(dto.bluebellExposure()).isEqualTo("WOODLAND");
+    }
+
+    @Test
+    @DisplayName("toDto() leaves bluebell fields null when no forecast_score BLUEBELL row exists")
+    void toDto_inSeasonBluebellSiteNoRow_leavesScoreNull() {
+        LocalDate inSeason = LocalDate.of(2026, 5, 1);
+        LocationEntity bluebellLoc = LocationEntity.builder()
+                .id(9L).name("Bluebell Wood").lat(54.5).lon(-3.0)
+                .locationType(Set.of(LocationType.BLUEBELL))
+                .bluebellExposure(BluebellExposure.WOODLAND)
+                .build();
+        ForecastEvaluationEntity entity = new ForecastEvaluationEntity();
+        entity.setLocation(bluebellLoc);
+        entity.setTargetDate(inSeason);
+        entity.setTargetType(TargetType.SUNRISE);
+        when(forecastScoreRepository.findComponent(
+                eq(ForecastType.BLUEBELL), eq(9L), eq(inSeason), eq(TargetType.SUNRISE)))
+                .thenReturn(Optional.empty());
+
+        ForecastEvaluationDto dto = mapper.toDto(entity, false);
+
+        assertThat(dto.bluebellScore()).isNull();
+        assertThat(dto.bluebellSummary()).isNull();
+        // Exposure still surfaces (it is a property of the location, not the score).
+        assertThat(dto.bluebellExposure()).isEqualTo("WOODLAND");
     }
 
     @Test

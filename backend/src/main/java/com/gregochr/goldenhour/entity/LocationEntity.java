@@ -196,6 +196,22 @@ public class LocationEntity {
     private BluebellExposure bluebellExposure;
 
     /**
+     * Whether this bluebell site is also evaluated outside bluebell season.
+     *
+     * <p>{@code true} (default) keeps the historic behaviour: a bluebell site is a normal
+     * colour-forecast candidate year-round, evaluated for sky out of season and for the
+     * bluebell display in season. {@code false} removes it from out-of-season candidacy
+     * entirely — for a wood that is only worth photographing during the bluebell bloom.
+     *
+     * <p>Only meaningful for locations carrying {@code BLUEBELL} in their location types;
+     * ignored for everything else. Ships {@code true} for every site (zero flagged), so
+     * candidacy is unchanged at launch.</p>
+     */
+    @Column(name = "bluebell_evaluate_year_round", nullable = false)
+    @Builder.Default
+    private boolean bluebellEvaluateYearRound = true;
+
+    /**
      * Returns whether this location supports the given target type based on its solar event preferences.
      *
      * <p>A location with null, empty, or {@code ALLDAY} solar event types supports all target types.

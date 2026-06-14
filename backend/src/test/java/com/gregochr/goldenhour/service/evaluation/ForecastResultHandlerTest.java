@@ -1,14 +1,18 @@
 package com.gregochr.goldenhour.service.evaluation;
 
 import com.gregochr.goldenhour.TestAtmosphericData;
+import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.BluebellEvaluation;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TideContext;
@@ -20,6 +24,8 @@ import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.batch.BatchTriggerSource;
 import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler.BatchSuccess;
 import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler.ForecastIdentity;
+import com.gregochr.goldenhour.service.evaluation.visitor.BluebellVisitor;
+import com.gregochr.goldenhour.service.evaluation.visitor.ComponentScore;
 import com.gregochr.goldenhour.service.evaluation.visitor.RatingCombiner;
 import com.gregochr.goldenhour.service.evaluation.visitor.SkyVisitor;
 import com.gregochr.goldenhour.service.evaluation.visitor.TideVisitor;
@@ -88,7 +94,8 @@ class ForecastResultHandlerTest {
                 briefingEvaluationService,
                 Map.of(EvaluationModel.HAIKU, parsingStrategy),
                 jobRunService, objectMapper,
-                new RatingCombiner(List.of(new SkyVisitor(), new TideVisitor())),
+                new RatingCombiner(List.of(
+                        new SkyVisitor(), new TideVisitor(), new BluebellVisitor())),
                 forecastDataAugmentor, forecastScoreWriter);
     }
 
@@ -142,6 +149,69 @@ class ForecastResultHandlerTest {
                 eq(null), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
                 eq(DATE), eq(SUNRISE), eq(null));
+    }
+
+    @Test
+    @DisplayName("parseBluebellBatchResponse: woodland → bluebell IS the rating, no sky scores, "
+            + "BLUEBELL component dual-written")
+    void parseBluebellBatchResponse_woodland_bluebellIsRating() {
+        LocationEntity location = woodlandBluebellLocation(53L, "Bluebell Wood", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "bb-53-2026-04-16-SUNRISE",
+                "{\"rating\":4,\"summary\":\"Bright still light if they are in flower.\","
+                        + "\"headline\":\"Soft canopy light\"}",
+                new TokenUsage(300, 80, 0, 900),
+                EvaluationModel.HAIKU);
+        when(parsingStrategy.parseBluebellEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new BluebellEvaluation(
+                        4, "Bright still light if they are in flower.", "Soft canopy light"));
+
+        ResultContext context = ResultContext.forBatch(
+                99L, "msgbatch_bb", BatchTriggerSource.SCHEDULED);
+        Optional<BatchSuccess> result = handler.parseBluebellBatchResponse(
+                location, identity, outcome, context);
+
+        assertThat(result).isPresent();
+        BriefingEvaluationResult r = result.get().result();
+        assertThat(result.get().cacheKey()).isEqualTo("Lake District|2026-04-16|SUNRISE");
+        assertThat(r.locationName()).isEqualTo("Bluebell Wood");
+        assertThat(r.rating()).isEqualTo(4);
+        // No sky scores behind a bluebell-only slot.
+        assertThat(r.fierySkyPotential()).isNull();
+        assertThat(r.goldenHourPotential()).isNull();
+        assertThat(r.summary()).isEqualTo("Bright still light if they are in flower.");
+        assertThat(r.headline()).isEqualTo("Soft canopy light");
+
+        // Dual-write persists ONLY the BLUEBELL component (writeComponents, not write).
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ComponentScore>> captor = ArgumentCaptor.forClass(List.class);
+        verify(forecastScoreWriter).writeComponents(
+                eq(location), eq(DATE), eq(SUNRISE), captor.capture(), eq(null));
+        assertThat(captor.getValue())
+                .singleElement()
+                .satisfies(c -> {
+                    assertThat(c.type()).isEqualTo(ForecastType.BLUEBELL);
+                    assertThat(c.score()).isEqualTo(4);
+                });
+        verify(forecastScoreWriter, never()).write(any(), any(), any(), any(), anyList(), any());
+    }
+
+    @Test
+    @DisplayName("parseBluebellBatchResponse: failed outcome → empty + failure log, no combine")
+    void parseBluebellBatchResponse_failedOutcome_returnsEmpty() {
+        LocationEntity location = woodlandBluebellLocation(53L, "Bluebell Wood", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.failure(
+                "bb-53-2026-04-16-SUNRISE", "expired", "expired", "request expired");
+
+        ResultContext context = ResultContext.forBatch(
+                99L, "msgbatch_bb", BatchTriggerSource.SCHEDULED);
+        Optional<BatchSuccess> result = handler.parseBluebellBatchResponse(
+                location, identity, outcome, context);
+
+        assertThat(result).isEmpty();
+        verifyNoInteractions(forecastScoreWriter);
     }
 
     @Test
@@ -641,6 +711,13 @@ class ForecastResultHandlerTest {
     private LocationEntity coastalLocation(long id, String name, String regionName) {
         LocationEntity loc = locationWithRegion(id, name, regionName);
         loc.setTideType(java.util.Set.of(TideType.HIGH));
+        return loc;
+    }
+
+    private LocationEntity woodlandBluebellLocation(long id, String name, String regionName) {
+        LocationEntity loc = locationWithRegion(id, name, regionName);
+        loc.setLocationType(java.util.Set.of(LocationType.BLUEBELL));
+        loc.setBluebellExposure(BluebellExposure.WOODLAND);
         return loc;
     }
 

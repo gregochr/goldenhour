@@ -70,6 +70,31 @@ class EvaluationTaskTest {
     }
 
     @Test
+    void forecastTaskDefaultsToSkyPromptKind() {
+        EvaluationTask.Forecast task = new EvaluationTask.Forecast(
+                persistedLocation(7L, "Bamburgh"),
+                DATE, TargetType.SUNSET,
+                EvaluationModel.SONNET, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+
+        assertThat(task.promptKind()).isEqualTo(EvaluationTask.Forecast.PromptKind.SKY);
+    }
+
+    @Test
+    void bluebellTaskKeyCarriesSuffixAndPromptKind() {
+        EvaluationTask.Forecast task = new EvaluationTask.Forecast(
+                persistedLocation(7L, "Bluebell Wood"),
+                DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
+                EvaluationTask.Forecast.PromptKind.BLUEBELL);
+
+        assertThat(task.promptKind()).isEqualTo(EvaluationTask.Forecast.PromptKind.BLUEBELL);
+        // The bluebell task is disambiguated from a same-slot sky task by the key suffix.
+        assertThat(task.taskKey()).isEqualTo("7/2026-04-16/SUNRISE/BLUEBELL");
+    }
+
+    @Test
     void forecastTaskRejectsTransientLocation() {
         LocationEntity unsaved = new LocationEntity();
         unsaved.setName("Not-yet-persisted");

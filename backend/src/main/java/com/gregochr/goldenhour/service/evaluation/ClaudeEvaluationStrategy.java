@@ -10,6 +10,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.BluebellEvaluation;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
@@ -95,14 +96,6 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
     /** Extracts the cloud inversion potential classification from Claude's response. */
     static final Pattern INVERSION_POTENTIAL_PATTERN =
             Pattern.compile("\"inversion_potential\"\\s*:\\s*\"(\\w+)\"");
-
-    /** Extracts the bluebell condition score (0-10) from Claude's response. */
-    static final Pattern BLUEBELL_SCORE_PATTERN =
-            Pattern.compile("\"bluebell_score\"\\s*:\\s*(\\d{1,2})");
-
-    /** Extracts the bluebell condition summary from Claude's response. */
-    static final Pattern BLUEBELL_SUMMARY_PATTERN =
-            Pattern.compile("\"bluebell_summary\"\\s*:\\s*\"([^\"]+)\"");
 
     /** Extracts the Claude-authored card headline (Gate 2 redesign). */
     static final Pattern HEADLINE_PATTERN =
@@ -201,6 +194,46 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
     }
 
     /**
+     * Parses the dedicated bluebell prompt's response into a {@link BluebellEvaluation}.
+     *
+     * <p>The bluebell contract is small: a {@code rating} (1-5), a {@code summary}, and an
+     * optional {@code headline} — no sky sub-scores. Attempts strict JSON first; on failure
+     * (e.g. an unescaped quote in the summary) falls back to the same bounded/salvage regex
+     * extraction the sky parser uses, so a malformed-but-recoverable response still yields a
+     * rating and summary rather than dropping the slot. Introduced in Pass 3.
+     *
+     * @param text   the raw text returned by Claude for a bluebell evaluation
+     * @param mapper Jackson mapper for JSON parsing
+     * @return the parsed bluebell evaluation
+     * @throws IllegalArgumentException if neither strict parsing nor the regex fallback recovers
+     *                                  a rating and summary
+     */
+    public BluebellEvaluation parseBluebellEvaluation(String text, ObjectMapper mapper) {
+        String cleaned = text.trim()
+                .replaceAll("(?s)^```(?:json)?\\s*", "")
+                .replaceAll("(?s)\\s*```$", "")
+                .trim();
+        try {
+            JsonNode node = mapper.readTree(cleaned);
+            Integer rating = node.has("rating") ? node.get("rating").asInt() : null;
+            String summary = node.get("summary").stringValue();
+            String headline = node.has("headline") ? node.get("headline").stringValue() : null;
+            return new BluebellEvaluation(rating, summary, headline);
+        } catch (Exception jsonException) {
+            Matcher ratingMatcher = RATING_PATTERN.matcher(text);
+            String summary = extractField(SUMMARY_PATTERN, SUMMARY_PATTERN_SALVAGE, text);
+            if (summary == null) {
+                throw new IllegalArgumentException(
+                        "Failed to parse bluebell evaluation response: " + text, jsonException);
+            }
+            Integer rating = ratingMatcher.find() ? Integer.parseInt(ratingMatcher.group(1)) : null;
+            Matcher headlineMatcher = HEADLINE_PATTERN.matcher(text);
+            String headline = headlineMatcher.find() ? headlineMatcher.group(1) : null;
+            return new BluebellEvaluation(rating, summary, headline);
+        }
+    }
+
+    /**
      * Parses Claude's JSON response, reporting whether the regex fallback was used.
      *
      * <p>Attempts strict JSON parsing first; on failure, falls back to regex extraction and
@@ -237,15 +270,13 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
             String inversionPotential = node.has("inversion_potential")
                     ? sanitiseInversionPotential(node.get("inversion_potential").stringValue())
                     : null;
-            Integer bluebellScore = node.has("bluebell_score")
-                    ? node.get("bluebell_score").asInt() : null;
-            String bluebellSummary = node.has("bluebell_summary")
-                    ? node.get("bluebell_summary").textValue() : null;
             String headline = node.has("headline")
                     ? node.get("headline").stringValue() : null;
+            // Bluebell left the standard prompt in Pass 3 — it now has its own prompt/parser
+            // (parseBluebellEvaluation), so the colour evaluation carries no bluebell score.
             return new ParseResult(new SunsetEvaluation(rating, fierySky, goldenHour, summary,
                     basicFierySky, basicGoldenHour, basicSummary,
-                    inversionScore, inversionPotential, bluebellScore, bluebellSummary,
+                    inversionScore, inversionPotential,
                     headline), false);
         } catch (Exception jsonException) {
             // Strict JSON parse failed — fall through to the greedy regex fallback and flag it so
@@ -332,19 +363,13 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
             String inversionPotential = inversionPotentialMatcher.find()
                     ? sanitiseInversionPotential(inversionPotentialMatcher.group(1)) : null;
 
-            Matcher bluebellScoreMatcher = BLUEBELL_SCORE_PATTERN.matcher(text);
-            Matcher bluebellSummaryMatcher = BLUEBELL_SUMMARY_PATTERN.matcher(text);
-            Integer bluebellScore = bluebellScoreMatcher.find()
-                    ? Integer.parseInt(bluebellScoreMatcher.group(1)) : null;
-            String bluebellSummary = bluebellSummaryMatcher.find()
-                    ? bluebellSummaryMatcher.group(1) : null;
-
             Matcher headlineMatcher = HEADLINE_PATTERN.matcher(text);
             String headline = headlineMatcher.find() ? headlineMatcher.group(1) : null;
 
+            // Bluebell fields left the standard prompt in Pass 3 (own prompt/parser).
             return new SunsetEvaluation(rating, fierySky, goldenHour, summary,
                     basicFierySky, basicGoldenHour, basicSummary,
-                    inversionScore, inversionPotential, bluebellScore, bluebellSummary,
+                    inversionScore, inversionPotential,
                     headline);
         }
 

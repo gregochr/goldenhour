@@ -88,7 +88,8 @@ class PromptGoldenMasterTest {
 
     /** Real assembly seam under test — real builders, no mocks. */
     private final BatchRequestFactory factory =
-            new BatchRequestFactory(new PromptBuilder(), new CoastalPromptBuilder());
+            new BatchRequestFactory(new PromptBuilder(), new CoastalPromptBuilder(),
+                    new BluebellPromptBuilder());
 
     @Test
     @DisplayName("inland landscape: base builder, no location-fact blocks")
@@ -124,8 +125,13 @@ class PromptGoldenMasterTest {
     }
 
     @Test
-    @DisplayName("woodland bluebell: base builder + bluebell block (in season)")
+    @DisplayName("woodland in-season: standard prompt IGNORES bluebell data (extracted in Pass 3)")
     void woodlandBluebell() {
+        // Pass 3 extracted bluebell into its own prompt (BluebellPromptBuilder). This archetype
+        // proves the EXTRACTION: even with a bluebell condition score present and an in-season
+        // date, the STANDARD prompt now scores the sky alone — no BLUEBELL CONDITIONS block, no
+        // bluebell_score schema field, no bluebell rating-boost rule. The fixture diff (the
+        // bluebell lines removed) is the contract-change review artifact.
         AtmosphericData data = TestAtmosphericData.builder()
                 .locationName("Hardcastle Crags UK")
                 .solarEventTime(LocalDateTime.of(2026, 5, 5, 20, 30))
@@ -135,6 +141,18 @@ class PromptGoldenMasterTest {
                         BluebellExposure.WOODLAND,
                         "Peak flowering, misty and still under the canopy"))
                 .build();
+        String assembled = assemble(data);
+        // Bluebell content is gone from the standard prompt...
+        assertThat(assembled)
+                .as("the standard prompt must not carry bluebell content after Pass 3 extraction")
+                .doesNotContain("BLUEBELL CONDITIONS")
+                .doesNotContain("bluebell_score")
+                .doesNotContain("known bluebell site");
+        // ...but the ADJACENT inversion boost rule (the easy over-deletion) must remain.
+        assertThat(assembled)
+                .as("the inversion rule sits next to the removed bluebell block and must survive")
+                .contains("CLOUD INVERSION GUIDANCE")
+                .contains("STRONG (9-10)");
         assertGolden("woodland-bluebell", data);
     }
 

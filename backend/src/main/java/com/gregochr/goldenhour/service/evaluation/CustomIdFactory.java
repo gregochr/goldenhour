@@ -15,6 +15,7 @@ import java.util.regex.Pattern;
  * <p>Formats:
  * <ul>
  *   <li>Forecast (scheduled): {@code fc-{locationId}-{date}-{targetType}}</li>
+ *   <li>Bluebell (scheduled): {@code bb-{locationId}-{date}-{targetType}}</li>
  *   <li>JFDI: {@code jfdi-{locationId}-{date}-{targetType}}</li>
  *   <li>Force-submit: {@code force-{sanitisedRegion}-{locationId}-{date}-{targetType}}</li>
  *   <li>Aurora: {@code au-{alertLevel}-{date}}</li>
@@ -38,6 +39,7 @@ public final class CustomIdFactory {
     private static final Pattern REGION_STRIP = Pattern.compile("[^a-zA-Z0-9]");
 
     private static final String PREFIX_FORECAST = "fc-";
+    private static final String PREFIX_BLUEBELL = "bb-";
     private static final String PREFIX_JFDI = "jfdi-";
     private static final String PREFIX_FORCE = "force-";
     private static final String PREFIX_AURORA = "au-";
@@ -63,6 +65,27 @@ public final class CustomIdFactory {
         Objects.requireNonNull(date, "date");
         Objects.requireNonNull(targetType, "targetType");
         return validate(PREFIX_FORECAST + locationId + "-" + date + "-" + targetType.name());
+    }
+
+    /**
+     * Builds a bluebell custom ID for the scheduled bluebell mini-batch path.
+     *
+     * <p>Distinct from the {@code fc-} forecast prefix so the result side knows the response
+     * was produced by the dedicated bluebell prompt and must be parsed/combined via the
+     * bluebell path rather than the colour path.
+     *
+     * @param locationId database ID of the location
+     * @param date       forecast date
+     * @param targetType SUNRISE, SUNSET, or HOURLY
+     * @return an ID of the form {@code "bb-{locationId}-{date}-{targetType}"}
+     * @throws IllegalArgumentException if the resulting ID exceeds the Anthropic 64-char
+     *                                  limit or contains invalid characters
+     */
+    public static String forBluebell(Long locationId, LocalDate date, TargetType targetType) {
+        Objects.requireNonNull(locationId, "locationId");
+        Objects.requireNonNull(date, "date");
+        Objects.requireNonNull(targetType, "targetType");
+        return validate(PREFIX_BLUEBELL + locationId + "-" + date + "-" + targetType.name());
     }
 
     /**
@@ -147,6 +170,9 @@ public final class CustomIdFactory {
      */
     public static ParsedCustomId parse(String customId) {
         Objects.requireNonNull(customId, "customId");
+        if (customId.startsWith(PREFIX_BLUEBELL)) {
+            return parseBluebell(customId);
+        }
         if (customId.startsWith(PREFIX_FORECAST)) {
             return parseForecast(customId);
         }
@@ -166,6 +192,12 @@ public final class CustomIdFactory {
         TailParts tail = extractDateAndTarget(customId, PREFIX_FORECAST);
         Long locationId = parseLocationId(tail.before(), customId);
         return new ParsedCustomId.Forecast(locationId, tail.date(), tail.targetType());
+    }
+
+    private static ParsedCustomId.Bluebell parseBluebell(String customId) {
+        TailParts tail = extractDateAndTarget(customId, PREFIX_BLUEBELL);
+        Long locationId = parseLocationId(tail.before(), customId);
+        return new ParsedCustomId.Bluebell(locationId, tail.date(), tail.targetType());
     }
 
     private static ParsedCustomId.Jfdi parseJfdi(String customId) {

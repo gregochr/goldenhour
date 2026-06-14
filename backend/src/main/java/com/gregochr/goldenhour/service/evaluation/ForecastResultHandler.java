@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
+import com.gregochr.goldenhour.model.BluebellEvaluation;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TideContext;
@@ -215,6 +216,63 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
     }
 
     /**
+     * Parses one bluebell mini-batch response and writes its {@code api_call_log} row.
+     *
+     * <p>The bluebell sibling of {@link #parseBatchResponse}: the response was produced by the
+     * dedicated bluebell prompt (custom id {@code bb-...}), so it is parsed via
+     * {@link ClaudeEvaluationStrategy#parseBluebellEvaluation} and combined through the
+     * {@link RatingCombiner} with a bluebell-only {@link VisitorContext} (no sky evaluation). For
+     * an in-season WOODLAND site the combiner's exposure rule makes the bluebell score the rating;
+     * the dual-write persists ONLY the BLUEBELL component (no FIERY_SKY / GOLDEN_HOUR rows).
+     *
+     * <p>Returns the parsed {@link BatchSuccess} on success; {@link Optional#empty} on failure
+     * (after logging and writing a failure {@code api_call_log} row). The orchestrator MERGES the
+     * bluebell successes into the region cache entry (never replaces it), so the region's sky
+     * locations are preserved.
+     *
+     * @param location the resolved {@link LocationEntity}
+     * @param parsed   the parsed forecast identity (from the {@code bb-} custom id)
+     * @param outcome  drained-of-SDK-types view of one Anthropic batch response
+     * @param context  per-batch observability context (jobRunId, batchId)
+     * @return the parsed success payload, or empty if the response failed
+     */
+    public Optional<BatchSuccess> parseBluebellBatchResponse(LocationEntity location,
+            ForecastIdentity parsed, ClaudeBatchOutcome outcome, ResultContext context) {
+
+        String regionName = location.getRegion() != null
+                ? location.getRegion().getName() : location.getName();
+        String cacheKey = CacheKeyFactory.build(regionName, parsed.date(), parsed.targetType());
+
+        if (!outcome.succeeded()) {
+            persistBatchLog(context, outcome, parsed.date(), parsed.targetType(), null);
+            return Optional.empty();
+        }
+
+        try {
+            BluebellEvaluation bluebell =
+                    parsingStrategy.parseBluebellEvaluation(outcome.rawText(), objectMapper);
+            if (bluebell.rating() == null) {
+                throw new IllegalStateException("bluebell response omitted the rating");
+            }
+            String modelName = outcome.model() != null ? outcome.model().name() : "UNKNOWN";
+            BriefingEvaluationResult result = buildBluebellResult(
+                    location, bluebell, parsed.date(), parsed.targetType(), regionName, modelName,
+                    context != null ? context.pipelineRunId() : null);
+            persistBatchLog(context, outcome, parsed.date(), parsed.targetType(), outcome.model());
+            return Optional.of(new BatchSuccess(cacheKey, result));
+        } catch (Exception e) {
+            LOG.warn("Bluebell batch: parse failed for '{}': {}",
+                    outcome.customId(), e.getMessage());
+            LOG.warn("Bluebell batch: raw response for '{}': {}",
+                    outcome.customId(), outcome.rawText());
+            ClaudeBatchOutcome parseFailure = ClaudeBatchOutcome.failure(
+                    outcome.customId(), "PARSE_FAILED", "parse_error", e.getMessage());
+            persistBatchLog(context, parseFailure, parsed.date(), parsed.targetType(), null);
+            return Optional.empty();
+        }
+    }
+
+    /**
      * Writes a finalised group of batch results to {@code cached_evaluation} via the
      * existing {@link BriefingEvaluationService#writeFromBatch} entry point. Called
      * once per cache key after the orchestrator finishes streaming.
@@ -241,6 +299,19 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      */
     public void mergeCacheKey(String cacheKey, List<BriefingEvaluationResult> results) {
         briefingEvaluationService.mergeFromBatch(cacheKey, results);
+    }
+
+    /**
+     * Merges a group of bluebell mini-batch results into the region cache entry, recombining the
+     * rating with a prior sky result for OPEN_FELL sites (C3b). Delegates to
+     * {@link BriefingEvaluationService#mergeBluebellFromBatch}; the processor selects this path
+     * for {@code bb-} responses.
+     *
+     * @param cacheKey region cache key
+     * @param results  the bluebell results for that cache key
+     */
+    public void mergeBluebellCacheKey(String cacheKey, List<BriefingEvaluationResult> results) {
+        briefingEvaluationService.mergeBluebellFromBatch(cacheKey, results);
     }
 
     @Override
@@ -338,6 +409,46 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                 location.getName(), safeRating,
                 eval.fierySkyPotential(), eval.goldenHourPotential(), eval.summary(),
                 null, null, eval.headline());
+    }
+
+    /**
+     * Builds the {@link BriefingEvaluationResult} for a bluebell-prompt evaluation.
+     *
+     * <p>Runs the combiner over a bluebell-only {@link VisitorContext} (no sky evaluation): the
+     * {@code SkyVisitor} abstains on the null sky slice and the {@code BluebellVisitor} produces
+     * the BLUEBELL component, so the combiner's exposure rule yields the rating (the bluebell
+     * score for WOODLAND). The dual-write persists ONLY the resulting components — no FIERY_SKY /
+     * GOLDEN_HOUR rows, since there is no sky evaluation behind a bluebell-only slot.
+     *
+     * <p>The serving payload carries no 0–100 potentials (both null); the bluebell summary and
+     * headline are the user-facing prose. C3b refines the OPEN_FELL case to recombine the rating
+     * with the sky score at the cache-merge step; until then an open-fell bluebell result lands
+     * its own bluebell-derived rating (never reached in production out of season).
+     */
+    private BriefingEvaluationResult buildBluebellResult(LocationEntity location,
+            BluebellEvaluation bluebell, LocalDate date, TargetType targetType, String regionName,
+            String modelName, Long pipelineRunId) {
+        Set<TideType> tideTypes = location.getTideType();
+        TideContext tide = (tideTypes != null && !tideTypes.isEmpty())
+                ? forecastDataAugmentor.deriveTideContext(location, date, targetType).orElse(null)
+                : null;
+        RatingCombiner.CombinedRating combined =
+                ratingCombiner.combine(location, new VisitorContext(null, tide, bluebell));
+        Integer safeRating = RatingValidator.validateRating(
+                combined.rating(), regionName, date, targetType, location.getName(), modelName);
+
+        try {
+            forecastScoreWriter.writeComponents(
+                    location, date, targetType, combined.components(), pipelineRunId);
+        } catch (Exception e) {
+            LOG.error("forecast_score bluebell dual-write FAILED for component key "
+                    + "(location={}, date={}, event={}); evaluation proceeds unaffected: {}",
+                    location.getName(), date, targetType, e.getMessage(), e);
+        }
+
+        return new BriefingEvaluationResult(
+                location.getName(), safeRating, null, null, bluebell.summary(),
+                null, null, bluebell.headline());
     }
 
     /**

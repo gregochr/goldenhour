@@ -31,17 +31,21 @@ public class BatchRequestFactory {
 
     private final PromptBuilder inlandBuilder;
     private final CoastalPromptBuilder coastalBuilder;
+    private final BluebellPromptBuilder bluebellBuilder;
 
     /**
      * Constructs the factory.
      *
-     * @param inlandBuilder  builder for inland (non-tidal) locations
-     * @param coastalBuilder builder for coastal (tidal) locations
+     * @param inlandBuilder   builder for inland (non-tidal) locations
+     * @param coastalBuilder  builder for coastal (tidal) locations
+     * @param bluebellBuilder builder for the dedicated bluebell-conditions prompt
      */
     public BatchRequestFactory(@Qualifier("promptBuilder") PromptBuilder inlandBuilder,
-            CoastalPromptBuilder coastalBuilder) {
+            CoastalPromptBuilder coastalBuilder,
+            BluebellPromptBuilder bluebellBuilder) {
         this.inlandBuilder = inlandBuilder;
         this.coastalBuilder = coastalBuilder;
+        this.bluebellBuilder = bluebellBuilder;
     }
 
     /**
@@ -83,6 +87,45 @@ public class BatchRequestFactory {
                                         .build()))
                         .outputConfig(builder.buildOutputConfig())
                         .addUserMessage(userMessage)
+                        .build())
+                .build();
+    }
+
+    /**
+     * Builds a batch request for a single bluebell-conditions evaluation task.
+     *
+     * <p>Uses the standalone {@link BluebellPromptBuilder} (its own system prompt and output
+     * schema), not the colour {@link PromptBuilder}. The bluebell mini-batch is submitted as a
+     * homogeneous batch so its ~bluebell system prompt caches across every request, mirroring
+     * the coastal/inland homogeneity of the colour buckets.
+     *
+     * @param customId  the Anthropic custom ID (produced via {@link CustomIdFactory#forBluebell})
+     * @param model     the evaluation model to invoke
+     * @param data      the atmospheric data (must carry a bluebell condition score)
+     * @param maxTokens Anthropic {@code maxTokens} for this request
+     * @return a fully formed batch request ready for submission
+     */
+    public BatchCreateParams.Request buildBluebellRequest(
+            String customId,
+            EvaluationModel model,
+            AtmosphericData data,
+            int maxTokens) {
+        Objects.requireNonNull(customId, "customId");
+        Objects.requireNonNull(model, "model");
+        Objects.requireNonNull(data, "data");
+
+        return BatchCreateParams.Request.builder()
+                .customId(customId)
+                .params(BatchCreateParams.Request.Params.builder()
+                        .model(model.getModelId())
+                        .maxTokens(maxTokens)
+                        .systemOfTextBlockParams(List.of(
+                                TextBlockParam.builder()
+                                        .text(bluebellBuilder.getSystemPrompt())
+                                        .cacheControl(CacheControlEphemeral.builder().build())
+                                        .build()))
+                        .outputConfig(bluebellBuilder.buildOutputConfig())
+                        .addUserMessage(bluebellBuilder.buildUserMessage(data))
                         .build())
                 .build();
     }

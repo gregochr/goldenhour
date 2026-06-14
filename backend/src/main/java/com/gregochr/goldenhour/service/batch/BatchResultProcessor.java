@@ -129,6 +129,10 @@ public class BatchResultProcessor {
      */
     private void processForecastBatch(ForecastBatchEntity batch) {
         Map<String, List<BriefingEvaluationResult>> byKey = new HashMap<>();
+        // Bluebell responses (bb- custom ids) are kept separate and always MERGED into the
+        // region cache entry, never replaced — a bluebell mini-batch carries only the bluebell
+        // sites of a region, so a replace would wipe that region's sky locations.
+        Map<String, List<BriefingEvaluationResult>> bluebellByKey = new HashMap<>();
         int succeeded = 0;
         int errored = 0;
         long totalInput = 0;
@@ -217,9 +221,14 @@ public class BatchResultProcessor {
                 }
 
                 ForecastIdentity identity;
+                boolean isBluebell = false;
                 switch (parsed) {
                     case ParsedCustomId.Forecast f ->
                         identity = new ForecastIdentity(f.locationId(), f.date(), f.targetType());
+                    case ParsedCustomId.Bluebell b -> {
+                        identity = new ForecastIdentity(b.locationId(), b.date(), b.targetType());
+                        isBluebell = true;
+                    }
                     case ParsedCustomId.Jfdi j ->
                         identity = new ForecastIdentity(j.locationId(), j.date(), j.targetType());
                     case ParsedCustomId.ForceSubmit fs -> {
@@ -259,11 +268,16 @@ public class BatchResultProcessor {
                 ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                         customId, text, tokens, model);
 
-                var success = forecastResultHandler.parseBatchResponse(
-                        location, identity, outcome, context);
+                var success = isBluebell
+                        ? forecastResultHandler.parseBluebellBatchResponse(
+                                location, identity, outcome, context)
+                        : forecastResultHandler.parseBatchResponse(
+                                location, identity, outcome, context);
                 if (success.isPresent()) {
                     BatchSuccess hit = success.get();
-                    byKey.computeIfAbsent(hit.cacheKey(), k -> new ArrayList<>())
+                    Map<String, List<BriefingEvaluationResult>> sink =
+                            isBluebell ? bluebellByKey : byKey;
+                    sink.computeIfAbsent(hit.cacheKey(), k -> new ArrayList<>())
                             .add(hit.result());
                     succeeded++;
                 } else {
@@ -300,9 +314,17 @@ public class BatchResultProcessor {
                 forecastResultHandler.flushCacheKey(entry.getKey(), entry.getValue());
             }
         }
+        // Bluebell results always merge: the mini-batch holds only a region's bluebell sites, so
+        // overlaying them preserves the region's sky locations. The bluebell merge additionally
+        // recombines the rating with a prior sky result for OPEN_FELL sites (C3b).
+        for (Map.Entry<String, List<BriefingEvaluationResult>> entry : bluebellByKey.entrySet()) {
+            forecastResultHandler.mergeBluebellCacheKey(entry.getKey(), entry.getValue());
+        }
 
-        LOG.info("Forecast batch complete: batchId={}, {} succeeded, {} errored, {} cache keys written",
-                batch.getAnthropicBatchId(), succeeded, errored, byKey.size());
+        LOG.info("Forecast batch complete: batchId={}, {} succeeded, {} errored, {} cache keys written "
+                        + "({} sky + {} bluebell)",
+                batch.getAnthropicBatchId(), succeeded, errored,
+                byKey.size() + bluebellByKey.size(), byKey.size(), bluebellByKey.size());
 
         batch.setSucceededCount(succeeded);
         batch.setErroredCount(errored);

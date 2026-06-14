@@ -65,9 +65,9 @@ public record ExpandedHotTopicDetail(
     /**
      * Pill-level bluebell metrics.
      *
-     * @param bestScore            highest bluebell score across all regions
+     * @param bestScore            highest bluebell rating (1–5) across all regions
      * @param qualityLabel         human-readable quality: "Excellent" / "Good" / "Fair"
-     * @param scoringLocationCount number of locations with score &ge; 5
+     * @param scoringLocationCount number of locations included in the expanded detail
      */
     public record BluebellMetrics(int bestScore, String qualityLabel, int scoringLocationCount) {
     }
@@ -89,7 +89,7 @@ public record ExpandedHotTopicDetail(
     /**
      * Bluebell-specific metrics for a single location.
      *
-     * @param score     bluebell score (0–10)
+     * @param score     bluebell rating (1–5)
      * @param exposure  exposure type: "WOODLAND" or "OPEN_FELL"
      * @param summary   bluebell condition summary text (nullable)
      */

@@ -1,15 +1,18 @@
 package com.gregochr.goldenhour.service.batch;
 
 import com.gregochr.goldenhour.TestAtmosphericData;
+import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.BluebellConditionScore;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
@@ -173,6 +176,80 @@ class ForecastTaskCollectorTest {
         assertThat(result.nearInland()).hasSize(1);
         verify(forecastService).fetchWeatherAndTriage(
                 any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("collectScheduledBatches: in-season WOODLAND → bluebell bucket only, no sky bucket")
+    void collectScheduledBatches_inSeasonWoodland_bluebellBucketOnly() {
+        LocationEntity loc = buildBluebellLocation(
+                "Bluebell Wood", 54.5, -3.0, BluebellExposure.WOODLAND);
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY, Verdict.GO, loc.getName());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        stubModels();
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(bluebellPreEval(loc, TODAY, 0, BluebellExposure.WOODLAND, false));
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        assertThat(result.bluebell()).hasSize(1);
+        assertThat(result.bluebell().get(0).promptKind())
+                .isEqualTo(EvaluationTask.Forecast.PromptKind.BLUEBELL);
+        assertThat(result.nearInland()).isEmpty();
+        assertThat(result.nearCoastal()).isEmpty();
+        assertThat(result.farInland()).isEmpty();
+        assertThat(result.farCoastal()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("collectScheduledBatches: in-season WOODLAND stays in bluebell bucket even when "
+            + "the colour triage stood it down")
+    void collectScheduledBatches_inSeasonWoodlandTriaged_stillBluebell() {
+        LocationEntity loc = buildBluebellLocation(
+                "Bluebell Wood", 54.5, -3.0, BluebellExposure.WOODLAND);
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY, Verdict.GO, loc.getName());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        stubModels();
+        stubPrefetchSuccess(loc);
+        // Colour triage stands it down (overcast) — but woodland is bluebell-only, so it is
+        // NOT dropped; the bluebell prompt scores the carpet light itself.
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(bluebellPreEval(loc, TODAY, 0, BluebellExposure.WOODLAND, true));
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        assertThat(result.bluebell()).hasSize(1);
+        assertThat(result.totalSize()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("collectScheduledBatches: in-season OPEN_FELL → both a sky task and a bluebell task")
+    void collectScheduledBatches_inSeasonOpenFell_bothBuckets() {
+        LocationEntity loc = buildBluebellLocation(
+                "Rannerdale", 54.55, -3.25, BluebellExposure.OPEN_FELL);
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY, Verdict.GO, loc.getName());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        stubModels();
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(bluebellPreEval(loc, TODAY, 0, BluebellExposure.OPEN_FELL, false));
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        // Sky task in the near-term inland bucket...
+        assertThat(result.nearInland()).hasSize(1);
+        assertThat(result.nearInland().get(0).promptKind())
+                .isEqualTo(EvaluationTask.Forecast.PromptKind.SKY);
+        // ...plus a paired bluebell task.
+        assertThat(result.bluebell()).hasSize(1);
+        assertThat(result.bluebell().get(0).promptKind())
+                .isEqualTo(EvaluationTask.Forecast.PromptKind.BLUEBELL);
     }
 
     @Test
@@ -1330,5 +1407,34 @@ class ForecastTaskCollectorTest {
         return new ForecastPreEvalResult(true, "cloud", null, null, loc, TODAY,
                 TargetType.SUNRISE, EVENT_TIME, 60, 0,
                 EvaluationModel.HAIKU, Set.of(), "k", null);
+    }
+
+    private LocationEntity buildBluebellLocation(String name, double lat, double lon,
+            BluebellExposure exposure) {
+        LocationEntity location = buildInlandLocation(name, lat, lon);
+        location.setLocationType(Set.of(LocationType.BLUEBELL));
+        location.setBluebellExposure(exposure);
+        return location;
+    }
+
+    /**
+     * Builds an in-season bluebell pre-eval: an inland atmospheric payload carrying a non-null
+     * bluebell condition score (the augmentor's in-season-bluebell signal). {@code triaged}
+     * controls whether the colour triage stood the slot down.
+     */
+    private ForecastPreEvalResult bluebellPreEval(LocationEntity loc, LocalDate date,
+            int daysAhead, BluebellExposure exposure, boolean triaged) {
+        BluebellConditionScore conditions = new BluebellConditionScore(
+                7, true, true, true, false, false, true, exposure,
+                "Bright still light under the canopy.");
+        AtmosphericData data = TestAtmosphericData.builder()
+                .locationName(loc.getName())
+                .solarEventTime(EVENT_TIME)
+                .targetType(TargetType.SUNRISE)
+                .bluebellConditionScore(conditions)
+                .build();
+        return new ForecastPreEvalResult(triaged, triaged ? "cloud" : null, null, data, loc, date,
+                TargetType.SUNRISE, EVENT_TIME, 60, daysAhead,
+                EvaluationModel.HAIKU, Set.of(), "k", new OpenMeteoForecastResponse());
     }
 }

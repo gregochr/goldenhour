@@ -139,10 +139,17 @@ public class EvaluationServiceImpl implements EvaluationService {
             BatchTriggerSource trigger, Long pipelineRunId, boolean isRetry) {
         List<BatchCreateParams.Request> requests = new ArrayList<>(tasks.size());
         for (EvaluationTask.Forecast task : tasks) {
-            String customId = CustomIdFactory.forForecast(
-                    task.location().getId(), task.date(), task.targetType());
-            requests.add(batchRequestFactory.buildForecastRequest(
-                    customId, task.model(), task.data(), task.model().getMaxTokens()));
+            if (task.promptKind() == EvaluationTask.Forecast.PromptKind.BLUEBELL) {
+                String customId = CustomIdFactory.forBluebell(
+                        task.location().getId(), task.date(), task.targetType());
+                requests.add(batchRequestFactory.buildBluebellRequest(
+                        customId, task.model(), task.data(), task.model().getMaxTokens()));
+            } else {
+                String customId = CustomIdFactory.forForecast(
+                        task.location().getId(), task.date(), task.targetType());
+                requests.add(batchRequestFactory.buildForecastRequest(
+                        customId, task.model(), task.data(), task.model().getMaxTokens()));
+            }
         }
         BatchSubmitResult result = batchSubmissionService.submit(
                 requests, BatchType.FORECAST, trigger,

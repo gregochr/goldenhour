@@ -50,6 +50,7 @@ public class ForecastDataAugmentor {
     private final WeatherAugmentedTideService weatherAugmentedTideService;
     private final SurgeCalibrationLogger surgeCalibrationLogger;
     private final BluebellConditionService bluebellConditionService;
+    private final SeasonalWindow bluebellSeason;
 
     /**
      * Constructs a {@code ForecastDataAugmentor} with the services needed for data enrichment.
@@ -61,13 +62,15 @@ public class ForecastDataAugmentor {
      * @param weatherAugmentedTideService  storm surge calculation service
      * @param surgeCalibrationLogger       structured logging for surge calibration
      * @param bluebellConditionService     scores bluebell photography conditions
+     * @param bluebellSeason               the configured bluebell season window
      */
     public ForecastDataAugmentor(OpenMeteoService openMeteoService, SolarService solarService,
             TideService tideService,
             TideFactDeriver tideFactDeriver,
             WeatherAugmentedTideService weatherAugmentedTideService,
             SurgeCalibrationLogger surgeCalibrationLogger,
-            BluebellConditionService bluebellConditionService) {
+            BluebellConditionService bluebellConditionService,
+            SeasonalWindow bluebellSeason) {
         this.openMeteoService = openMeteoService;
         this.solarService = solarService;
         this.tideService = tideService;
@@ -75,6 +78,7 @@ public class ForecastDataAugmentor {
         this.weatherAugmentedTideService = weatherAugmentedTideService;
         this.surgeCalibrationLogger = surgeCalibrationLogger;
         this.bluebellConditionService = bluebellConditionService;
+        this.bluebellSeason = bluebellSeason;
     }
 
     /**
@@ -402,7 +406,7 @@ public class ForecastDataAugmentor {
      *
      * <p>Only augments when:
      * <ul>
-     *   <li>the target date falls within {@link SeasonalWindow#BLUEBELL}</li>
+     *   <li>the target date falls within the configured bluebell {@link SeasonalWindow}</li>
      *   <li>the location has {@code BLUEBELL} in its location types</li>
      *   <li>a {@link BluebellExposure} is set on the location</li>
      * </ul>
@@ -417,7 +421,7 @@ public class ForecastDataAugmentor {
     public AtmosphericData augmentWithBluebellConditions(AtmosphericData base,
             Set<LocationType> locationTypes, BluebellExposure exposure,
             LocalDate targetDate) {
-        if (!SeasonalWindow.BLUEBELL.isActive(targetDate)) {
+        if (!bluebellSeason.isActive(targetDate)) {
             return base;
         }
         if (locationTypes == null || !locationTypes.contains(LocationType.BLUEBELL)) {

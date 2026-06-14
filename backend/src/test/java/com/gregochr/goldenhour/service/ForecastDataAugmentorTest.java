@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
+import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.TideContext;
 import com.gregochr.goldenhour.model.TideData;
@@ -24,6 +25,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.MonthDay;
 import java.util.Optional;
 import java.util.Set;
 
@@ -69,7 +71,8 @@ class ForecastDataAugmentorTest {
         // through the extracted single derivation seam.
         augmentor = new ForecastDataAugmentor(openMeteoService, solarService, tideService,
                 new TideFactDeriver(tideService, lunarPhaseService, solarService),
-                null, null, null);
+                null, null, null,
+                new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"));
     }
 
     /** Stubs the solar window for coastal augmentWithTideData tests. */

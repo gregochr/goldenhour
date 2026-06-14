@@ -674,10 +674,6 @@ public class ForecastService {
                         ? evaluation.inversionScore() : null)
                 .inversionPotential(data.inversionScore() != null
                         ? evaluation.inversionPotential() : null)
-                .bluebellScore(data.bluebellConditionScore() != null
-                        ? evaluation.bluebellScore() : null)
-                .bluebellSummary(data.bluebellConditionScore() != null
-                        ? evaluation.bluebellSummary() : null)
                 .build();
     }
 }

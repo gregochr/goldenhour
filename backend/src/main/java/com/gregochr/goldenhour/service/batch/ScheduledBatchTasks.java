@@ -19,6 +19,11 @@ import java.util.List;
  *   <li><b>inland</b> vs <b>coastal</b> — coastal locations have non-null tide
  *       data on the {@link com.gregochr.goldenhour.model.AtmosphericData} record
  *       and use a different prompt builder.</li>
+ *   <li><b>bluebell</b> — a separate homogeneous bucket of bluebell-prompt tasks
+ *       for in-season bluebell sites, submitted as its own batch so its system
+ *       prompt caches across requests. Empty out of season. A WOODLAND site in
+ *       season produces ONLY a bluebell task; an OPEN_FELL site produces both a
+ *       sky task (in one of the four colour buckets) and a bluebell task.</li>
  * </ul>
  *
  * <p>An "empty" result (every bucket empty) is returned when the prefetch gate
@@ -36,6 +41,7 @@ import java.util.List;
  * @param nearCoastal  near-term coastal tasks
  * @param farInland    far-term inland tasks
  * @param farCoastal   far-term coastal tasks
+ * @param bluebell     in-season bluebell-prompt tasks (empty out of season)
  * @param dispositions per-candidate outcome trail (EVALUATED + every SKIPPED_*)
  */
 public record ScheduledBatchTasks(
@@ -43,6 +49,7 @@ public record ScheduledBatchTasks(
         List<EvaluationTask.Forecast> nearCoastal,
         List<EvaluationTask.Forecast> farInland,
         List<EvaluationTask.Forecast> farCoastal,
+        List<EvaluationTask.Forecast> bluebell,
         List<CandidateDisposition> dispositions) {
 
     /**
@@ -50,7 +57,7 @@ public record ScheduledBatchTasks(
      */
     public static ScheduledBatchTasks empty() {
         return new ScheduledBatchTasks(
-                List.of(), List.of(), List.of(), List.of(), List.of());
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
     }
 
     /**
@@ -58,14 +65,15 @@ public record ScheduledBatchTasks(
      */
     public boolean isEmpty() {
         return nearInland.isEmpty() && nearCoastal.isEmpty()
-                && farInland.isEmpty() && farCoastal.isEmpty();
+                && farInland.isEmpty() && farCoastal.isEmpty()
+                && bluebell.isEmpty();
     }
 
     /**
-     * @return total task count across all four buckets.
+     * @return total task count across all five buckets.
      */
     public int totalSize() {
         return nearInland.size() + nearCoastal.size()
-                + farInland.size() + farCoastal.size();
+                + farInland.size() + farCoastal.size() + bluebell.size();
     }
 }

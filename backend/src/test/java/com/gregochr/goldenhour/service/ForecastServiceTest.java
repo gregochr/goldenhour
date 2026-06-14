@@ -658,7 +658,7 @@ class ForecastServiceTest {
         AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
         SunsetEvaluation evaluation = new SunsetEvaluation(
                 4, 80, 75, "Layered cloud should catch fire near the horizon.",
-                null, null, null, null, null, null, null,
+                null, null, null, null, null,
                 "Layered horizon — fire likely");
 
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(

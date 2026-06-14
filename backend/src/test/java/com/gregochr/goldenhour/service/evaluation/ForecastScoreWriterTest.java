@@ -163,6 +163,39 @@ class ForecastScoreWriterTest {
     }
 
     @Test
+    @DisplayName("writeComponents: bluebell-only → writes ONLY the BLUEBELL row, no FIERY/GOLDEN")
+    void writeComponents_bluebellOnly_writesOnlyComponents() {
+        when(repository.findComponent(
+                eq(ForecastType.BLUEBELL), eq(LOCATION_ID), eq(DATE), eq(SUNSET)))
+                .thenReturn(Optional.empty());
+        ForecastScoreWriter writer = writer(true);
+
+        writer.writeComponents(location(), DATE, SUNSET,
+                List.of(new ComponentScore(ForecastType.BLUEBELL, 4,
+                        "Bright still light if they are in flower.")),
+                PIPELINE_RUN_ID);
+
+        List<ForecastScoreEntity> saved = captureSaves(1);
+        assertThat(saved).singleElement().satisfies(row -> {
+            assertThat(row.getForecastType()).isEqualTo(ForecastType.BLUEBELL);
+            assertThat(row.getScore()).isEqualTo(4);
+            assertThat(row.getSummary()).isEqualTo("Bright still light if they are in flower.");
+            assertThat(row.getPipelineRunId()).isEqualTo(PIPELINE_RUN_ID);
+            assertThat(row.getEvaluatedAt()).isEqualTo(FIXED);
+        });
+    }
+
+    @Test
+    @DisplayName("writeComponents: flag off and HOURLY both write nothing")
+    void writeComponents_flagOffAndHourly_writeNothing() {
+        writer(false).writeComponents(location(), DATE, SUNSET,
+                List.of(new ComponentScore(ForecastType.BLUEBELL, 4, "x")), PIPELINE_RUN_ID);
+        writer(true).writeComponents(location(), DATE, TargetType.HOURLY,
+                List.of(new ComponentScore(ForecastType.BLUEBELL, 4, "x")), PIPELINE_RUN_ID);
+        verifyNoInteractions(repository);
+    }
+
+    @Test
     @DisplayName("upsert: an existing component row is updated in place (latest score wins)")
     void upsert_updatesExistingRow() {
         ForecastScoreEntity existingSky = new ForecastScoreEntity();

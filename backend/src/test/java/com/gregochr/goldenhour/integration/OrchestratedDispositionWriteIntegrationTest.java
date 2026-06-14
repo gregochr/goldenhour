@@ -152,7 +152,7 @@ class OrchestratedDispositionWriteIntegrationTest extends IntegrationTestBase {
                 NightlyEligibilityPolicy.INSTANCE,
                 false))
                 .thenReturn(new ScheduledBatchTasks(
-                        List.of(), List.of(), List.of(), List.of(), dispositions));
+                        List.of(), List.of(), List.of(), List.of(), List.of(), dispositions));
 
         // Drive the REAL orchestrator cycle synchronously. Zero batches → the
         // wait phase sees an empty batch set (terminal immediately) → briefing
@@ -214,7 +214,7 @@ class OrchestratedDispositionWriteIntegrationTest extends IntegrationTestBase {
                 NightlyEligibilityPolicy.INSTANCE,
                 false))
                 .thenReturn(new ScheduledBatchTasks(
-                        List.of(task), List.of(), List.of(), List.of(), dispositions));
+                        List.of(task), List.of(), List.of(), List.of(), List.of(), dispositions));
 
         String batchId = "msgbatch_orchestrated";
         WIRE_MOCK.stubFor(stubBatchCreate(batchId));
@@ -268,7 +268,7 @@ class OrchestratedDispositionWriteIntegrationTest extends IntegrationTestBase {
                         com.gregochr.goldenhour.service.batch.IntradayEligibilityPolicy.INSTANCE),
                 org.mockito.ArgumentMatchers.eq(true)))
                 .thenReturn(new ScheduledBatchTasks(
-                        List.of(), List.of(), List.of(), List.of(), dispositions));
+                        List.of(), List.of(), List.of(), List.of(), List.of(), dispositions));
 
         // Exercise the real orchestrated submit entry directly with intraday's
         // inputs (the exact 5-arg method the orchestrator's submit phase calls for

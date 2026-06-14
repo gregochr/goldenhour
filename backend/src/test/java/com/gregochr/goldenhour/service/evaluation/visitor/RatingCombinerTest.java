@@ -239,4 +239,106 @@ class RatingCombinerTest {
                 .extracting(ComponentScore::type)
                 .containsExactly(ForecastType.SKY);
     }
+
+    // ── Pass 3: exposure-differentiated bluebell rating role ──────────────────
+
+    private static LocationEntity bluebell(String name,
+            com.gregochr.goldenhour.entity.BluebellExposure exposure) {
+        LocationEntity loc = new LocationEntity();
+        loc.setName(name);
+        loc.setLocationType(Set.of(
+                com.gregochr.goldenhour.entity.LocationType.LANDSCAPE,
+                com.gregochr.goldenhour.entity.LocationType.BLUEBELL));
+        loc.setBluebellExposure(exposure);
+        return loc;
+    }
+
+    private static VisitorContext skyAndBluebell(Integer skyRating, Integer bluebellRating) {
+        return new VisitorContext(
+                skyRating == null ? null : new SunsetEvaluation(skyRating, 50, 55, "sky"),
+                null,
+                bluebellRating == null ? null
+                        : new com.gregochr.goldenhour.model.BluebellEvaluation(
+                                bluebellRating, "bluebell prose", null));
+    }
+
+    @Test
+    @DisplayName("WOODLAND in season: rating IS the bluebell score — sky is not a peer")
+    void woodland_bluebellIsTheRating() {
+        RatingCombiner combiner = new RatingCombiner(
+                List.of(new SkyVisitor(), new BluebellVisitor()));
+        // Sky 2 (calm bright overcast scores low as a sky) + bluebell 5: averaging would give 4
+        // (the cap the rule exists to avoid). The rule takes bluebell alone → 5.
+        RatingCombiner.CombinedRating result = combiner.combine(
+                bluebell("Hardcastle Crags", com.gregochr.goldenhour.entity.BluebellExposure.WOODLAND),
+                skyAndBluebell(2, 5));
+
+        assertThat(result.rating()).as("woodland rating == bluebell score").isEqualTo(5);
+        // Both components are still RECORDED for the dual-write, even though sky is not a peer.
+        assertThat(result.components())
+                .extracting(ComponentScore::type)
+                .containsExactlyInAnyOrder(ForecastType.SKY, ForecastType.BLUEBELL);
+    }
+
+    @Test
+    @DisplayName("WOODLAND bluebell-only (no sky call): rating is the bluebell score")
+    void woodland_bluebellOnly_noSkyEvaluation() {
+        RatingCombiner combiner = new RatingCombiner(
+                List.of(new SkyVisitor(), new BluebellVisitor()));
+        // The in-season woodland path runs the bluebell prompt alone — no SunsetEvaluation.
+        RatingCombiner.CombinedRating result = combiner.combine(
+                bluebell("Hardcastle Crags", com.gregochr.goldenhour.entity.BluebellExposure.WOODLAND),
+                skyAndBluebell(null, 4));
+
+        assertThat(result.rating()).isEqualTo(4);
+        assertThat(result.components())
+                .extracting(ComponentScore::type)
+                .containsExactly(ForecastType.BLUEBELL);
+    }
+
+    @Test
+    @DisplayName("OPEN_FELL in season: rating == round(avg(sky, bluebell)) — bluebell is a peer")
+    void openFell_averagesSkyAndBluebell() {
+        RatingCombiner combiner = new RatingCombiner(
+                List.of(new SkyVisitor(), new BluebellVisitor()));
+        // Sky 2 + bluebell 5 → avg 3.5 → 4 (half-up). Bluebell is a peer on open fell.
+        RatingCombiner.CombinedRating result = combiner.combine(
+                bluebell("Rannerdale Knotts",
+                        com.gregochr.goldenhour.entity.BluebellExposure.OPEN_FELL),
+                skyAndBluebell(2, 5));
+
+        assertThat(result.rating()).isEqualTo(4);
+        assertThat(result.components())
+                .extracting(ComponentScore::type)
+                .containsExactlyInAnyOrder(ForecastType.SKY, ForecastType.BLUEBELL);
+    }
+
+    @Test
+    @DisplayName("OPEN_FELL averaging rounds half up (sky 4 + bluebell 5 → 4.5 → 5)")
+    void openFell_roundsHalfUp() {
+        RatingCombiner combiner = new RatingCombiner(
+                List.of(new SkyVisitor(), new BluebellVisitor()));
+        RatingCombiner.CombinedRating result = combiner.combine(
+                bluebell("Rannerdale Knotts",
+                        com.gregochr.goldenhour.entity.BluebellExposure.OPEN_FELL),
+                skyAndBluebell(4, 5));
+
+        assertThat(result.rating()).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("out of season (bluebell abstains): WOODLAND site rated on sky alone")
+    void outOfSeason_woodland_skyOnly() {
+        RatingCombiner combiner = new RatingCombiner(
+                List.of(new SkyVisitor(), new BluebellVisitor()));
+        // No bluebell evaluation → BluebellVisitor abstains → only SKY applies, rating == sky.
+        RatingCombiner.CombinedRating result = combiner.combine(
+                bluebell("Hardcastle Crags", com.gregochr.goldenhour.entity.BluebellExposure.WOODLAND),
+                skyAndBluebell(3, null));
+
+        assertThat(result.rating()).isEqualTo(3);
+        assertThat(result.components())
+                .extracting(ComponentScore::type)
+                .containsExactly(ForecastType.SKY);
+    }
 }

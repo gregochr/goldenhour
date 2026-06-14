@@ -106,6 +106,37 @@ public class ForecastScoreWriter {
     }
 
     /**
+     * Dual-writes the component rows for a bluebell-prompt evaluation, which has no sky sub-scores.
+     *
+     * <p>Unlike {@link #write}, this writes ONLY the supplied components (the BLUEBELL row, and any
+     * applicable TIDAL row) — it does NOT write {@link ForecastType#FIERY_SKY} or
+     * {@link ForecastType#GOLDEN_HOUR}, because an in-season WOODLAND bluebell site is evaluated by
+     * the bluebell prompt alone (no sky call, so no 0–100 potentials exist). Same no-op flag, same
+     * HOURLY guard, same {@link Propagation#REQUIRES_NEW} isolation as {@link #write}.
+     *
+     * @param location      the evaluated location (must have an id)
+     * @param date          the forecast date
+     * @param eventType     SUNRISE or SUNSET
+     * @param components    the combiner's exposed component scores (BLUEBELL and, if applicable, TIDAL)
+     * @param pipelineRunId the orchestrated cycle that produced this evaluation, or {@code null}
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void writeComponents(LocationEntity location, LocalDate date, TargetType eventType,
+            List<ComponentScore> components, Long pipelineRunId) {
+        if (!dualWriteEnabled) {
+            return;
+        }
+        if (eventType == TargetType.HOURLY) {
+            return;
+        }
+        Instant now = Instant.now(clock);
+        for (ComponentScore component : components) {
+            upsert(component.type(), component.score(), component.summary(),
+                    location, date, eventType, pipelineRunId, now);
+        }
+    }
+
+    /**
      * Inserts or updates the single component row for the unique key, setting the latest score,
      * summary, provenance, and timestamp.
      */

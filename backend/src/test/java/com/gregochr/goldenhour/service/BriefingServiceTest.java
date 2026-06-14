@@ -20,6 +20,7 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
@@ -37,6 +38,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.MonthDay;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -61,6 +63,10 @@ import static org.mockito.Mockito.when;
  */
 @ExtendWith(MockitoExtension.class)
 class BriefingServiceTest {
+
+    /** Bluebell season window with the historic default boundaries (Apr 18 – May 18). */
+    private static final SeasonalWindow BLUEBELL_WINDOW =
+            new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL");
 
     @Mock
     private LocationService locationService;
@@ -134,7 +140,8 @@ class BriefingServiceTest {
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
-                briefingEvaluationService, evaluationViewService, bestBetFallbackService);
+                briefingEvaluationService, evaluationViewService, bestBetFallbackService,
+                BLUEBELL_WINDOW);
     }
 
     @Nested
@@ -511,7 +518,8 @@ class BriefingServiceTest {
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
-                briefingEvaluationService, evaluationViewService, bestBetFallbackService);
+                briefingEvaluationService, evaluationViewService, bestBetFallbackService,
+                BLUEBELL_WINDOW);
         freshService.loadPersistedBriefing();
 
         DailyBriefingResponse cached = freshService.getCachedBriefing();
@@ -542,7 +550,8 @@ class BriefingServiceTest {
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
-                briefingEvaluationService, evaluationViewService, bestBetFallbackService);
+                briefingEvaluationService, evaluationViewService, bestBetFallbackService,
+                BLUEBELL_WINDOW);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -566,7 +575,8 @@ class BriefingServiceTest {
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
-                briefingEvaluationService, evaluationViewService, bestBetFallbackService);
+                briefingEvaluationService, evaluationViewService, bestBetFallbackService,
+                BLUEBELL_WINDOW);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -1104,7 +1114,8 @@ class BriefingServiceTest {
                     bluebellGlossService, auroraSummaryBuilder,
                     new BriefingHierarchyBuilder(verdictEvaluator),
                     slotBuilder, eventPublisher, hotTopicAggregator,
-                    briefingEvaluationService, evaluationViewService, bestBetFallbackService);
+                    briefingEvaluationService, evaluationViewService, bestBetFallbackService,
+                    BLUEBELL_WINDOW);
             freshService.loadPersistedBriefing();
 
             // Trigger below-threshold refresh: 1 location, batch throws → succeeded=0, failed=1

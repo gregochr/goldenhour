@@ -32,10 +32,10 @@ const AURORA_LEVEL_COLOUR = {
 
 const AURORA_LEVEL_LABEL = { MINOR: 'Minor', MODERATE: 'Moderate', STRONG: 'Strong' };
 
-/** Score colour for bluebell scores. */
+/** Score colour for bluebell ratings (1-5 Claude rubric: 5 = exceptional). */
 function bluebellScoreColour(score) {
-  if (score >= 9) return 'rgb(74, 222, 128)';
-  if (score >= 7) return 'rgb(251, 191, 36)';
+  if (score >= 5) return 'rgb(74, 222, 128)';
+  if (score >= 4) return 'rgb(251, 191, 36)';
   return 'rgba(255,255,255,0.45)';
 }
 
@@ -87,7 +87,7 @@ function buildSubtitle(topic, auroraData) {
   }
   if (topic.type === 'BLUEBELL' && topic.expandedDetail?.bluebellMetrics) {
     const m = topic.expandedDetail.bluebellMetrics;
-    return `${m.scoringLocationCount} locations scoring \u00b7 best ${m.bestScore}/10`;
+    return `${m.scoringLocationCount} locations scoring \u00b7 best ${m.bestScore}/5`;
   }
   if ((topic.type === 'KING_TIDE' || topic.type === 'SPRING_TIDE')
       && topic.expandedDetail?.tideMetrics) {
@@ -364,7 +364,7 @@ function BluebellExpandedCard({ expandedDetail }) {
                       fontWeight: 600,
                     }}
                   >
-                    {score}/10
+                    {score}/5
                   </span>
                 )}
                 {loc.badge && (

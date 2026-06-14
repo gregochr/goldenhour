@@ -23,6 +23,40 @@ class CustomIdFactoryTest {
     }
 
     @Test
+    void forBluebellProducesExpectedFormat() {
+        assertThat(CustomIdFactory.forBluebell(42L, DATE, TargetType.SUNRISE))
+                .isEqualTo("bb-42-2026-04-16-SUNRISE");
+    }
+
+    @Test
+    void parseBluebellReturnsStructuredRecord() {
+        ParsedCustomId parsed = CustomIdFactory.parse("bb-42-2026-04-16-SUNRISE");
+        assertThat(parsed).isInstanceOf(ParsedCustomId.Bluebell.class);
+        ParsedCustomId.Bluebell b = (ParsedCustomId.Bluebell) parsed;
+        assertThat(b.locationId()).isEqualTo(42L);
+        assertThat(b.date()).isEqualTo(DATE);
+        assertThat(b.targetType()).isEqualTo(TargetType.SUNRISE);
+    }
+
+    @Test
+    void forBluebellRoundTripsThroughParse() {
+        String id = CustomIdFactory.forBluebell(7L, DATE, TargetType.SUNSET);
+        ParsedCustomId parsed = CustomIdFactory.parse(id);
+        assertThat(parsed).isInstanceOf(ParsedCustomId.Bluebell.class);
+        assertThat(((ParsedCustomId.Bluebell) parsed).locationId()).isEqualTo(7L);
+    }
+
+    @Test
+    void forBluebellRejectsNullArguments() {
+        assertThatNullPointerException()
+                .isThrownBy(() -> CustomIdFactory.forBluebell(null, DATE, TargetType.SUNRISE));
+        assertThatNullPointerException()
+                .isThrownBy(() -> CustomIdFactory.forBluebell(42L, null, TargetType.SUNRISE));
+        assertThatNullPointerException()
+                .isThrownBy(() -> CustomIdFactory.forBluebell(42L, DATE, null));
+    }
+
+    @Test
     void forJfdiProducesExpectedFormat() {
         assertThat(CustomIdFactory.forJfdi(42L, DATE, TargetType.SUNSET))
                 .isEqualTo("jfdi-42-2026-04-16-SUNSET");
