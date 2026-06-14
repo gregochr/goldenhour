@@ -1,5 +1,7 @@
 package com.gregochr.goldenhour.service.evaluation;
 
+import java.util.regex.Pattern;
+
 /**
  * Shared utility methods for prompt construction and Claude response parsing.
  *
@@ -9,6 +11,37 @@ public final class PromptUtils {
 
     private PromptUtils() {
         // utility class
+    }
+
+    /**
+     * Matches the model's self-references ("Claude", "Anthropic") as whole words,
+     * case-insensitively, so they can be rebranded in user-facing narrative text.
+     * Word boundaries keep hyphenated forms intact: "Claude-rated" → "PhotoCast-rated".
+     */
+    private static final Pattern MODEL_BRAND_PATTERN =
+            Pattern.compile("(?i)\\b(?:claude|anthropic)\\b");
+
+    /** Public-facing brand the evaluation engine is presented as. */
+    private static final String PUBLIC_BRAND = "PhotoCast";
+
+    /**
+     * Rebrands any user-facing model self-reference to the public PhotoCast brand.
+     *
+     * <p>The system prompts are written to avoid naming the underlying model, but
+     * LLM output is never guaranteed — the model can still echo "Claude" (e.g.
+     * "Claude-rated excellent") from the data field vocabulary it reads. This is a
+     * defensive backstop applied to narrative text after the model returns; the
+     * prompt instructions remain the primary control.
+     *
+     * @param text narrative text that may contain a model self-reference (may be null)
+     * @return the text with "Claude"/"Anthropic" replaced by "PhotoCast", or the
+     *     input unchanged when null
+     */
+    public static String sanitizeBrand(String text) {
+        if (text == null || text.isEmpty()) {
+            return text;
+        }
+        return MODEL_BRAND_PATTERN.matcher(text).replaceAll(PUBLIC_BRAND);
     }
 
     /** 16-point compass directions, indexed by (degrees / 22.5) rounded. */

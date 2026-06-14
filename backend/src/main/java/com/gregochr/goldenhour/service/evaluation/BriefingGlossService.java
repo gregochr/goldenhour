@@ -77,12 +77,15 @@ public class BriefingGlossService {
             CRITICAL RULE: If clearAllLayers is true, BOTH headline and detail MUST be \
             cautionary — clear skies mean no cloud canvas to catch colour. Never describe \
             clear-all-layers conditions as good, promising, or colourful.
-            CLAUDE SCORES: The input may include claudeRatedCount, claudeHighRatedCount, \
+            PHOTOCAST SCORES: The input may include claudeRatedCount, claudeHighRatedCount, \
             claudeMediumRatedCount, and claudeAverageRating fields. When present, these \
-            are per-location Claude evaluation scores from the full atmospheric analysis. \
+            are per-location PhotoCast evaluation scores from the full atmospheric analysis. \
             Use them to calibrate your language: a claudeAverageRating above 3.5 justifies \
             optimistic language; below 2.5 warrants caution even if the triage verdict is GO. \
             When absent, base your assessment on the cloud and tide data alone.
+            BRANDING: Never name the evaluation engine "Claude" or "Anthropic" in the headline \
+            or detail. The product is "PhotoCast" — write "PhotoCast-rated" or simply \
+            "rated"/"evaluated" if you need to credit the assessment.
             STANDDOWN regions: when the input verdict is STANDDOWN, conditions are poor \
             across the region — write a cautionary headline and detail in honest terms. \
             Examples: "Heavy rain washes out the sky", "Sun blocked at the eastern horizon", \
@@ -337,14 +340,15 @@ public class BriefingGlossService {
             String cleaned = PromptUtils.stripCodeFences(raw);
             JsonNode node = objectMapper.readTree(cleaned);
             if (node.has("headline")) {
-                item.glossHeadline = truncateToWords(node.get("headline").asText(), 7);
+                item.glossHeadline =
+                        PromptUtils.sanitizeBrand(truncateToWords(node.get("headline").asText(), 7));
             }
             if (node.has("detail")) {
-                item.glossDetail = node.get("detail").asText();
+                item.glossDetail = PromptUtils.sanitizeBrand(node.get("detail").asText());
             }
         } catch (Exception e) {
             LOG.debug("Gloss JSON parse failed, falling back to truncation: {}", e.getMessage());
-            item.glossHeadline = truncateToWords(raw, 7);
+            item.glossHeadline = PromptUtils.sanitizeBrand(truncateToWords(raw, 7));
         }
     }
 

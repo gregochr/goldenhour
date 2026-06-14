@@ -2878,7 +2878,7 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
-        @DisplayName("System prompt contains CLAUDE EVALUATION SCORES guidance")
+        @DisplayName("System prompt contains PHOTOCAST EVALUATION SCORES guidance")
         void systemPromptContainsClaudeScoreGuidance() {
             when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
                     .thenReturn(EvaluationModel.HAIKU);
@@ -2899,7 +2899,7 @@ class BriefingBestBetAdvisorTest {
                     .findFirst()
                     .orElse("");
 
-            assertThat(systemText).contains("CLAUDE EVALUATION SCORES");
+            assertThat(systemText).contains("PHOTOCAST EVALUATION SCORES");
             assertThat(systemText).contains("claudeRatedCount");
             assertThat(systemText).contains("claudeHighRatedCount");
             assertThat(systemText).contains("claudeAverageRating");
