@@ -32,6 +32,19 @@ public sealed interface ParsedCustomId {
     }
 
     /**
+     * A bluebell custom ID from the scheduled bluebell mini-batch path. Carries the same
+     * identity as {@link Forecast} but signals that the response was produced by the dedicated
+     * bluebell prompt and must be parsed/combined via the bluebell path.
+     *
+     * @param locationId database ID of the location
+     * @param date       forecast date
+     * @param targetType SUNRISE, SUNSET, or HOURLY
+     */
+    record Bluebell(Long locationId, LocalDate date, TargetType targetType)
+            implements ParsedCustomId {
+    }
+
+    /**
      * A JFDI custom ID.
      *
      * @param locationId database ID of the location

@@ -88,7 +88,8 @@ class PromptGoldenMasterTest {
 
     /** Real assembly seam under test — real builders, no mocks. */
     private final BatchRequestFactory factory =
-            new BatchRequestFactory(new PromptBuilder(), new CoastalPromptBuilder());
+            new BatchRequestFactory(new PromptBuilder(), new CoastalPromptBuilder(),
+                    new BluebellPromptBuilder());
 
     @Test
     @DisplayName("inland landscape: base builder, no location-fact blocks")

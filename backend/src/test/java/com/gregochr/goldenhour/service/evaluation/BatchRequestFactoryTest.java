@@ -2,11 +2,13 @@ package com.gregochr.goldenhour.service.evaluation;
 
 import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.gregochr.goldenhour.TestAtmosphericData;
+import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideStatisticalSize;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.BluebellConditionScore;
 import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 import com.gregochr.goldenhour.model.TideRiskLevel;
 import com.gregochr.goldenhour.model.TideSnapshot;
@@ -23,13 +25,15 @@ class BatchRequestFactoryTest {
 
     private PromptBuilder inlandBuilder;
     private CoastalPromptBuilder coastalBuilder;
+    private BluebellPromptBuilder bluebellBuilder;
     private BatchRequestFactory factory;
 
     @BeforeEach
     void setUp() {
         inlandBuilder = new PromptBuilder();
         coastalBuilder = new CoastalPromptBuilder();
-        factory = new BatchRequestFactory(inlandBuilder, coastalBuilder);
+        bluebellBuilder = new BluebellPromptBuilder();
+        factory = new BatchRequestFactory(inlandBuilder, coastalBuilder, bluebellBuilder);
     }
 
     @Test
@@ -96,6 +100,31 @@ class BatchRequestFactoryTest {
                 .asTextBlockParams().get(0).text();
         assertThat(systemText)
                 .doesNotContain("COASTAL TIDE GUIDANCE");
+    }
+
+    @Test
+    void bluebellRequestUsesBluebellSystemPromptAndCustomId() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .bluebellConditionScore(woodlandConditions())
+                .build();
+
+        BatchCreateParams.Request request = factory.buildBluebellRequest(
+                "bb-42-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data, 512);
+
+        assertThat(request.customId()).isEqualTo("bb-42-2026-04-16-SUNRISE");
+        assertThat(request.params().maxTokens()).isEqualTo(512L);
+        String systemText = request.params().system().get()
+                .asTextBlockParams().get(0).text();
+        assertThat(systemText).isEqualTo(bluebellBuilder.getSystemPrompt());
+        // The bluebell system block is cached the same way the colour ones are.
+        assertThat(request.params().system().get().asTextBlockParams().get(0).cacheControl())
+                .isPresent();
+    }
+
+    private static BluebellConditionScore woodlandConditions() {
+        return new BluebellConditionScore(
+                7, true, true, true, false, false, true,
+                BluebellExposure.WOODLAND, "Bright still overcast under the canopy.");
     }
 
     @Test

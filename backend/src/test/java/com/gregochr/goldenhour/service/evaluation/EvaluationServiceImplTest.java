@@ -162,6 +162,36 @@ class EvaluationServiceImplTest {
     }
 
     @Test
+    @DisplayName("submit: bluebell tasks → bb- custom id + buildBluebellRequest")
+    void submit_bluebellTasks_routesThroughBluebellFactory() {
+        EvaluationTask.Forecast bb = bluebellTask(53L, "Bluebell Wood", "Lake District");
+        BatchCreateParams.Request req = mock(BatchCreateParams.Request.class);
+        when(batchRequestFactory.buildBluebellRequest(
+                eq("bb-53-2026-04-16-SUNRISE"), eq(EvaluationModel.HAIKU),
+                eq(bb.data()), eq(EvaluationModel.HAIKU.getMaxTokens())))
+                .thenReturn(req);
+        when(batchSubmissionService.submit(
+                any(), eq(BatchType.FORECAST), eq(BatchTriggerSource.SCHEDULED), anyString(),
+                org.mockito.ArgumentMatchers.isNull(), eq(false)))
+                .thenReturn(new BatchSubmitResult(901L, "msgbatch_bb", 1));
+
+        EvaluationHandle handle = service.submit(List.of(bb), BatchTriggerSource.SCHEDULED);
+
+        assertThat(handle.batchId()).isEqualTo("msgbatch_bb");
+        // The colour request builder is never consulted for a bluebell task.
+        verify(batchRequestFactory).buildBluebellRequest(
+                eq("bb-53-2026-04-16-SUNRISE"), eq(EvaluationModel.HAIKU),
+                eq(bb.data()), eq(EvaluationModel.HAIKU.getMaxTokens()));
+        ArgumentCaptor<List<BatchCreateParams.Request>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(batchSubmissionService).submit(
+                captor.capture(), eq(BatchType.FORECAST),
+                eq(BatchTriggerSource.SCHEDULED), anyString(),
+                org.mockito.ArgumentMatchers.isNull(), eq(false));
+        assertThat(captor.getValue()).containsExactly(req);
+    }
+
+    @Test
     @DisplayName("submit: aurora tasks → uses ClaudeAuroraInterpreter.buildUserMessage and AURORA type")
     void submit_auroraTasks_routesThroughAuroraInterpreter() {
         EvaluationTask.Aurora task = auroraTask(AlertLevel.MODERATE);
@@ -490,6 +520,19 @@ class EvaluationServiceImplTest {
         return new EvaluationTask.Forecast(
                 loc, DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
                 EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+    }
+
+    private EvaluationTask.Forecast bluebellTask(long id, String name, String regionName) {
+        LocationEntity loc = new LocationEntity();
+        loc.setId(id);
+        loc.setName(name);
+        RegionEntity region = new RegionEntity();
+        region.setName(regionName);
+        loc.setRegion(region);
+        return new EvaluationTask.Forecast(
+                loc, DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
+                EvaluationTask.Forecast.PromptKind.BLUEBELL);
     }
 
     private EvaluationTask.Aurora auroraTask(AlertLevel level) {

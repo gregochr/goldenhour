@@ -160,6 +160,7 @@ public class BatchSummaryDeriver {
     private static Long extractLocationId(ParsedCustomId parsed) {
         return switch (parsed) {
             case ParsedCustomId.Forecast f -> f.locationId();
+            case ParsedCustomId.Bluebell b -> b.locationId();
             case ParsedCustomId.Jfdi j -> j.locationId();
             case ParsedCustomId.ForceSubmit fs -> fs.locationId();
             case ParsedCustomId.Aurora a -> null;
