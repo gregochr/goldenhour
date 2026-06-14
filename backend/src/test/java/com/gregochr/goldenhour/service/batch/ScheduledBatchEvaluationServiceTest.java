@@ -156,7 +156,7 @@ class ScheduledBatchEvaluationServiceTest {
                 false))
                 .thenReturn(new ScheduledBatchTasks(
                         List.of(nearInlandTask), List.of(nearCoastalTask),
-                        List.of(), List.of(), List.of()));
+                        List.of(), List.of(), List.of(), List.of()));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
                 ArgumentMatchers.isNull()))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_x", 1));
@@ -167,6 +167,36 @@ class ScheduledBatchEvaluationServiceTest {
         verify(evaluationService, org.mockito.Mockito.times(2))
                 .submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
                         ArgumentMatchers.isNull());
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: non-empty bluebell bucket → submitted as its own batch")
+    void submitForecastBatch_bluebellBucket_submitted() {
+        LocationEntity location = buildLocation("Bluebell Wood");
+        EvaluationTask.Forecast bluebellTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
+                EvaluationTask.Forecast.PromptKind.BLUEBELL);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE,
+                false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(), List.of(), List.of(), List.of(),
+                        List.of(bluebellTask), List.of()));
+        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
+                ArgumentMatchers.isNull()))
+                .thenReturn(new EvaluationHandle(null, "msgbatch_bb", 1));
+
+        service.submitForecastBatch();
+
+        // The bluebell bucket is the only non-empty bucket → exactly one submit, carrying it.
+        ArgumentCaptor<List<EvaluationTask.Forecast>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(evaluationService).submit(captor.capture(), eq(BatchTriggerSource.SCHEDULED),
+                ArgumentMatchers.isNull());
+        assertThat(captor.getValue()).containsExactly(bluebellTask);
     }
 
     @Test
@@ -198,7 +228,7 @@ class ScheduledBatchEvaluationServiceTest {
                 false))
                 .thenReturn(new ScheduledBatchTasks(
                         List.of(nearInlandTask), List.of(nearCoastalTask),
-                        List.of(), List.of(),
+                        List.of(), List.of(), List.of(),
                         List.of(evaluatedDispo, triagedDispo)));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
                 ArgumentMatchers.isNull()))
@@ -248,7 +278,7 @@ class ScheduledBatchEvaluationServiceTest {
                 NightlyEligibilityPolicy.INSTANCE,
                 false))
                 .thenReturn(new ScheduledBatchTasks(
-                        List.of(), List.of(), List.of(), List.of(),
+                        List.of(), List.of(), List.of(), List.of(), List.of(),
                         List.of(cached1, cached2)));
         when(jobRunService.startDispositionAnchorRun(2)).thenReturn(555L);
 
@@ -282,7 +312,7 @@ class ScheduledBatchEvaluationServiceTest {
                 NightlyEligibilityPolicy.INSTANCE,
                 false))
                 .thenReturn(new ScheduledBatchTasks(
-                        List.of(nearInlandTask), List.of(), List.of(), List.of(),
+                        List.of(nearInlandTask), List.of(), List.of(), List.of(), List.of(),
                         List.of(dispo)));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
                 ArgumentMatchers.isNull()))
