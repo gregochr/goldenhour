@@ -314,10 +314,11 @@ public class BatchResultProcessor {
                 forecastResultHandler.flushCacheKey(entry.getKey(), entry.getValue());
             }
         }
-        // Bluebell results always merge: the mini-batch holds only a region's bluebell sites,
-        // so overlaying them preserves the region's sky locations rather than replacing them.
+        // Bluebell results always merge: the mini-batch holds only a region's bluebell sites, so
+        // overlaying them preserves the region's sky locations. The bluebell merge additionally
+        // recombines the rating with a prior sky result for OPEN_FELL sites (C3b).
         for (Map.Entry<String, List<BriefingEvaluationResult>> entry : bluebellByKey.entrySet()) {
-            forecastResultHandler.mergeCacheKey(entry.getKey(), entry.getValue());
+            forecastResultHandler.mergeBluebellCacheKey(entry.getKey(), entry.getValue());
         }
 
         LOG.info("Forecast batch complete: batchId={}, {} succeeded, {} errored, {} cache keys written "

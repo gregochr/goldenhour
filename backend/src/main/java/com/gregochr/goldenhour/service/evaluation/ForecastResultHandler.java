@@ -301,6 +301,19 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         briefingEvaluationService.mergeFromBatch(cacheKey, results);
     }
 
+    /**
+     * Merges a group of bluebell mini-batch results into the region cache entry, recombining the
+     * rating with a prior sky result for OPEN_FELL sites (C3b). Delegates to
+     * {@link BriefingEvaluationService#mergeBluebellFromBatch}; the processor selects this path
+     * for {@code bb-} responses.
+     *
+     * @param cacheKey region cache key
+     * @param results  the bluebell results for that cache key
+     */
+    public void mergeBluebellCacheKey(String cacheKey, List<BriefingEvaluationResult> results) {
+        briefingEvaluationService.mergeBluebellFromBatch(cacheKey, results);
+    }
+
     @Override
     public EvaluationResult handleSyncResult(EvaluationTask.Forecast task,
             ClaudeSyncOutcome outcome, ResultContext context) {

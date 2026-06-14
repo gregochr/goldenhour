@@ -241,6 +241,88 @@ class BriefingEvaluationServiceTest {
         }
     }
 
+    // ── mergeBluebellFromBatch — open-fell recombination (C3b) ─────────────────
+
+    @Nested
+    @DisplayName("mergeBluebellFromBatch (open-fell merge-join)")
+    class MergeBluebellFromBatch {
+
+        private final String cacheKey = REGION + "|" + DATE + "|SUNSET";
+
+        @Test
+        @DisplayName("OPEN_FELL: a prior sky entry exists → rating averages, sky narrative kept")
+        void openFell_averagesRatingKeepsSkyNarrative() {
+            // Sky batch wrote the open-fell location with a 3★ sky rating.
+            service.writeFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Rannerdale", 3, 60, 55, "Broken cloud catches "
+                            + "the last light over the fell")));
+
+            // Bluebell mini-batch result for the same location: 5★ bluebell, no sky scores.
+            service.mergeBluebellFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Rannerdale", 5, null, null,
+                            "Golden light rakes the slope if they are in flower", null, null,
+                            "Raking fell light")));
+
+            Map<String, BriefingEvaluationResult> scores =
+                    service.getCachedScores(REGION, DATE, TargetType.SUNSET);
+            BriefingEvaluationResult merged = scores.get("Rannerdale");
+            // round(avg(3, 5)) = 4.
+            assertThat(merged.rating()).isEqualTo(4);
+            // The sky narrative is retained for the served card.
+            assertThat(merged.fierySkyPotential()).isEqualTo(60);
+            assertThat(merged.goldenHourPotential()).isEqualTo(55);
+            assertThat(merged.summary()).contains("Broken cloud");
+        }
+
+        @Test
+        @DisplayName("WOODLAND: no prior sky entry → the bluebell result stands alone")
+        void woodland_standsAlone() {
+            service.mergeBluebellFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Bluebell Wood", 4, null, null,
+                            "Bright still light if they are in flower", null, null,
+                            "Soft canopy light")));
+
+            Map<String, BriefingEvaluationResult> scores =
+                    service.getCachedScores(REGION, DATE, TargetType.SUNSET);
+            BriefingEvaluationResult merged = scores.get("Bluebell Wood");
+            assertThat(merged.rating()).isEqualTo(4);
+            assertThat(merged.fierySkyPotential()).isNull();
+            assertThat(merged.summary()).contains("Bright still light");
+        }
+
+        @Test
+        @DisplayName("OPEN_FELL merge preserves the region's other sky locations")
+        void openFell_preservesOtherSkyLocations() {
+            service.writeFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Rannerdale", 2, 40, 35, "sky"),
+                    new BriefingEvaluationResult("Buttermere", 4, 75, 70, "great sky")));
+
+            service.mergeBluebellFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Rannerdale", 4, null, null, "bluebell",
+                            null, null, null)));
+
+            Map<String, BriefingEvaluationResult> scores =
+                    service.getCachedScores(REGION, DATE, TargetType.SUNSET);
+            assertThat(scores).hasSize(2);
+            assertThat(scores.get("Buttermere").rating()).isEqualTo(4);
+            // round(avg(2, 4)) = 3.
+            assertThat(scores.get("Rannerdale").rating()).isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("recombineBluebell rounds the averaged rating half-up")
+        void recombineBluebell_roundsHalfUp() {
+            BriefingEvaluationResult sky =
+                    new BriefingEvaluationResult("X", 4, 70, 65, "sky");
+            BriefingEvaluationResult bluebell =
+                    new BriefingEvaluationResult("X", 5, null, null, "bb", null, null, null);
+            // avg(4, 5) = 4.5 → 5.
+            assertThat(service.recombineBluebell(sky, bluebell).rating()).isEqualTo(5);
+            // A null prior (woodland) returns the bluebell unchanged.
+            assertThat(service.recombineBluebell(null, bluebell)).isSameAs(bluebell);
+        }
+    }
+
     // ── writeFromBatch — DB persistence ────────────────────────────────────────
 
     @Test
