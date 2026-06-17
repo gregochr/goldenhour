@@ -29,6 +29,7 @@ import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
@@ -59,7 +60,9 @@ import org.mockito.ArgumentCaptor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -2903,6 +2906,142 @@ class BriefingBestBetAdvisorTest {
             assertThat(systemText).contains("claudeRatedCount");
             assertThat(systemText).contains("claudeHighRatedCount");
             assertThat(systemText).contains("claudeAverageRating");
+        }
+    }
+
+    // ── Advisor replay harness (capture + prompt-swap replay) ──
+
+    @Nested
+    @DisplayName("Advisor replay harness")
+    class ReplayHarnessTests {
+
+        /** A minimal, faithful stored rollup: one event, one region with Claude coverage. */
+        private static final String FIXTURE_ROLLUP = """
+                {
+                  "currentTime": "2026-06-17 06:00",
+                  "validEvents": ["2026-06-18_sunset"],
+                  "validRegions": ["Northumberland"],
+                  "events": [
+                    {
+                      "event": "2026-06-18_sunset",
+                      "date": "2026-06-18",
+                      "dayName": "Thursday",
+                      "regions": [
+                        {"name": "Northumberland", "verdict": "GO",
+                         "claudeRatedCount": 5, "claudeAverageRating": 4.2}
+                      ]
+                    }
+                  ]
+                }
+                """;
+
+        private Message message(String text) {
+            TextBlock tb = mock(TextBlock.class);
+            when(tb.text()).thenReturn(text);
+            ContentBlock cb = mock(ContentBlock.class);
+            when(cb.isText()).thenReturn(true);
+            when(cb.asText()).thenReturn(tb);
+            Message message = mock(Message.class);
+            when(message.content()).thenReturn(List.of(cb));
+            return message;
+        }
+
+        @Test
+        @DisplayName("replay returns the model's picks, validated against the reconstructed rollup")
+        void replayReturnsValidatedPicks() throws Exception {
+            String response = "{\"picks\":[{\"rank\":1,\"headline\":\"Best light here\","
+                    + "\"detail\":\"Clear skies and a high tide.\",\"event\":\"2026-06-18_sunset\","
+                    + "\"region\":\"Northumberland\",\"confidence\":\"high\"}]}";
+            Message stub = message(response);
+            when(anthropicApiClient.createMessage(any())).thenReturn(stub);
+
+            BestBetResult result = advisor.replayWithPrompt(
+                    FIXTURE_ROLLUP, "BASELINE PROMPT", EvaluationModel.OPUS);
+
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_WITH_PICKS);
+            assertThat(result.picks()).hasSize(1);
+            assertThat(result.picks().get(0).event()).isEqualTo("2026-06-18_sunset");
+            assertThat(result.picks().get(0).region()).isEqualTo("Northumberland");
+        }
+
+        @Test
+        @DisplayName("replay sends the supplied system prompt and the stored rollup verbatim")
+        void replayUsesSuppliedPromptAndRollup() throws Exception {
+            String response = "{\"picks\":[{\"rank\":1,\"headline\":\"h\",\"detail\":\"d\","
+                    + "\"event\":\"2026-06-18_sunset\",\"region\":\"Northumberland\","
+                    + "\"confidence\":\"high\"}]}";
+            Message stub = message(response);
+            when(anthropicApiClient.createMessage(any())).thenReturn(stub);
+
+            advisor.replayWithPrompt(FIXTURE_ROLLUP, "SWAPPED PROMPT TEXT", EvaluationModel.OPUS);
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            String systemText = captor.getValue()._body().system().get()
+                    .asTextBlockParams().stream().map(b -> b.text()).findFirst().orElse("");
+            String userText = captor.getValue().messages().get(0).content().asString();
+            assertThat(systemText).isEqualTo("SWAPPED PROMPT TEXT");
+            assertThat(userText).isEqualTo(FIXTURE_ROLLUP);
+        }
+
+        @Test
+        @DisplayName("replay drops a pick naming a region absent from the reconstructed rollup")
+        void replayValidatesAgainstReconstructedRegions() throws Exception {
+            // The model picks a region that is NOT in the stored rollup's validRegions.
+            String response = "{\"picks\":[{\"rank\":1,\"headline\":\"h\",\"detail\":\"d\","
+                    + "\"event\":\"2026-06-18_sunset\",\"region\":\"Atlantis\","
+                    + "\"confidence\":\"high\"}]}";
+            Message stub = message(response);
+            when(anthropicApiClient.createMessage(any())).thenReturn(stub);
+
+            BestBetResult result = advisor.replayWithPrompt(
+                    FIXTURE_ROLLUP, "BASELINE PROMPT", EvaluationModel.OPUS);
+
+            // Reconstructed validRegions = {Northumberland}; Atlantis dropped → nothing usable.
+            assertThat(result.status()).isEqualTo(BestBetStatus.FAILED);
+            assertThat(result.picks()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("replay passes an honest empty-array response straight through as NO_PICKS")
+        void replayHonestEmptyMapsToNoPicks() throws Exception {
+            Message stub = message("{\"picks\":[]}");
+            when(anthropicApiClient.createMessage(any())).thenReturn(stub);
+
+            BestBetResult result = advisor.replayWithPrompt(
+                    FIXTURE_ROLLUP, "BASELINE PROMPT", EvaluationModel.OPUS);
+
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_NO_PICKS);
+        }
+
+        @Test
+        @DisplayName("capture: advise() writes the rollup JSON to api_call_log request body")
+        void captureWritesRollupToRequestBody() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneId.of("Europe/London")).plusDays(1);
+            String response = "{\"picks\":[{\"rank\":1,\"headline\":\"h\",\"detail\":\"d\","
+                    + "\"event\":\"" + tomorrow + "_sunset\",\"region\":\"Northumberland\","
+                    + "\"confidence\":\"high\"}]}";
+            Message stub = message(response);
+            when(anthropicApiClient.createMessage(any())).thenReturn(stub);
+
+            List<BriefingDay> days = List.of(new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET,
+                            List.of(region("Northumberland", Verdict.GO, 3, 0, 0)), List.of()))));
+
+            advisor.advise(days, 7L, Map.of());
+
+            ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
+            verify(jobRunService).logApiCall(eq(7L), eq(ServiceName.ANTHROPIC), eq("POST"),
+                    eq("briefing-best-bet"), bodyCaptor.capture(), anyLong(), eq(200),
+                    eq(response), eq(true), isNull(), eq(EvaluationModel.OPUS), isNull(), isNull());
+            String captured = bodyCaptor.getValue();
+            assertThat(captured).isNotNull();
+            assertThat(captured).contains("\"validEvents\"");
+            assertThat(captured).contains("Northumberland");
+            assertThat(captured).contains(tomorrow + "_sunset");
         }
     }
 

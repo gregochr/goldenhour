@@ -495,18 +495,16 @@ public class BriefingBestBetAdvisor {
             Message response = anthropicApiClient.createMessage(paramsBuilder.build());
 
             long durationMs = System.currentTimeMillis() - startMs;
-            String raw = response.content().stream()
-                    .filter(ContentBlock::isText)
-                    .map(ContentBlock::asText)
-                    .map(TextBlock::text)
-                    .findFirst()
-                    .orElse("");
+            String raw = extractFirstText(response);
             Optional<StopReason> stopReason = response.stopReason();
 
             LOG.info("Best-bet advisor completed ({}ms, model={}, stopReason={})",
                     durationMs, model, stopReason.map(Object::toString).orElse("unknown"));
+            // Capture the exact rollup input (request body) alongside the response so the
+            // advisor replay harness can re-feed any live cycle's input through a swapped
+            // prompt for before/after validation — previously this was logged as null.
             jobRunService.logApiCall(jobRunId, ServiceName.ANTHROPIC,
-                    "POST", "briefing-best-bet", null,
+                    "POST", "briefing-best-bet", rollup.json(),
                     durationMs, 200, raw, true, null,
                     model, null, null);
 
@@ -1317,12 +1315,7 @@ public class BriefingBestBetAdvisor {
             long durationMs = System.currentTimeMillis() - startMs;
 
             // Text blocks only — thinking blocks are filtered out here
-            String raw = response.content().stream()
-                    .filter(ContentBlock::isText)
-                    .map(ContentBlock::asText)
-                    .map(TextBlock::text)
-                    .findFirst()
-                    .orElse("");
+            String raw = extractFirstText(response);
 
             // Extract thinking chain text (null for non-ET variants)
             String thinkingText = response.content().stream()
@@ -1352,6 +1345,142 @@ public class BriefingBestBetAdvisor {
             LOG.warn("Model comparison {} failed: {}", model, e.getMessage());
             return new ModelComparisonResult(model, null, List.of(), List.of(), 0, TokenUsage.EMPTY, null);
         }
+    }
+
+    /**
+     * Extracts the first text block from a Claude response, or {@code ""} when none is present.
+     * Shared by {@link #advise}, {@link #callModel} and {@link #replayWithPrompt} so every path
+     * reads the response identically.
+     *
+     * @param response the Claude message
+     * @return the first text block's content, or an empty string
+     */
+    private static String extractFirstText(Message response) {
+        return response.content().stream()
+                .filter(ContentBlock::isText)
+                .map(ContentBlock::asText)
+                .map(TextBlock::text)
+                .findFirst()
+                .orElse("");
+    }
+
+    /**
+     * Validation sets reconstructed from a stored rollup JSON for {@link #replayWithPrompt}.
+     * A faithful inverse of what {@link #buildRollupJson} emits, so a replayed response passes
+     * through the same gates production uses.
+     *
+     * @param validEvents   event identifiers present in the stored rollup
+     * @param validRegions  region names present in the stored rollup
+     * @param validDayNames day names present across the stored rollup's events
+     * @param coverageByKey per-{@code event|region} Claude coverage parsed from the rollup
+     */
+    private record ReconstructedRollup(Set<String> validEvents, Set<String> validRegions,
+            Set<String> validDayNames, Map<String, CandidateCoverage> coverageByKey) {
+    }
+
+    /**
+     * Replays the advisor against a pre-captured or synthetic rollup JSON using an explicitly
+     * supplied system prompt, bypassing {@link #buildRollupJson}. This is the before/after
+     * validation primitive for advisor prompt changes: feed one stored rollup through two prompt
+     * variants and diff the selected picks, or feed a synthetic rollup to assert a contract
+     * (e.g. an all-STANDDOWN rollup must yield the stay-home pick) without waiting for a live
+     * cycle.
+     *
+     * <p>The captured input lives in {@code api_call_log.request_body} (see {@link #advise}).
+     * The validation sets are reconstructed from the rollup JSON itself, so the parsed picks
+     * pass through the same {@link #validateAndFilterPicks} and {@link #applyCoverageAwareRanking}
+     * gates production uses — the returned picks are what production would select. Display
+     * enrichment ({@link #enrichWithEventData}) is skipped: it needs live {@code BriefingDay}
+     * objects and changes neither selection nor ranking.
+     *
+     * @param rollupJson   the exact user-message rollup JSON (as captured in api_call_log)
+     * @param systemPrompt the system prompt to evaluate with (pass {@link #SYSTEM_PROMPT} for
+     *                     the baseline before-state)
+     * @param model        the model to call
+     * @return the classified outcome (status + validated, ranked picks)
+     * @throws JsonProcessingException if the rollup JSON cannot be parsed
+     */
+    BestBetResult replayWithPrompt(String rollupJson, String systemPrompt, EvaluationModel model)
+            throws JsonProcessingException {
+        ReconstructedRollup sets = reconstructRollup(rollupJson);
+
+        boolean extendedThinking = model.isExtendedThinking();
+        MessageCreateParams.Builder builder = MessageCreateParams.builder()
+                .model(model.getModelId())
+                .maxTokens(extendedThinking ? MAX_TOKENS_THINKING : maxTokens)
+                .systemOfTextBlockParams(List.of(
+                        TextBlockParam.builder().text(systemPrompt).build()))
+                .addUserMessage(rollupJson);
+        if (extendedThinking) {
+            builder.thinking(ThinkingConfigAdaptive.builder().build());
+        }
+
+        Message response = anthropicApiClient.createMessage(builder.build());
+        String raw = extractFirstText(response);
+
+        BestBetResult parsed = classifyAndParse(raw);
+        if (parsed.status() != BestBetStatus.SUCCESS_WITH_PICKS) {
+            return parsed;
+        }
+        List<BestBet> validated = validateAndFilterPicks(
+                parsed.picks(), sets.validEvents(), sets.validRegions(), sets.validDayNames());
+        List<BestBet> covered = applyCoverageAwareRanking(validated, sets.coverageByKey());
+        if (covered.isEmpty()) {
+            return BestBetResult.failed();
+        }
+        return BestBetResult.withPicks(covered);
+    }
+
+    /**
+     * Reconstructs the validation sets from a stored rollup JSON for {@link #replayWithPrompt}.
+     *
+     * <p>{@code daysAhead} in the reconstructed {@link CandidateCoverage} is fixed at 0 because
+     * the coverage gate reads only {@code claudeRatedCount} — the horizon is informational and
+     * a historical replay has no meaningful "today" to compute it against.
+     *
+     * @param rollupJson the stored rollup JSON
+     * @return the reconstructed validation sets
+     * @throws JsonProcessingException if the rollup JSON cannot be parsed
+     */
+    private ReconstructedRollup reconstructRollup(String rollupJson) throws JsonProcessingException {
+        JsonNode root = objectMapper.readTree(rollupJson);
+        Set<String> validEvents = new LinkedHashSet<>();
+        Set<String> validRegions = new LinkedHashSet<>();
+        Set<String> validDayNames = new LinkedHashSet<>();
+        Map<String, CandidateCoverage> coverageByKey = new HashMap<>();
+
+        JsonNode veNode = root.get("validEvents");
+        if (veNode != null && veNode.isArray()) {
+            veNode.forEach(n -> validEvents.add(n.asText()));
+        }
+        JsonNode vrNode = root.get("validRegions");
+        if (vrNode != null && vrNode.isArray()) {
+            vrNode.forEach(n -> validRegions.add(n.asText()));
+        }
+        JsonNode eventsNode = root.get("events");
+        if (eventsNode != null && eventsNode.isArray()) {
+            for (JsonNode event : eventsNode) {
+                String eventId = event.path("event").asText(null);
+                if (event.has("dayName")) {
+                    validDayNames.add(event.get("dayName").asText());
+                }
+                JsonNode regions = event.get("regions");
+                if (eventId == null || regions == null || !regions.isArray()) {
+                    continue;
+                }
+                for (JsonNode region : regions) {
+                    String name = region.path("name").asText(null);
+                    if (name == null) {
+                        continue;
+                    }
+                    int ratedCount = region.path("claudeRatedCount").asInt(0);
+                    double avgRating = region.path("claudeAverageRating").asDouble(0.0);
+                    coverageByKey.put(coverageKey(eventId, name),
+                            new CandidateCoverage(ratedCount, 0, avgRating));
+                }
+            }
+        }
+        return new ReconstructedRollup(validEvents, validRegions, validDayNames, coverageByKey);
     }
 
     /**
