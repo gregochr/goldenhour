@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.model.ForecastDtoMapper;
+import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.AstroConditionsRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
@@ -46,6 +47,7 @@ import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.service.aurora.BortleEnrichmentService;
+import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
 import com.gregochr.goldenhour.service.pipeline.PipelineRunService;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -63,6 +65,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 abstract class AbstractControllerTest {
 
     // ── Repositories ──────────────────────────────────────────────────────────
+
+    @MockitoBean
+    protected ApiCallLogRepository apiCallLogRepository;
 
     @MockitoBean
     protected AppUserRepository userRepository;
@@ -101,6 +106,9 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected BriefingService briefingService;
+
+    @MockitoBean
+    protected BriefingBestBetAdvisor bestBetAdvisor;
 
     @MockitoBean
     protected DriveTimeResolver driveTimeResolver;

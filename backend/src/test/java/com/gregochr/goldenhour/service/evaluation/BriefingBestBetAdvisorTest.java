@@ -12,6 +12,9 @@ import com.anthropic.models.messages.Usage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.ForecastStability;
+import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.EvaluationModel;
@@ -29,6 +32,7 @@ import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
@@ -59,7 +63,9 @@ import org.mockito.ArgumentCaptor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -1695,6 +1701,15 @@ class BriefingBestBetAdvisorTest {
             when(auroraStateCache.getLastTriggerKp()).thenReturn(6.0);
             when(auroraStateCache.getDarkSkyLocationCount()).thenReturn(5);
             when(auroraStateCache.getClearLocationCount()).thenReturn(3);
+            // An active aurora has cached scores; the region is derived from them and added to
+            // validRegions, so the aurora pick's "Northumberland" region validates regardless of
+            // whether today's solar sunset has already passed (which would otherwise drop it from
+            // validRegions and, post region-validation tightening, reject the pick).
+            RegionEntity northumberland = RegionEntity.builder().name("Northumberland").build();
+            LocationEntity darkSite = LocationEntity.builder()
+                    .name("Kielder").lat(55.2).lon(-2.5).region(northumberland).bortleClass(2).build();
+            when(auroraStateCache.getCachedScores()).thenReturn(List.of(
+                    new AuroraForecastScore(darkSite, 5, AlertLevel.STRONG, 10, "summary", "detail")));
 
             LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
             String sunsetEvent = today + "_sunset";
@@ -1990,8 +2005,26 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
-        @DisplayName("Aurora event pick skips region validation")
-        void auroraEventSkipsRegionValidation() {
+        @DisplayName("Aurora pick with a region in validRegions passes (the data-derived region)")
+        void auroraPickWithValidRegionPasses() {
+            List<BestBet> picks = List.of(
+                    pick(1, "2026-03-30_aurora", "Northumberland",
+                            "Aurora tonight", "Strong Kp."));
+            Set<String> eventsWithAurora = new java.util.LinkedHashSet<>(VALID_EVENTS);
+            eventsWithAurora.add("2026-03-30_aurora");
+            List<BestBet> result = advisor.validateAndFilterPicks(
+                    picks, eventsWithAurora, VALID_REGIONS, VALID_DAY_NAMES);
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).region()).isEqualTo("Northumberland");
+        }
+
+        @Test
+        @DisplayName("Aurora pick with a region NOT in validRegions is now rejected (tightened)")
+        void auroraPickWithBogusRegionRejected() {
+            // Previously aurora picks skipped region validation, which let the model
+            // improvise a region (e.g. "Northumberland is typically the premier dark-sky
+            // region"). With a real region assigned and added to validRegions, an
+            // invented region is now rejected like any other pick.
             List<BestBet> picks = List.of(
                     pick(1, "2026-03-30_aurora", "Some Random Region",
                             "Aurora tonight", "Strong Kp."));
@@ -1999,8 +2032,21 @@ class BriefingBestBetAdvisorTest {
             eventsWithAurora.add("2026-03-30_aurora");
             List<BestBet> result = advisor.validateAndFilterPicks(
                     picks, eventsWithAurora, VALID_REGIONS, VALID_DAY_NAMES);
+            assertThat(result).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Aurora pick with a null region passes (region-agnostic case)")
+        void auroraPickWithNullRegionPasses() {
+            List<BestBet> picks = List.of(
+                    pick(1, "2026-03-30_aurora", null,
+                            "Aurora tonight", "Strong Kp."));
+            Set<String> eventsWithAurora = new java.util.LinkedHashSet<>(VALID_EVENTS);
+            eventsWithAurora.add("2026-03-30_aurora");
+            List<BestBet> result = advisor.validateAndFilterPicks(
+                    picks, eventsWithAurora, VALID_REGIONS, VALID_DAY_NAMES);
             assertThat(result).hasSize(1);
-            assertThat(result.get(0).region()).isEqualTo("Some Random Region");
+            assertThat(result.get(0).region()).isNull();
         }
 
         @Test
@@ -2903,6 +2949,418 @@ class BriefingBestBetAdvisorTest {
             assertThat(systemText).contains("claudeRatedCount");
             assertThat(systemText).contains("claudeHighRatedCount");
             assertThat(systemText).contains("claudeAverageRating");
+        }
+    }
+
+    // ── Advisor replay harness (capture + prompt-swap replay) ──
+
+    @Nested
+    @DisplayName("Advisor replay harness")
+    class ReplayHarnessTests {
+
+        /** A minimal, faithful stored rollup: one event, one region with Claude coverage. */
+        private static final String FIXTURE_ROLLUP = """
+                {
+                  "currentTime": "2026-06-17 06:00",
+                  "validEvents": ["2026-06-18_sunset"],
+                  "validRegions": ["Northumberland"],
+                  "events": [
+                    {
+                      "event": "2026-06-18_sunset",
+                      "date": "2026-06-18",
+                      "dayName": "Thursday",
+                      "regions": [
+                        {"name": "Northumberland", "verdict": "GO",
+                         "claudeRatedCount": 5, "claudeAverageRating": 4.2}
+                      ]
+                    }
+                  ]
+                }
+                """;
+
+        private Message message(String text) {
+            TextBlock tb = mock(TextBlock.class);
+            when(tb.text()).thenReturn(text);
+            ContentBlock cb = mock(ContentBlock.class);
+            when(cb.isText()).thenReturn(true);
+            when(cb.asText()).thenReturn(tb);
+            Message message = mock(Message.class);
+            when(message.content()).thenReturn(List.of(cb));
+            return message;
+        }
+
+        @Test
+        @DisplayName("replay returns the model's picks, validated against the reconstructed rollup")
+        void replayReturnsValidatedPicks() throws Exception {
+            String response = "{\"picks\":[{\"rank\":1,\"headline\":\"Best light here\","
+                    + "\"detail\":\"Clear skies and a high tide.\",\"event\":\"2026-06-18_sunset\","
+                    + "\"region\":\"Northumberland\",\"confidence\":\"high\"}]}";
+            Message stub = message(response);
+            when(anthropicApiClient.createMessage(any())).thenReturn(stub);
+
+            BestBetResult result = advisor.replayWithPrompt(
+                    FIXTURE_ROLLUP, "BASELINE PROMPT", EvaluationModel.OPUS);
+
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_WITH_PICKS);
+            assertThat(result.picks()).hasSize(1);
+            assertThat(result.picks().get(0).event()).isEqualTo("2026-06-18_sunset");
+            assertThat(result.picks().get(0).region()).isEqualTo("Northumberland");
+        }
+
+        @Test
+        @DisplayName("replay sends the supplied system prompt and the stored rollup verbatim")
+        void replayUsesSuppliedPromptAndRollup() throws Exception {
+            String response = "{\"picks\":[{\"rank\":1,\"headline\":\"h\",\"detail\":\"d\","
+                    + "\"event\":\"2026-06-18_sunset\",\"region\":\"Northumberland\","
+                    + "\"confidence\":\"high\"}]}";
+            Message stub = message(response);
+            when(anthropicApiClient.createMessage(any())).thenReturn(stub);
+
+            advisor.replayWithPrompt(FIXTURE_ROLLUP, "SWAPPED PROMPT TEXT", EvaluationModel.OPUS);
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            String systemText = captor.getValue()._body().system().get()
+                    .asTextBlockParams().stream().map(b -> b.text()).findFirst().orElse("");
+            String userText = captor.getValue().messages().get(0).content().asString();
+            assertThat(systemText).isEqualTo("SWAPPED PROMPT TEXT");
+            assertThat(userText).isEqualTo(FIXTURE_ROLLUP);
+        }
+
+        @Test
+        @DisplayName("replay drops a pick naming a region absent from the reconstructed rollup")
+        void replayValidatesAgainstReconstructedRegions() throws Exception {
+            // The model picks a region that is NOT in the stored rollup's validRegions.
+            String response = "{\"picks\":[{\"rank\":1,\"headline\":\"h\",\"detail\":\"d\","
+                    + "\"event\":\"2026-06-18_sunset\",\"region\":\"Atlantis\","
+                    + "\"confidence\":\"high\"}]}";
+            Message stub = message(response);
+            when(anthropicApiClient.createMessage(any())).thenReturn(stub);
+
+            BestBetResult result = advisor.replayWithPrompt(
+                    FIXTURE_ROLLUP, "BASELINE PROMPT", EvaluationModel.OPUS);
+
+            // Reconstructed validRegions = {Northumberland}; Atlantis dropped → nothing usable.
+            assertThat(result.status()).isEqualTo(BestBetStatus.FAILED);
+            assertThat(result.picks()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("replay passes an honest empty-array response straight through as NO_PICKS")
+        void replayHonestEmptyMapsToNoPicks() throws Exception {
+            Message stub = message("{\"picks\":[]}");
+            when(anthropicApiClient.createMessage(any())).thenReturn(stub);
+
+            BestBetResult result = advisor.replayWithPrompt(
+                    FIXTURE_ROLLUP, "BASELINE PROMPT", EvaluationModel.OPUS);
+
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_NO_PICKS);
+        }
+
+        @Test
+        @DisplayName("capture: advise() writes the rollup JSON to api_call_log request body")
+        void captureWritesRollupToRequestBody() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneId.of("Europe/London")).plusDays(1);
+            String response = "{\"picks\":[{\"rank\":1,\"headline\":\"h\",\"detail\":\"d\","
+                    + "\"event\":\"" + tomorrow + "_sunset\",\"region\":\"Northumberland\","
+                    + "\"confidence\":\"high\"}]}";
+            Message stub = message(response);
+            when(anthropicApiClient.createMessage(any())).thenReturn(stub);
+
+            List<BriefingDay> days = List.of(new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET,
+                            List.of(region("Northumberland", Verdict.GO, 3, 0, 0)), List.of()))));
+
+            advisor.advise(days, 7L, Map.of());
+
+            ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
+            verify(jobRunService).logApiCall(eq(7L), eq(ServiceName.ANTHROPIC), eq("POST"),
+                    eq("briefing-best-bet"), bodyCaptor.capture(), anyLong(), eq(200),
+                    eq(response), eq(true), isNull(), eq(EvaluationModel.OPUS), isNull(), isNull());
+            String captured = bodyCaptor.getValue();
+            assertThat(captured).isNotNull();
+            assertThat(captured).contains("\"validEvents\"");
+            assertThat(captured).contains("Northumberland");
+            assertThat(captured).contains(tomorrow + "_sunset");
+        }
+    }
+
+    // ── Stay-home floor (disambiguation + plumbing guard) ──
+
+    @Nested
+    @DisplayName("Stay-home floor")
+    class StayHomeFloorTests {
+
+        /** A flat week: every region STANDDOWN, no Claude coverage — the barren case. */
+        private static final String FLAT_ROLLUP = """
+                {
+                  "currentTime": "2026-06-17 06:00",
+                  "validEvents": ["2026-06-18_sunset"],
+                  "validRegions": ["Northumberland"],
+                  "events": [
+                    {
+                      "event": "2026-06-18_sunset",
+                      "date": "2026-06-18",
+                      "dayName": "Thursday",
+                      "regions": [
+                        {"name": "Northumberland", "verdict": "STANDDOWN",
+                         "goCount": 0, "marginalCount": 0, "standdownCount": 5}
+                      ]
+                    }
+                  ]
+                }
+                """;
+
+        private Message message(String text) {
+            TextBlock tb = mock(TextBlock.class);
+            when(tb.text()).thenReturn(text);
+            ContentBlock cb = mock(ContentBlock.class);
+            when(cb.isText()).thenReturn(true);
+            when(cb.asText()).thenReturn(tb);
+            Message message = mock(Message.class);
+            when(message.content()).thenReturn(List.of(cb));
+            return message;
+        }
+
+        @Test
+        @DisplayName("flat rollup + stay-home null/null pick survives as SUCCESS_WITH_PICKS")
+        void flatRollupStayHomePickSurvives() throws Exception {
+            // The model does what the contract asks on a barren week: one null/null pick.
+            String response = "{\"picks\":[{\"rank\":1,"
+                    + "\"headline\":\"Stay in — nothing worth cold fingers today\","
+                    + "\"detail\":\"Heavy cloud everywhere.\",\"event\":null,\"region\":null,"
+                    + "\"confidence\":\"high\"}]}";
+            Message stub = message(response);
+            when(anthropicApiClient.createMessage(any())).thenReturn(stub);
+
+            BestBetResult result = advisor.replayWithPrompt(
+                    FLAT_ROLLUP, "BASELINE PROMPT", EvaluationModel.OPUS);
+
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_WITH_PICKS);
+            assertThat(result.picks()).hasSize(1);
+            assertThat(result.picks().get(0).event()).isNull();
+            assertThat(result.picks().get(0).region()).isNull();
+        }
+
+        @Test
+        @DisplayName("validateAndFilterPicks keeps a lone stay-home null/null pick")
+        void validationKeepsStayHomePick() {
+            BestBet stayHome = new BestBet(1, "Stay in", "Cloud everywhere",
+                    null, null, Confidence.HIGH, null, null, null, null, null, List.of());
+
+            List<BestBet> validated = advisor.validateAndFilterPicks(
+                    List.of(stayHome), Set.of("2026-06-18_sunset"),
+                    Set.of("Northumberland"), Set.of("Thursday"));
+
+            assertThat(validated).hasSize(1);
+            assertThat(validated.get(0).event()).isNull();
+            assertThat(validated.get(0).region()).isNull();
+        }
+
+        @Test
+        @DisplayName("system prompt mandates the stay-home pick and forbids an empty array on a flat week")
+        void systemPromptMandatesStayHomeOverEmptyArray() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.HAIKU);
+            when(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(false);
+            when(auroraStateCache.isActive()).thenReturn(false);
+            when(anthropicApiClient.createMessage(any()))
+                    .thenThrow(new RuntimeException("param-inspection stub"));
+
+            advisor.advise(List.of(), 1L, Map.of());
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            String systemText = captor.getValue()._body().system().get()
+                    .asTextBlockParams().stream().map(b -> b.text()).findFirst().orElse("");
+
+            assertThat(systemText).contains("stay-home pick is MANDATORY on a flat week");
+            assertThat(systemText).contains("Do NOT return an empty \"picks\"");
+        }
+    }
+
+    // ── Aurora region derivation (option c — from cached scores) ──
+
+    @Nested
+    @DisplayName("Aurora region derivation")
+    class AuroraRegionTests {
+
+        private void stubActiveAurora() {
+            when(auroraStateCache.isActive()).thenReturn(true);
+            when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+            when(auroraStateCache.getLastTriggerKp()).thenReturn(5.2);
+            when(auroraStateCache.getDarkSkyLocationCount()).thenReturn(45);
+            when(auroraStateCache.getClearLocationCount()).thenReturn(12);
+        }
+
+        private AuroraForecastScore score(String regionName, int stars, int cloudPercent, int bortle) {
+            RegionEntity region = RegionEntity.builder().name(regionName).build();
+            LocationEntity loc = LocationEntity.builder()
+                    .name(regionName + "-loc").lat(55.0).lon(-1.7)
+                    .region(region).bortleClass(bortle).build();
+            return new AuroraForecastScore(loc, stars, AlertLevel.MODERATE,
+                    cloudPercent, "summary", "detail");
+        }
+
+        @Test
+        @DisplayName("Region with the most clear locations becomes the aurora region")
+        void derivesRegionByClearCount() throws Exception {
+            stubActiveAurora();
+            // Northumberland: 2 clear (cloud < 50). Durham: 0 clear.
+            when(auroraStateCache.getCachedScores()).thenReturn(List.of(
+                    score("Northumberland", 4, 20, 3),
+                    score("Northumberland", 4, 30, 3),
+                    score("Durham", 5, 80, 3)));
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now);
+
+            assertThat(result.json()).contains("\"region\":\"Northumberland\"");
+            assertThat(result.validRegions()).contains("Northumberland");
+        }
+
+        @Test
+        @DisplayName("On a clear-count tie, the higher mean star rating wins")
+        void tieBreaksByAverageStars() throws Exception {
+            stubActiveAurora();
+            // Both regions: 1 clear location each. Northumberland higher stars.
+            when(auroraStateCache.getCachedScores()).thenReturn(List.of(
+                    score("Northumberland", 5, 20, 3),
+                    score("Durham", 2, 25, 3)));
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now);
+
+            assertThat(result.json()).contains("\"region\":\"Northumberland\"");
+        }
+
+        @Test
+        @DisplayName("On a clear-count and star tie, the darker sky (lower Bortle) wins")
+        void tieBreaksByDarkness() throws Exception {
+            stubActiveAurora();
+            when(auroraStateCache.getCachedScores()).thenReturn(List.of(
+                    score("Northumberland", 4, 20, 2),
+                    score("Durham", 4, 25, 6)));
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now);
+
+            assertThat(result.json()).contains("\"region\":\"Northumberland\"");
+        }
+
+        @Test
+        @DisplayName("No cached scores → no region field, not added to validRegions")
+        void noRegionWhenCacheEmpty() throws Exception {
+            stubActiveAurora();
+            when(auroraStateCache.getCachedScores()).thenReturn(List.of());
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now);
+
+            assertThat(result.json()).contains("_aurora");
+            assertThat(result.json()).doesNotContain("\"region\":");
+        }
+
+        @Test
+        @DisplayName("Scores without a region are ignored → no region derived")
+        void ignoresScoresWithoutRegion() throws Exception {
+            stubActiveAurora();
+            LocationEntity noRegion = LocationEntity.builder()
+                    .name("orphan").lat(55.0).lon(-1.7).bortleClass(3).build();
+            when(auroraStateCache.getCachedScores()).thenReturn(List.of(
+                    new AuroraForecastScore(noRegion, 5, AlertLevel.MODERATE, 10, "s", "d")));
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now);
+
+            assertThat(result.json()).doesNotContain("\"region\":");
+        }
+    }
+
+    // ── Tide scarcity annotation (model-only, within-band preference) ──
+
+    @Nested
+    @DisplayName("Tide scarcity annotation")
+    class TideScarcityTests {
+
+        private BriefingSlot lunarSlot(String name, LunarTideType lunar) {
+            return new BriefingSlot(name, null, Verdict.GO,
+                    new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
+                            8.0, null, null, BigDecimal.ONE, 0, 0),
+                    new BriefingSlot.TideInfo("HIGH", true, null, new BigDecimal("6.2"),
+                            false, false, lunar, "New Moon", true),
+                    List.of(), null);
+        }
+
+        private BriefingBestBetAdvisor.RollupResult rollupWithSlots(List<BriefingSlot> slots)
+                throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            BriefingRegion region = new BriefingRegion("Northumberland", Verdict.GO, "Clear",
+                    List.of(), slots, 7.0, 5.0, 1.5, 1, null, null);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())));
+            return advisor.buildRollupJson(List.of(day), LocalDateTime.now(ZoneOffset.UTC));
+        }
+
+        @Test
+        @DisplayName("King tide region is annotated scarcity=KING_TIDE")
+        void kingTideScarcity() throws Exception {
+            var result = rollupWithSlots(List.of(lunarSlot("Bamburgh", LunarTideType.KING_TIDE)));
+            assertThat(result.json()).contains("\"scarcity\":\"KING_TIDE\"");
+        }
+
+        @Test
+        @DisplayName("Spring tide region is annotated scarcity=SPRING_TIDE")
+        void springTideScarcity() throws Exception {
+            var result = rollupWithSlots(List.of(lunarSlot("Bamburgh", LunarTideType.SPRING_TIDE)));
+            assertThat(result.json()).contains("\"scarcity\":\"SPRING_TIDE\"");
+        }
+
+        @Test
+        @DisplayName("Regular tide region carries no scarcity field")
+        void regularTideNoScarcity() throws Exception {
+            var result = rollupWithSlots(List.of(lunarSlot("Bamburgh", LunarTideType.REGULAR_TIDE)));
+            assertThat(result.json()).doesNotContain("\"scarcity\"");
+        }
+
+        @Test
+        @DisplayName("King tide takes precedence over spring tide within a region")
+        void kingPrecedesSpring() throws Exception {
+            var result = rollupWithSlots(List.of(
+                    lunarSlot("Bamburgh", LunarTideType.KING_TIDE),
+                    lunarSlot("Seahouses", LunarTideType.SPRING_TIDE)));
+            assertThat(result.json()).contains("\"scarcity\":\"KING_TIDE\"");
+            assertThat(result.json()).doesNotContain("\"scarcity\":\"SPRING_TIDE\"");
+        }
+
+        @Test
+        @DisplayName("system prompt carries the within-band scarcity rule")
+        void systemPromptCarriesScarcityRule() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.HAIKU);
+            when(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(false);
+            when(auroraStateCache.isActive()).thenReturn(false);
+            when(anthropicApiClient.createMessage(any()))
+                    .thenThrow(new RuntimeException("param-inspection stub"));
+
+            advisor.advise(List.of(), 1L, Map.of());
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            String systemText = captor.getValue()._body().system().get()
+                    .asTextBlockParams().stream().map(b -> b.text()).findFirst().orElse("");
+
+            assertThat(systemText).contains("SCARCITY — PERISHABLE OPPORTUNITIES");
+            assertThat(systemText).contains(
+                    "Scarcity is a tiebreak among GOOD options, NEVER a substitute for quality");
         }
     }
 

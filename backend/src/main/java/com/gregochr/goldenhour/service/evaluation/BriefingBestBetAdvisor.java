@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -28,6 +29,7 @@ import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.Relationship;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
@@ -53,11 +55,14 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -116,6 +121,24 @@ public class BriefingBestBetAdvisor {
     /** All English day names, used for narrative date validation. */
     private static final List<String> ALL_DAY_NAMES = List.of(
             "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday");
+
+    /** Cloud-cover percent below which a scored aurora location counts as "clear" for ranking. */
+    private static final int AURORA_CLEAR_CLOUD_PERCENT = 50;
+
+    /** Darkness rank used when a region's aurora locations have no Bortle class (brightest/unknown). */
+    private static final int AURORA_DARKNESS_UNKNOWN = 9;
+
+    /**
+     * Orders candidate aurora regions best-first: most clear locations, then highest mean star
+     * rating, then darkest sky ({@code bortleClass}), then name for a deterministic tie-break.
+     * Used with {@code min(...)} so the smallest under this order is the best region.
+     */
+    private static final Comparator<AuroraRegionSummary> AURORA_REGION_ORDER =
+            Comparator.comparingInt(AuroraRegionSummary::clearCount).reversed()
+                    .thenComparing(Comparator
+                            .comparingDouble(AuroraRegionSummary::averageStars).reversed())
+                    .thenComparingInt(AuroraRegionSummary::darknessRank)
+                    .thenComparing(AuroraRegionSummary::name);
 
     private static final String SYSTEM_PROMPT = """
             You are a photography forecast advisor for PhotoCast, helping landscape photographers
@@ -177,6 +200,10 @@ public class BriefingBestBetAdvisor {
               (e.g. under 10% of darkSkyLocationCount), the aurora is effectively a washout —
               do NOT recommend it as a pick. Cloud cover blocks aurora viewing.
               An aurora pick should reference the specific night and alert level.
+              When the aurora event includes a "region" field, that is the best dark-sky region
+              for the display tonight — use it as the pick's region and name it. When no region
+              field is present, leave the pick's region null and use region-agnostic phrasing
+              (e.g. "dark-sky sites across the region are well placed"). Never invent a region.
             - When mentioning aurora in a pick for a different event, always state the night
               explicitly — write "tonight's aurora" or "aurora forecast for tomorrow night",
               never just "aurora alert" or "moderate aurora chance". The reader sees each pick
@@ -190,7 +217,7 @@ public class BriefingBestBetAdvisor {
               Good: "Conditions are lining up well for aurora tonight — charge your batteries
               and keep an eye on the banner"
               Good: "A strong aurora forecast alongside clear skies makes tonight worth watching"
-              Good: "Good aurora potential tonight — dark sky sites in Northumberland are well placed"
+              Good: "Good aurora potential tonight — the darkest-sky sites are well placed"
               Never write: "Get out now", "Head out immediately", "Don't miss this",
               "Go tonight" (as a command), or any language implying the user must act at
               the moment of reading.
@@ -241,6 +268,19 @@ public class BriefingBestBetAdvisor {
               - If lunarKingTideCount > 0 AND extraExtraHighCount > 0: rare, dramatic — Pick 1
               - If lunarSpringTideCount > 0 AND extraHighCount > 0: strong combo — competitive
               - If extraExtraHighCount > 0 but lunarKingTideCount = 0: weather-driven, mention caution
+
+            **SCARCITY — PERISHABLE OPPORTUNITIES**
+            Some regions carry a "scarcity" field flagging a perishable opportunity:
+            KING_TIDE (rare — only a handful per year) or SPRING_TIDE (perishable — the window
+            passes within a day or two). When two candidates are comparable in quality — within
+            about half a star of each other AND both clearing the usual quality bar (>= 3.5
+            PhotoCast rating where scores are present) — PREFER the scarcer one: a passing king
+            or spring tide is worth catching while it is here.
+            Scarcity is a tiebreak among GOOD options, NEVER a substitute for quality. A scarce
+            candidate that scores below the bar does NOT beat a solid ordinary one, and scarcity
+            never overrides the coverage rules for the headline (Pick 1). When a scarce window is
+            strong but not the single best light, the "Also Good" pick (Pick 2) is its natural
+            home — frame it as a don't-miss-this-window alternative.
 
             - If everything is STANDDOWN, say so honestly. Don't oversell marginal conditions.
               Be human — tell the photographer to stay home, charge their batteries,
@@ -315,7 +355,10 @@ public class BriefingBestBetAdvisor {
               Empty array or omitted when relationship = SAME_SLOT.
             - Do NOT include relationship or differsBy on Pick 1.
             - If neither tier produces a strong candidate, return a single-element array.
-            If everything is STANDDOWN, return a single pick with event and region as null.
+            If everything is STANDDOWN, return a single pick with event and region as null —
+            this stay-home pick is MANDATORY on a flat week. Do NOT return an empty "picks"
+            array to signal a barren forecast; the stay-home pick IS the recommendation, not
+            an absence of one.
             Reason concisely, then output ONLY the JSON object. Keep any deliberation to a
             few short lines — do NOT write extended "key observations", repeated same-slot
             analysis, or back-and-forth "actually, wait..." paragraphs. That verbosity has
@@ -417,6 +460,18 @@ public class BriefingBestBetAdvisor {
     }
 
     /**
+     * Returns the advisor's current live system prompt, so the replay harness can run a captured
+     * or synthetic rollup through the production prompt as the "before" side of a before/after
+     * comparison against a candidate prompt. Reading it here is cleaner than the reflection the
+     * prompt-regression test uses.
+     *
+     * @return the current {@code SYSTEM_PROMPT}
+     */
+    public String currentSystemPrompt() {
+        return SYSTEM_PROMPT;
+    }
+
+    /**
      * Carries the rollup JSON and derived validation sets out of {@link #buildRollupJson}.
      *
      * @param json          the compact JSON string sent to Claude as the user message
@@ -495,18 +550,16 @@ public class BriefingBestBetAdvisor {
             Message response = anthropicApiClient.createMessage(paramsBuilder.build());
 
             long durationMs = System.currentTimeMillis() - startMs;
-            String raw = response.content().stream()
-                    .filter(ContentBlock::isText)
-                    .map(ContentBlock::asText)
-                    .map(TextBlock::text)
-                    .findFirst()
-                    .orElse("");
+            String raw = extractFirstText(response);
             Optional<StopReason> stopReason = response.stopReason();
 
             LOG.info("Best-bet advisor completed ({}ms, model={}, stopReason={})",
                     durationMs, model, stopReason.map(Object::toString).orElse("unknown"));
+            // Capture the exact rollup input (request body) alongside the response so the
+            // advisor replay harness can re-feed any live cycle's input through a swapped
+            // prompt for before/after validation — previously this was logged as null.
             jobRunService.logApiCall(jobRunId, ServiceName.ANTHROPIC,
-                    "POST", "briefing-best-bet", null,
+                    "POST", "briefing-best-bet", rollup.json(),
                     durationMs, 200, raw, true, null,
                     model, null, null);
 
@@ -704,9 +757,11 @@ public class BriefingBestBetAdvisor {
             LOG.warn("Best bet pick rejected: event '{}' not in validEvents", pick.event());
             return false;
         }
-        // Aurora events may reference any region — skip region validation
-        boolean isAurora = pick.event() != null && pick.event().endsWith("_aurora");
-        if (!isAurora && pick.region() != null && !validRegions.contains(pick.region())) {
+        // Every non-null region — including an aurora pick's — must be a known region.
+        // Aurora events now carry a data-derived region (added to validRegions when present),
+        // so an improvised region (e.g. a hallucinated dark-sky region) is rejected. A null
+        // region remains valid: the region-agnostic aurora case.
+        if (pick.region() != null && !validRegions.contains(pick.region())) {
             LOG.warn("Best bet pick rejected: region '{}' not in validRegions", pick.region());
             return false;
         }
@@ -959,8 +1014,13 @@ public class BriefingBestBetAdvisor {
                 && auroraStateCache.getCurrentLevel() != null
                 && auroraStateCache.getCurrentLevel().isAlertWorthy()) {
             String auroraEventId = today + "_aurora";
-            appendAuroraEvent(eventsNode, auroraEventId);
+            String auroraRegion = appendAuroraEvent(eventsNode, auroraEventId);
             validEvents.add(auroraEventId);
+            // The data-derived aurora region (when one exists) becomes a valid region for the
+            // night so a pick referencing it passes validation, and an improvised one does not.
+            if (auroraRegion != null) {
+                validRegions.add(auroraRegion);
+            }
         }
 
         if (!includedDates.isEmpty()) {
@@ -1120,6 +1180,14 @@ public class BriefingBestBetAdvisor {
         regionNode.put("coastalLocationCount", coastalCount);
         regionNode.put("inlandLocationCount", region.slots().size() - coastalCount);
 
+        // Perishability flag for the advisor's within-band scarcity preference. Model-only:
+        // it never feeds the deterministic coverage gate, so scarcity can never override the
+        // quality floors. Derived from the lunar tide counts already in the rollup.
+        String tideScarcity = deriveTideScarcity(lunarKingTideCount, lunarSpringTideCount);
+        if (tideScarcity != null) {
+            regionNode.put("scarcity", tideScarcity);
+        }
+
         // Claude evaluation score distribution (from cached drill-down scores).
         // Computed once and reused for the coverage gate so the cache is hit a
         // single time per region (matching the pre-coverage call count).
@@ -1149,6 +1217,26 @@ public class BriefingBestBetAdvisor {
         regionNode.put("claudeHighRatedCount", stats.highRated());
         regionNode.put("claudeMediumRatedCount", stats.mediumRated());
         regionNode.put("claudeAverageRating", stats.averageRating());
+    }
+
+    /**
+     * Labels a region's perishable tide opportunity for the advisor's within-band scarcity
+     * preference: {@code "KING_TIDE"} (rarest — a handful per year) takes precedence over
+     * {@code "SPRING_TIDE"} (perishable — passes in a day or two). Returns {@code null} when the
+     * region has neither, i.e. no scarcity signal.
+     *
+     * @param lunarKingTideCount   locations with a lunar King Tide this event
+     * @param lunarSpringTideCount locations with a lunar Spring Tide this event
+     * @return the scarcity label, or {@code null} when none applies
+     */
+    private static String deriveTideScarcity(long lunarKingTideCount, long lunarSpringTideCount) {
+        if (lunarKingTideCount > 0) {
+            return "KING_TIDE";
+        }
+        if (lunarSpringTideCount > 0) {
+            return "SPRING_TIDE";
+        }
+        return null;
     }
 
     /**
@@ -1201,7 +1289,7 @@ public class BriefingBestBetAdvisor {
         return candidate.ordinal() > current.ordinal();
     }
 
-    private void appendAuroraEvent(ArrayNode eventsNode, String eventId) {
+    private String appendAuroraEvent(ArrayNode eventsNode, String eventId) {
         ObjectNode auroraNode = eventsNode.addObject();
         auroraNode.put("event", eventId);
         auroraNode.put("alertLevel", auroraStateCache.getCurrentLevel().name());
@@ -1212,6 +1300,85 @@ public class BriefingBestBetAdvisor {
         auroraNode.put("darkSkyLocationCount", auroraStateCache.getDarkSkyLocationCount());
         Integer clearCount = auroraStateCache.getClearLocationCount();
         auroraNode.put("clearLocationCount", clearCount != null ? clearCount : 0);
+        String region = bestAuroraRegion();
+        if (region != null) {
+            auroraNode.put("region", region);
+        }
+        return region;
+    }
+
+    /**
+     * Derives the best dark-sky region for tonight's aurora from the cached aurora scores,
+     * so the advisor recommends a real region instead of improvising one (the observed
+     * "Northumberland is typically the premier dark-sky region" gap-filling). Each cached
+     * {@link AuroraForecastScore} carries its full {@link LocationEntity}, so the scored
+     * locations already know their region; this groups them and ranks by clear-location count,
+     * then mean star rating, then darkness ({@code bortleClass}).
+     *
+     * <p>Returns {@code null} when no cached score carries a region — the caller then degrades
+     * to region-agnostic phrasing. There is deliberately no config-default fallback: inventing
+     * a default would re-introduce improvisation in disguise.
+     *
+     * @return the best dark-sky region name for the aurora, or {@code null} when none is derivable
+     */
+    private String bestAuroraRegion() {
+        List<AuroraForecastScore> scores = auroraStateCache.getCachedScores();
+        if (scores == null || scores.isEmpty()) {
+            return null;
+        }
+        Map<String, List<AuroraForecastScore>> byRegion = new LinkedHashMap<>();
+        for (AuroraForecastScore score : scores) {
+            String name = regionNameOf(score);
+            if (name != null) {
+                byRegion.computeIfAbsent(name, k -> new ArrayList<>()).add(score);
+            }
+        }
+        return byRegion.entrySet().stream()
+                .map(e -> summariseAuroraRegion(e.getKey(), e.getValue()))
+                .min(AURORA_REGION_ORDER)
+                .map(AuroraRegionSummary::name)
+                .orElse(null);
+    }
+
+    /**
+     * Returns the region name of a scored aurora location, or {@code null} when the score,
+     * its location, or its region (or the region's name) is missing/blank.
+     */
+    private static String regionNameOf(AuroraForecastScore score) {
+        if (score == null || score.location() == null || score.location().getRegion() == null) {
+            return null;
+        }
+        String name = score.location().getRegion().getName();
+        return (name == null || name.isBlank()) ? null : name;
+    }
+
+    /**
+     * Reduces a region's cached aurora scores to the figures the ranking compares: how many
+     * locations are clear, the mean star rating, and the darkest Bortle class present.
+     */
+    private AuroraRegionSummary summariseAuroraRegion(String name, List<AuroraForecastScore> scores) {
+        int clearCount = (int) scores.stream()
+                .filter(s -> s.cloudPercent() < AURORA_CLEAR_CLOUD_PERCENT).count();
+        double averageStars = scores.stream()
+                .mapToInt(AuroraForecastScore::stars).average().orElse(0.0);
+        int darkness = scores.stream()
+                .map(s -> s.location().getBortleClass())
+                .filter(Objects::nonNull)
+                .mapToInt(Integer::intValue)
+                .min().orElse(AURORA_DARKNESS_UNKNOWN);
+        return new AuroraRegionSummary(name, clearCount, averageStars, darkness);
+    }
+
+    /**
+     * Per-region aurora figures for ranking the best dark-sky region.
+     *
+     * @param name         region name
+     * @param clearCount   number of scored locations below the clear-sky cloud threshold
+     * @param averageStars mean aurora star rating across the region's scored locations
+     * @param darknessRank darkest Bortle class present (1 = darkest; higher = brighter)
+     */
+    private record AuroraRegionSummary(String name, int clearCount,
+            double averageStars, int darknessRank) {
     }
 
     /**
@@ -1317,12 +1484,7 @@ public class BriefingBestBetAdvisor {
             long durationMs = System.currentTimeMillis() - startMs;
 
             // Text blocks only — thinking blocks are filtered out here
-            String raw = response.content().stream()
-                    .filter(ContentBlock::isText)
-                    .map(ContentBlock::asText)
-                    .map(TextBlock::text)
-                    .findFirst()
-                    .orElse("");
+            String raw = extractFirstText(response);
 
             // Extract thinking chain text (null for non-ET variants)
             String thinkingText = response.content().stream()
@@ -1352,6 +1514,142 @@ public class BriefingBestBetAdvisor {
             LOG.warn("Model comparison {} failed: {}", model, e.getMessage());
             return new ModelComparisonResult(model, null, List.of(), List.of(), 0, TokenUsage.EMPTY, null);
         }
+    }
+
+    /**
+     * Extracts the first text block from a Claude response, or {@code ""} when none is present.
+     * Shared by {@link #advise}, {@link #callModel} and {@link #replayWithPrompt} so every path
+     * reads the response identically.
+     *
+     * @param response the Claude message
+     * @return the first text block's content, or an empty string
+     */
+    private static String extractFirstText(Message response) {
+        return response.content().stream()
+                .filter(ContentBlock::isText)
+                .map(ContentBlock::asText)
+                .map(TextBlock::text)
+                .findFirst()
+                .orElse("");
+    }
+
+    /**
+     * Validation sets reconstructed from a stored rollup JSON for {@link #replayWithPrompt}.
+     * A faithful inverse of what {@link #buildRollupJson} emits, so a replayed response passes
+     * through the same gates production uses.
+     *
+     * @param validEvents   event identifiers present in the stored rollup
+     * @param validRegions  region names present in the stored rollup
+     * @param validDayNames day names present across the stored rollup's events
+     * @param coverageByKey per-{@code event|region} Claude coverage parsed from the rollup
+     */
+    private record ReconstructedRollup(Set<String> validEvents, Set<String> validRegions,
+            Set<String> validDayNames, Map<String, CandidateCoverage> coverageByKey) {
+    }
+
+    /**
+     * Replays the advisor against a pre-captured or synthetic rollup JSON using an explicitly
+     * supplied system prompt, bypassing {@link #buildRollupJson}. This is the before/after
+     * validation primitive for advisor prompt changes: feed one stored rollup through two prompt
+     * variants and diff the selected picks, or feed a synthetic rollup to assert a contract
+     * (e.g. an all-STANDDOWN rollup must yield the stay-home pick) without waiting for a live
+     * cycle.
+     *
+     * <p>The captured input lives in {@code api_call_log.request_body} (see {@link #advise}).
+     * The validation sets are reconstructed from the rollup JSON itself, so the parsed picks
+     * pass through the same {@link #validateAndFilterPicks} and {@link #applyCoverageAwareRanking}
+     * gates production uses — the returned picks are what production would select. Display
+     * enrichment ({@link #enrichWithEventData}) is skipped: it needs live {@code BriefingDay}
+     * objects and changes neither selection nor ranking.
+     *
+     * @param rollupJson   the exact user-message rollup JSON (as captured in api_call_log)
+     * @param systemPrompt the system prompt to evaluate with (pass {@link #SYSTEM_PROMPT} for
+     *                     the baseline before-state)
+     * @param model        the model to call
+     * @return the classified outcome (status + validated, ranked picks)
+     * @throws JsonProcessingException if the rollup JSON cannot be parsed
+     */
+    public BestBetResult replayWithPrompt(String rollupJson, String systemPrompt, EvaluationModel model)
+            throws JsonProcessingException {
+        ReconstructedRollup sets = reconstructRollup(rollupJson);
+
+        boolean extendedThinking = model.isExtendedThinking();
+        MessageCreateParams.Builder builder = MessageCreateParams.builder()
+                .model(model.getModelId())
+                .maxTokens(extendedThinking ? MAX_TOKENS_THINKING : maxTokens)
+                .systemOfTextBlockParams(List.of(
+                        TextBlockParam.builder().text(systemPrompt).build()))
+                .addUserMessage(rollupJson);
+        if (extendedThinking) {
+            builder.thinking(ThinkingConfigAdaptive.builder().build());
+        }
+
+        Message response = anthropicApiClient.createMessage(builder.build());
+        String raw = extractFirstText(response);
+
+        BestBetResult parsed = classifyAndParse(raw);
+        if (parsed.status() != BestBetStatus.SUCCESS_WITH_PICKS) {
+            return parsed;
+        }
+        List<BestBet> validated = validateAndFilterPicks(
+                parsed.picks(), sets.validEvents(), sets.validRegions(), sets.validDayNames());
+        List<BestBet> covered = applyCoverageAwareRanking(validated, sets.coverageByKey());
+        if (covered.isEmpty()) {
+            return BestBetResult.failed();
+        }
+        return BestBetResult.withPicks(covered);
+    }
+
+    /**
+     * Reconstructs the validation sets from a stored rollup JSON for {@link #replayWithPrompt}.
+     *
+     * <p>{@code daysAhead} in the reconstructed {@link CandidateCoverage} is fixed at 0 because
+     * the coverage gate reads only {@code claudeRatedCount} — the horizon is informational and
+     * a historical replay has no meaningful "today" to compute it against.
+     *
+     * @param rollupJson the stored rollup JSON
+     * @return the reconstructed validation sets
+     * @throws JsonProcessingException if the rollup JSON cannot be parsed
+     */
+    private ReconstructedRollup reconstructRollup(String rollupJson) throws JsonProcessingException {
+        JsonNode root = objectMapper.readTree(rollupJson);
+        Set<String> validEvents = new LinkedHashSet<>();
+        Set<String> validRegions = new LinkedHashSet<>();
+        Set<String> validDayNames = new LinkedHashSet<>();
+        Map<String, CandidateCoverage> coverageByKey = new HashMap<>();
+
+        JsonNode veNode = root.get("validEvents");
+        if (veNode != null && veNode.isArray()) {
+            veNode.forEach(n -> validEvents.add(n.asText()));
+        }
+        JsonNode vrNode = root.get("validRegions");
+        if (vrNode != null && vrNode.isArray()) {
+            vrNode.forEach(n -> validRegions.add(n.asText()));
+        }
+        JsonNode eventsNode = root.get("events");
+        if (eventsNode != null && eventsNode.isArray()) {
+            for (JsonNode event : eventsNode) {
+                String eventId = event.path("event").asText(null);
+                if (event.has("dayName")) {
+                    validDayNames.add(event.get("dayName").asText());
+                }
+                JsonNode regions = event.get("regions");
+                if (eventId == null || regions == null || !regions.isArray()) {
+                    continue;
+                }
+                for (JsonNode region : regions) {
+                    String name = region.path("name").asText(null);
+                    if (name == null) {
+                        continue;
+                    }
+                    int ratedCount = region.path("claudeRatedCount").asInt(0);
+                    double avgRating = region.path("claudeAverageRating").asDouble(0.0);
+                    coverageByKey.put(coverageKey(eventId, name),
+                            new CandidateCoverage(ratedCount, 0, avgRating));
+                }
+            }
+        }
+        return new ReconstructedRollup(validEvents, validRegions, validDayNames, coverageByKey);
     }
 
     /**
