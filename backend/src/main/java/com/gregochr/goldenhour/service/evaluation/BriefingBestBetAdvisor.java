@@ -460,6 +460,18 @@ public class BriefingBestBetAdvisor {
     }
 
     /**
+     * Returns the advisor's current live system prompt, so the replay harness can run a captured
+     * or synthetic rollup through the production prompt as the "before" side of a before/after
+     * comparison against a candidate prompt. Reading it here is cleaner than the reflection the
+     * prompt-regression test uses.
+     *
+     * @return the current {@code SYSTEM_PROMPT}
+     */
+    public String currentSystemPrompt() {
+        return SYSTEM_PROMPT;
+    }
+
+    /**
      * Carries the rollup JSON and derived validation sets out of {@link #buildRollupJson}.
      *
      * @param json          the compact JSON string sent to Claude as the user message
@@ -1557,7 +1569,7 @@ public class BriefingBestBetAdvisor {
      * @return the classified outcome (status + validated, ranked picks)
      * @throws JsonProcessingException if the rollup JSON cannot be parsed
      */
-    BestBetResult replayWithPrompt(String rollupJson, String systemPrompt, EvaluationModel model)
+    public BestBetResult replayWithPrompt(String rollupJson, String systemPrompt, EvaluationModel model)
             throws JsonProcessingException {
         ReconstructedRollup sets = reconstructRollup(rollupJson);
 
