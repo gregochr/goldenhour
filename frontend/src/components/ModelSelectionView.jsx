@@ -161,32 +161,31 @@ export default function ModelSelectionView() {
   const [locationCount, setLocationCount] = useState(0);
 
   useEffect(() => {
+    async function fetchModels() {
+      try {
+        setLoading(true);
+        setError(null);
+        const [data, locations] = await Promise.all([getAvailableModels(), fetchLocations()]);
+        // available is now [{name, version}, ...] — extract names for backward compat
+        const available = (data.available || []).map((m) => (typeof m === 'string' ? m : m.name));
+        setAvailableModels(available);
+        setConfigs(data.configs || {});
+        setExtendedThinkingConfig(data.extendedThinkingConfigs || {});
+        setStrategies(data.optimisationStrategies || {});
+        // Count enabled non-wildlife locations (wildlife doesn't use Claude)
+        const evalLocations = (locations || []).filter(
+          (l) => l.enabled !== false && !(l.locationType?.length === 1 && l.locationType[0] === 'WILDLIFE')
+        );
+        setLocationCount(evalLocations.length);
+      } catch (err) {
+        setError('Failed to load available models');
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
     fetchModels();
   }, []);
-
-  const fetchModels = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const [data, locations] = await Promise.all([getAvailableModels(), fetchLocations()]);
-      // available is now [{name, version}, ...] — extract names for backward compat
-      const available = (data.available || []).map((m) => (typeof m === 'string' ? m : m.name));
-      setAvailableModels(available);
-      setConfigs(data.configs || {});
-      setExtendedThinkingConfig(data.extendedThinkingConfigs || {});
-      setStrategies(data.optimisationStrategies || {});
-      // Count enabled non-wildlife locations (wildlife doesn't use Claude)
-      const evalLocations = (locations || []).filter(
-        (l) => l.enabled !== false && !(l.locationType?.length === 1 && l.locationType[0] === 'WILDLIFE')
-      );
-      setLocationCount(evalLocations.length);
-    } catch (err) {
-      setError('Failed to load available models');
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleModelSwitch = async (runType, model) => {
     if (model === configs[runType]) return;

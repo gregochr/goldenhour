@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — ESLint 10 upgrade (frontend)
+- **Why.** Frontend CI (`npm ci`) was failing with an `ERESOLVE` conflict: `eslint` had been bumped to 10.x but `eslint-plugin-jsx-a11y@6.10.2` (and `eslint-plugin-react@7.37.5`) still cap their `eslint` peer at `^9`. Neither plugin has published an eslint-10-aware release yet, but both run fine against eslint 10's flat config at runtime.
+- **Dependencies.** `eslint` `^9.19.0` → `^10.5.0`, `@eslint/js` `^9.19.0` → `^10.0.1`, `eslint-plugin-react-hooks` `^7.0.1` → `^7.1.1` (the first release with a native eslint-10 peer). Added a `package.json` `overrides` block pinning the `jsx-a11y` and `react` plugins' `eslint` peer to the root `$eslint` so resolution succeeds without `--legacy-peer-deps`. Removed `react: { version: 'detect' }` from `eslint.config.js` (the detect path calls `context.getFilename()`, removed in eslint 10) in favour of an explicit `'19.2'`.
+- **New lint rules adopted.** `eslint-plugin-react-hooks@7.1.1` ships the React Compiler rule set (`set-state-in-effect`, `purity`, `immutability`, …) in its recommended preset. Fixed all 27 newly-surfaced errors across 18 files — no `eslint-disable` suppressions: `set-state-in-effect` resolved by invoking the offending effect call inside an inline async function (the synchronous body still runs in the same tick, so behaviour is unchanged); `ModelSelectionView` `fetchModels` moved inside its effect (resolves a use-before-declared error); `UserSettingsModal` now reads the current time from an effect-driven `now` state instead of calling `Date.now()` during render (purity), which also makes the "X min ago" label self-refresh. All 1565 frontend tests green; `npm ci`, `npm run lint`, `npm audit`, and `npm run build` all pass.
+
 ### Security — Frontend dependency audit fix
 - `npm audit fix` for two newly-disclosed transitive advisories flagged by the frontend CI audit gate: `form-data` 4.0.5 → 4.0.6 (high — CRLF injection, GHSA-hmw2-7cc7-3qxx, transitive via axios) and `js-yaml` 4.1.1 → 4.2.0 (moderate — quadratic-complexity DoS, GHSA-h67p-54hq-rp68). Lockfile-only; no `package.json` or source changes. `npm audit` now reports 0 vulnerabilities.
 

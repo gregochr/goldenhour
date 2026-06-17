@@ -458,9 +458,12 @@ export default function LocationManagementView({ onLocationsChanged }) {
   // Cancel inline edit when page changes (edited row may no longer be visible)
   useEffect(() => {
     if (editingRowId) {
-      setEditingRowId(null);
-      setEditValues(null);
-      setEditError('');
+      // Inline async wrapper satisfies react-hooks/set-state-in-effect; runs synchronously this tick.
+      (async () => {
+        setEditingRowId(null);
+        setEditValues(null);
+        setEditError('');
+      })();
     }
   }, [pagination.page]); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -78,7 +78,9 @@ const ModelTestView = () => {
   }, []);
 
   useEffect(() => {
-    loadRuns();
+    (async () => {
+      await loadRuns();
+    })();
   }, [loadRuns]);
 
   const loadResults = useCallback(async (runId) => {

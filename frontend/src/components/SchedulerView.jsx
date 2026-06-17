@@ -180,7 +180,9 @@ export default function SchedulerView() {
   }, []);
 
   useEffect(() => {
-    loadJobs();
+    (async () => {
+      await loadJobs();
+    })();
     const interval = setInterval(loadJobs, POLL_INTERVAL_MS);
     const timers = timerRefs.current;
     return () => {

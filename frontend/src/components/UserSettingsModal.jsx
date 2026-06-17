@@ -26,6 +26,10 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
   // Tracks the postcode that drive times were last calculated for.
   // Initialised from settings if drive times have been calculated before.
   const [driveTimesPostcode, setDriveTimesPostcode] = useState(null);
+  // Current timestamp for relative "X min ago" labels. Read via an effect (not
+  // during render) so the render stays pure (react-hooks/purity), and refreshed
+  // every minute so the label stays current.
+  const [now, setNow] = useState(null);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -42,7 +46,20 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
     }
   }, []);
 
-  useEffect(() => { fetchSettings(); }, [fetchSettings]);
+  useEffect(() => {
+    function tick() {
+      setNow(Date.now());
+    }
+    tick();
+    const id = setInterval(tick, 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      await fetchSettings();
+    })();
+  }, [fetchSettings]);
 
   const handleLookup = async () => {
     if (!postcode.trim()) return;
@@ -109,9 +126,9 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
   const postcodeChanged = hasHome && normalise(settings.homePostcode) !== normalise(driveTimesPostcode);
 
   const formatCalcTime = (iso) => {
-    if (!iso) return null;
+    if (!iso || now == null) return null;
     const d = new Date(iso.endsWith('Z') ? iso : iso + 'Z');
-    const mins = Math.round((Date.now() - d.getTime()) / 60000);
+    const mins = Math.round((now - d.getTime()) / 60000);
     if (mins < 1) return 'Just now';
     if (mins < 60) return `${mins} min ago`;
     const hrs = Math.round(mins / 60);

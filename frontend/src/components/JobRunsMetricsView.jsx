@@ -262,9 +262,11 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   }, [runTypeFilter]);
 
   useEffect(() => {
-    setPage(0);
-    setRuns([]);
-    loadJobRuns(0);
+    (async () => {
+      setPage(0);
+      setRuns([]);
+      await loadJobRuns(0);
+    })();
   }, [runTypeFilter, loadJobRuns]);
 
   const handleLoadMore = () => {

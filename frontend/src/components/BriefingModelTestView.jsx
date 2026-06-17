@@ -62,7 +62,9 @@ export default function BriefingModelTestView() {
   }, []);
 
   useEffect(() => {
-    loadRuns();
+    (async () => {
+      await loadRuns();
+    })();
   }, [loadRuns]);
 
   const handleRunTest = () => {

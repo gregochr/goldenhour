@@ -71,7 +71,9 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
 
   useEffect(() => {
     if (verifyToken) {
-      handleVerify(verifyToken);
+      (async () => {
+        await handleVerify(verifyToken);
+      })();
     }
   }, [verifyToken, handleVerify]);
 

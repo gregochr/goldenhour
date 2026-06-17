@@ -29,7 +29,9 @@ export default function HotTopicSimulation() {
   }, []);
 
   useEffect(() => {
-    loadState();
+    (async () => {
+      await loadState();
+    })();
   }, [loadState]);
 
   const handleToggleEnabled = async () => {

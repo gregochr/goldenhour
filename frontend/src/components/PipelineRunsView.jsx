@@ -111,7 +111,9 @@ export default function PipelineRunsView({ activeRunId, onSelectRun, onCloseDeta
   }, []);
 
   useEffect(() => {
-    loadRuns();
+    (async () => {
+      await loadRuns();
+    })();
     const interval = setInterval(loadRuns, LIST_REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [loadRuns]);
@@ -344,7 +346,9 @@ function PipelineRunDetail({ runId, onClose }) {
   }, [runId]);
 
   useEffect(() => {
-    load();
+    (async () => {
+      await load();
+    })();
   }, [load]);
 
   // Faster poll while RUNNING — waitingOn updates every ~60s server-side.

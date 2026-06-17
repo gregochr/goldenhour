@@ -16,18 +16,18 @@ export function useAuroraStatus() {
   const [loading, setLoading] = useState(true);
   const intervalRef = useRef(null);
 
-  async function fetchStatus() {
-    try {
-      const data = await getAuroraStatus();
-      setStatus(data); // null for 403 (free-tier) — component returns null
-    } catch {
-      // Network errors are transient — retain existing status
-    } finally {
-      setLoading(false);
-    }
-  }
-
   useEffect(() => {
+    async function fetchStatus() {
+      try {
+        const data = await getAuroraStatus();
+        setStatus(data); // null for 403 (free-tier) — component returns null
+      } catch {
+        // Network errors are transient — retain existing status
+      } finally {
+        setLoading(false);
+      }
+    }
+
     fetchStatus();
     intervalRef.current = setInterval(fetchStatus, POLL_INTERVAL_MS);
 
