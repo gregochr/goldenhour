@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Security — Frontend dependency audit fix
+- `npm audit fix` for two newly-disclosed transitive advisories flagged by the frontend CI audit gate: `form-data` 4.0.5 → 4.0.6 (high — CRLF injection, GHSA-hmw2-7cc7-3qxx, transitive via axios) and `js-yaml` 4.1.1 → 4.2.0 (moderate — quadratic-complexity DoS, GHSA-h67p-54hq-rp68). Lockfile-only; no `package.json` or source changes. `npm audit` now reports 0 vulnerabilities.
+
 ### Added — Admin entry point for the advisor replay harness
 - **Why.** The `replayWithPrompt` primitive (advisor-contract pass, commit 1) existed but was only reachable from tests. This exposes it as an admin-gated endpoint so the pick-selection before/after can actually be run against captured or synthetic rollups with a live key — the standing validation tool for all future advisor prompt work (the gap that let Change 4 ship unvalidated).
 - **Endpoint.** `POST /api/admin/advisor-replay` (`@PreAuthorize("hasRole('ADMIN')")`). One rollup, up to two prompts, per request: takes a rollup either by reference to a captured advisor call (`apiCallLogId` → `api_call_log.request_body`) or supplied directly (`rollupJson`, for synthetic cases like an all-STANDDOWN flat week), plus an optional `candidatePrompt` to diff against the current live `SYSTEM_PROMPT`. Returns **both parsed pick-sets side by side** (`AdvisorReplayResponse`) for a by-eye diff — no automated comparison, no persistence, no UI, no batch runner.
