@@ -315,7 +315,10 @@ public class BriefingBestBetAdvisor {
               Empty array or omitted when relationship = SAME_SLOT.
             - Do NOT include relationship or differsBy on Pick 1.
             - If neither tier produces a strong candidate, return a single-element array.
-            If everything is STANDDOWN, return a single pick with event and region as null.
+            If everything is STANDDOWN, return a single pick with event and region as null —
+            this stay-home pick is MANDATORY on a flat week. Do NOT return an empty "picks"
+            array to signal a barren forecast; the stay-home pick IS the recommendation, not
+            an absence of one.
             Reason concisely, then output ONLY the JSON object. Keep any deliberation to a
             few short lines — do NOT write extended "key observations", repeated same-slot
             analysis, or back-and-forth "actually, wait..." paragraphs. That verbosity has

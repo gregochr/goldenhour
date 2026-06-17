@@ -3045,6 +3045,102 @@ class BriefingBestBetAdvisorTest {
         }
     }
 
+    // ── Stay-home floor (disambiguation + plumbing guard) ──
+
+    @Nested
+    @DisplayName("Stay-home floor")
+    class StayHomeFloorTests {
+
+        /** A flat week: every region STANDDOWN, no Claude coverage — the barren case. */
+        private static final String FLAT_ROLLUP = """
+                {
+                  "currentTime": "2026-06-17 06:00",
+                  "validEvents": ["2026-06-18_sunset"],
+                  "validRegions": ["Northumberland"],
+                  "events": [
+                    {
+                      "event": "2026-06-18_sunset",
+                      "date": "2026-06-18",
+                      "dayName": "Thursday",
+                      "regions": [
+                        {"name": "Northumberland", "verdict": "STANDDOWN",
+                         "goCount": 0, "marginalCount": 0, "standdownCount": 5}
+                      ]
+                    }
+                  ]
+                }
+                """;
+
+        private Message message(String text) {
+            TextBlock tb = mock(TextBlock.class);
+            when(tb.text()).thenReturn(text);
+            ContentBlock cb = mock(ContentBlock.class);
+            when(cb.isText()).thenReturn(true);
+            when(cb.asText()).thenReturn(tb);
+            Message message = mock(Message.class);
+            when(message.content()).thenReturn(List.of(cb));
+            return message;
+        }
+
+        @Test
+        @DisplayName("flat rollup + stay-home null/null pick survives as SUCCESS_WITH_PICKS")
+        void flatRollupStayHomePickSurvives() throws Exception {
+            // The model does what the contract asks on a barren week: one null/null pick.
+            String response = "{\"picks\":[{\"rank\":1,"
+                    + "\"headline\":\"Stay in — nothing worth cold fingers today\","
+                    + "\"detail\":\"Heavy cloud everywhere.\",\"event\":null,\"region\":null,"
+                    + "\"confidence\":\"high\"}]}";
+            Message stub = message(response);
+            when(anthropicApiClient.createMessage(any())).thenReturn(stub);
+
+            BestBetResult result = advisor.replayWithPrompt(
+                    FLAT_ROLLUP, "BASELINE PROMPT", EvaluationModel.OPUS);
+
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_WITH_PICKS);
+            assertThat(result.picks()).hasSize(1);
+            assertThat(result.picks().get(0).event()).isNull();
+            assertThat(result.picks().get(0).region()).isNull();
+        }
+
+        @Test
+        @DisplayName("validateAndFilterPicks keeps a lone stay-home null/null pick")
+        void validationKeepsStayHomePick() {
+            BestBet stayHome = new BestBet(1, "Stay in", "Cloud everywhere",
+                    null, null, Confidence.HIGH, null, null, null, null, null, List.of());
+
+            List<BestBet> validated = advisor.validateAndFilterPicks(
+                    List.of(stayHome), Set.of("2026-06-18_sunset"),
+                    Set.of("Northumberland"), Set.of("Thursday"));
+
+            assertThat(validated).hasSize(1);
+            assertThat(validated.get(0).event()).isNull();
+            assertThat(validated.get(0).region()).isNull();
+        }
+
+        @Test
+        @DisplayName("system prompt mandates the stay-home pick and forbids an empty array on a flat week")
+        void systemPromptMandatesStayHomeOverEmptyArray() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.HAIKU);
+            when(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(false);
+            when(auroraStateCache.isActive()).thenReturn(false);
+            when(anthropicApiClient.createMessage(any()))
+                    .thenThrow(new RuntimeException("param-inspection stub"));
+
+            advisor.advise(List.of(), 1L, Map.of());
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            String systemText = captor.getValue()._body().system().get()
+                    .asTextBlockParams().stream().map(b -> b.text()).findFirst().orElse("");
+
+            assertThat(systemText).contains("stay-home pick is MANDATORY on a flat week");
+            assertThat(systemText).contains("Do NOT return an empty \"picks\"");
+        }
+    }
+
     // ── Helpers ──
 
     private void stubModelSelection() {

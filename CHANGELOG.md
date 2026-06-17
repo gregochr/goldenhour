@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Stay-home floor disambiguation (advisor-contract pass, commit 2/4)
+- **Why.** Step 0 found the advisor can "say nothing" two ways: an empty `picks: []` array (classified `SUCCESS_NO_PICKS`) or a single null-event/null-region stay-home pick (`SUCCESS_WITH_PICKS`). The contract wants the stay-home pick on a barren all-STANDDOWN week — a deliberate "stay home today" recommendation — but the prompt didn't forbid the empty array, leaving a semantic fork. The truncation hotfix removed the *budget* cause of the floor going missing; this closes the remaining *instruction* ambiguity.
+- **One-line clarification** appended to the existing floor instruction in `BriefingBestBetAdvisor`'s system prompt: the stay-home null/null pick is MANDATORY on a flat week and an empty `picks` array must not be used to signal a barren forecast. The floor instruction itself and the adjacent Change-4 anti-verbosity block are untouched (append-only, to avoid re-introducing the rambling Change 4 curbed). No code path changed — the empty-array → `SUCCESS_NO_PICKS` handling remains.
+- **Guard tests** (the plumbing the truncation fix restored, previously untested): a flat all-STANDDOWN rollup with a null/null pick survives as `SUCCESS_WITH_PICKS` (via the replay harness); `validateAndFilterPicks` keeps a lone stay-home pick; the system prompt carries the new mandatory-stay-home / no-empty-array clause.
+
 ### Added — Advisor replay harness (advisor-contract pass, commit 1/4)
 - **Why.** The best-bet advisor's three banked judgement changes (stay-home floor, aurora region, tide scarcity) are changes to *what the advisor recommends*, so they must be validated at pick-selection level — before/after — not by test-pass alone. Change 4 shipped without this and had to be confirmed from prod after the fact; this builds the validation capability first so the remaining commits can prove their effect synthetically.
 - **Capture.** `BriefingBestBetAdvisor.advise` now passes the rollup JSON as the `requestBody` to `JobRunService.logApiCall` (previously `null`), so every live cycle's exact advisor input lands in `api_call_log.request_body` and is replayable.
