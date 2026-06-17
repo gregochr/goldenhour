@@ -88,4 +88,67 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
             + " WHERE e.targetDate = :date AND e.tideAligned = true"
             + " GROUP BY e.targetType")
     List<Object[]> countTideAlignedByTargetType(@Param("date") LocalDate date);
+
+    /**
+     * Returns distinct (target date, region name) pairs for evaluations in the window whose
+     * cloud inversion potential matches the given classification. The {@code inversion_potential}
+     * column is only populated for elevated / overlooks-water locations, so matching rows are
+     * already restricted to inversion-eligible locations. Used by the inversion hot topic.
+     *
+     * @param from      start of the window (inclusive)
+     * @param to        end of the window (inclusive)
+     * @param potential the inversion potential classification to match (e.g. "STRONG")
+     * @return rows of [LocalDate targetDate, String regionName] ordered by date ascending
+     */
+    @Query("SELECT DISTINCT e.targetDate, r.name"
+            + " FROM ForecastEvaluationEntity e"
+            + " JOIN e.location l LEFT JOIN l.region r"
+            + " WHERE e.targetDate BETWEEN :from AND :to AND e.inversionPotential = :potential"
+            + " ORDER BY e.targetDate ASC")
+    List<Object[]> findInversionDaysByPotential(@Param("from") LocalDate from,
+            @Param("to") LocalDate to, @Param("potential") String potential);
+
+    /**
+     * Returns distinct (target date, region name) pairs for evaluations in the window whose
+     * storm surge risk matches the given level. The {@code surge_risk_level} column is only
+     * populated for coastal locations, so matching rows are already restricted to coastal
+     * locations. Used by the storm surge hot topic.
+     *
+     * @param from      start of the window (inclusive)
+     * @param to        end of the window (inclusive)
+     * @param riskLevel the surge risk level to match (e.g. "HIGH")
+     * @return rows of [LocalDate targetDate, String regionName] ordered by date ascending
+     */
+    @Query("SELECT DISTINCT e.targetDate, r.name"
+            + " FROM ForecastEvaluationEntity e"
+            + " JOIN e.location l LEFT JOIN l.region r"
+            + " WHERE e.targetDate BETWEEN :from AND :to AND e.surgeRiskLevel = :riskLevel"
+            + " ORDER BY e.targetDate ASC")
+    List<Object[]> findSurgeDaysByRiskLevel(@Param("from") LocalDate from,
+            @Param("to") LocalDate to, @Param("riskLevel") String riskLevel);
+
+    /**
+     * Returns distinct (target date, region name) pairs for evaluations in the window whose
+     * aerosol readings indicate dust-enhanced skies, mirroring the Saharan dust badge proxy:
+     * elevated AOD or surface dust, with PM2.5 low enough to rule out smoke/haze.
+     *
+     * @param from        start of the window (inclusive)
+     * @param to          end of the window (inclusive)
+     * @param aodThreshold     aerosol optical depth above which dust is elevated
+     * @param dustThreshold    surface dust (µg/m³) above which dust is elevated
+     * @param pm25Threshold    PM2.5 (µg/m³) below which smoke/haze is ruled out
+     * @return rows of [LocalDate targetDate, String regionName] ordered by date ascending
+     */
+    @Query("SELECT DISTINCT e.targetDate, r.name"
+            + " FROM ForecastEvaluationEntity e"
+            + " JOIN e.location l LEFT JOIN l.region r"
+            + " WHERE e.targetDate BETWEEN :from AND :to"
+            + " AND ((e.aerosolOpticalDepth IS NOT NULL AND e.aerosolOpticalDepth > :aodThreshold)"
+            + "   OR (e.dust IS NOT NULL AND e.dust > :dustThreshold))"
+            + " AND (e.pm25 IS NULL OR e.pm25 < :pm25Threshold)"
+            + " ORDER BY e.targetDate ASC")
+    List<Object[]> findDustDays(@Param("from") LocalDate from, @Param("to") LocalDate to,
+            @Param("aodThreshold") java.math.BigDecimal aodThreshold,
+            @Param("dustThreshold") java.math.BigDecimal dustThreshold,
+            @Param("pm25Threshold") java.math.BigDecimal pm25Threshold);
 }

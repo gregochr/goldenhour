@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Hot topic detectors: forecast-data readers (Group B)
+- Three new real `HotTopicStrategy` detectors that read already-persisted `forecast_evaluation` columns directly (the king/spring-tide template — no new data plumbing, no external API calls): **Cloud inversion** (fires on `inversion_potential = STRONG` only, not moderate — column is populated only for elevated/overlooks-water locations), **Storm surge** (fires on `surge_risk_level = HIGH` only, not moderate — column populated only for coastal locations; confirms the stale "surge not cached" note is resolved), **Saharan dust** (fires on the existing dust badge proxy exactly: AOD > 0.3 or surface dust > 50 µg/m³, with PM2.5 < 35 or absent to rule out smoke/haze).
+- Backed by three projection queries on `ForecastEvaluationRepository` returning `[date, region]` for the window; each detector dates its pill to the earliest qualifying day and lists the distinct affected regions. A static `isDustEnhanced` predicate mirrors the badge and is boundary-tested to lock consistency with the frontend `MarkerPopupContent` proxy.
+- Priorities sit in the act-on-it band above the calendar heads-ups: storm surge 1, inversion 2, dust 3. Auto-collected into `HotTopicAggregator`; inherit the briefing path, 4-day window and PRO/ADMIN gating. Frontend `HotTopicStrip` already maps the type keys.
+
 ### Added — Hot topic detectors: deterministic calendar/ephemeris (Group A)
 - Four new real `HotTopicStrategy` detectors that fire on live briefing cycles (previously sim-only templates): **Supermoon** (full moon within ±3 days of perigee), **Equinox alignment** (within ±3 days of an equinox with sunrise/sunset azimuth within ±3° of due east/west), **Noctilucent cloud season** (fixed late-May–early-Aug window), **Meteor shower** (fixed peak calendar — Quadrantids/Lyrids/Perseids/Orionids/Geminids — gated on <50% lunar illumination so a washed-out peak is skipped).
 - All deterministic: read `LunarPhaseService` / `SolarService` / location regions only — no DB rows, no external API calls. `LunarPhaseService` gained two primitives: `daysFromNearestPerigee` (wider window than the ±0.5d `isMoonAtPerigee`, which now delegates to it) and `getIlluminationFraction` (0–1, for the meteor dark-moon gate).
