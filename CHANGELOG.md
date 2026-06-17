@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Hot topic detectors: deterministic calendar/ephemeris (Group A)
+- Four new real `HotTopicStrategy` detectors that fire on live briefing cycles (previously sim-only templates): **Supermoon** (full moon within ±3 days of perigee), **Equinox alignment** (within ±3 days of an equinox with sunrise/sunset azimuth within ±3° of due east/west), **Noctilucent cloud season** (fixed late-May–early-Aug window), **Meteor shower** (fixed peak calendar — Quadrantids/Lyrids/Perseids/Orionids/Geminids — gated on <50% lunar illumination so a washed-out peak is skipped).
+- All deterministic: read `LunarPhaseService` / `SolarService` / location regions only — no DB rows, no external API calls. `LunarPhaseService` gained two primitives: `daysFromNearestPerigee` (wider window than the ±0.5d `isMoonAtPerigee`, which now delegates to it) and `getIlluminationFraction` (0–1, for the meteor dark-moon gate).
+- **NLC note.** The season is a private `SeasonalWindow` constant inside the detector, not a new Spring bean: the bluebell window is the sole `SeasonalWindow` bean and is injected by type at several sites, so a second bean would make those injections ambiguous at startup. Same calendar-gate behaviour, no bean conflict.
+- Priorities slot below the act-on-it topics (calendar heads-ups): supermoon 5, equinox 6, meteor 7, NLC 8. Auto-collected into `HotTopicAggregator` by component scan; inherit the briefing path, 4-day window and PRO/ADMIN gating with no extra wiring. Frontend `HotTopicStrip` already maps all four type keys.
+
 ### Security — Frontend dependency audit fix
 - `npm audit fix` for two newly-disclosed transitive advisories flagged by the frontend CI audit gate: `form-data` 4.0.5 → 4.0.6 (high — CRLF injection, GHSA-hmw2-7cc7-3qxx, transitive via axios) and `js-yaml` 4.1.1 → 4.2.0 (moderate — quadratic-complexity DoS, GHSA-h67p-54hq-rp68). Lockfile-only; no `package.json` or source changes. `npm audit` now reports 0 vulnerabilities.
 

@@ -131,6 +131,20 @@ public class LunarPhaseService {
      * @return true if within ±0.5 days of perigee
      */
     public boolean isMoonAtPerigee(LocalDate date) {
+        return daysFromNearestPerigee(date) < PERIGEE_WINDOW_DAYS;
+    }
+
+    /**
+     * Returns the number of days between the given date and the nearest perigee
+     * (either the perigee just before or just after the date, whichever is closer).
+     *
+     * <p>Used by detectors that need a wider perigee window than {@link #isMoonAtPerigee}
+     * (e.g. the supermoon hot topic fires within ±3 days of perigee).
+     *
+     * @param date the calendar date
+     * @return days to the nearest perigee, always &ge; 0.0
+     */
+    public double daysFromNearestPerigee(LocalDate date) {
         long daysSinceRef = ChronoUnit.DAYS.between(REFERENCE_PERIGEE, date);
         double cycles = daysSinceRef / ANOMALISTIC_MONTH;
         double fractionalCycle = cycles - Math.floor(cycles);
@@ -138,9 +152,23 @@ public class LunarPhaseService {
             fractionalCycle += 1.0;
         }
         double daysFromPerigee = fractionalCycle * ANOMALISTIC_MONTH;
-        // Check proximity to nearest perigee (either side of the cycle)
-        return daysFromPerigee < PERIGEE_WINDOW_DAYS
-                || (ANOMALISTIC_MONTH - daysFromPerigee) < PERIGEE_WINDOW_DAYS;
+        // The nearest perigee is either this cycle's start or the next one
+        return Math.min(daysFromPerigee, ANOMALISTIC_MONTH - daysFromPerigee);
+    }
+
+    /**
+     * Returns the illuminated fraction of the Moon's disc for a date.
+     *
+     * <p>Derived from the lunation fraction: 0.0 at new moon, 1.0 at full moon,
+     * 0.5 at the quarters. Used to gate phenomena that need a dark sky (e.g. the
+     * meteor-shower hot topic fires only when illumination is below 50%).
+     *
+     * @param date the calendar date
+     * @return illuminated fraction in [0.0, 1.0]
+     */
+    public double getIlluminationFraction(LocalDate date) {
+        double phase = getLunationFraction(date);
+        return (1.0 - Math.cos(2.0 * Math.PI * phase)) / 2.0;
     }
 
     /**
