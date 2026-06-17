@@ -12,6 +12,9 @@ import com.anthropic.models.messages.Usage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.ForecastStability;
+import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.EvaluationModel;
@@ -1993,8 +1996,26 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
-        @DisplayName("Aurora event pick skips region validation")
-        void auroraEventSkipsRegionValidation() {
+        @DisplayName("Aurora pick with a region in validRegions passes (the data-derived region)")
+        void auroraPickWithValidRegionPasses() {
+            List<BestBet> picks = List.of(
+                    pick(1, "2026-03-30_aurora", "Northumberland",
+                            "Aurora tonight", "Strong Kp."));
+            Set<String> eventsWithAurora = new java.util.LinkedHashSet<>(VALID_EVENTS);
+            eventsWithAurora.add("2026-03-30_aurora");
+            List<BestBet> result = advisor.validateAndFilterPicks(
+                    picks, eventsWithAurora, VALID_REGIONS, VALID_DAY_NAMES);
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).region()).isEqualTo("Northumberland");
+        }
+
+        @Test
+        @DisplayName("Aurora pick with a region NOT in validRegions is now rejected (tightened)")
+        void auroraPickWithBogusRegionRejected() {
+            // Previously aurora picks skipped region validation, which let the model
+            // improvise a region (e.g. "Northumberland is typically the premier dark-sky
+            // region"). With a real region assigned and added to validRegions, an
+            // invented region is now rejected like any other pick.
             List<BestBet> picks = List.of(
                     pick(1, "2026-03-30_aurora", "Some Random Region",
                             "Aurora tonight", "Strong Kp."));
@@ -2002,8 +2023,21 @@ class BriefingBestBetAdvisorTest {
             eventsWithAurora.add("2026-03-30_aurora");
             List<BestBet> result = advisor.validateAndFilterPicks(
                     picks, eventsWithAurora, VALID_REGIONS, VALID_DAY_NAMES);
+            assertThat(result).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Aurora pick with a null region passes (region-agnostic case)")
+        void auroraPickWithNullRegionPasses() {
+            List<BestBet> picks = List.of(
+                    pick(1, "2026-03-30_aurora", null,
+                            "Aurora tonight", "Strong Kp."));
+            Set<String> eventsWithAurora = new java.util.LinkedHashSet<>(VALID_EVENTS);
+            eventsWithAurora.add("2026-03-30_aurora");
+            List<BestBet> result = advisor.validateAndFilterPicks(
+                    picks, eventsWithAurora, VALID_REGIONS, VALID_DAY_NAMES);
             assertThat(result).hasSize(1);
-            assertThat(result.get(0).region()).isEqualTo("Some Random Region");
+            assertThat(result.get(0).region()).isNull();
         }
 
         @Test
@@ -3138,6 +3172,104 @@ class BriefingBestBetAdvisorTest {
 
             assertThat(systemText).contains("stay-home pick is MANDATORY on a flat week");
             assertThat(systemText).contains("Do NOT return an empty \"picks\"");
+        }
+    }
+
+    // ── Aurora region derivation (option c — from cached scores) ──
+
+    @Nested
+    @DisplayName("Aurora region derivation")
+    class AuroraRegionTests {
+
+        private void stubActiveAurora() {
+            when(auroraStateCache.isActive()).thenReturn(true);
+            when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+            when(auroraStateCache.getLastTriggerKp()).thenReturn(5.2);
+            when(auroraStateCache.getDarkSkyLocationCount()).thenReturn(45);
+            when(auroraStateCache.getClearLocationCount()).thenReturn(12);
+        }
+
+        private AuroraForecastScore score(String regionName, int stars, int cloudPercent, int bortle) {
+            RegionEntity region = RegionEntity.builder().name(regionName).build();
+            LocationEntity loc = LocationEntity.builder()
+                    .name(regionName + "-loc").lat(55.0).lon(-1.7)
+                    .region(region).bortleClass(bortle).build();
+            return new AuroraForecastScore(loc, stars, AlertLevel.MODERATE,
+                    cloudPercent, "summary", "detail");
+        }
+
+        @Test
+        @DisplayName("Region with the most clear locations becomes the aurora region")
+        void derivesRegionByClearCount() throws Exception {
+            stubActiveAurora();
+            // Northumberland: 2 clear (cloud < 50). Durham: 0 clear.
+            when(auroraStateCache.getCachedScores()).thenReturn(List.of(
+                    score("Northumberland", 4, 20, 3),
+                    score("Northumberland", 4, 30, 3),
+                    score("Durham", 5, 80, 3)));
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now);
+
+            assertThat(result.json()).contains("\"region\":\"Northumberland\"");
+            assertThat(result.validRegions()).contains("Northumberland");
+        }
+
+        @Test
+        @DisplayName("On a clear-count tie, the higher mean star rating wins")
+        void tieBreaksByAverageStars() throws Exception {
+            stubActiveAurora();
+            // Both regions: 1 clear location each. Northumberland higher stars.
+            when(auroraStateCache.getCachedScores()).thenReturn(List.of(
+                    score("Northumberland", 5, 20, 3),
+                    score("Durham", 2, 25, 3)));
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now);
+
+            assertThat(result.json()).contains("\"region\":\"Northumberland\"");
+        }
+
+        @Test
+        @DisplayName("On a clear-count and star tie, the darker sky (lower Bortle) wins")
+        void tieBreaksByDarkness() throws Exception {
+            stubActiveAurora();
+            when(auroraStateCache.getCachedScores()).thenReturn(List.of(
+                    score("Northumberland", 4, 20, 2),
+                    score("Durham", 4, 25, 6)));
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now);
+
+            assertThat(result.json()).contains("\"region\":\"Northumberland\"");
+        }
+
+        @Test
+        @DisplayName("No cached scores → no region field, not added to validRegions")
+        void noRegionWhenCacheEmpty() throws Exception {
+            stubActiveAurora();
+            when(auroraStateCache.getCachedScores()).thenReturn(List.of());
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now);
+
+            assertThat(result.json()).contains("_aurora");
+            assertThat(result.json()).doesNotContain("\"region\":");
+        }
+
+        @Test
+        @DisplayName("Scores without a region are ignored → no region derived")
+        void ignoresScoresWithoutRegion() throws Exception {
+            stubActiveAurora();
+            LocationEntity noRegion = LocationEntity.builder()
+                    .name("orphan").lat(55.0).lon(-1.7).bortleClass(3).build();
+            when(auroraStateCache.getCachedScores()).thenReturn(List.of(
+                    new AuroraForecastScore(noRegion, 5, AlertLevel.MODERATE, 10, "s", "d")));
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now);
+
+            assertThat(result.json()).doesNotContain("\"region\":");
         }
     }
 

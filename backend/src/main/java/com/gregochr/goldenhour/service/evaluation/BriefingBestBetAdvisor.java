@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -28,6 +29,7 @@ import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.Relationship;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
@@ -53,11 +55,14 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -116,6 +121,24 @@ public class BriefingBestBetAdvisor {
     /** All English day names, used for narrative date validation. */
     private static final List<String> ALL_DAY_NAMES = List.of(
             "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday");
+
+    /** Cloud-cover percent below which a scored aurora location counts as "clear" for ranking. */
+    private static final int AURORA_CLEAR_CLOUD_PERCENT = 50;
+
+    /** Darkness rank used when a region's aurora locations have no Bortle class (brightest/unknown). */
+    private static final int AURORA_DARKNESS_UNKNOWN = 9;
+
+    /**
+     * Orders candidate aurora regions best-first: most clear locations, then highest mean star
+     * rating, then darkest sky ({@code bortleClass}), then name for a deterministic tie-break.
+     * Used with {@code min(...)} so the smallest under this order is the best region.
+     */
+    private static final Comparator<AuroraRegionSummary> AURORA_REGION_ORDER =
+            Comparator.comparingInt(AuroraRegionSummary::clearCount).reversed()
+                    .thenComparing(Comparator
+                            .comparingDouble(AuroraRegionSummary::averageStars).reversed())
+                    .thenComparingInt(AuroraRegionSummary::darknessRank)
+                    .thenComparing(AuroraRegionSummary::name);
 
     private static final String SYSTEM_PROMPT = """
             You are a photography forecast advisor for PhotoCast, helping landscape photographers
@@ -177,6 +200,10 @@ public class BriefingBestBetAdvisor {
               (e.g. under 10% of darkSkyLocationCount), the aurora is effectively a washout —
               do NOT recommend it as a pick. Cloud cover blocks aurora viewing.
               An aurora pick should reference the specific night and alert level.
+              When the aurora event includes a "region" field, that is the best dark-sky region
+              for the display tonight — use it as the pick's region and name it. When no region
+              field is present, leave the pick's region null and use region-agnostic phrasing
+              (e.g. "dark-sky sites across the region are well placed"). Never invent a region.
             - When mentioning aurora in a pick for a different event, always state the night
               explicitly — write "tonight's aurora" or "aurora forecast for tomorrow night",
               never just "aurora alert" or "moderate aurora chance". The reader sees each pick
@@ -190,7 +217,7 @@ public class BriefingBestBetAdvisor {
               Good: "Conditions are lining up well for aurora tonight — charge your batteries
               and keep an eye on the banner"
               Good: "A strong aurora forecast alongside clear skies makes tonight worth watching"
-              Good: "Good aurora potential tonight — dark sky sites in Northumberland are well placed"
+              Good: "Good aurora potential tonight — the darkest-sky sites are well placed"
               Never write: "Get out now", "Head out immediately", "Don't miss this",
               "Go tonight" (as a command), or any language implying the user must act at
               the moment of reading.
@@ -705,9 +732,11 @@ public class BriefingBestBetAdvisor {
             LOG.warn("Best bet pick rejected: event '{}' not in validEvents", pick.event());
             return false;
         }
-        // Aurora events may reference any region — skip region validation
-        boolean isAurora = pick.event() != null && pick.event().endsWith("_aurora");
-        if (!isAurora && pick.region() != null && !validRegions.contains(pick.region())) {
+        // Every non-null region — including an aurora pick's — must be a known region.
+        // Aurora events now carry a data-derived region (added to validRegions when present),
+        // so an improvised region (e.g. a hallucinated dark-sky region) is rejected. A null
+        // region remains valid: the region-agnostic aurora case.
+        if (pick.region() != null && !validRegions.contains(pick.region())) {
             LOG.warn("Best bet pick rejected: region '{}' not in validRegions", pick.region());
             return false;
         }
@@ -960,8 +989,13 @@ public class BriefingBestBetAdvisor {
                 && auroraStateCache.getCurrentLevel() != null
                 && auroraStateCache.getCurrentLevel().isAlertWorthy()) {
             String auroraEventId = today + "_aurora";
-            appendAuroraEvent(eventsNode, auroraEventId);
+            String auroraRegion = appendAuroraEvent(eventsNode, auroraEventId);
             validEvents.add(auroraEventId);
+            // The data-derived aurora region (when one exists) becomes a valid region for the
+            // night so a pick referencing it passes validation, and an improvised one does not.
+            if (auroraRegion != null) {
+                validRegions.add(auroraRegion);
+            }
         }
 
         if (!includedDates.isEmpty()) {
@@ -1202,7 +1236,7 @@ public class BriefingBestBetAdvisor {
         return candidate.ordinal() > current.ordinal();
     }
 
-    private void appendAuroraEvent(ArrayNode eventsNode, String eventId) {
+    private String appendAuroraEvent(ArrayNode eventsNode, String eventId) {
         ObjectNode auroraNode = eventsNode.addObject();
         auroraNode.put("event", eventId);
         auroraNode.put("alertLevel", auroraStateCache.getCurrentLevel().name());
@@ -1213,6 +1247,85 @@ public class BriefingBestBetAdvisor {
         auroraNode.put("darkSkyLocationCount", auroraStateCache.getDarkSkyLocationCount());
         Integer clearCount = auroraStateCache.getClearLocationCount();
         auroraNode.put("clearLocationCount", clearCount != null ? clearCount : 0);
+        String region = bestAuroraRegion();
+        if (region != null) {
+            auroraNode.put("region", region);
+        }
+        return region;
+    }
+
+    /**
+     * Derives the best dark-sky region for tonight's aurora from the cached aurora scores,
+     * so the advisor recommends a real region instead of improvising one (the observed
+     * "Northumberland is typically the premier dark-sky region" gap-filling). Each cached
+     * {@link AuroraForecastScore} carries its full {@link LocationEntity}, so the scored
+     * locations already know their region; this groups them and ranks by clear-location count,
+     * then mean star rating, then darkness ({@code bortleClass}).
+     *
+     * <p>Returns {@code null} when no cached score carries a region — the caller then degrades
+     * to region-agnostic phrasing. There is deliberately no config-default fallback: inventing
+     * a default would re-introduce improvisation in disguise.
+     *
+     * @return the best dark-sky region name for the aurora, or {@code null} when none is derivable
+     */
+    private String bestAuroraRegion() {
+        List<AuroraForecastScore> scores = auroraStateCache.getCachedScores();
+        if (scores == null || scores.isEmpty()) {
+            return null;
+        }
+        Map<String, List<AuroraForecastScore>> byRegion = new LinkedHashMap<>();
+        for (AuroraForecastScore score : scores) {
+            String name = regionNameOf(score);
+            if (name != null) {
+                byRegion.computeIfAbsent(name, k -> new ArrayList<>()).add(score);
+            }
+        }
+        return byRegion.entrySet().stream()
+                .map(e -> summariseAuroraRegion(e.getKey(), e.getValue()))
+                .min(AURORA_REGION_ORDER)
+                .map(AuroraRegionSummary::name)
+                .orElse(null);
+    }
+
+    /**
+     * Returns the region name of a scored aurora location, or {@code null} when the score,
+     * its location, or its region (or the region's name) is missing/blank.
+     */
+    private static String regionNameOf(AuroraForecastScore score) {
+        if (score == null || score.location() == null || score.location().getRegion() == null) {
+            return null;
+        }
+        String name = score.location().getRegion().getName();
+        return (name == null || name.isBlank()) ? null : name;
+    }
+
+    /**
+     * Reduces a region's cached aurora scores to the figures the ranking compares: how many
+     * locations are clear, the mean star rating, and the darkest Bortle class present.
+     */
+    private AuroraRegionSummary summariseAuroraRegion(String name, List<AuroraForecastScore> scores) {
+        int clearCount = (int) scores.stream()
+                .filter(s -> s.cloudPercent() < AURORA_CLEAR_CLOUD_PERCENT).count();
+        double averageStars = scores.stream()
+                .mapToInt(AuroraForecastScore::stars).average().orElse(0.0);
+        int darkness = scores.stream()
+                .map(s -> s.location().getBortleClass())
+                .filter(Objects::nonNull)
+                .mapToInt(Integer::intValue)
+                .min().orElse(AURORA_DARKNESS_UNKNOWN);
+        return new AuroraRegionSummary(name, clearCount, averageStars, darkness);
+    }
+
+    /**
+     * Per-region aurora figures for ranking the best dark-sky region.
+     *
+     * @param name         region name
+     * @param clearCount   number of scored locations below the clear-sky cloud threshold
+     * @param averageStars mean aurora star rating across the region's scored locations
+     * @param darknessRank darkest Bortle class present (1 = darkest; higher = brighter)
+     */
+    private record AuroraRegionSummary(String name, int clearCount,
+            double averageStars, int darknessRank) {
     }
 
     /**
