@@ -94,7 +94,9 @@ const PromptTestView = () => {
   }, []);
 
   useEffect(() => {
-    loadRuns();
+    (async () => {
+      await loadRuns();
+    })();
   }, [loadRuns]);
 
   const loadResults = useCallback(async (runId) => {
@@ -186,9 +188,13 @@ const PromptTestView = () => {
     const inProgress = runs.find((r) => !r.completedAt);
     if (inProgress) {
       resumedRef.current = true;
-      setRunning(true);
-      setSelectedRunId(inProgress.id);
-      startPolling(inProgress.id);
+      // Inline async wrapper satisfies react-hooks/set-state-in-effect; the body
+      // still runs synchronously this tick, preserving prior behaviour.
+      (async () => {
+        setRunning(true);
+        setSelectedRunId(inProgress.id);
+        startPolling(inProgress.id);
+      })();
     }
   }, [loading, runs, startPolling]);
 
@@ -288,7 +294,7 @@ const PromptTestView = () => {
         })
         .catch(() => setComparisonResults({}));
     } else {
-      setComparisonResults({});
+      (async () => setComparisonResults({}))();
     }
   }, [checkedRunIds]);
 

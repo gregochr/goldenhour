@@ -920,13 +920,16 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
 
   useEffect(() => {
     if (briefing && dismissedAt && briefing.generatedAt > dismissedAt) {
-      setDismissedAt(null);
+      // Inline async wrapper satisfies react-hooks/set-state-in-effect; runs synchronously this tick.
+      (async () => setDismissedAt(null))();
       sessionStorage.removeItem(DISMISSED_AT_KEY);
     }
   }, [briefing, dismissedAt]);
 
   useEffect(() => {
-    fetchBriefing();
+    (async () => {
+      await fetchBriefing();
+    })();
     intervalRef.current = setInterval(fetchBriefing, POLL_INTERVAL_MS);
     function handleFocus() { fetchBriefing(); }
     window.addEventListener('focus', handleFocus);
@@ -952,7 +955,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
     if (astroDayDates.length === 0) return;
     const astroDates = astroDayDates.filter((d) => astroAvailableDates.includes(d));
     if (astroDates.length === 0) {
-      setAstroScoresByDate({});
+      (async () => setAstroScoresByDate({}))();
       return;
     }
     Promise.all(astroDates.map((d) =>

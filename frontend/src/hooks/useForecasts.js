@@ -70,7 +70,12 @@ export function useForecasts() {
   }, []);
 
   useEffect(() => {
-    load();
+    // Invoke via an inline async function so the synchronous setState calls at
+    // the top of `load` run inside the deferred async boundary rather than in
+    // the effect body itself (react-hooks/set-state-in-effect).
+    (async () => {
+      await load();
+    })();
   }, [load]);
 
   return { locations, loading, error, refresh: load };

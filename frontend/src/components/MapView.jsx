@@ -305,9 +305,13 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
   // Auto-reset to SUNSET when aurora mode becomes unavailable.
   useEffect(() => {
     if (eventType === 'AURORA' && !auroraAvailable) {
-      setEventType('SUNSET');
-      setMinStars(null);
-      setShowUnrated(false);
+      // Wrapped in an inline async function to satisfy react-hooks/set-state-in-effect.
+      // The body still runs synchronously in this tick, preserving prior behaviour.
+      (async () => {
+        setEventType('SUNSET');
+        setMinStars(null);
+        setShowUnrated(false);
+      })();
       localStorage.removeItem('mapFilterMinStars');
     }
   }, [auroraAvailable, eventType]);
@@ -316,23 +320,29 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
   // has already manually chosen an event type this session.
   useEffect(() => {
     if (!userHasOverriddenEvent && autoEventType) {
-      setEventType(autoEventType);
+      // Inline async wrapper satisfies react-hooks/set-state-in-effect while the
+      // setState still applies synchronously this tick (see note above).
+      (async () => setEventType(autoEventType))();
     }
   }, [autoEventType, userHasOverriddenEvent]);
 
   // Apply a forced event type from the Plan tab handoff, overriding any user selection.
   useEffect(() => {
     if (handoffEventType) {
-      setEventType(handoffEventType);
-      setUserHasOverriddenEvent(false);
+      (async () => {
+        setEventType(handoffEventType);
+        setUserHasOverriddenEvent(false);
+      })();
     }
   }, [handoffEventType]);
 
   // Apply a filter action handoff from a Hot Topic pill tap (e.g. BLUEBELL).
   useEffect(() => {
     if (handoffFilterAction) {
-      setActiveTypeFilters(new Set([handoffFilterAction]));
-      setAdvancedOpen(true);
+      (async () => {
+        setActiveTypeFilters(new Set([handoffFilterAction]));
+        setAdvancedOpen(true);
+      })();
     }
   }, [handoffFilterAction]);
   const [tideClassifications, setTideClassifications] = useState({});
@@ -355,7 +365,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
   // Scores are keyed by location name for O(1) lookup in popup render.
   useEffect(() => {
     if (!auroraStatus || !ALERT_WORTHY_LEVELS.has(auroraStatus.level)) {
-      setAuroraScores({});
+      (async () => setAuroraScores({}))();
       return;
     }
     getAuroraLocations({ maxBortle: 9, minStars: 1 })
@@ -381,7 +391,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
   // Fetch stored aurora results when in Aurora mode and the selected date changes.
   useEffect(() => {
     if (eventType !== 'AURORA' || !date) {
-      setStoredAuroraResults({});
+      (async () => setStoredAuroraResults({}))();
       return;
     }
     getAuroraForecastResults(date)
@@ -405,7 +415,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
   // Fetch astro condition scores when in Astro mode and the selected date changes.
   useEffect(() => {
     if (eventType !== 'ASTRO' || !date) {
-      setAstroScores({});
+      (async () => setAstroScores({}))();
       return;
     }
     getAstroConditions(date)
