@@ -236,4 +236,66 @@ class LunarPhaseServiceTest {
             assertThat(service.isNewMoon(newMoon.minusDays(3))).isFalse();
         }
     }
+
+    @Nested
+    @DisplayName("daysFromNearestPerigee")
+    class DaysFromNearestPerigeeTests {
+
+        @Test
+        @DisplayName("Zero days from the reference perigee itself")
+        void atReferencePerigee() {
+            assertThat(service.daysFromNearestPerigee(LocalDate.of(2025, 1, 4)))
+                    .isLessThan(1.0);
+        }
+
+        @Test
+        @DisplayName("Never exceeds half the anomalistic month and is never negative")
+        void boundedByHalfCycle() {
+            for (int offset = 0; offset < 40; offset++) {
+                double days = service.daysFromNearestPerigee(LocalDate.of(2026, 1, 1).plusDays(offset));
+                assertThat(days).isBetween(0.0, LunarPhaseService.ANOMALISTIC_MONTH / 2 + 0.001);
+            }
+        }
+
+        @Test
+        @DisplayName("Agrees with isMoonAtPerigee at the ±0.5 day window")
+        void agreesWithIsMoonAtPerigee() {
+            for (int offset = 0; offset < 40; offset++) {
+                LocalDate date = LocalDate.of(2026, 3, 1).plusDays(offset);
+                boolean within = service.daysFromNearestPerigee(date)
+                        < LunarPhaseService.PERIGEE_WINDOW_DAYS;
+                assertThat(service.isMoonAtPerigee(date)).isEqualTo(within);
+            }
+        }
+    }
+
+    @Nested
+    @DisplayName("getIlluminationFraction")
+    class IlluminationFractionTests {
+
+        @Test
+        @DisplayName("New moon is near 0% illuminated")
+        void newMoonDark() {
+            // 2025-01-29 is a new moon
+            assertThat(service.getIlluminationFraction(LocalDate.of(2025, 1, 29)))
+                    .isLessThan(0.05);
+        }
+
+        @Test
+        @DisplayName("Full moon is near 100% illuminated")
+        void fullMoonBright() {
+            // ~14.75 days after the new moon is the full moon
+            assertThat(service.getIlluminationFraction(LocalDate.of(2025, 2, 12)))
+                    .isGreaterThan(0.95);
+        }
+
+        @Test
+        @DisplayName("Illumination is always within [0, 1]")
+        void alwaysWithinUnitRange() {
+            for (int offset = 0; offset < 60; offset++) {
+                double illum = service.getIlluminationFraction(LocalDate.of(2026, 1, 1).plusDays(offset));
+                assertThat(illum).isBetween(0.0, 1.0);
+            }
+        }
+    }
 }
