@@ -3273,6 +3273,88 @@ class BriefingBestBetAdvisorTest {
         }
     }
 
+    // ── Tide scarcity annotation (model-only, within-band preference) ──
+
+    @Nested
+    @DisplayName("Tide scarcity annotation")
+    class TideScarcityTests {
+
+        private BriefingSlot lunarSlot(String name, LunarTideType lunar) {
+            return new BriefingSlot(name, null, Verdict.GO,
+                    new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
+                            8.0, null, null, BigDecimal.ONE, 0, 0),
+                    new BriefingSlot.TideInfo("HIGH", true, null, new BigDecimal("6.2"),
+                            false, false, lunar, "New Moon", true),
+                    List.of(), null);
+        }
+
+        private BriefingBestBetAdvisor.RollupResult rollupWithSlots(List<BriefingSlot> slots)
+                throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            BriefingRegion region = new BriefingRegion("Northumberland", Verdict.GO, "Clear",
+                    List.of(), slots, 7.0, 5.0, 1.5, 1, null, null);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())));
+            return advisor.buildRollupJson(List.of(day), LocalDateTime.now(ZoneOffset.UTC));
+        }
+
+        @Test
+        @DisplayName("King tide region is annotated scarcity=KING_TIDE")
+        void kingTideScarcity() throws Exception {
+            var result = rollupWithSlots(List.of(lunarSlot("Bamburgh", LunarTideType.KING_TIDE)));
+            assertThat(result.json()).contains("\"scarcity\":\"KING_TIDE\"");
+        }
+
+        @Test
+        @DisplayName("Spring tide region is annotated scarcity=SPRING_TIDE")
+        void springTideScarcity() throws Exception {
+            var result = rollupWithSlots(List.of(lunarSlot("Bamburgh", LunarTideType.SPRING_TIDE)));
+            assertThat(result.json()).contains("\"scarcity\":\"SPRING_TIDE\"");
+        }
+
+        @Test
+        @DisplayName("Regular tide region carries no scarcity field")
+        void regularTideNoScarcity() throws Exception {
+            var result = rollupWithSlots(List.of(lunarSlot("Bamburgh", LunarTideType.REGULAR_TIDE)));
+            assertThat(result.json()).doesNotContain("\"scarcity\"");
+        }
+
+        @Test
+        @DisplayName("King tide takes precedence over spring tide within a region")
+        void kingPrecedesSpring() throws Exception {
+            var result = rollupWithSlots(List.of(
+                    lunarSlot("Bamburgh", LunarTideType.KING_TIDE),
+                    lunarSlot("Seahouses", LunarTideType.SPRING_TIDE)));
+            assertThat(result.json()).contains("\"scarcity\":\"KING_TIDE\"");
+            assertThat(result.json()).doesNotContain("\"scarcity\":\"SPRING_TIDE\"");
+        }
+
+        @Test
+        @DisplayName("system prompt carries the within-band scarcity rule")
+        void systemPromptCarriesScarcityRule() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.HAIKU);
+            when(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(false);
+            when(auroraStateCache.isActive()).thenReturn(false);
+            when(anthropicApiClient.createMessage(any()))
+                    .thenThrow(new RuntimeException("param-inspection stub"));
+
+            advisor.advise(List.of(), 1L, Map.of());
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            String systemText = captor.getValue()._body().system().get()
+                    .asTextBlockParams().stream().map(b -> b.text()).findFirst().orElse("");
+
+            assertThat(systemText).contains("SCARCITY — PERISHABLE OPPORTUNITIES");
+            assertThat(systemText).contains(
+                    "Scarcity is a tiebreak among GOOD options, NEVER a substitute for quality");
+        }
+    }
+
     // ── Helpers ──
 
     private void stubModelSelection() {

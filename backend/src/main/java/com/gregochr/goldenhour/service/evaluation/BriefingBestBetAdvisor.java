@@ -269,6 +269,19 @@ public class BriefingBestBetAdvisor {
               - If lunarSpringTideCount > 0 AND extraHighCount > 0: strong combo — competitive
               - If extraExtraHighCount > 0 but lunarKingTideCount = 0: weather-driven, mention caution
 
+            **SCARCITY — PERISHABLE OPPORTUNITIES**
+            Some regions carry a "scarcity" field flagging a perishable opportunity:
+            KING_TIDE (rare — only a handful per year) or SPRING_TIDE (perishable — the window
+            passes within a day or two). When two candidates are comparable in quality — within
+            about half a star of each other AND both clearing the usual quality bar (>= 3.5
+            PhotoCast rating where scores are present) — PREFER the scarcer one: a passing king
+            or spring tide is worth catching while it is here.
+            Scarcity is a tiebreak among GOOD options, NEVER a substitute for quality. A scarce
+            candidate that scores below the bar does NOT beat a solid ordinary one, and scarcity
+            never overrides the coverage rules for the headline (Pick 1). When a scarce window is
+            strong but not the single best light, the "Also Good" pick (Pick 2) is its natural
+            home — frame it as a don't-miss-this-window alternative.
+
             - If everything is STANDDOWN, say so honestly. Don't oversell marginal conditions.
               Be human — tell the photographer to stay home, charge their batteries,
               maybe edit last weekend's shots. A bit of humour is fine.
@@ -1155,6 +1168,14 @@ public class BriefingBestBetAdvisor {
         regionNode.put("coastalLocationCount", coastalCount);
         regionNode.put("inlandLocationCount", region.slots().size() - coastalCount);
 
+        // Perishability flag for the advisor's within-band scarcity preference. Model-only:
+        // it never feeds the deterministic coverage gate, so scarcity can never override the
+        // quality floors. Derived from the lunar tide counts already in the rollup.
+        String tideScarcity = deriveTideScarcity(lunarKingTideCount, lunarSpringTideCount);
+        if (tideScarcity != null) {
+            regionNode.put("scarcity", tideScarcity);
+        }
+
         // Claude evaluation score distribution (from cached drill-down scores).
         // Computed once and reused for the coverage gate so the cache is hit a
         // single time per region (matching the pre-coverage call count).
@@ -1184,6 +1205,26 @@ public class BriefingBestBetAdvisor {
         regionNode.put("claudeHighRatedCount", stats.highRated());
         regionNode.put("claudeMediumRatedCount", stats.mediumRated());
         regionNode.put("claudeAverageRating", stats.averageRating());
+    }
+
+    /**
+     * Labels a region's perishable tide opportunity for the advisor's within-band scarcity
+     * preference: {@code "KING_TIDE"} (rarest — a handful per year) takes precedence over
+     * {@code "SPRING_TIDE"} (perishable — passes in a day or two). Returns {@code null} when the
+     * region has neither, i.e. no scarcity signal.
+     *
+     * @param lunarKingTideCount   locations with a lunar King Tide this event
+     * @param lunarSpringTideCount locations with a lunar Spring Tide this event
+     * @return the scarcity label, or {@code null} when none applies
+     */
+    private static String deriveTideScarcity(long lunarKingTideCount, long lunarSpringTideCount) {
+        if (lunarKingTideCount > 0) {
+            return "KING_TIDE";
+        }
+        if (lunarSpringTideCount > 0) {
+            return "SPRING_TIDE";
+        }
+        return null;
     }
 
     /**
