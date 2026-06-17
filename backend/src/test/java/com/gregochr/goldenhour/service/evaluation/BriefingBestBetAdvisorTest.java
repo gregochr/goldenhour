@@ -1701,6 +1701,15 @@ class BriefingBestBetAdvisorTest {
             when(auroraStateCache.getLastTriggerKp()).thenReturn(6.0);
             when(auroraStateCache.getDarkSkyLocationCount()).thenReturn(5);
             when(auroraStateCache.getClearLocationCount()).thenReturn(3);
+            // An active aurora has cached scores; the region is derived from them and added to
+            // validRegions, so the aurora pick's "Northumberland" region validates regardless of
+            // whether today's solar sunset has already passed (which would otherwise drop it from
+            // validRegions and, post region-validation tightening, reject the pick).
+            RegionEntity northumberland = RegionEntity.builder().name("Northumberland").build();
+            LocationEntity darkSite = LocationEntity.builder()
+                    .name("Kielder").lat(55.2).lon(-2.5).region(northumberland).bortleClass(2).build();
+            when(auroraStateCache.getCachedScores()).thenReturn(List.of(
+                    new AuroraForecastScore(darkSite, 5, AlertLevel.STRONG, 10, "summary", "detail")));
 
             LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
             String sunsetEvent = today + "_sunset";
