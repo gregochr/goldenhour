@@ -880,6 +880,32 @@ class OpenMeteoServiceTest {
         assertThat(trend.slots().get(0).lowCloudPercent()).isEqualTo(5);
         assertThat(trend.slots().get(3).hoursBeforeEvent()).isEqualTo(0);
         assertThat(trend.slots().get(3).lowCloudPercent()).isEqualTo(7);
+        // Mid/high canvas layers are captured from the same response, not left null.
+        assertThat(trend.slots().get(0).midCloudPercent()).isEqualTo(0);
+        assertThat(trend.slots().get(0).highCloudPercent()).isEqualTo(80);
+        assertThat(trend.slots().get(3).midCloudPercent()).isEqualTo(0);
+        assertThat(trend.slots().get(3).highCloudPercent()).isEqualTo(80);
+    }
+
+    @Test
+    @DisplayName("extractSolarTrend() captures the mid/high canvas trajectory for clearance")
+    void extractSolarTrend_capturesCanvasTrajectory() {
+        // Low cloud blocker clearing (90 -> 10) while the high canvas persists (40 -> 55).
+        OpenMeteoForecastResponse forecast = buildCloudOnlyResponse(
+                List.of("2026-03-11T14:00", "2026-03-11T15:00",
+                        "2026-03-11T16:00", "2026-03-11T17:00"),
+                List.of(90, 70, 35, 10), List.of(20, 25, 30, 30), List.of(40, 45, 50, 55));
+
+        SolarCloudTrend trend = openMeteoService.extractSolarTrend(
+                forecast, LocalDateTime.of(2026, 3, 11, 17, 5), TargetType.SUNSET);
+
+        assertThat(trend).isNotNull();
+        assertThat(trend.slots()).hasSize(4);
+        assertThat(trend.slots().getLast().midCloudPercent()).isEqualTo(30);
+        assertThat(trend.slots().getLast().highCloudPercent()).isEqualTo(55);
+        // A genuine clearance: blocker drops, canvas holds.
+        assertThat(trend.isClearing()).isTrue();
+        assertThat(trend.isBuilding()).isFalse();
     }
 
     @Test
