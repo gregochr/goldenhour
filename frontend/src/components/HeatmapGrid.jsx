@@ -144,6 +144,27 @@ function FlagChip({ label }) {  return (
   );
 }
 
+/**
+ * Outline/ghost pill for a slot that has clear-or-mixed weather but was NOT
+ * PhotoCast-evaluated. Visually distinct (no fill, lighter weight) from both the
+ * solid scored verdict pill and the star badge, so the eye can tell
+ * "Claude rated this" apart from "the sky is clear here". Says what the data is:
+ * clear weather, not scored — never the bare "Worth it" used for AI-rated slots.
+ */
+function UnscoredPill({ verdict }) {
+  const label = verdict === 'GO' ? 'Clear · not scored'
+    : verdict === 'MARGINAL' ? 'Maybe · not scored'
+      : 'Not scored';
+  return (
+    <span
+      data-testid="unscored-pill"
+      className="inline-block px-2 py-0.5 rounded text-[12px] font-normal border border-plex-border text-plex-text-secondary bg-transparent"
+    >
+      {label}
+    </span>
+  );
+}
+
 function Chevron({ open, className = '' }) {  return (
     <span
       aria-hidden="true"
@@ -324,7 +345,7 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
                 {score.rating}★
               </span>
             ) : (
-              <VerdictPill verdict={slot.verdict} />
+              <UnscoredPill verdict={slot.verdict} />
             )}
             <span className="font-medium text-plex-text" style={{ fontSize: '13px' }}>
               {typeIcon && <span data-testid="slot-type-icon">{typeIcon} </span>}
@@ -506,6 +527,15 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
                 <span className="text-plex-text-secondary flex-1 truncate" style={{ fontSize: '12px' }}>
                   {region.summary}
                 </span>
+                {region.lightlyEvaluated && (
+                  <span
+                    data-testid="coverage-note"
+                    className="shrink-0 text-plex-text-muted"
+                    style={{ fontSize: '11px' }}
+                  >
+                    · {region.scoredLocationCount} of {(region.slots || []).length} evaluated
+                  </span>
+                )}
                 {region.regionTemperatureCelsius != null && (
                   <span className="text-plex-text-secondary shrink-0" style={{ fontSize: '12px' }}>
                     {weatherCodeToIcon(region.regionWeatherCode)}

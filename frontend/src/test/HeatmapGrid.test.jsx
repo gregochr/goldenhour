@@ -1259,3 +1259,96 @@ describe('HeatmapGrid \u2014 Gate 2 claudeHeadline and Claude-elevated slots', (
     expect(standdownSlot.textContent).toContain('Heavy rain \u2014 stay in and edit');
   });
 });
+
+// ── Lightly-evaluated framing (sparse Claude coverage) ──────────────────────
+
+function lightlyEvaluatedDays(date, { lightlyEvaluated = true, allScored = false } = {}) {
+  const scored = (name, rating) => ({
+    locationName: name,
+    verdict: 'GO',
+    displayVerdict: 'WORTH_IT',
+    solarEventTime: `${date}T19:30:00`,
+    claudeRating: rating,
+    claudeSummary: 'Lovely clean horizon.',
+    fierySkyPotential: 80,
+    goldenHourPotential: 70,
+  });
+  const unscored = (name) => ({
+    locationName: name,
+    verdict: 'GO',
+    displayVerdict: 'WORTH_IT',
+    solarEventTime: `${date}T19:30:00`,
+  });
+  const slots = allScored
+    ? [scored('Almscliffe Crag', 4), scored('Bolton Abbey', 5), scored('Malham Cove', 4)]
+    : [scored('Almscliffe Crag', 4), unscored('Bolton Abbey'), unscored('Malham Cove')];
+  return [{
+    date,
+    eventSummaries: [{
+      targetType: 'SUNSET',
+      regions: [{
+        regionName: 'The Yorkshire Dales',
+        verdict: 'GO',
+        displayVerdict: 'WORTH_IT',
+        summary: 'Clear at 3 of 3 locations',
+        lightlyEvaluated,
+        scoredLocationCount: allScored ? 3 : 1,
+        slots,
+      }],
+    }],
+  }];
+}
+
+function renderDales(days, date) {
+  return render(
+    <HeatmapGrid
+      events={[{ date, targetType: 'SUNSET' }]}
+      sortedRegions={['The Yorkshire Dales']}
+      briefingDays={days}
+      qualityTier={5}
+      driveMap={new Map()}
+      typeMap={new Map()}
+      todayStr={futureDateStr(0)}
+      tomorrowStr={DATE_1}
+      onShowOnMap={vi.fn()}
+      astroScoresByDate={{}}
+    />,
+  );
+}
+
+describe('HeatmapGrid — lightly-evaluated framing', () => {
+  it('scope-marks the header and renders distinct pills when lightly evaluated', () => {
+    const date = DATE_1;
+    renderDales(lightlyEvaluatedDays(date), date);
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+    expect(screen.getByTestId('drill-down-panel')).toBeTruthy();
+
+    // Header distinguishes the weather count from the evaluated count.
+    const note = screen.getByTestId('coverage-note');
+    expect(note.textContent.replace(/\s+/g, ' ')).toContain('1 of 3 evaluated');
+
+    // Unscored-but-clear slots get the distinct ghost pill, never "Worth it".
+    const ghosts = screen.getAllByTestId('unscored-pill');
+    expect(ghosts.length).toBe(2);
+    ghosts.forEach((p) => expect(p.textContent).toContain('not scored'));
+
+    // The Claude-scored slot keeps its star badge — visually distinct.
+    expect(screen.getByTestId('score-badge').textContent).toContain('4★');
+  });
+
+  it('omits the coverage note when the region is not lightly evaluated', () => {
+    const date = DATE_1;
+    renderDales(lightlyEvaluatedDays(date, { lightlyEvaluated: false }), date);
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+    expect(screen.queryByTestId('coverage-note')).toBeNull();
+  });
+
+  it('fully-covered region: no ghost pills and no coverage note', () => {
+    const date = DATE_1;
+    renderDales(lightlyEvaluatedDays(date, { lightlyEvaluated: false, allScored: true }), date);
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+    expect(screen.queryByTestId('coverage-note')).toBeNull();
+    expect(screen.queryAllByTestId('unscored-pill').length).toBe(0);
+    expect(screen.getAllByTestId('score-badge').length).toBe(3);
+  });
+});
