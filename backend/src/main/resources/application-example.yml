@@ -136,6 +136,13 @@ photocast:
                                 # the honest empty state instead. ~30h ≈ one nightly + intraday.
   batch:
     min-prefetch-success-ratio: 0.5  # abort batch if fewer than 50% of weather fetches succeed
+  briefing:
+    min-coverage-ratio: 0.5  # API read-path honesty: a region whose Claude-scored fraction
+                             # (scoredLocationCount / roster size) is positive but below this
+                             # is flagged "lightly evaluated" so the UI frames it as covering
+                             # only the evaluated spots, not the whole roster. At 0.5 this is the
+                             # routine far-horizon state (sparse scoring is by design). 0.0 disables.
+                             # Does NOT change which locations are scored — labelling only.
   pipeline:
     safety-timeout: PT4H   # failure backstop for the batch wait phase (ISO-8601 duration).
                            # Anthropic batch latency is load-dependent: nightly (01:00 UTC) batches

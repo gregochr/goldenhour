@@ -27,6 +27,13 @@ import java.util.List;
  *                                     frontend's default label for the enum value". Currently
  *                                     populated only by the Gate 2 honesty override on the API
  *                                     read path when {@code scoredLocationCount == 0}.
+ * @param lightlyEvaluated             {@code true} when a non-zero but low fraction of the
+ *                                     region's locations were Claude-scored (the coverage ratio
+ *                                     fell below the configured threshold). Set by the honesty
+ *                                     filter on the API read path so the frontend can frame the
+ *                                     region as covering only the evaluated spots rather than the
+ *                                     whole roster. Always {@code false} on the internal
+ *                                     (untransformed) path and on well-covered regions.
  */
 public record BriefingRegion(
         String regionName,
@@ -42,11 +49,26 @@ public record BriefingRegion(
         String glossDetail,
         DisplayVerdict displayVerdict,
         int scoredLocationCount,
-        String verdictLabel) {
+        String verdictLabel,
+        boolean lightlyEvaluated) {
 
     public BriefingRegion {
         tideHighlights = List.copyOf(tideHighlights);
         slots = List.copyOf(slots);
+    }
+
+    /**
+     * Returns a copy of this region flagged as lightly evaluated. All other
+     * fields (including slots, gloss, and the real triage summary) are preserved
+     * — the flag is purely a presentation hint for the read path.
+     *
+     * @return a copy with {@code lightlyEvaluated == true}
+     */
+    public BriefingRegion withLightlyEvaluated() {
+        return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
+                regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
+                regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
+                scoredLocationCount, verdictLabel, true);
     }
 
     /**
@@ -64,7 +86,7 @@ public record BriefingRegion(
         this(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius,
                 regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
-                displayVerdict, scoredLocationCount, null);
+                displayVerdict, scoredLocationCount, null, false);
     }
 
     /**
@@ -82,6 +104,6 @@ public record BriefingRegion(
         this(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius,
                 regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
-                DisplayVerdict.resolve(null, verdict), 0, null);
+                DisplayVerdict.resolve(null, verdict), 0, null, false);
     }
 }

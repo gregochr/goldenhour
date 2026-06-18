@@ -272,7 +272,8 @@ class BriefingControllerTest extends AbstractControllerTest {
                         + "The picture may firm up closer to the date — or it may remain unsettled.",
                 com.gregochr.goldenhour.model.DisplayVerdict.STAND_DOWN,
                 0,
-                "Too unsettled to forecast");
+                "Too unsettled to forecast",
+                false);
         BriefingEventSummary eventSummary = new BriefingEventSummary(
                 TargetType.SUNSET, List.of(region), List.of());
         BriefingDay day = new BriefingDay(LocalDate.of(2026, 5, 23), List.of(eventSummary));
