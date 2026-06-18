@@ -23,6 +23,7 @@ import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
@@ -83,6 +84,15 @@ public class BriefingGlossService {
             Use them to calibrate your language: a claudeAverageRating above 3.5 justifies \
             optimistic language; below 2.5 warrants caution even if the triage verdict is GO. \
             When absent, base your assessment on the cloud and tide data alone.
+            COVERAGE: The input may include claudeCoverageRatio and lowCoverage, indicating what \
+            fraction of the region's totalLocations were PhotoCast-evaluated (claudeRatedCount of \
+            totalLocations). When lowCoverage is true, only a few spots were evaluated — so the \
+            average reflects those spots, NOT the whole region. In that case attribute the rating \
+            to the evaluated spots, not the region: prefer "the evaluated spots score well" or \
+            "the few rated locations look promising" over "the region averages 4 stars". This is \
+            routine for forecasts a few days out (evaluation focuses on the most settled spots), \
+            so frame it as ordinary scoping, NEVER as a warning, problem, or low-confidence \
+            caveat. When coverage is high (lowCoverage false or absent), region-wide language is fine.
             BRANDING: Never name the evaluation engine "Claude" or "Anthropic" in the headline \
             or detail. The product is "PhotoCast" — write "PhotoCast-rated" or simply \
             "rated"/"evaluated" if you need to credit the assessment.
@@ -103,6 +113,7 @@ public class BriefingGlossService {
     private final JobRunService jobRunService;
     private final ModelSelectionService modelSelectionService;
     private final BriefingEvaluationService briefingEvaluationService;
+    private final double minCoverageRatio;
     private final ParallelGlossExecutor<GlossWorkItem> glossExecutor =
             new ParallelGlossExecutor<>(MAX_CONCURRENCY, "Gloss");
 
@@ -114,16 +125,21 @@ public class BriefingGlossService {
      * @param jobRunService             service for logging API calls
      * @param modelSelectionService     service for resolving the active Claude model
      * @param briefingEvaluationService cached Claude evaluation scores from drill-down
+     * @param minCoverageRatio          coverage fraction below which the gloss is told to hedge
+     *                                  (shared with the read-path honesty filter); {@code 0.0}
+     *                                  disables the low-coverage signal
      */
     public BriefingGlossService(AnthropicApiClient anthropicApiClient,
             ObjectMapper objectMapper, JobRunService jobRunService,
             ModelSelectionService modelSelectionService,
-            @Lazy BriefingEvaluationService briefingEvaluationService) {
+            @Lazy BriefingEvaluationService briefingEvaluationService,
+            @Value("${photocast.briefing.min-coverage-ratio:0.5}") double minCoverageRatio) {
         this.anthropicApiClient = anthropicApiClient;
         this.objectMapper = objectMapper;
         this.jobRunService = jobRunService;
         this.modelSelectionService = modelSelectionService;
         this.briefingEvaluationService = briefingEvaluationService;
+        this.minCoverageRatio = minCoverageRatio;
     }
 
     /**
@@ -292,7 +308,7 @@ public class BriefingGlossService {
 
             // Append Claude evaluation scores when available
             appendClaudeScores(node, region.regionName(),
-                    item.day.date(), item.eventSummary.targetType());
+                    item.day.date(), item.eventSummary.targetType(), region.slots().size());
 
             return objectMapper.writeValueAsString(node);
         } catch (Exception e) {
@@ -303,9 +319,17 @@ public class BriefingGlossService {
     /**
      * Appends cached Claude evaluation score distribution to the gloss user message JSON.
      * When no cached scores are available, no fields are added.
+     *
+     * <p>Also emits a coverage signal so the gloss can hedge honestly when only a
+     * small fraction of the region's locations were evaluated: {@code claudeCoverageRatio}
+     * (scored / roster size, 2dp) and a {@code lowCoverage} boolean keyed on the same
+     * threshold the read-path honesty filter uses.
+     *
+     * @param totalLocations the region's roster size (slot count), used for the coverage ratio
      */
     private void appendClaudeScores(ObjectNode node, String regionName,
-            java.time.LocalDate date, com.gregochr.goldenhour.entity.TargetType targetType) {
+            java.time.LocalDate date, com.gregochr.goldenhour.entity.TargetType targetType,
+            int totalLocations) {
         Map<String, BriefingEvaluationResult> cached =
                 briefingEvaluationService.getCachedScores(regionName, date, targetType);
         if (cached.isEmpty()) {
@@ -329,6 +353,12 @@ public class BriefingGlossService {
         node.put("claudeMediumRatedCount", mediumRated);
         node.put("claudeAverageRating",
                 Math.round(avgRating * 10.0) / 10.0);
+
+        if (totalLocations > 0) {
+            double coverage = (double) scored.size() / totalLocations;
+            node.put("claudeCoverageRatio", Math.round(coverage * 100.0) / 100.0);
+            node.put("lowCoverage", scored.size() < minCoverageRatio * totalLocations);
+        }
     }
 
     /**

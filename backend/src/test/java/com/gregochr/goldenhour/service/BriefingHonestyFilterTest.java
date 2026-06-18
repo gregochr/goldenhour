@@ -137,6 +137,114 @@ class BriefingHonestyFilterTest {
         assertThat(BriefingHonestyFilter.apply(null)).isNull();
     }
 
+    // ── Lightly-evaluated tier (0 < coverage < minCoverageRatio) ────────────────
+
+    @Test
+    @DisplayName("Low coverage (3 of 54): flagged lightlyEvaluated, nothing suppressed")
+    void lowCoverageRegion_isFlaggedNotBlanked() {
+        // 3 scored of a 54-location roster = ~6% coverage, below 0.5.
+        BriefingRegion lowCov = new BriefingRegion(
+                "The Yorkshire Dales", Verdict.GO, "Clear at 54 of 54 locations",
+                List.of("Spring tide at 2 coastal spots"), goSlots(54),
+                14.0, 13.0, 4.5, 3,
+                "Clear sky for the win", "The evaluated spots look promising.",
+                DisplayVerdict.WORTH_IT, 3);
+        DailyBriefingResponse response = wrapAsResponse(TargetType.SUNSET, lowCov);
+
+        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(response, 0.5));
+
+        assertThat(out.lightlyEvaluated()).isTrue();
+        // Lighter than the zero tier: real data is preserved, nothing blanked.
+        assertThat(out.slots()).hasSize(54);
+        assertThat(out.summary()).isEqualTo("Clear at 54 of 54 locations");
+        assertThat(out.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+        assertThat(out.glossDetail()).isEqualTo("The evaluated spots look promising.");
+        assertThat(out.verdictLabel()).isNull();
+        assertThat(out.scoredLocationCount()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("Well-covered region (40 of 54): unchanged, not flagged")
+    void wellCoveredRegion_isUnchanged() {
+        BriefingRegion wellCov = new BriefingRegion(
+                "The Yorkshire Dales", Verdict.GO, "Clear at 54 of 54 locations",
+                List.of(), goSlots(54), 14.0, 13.0, 4.5, 3,
+                "Clear sky for the win", "Region-wide clean colour ramp.",
+                DisplayVerdict.WORTH_IT, 40);
+        DailyBriefingResponse response = wrapAsResponse(TargetType.SUNSET, wellCov);
+
+        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(response, 0.5));
+
+        assertThat(out.lightlyEvaluated()).isFalse();
+        assertThat(out.summary()).isEqualTo("Clear at 54 of 54 locations");
+        assertThat(out.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+        assertThat(out.slots()).hasSize(54);
+    }
+
+    @Test
+    @DisplayName("Boundary: exactly at the ratio (27 of 54 @ 0.5) is NOT flagged")
+    void boundary_exactlyAtRatio_isNotFlagged() {
+        // Strict less-than: scored == ratio*total must NOT trigger the light tier.
+        BriefingRegion atRatio = new BriefingRegion(
+                "Region", Verdict.GO, "Clear at 54 of 54 locations",
+                List.of(), goSlots(54), 14.0, 13.0, 4.5, 3,
+                null, null, DisplayVerdict.WORTH_IT, 27);
+        DailyBriefingResponse response = wrapAsResponse(TargetType.SUNSET, atRatio);
+
+        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(response, 0.5));
+
+        assertThat(out.lightlyEvaluated()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Boundary: just below the ratio (26 of 54 @ 0.5) IS flagged")
+    void boundary_justBelowRatio_isFlagged() {
+        BriefingRegion belowRatio = new BriefingRegion(
+                "Region", Verdict.GO, "Clear at 54 of 54 locations",
+                List.of(), goSlots(54), 14.0, 13.0, 4.5, 3,
+                null, null, DisplayVerdict.WORTH_IT, 26);
+        DailyBriefingResponse response = wrapAsResponse(TargetType.SUNSET, belowRatio);
+
+        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(response, 0.5));
+
+        assertThat(out.lightlyEvaluated()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Zero coverage still gets the full rewrite even with the ratio tier enabled")
+    void zeroCoverage_stillFullRewrite_withRatioEnabled() {
+        BriefingRegion zeroCov = new BriefingRegion(
+                "Region", Verdict.GO, "Clear at 54 of 54 locations",
+                List.of(), goSlots(54), 14.0, 13.0, 4.5, 3,
+                "headline", "detail", DisplayVerdict.WORTH_IT, 0);
+        DailyBriefingResponse response = wrapAsResponse(TargetType.SUNSET, zeroCov);
+
+        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(response, 0.5));
+
+        assertThat(out.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        assertThat(out.verdictLabel()).isEqualTo("Too unsettled to forecast");
+        assertThat(out.summary()).isEqualTo(BriefingHonestyFilter.REPLACEMENT_SUMMARY);
+        assertThat(out.slots()).isEmpty();
+        // The zero tier is its own thing — not the lightly-evaluated tier.
+        assertThat(out.lightlyEvaluated()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Ratio 0.0 (single-arg overload) disables the light tier — only zero rewrite fires")
+    void ratioZero_disablesLightTier() {
+        BriefingRegion lowCov = new BriefingRegion(
+                "Region", Verdict.GO, "Clear at 54 of 54 locations",
+                List.of(), goSlots(54), 14.0, 13.0, 4.5, 3,
+                null, null, DisplayVerdict.WORTH_IT, 3);
+        DailyBriefingResponse response = wrapAsResponse(TargetType.SUNSET, lowCov);
+
+        // Default overload uses ratio 0.0 → 3 < 0 is false → not flagged.
+        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(response));
+
+        assertThat(out.lightlyEvaluated()).isFalse();
+        assertThat(out.summary()).isEqualTo("Clear at 54 of 54 locations");
+    }
+
     @Test
     @DisplayName("Hierarchy structure (days/events) is preserved across the transform")
     void hierarchy_isStructurallyPreserved() {
@@ -206,6 +314,12 @@ class BriefingHonestyFilterTest {
 
     private static BriefingRegion firstRegion(DailyBriefingResponse r) {
         return r.days().get(0).eventSummaries().get(0).regions().get(0);
+    }
+
+    private static List<BriefingSlot> goSlots(int n) {
+        return java.util.stream.IntStream.range(0, n)
+                .mapToObj(i -> slot("Loc" + i, Verdict.GO))
+                .toList();
     }
 
     private static List<BriefingSlot> threeSampleSlots() {

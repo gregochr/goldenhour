@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import DailyBriefing from '../components/DailyBriefing.jsx';
 
 vi.mock('../api/briefingApi.js', () => ({
@@ -2122,5 +2122,78 @@ describe('DailyBriefing', () => {
       const slider = screen.getByTestId('quality-slider');
       expect(slider.textContent).not.toMatch(/Showing 3 of 1/);
     });
+  });
+});
+
+// ── Lightly-evaluated framing (mobile/shared drill list) ───────────────────────
+
+describe('DailyBriefing — lightly-evaluated framing', () => {
+  function buildDalesBriefing({ lightlyEvaluated = true, allScored = false } = {}) {
+    const dateStr = futureDateStr();
+    const scored = (name, rating) => ({
+      locationName: name, solarEventTime: `${dateStr}T18:00:00`, verdict: 'GO',
+      displayVerdict: 'WORTH_IT', tideAligned: false, flags: [],
+      claudeRating: rating, claudeSummary: 'Lovely clean horizon.',
+    });
+    const unscored = (name) => ({
+      locationName: name, solarEventTime: `${dateStr}T18:00:00`, verdict: 'GO',
+      displayVerdict: 'WORTH_IT', tideAligned: false, flags: [],
+    });
+    const slots = allScored
+      ? [scored('Alpha', 4), scored('Beta', 5), scored('Cedar', 4)]
+      : [scored('Alpha', 4), unscored('Beta'), unscored('Cedar')];
+    return {
+      generatedAt: new Date().toISOString().slice(0, 19),
+      headline: '',
+      days: [{
+        date: dateStr,
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{
+            regionName: 'TestRegion', verdict: 'GO', displayVerdict: 'WORTH_IT',
+            summary: 'Clear at 3 of 3 locations', tideHighlights: [],
+            lightlyEvaluated, scoredLocationCount: allScored ? 3 : 1, slots,
+          }],
+          unregioned: [],
+        }],
+      }],
+    };
+  }
+
+  async function openSlots(briefing) {
+    getDailyBriefing.mockResolvedValue(briefing);
+    render(<DailyBriefing locations={[]} />);
+    await waitFor(() => screen.getByTestId('briefing-toggle'));
+    fireEvent.click(screen.getByTestId('briefing-toggle'));
+    fireEvent.click(screen.getByTestId('region-row'));
+    const eventRows = screen.getAllByTestId('drill-down-event-row');
+    fireEvent.click(eventRows.find((r) => r.getAttribute('role') === 'button'));
+  }
+
+  it('scope-marks the header and renders ghost pills for unscored slots', async () => {
+    await openSlots(buildDalesBriefing());
+
+    expect(screen.getByTestId('coverage-note').textContent.replace(/\s+/g, ' '))
+      .toContain('1 of 3 evaluated');
+
+    const slotRows = within(screen.getByTestId('region-slots')).getAllByTestId('briefing-slot');
+    expect(slotRows).toHaveLength(3);
+    // Scored slot (Alpha): solid verdict pill, not a ghost.
+    expect(within(slotRows[0]).queryByTestId('unscored-pill')).toBeNull();
+    expect(within(slotRows[0]).getByTestId('verdict-pill')).toBeTruthy();
+    // Unscored slots: ghost "not scored" pill.
+    expect(within(slotRows[1]).getByTestId('unscored-pill').textContent).toContain('not scored');
+    expect(within(slotRows[2]).getByTestId('unscored-pill').textContent).toContain('not scored');
+  });
+
+  it('omits the coverage note when not lightly evaluated', async () => {
+    await openSlots(buildDalesBriefing({ lightlyEvaluated: false }));
+    expect(screen.queryByTestId('coverage-note')).toBeNull();
+  });
+
+  it('fully-covered region: no ghost pills and no coverage note', async () => {
+    await openSlots(buildDalesBriefing({ lightlyEvaluated: false, allScored: true }));
+    expect(screen.queryByTestId('coverage-note')).toBeNull();
+    expect(screen.queryAllByTestId('unscored-pill')).toHaveLength(0);
   });
 });

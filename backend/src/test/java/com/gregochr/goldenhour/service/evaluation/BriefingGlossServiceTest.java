@@ -67,7 +67,7 @@ class BriefingGlossServiceTest {
     void setUp() {
         glossService = new BriefingGlossService(
                 anthropicApiClient, new ObjectMapper(), jobRunService,
-                modelSelectionService, briefingEvaluationService);
+                modelSelectionService, briefingEvaluationService, 0.5);
     }
 
     // ── Core behaviour: gloss populated per verdict ──────────────────────────
@@ -889,6 +889,58 @@ class BriefingGlossServiceTest {
         }
 
         @Test
+        @DisplayName("Low coverage: few scored of many locations emits lowCoverage:true + ratio")
+        void lowCoverage_emittedWhenFewScoredOfManyLocations() {
+            when(briefingEvaluationService.getCachedScores(
+                    eq("Northumberland"),
+                    eq(LocalDate.of(2026, 4, 10)),
+                    eq(TargetType.SUNSET)))
+                    .thenReturn(Map.of(
+                            "Location1", new BriefingEvaluationResult(
+                                    "Location1", 4, 80, 70, "Good light")));
+
+            // 10-location roster, only 1 scored → coverage 0.1, below the 0.5 threshold
+            BriefingRegion region = regionWithSlots("Northumberland", Verdict.GO, 10);
+            BriefingDay day = dayWith(region);
+            BriefingEventSummary es = day.eventSummaries().getFirst();
+            BriefingGlossService.GlossWorkItem item =
+                    new BriefingGlossService.GlossWorkItem(0, 0, 0, day, es, region);
+
+            String json = glossService.buildUserMessage(item);
+
+            assertThat(json).contains("\"totalLocations\":10");
+            assertThat(json).contains("\"claudeRatedCount\":1");
+            assertThat(json).contains("\"claudeCoverageRatio\":0.1");
+            assertThat(json).contains("\"lowCoverage\":true");
+        }
+
+        @Test
+        @DisplayName("High coverage: most locations scored emits lowCoverage:false")
+        void highCoverage_emittedWhenMostScored() {
+            when(briefingEvaluationService.getCachedScores(
+                    eq("Northumberland"),
+                    eq(LocalDate.of(2026, 4, 10)),
+                    eq(TargetType.SUNSET)))
+                    .thenReturn(Map.of(
+                            "A", new BriefingEvaluationResult("A", 4, 80, 70, "x"),
+                            "B", new BriefingEvaluationResult("B", 5, 90, 80, "y"),
+                            "C", new BriefingEvaluationResult("C", 4, 70, 60, "z")));
+
+            // 3-location roster, all 3 scored → coverage 1.0, above the 0.5 threshold
+            BriefingRegion region = regionWithSlots("Northumberland", Verdict.GO, 3);
+            BriefingDay day = dayWith(region);
+            BriefingEventSummary es = day.eventSummaries().getFirst();
+            BriefingGlossService.GlossWorkItem item =
+                    new BriefingGlossService.GlossWorkItem(0, 0, 0, day, es, region);
+
+            String json = glossService.buildUserMessage(item);
+
+            assertThat(json).contains("\"claudeRatedCount\":3");
+            assertThat(json).contains("\"claudeCoverageRatio\":1.0");
+            assertThat(json).contains("\"lowCoverage\":false");
+        }
+
+        @Test
         @DisplayName("No cached scores — claude fields omitted from user message")
         void noCachedScores_fieldsOmitted() {
             BriefingRegion goRegion = region("Northumberland", Verdict.GO);
@@ -1128,6 +1180,22 @@ class BriefingGlossServiceTest {
                         10.0, 8.0, 0, BigDecimal.valueOf(3.5), 25, 40),
                 BriefingSlot.TideInfo.NONE, flags, null);
         return new BriefingRegion(name, verdict, "Summary", List.of(), List.of(slot),
+                10.0, 8.0, 3.5, 0, null, null);
+    }
+
+    /**
+     * Builds a region with {@code count} identical GO-weather slots, used to set
+     * the roster size (denominator) for coverage-ratio assertions.
+     */
+    private static BriefingRegion regionWithSlots(String name, Verdict verdict, int count) {
+        List<BriefingSlot> slots = java.util.stream.IntStream.range(0, count)
+                .mapToObj(i -> new BriefingSlot(
+                        "Loc" + i, LocalDateTime.of(2026, 4, 10, 18, 30), verdict,
+                        new BriefingSlot.WeatherConditions(15, BigDecimal.ZERO, 20000, 65,
+                                10.0, 8.0, 0, BigDecimal.valueOf(3.5), 25, 40),
+                        BriefingSlot.TideInfo.NONE, List.of(), null))
+                .toList();
+        return new BriefingRegion(name, verdict, "Summary", List.of(), slots,
                 10.0, 8.0, 3.5, 0, null, null);
     }
 

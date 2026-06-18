@@ -45,6 +45,21 @@ import java.util.List;
  *
  * <p>The transform is pure and stateless; it allocates new immutable record
  * instances for any region it rewrites and reuses the originals otherwise.
+ *
+ * <p><b>Coverage tiers.</b> The filter recognises three tiers of Claude
+ * coverage per region, keyed on {@code scoredLocationCount} relative to the
+ * region's roster size:
+ * <ul>
+ *   <li><b>Zero</b> ({@code scoredLocationCount == 0}) — the full rewrite
+ *       described above (verdict, summary, gloss, slots all suppressed).</li>
+ *   <li><b>Lightly evaluated</b> ({@code 0 < scored/total < minCoverageRatio})
+ *       — a NEW, lighter tier. The region keeps its real slots, gloss, scores
+ *       and triage summary, but is flagged {@link BriefingRegion#lightlyEvaluated()}
+ *       so the read layer frames it as covering only the few evaluated spots
+ *       rather than the whole roster. Nothing is suppressed.</li>
+ *   <li><b>Well covered</b> ({@code scored/total >= minCoverageRatio}) —
+ *       returned unchanged.</li>
+ * </ul>
  */
 final class BriefingHonestyFilter {
 
@@ -65,22 +80,38 @@ final class BriefingHonestyFilter {
     }
 
     /**
-     * Returns a transformed copy of {@code response} with zero-coverage regions
-     * rewritten. Regions whose {@code scoredLocationCount > 0} are reused
-     * unchanged; the day/event/region hierarchy is otherwise structurally
-     * identical to the input.
-     *
-     * <p>Returns {@code null} when the input is {@code null}.
+     * Backward-compatible overload that disables the lightly-evaluated tier
+     * (ratio {@code 0.0} can never be exceeded by a positive coverage fraction,
+     * so only the zero-coverage rewrite fires). Retained for callers and tests
+     * that only exercise the zero-coverage guard.
      *
      * @param response the API-bound briefing response (may be {@code null})
      * @return transformed response, or {@code null} if input was {@code null}
      */
     static DailyBriefingResponse apply(DailyBriefingResponse response) {
+        return apply(response, 0.0);
+    }
+
+    /**
+     * Returns a transformed copy of {@code response}. Zero-coverage regions are
+     * fully rewritten; regions whose coverage ratio is positive but below
+     * {@code minCoverageRatio} are flagged {@link BriefingRegion#lightlyEvaluated()}
+     * (no suppression); well-covered regions are reused unchanged. The
+     * day/event/region hierarchy is otherwise structurally identical to the input.
+     *
+     * <p>Returns {@code null} when the input is {@code null}.
+     *
+     * @param response         the API-bound briefing response (may be {@code null})
+     * @param minCoverageRatio coverage fraction below which a region is flagged
+     *                         lightly evaluated; {@code 0.0} disables the tier
+     * @return transformed response, or {@code null} if input was {@code null}
+     */
+    static DailyBriefingResponse apply(DailyBriefingResponse response, double minCoverageRatio) {
         if (response == null) {
             return response;
         }
         List<BriefingDay> rewrittenDays = response.days().stream()
-                .map(BriefingHonestyFilter::rewriteDay)
+                .map(day -> rewriteDay(day, minCoverageRatio))
                 .toList();
         return new DailyBriefingResponse(
                 response.generatedAt(), response.headline(), rewrittenDays,
@@ -90,32 +121,45 @@ final class BriefingHonestyFilter {
                 response.bestBetStatus());
     }
 
-    private static BriefingDay rewriteDay(BriefingDay day) {
+    private static BriefingDay rewriteDay(BriefingDay day, double minCoverageRatio) {
         List<BriefingEventSummary> rewrittenEvents = day.eventSummaries().stream()
-                .map(BriefingHonestyFilter::rewriteEvent)
+                .map(es -> rewriteEvent(es, minCoverageRatio))
                 .toList();
         return new BriefingDay(day.date(), rewrittenEvents);
     }
 
-    private static BriefingEventSummary rewriteEvent(BriefingEventSummary es) {
+    private static BriefingEventSummary rewriteEvent(BriefingEventSummary es,
+            double minCoverageRatio) {
         List<BriefingRegion> rewrittenRegions = es.regions().stream()
-                .map(BriefingHonestyFilter::rewriteRegionIfZeroCoverage)
+                .map(region -> rewriteRegionByCoverage(region, minCoverageRatio))
                 .toList();
         return new BriefingEventSummary(es.targetType(), rewrittenRegions, es.unregioned());
     }
 
     /**
-     * Rewrites a single region when it has zero Claude-scored locations,
-     * otherwise returns it unchanged. The triage {@code verdict} and weather
-     * summary fields are preserved on the rewritten region — they remain
-     * factually true and are useful to downstream consumers that may read the
-     * API response directly. Only the user-facing presentation fields are
-     * overridden.
+     * Applies the coverage-tier transform to a single region:
+     * <ul>
+     *   <li>zero scored → full rewrite (triage {@code verdict} and weather
+     *       fields preserved as they remain factually true; only user-facing
+     *       presentation fields are overridden);</li>
+     *   <li>positive but below {@code minCoverageRatio} → flagged
+     *       {@link BriefingRegion#lightlyEvaluated()} with nothing suppressed;</li>
+     *   <li>otherwise → returned unchanged.</li>
+     * </ul>
      */
-    private static BriefingRegion rewriteRegionIfZeroCoverage(BriefingRegion r) {
-        if (r.scoredLocationCount() > 0) {
-            return r;
+    private static BriefingRegion rewriteRegionByCoverage(BriefingRegion r,
+            double minCoverageRatio) {
+        if (r.scoredLocationCount() == 0) {
+            return fullRewrite(r);
         }
+        int total = r.slots().size();
+        if (total > 0 && r.scoredLocationCount() < minCoverageRatio * total) {
+            return r.withLightlyEvaluated();
+        }
+        return r;
+    }
+
+    private static BriefingRegion fullRewrite(BriefingRegion r) {
         return new BriefingRegion(
                 r.regionName(),
                 r.verdict(),
@@ -130,6 +174,7 @@ final class BriefingHonestyFilter {
                 REPLACEMENT_GLOSS_DETAIL,
                 DisplayVerdict.STAND_DOWN,
                 0,
-                VERDICT_LABEL);
+                VERDICT_LABEL,
+                false);
     }
 }

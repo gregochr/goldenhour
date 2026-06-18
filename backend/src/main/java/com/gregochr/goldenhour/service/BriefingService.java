@@ -33,6 +33,7 @@ import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -96,6 +97,16 @@ public class BriefingService {
 
     @Autowired(required = false)
     private CircuitBreakerRegistry circuitBreakerRegistry;
+
+    /**
+     * Coverage fraction below which the honesty filter flags a region as
+     * lightly evaluated on the API read path. A region with a positive but
+     * below-threshold {@code scoredLocationCount / rosterSize} is framed as
+     * covering only the evaluated spots rather than the whole roster. Tunable
+     * without redeploy; {@code 0.0} disables the tier.
+     */
+    @Value("${photocast.briefing.min-coverage-ratio:0.5}")
+    private double minCoverageRatio;
 
     /**
      * Constructs a {@code BriefingService}.
@@ -237,7 +248,8 @@ public class BriefingService {
      *         if no briefing has been built yet
      */
     public DailyBriefingResponse getCachedBriefingForApi() {
-        return applyBestBetFallback(BriefingHonestyFilter.apply(getCachedBriefing()));
+        return applyBestBetFallback(
+                BriefingHonestyFilter.apply(getCachedBriefing(), minCoverageRatio));
     }
 
     /**
