@@ -301,6 +301,18 @@ public class ForecastEvaluationEntity {
     @Column(name = "inversion_potential", length = 10)
     private String inversionPotential;
 
+    /** Snowfall in the hour nearest the solar event, in centimetres, or null. */
+    @Column(name = "snowfall_cm")
+    private Double snowfallCm;
+
+    /** Depth of snow lying on the ground at the solar event, in metres, or null. */
+    @Column(name = "snow_depth_m")
+    private Double snowDepthMetres;
+
+    /** Altitude of the 0 °C isotherm at the solar event, in metres above sea level, or null. */
+    @Column(name = "freezing_level_m")
+    private Double freezingLevelMetres;
+
     /** Categorised user-facing triage reason, or null if the row was scored by Claude. */
     @Enumerated(EnumType.STRING)
     @Column(name = "triage_reason", length = 40)

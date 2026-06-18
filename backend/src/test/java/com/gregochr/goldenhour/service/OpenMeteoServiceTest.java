@@ -415,6 +415,58 @@ class OpenMeteoServiceTest {
     }
 
     @Test
+    @DisplayName("extractAtmosphericData() samples snowfall, snow depth and freezing level at the selected slot")
+    void extractAtmosphericData_samplesSnowFields() {
+        LocalDateTime solarEvent = LocalDateTime.of(2026, 1, 15, 8, 30, 0);
+
+        OpenMeteoForecastResponse forecast = buildForecastResponse(
+                List.of("2026-01-15T07:30", "2026-01-15T08:30", "2026-01-15T09:30"),
+                List.of(10, 20, 15), List.of(40, 50, 45), List.of(20, 30, 25),
+                List.of(25000.0, 22000.0, 28000.0), List.of(4.0, 3.5, 5.0),
+                List.of(225, 245, 200), List.of(0.0, 0.1, 0.0), List.of(71, 73, 71),
+                List.of(95, 92, 90), List.of(1100.0, 1200.0, 1000.0),
+                List.of(100.0, 180.0, 120.0));
+        // Snow arrays aligned with the three slots; index 1 is the nearest to the event.
+        forecast.getHourly().setSnowfall(List.of(0.5, 1.2, 0.0));
+        forecast.getHourly().setSnowDepth(List.of(0.10, 0.15, 0.12));
+        forecast.getHourly().setFreezingLevelHeight(List.of(300.0, 250.0, 280.0));
+
+        OpenMeteoAirQualityResponse airQuality = buildAirQualityResponse(
+                List.of("2026-01-15T07:30", "2026-01-15T08:30", "2026-01-15T09:30"),
+                List.of(5.0, 8.5, 6.0), List.of(1.0, 2.1, 1.5), List.of(0.08, 0.12, 0.09));
+
+        AtmosphericData result = openMeteoService.extractAtmosphericData(
+                forecast, airQuality, "Cat Bells", solarEvent, TargetType.SUNRISE);
+
+        assertThat(result.weather().snowfallCm()).isEqualTo(1.2);
+        assertThat(result.weather().snowDepthMetres()).isEqualTo(0.15);
+        assertThat(result.weather().freezingLevelMetres()).isEqualTo(250.0);
+    }
+
+    @Test
+    @DisplayName("extractAtmosphericData() leaves snow fields null when Open-Meteo omits the arrays")
+    void extractAtmosphericData_absentSnowArrays_yieldNull() {
+        LocalDateTime solarEvent = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
+
+        OpenMeteoForecastResponse forecast = buildForecastResponse(
+                List.of("2026-06-21T20:47"),
+                List.of(15), List.of(40), List.of(60),
+                List.of(22000.0), List.of(5.0), List.of(270),
+                List.of(0.0), List.of(3), List.of(55),
+                List.of(1300.0), List.of(200.0));
+
+        OpenMeteoAirQualityResponse airQuality = buildAirQualityResponse(
+                List.of("2026-06-21T20:47"), List.of(3.0), List.of(0.5), List.of(0.05));
+
+        AtmosphericData result = openMeteoService.extractAtmosphericData(
+                forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
+
+        assertThat(result.weather().snowfallCm()).isNull();
+        assertThat(result.weather().snowDepthMetres()).isNull();
+        assertThat(result.weather().freezingLevelMetres()).isNull();
+    }
+
+    @Test
     @DisplayName("extractAtmosphericData() extracts temperature, apparent temperature and precipitation probability")
     void extractAtmosphericData_extractsComfortFields() {
         LocalDateTime solarEvent = LocalDateTime.of(2026, 6, 21, 20, 47, 0);

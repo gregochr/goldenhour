@@ -745,7 +745,10 @@ public class OpenMeteoService {
                 BigDecimal.valueOf(h.getShortwaveRadiation().get(idx))
                         .setScale(RADIATION_SCALE, RoundingMode.HALF_UP),
                 getDoubleValue(h.getDewPoint2m(), idx),
-                getDoubleValue(h.getSurfacePressure(), idx));
+                getDoubleValue(h.getSurfacePressure(), idx),
+                getDoubleValue(h.getSnowfall(), idx),
+                getDoubleValue(h.getSnowDepth(), idx),
+                getDoubleValue(h.getFreezingLevelHeight(), idx));
 
         AerosolData aerosol = new AerosolData(
                 toDecimal(pm25Raw, PRECIP_SCALE),
