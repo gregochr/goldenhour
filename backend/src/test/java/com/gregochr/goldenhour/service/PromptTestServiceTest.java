@@ -40,6 +40,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -224,6 +225,45 @@ class PromptTestServiceTest {
         assertThat(result.getGitCommitHash()).isEqualTo("abc1234");
         assertThat(result.getGitBranch()).isEqualTo("main");
         verify(testResultRepository, times(6)).save(any(PromptTestResultEntity.class));
+    }
+
+    @Test
+    @DisplayName("runTest augments cloud approach + directional cloud, mirroring the real pipeline")
+    void runTest_mirrorsCloudAugmentation() {
+        LocationEntity loc = location(1L, "Durham", Set.of(LocationType.LANDSCAPE));
+        AtmosphericData data = sampleAtmosphericData();
+
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(loc));
+        stubRunRepository();
+        when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2099, 1, 1, 6, 30));
+        when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2099, 1, 1, 17, 30));
+        when(openMeteoService.getAtmosphericData(any(), any())).thenReturn(data);
+        when(augmentor.augmentWithDirectionalCloud(
+                any(), anyDouble(), anyDouble(), anyInt(), any(), any())).thenReturn(data);
+        when(augmentor.augmentWithCloudApproach(
+                any(), anyDouble(), anyDouble(), anyInt(), any(), any(), any())).thenReturn(data);
+        when(augmentor.augmentWithTideData(
+                any(), any(), any(), any(), anyDouble(), anyDouble(), any())).thenReturn(data);
+        when(evaluationService.evaluateWithDetails(any(), eq(EvaluationModel.HAIKU), any()))
+                .thenReturn(sampleDetail());
+        when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any(EvaluationModel.class)))
+                .thenReturn(50);
+        when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
+                .thenReturn(5400L);
+        when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+        when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        stubGitInfo();
+
+        service.runTest(EvaluationModel.HAIKU, RunType.SHORT_TERM);
+
+        // 6 fetches (3 dates × 2 events): each must run directional + cloud-approach augmentation
+        // so the prompt the harness builds carries the same trend block production sees.
+        verify(augmentor, times(6)).augmentWithDirectionalCloud(
+                any(), anyDouble(), anyDouble(), anyInt(), any(), any());
+        verify(augmentor, times(6)).augmentWithCloudApproach(
+                any(), anyDouble(), anyDouble(), anyInt(), any(), any(), any());
     }
 
     @Test
