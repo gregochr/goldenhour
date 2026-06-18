@@ -151,4 +151,45 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
             @Param("aodThreshold") java.math.BigDecimal aodThreshold,
             @Param("dustThreshold") java.math.BigDecimal dustThreshold,
             @Param("pm25Threshold") java.math.BigDecimal pm25Threshold);
+
+    /**
+     * Returns distinct (target date, region name, humidity) rows for evaluations in the window
+     * where snow is lying — {@code snow_depth_m} at or above the given threshold. The humidity is
+     * returned so the caller can detect co-occurring mist (the SNOW_MIST variant) without a second
+     * query. Used by the fresh-snow hot topic.
+     *
+     * @param from           start of the window (inclusive)
+     * @param to             end of the window (inclusive)
+     * @param depthThreshold snow depth in metres at or above which snow counts as lying
+     * @return rows of [LocalDate targetDate, String regionName, Integer humidity] ordered by date
+     */
+    @Query("SELECT DISTINCT e.targetDate, r.name, e.humidity"
+            + " FROM ForecastEvaluationEntity e"
+            + " JOIN e.location l LEFT JOIN l.region r"
+            + " WHERE e.targetDate BETWEEN :from AND :to"
+            + " AND e.snowDepthMetres IS NOT NULL AND e.snowDepthMetres >= :depthThreshold"
+            + " ORDER BY e.targetDate ASC")
+    List<Object[]> findSnowFreshDays(@Param("from") LocalDate from, @Param("to") LocalDate to,
+            @Param("depthThreshold") double depthThreshold);
+
+    /**
+     * Returns distinct (target date, region name) pairs for evaluations in the window where the
+     * freezing level sits at least {@code margin} metres below the location's summit elevation —
+     * i.e. the fell tops are confidently white. The elevation comparison self-selects high ground,
+     * so no minimum-elevation floor is applied. Used by the snow-on-the-tops hot topic.
+     *
+     * @param from   start of the window (inclusive)
+     * @param to     end of the window (inclusive)
+     * @param margin metres the freezing level must sit below summit elevation to count as white
+     * @return rows of [LocalDate targetDate, String regionName] ordered by date ascending
+     */
+    @Query("SELECT DISTINCT e.targetDate, r.name"
+            + " FROM ForecastEvaluationEntity e"
+            + " JOIN e.location l LEFT JOIN l.region r"
+            + " WHERE e.targetDate BETWEEN :from AND :to"
+            + " AND e.freezingLevelMetres IS NOT NULL AND l.elevationMetres IS NOT NULL"
+            + " AND e.freezingLevelMetres <= l.elevationMetres - :margin"
+            + " ORDER BY e.targetDate ASC")
+    List<Object[]> findSnowTopsDays(@Param("from") LocalDate from, @Param("to") LocalDate to,
+            @Param("margin") int margin);
 }
