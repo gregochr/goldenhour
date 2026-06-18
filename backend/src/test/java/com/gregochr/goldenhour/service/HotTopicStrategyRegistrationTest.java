@@ -23,7 +23,9 @@ class HotTopicStrategyRegistrationTest {
             MeteorHotTopicStrategy.class,
             InversionHotTopicStrategy.class,
             StormSurgeHotTopicStrategy.class,
-            DustHotTopicStrategy.class})
+            DustHotTopicStrategy.class,
+            SnowFreshHotTopicStrategy.class,
+            SnowTopsHotTopicStrategy.class})
     @DisplayName("each new detector implements HotTopicStrategy and is a @Component")
     void newDetectors_areAutoCollectibleStrategies(Class<?> detector) {
         assertThat(HotTopicStrategy.class).isAssignableFrom(detector);

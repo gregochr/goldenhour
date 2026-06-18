@@ -17,7 +17,7 @@ class WeatherDataPressureTest {
     void pressureFieldAccessible() {
         WeatherData data = new WeatherData(
                 15000, BigDecimal.valueOf(5.0), 180, BigDecimal.ZERO,
-                65, 3, BigDecimal.valueOf(100.0), 8.5, 1013.25);
+                65, 3, BigDecimal.valueOf(100.0), 8.5, 1013.25, null, null, null);
 
         assertThat(data.pressureHpa()).isEqualTo(1013.25);
     }
@@ -27,7 +27,7 @@ class WeatherDataPressureTest {
     void pressureFieldNullable() {
         WeatherData data = new WeatherData(
                 15000, BigDecimal.valueOf(5.0), 180, BigDecimal.ZERO,
-                65, 3, BigDecimal.valueOf(100.0), 8.5, null);
+                65, 3, BigDecimal.valueOf(100.0), 8.5, null, null, null, null);
 
         assertThat(data.pressureHpa()).isNull();
     }

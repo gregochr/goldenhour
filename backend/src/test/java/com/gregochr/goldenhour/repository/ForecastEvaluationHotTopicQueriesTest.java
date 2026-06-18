@@ -110,6 +110,53 @@ class ForecastEvaluationHotTopicQueriesTest {
     }
 
     @Test
+    @DisplayName("findSnowFreshDays returns rows at or above the depth threshold with humidity")
+    void findSnowFreshDays_depthThresholdAndHumidity() {
+        // Matches: depth exactly at 0.02 m, humid (mist)
+        repository.save(row(FROM, TargetType.SUNRISE)
+                .snowDepthMetres(0.02).humidity(95).build());
+        // Excluded: depth just below threshold
+        repository.save(row(FROM.plusDays(1), TargetType.SUNRISE)
+                .snowDepthMetres(0.019).humidity(80).build());
+        // Excluded: no snow depth recorded
+        repository.save(row(FROM.plusDays(2), TargetType.SUNRISE).humidity(99).build());
+
+        List<Object[]> rows = repository.findSnowFreshDays(FROM, TO, 0.02);
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0)[0]).isEqualTo(FROM);
+        assertThat(rows.get(0)[1]).isEqualTo("The North York Moors");
+        assertThat(rows.get(0)[2]).isEqualTo(95);
+    }
+
+    @Test
+    @DisplayName("findSnowTopsDays fires only when freezing level is the margin below summit elevation")
+    void findSnowTopsDays_freezingLevelBelowElevation() {
+        RegionEntity lakes = regionRepository.save(RegionEntity.builder()
+                .name("The Lake District")
+                .createdAt(LocalDateTime.of(2026, 1, 1, 0, 0))
+                .build());
+        LocationEntity catBells = locationRepository.save(LocationEntity.builder()
+                .name("Cat Bells").lat(54.56).lon(-3.21).region(lakes)
+                .elevationMetres(451)
+                .createdAt(LocalDateTime.of(2026, 1, 1, 0, 0)).build());
+
+        // Matches: freezing level exactly 100 m below the 451 m summit (== elevation - margin)
+        repository.save(fellRow(catBells, FROM, TargetType.SUNRISE).freezingLevelMetres(351.0).build());
+        // Excluded: freezing level one metre above the margin
+        repository.save(fellRow(catBells, FROM.plusDays(1), TargetType.SUNRISE)
+                .freezingLevelMetres(352.0).build());
+        // Excluded: location with no elevation (the moors fixture) even with a low freezing level
+        repository.save(row(FROM.plusDays(2), TargetType.SUNRISE).freezingLevelMetres(0.0).build());
+
+        List<Object[]> rows = repository.findSnowTopsDays(FROM, TO, 100);
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0)[0]).isEqualTo(FROM);
+        assertThat(rows.get(0)[1]).isEqualTo("The Lake District");
+    }
+
+    @Test
     @DisplayName("queries tolerate a location with no region (LEFT JOIN yields a null region name)")
     void queries_nullRegion_returnsNullName() {
         LocationEntity noRegion = locationRepository.save(LocationEntity.builder()
@@ -133,6 +180,19 @@ class ForecastEvaluationHotTopicQueriesTest {
                 .location(moors)
                 .locationLat(new BigDecimal("54.23"))
                 .locationLon(new BigDecimal("-1.21"))
+                .targetDate(date)
+                .targetType(type)
+                .forecastRunAt(RUN)
+                .daysAhead(1)
+                .evaluationModel(EvaluationModel.SONNET);
+    }
+
+    private ForecastEvaluationEntity.ForecastEvaluationEntityBuilder fellRow(
+            LocationEntity fell, LocalDate date, TargetType type) {
+        return ForecastEvaluationEntity.builder()
+                .location(fell)
+                .locationLat(new BigDecimal("54.56"))
+                .locationLon(new BigDecimal("-3.21"))
                 .targetDate(date)
                 .targetType(type)
                 .forecastRunAt(RUN)

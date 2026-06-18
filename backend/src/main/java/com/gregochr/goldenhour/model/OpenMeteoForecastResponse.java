@@ -84,5 +84,14 @@ public class OpenMeteoForecastResponse {
 
         @JsonProperty("wind_gusts_10m")
         private List<Double> windGusts10m;
+
+        /** Snowfall in the preceding hour, in centimetres. */
+        private List<Double> snowfall;
+
+        @JsonProperty("snow_depth")
+        private List<Double> snowDepth;
+
+        @JsonProperty("freezing_level_height")
+        private List<Double> freezingLevelHeight;
     }
 }
