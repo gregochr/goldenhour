@@ -769,6 +769,70 @@ public class PromptBuilderTest {
     }
 
     @Test
+    @DisplayName("buildUserMessage with canvas trend prints low/mid/high and CLEARING on a clearance")
+    void buildUserMessage_clearingTrendWithCanvas_printsCanvasAndClearingLabel() {
+        // low 90 -> 10 (blocker clears) while high canvas persists 40 -> 55 (holds)
+        AtmosphericData data = TestAtmosphericData.builder()
+                .cloudApproach(new CloudApproachData(
+                        new SolarCloudTrend(List.of(
+                                new SolarCloudTrend.SolarCloudSlot(3, 90, 20, 40),
+                                new SolarCloudTrend.SolarCloudSlot(2, 70, 25, 45),
+                                new SolarCloudTrend.SolarCloudSlot(1, 35, 30, 50),
+                                new SolarCloudTrend.SolarCloudSlot(0, 10, 30, 55))),
+                        null))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("Solar horizon cloud trend (113km) — low blocker / mid+high canvas:")
+                .contains("T-3h=low90%/mid20%/high40%")
+                .contains("event=low10%/mid30%/high55%")
+                .contains("[CLEARING")
+                .doesNotContain("[BUILDING]");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage NEGATIVE CONTROL: wholesale clear prints canvas but no CLEARING")
+    void buildUserMessage_wholesaleClear_omitsClearingLabel() {
+        // low 90 -> 8 but canvas 70 -> 6 collapses toward bald blue: NOT a clearance
+        AtmosphericData data = TestAtmosphericData.builder()
+                .cloudApproach(new CloudApproachData(
+                        new SolarCloudTrend(List.of(
+                                new SolarCloudTrend.SolarCloudSlot(3, 90, 70, 60),
+                                new SolarCloudTrend.SolarCloudSlot(2, 60, 40, 30),
+                                new SolarCloudTrend.SolarCloudSlot(1, 25, 15, 10),
+                                new SolarCloudTrend.SolarCloudSlot(0, 8, 6, 5))),
+                        null))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("Solar horizon cloud trend (113km) — low blocker / mid+high canvas:")
+                .doesNotContain("[CLEARING")
+                .doesNotContain("[BUILDING]");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with building canvas trend keeps BUILDING and omits CLEARING")
+    void buildUserMessage_buildingTrendWithCanvas_keepsBuildingNotClearing() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .cloudApproach(new CloudApproachData(
+                        new SolarCloudTrend(List.of(
+                                new SolarCloudTrend.SolarCloudSlot(3, 10, 60, 50),
+                                new SolarCloudTrend.SolarCloudSlot(0, 80, 60, 50))),
+                        null))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("[BUILDING]")
+                .doesNotContain("[CLEARING");
+    }
+
+    @Test
     @DisplayName("buildUserMessage with upwind only (no trend) shows upwind block")
     void buildUserMessage_upwindOnly_showsUpwindBlock() {
         AtmosphericData data = TestAtmosphericData.builder()
