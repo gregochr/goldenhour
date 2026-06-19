@@ -570,7 +570,20 @@ public class PromptTestService {
         ForecastRequest request = new ForecastRequest(lat, lon, location.getName(),
                 targetDate, targetType);
         AtmosphericData baseData = openMeteoService.getAtmosphericData(request, eventTime);
-        return augmentor.augmentWithTideData(baseData, location.getId(),
+
+        // Mirror the real forecast pipeline's cloud augmentation so the replayed prompt carries
+        // the same directional cloud and cloud-approach trend (incl. the mid/high canvas
+        // trajectory) the production prompt sees. Without this the prompt test fetched a
+        // trend-less AtmosphericData and the harness could not exercise the trend block at all.
+        int azimuth = targetType == TargetType.SUNRISE
+                ? solarService.sunriseAzimuthDeg(lat, lon, targetDate)
+                : solarService.sunsetAzimuthDeg(lat, lon, targetDate);
+        AtmosphericData withDirectional = augmentor.augmentWithDirectionalCloud(
+                baseData, lat, lon, azimuth, eventTime, null);
+        AtmosphericData withApproach = augmentor.augmentWithCloudApproach(
+                withDirectional, lat, lon, azimuth, eventTime,
+                LocalDateTime.now(ZoneOffset.UTC), null);
+        return augmentor.augmentWithTideData(withApproach, location.getId(),
                 eventTime, location.getTideType(), lat, lon, targetType);
     }
 

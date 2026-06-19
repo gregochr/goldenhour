@@ -217,6 +217,19 @@ public class PromptBuilder {
             + "apply moderate scepticism — reduce fiery_sky by 15-25 points, do not assume blockage.\n"
             + "  - current ≥60%, at-event 25-50%: uncertain → penalise fiery_sky by 10-20 points.\n"
             + "  - current 30-60%: softer signal — penalise fiery_sky by 5-15 points.\n\n"
+            + "CLOUD CLEARING (the opportunity, mirror of [BUILDING]): a [CLEARING] label means the "
+            + "low cloud blocker is dropping into the event WHILE the mid/high canvas survives — the "
+            + "sky is opening exactly as the light arrives, leaving structured cloud to catch colour. "
+            + "This is a genuine dramatic clearance. Treat it as a CONFIDENCE and URGENCY signal, NOT "
+            + "a rating lever: where [BUILDING] warns the event snapshot may be too optimistic, "
+            + "[CLEARING] tells you the favourable event-time picture is trustworthy and the timing is "
+            + "ripe. Do NOT add points or stars on top of what the directional event-time cloud "
+            + "already earns — the cleared horizon plus canvas is already scored by the rules above; "
+            + "[CLEARING] only confirms it and sharpens the summary's urgency (e.g. 'breaking right on "
+            + "cue — the blocker lifts as the canvas lights up'). The label is emitted ONLY when the "
+            + "canvas is confirmed holding, so never read it as rewarding a clearing to empty sky: a "
+            + "trajectory where low AND mid/high both fall toward bald blue is NOT a clearance — it is "
+            + "the clear-sky case (no canvas, cap rating ≤3), and it carries no [CLEARING] label.\n\n"
             + "Do not use double-quote characters within the summary text.\n\n"
             + "HEADLINE FIELD (optional): you may also output a `headline` field — a single, "
             + "short fragment (4-9 words) that captures the verdict at a glance. The headline "
@@ -409,10 +422,25 @@ public class PromptBuilder {
             sb.append(String.format("%nCLOUD APPROACH RISK:"));
             SolarCloudTrend trend = ca.solarTrend();
             if (trend != null && trend.slots() != null && !trend.slots().isEmpty()) {
-                sb.append(String.format("%nSolar horizon low cloud trend (113km):"));
-                for (SolarCloudTrend.SolarCloudSlot slot : trend.slots()) {
-                    String label = slot.hoursBeforeEvent() == 0 ? "event" : "T-" + slot.hoursBeforeEvent() + "h";
-                    sb.append(String.format(" %s=%d%%", label, slot.lowCloudPercent()));
+                boolean hasCanvas = trend.slots().getFirst().midCloudPercent() != null
+                        && trend.slots().getFirst().highCloudPercent() != null;
+                if (hasCanvas) {
+                    sb.append(String.format("%nSolar horizon cloud trend (113km)"
+                            + " — low blocker / mid+high canvas:"));
+                    for (SolarCloudTrend.SolarCloudSlot slot : trend.slots()) {
+                        String label = slot.hoursBeforeEvent() == 0
+                                ? "event" : "T-" + slot.hoursBeforeEvent() + "h";
+                        sb.append(String.format(" %s=low%d%%/mid%d%%/high%d%%", label,
+                                slot.lowCloudPercent(), slot.midCloudPercent(),
+                                slot.highCloudPercent()));
+                    }
+                } else {
+                    sb.append(String.format("%nSolar horizon low cloud trend (113km):"));
+                    for (SolarCloudTrend.SolarCloudSlot slot : trend.slots()) {
+                        String label = slot.hoursBeforeEvent() == 0
+                                ? "event" : "T-" + slot.hoursBeforeEvent() + "h";
+                        sb.append(String.format(" %s=%d%%", label, slot.lowCloudPercent()));
+                    }
                 }
                 if (trend.isBuilding()) {
                     if (thinStripConfirmed) {
@@ -422,6 +450,9 @@ public class PromptBuilder {
                     } else {
                         sb.append(" [BUILDING]");
                     }
+                } else if (trend.isClearing()) {
+                    sb.append(" [CLEARING — low blocker dropping into the event while the"
+                            + " mid/high canvas holds]");
                 }
             }
             UpwindCloudSample upwind = ca.upwindSample();

@@ -90,6 +90,8 @@ The upwind sample point is placed at exactly wind_speed × time_to_event — the
   - current ≥60%, at-event 25-50%: uncertain → penalise fiery_sky by 10-20 points.
   - current 30-60%: softer signal — penalise fiery_sky by 5-15 points.
 
+CLOUD CLEARING (the opportunity, mirror of [BUILDING]): a [CLEARING] label means the low cloud blocker is dropping into the event WHILE the mid/high canvas survives — the sky is opening exactly as the light arrives, leaving structured cloud to catch colour. This is a genuine dramatic clearance. Treat it as a CONFIDENCE and URGENCY signal, NOT a rating lever: where [BUILDING] warns the event snapshot may be too optimistic, [CLEARING] tells you the favourable event-time picture is trustworthy and the timing is ripe. Do NOT add points or stars on top of what the directional event-time cloud already earns — the cleared horizon plus canvas is already scored by the rules above; [CLEARING] only confirms it and sharpens the summary's urgency (e.g. 'breaking right on cue — the blocker lifts as the canvas lights up'). The label is emitted ONLY when the canvas is confirmed holding, so never read it as rewarding a clearing to empty sky: a trajectory where low AND mid/high both fall toward bald blue is NOT a clearance — it is the clear-sky case (no canvas, cap rating ≤3), and it carries no [CLEARING] label.
+
 Do not use double-quote characters within the summary text.
 
 HEADLINE FIELD (optional): you may also output a `headline` field — a single, short fragment (4-9 words) that captures the verdict at a glance. The headline becomes the card header in the UI, so it must read naturally on its own. Write in Claude's voice, not as a clinical assessment. Examples:

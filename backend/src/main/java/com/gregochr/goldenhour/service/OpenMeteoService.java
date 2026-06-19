@@ -1078,7 +1078,13 @@ public class OpenMeteoService {
     }
 
     /**
-     * Extracts the solar horizon low cloud trend from T-3h through T.
+     * Extracts the solar horizon cloud trend from T-3h through T, capturing the low cloud blocker
+     * plus the mid and high canvas layers at each hour.
+     *
+     * <p>The mid/high series lets {@link SolarCloudTrend#isClearing()} distinguish a dramatic
+     * clearance (blocker drops, canvas survives) from a wholesale clear (everything falling toward
+     * bald blue). Mid/high come from the same forecast response as the low cloud — the cloud-only
+     * batch already requests all three layers — so no additional fetch is needed.
      *
      * <p>Package-private for unit testing.
      *
@@ -1094,11 +1100,16 @@ public class OpenMeteoService {
 
         List<SolarCloudTrend.SolarCloudSlot> slots = new ArrayList<>();
         List<Integer> lowCloud = forecast.getHourly().getCloudCoverLow();
+        List<Integer> midCloud = forecast.getHourly().getCloudCoverMid();
+        List<Integer> highCloud = forecast.getHourly().getCloudCoverHigh();
 
         for (int h = TREND_HOURS_BACK; h >= 0; h--) {
             int idx = eventIdx - h;
             if (idx >= 0 && idx < lowCloud.size()) {
-                slots.add(new SolarCloudTrend.SolarCloudSlot(h, lowCloud.get(idx)));
+                Integer mid = midCloud != null && idx < midCloud.size() ? midCloud.get(idx) : null;
+                Integer high = highCloud != null && idx < highCloud.size()
+                        ? highCloud.get(idx) : null;
+                slots.add(new SolarCloudTrend.SolarCloudSlot(h, lowCloud.get(idx), mid, high));
             }
         }
 
