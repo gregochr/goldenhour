@@ -1,7 +1,10 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
-import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.model.SurvivorSignals;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -13,35 +16,46 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link SnowFreshHotTopicStrategy}, including the SNOW_MIST variant and the
- * snow-depth / humidity threshold boundaries.
+ * snow-depth / humidity threshold boundaries. Reads the survivor surface.
  */
 @ExtendWith(MockitoExtension.class)
 class SnowFreshHotTopicStrategyTest {
 
     private static final LocalDate FROM = LocalDate.of(2026, 1, 15);
     private static final LocalDate TO = FROM.plusDays(3);
-    private static final double DEPTH = SnowFreshHotTopicStrategy.SNOW_DEPTH_THRESHOLD_METRES;
 
     @Mock
-    private ForecastEvaluationRepository forecastEvaluationRepository;
+    private SurvivorSignalReader survivorSignalReader;
 
     private SnowFreshHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        strategy = new SnowFreshHotTopicStrategy(forecastEvaluationRepository);
+        strategy = new SnowFreshHotTopicStrategy(survivorSignalReader);
+    }
+
+    /** A survivor composite carrying snow depth and humidity readings. */
+    private static SurvivorSignals signal(LocalDate date, String regionName,
+            Double snowDepthMetres, Integer humidity) {
+        RegionEntity region = new RegionEntity();
+        region.setName(regionName);
+        LocationEntity location = new LocationEntity();
+        location.setRegion(region);
+        SurvivorSignals.Readings readings = new SurvivorSignals.Readings(
+                null, null, null, null, snowDepthMetres, null, humidity);
+        return new SurvivorSignals(location, date, TargetType.SUNRISE,
+                SurvivorSignals.Scores.EMPTY, readings);
     }
 
     @Test
     @DisplayName("snow lying without mist fires the plain SNOW_FRESH topic at priority 2")
     void detect_snowLyingNoMist_firesFresh() {
-        when(forecastEvaluationRepository.findSnowFreshDays(FROM, TO, DEPTH))
-                .thenReturn(List.<Object[]>of(new Object[] {FROM, "The Lake District", 70}));
+        when(survivorSignalReader.read(FROM, TO))
+                .thenReturn(List.of(signal(FROM, "The Lake District", 0.05, 70)));
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
@@ -50,16 +64,15 @@ class SnowFreshHotTopicStrategyTest {
         assertThat(topic.type()).isEqualTo("SNOW_FRESH");
         assertThat(topic.priority()).isEqualTo(2);
         assertThat(topic.regions()).containsExactly("The Lake District");
-        verify(forecastEvaluationRepository).findSnowFreshDays(FROM, TO, DEPTH);
     }
 
     @Test
     @DisplayName("snow lying with mist upgrades to SNOW_MIST at priority 1")
     void detect_snowLyingWithMist_firesMistVariant() {
-        when(forecastEvaluationRepository.findSnowFreshDays(FROM, TO, DEPTH))
-                .thenReturn(List.<Object[]>of(
-                        new Object[] {FROM, "The Lake District", 70},
-                        new Object[] {FROM, "The North York Moors", 95}));
+        when(survivorSignalReader.read(FROM, TO))
+                .thenReturn(List.of(
+                        signal(FROM, "The Lake District", 0.05, 70),
+                        signal(FROM, "The North York Moors", 0.10, 95)));
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
@@ -72,10 +85,18 @@ class SnowFreshHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("no snow-lying rows does not fire")
+    @DisplayName("a below-threshold dusting does not fire — the depth filter, not just empty")
+    void detect_belowThreshold_doesNotFire() {
+        when(survivorSignalReader.read(FROM, TO))
+                .thenReturn(List.of(signal(FROM, "The Lake District", 0.01, 70)));
+
+        assertThat(strategy.detect(FROM, TO)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("no survivor rows does not fire")
     void detect_noRows_doesNotFire() {
-        when(forecastEvaluationRepository.findSnowFreshDays(FROM, TO, DEPTH))
-                .thenReturn(List.<Object[]>of());
+        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of());
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
     }

@@ -1,13 +1,14 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
-import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.model.SurvivorSignals;
 import org.springframework.stereotype.Component;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.TextStyle;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -19,10 +20,11 @@ import java.util.Set;
  * <p>Low pressure and onshore winds push water levels above predicted heights; combined
  * with high tide this produces crashing waves and dramatic coastal conditions — even at
  * midday. The forecast pipeline already computes and persists {@code surge_risk_level} per
- * evaluation (only for coastal locations). This detector fires when any row in the window
- * is classified {@value #HIGH_RISK} — high only, not moderate. Reads
- * {@code forecast_evaluation} directly (the king/spring tide template); makes no external
- * API calls.
+ * evaluation (only for coastal locations). This detector fires when any survivor in the
+ * window is classified {@value #HIGH_RISK} — high only, not moderate. Reads through the
+ * {@link SurvivorSignalReader} (the unified survivor surface), so it fires off the survivor
+ * population, not the triaged rejects the legacy {@code forecast_evaluation} read sampled.
+ * Makes no external API calls.
  */
 @Component
 public class StormSurgeHotTopicStrategy implements HotTopicStrategy {
@@ -38,15 +40,15 @@ public class StormSurgeHotTopicStrategy implements HotTopicStrategy {
     /** The only surge risk level that fires the topic. */
     private static final String HIGH_RISK = "HIGH";
 
-    private final ForecastEvaluationRepository forecastEvaluationRepository;
+    private final SurvivorSignalReader survivorSignalReader;
 
     /**
      * Constructs a {@code StormSurgeHotTopicStrategy}.
      *
-     * @param forecastEvaluationRepository repository for persisted surge classifications
+     * @param survivorSignalReader the unified survivor read model (surge risk readings)
      */
-    public StormSurgeHotTopicStrategy(ForecastEvaluationRepository forecastEvaluationRepository) {
-        this.forecastEvaluationRepository = forecastEvaluationRepository;
+    public StormSurgeHotTopicStrategy(SurvivorSignalReader survivorSignalReader) {
+        this.survivorSignalReader = survivorSignalReader;
     }
 
     /**
@@ -58,17 +60,21 @@ public class StormSurgeHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        List<Object[]> rows = forecastEvaluationRepository.findSurgeDaysByRiskLevel(
-                fromDate, toDate, HIGH_RISK);
-        if (rows.isEmpty()) {
+        List<SurvivorSignals> highRisk = survivorSignalReader.read(fromDate, toDate).stream()
+                .filter(s -> HIGH_RISK.equals(s.readings().surgeRiskLevel()))
+                .sorted(Comparator.comparing(SurvivorSignals::date))
+                .toList();
+        if (highRisk.isEmpty()) {
             return List.of();
         }
 
-        LocalDate earliest = (LocalDate) rows.get(0)[0];
+        LocalDate earliest = highRisk.get(0).date();
         Set<String> regions = new LinkedHashSet<>();
-        for (Object[] row : rows) {
-            if (row[1] != null) {
-                regions.add((String) row[1]);
+        for (SurvivorSignals s : highRisk) {
+            String region = s.location() != null && s.location().getRegion() != null
+                    ? s.location().getRegion().getName() : null;
+            if (region != null) {
+                regions.add(region);
             }
         }
 
