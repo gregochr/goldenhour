@@ -1,7 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
-import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.model.SurvivorSignals;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -9,6 +9,7 @@ import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.TextStyle;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -22,8 +23,10 @@ import java.util.Set;
  * proxy exactly (see {@code isDustEnhanced} in the map popup): elevated AOD
  * (&gt; {@value #AOD_THRESHOLD}) or surface dust (&gt; {@value #DUST_THRESHOLD} µg/m³),
  * with PM2.5 low enough (&lt; {@value #PM25_THRESHOLD} µg/m³, or absent) to rule out
- * smoke/haze. Reads {@code forecast_evaluation} directly (the king/spring tide template);
- * makes no external API calls.
+ * smoke/haze. Reads the aerosol readings through the {@link SurvivorSignalReader} (the unified
+ * survivor surface), so the proxy fires off the SURVIVOR population — the good forecasts Claude
+ * scored — not the triaged rejects the legacy {@code forecast_evaluation} read sampled. Makes no
+ * external API calls.
  */
 @Component
 public class DustHotTopicStrategy implements HotTopicStrategy {
@@ -44,23 +47,23 @@ public class DustHotTopicStrategy implements HotTopicStrategy {
     /** PM2.5 in µg/m³ below which smoke/haze is ruled out (mirrors the dust badge). */
     static final BigDecimal PM25_THRESHOLD = new BigDecimal("35");
 
-    private final ForecastEvaluationRepository forecastEvaluationRepository;
+    private final SurvivorSignalReader survivorSignalReader;
 
     /**
      * Constructs a {@code DustHotTopicStrategy}.
      *
-     * @param forecastEvaluationRepository repository for persisted aerosol readings
+     * @param survivorSignalReader the unified survivor read model (aerosol readings)
      */
-    public DustHotTopicStrategy(ForecastEvaluationRepository forecastEvaluationRepository) {
-        this.forecastEvaluationRepository = forecastEvaluationRepository;
+    public DustHotTopicStrategy(SurvivorSignalReader survivorSignalReader) {
+        this.survivorSignalReader = survivorSignalReader;
     }
 
     /**
      * Returns true when aerosol readings indicate dust-enhanced skies, replicating the
      * Saharan dust badge proxy exactly: elevated AOD or surface dust rules dust in, while
-     * low (or absent) PM2.5 rules smoke/haze out. The repository query
-     * {@code findDustDays} encodes the identical condition in SQL — this method exists so
-     * the proxy can be unit-tested at its boundaries and kept consistent with the badge.
+     * low (or absent) PM2.5 rules smoke/haze out. {@link #detect} applies this proxy to each
+     * survivor composite's aerosol readings; isolating it here keeps it boundary-unit-testable
+     * and consistent with the frontend badge.
      *
      * @param aod  aerosol optical depth, or null
      * @param dust surface dust in µg/m³, or null
@@ -83,17 +86,22 @@ public class DustHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        List<Object[]> rows = forecastEvaluationRepository.findDustDays(
-                fromDate, toDate, AOD_THRESHOLD, DUST_THRESHOLD, PM25_THRESHOLD);
-        if (rows.isEmpty()) {
+        List<SurvivorSignals> dusty = survivorSignalReader.read(fromDate, toDate).stream()
+                .filter(s -> isDustEnhanced(s.readings().aerosolOpticalDepth(),
+                        s.readings().dust(), s.readings().pm25()))
+                .sorted(Comparator.comparing(SurvivorSignals::date))
+                .toList();
+        if (dusty.isEmpty()) {
             return List.of();
         }
 
-        LocalDate earliest = (LocalDate) rows.get(0)[0];
+        LocalDate earliest = dusty.get(0).date();
         Set<String> regions = new LinkedHashSet<>();
-        for (Object[] row : rows) {
-            if (row[1] != null) {
-                regions.add((String) row[1]);
+        for (SurvivorSignals s : dusty) {
+            String region = s.location() != null && s.location().getRegion() != null
+                    ? s.location().getRegion().getName() : null;
+            if (region != null) {
+                regions.add(region);
             }
         }
 
