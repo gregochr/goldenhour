@@ -1,9 +1,7 @@
 package com.gregochr.goldenhour.service;
 
-import com.gregochr.goldenhour.entity.ForecastScoreEntity;
-import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.model.HotTopic;
-import com.gregochr.goldenhour.repository.ForecastScoreRepository;
+import com.gregochr.goldenhour.model.SurvivorSignals;
 import org.springframework.stereotype.Component;
 
 import java.time.DayOfWeek;
@@ -26,10 +24,10 @@ import java.util.Set;
  * such row in the window reaches the STRONG band — score &ge; {@value #STRONG_SCORE_INCLUSIVE},
  * mirroring {@code PromptBuilder.InversionPotential.fromScore} (9–10 = STRONG).
  *
- * <p>Reads {@code forecast_score}, NOT {@code forecast_evaluation}: nightly the latter holds
- * only the triaged-out rejects, so the legacy {@code inversion_potential} read was inert in
- * production (the evaluated survivors route here). The repoint mirrors
- * {@code BluebellHotTopicStrategy}. Makes no external API calls.
+ * <p>Reads through the {@link SurvivorSignalReader} (the unified survivor surface, backed by
+ * {@code forecast_score}), NOT {@code forecast_evaluation}: nightly the latter holds only the
+ * triaged-out rejects, so the legacy {@code inversion_potential} read was inert in production
+ * (the evaluated survivors route here). Makes no external API calls.
  */
 @Component
 public class InversionHotTopicStrategy implements HotTopicStrategy {
@@ -49,15 +47,15 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
      */
     static final int STRONG_SCORE_INCLUSIVE = 9;
 
-    private final ForecastScoreRepository forecastScoreRepository;
+    private final SurvivorSignalReader survivorSignalReader;
 
     /**
      * Constructs an {@code InversionHotTopicStrategy}.
      *
-     * @param forecastScoreRepository repository for persisted component scores (the survivor surface)
+     * @param survivorSignalReader the unified survivor read model (inversion scores)
      */
-    public InversionHotTopicStrategy(ForecastScoreRepository forecastScoreRepository) {
-        this.forecastScoreRepository = forecastScoreRepository;
+    public InversionHotTopicStrategy(SurvivorSignalReader survivorSignalReader) {
+        this.survivorSignalReader = survivorSignalReader;
     }
 
     /**
@@ -69,21 +67,20 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        List<ForecastScoreEntity> strong = forecastScoreRepository.findComponentsByType(
-                        ForecastType.INVERSION.getId(), fromDate, toDate)
-                .stream()
-                .filter(s -> s.getScore() != null && s.getScore() >= STRONG_SCORE_INCLUSIVE)
-                .sorted(Comparator.comparing(ForecastScoreEntity::getEvaluationDate))
+        List<SurvivorSignals> strong = survivorSignalReader.read(fromDate, toDate).stream()
+                .filter(s -> s.scores().inversion() != null
+                        && s.scores().inversion() >= STRONG_SCORE_INCLUSIVE)
+                .sorted(Comparator.comparing(SurvivorSignals::date))
                 .toList();
         if (strong.isEmpty()) {
             return List.of();
         }
 
-        LocalDate earliest = strong.get(0).getEvaluationDate();
+        LocalDate earliest = strong.get(0).date();
         Set<String> regions = new LinkedHashSet<>();
-        for (ForecastScoreEntity row : strong) {
-            String region = row.getLocation() != null && row.getLocation().getRegion() != null
-                    ? row.getLocation().getRegion().getName() : null;
+        for (SurvivorSignals row : strong) {
+            String region = row.location() != null && row.location().getRegion() != null
+                    ? row.location().getRegion().getName() : null;
             if (region != null) {
                 regions.add(region);
             }

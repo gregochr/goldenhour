@@ -1,13 +1,14 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
-import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.model.SurvivorSignals;
 import org.springframework.stereotype.Component;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.TextStyle;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -21,8 +22,10 @@ import java.util.Set;
  * location's {@code freezing_level_m} sits at least {@value #FREEZING_LEVEL_MARGIN_METRES} metres
  * below its summit {@code elevation_m} (the margin gives confidence the tops are actually white, not
  * merely at the theoretical freezing altitude). The freezing-level-versus-elevation comparison
- * self-selects high ground, so no minimum-elevation floor is applied. Reads
- * {@code forecast_evaluation} directly (the king/spring tide template); makes no external API calls.
+ * self-selects high ground, so no minimum-elevation floor is applied. Reads through the
+ * {@link SurvivorSignalReader} (the unified survivor surface), so it fires off the survivor
+ * population, not the triaged rejects the legacy {@code forecast_evaluation} read sampled.
+ * Makes no external API calls.
  */
 @Component
 public class SnowTopsHotTopicStrategy implements HotTopicStrategy {
@@ -37,15 +40,15 @@ public class SnowTopsHotTopicStrategy implements HotTopicStrategy {
     /** Metres the freezing level must sit below summit elevation to call the tops white. */
     static final int FREEZING_LEVEL_MARGIN_METRES = 100;
 
-    private final ForecastEvaluationRepository forecastEvaluationRepository;
+    private final SurvivorSignalReader survivorSignalReader;
 
     /**
      * Constructs a {@code SnowTopsHotTopicStrategy}.
      *
-     * @param forecastEvaluationRepository repository for persisted freezing-level readings
+     * @param survivorSignalReader the unified survivor read model (freezing-level readings)
      */
-    public SnowTopsHotTopicStrategy(ForecastEvaluationRepository forecastEvaluationRepository) {
-        this.forecastEvaluationRepository = forecastEvaluationRepository;
+    public SnowTopsHotTopicStrategy(SurvivorSignalReader survivorSignalReader) {
+        this.survivorSignalReader = survivorSignalReader;
     }
 
     /**
@@ -71,17 +74,22 @@ public class SnowTopsHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        List<Object[]> rows = forecastEvaluationRepository.findSnowTopsDays(
-                fromDate, toDate, FREEZING_LEVEL_MARGIN_METRES);
-        if (rows.isEmpty()) {
+        List<SurvivorSignals> white = survivorSignalReader.read(fromDate, toDate).stream()
+                .filter(s -> isTopsWhite(s.readings().freezingLevelMetres(),
+                        s.location() != null ? s.location().getElevationMetres() : null))
+                .sorted(Comparator.comparing(SurvivorSignals::date))
+                .toList();
+        if (white.isEmpty()) {
             return List.of();
         }
 
-        LocalDate earliest = (LocalDate) rows.get(0)[0];
+        LocalDate earliest = white.get(0).date();
         Set<String> regions = new LinkedHashSet<>();
-        for (Object[] row : rows) {
-            if (row[1] != null) {
-                regions.add((String) row[1]);
+        for (SurvivorSignals s : white) {
+            String region = s.location() != null && s.location().getRegion() != null
+                    ? s.location().getRegion().getName() : null;
+            if (region != null) {
+                regions.add(region);
             }
         }
 

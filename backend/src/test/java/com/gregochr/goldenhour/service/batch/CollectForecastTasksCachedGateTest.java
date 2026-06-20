@@ -64,6 +64,8 @@ class CollectForecastTasksCachedGateTest {
     @Mock private OpenMeteoService openMeteoService;
     @Mock private SolarService solarService;
     @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
+    @Mock private com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter
+            survivorAtmosphereWriter;
 
     private ForecastTaskCollector collector;
 
@@ -83,7 +85,7 @@ class CollectForecastTasksCachedGateTest {
                 locationService, briefingService,
                 briefingEvaluationService, forecastService, stabilityClassifier,
                 modelSelectionService, openMeteoService, solarService,
-                freshnessResolver, stabilitySnapshotProvider, 0.5, 0);
+                freshnessResolver, stabilitySnapshotProvider, survivorAtmosphereWriter, 0.5, 0);
     }
 
     @SuppressWarnings("unchecked")

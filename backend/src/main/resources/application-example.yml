@@ -158,6 +158,11 @@ photocast:
     dual-write: true               # Pass 2: dual-write component scores to forecast_score
                                    # alongside the serving path (results_json untouched). Whole-pass
                                    # rollback = set false (no redeploy); nothing reads the table yet.
+  survivor-atmosphere:
+    write: true                    # Stage B: capture survivor atmospheric readings (dust/surge/snow)
+                                   # to survivor_atmosphere at submission time — the readings half of
+                                   # the unified survivor read surface. Rollback = set false (additive
+                                   # table, no redeploy); nothing reads it until the Stage 2 read model.
   season:
     bluebell:
       start: "04-18"               # bluebell season first active day (MM-dd, inclusive).

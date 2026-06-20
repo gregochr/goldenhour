@@ -31,6 +31,7 @@ import com.gregochr.goldenhour.service.OpenMeteoService;
 import com.gregochr.goldenhour.service.SolarService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
+import com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter;
 import com.gregochr.goldenhour.util.TimeSlotUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -124,6 +125,7 @@ public class ForecastTaskCollector {
     private final SolarService solarService;
     private final FreshnessResolver freshnessResolver;
     private final StabilitySnapshotProvider stabilitySnapshotProvider;
+    private final SurvivorAtmosphereWriter survivorAtmosphereWriter;
 
     /** Minimum ratio of successful weather pre-fetches to proceed (scheduled path only). */
     private final double minPrefetchSuccessRatio;
@@ -150,6 +152,7 @@ public class ForecastTaskCollector {
      * @param solarService              solar azimuth and event time helpers
      * @param freshnessResolver         per-stability cache freshness thresholds
      * @param stabilitySnapshotProvider provides the latest stability snapshot
+     * @param survivorAtmosphereWriter  captures survivor atmospheric readings at submission time
      * @param minPrefetchSuccessRatio   minimum prefetch ratio to proceed (scheduled path)
      * @param forceEvalCap              max force-evaluated headline candidates per cycle
      */
@@ -163,6 +166,7 @@ public class ForecastTaskCollector {
             SolarService solarService,
             FreshnessResolver freshnessResolver,
             StabilitySnapshotProvider stabilitySnapshotProvider,
+            SurvivorAtmosphereWriter survivorAtmosphereWriter,
             @Value("${photocast.batch.min-prefetch-success-ratio:0.5}")
             double minPrefetchSuccessRatio,
             @Value("${photocast.batch.force-eval-cap:6}")
@@ -177,6 +181,7 @@ public class ForecastTaskCollector {
         this.solarService = solarService;
         this.freshnessResolver = freshnessResolver;
         this.stabilitySnapshotProvider = stabilitySnapshotProvider;
+        this.survivorAtmosphereWriter = survivorAtmosphereWriter;
         this.minPrefetchSuccessRatio = minPrefetchSuccessRatio;
         this.forceEvalCap = forceEvalCap;
     }
@@ -411,6 +416,19 @@ public class ForecastTaskCollector {
                 }
 
                 boolean isNearTerm = daysAhead <= NEAR_TERM_MAX_DAYS;
+
+                // Survivor confirmed (past triage + gating): capture its atmospheric readings to
+                // the survivor surface now, before the async batch boundary discards them. Covers
+                // both the woodland-only and sky branches below. Isolated so a carrier write
+                // failure never aborts batch collection.
+                try {
+                    survivorAtmosphereWriter.write(candidate.location(), candidate.date(),
+                            candidate.targetType(), preEval.atmosphericData());
+                } catch (Exception e) {
+                    LOG.error("survivor_atmosphere write FAILED for {} {} {}; collection proceeds: {}",
+                            candidate.location().getName(), candidate.date(),
+                            candidate.targetType(), e.getMessage(), e);
+                }
 
                 if (woodlandOnly) {
                     // Bluebell-only: ONE bluebell task, no sky task, no colour bucket (the OQ3

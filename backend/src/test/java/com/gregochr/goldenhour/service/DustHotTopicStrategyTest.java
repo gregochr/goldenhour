@@ -1,7 +1,10 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
-import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.model.SurvivorSignals;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -14,7 +17,6 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -27,21 +29,36 @@ class DustHotTopicStrategyTest {
     private static final LocalDate TO = FROM.plusDays(3);
 
     @Mock
-    private ForecastEvaluationRepository forecastEvaluationRepository;
+    private SurvivorSignalReader survivorSignalReader;
 
     private DustHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        strategy = new DustHotTopicStrategy(forecastEvaluationRepository);
+        strategy = new DustHotTopicStrategy(survivorSignalReader);
+    }
+
+    /** A survivor composite carrying only aerosol readings (the dust proxy inputs). */
+    private static SurvivorSignals signal(LocalDate date, String regionName,
+            String aod, String dust, String pm25) {
+        RegionEntity region = new RegionEntity();
+        region.setName(regionName);
+        LocationEntity location = new LocationEntity();
+        location.setRegion(region);
+        SurvivorSignals.Readings readings = new SurvivorSignals.Readings(
+                aod == null ? null : new BigDecimal(aod),
+                dust == null ? null : new BigDecimal(dust),
+                pm25 == null ? null : new BigDecimal(pm25),
+                null, null, null, null);
+        return new SurvivorSignals(location, date, TargetType.SUNSET,
+                SurvivorSignals.Scores.EMPTY, readings);
     }
 
     @Test
-    @DisplayName("dust-enhanced row fires with priority 3 and the badge thresholds")
+    @DisplayName("dust-enhanced survivor fires with priority 3 off the survivor surface")
     void detect_dustEnhanced_fires() {
-        when(forecastEvaluationRepository.findDustDays(FROM, TO,
-                new BigDecimal("0.3"), new BigDecimal("50"), new BigDecimal("35")))
-                .thenReturn(List.<Object[]>of(new Object[] {FROM, "The North Yorkshire Coast"}));
+        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(
+                signal(FROM, "The North Yorkshire Coast", "0.42", "60", "10")));
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
@@ -50,17 +67,21 @@ class DustHotTopicStrategyTest {
         assertThat(topic.type()).isEqualTo("DUST");
         assertThat(topic.priority()).isEqualTo(3);
         assertThat(topic.regions()).containsExactly("The North Yorkshire Coast");
-        // Locks that the query uses exactly the dust badge thresholds.
-        verify(forecastEvaluationRepository).findDustDays(FROM, TO,
-                new BigDecimal("0.3"), new BigDecimal("50"), new BigDecimal("35"));
     }
 
     @Test
-    @DisplayName("no dust-enhanced rows does not fire")
+    @DisplayName("a non-dusty survivor (PM2.5 too high) does not fire — the proxy filters, not just empty")
+    void detect_smokyHighPm25_doesNotFire() {
+        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(
+                signal(FROM, "The North Yorkshire Coast", "0.42", "60", "40")));
+
+        assertThat(strategy.detect(FROM, TO)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("no survivor readings does not fire")
     void detect_noRows_doesNotFire() {
-        when(forecastEvaluationRepository.findDustDays(FROM, TO,
-                new BigDecimal("0.3"), new BigDecimal("50"), new BigDecimal("35")))
-                .thenReturn(List.<Object[]>of());
+        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of());
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
     }

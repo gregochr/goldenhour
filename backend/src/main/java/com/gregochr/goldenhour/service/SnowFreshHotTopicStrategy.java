@@ -1,13 +1,14 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
-import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.model.SurvivorSignals;
 import org.springframework.stereotype.Component;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.TextStyle;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -22,7 +23,9 @@ import java.util.Set;
  * metres ({@code 2 cm}) at the hour nearest the solar event. When the existing briefing mist signal
  * co-occurs (humidity above {@link BriefingVerdictEvaluator#HUMIDITY_MARGINAL}% on a snowy row), the
  * topic is enriched into the SNOW_MIST variant rather than emitted as a separate topic. Reads
- * {@code forecast_evaluation} directly (the king/spring tide template); makes no external API calls.
+ * through the {@link SurvivorSignalReader} (the unified survivor surface), so it fires off the
+ * survivor population, not the triaged rejects the legacy {@code forecast_evaluation} read
+ * sampled. Makes no external API calls.
  */
 @Component
 public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
@@ -45,15 +48,15 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
     /** Snow depth in metres at or above which snow counts as lying (2 cm). */
     static final double SNOW_DEPTH_THRESHOLD_METRES = 0.02;
 
-    private final ForecastEvaluationRepository forecastEvaluationRepository;
+    private final SurvivorSignalReader survivorSignalReader;
 
     /**
      * Constructs a {@code SnowFreshHotTopicStrategy}.
      *
-     * @param forecastEvaluationRepository repository for persisted snow depth and humidity readings
+     * @param survivorSignalReader the unified survivor read model (snow depth + humidity readings)
      */
-    public SnowFreshHotTopicStrategy(ForecastEvaluationRepository forecastEvaluationRepository) {
-        this.forecastEvaluationRepository = forecastEvaluationRepository;
+    public SnowFreshHotTopicStrategy(SurvivorSignalReader survivorSignalReader) {
+        this.survivorSignalReader = survivorSignalReader;
     }
 
     /**
@@ -88,20 +91,24 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        List<Object[]> rows = forecastEvaluationRepository.findSnowFreshDays(
-                fromDate, toDate, SNOW_DEPTH_THRESHOLD_METRES);
-        if (rows.isEmpty()) {
+        List<SurvivorSignals> snowy = survivorSignalReader.read(fromDate, toDate).stream()
+                .filter(s -> isFreshSnow(s.readings().snowDepthMetres()))
+                .sorted(Comparator.comparing(SurvivorSignals::date))
+                .toList();
+        if (snowy.isEmpty()) {
             return List.of();
         }
 
-        LocalDate earliest = (LocalDate) rows.get(0)[0];
+        LocalDate earliest = snowy.get(0).date();
         Set<String> regions = new LinkedHashSet<>();
         boolean misty = false;
-        for (Object[] row : rows) {
-            if (row[1] != null) {
-                regions.add((String) row[1]);
+        for (SurvivorSignals s : snowy) {
+            String region = s.location() != null && s.location().getRegion() != null
+                    ? s.location().getRegion().getName() : null;
+            if (region != null) {
+                regions.add(region);
             }
-            if (isMisty((Integer) row[2])) {
+            if (isMisty(s.readings().humidity())) {
                 misty = true;
             }
         }
