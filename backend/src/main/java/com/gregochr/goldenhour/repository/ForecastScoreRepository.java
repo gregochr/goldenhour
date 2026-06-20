@@ -83,4 +83,28 @@ public interface ForecastScoreRepository extends JpaRepository<ForecastScoreEnti
             @Param("locationIds") Collection<Long> locationIds,
             @Param("from") LocalDate from,
             @Param("to") LocalDate to);
+
+    /**
+     * Finds every component row of a given type within a date range, eagerly fetching each row's
+     * location and region so callers can group by region without a lazy-load. The location-set
+     * filter of {@link #findComponentsForLocations} is omitted because some types are written only
+     * for a self-selecting subset — e.g. {@code INVERSION} rows exist only for inversion-eligible
+     * locations whose evaluation carried a score — so the type id alone already restricts the rows.
+     * Used by the inversion hot topic to read the Claude {@code INVERSION} score (0–10) straight
+     * from the nightly pipeline's dual-write, replacing the legacy
+     * {@code forecast_evaluation.inversion_potential} read.
+     *
+     * @param forecastTypeId the score product's lookup id (e.g. {@code ForecastType.INVERSION.getId()})
+     * @param from           inclusive start date
+     * @param to             inclusive end date
+     * @return matching component rows (location + region fetched), in no guaranteed order
+     */
+    @Query("SELECT s FROM ForecastScoreEntity s "
+            + "JOIN FETCH s.location l LEFT JOIN FETCH l.region "
+            + "WHERE s.forecastTypeId = :forecastTypeId "
+            + "AND s.evaluationDate BETWEEN :from AND :to")
+    List<ForecastScoreEntity> findComponentsByType(
+            @Param("forecastTypeId") Long forecastTypeId,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to);
 }

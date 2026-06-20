@@ -15,6 +15,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -133,12 +134,48 @@ class ForecastScoreRepositoryTest {
                 .isEmpty();
     }
 
+    @Test
+    @DisplayName("findComponentsByType returns only the given type within the date range")
+    void findComponentsByType_filtersTypeAndRange() {
+        LocalDate from = EVALUATION_DATE;
+        LocalDate to = EVALUATION_DATE.plusDays(3);
+        // In-range INVERSION row — the one we expect back.
+        repository.save(scoreOn(
+                ForecastType.INVERSION, TargetType.SUNRISE, EVALUATION_DATE.plusDays(1), 9));
+        // INVERSION row past the window end — excluded by the date range.
+        repository.save(scoreOn(
+                ForecastType.INVERSION, TargetType.SUNRISE, to.plusDays(1), 10));
+        // In-range row of a different type — excluded by the type filter.
+        repository.save(scoreOn(
+                ForecastType.BLUEBELL, TargetType.SUNRISE, EVALUATION_DATE.plusDays(1), 4));
+
+        List<ForecastScoreEntity> rows = repository.findComponentsByType(
+                ForecastType.INVERSION.getId(), from, to);
+
+        assertThat(rows).singleElement().satisfies(row -> {
+            assertThat(row.getForecastType()).isEqualTo(ForecastType.INVERSION);
+            assertThat(row.getEvaluationDate()).isEqualTo(EVALUATION_DATE.plusDays(1));
+            assertThat(row.getScore()).isEqualTo(9);
+            assertThat(row.getLocation().getId()).isEqualTo(location.getId());
+        });
+    }
+
     private ForecastScoreEntity buildScore(ForecastType type, TargetType eventType,
             int score, String summary) {
+        return scoreOn(type, eventType, EVALUATION_DATE, score, summary);
+    }
+
+    private ForecastScoreEntity scoreOn(ForecastType type, TargetType eventType,
+            LocalDate date, int score) {
+        return scoreOn(type, eventType, date, score, null);
+    }
+
+    private ForecastScoreEntity scoreOn(ForecastType type, TargetType eventType,
+            LocalDate date, int score, String summary) {
         ForecastScoreEntity entity = new ForecastScoreEntity();
         entity.setForecastType(type);
         entity.setLocation(location);
-        entity.setEvaluationDate(EVALUATION_DATE);
+        entity.setEvaluationDate(date);
         entity.setEventType(eventType);
         entity.setScore(score);
         entity.setSummary(summary);
