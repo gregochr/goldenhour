@@ -693,10 +693,6 @@ public class ForecastService {
                         ? evaluation.inversionScore() : null)
                 .inversionPotential(data.inversionScore() != null
                         ? evaluation.inversionPotential() : null)
-                .snowfallCm(data.weather() != null ? data.weather().snowfallCm() : null)
-                .snowDepthMetres(data.weather() != null ? data.weather().snowDepthMetres() : null)
-                .freezingLevelMetres(data.weather() != null
-                        ? data.weather().freezingLevelMetres() : null)
                 .build();
     }
 }
