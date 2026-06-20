@@ -69,6 +69,8 @@ public class ForecastService {
     private final ApplicationEventPublisher eventPublisher;
     private final WeatherTriageEvaluator weatherTriageEvaluator;
     private final TideAlignmentEvaluator tideAlignmentEvaluator;
+    private final com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter
+            survivorAtmosphereWriter;
 
     /**
      * Constructs a {@code ForecastService} with all required dependencies.
@@ -86,6 +88,7 @@ public class ForecastService {
      * @param eventPublisher          publishes location task state transition events
      * @param weatherTriageEvaluator  heuristic triage evaluator for skipping unsuitable conditions
      * @param tideAlignmentEvaluator  pre-Claude triage evaluator for tide misalignment at SEASCAPE locations
+     * @param survivorAtmosphereWriter writes survivor atmospheric readings to the survivor surface
      */
     public ForecastService(SolarService solarService, OpenMeteoService openMeteoService,
             ForecastDataAugmentor augmentor, EvaluationService evaluationService,
@@ -93,7 +96,9 @@ public class ForecastService {
             ForecastEvaluationRepository repository, EmailNotificationService emailService,
             PushoverNotificationService pushoverService, MacOsToastNotificationService toastService,
             ApplicationEventPublisher eventPublisher, WeatherTriageEvaluator weatherTriageEvaluator,
-            TideAlignmentEvaluator tideAlignmentEvaluator) {
+            TideAlignmentEvaluator tideAlignmentEvaluator,
+            com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter
+                    survivorAtmosphereWriter) {
         this.solarService = solarService;
         this.openMeteoService = openMeteoService;
         this.augmentor = augmentor;
@@ -106,6 +111,7 @@ public class ForecastService {
         this.eventPublisher = eventPublisher;
         this.weatherTriageEvaluator = weatherTriageEvaluator;
         this.tideAlignmentEvaluator = tideAlignmentEvaluator;
+        this.survivorAtmosphereWriter = survivorAtmosphereWriter;
     }
 
     /**
@@ -452,6 +458,19 @@ public class ForecastService {
                 preEval.azimuth(), preEval.atmosphericData(), evaluation, preEval.model());
 
         ForecastEvaluationEntity saved = repository.save(entity);
+
+        // Sync-path parity with the batch collector: capture the survivor's atmospheric readings
+        // to the survivor surface so both paths feed one surface and behaviour cannot drift.
+        // Isolated so a carrier write failure never fails the evaluation that just persisted.
+        try {
+            survivorAtmosphereWriter.write(preEval.location(), preEval.date(),
+                    preEval.targetType(), preEval.atmosphericData());
+        } catch (Exception e) {
+            LOG.error("survivor_atmosphere write FAILED for {} {} {}; evaluation persisted: {}",
+                    preEval.location().getName(), preEval.targetType(), preEval.date(),
+                    e.getMessage(), e);
+        }
+
         publishEvent(runId, preEval.taskKey(), preEval.location().getName(),
                 preEval.date().toString(), preEval.targetType().name(),
                 LocationTaskState.COMPLETE);

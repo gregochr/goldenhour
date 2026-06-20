@@ -103,6 +103,9 @@ class ForecastTaskCollectorTest {
     private FreshnessResolver freshnessResolver;
     @Mock
     private StabilitySnapshotProvider stabilitySnapshotProvider;
+    @Mock
+    private com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter
+            survivorAtmosphereWriter;
 
     private ForecastTaskCollector collector;
 
@@ -115,7 +118,7 @@ class ForecastTaskCollectorTest {
                 locationService, briefingService, briefingEvaluationService,
                 forecastService, stabilityClassifier, modelSelectionService,
                 openMeteoService, solarService, freshnessResolver,
-                stabilitySnapshotProvider, MIN_PREFETCH_RATIO, 0);
+                stabilitySnapshotProvider, survivorAtmosphereWriter, MIN_PREFETCH_RATIO, 0);
         // Default freshness threshold (matches UNSETTLED-equivalent default in legacy code)
         lenient().when(freshnessResolver.maxAgeFor(any())).thenReturn(Duration.ofHours(6));
     }

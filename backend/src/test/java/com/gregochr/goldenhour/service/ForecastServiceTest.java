@@ -105,6 +105,9 @@ class ForecastServiceTest {
     private WeatherTriageEvaluator weatherTriageEvaluator;
     @Mock
     private TideAlignmentEvaluator tideAlignmentEvaluator;
+    @Mock
+    private com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter
+            survivorAtmosphereWriter;
 
     @InjectMocks
     private ForecastService forecastService;
