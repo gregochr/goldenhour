@@ -18,14 +18,20 @@ import java.util.Arrays;
  *   <li>0–100 types ({@link #FIERY_SKY}, {@link #GOLDEN_HOUR}) are display
  *       products with deliberately finer granularity. They are never
  *       combiner inputs.</li>
+ *   <li>The 0–10 type ({@link #INVERSION}) is a standalone likelihood — not a
+ *       combiner peer and not a display product. The inversion hot topic
+ *       thresholds it at the STRONG band; it never folds into the rating.</li>
  * </ul>
  *
  * <p>{@link #SKY} stores the PRE-COMBINE sky visitor score; the combined
- * rating remains a serving-path product with no type row. AURORA and
- * INVERSION are deliberately absent — they fold in via their own future
- * work (a future type is one seed row + one constant + a writer). BASIC_*
- * tier variants are not types; their product decision is deferred to
- * Pass 4. See docs/engineering/forecast-score-schema-investigation.md.
+ * rating remains a serving-path product with no type row. AURORA is
+ * deliberately absent — it folds in via its own future work (a future type
+ * is one seed row + one constant + a writer). {@link #INVERSION} is that
+ * fold-in for cloud inversion (V114), letting the inversion hot topic read
+ * the survivor surface ({@code forecast_score}) instead of the triaged
+ * {@code forecast_evaluation}. BASIC_* tier variants are not types; their
+ * product decision is deferred to Pass 4.
+ * See docs/engineering/forecast-score-schema-investigation.md.
  */
 public enum ForecastType {
 
@@ -42,7 +48,14 @@ public enum ForecastType {
     TIDAL(4L, "Tidal Forecast", 5),
 
     /** Bluebell conditions score — own prompt from Pass 3, seasonal. */
-    BLUEBELL(5L, "Bluebell Forecast", 5);
+    BLUEBELL(5L, "Bluebell Forecast", 5),
+
+    /**
+     * Cloud inversion likelihood (0–10) from the standard Claude evaluation —
+     * a standalone signal, not a combiner peer. The inversion hot topic reads
+     * it off {@code forecast_score} and fires at the STRONG band (score &ge; 9).
+     */
+    INVERSION(6L, "Cloud Inversion Forecast", 10);
 
     private final long id;
     private final String displayName;

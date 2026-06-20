@@ -1,27 +1,35 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.ForecastScoreEntity;
+import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.model.HotTopic;
-import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import org.springframework.stereotype.Component;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.TextStyle;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
 /**
- * Detects cloud inversion hot topics by reading persisted forecast evaluations.
+ * Detects cloud inversion hot topics by reading the survivor surface ({@code forecast_score}).
  *
  * <p>A temperature inversion traps cloud below elevated viewpoints, creating a "sea of
- * clouds" at dawn. The forecast pipeline already computes and persists
- * {@code inversion_potential} per evaluation (only for elevated / overlooks-water
- * locations). This detector fires when any row in the window is classified
- * {@value #STRONG_POTENTIAL} — strong only, not moderate. Reads {@code forecast_evaluation}
- * directly (the king/spring tide template); makes no external API calls.
+ * clouds" at dawn. The nightly pipeline's dual-write records the Claude-evaluated inversion
+ * score (0–10) as an {@link ForecastType#INVERSION} component for every scored survivor at
+ * an inversion-eligible (elevated / overlooks-water) location. This detector fires when any
+ * such row in the window reaches the STRONG band — score &ge; {@value #STRONG_SCORE_INCLUSIVE},
+ * mirroring {@code PromptBuilder.InversionPotential.fromScore} (9–10 = STRONG).
+ *
+ * <p>Reads {@code forecast_score}, NOT {@code forecast_evaluation}: nightly the latter holds
+ * only the triaged-out rejects, so the legacy {@code inversion_potential} read was inert in
+ * production (the evaluated survivors route here). The repoint mirrors
+ * {@code BluebellHotTopicStrategy}. Makes no external API calls.
  */
 @Component
 public class InversionHotTopicStrategy implements HotTopicStrategy {
@@ -34,18 +42,22 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
     /** Topic priority — act-on-it, sorts above the calendar heads-up topics. */
     private static final int PRIORITY = 2;
 
-    /** The only inversion classification that fires the topic. */
-    private static final String STRONG_POTENTIAL = "STRONG";
+    /**
+     * Inclusive lower bound of the STRONG inversion band on the stored 0–10 score. Matches
+     * {@code PromptBuilder.InversionPotential.fromScore} (score &ge; 9 = STRONG); MODERATE
+     * (7–8) and below never fire the topic.
+     */
+    static final int STRONG_SCORE_INCLUSIVE = 9;
 
-    private final ForecastEvaluationRepository forecastEvaluationRepository;
+    private final ForecastScoreRepository forecastScoreRepository;
 
     /**
      * Constructs an {@code InversionHotTopicStrategy}.
      *
-     * @param forecastEvaluationRepository repository for persisted inversion classifications
+     * @param forecastScoreRepository repository for persisted component scores (the survivor surface)
      */
-    public InversionHotTopicStrategy(ForecastEvaluationRepository forecastEvaluationRepository) {
-        this.forecastEvaluationRepository = forecastEvaluationRepository;
+    public InversionHotTopicStrategy(ForecastScoreRepository forecastScoreRepository) {
+        this.forecastScoreRepository = forecastScoreRepository;
     }
 
     /**
@@ -53,21 +65,27 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
      *
      * <p>Emits a single topic dated to the earliest strong-inversion day in the window,
      * with the distinct regions where strong inversion is forecast. Returns empty when no
-     * row in the window is classified strong.
+     * survivor row in the window reaches the STRONG band.
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        List<Object[]> rows = forecastEvaluationRepository.findInversionDaysByPotential(
-                fromDate, toDate, STRONG_POTENTIAL);
-        if (rows.isEmpty()) {
+        List<ForecastScoreEntity> strong = forecastScoreRepository.findComponentsByType(
+                        ForecastType.INVERSION.getId(), fromDate, toDate)
+                .stream()
+                .filter(s -> s.getScore() != null && s.getScore() >= STRONG_SCORE_INCLUSIVE)
+                .sorted(Comparator.comparing(ForecastScoreEntity::getEvaluationDate))
+                .toList();
+        if (strong.isEmpty()) {
             return List.of();
         }
 
-        LocalDate earliest = (LocalDate) rows.get(0)[0];
+        LocalDate earliest = strong.get(0).getEvaluationDate();
         Set<String> regions = new LinkedHashSet<>();
-        for (Object[] row : rows) {
-            if (row[1] != null) {
-                regions.add((String) row[1]);
+        for (ForecastScoreEntity row : strong) {
+            String region = row.getLocation() != null && row.getLocation().getRegion() != null
+                    ? row.getLocation().getRegion().getName() : null;
+            if (region != null) {
+                regions.add(region);
             }
         }
 

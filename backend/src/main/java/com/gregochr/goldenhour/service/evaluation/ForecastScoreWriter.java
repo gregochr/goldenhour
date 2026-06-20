@@ -103,6 +103,16 @@ public class ForecastScoreWriter {
                 location, date, eventType, pipelineRunId, now);
         upsert(ForecastType.GOLDEN_HOUR, eval.goldenHourPotential(), null,
                 location, date, eventType, pipelineRunId, now);
+        // Cloud inversion (V114): a standalone 0–10 likelihood, written only when this scored
+        // evaluation carried one — i.e. an inversion-eligible location for which Claude returned a
+        // score. Ineligible locations have no inversion in the eval, so the null guard keeps the
+        // table free of spurious NONE rows. The classification (NONE/MODERATE/STRONG) rides the
+        // summary so the inversion hot topic's band needs no re-derivation. Fires from BOTH the
+        // batch survivor path (so the detector reads survivors) and the sync/admin path.
+        if (eval.inversionScore() != null) {
+            upsert(ForecastType.INVERSION, eval.inversionScore(), eval.inversionPotential(),
+                    location, date, eventType, pipelineRunId, now);
+        }
     }
 
     /**

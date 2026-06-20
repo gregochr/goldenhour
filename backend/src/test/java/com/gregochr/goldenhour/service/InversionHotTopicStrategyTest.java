@@ -1,7 +1,12 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.ForecastScoreEntity;
+import com.gregochr.goldenhour.entity.ForecastType;
+import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
-import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,6 +23,11 @@ import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link InversionHotTopicStrategy}.
+ *
+ * <p>The detector reads the survivor surface ({@code forecast_score} {@link ForecastType#INVERSION}
+ * rows), not {@code forecast_evaluation}, and fires only at the STRONG band (score &ge;
+ * {@code STRONG_SCORE_INCLUSIVE} = 9). The boundary is tested explicitly: 8 (MODERATE) never fires,
+ * 9 does.
  */
 @ExtendWith(MockitoExtension.class)
 class InversionHotTopicStrategyTest {
@@ -26,20 +36,37 @@ class InversionHotTopicStrategyTest {
     private static final LocalDate TO = FROM.plusDays(3);
 
     @Mock
-    private ForecastEvaluationRepository forecastEvaluationRepository;
+    private ForecastScoreRepository forecastScoreRepository;
 
     private InversionHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        strategy = new InversionHotTopicStrategy(forecastEvaluationRepository);
+        strategy = new InversionHotTopicStrategy(forecastScoreRepository);
+    }
+
+    private static ForecastScoreEntity row(LocalDate date, String regionName, int score) {
+        LocationEntity location = new LocationEntity();
+        if (regionName != null) {
+            RegionEntity region = new RegionEntity();
+            region.setName(regionName);
+            location.setRegion(region);
+        }
+        ForecastScoreEntity entity = new ForecastScoreEntity();
+        entity.setForecastType(ForecastType.INVERSION);
+        entity.setLocation(location);
+        entity.setEvaluationDate(date);
+        entity.setEventType(TargetType.SUNRISE);
+        entity.setScore(score);
+        return entity;
     }
 
     @Test
-    @DisplayName("strong inversion row fires with priority 2 and queries STRONG only")
+    @DisplayName("strong inversion row fires with priority 2 and queries the INVERSION type")
     void detect_strongInversion_fires() {
-        when(forecastEvaluationRepository.findInversionDaysByPotential(FROM, TO, "STRONG"))
-                .thenReturn(List.<Object[]>of(new Object[] {FROM, "The North York Moors"}));
+        when(forecastScoreRepository.findComponentsByType(
+                ForecastType.INVERSION.getId(), FROM, TO))
+                .thenReturn(List.of(row(FROM, "The North York Moors", 9)));
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
@@ -49,44 +76,82 @@ class InversionHotTopicStrategyTest {
         assertThat(topic.priority()).isEqualTo(2);
         assertThat(topic.date()).isEqualTo(FROM);
         assertThat(topic.regions()).containsExactly("The North York Moors");
-        // Boundary: only STRONG is queried — MODERATE rows are never matched.
-        verify(forecastEvaluationRepository).findInversionDaysByPotential(FROM, TO, "STRONG");
+        verify(forecastScoreRepository).findComponentsByType(
+                ForecastType.INVERSION.getId(), FROM, TO);
     }
 
     @Test
-    @DisplayName("no strong inversion rows does not fire")
-    void detect_noStrongRows_doesNotFire() {
-        when(forecastEvaluationRepository.findInversionDaysByPotential(FROM, TO, "STRONG"))
-                .thenReturn(List.<Object[]>of());
+    @DisplayName("no INVERSION rows does not fire")
+    void detect_noRows_doesNotFire() {
+        when(forecastScoreRepository.findComponentsByType(
+                ForecastType.INVERSION.getId(), FROM, TO))
+                .thenReturn(List.of());
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
     }
 
     @Test
-    @DisplayName("multiple rows: dates to the earliest day, collects distinct regions")
+    @DisplayName("boundary: score 9 fires (STRONG), score 8 does not (MODERATE)")
+    void detect_strongBandBoundary() {
+        // A MODERATE day (8) alongside no STRONG row → no topic.
+        when(forecastScoreRepository.findComponentsByType(
+                ForecastType.INVERSION.getId(), FROM, TO))
+                .thenReturn(List.of(row(FROM, "The Lake District", 8)));
+        assertThat(strategy.detect(FROM, TO)).isEmpty();
+
+        // The same location at 9 → fires.
+        when(forecastScoreRepository.findComponentsByType(
+                ForecastType.INVERSION.getId(), FROM, TO))
+                .thenReturn(List.of(row(FROM, "The Lake District", 9)));
+        assertThat(strategy.detect(FROM, TO)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("MODERATE rows mixed with a STRONG row: only the STRONG one drives the topic")
+    void detect_moderateMixedWithStrong_onlyStrongFires() {
+        when(forecastScoreRepository.findComponentsByType(
+                ForecastType.INVERSION.getId(), FROM, TO))
+                .thenReturn(List.of(
+                        row(FROM, "Moderate-only Region", 8),
+                        row(FROM.plusDays(1), "Strong Region", 10)));
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        // Dated to the STRONG day, and only the STRONG region is listed — the MODERATE row is dropped.
+        assertThat(topics.get(0).date()).isEqualTo(FROM.plusDays(1));
+        assertThat(topics.get(0).regions()).containsExactly("Strong Region");
+    }
+
+    @Test
+    @DisplayName("multiple strong rows: dates to the earliest day, collects distinct regions")
     void detect_multipleRows_earliestDateDistinctRegions() {
         LocalDate later = FROM.plusDays(2);
-        when(forecastEvaluationRepository.findInversionDaysByPotential(FROM, TO, "STRONG"))
-                .thenReturn(List.<Object[]>of(
-                        new Object[] {FROM, "The North York Moors"},
-                        new Object[] {FROM, "The Lake District"},
-                        new Object[] {later, "Northumberland"}));
+        when(forecastScoreRepository.findComponentsByType(
+                ForecastType.INVERSION.getId(), FROM, TO))
+                .thenReturn(List.of(
+                        row(later, "Northumberland", 9),
+                        row(FROM, "The North York Moors", 9),
+                        row(FROM, "The Lake District", 10),
+                        row(FROM, "The North York Moors", 10)));
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).date()).isEqualTo(FROM);
+        // Distinct regions, earliest-day regions first (stable sort by date), no duplicates.
         assertThat(topics.get(0).regions())
                 .containsExactly("The North York Moors", "The Lake District", "Northumberland");
     }
 
     @Test
-    @DisplayName("null region in a row is skipped")
+    @DisplayName("null region in a strong row is skipped")
     void detect_nullRegion_skipped() {
-        when(forecastEvaluationRepository.findInversionDaysByPotential(FROM, TO, "STRONG"))
-                .thenReturn(List.<Object[]>of(
-                        new Object[] {FROM, null},
-                        new Object[] {FROM, "The North York Moors"}));
+        when(forecastScoreRepository.findComponentsByType(
+                ForecastType.INVERSION.getId(), FROM, TO))
+                .thenReturn(List.of(
+                        row(FROM, null, 9),
+                        row(FROM, "The North York Moors", 9)));
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
