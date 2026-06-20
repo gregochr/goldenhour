@@ -1,8 +1,6 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.BluebellExposure;
-import com.gregochr.goldenhour.entity.ForecastScoreEntity;
-import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RegionEntity;
@@ -10,8 +8,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.SeasonalWindow;
-import com.gregochr.goldenhour.repository.ForecastScoreRepository;
-import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.model.SurvivorSignals;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -25,7 +22,6 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -33,9 +29,9 @@ import static org.mockito.Mockito.when;
 /**
  * Unit tests for {@link BluebellHotTopicStrategy}.
  *
- * <p>The strategy now reads the Claude {@code BLUEBELL} component rows (1–5) from
- * {@link ForecastScoreRepository}; thresholds are HOT_TOPIC &ge; 3, EXPANDED &ge; 2,
- * high-priority &ge; 4.
+ * <p>The strategy reads the Claude {@code BLUEBELL} component scores (1–5) through the unified
+ * {@link SurvivorSignalReader} (a non-null {@code scores().bluebell()} self-selects bluebell sites);
+ * thresholds are HOT_TOPIC &ge; 3, EXPANDED &ge; 2, high-priority &ge; 4.
  */
 @ExtendWith(MockitoExtension.class)
 class BluebellHotTopicStrategyTest {
@@ -46,20 +42,14 @@ class BluebellHotTopicStrategyTest {
     /** A date outside bluebell season. */
     private static final LocalDate OUT_OF_SEASON = LocalDate.of(2026, 6, 15);
 
-    /** The BLUEBELL forecast-type id the strategy queries with. */
-    private static final Long BLUEBELL_TYPE_ID = ForecastType.BLUEBELL.getId();
-
     @Mock
-    private LocationRepository locationRepository;
-
-    @Mock
-    private ForecastScoreRepository forecastScoreRepository;
+    private SurvivorSignalReader survivorSignalReader;
 
     private BluebellHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        strategy = new BluebellHotTopicStrategy(locationRepository, forecastScoreRepository,
+        strategy = new BluebellHotTopicStrategy(survivorSignalReader,
                 new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"));
     }
 
@@ -69,18 +59,17 @@ class BluebellHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(OUT_OF_SEASON, OUT_OF_SEASON.plusDays(3));
 
         assertThat(topics).isEmpty();
-        verifyNoInteractions(locationRepository, forecastScoreRepository);
+        verifyNoInteractions(survivorSignalReader);
     }
 
     @Test
-    @DisplayName("returns empty list when no bluebell locations are configured")
-    void detect_noLocations_returnsEmpty() {
-        when(locationRepository.findBluebellLocations()).thenReturn(List.of());
+    @DisplayName("returns empty list when no bluebell-scored survivors exist")
+    void detect_noBluebellSignals_returnsEmpty() {
+        when(survivorSignalReader.read(IN_SEASON, IN_SEASON.plusDays(2))).thenReturn(List.of());
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON.plusDays(2));
 
         assertThat(topics).isEmpty();
-        verifyNoInteractions(forecastScoreRepository);
     }
 
     @Test
@@ -99,10 +88,8 @@ class BluebellHotTopicStrategyTest {
                 .enabled(true)
                 .build();
 
-        when(locationRepository.findBluebellLocations()).thenReturn(List.of(location));
-        when(forecastScoreRepository.findComponentsForLocations(
-                eq(BLUEBELL_TYPE_ID), eq(List.of(1L)), eq(IN_SEASON), eq(IN_SEASON)))
-                .thenReturn(List.of(bluebellRow(location, IN_SEASON, 4, "Misty and still")));
+        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+                .thenReturn(List.of(bluebellSignal(location, IN_SEASON, 4, "Misty and still")));
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
@@ -119,10 +106,8 @@ class BluebellHotTopicStrategyTest {
     @DisplayName("returns empty list when best bluebell rating < 3")
     void detect_poorConditions_returnsEmpty() {
         LocationEntity location = simpleLocation(1L, "Test Location");
-        when(locationRepository.findBluebellLocations()).thenReturn(List.of(location));
-        when(forecastScoreRepository.findComponentsForLocations(
-                eq(BLUEBELL_TYPE_ID), eq(List.of(1L)), eq(IN_SEASON), eq(IN_SEASON)))
-                .thenReturn(List.of(bluebellRow(location, IN_SEASON, 2, null)));
+        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+                .thenReturn(List.of(bluebellSignal(location, IN_SEASON, 2, null)));
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
@@ -133,10 +118,8 @@ class BluebellHotTopicStrategyTest {
     @DisplayName("excellent conditions (rating >= 4) get priority 1")
     void detect_excellentConditions_priority1() {
         LocationEntity location = simpleLocation(1L, "Rannerdale");
-        when(locationRepository.findBluebellLocations()).thenReturn(List.of(location));
-        when(forecastScoreRepository.findComponentsForLocations(
-                eq(BLUEBELL_TYPE_ID), eq(List.of(1L)), eq(IN_SEASON), eq(IN_SEASON)))
-                .thenReturn(List.of(bluebellRow(location, IN_SEASON, 5, null)));
+        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+                .thenReturn(List.of(bluebellSignal(location, IN_SEASON, 5, null)));
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
@@ -148,10 +131,8 @@ class BluebellHotTopicStrategyTest {
     @DisplayName("workable conditions (rating 3) get priority 3")
     void detect_goodConditions_priority3() {
         LocationEntity location = simpleLocation(1L, "Allen Banks");
-        when(locationRepository.findBluebellLocations()).thenReturn(List.of(location));
-        when(forecastScoreRepository.findComponentsForLocations(
-                eq(BLUEBELL_TYPE_ID), eq(List.of(1L)), eq(IN_SEASON), eq(IN_SEASON)))
-                .thenReturn(List.of(bluebellRow(location, IN_SEASON, 3, null)));
+        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+                .thenReturn(List.of(bluebellSignal(location, IN_SEASON, 3, null)));
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
@@ -165,10 +146,8 @@ class BluebellHotTopicStrategyTest {
     @DisplayName("rating 2 does NOT emit a hot topic (threshold is >= 3)")
     void detect_score2_doesNotEmit() {
         LocationEntity location = simpleLocation(1L, "Test");
-        when(locationRepository.findBluebellLocations()).thenReturn(List.of(location));
-        when(forecastScoreRepository.findComponentsForLocations(
-                eq(BLUEBELL_TYPE_ID), eq(List.of(1L)), eq(IN_SEASON), eq(IN_SEASON)))
-                .thenReturn(List.of(bluebellRow(location, IN_SEASON, 2, null)));
+        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+                .thenReturn(List.of(bluebellSignal(location, IN_SEASON, 2, null)));
 
         assertThat(strategy.detect(IN_SEASON, IN_SEASON)).isEmpty();
     }
@@ -179,10 +158,8 @@ class BluebellHotTopicStrategyTest {
     @DisplayName("rating 3 gets priority 3 (boundary: < 4 threshold)")
     void detect_score3_priority3() {
         LocationEntity location = simpleLocation(1L, "Test");
-        when(locationRepository.findBluebellLocations()).thenReturn(List.of(location));
-        when(forecastScoreRepository.findComponentsForLocations(
-                eq(BLUEBELL_TYPE_ID), eq(List.of(1L)), eq(IN_SEASON), eq(IN_SEASON)))
-                .thenReturn(List.of(bluebellRow(location, IN_SEASON, 3, null)));
+        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+                .thenReturn(List.of(bluebellSignal(location, IN_SEASON, 3, null)));
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
@@ -194,10 +171,8 @@ class BluebellHotTopicStrategyTest {
     @DisplayName("rating 4 gets priority 1 (boundary: >= 4 threshold)")
     void detect_score4_priority1() {
         LocationEntity location = simpleLocation(1L, "Test");
-        when(locationRepository.findBluebellLocations()).thenReturn(List.of(location));
-        when(forecastScoreRepository.findComponentsForLocations(
-                eq(BLUEBELL_TYPE_ID), eq(List.of(1L)), eq(IN_SEASON), eq(IN_SEASON)))
-                .thenReturn(List.of(bluebellRow(location, IN_SEASON, 4, null)));
+        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+                .thenReturn(List.of(bluebellSignal(location, IN_SEASON, 4, null)));
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
@@ -214,14 +189,11 @@ class BluebellHotTopicStrategyTest {
         LocationEntity loc2 = regionLocation(2L, "L2", "Lake District");
         LocationEntity loc3 = regionLocation(3L, "L3", "North York Moors");
 
-        when(locationRepository.findBluebellLocations())
-                .thenReturn(List.of(loc1, loc2, loc3));
-        when(forecastScoreRepository.findComponentsForLocations(
-                eq(BLUEBELL_TYPE_ID), eq(List.of(1L, 2L, 3L)), eq(IN_SEASON), eq(IN_SEASON)))
+        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(
-                        bluebellRow(loc1, IN_SEASON, 5, null),
-                        bluebellRow(loc2, IN_SEASON, 4, null),
-                        bluebellRow(loc3, IN_SEASON, 3, null)));
+                        bluebellSignal(loc1, IN_SEASON, 5, null),
+                        bluebellSignal(loc2, IN_SEASON, 4, null),
+                        bluebellSignal(loc3, IN_SEASON, 3, null)));
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
@@ -235,13 +207,11 @@ class BluebellHotTopicStrategyTest {
         LocationEntity loc1 = regionLocation(1L, "L1", "Northumberland");
         LocationEntity loc2 = regionLocation(2L, "L2", "Lake District");
 
-        when(locationRepository.findBluebellLocations()).thenReturn(List.of(loc1, loc2));
         // deliberately supply low-then-high to confirm sorting is by score, not input order.
-        when(forecastScoreRepository.findComponentsForLocations(
-                eq(BLUEBELL_TYPE_ID), eq(List.of(1L, 2L)), eq(IN_SEASON), eq(IN_SEASON)))
+        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(
-                        bluebellRow(loc2, IN_SEASON, 3, null),
-                        bluebellRow(loc1, IN_SEASON, 5, null)));
+                        bluebellSignal(loc2, IN_SEASON, 3, null),
+                        bluebellSignal(loc1, IN_SEASON, 5, null)));
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
@@ -255,10 +225,8 @@ class BluebellHotTopicStrategyTest {
     @DisplayName("day label is 'today' when evaluation date equals fromDate")
     void detect_evaluationOnFromDate_detailContainsToday() {
         LocationEntity location = simpleLocation(1L, "Test");
-        when(locationRepository.findBluebellLocations()).thenReturn(List.of(location));
-        when(forecastScoreRepository.findComponentsForLocations(
-                eq(BLUEBELL_TYPE_ID), eq(List.of(1L)), eq(IN_SEASON), eq(IN_SEASON)))
-                .thenReturn(List.of(bluebellRow(location, IN_SEASON, 4, "Misty")));
+        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+                .thenReturn(List.of(bluebellSignal(location, IN_SEASON, 4, "Misty")));
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
@@ -270,10 +238,8 @@ class BluebellHotTopicStrategyTest {
     void detect_evaluationOnFromDatePlusOne_detailContainsTomorrow() {
         LocalDate tomorrow = IN_SEASON.plusDays(1);
         LocationEntity location = simpleLocation(1L, "Test");
-        when(locationRepository.findBluebellLocations()).thenReturn(List.of(location));
-        when(forecastScoreRepository.findComponentsForLocations(
-                eq(BLUEBELL_TYPE_ID), eq(List.of(1L)), eq(IN_SEASON), eq(tomorrow)))
-                .thenReturn(List.of(bluebellRow(location, tomorrow, 4, null)));
+        when(survivorSignalReader.read(IN_SEASON, tomorrow))
+                .thenReturn(List.of(bluebellSignal(location, tomorrow, 4, null)));
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, tomorrow);
 
@@ -286,31 +252,24 @@ class BluebellHotTopicStrategyTest {
         // IN_SEASON = 2026-04-25 (Saturday), plusDays(2) = 2026-04-27 (Monday)
         LocalDate monday = IN_SEASON.plusDays(2);
         LocationEntity location = simpleLocation(1L, "Test");
-        when(locationRepository.findBluebellLocations()).thenReturn(List.of(location));
-        when(forecastScoreRepository.findComponentsForLocations(
-                eq(BLUEBELL_TYPE_ID), eq(List.of(1L)), eq(IN_SEASON), eq(monday)))
-                .thenReturn(List.of(bluebellRow(location, monday, 4, null)));
+        when(survivorSignalReader.read(IN_SEASON, monday))
+                .thenReturn(List.of(bluebellSignal(location, monday, 4, null)));
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, monday);
 
         assertThat(topics.get(0).detail()).contains("Monday");
     }
 
-    // ── Exact repository argument verification ────────────────────────────────
+    // ── Read-model interaction ────────────────────────────────────────────────
 
     @Test
-    @DisplayName("findComponentsForLocations called with BLUEBELL type, exact ids and date range")
-    void detect_queriesRepositoryWithExactIdsAndDates() {
-        LocationEntity location = simpleLocation(42L, "Allen Banks");
-        when(locationRepository.findBluebellLocations()).thenReturn(List.of(location));
-        when(forecastScoreRepository.findComponentsForLocations(
-                eq(BLUEBELL_TYPE_ID), eq(List.of(42L)), eq(IN_SEASON), eq(IN_SEASON.plusDays(3))))
-                .thenReturn(List.of());
+    @DisplayName("reads the survivor model over the requested date range")
+    void detect_readsReaderWithDateRange() {
+        when(survivorSignalReader.read(IN_SEASON, IN_SEASON.plusDays(3))).thenReturn(List.of());
 
         strategy.detect(IN_SEASON, IN_SEASON.plusDays(3));
 
-        verify(forecastScoreRepository).findComponentsForLocations(
-                eq(BLUEBELL_TYPE_ID), eq(List.of(42L)), eq(IN_SEASON), eq(IN_SEASON.plusDays(3)));
+        verify(survivorSignalReader).read(IN_SEASON, IN_SEASON.plusDays(3));
     }
 
     // ── expandedDetail tests ──────────────────────────────────────────────────
@@ -324,10 +283,8 @@ class BluebellHotTopicStrategyTest {
                 .id(1L).name("Rannerdale Knotts").lat(54.5).lon(-3.2)
                 .region(region).bluebellExposure(BluebellExposure.WOODLAND).enabled(true).build();
 
-        when(locationRepository.findBluebellLocations()).thenReturn(List.of(loc));
-        when(forecastScoreRepository.findComponentsForLocations(
-                eq(BLUEBELL_TYPE_ID), eq(List.of(1L)), eq(IN_SEASON), eq(IN_SEASON)))
-                .thenReturn(List.of(bluebellRow(loc, IN_SEASON, 4, "Misty and still")));
+        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+                .thenReturn(List.of(bluebellSignal(loc, IN_SEASON, 4, "Misty and still")));
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
@@ -345,12 +302,10 @@ class BluebellHotTopicStrategyTest {
         LocationEntity loc1 = regionLocation(1L, "Rannerdale", "Lake District");
         LocationEntity loc2 = regionLocation(2L, "Allen Banks", "Northumberland");
 
-        when(locationRepository.findBluebellLocations()).thenReturn(List.of(loc1, loc2));
-        when(forecastScoreRepository.findComponentsForLocations(
-                eq(BLUEBELL_TYPE_ID), eq(List.of(1L, 2L)), eq(IN_SEASON), eq(IN_SEASON)))
+        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(
-                        bluebellRow(loc1, IN_SEASON, 4, null),
-                        bluebellRow(loc2, IN_SEASON, 1, null)));
+                        bluebellSignal(loc1, IN_SEASON, 4, null),
+                        bluebellSignal(loc2, IN_SEASON, 1, null)));
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
@@ -365,12 +320,10 @@ class BluebellHotTopicStrategyTest {
         LocationEntity loc1 = regionLocation(1L, "Low Scorer", "Lake District");
         LocationEntity loc2 = regionLocation(2L, "High Scorer", "Lake District");
 
-        when(locationRepository.findBluebellLocations()).thenReturn(List.of(loc1, loc2));
-        when(forecastScoreRepository.findComponentsForLocations(
-                eq(BLUEBELL_TYPE_ID), eq(List.of(1L, 2L)), eq(IN_SEASON), eq(IN_SEASON)))
+        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(
-                        bluebellRow(loc1, IN_SEASON, 3, null),
-                        bluebellRow(loc2, IN_SEASON, 5, null)));
+                        bluebellSignal(loc1, IN_SEASON, 3, null),
+                        bluebellSignal(loc2, IN_SEASON, 5, null)));
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
@@ -386,12 +339,10 @@ class BluebellHotTopicStrategyTest {
         LocationEntity loc1 = regionLocation(1L, "Second", "Lake District");
         LocationEntity loc2 = regionLocation(2L, "First", "Lake District");
 
-        when(locationRepository.findBluebellLocations()).thenReturn(List.of(loc1, loc2));
-        when(forecastScoreRepository.findComponentsForLocations(
-                eq(BLUEBELL_TYPE_ID), eq(List.of(1L, 2L)), eq(IN_SEASON), eq(IN_SEASON)))
+        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
                 .thenReturn(List.of(
-                        bluebellRow(loc1, IN_SEASON, 3, null),
-                        bluebellRow(loc2, IN_SEASON, 5, null)));
+                        bluebellSignal(loc1, IN_SEASON, 3, null),
+                        bluebellSignal(loc2, IN_SEASON, 5, null)));
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
@@ -404,10 +355,8 @@ class BluebellHotTopicStrategyTest {
     @DisplayName("bluebellMetrics bestScore matches highest rating")
     void detect_expandedDetail_bluebellMetricsBestScoreCorrect() {
         LocationEntity loc = regionLocation(1L, "Test", "Lake District");
-        when(locationRepository.findBluebellLocations()).thenReturn(List.of(loc));
-        when(forecastScoreRepository.findComponentsForLocations(
-                eq(BLUEBELL_TYPE_ID), eq(List.of(1L)), eq(IN_SEASON), eq(IN_SEASON)))
-                .thenReturn(List.of(bluebellRow(loc, IN_SEASON, 5, null)));
+        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+                .thenReturn(List.of(bluebellSignal(loc, IN_SEASON, 5, null)));
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
@@ -440,15 +389,9 @@ class BluebellHotTopicStrategyTest {
                 .id(id).name(name).lat(54.0).lon(-3.0).region(region).enabled(true).build();
     }
 
-    private static ForecastScoreEntity bluebellRow(LocationEntity location, LocalDate date,
+    private static SurvivorSignals bluebellSignal(LocationEntity location, LocalDate date,
             int score, String summary) {
-        ForecastScoreEntity row = new ForecastScoreEntity();
-        row.setForecastType(ForecastType.BLUEBELL);
-        row.setLocation(location);
-        row.setEvaluationDate(date);
-        row.setEventType(TargetType.SUNRISE);
-        row.setScore(score);
-        row.setSummary(summary);
-        return row;
+        return new SurvivorSignals(location, date, TargetType.SUNRISE,
+                new SurvivorSignals.Scores(null, score, summary), SurvivorSignals.Readings.EMPTY);
     }
 }
