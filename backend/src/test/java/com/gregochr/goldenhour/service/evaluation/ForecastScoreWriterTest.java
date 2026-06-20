@@ -163,6 +163,46 @@ class ForecastScoreWriterTest {
     }
 
     @Test
+    @DisplayName("inversion-bearing eval: writes the INVERSION row (0–10 score, classification summary)")
+    void inversionPresent_writesInversionRow() {
+        stubCoreComponentsAbsent();
+        when(repository.findComponent(
+                eq(ForecastType.INVERSION), eq(LOCATION_ID), eq(DATE), eq(SUNSET)))
+                .thenReturn(Optional.empty());
+        ForecastScoreWriter writer = writer(true);
+
+        // 9-arg ctor: basic-tier nulls + inversion score/potential (an eligible location Claude scored).
+        SunsetEvaluation withInversion = new SunsetEvaluation(
+                4, 80, 75, "Sea of cloud below the fell", null, null, null, 9, "STRONG");
+
+        writer.write(location(), DATE, SUNSET, withInversion,
+                List.of(new ComponentScore(ForecastType.SKY, 4, "Settled and still")),
+                PIPELINE_RUN_ID);
+
+        List<ForecastScoreEntity> saved = captureSaves(4);
+        assertThat(saved).extracting(ForecastScoreEntity::getForecastType)
+                .containsExactlyInAnyOrder(ForecastType.SKY, ForecastType.FIERY_SKY,
+                        ForecastType.GOLDEN_HOUR, ForecastType.INVERSION);
+        // The INVERSION row carries the 0–10 score, with the classification on the summary.
+        assertRow(saved, ForecastType.INVERSION, 9, "STRONG");
+    }
+
+    @Test
+    @DisplayName("inversion-free eval: writes no INVERSION row (no spurious NONE rows)")
+    void inversionAbsent_noInversionRow() {
+        stubCoreComponentsAbsent();
+        ForecastScoreWriter writer = writer(true);
+
+        // eval() uses the 4-arg ctor — inversionScore is null (ineligible / not scored).
+        writer.write(location(), DATE, SUNSET, eval(),
+                List.of(new ComponentScore(ForecastType.SKY, 3, "Clearing western sky")),
+                PIPELINE_RUN_ID);
+
+        List<ForecastScoreEntity> saved = captureSaves(3);
+        assertThat(saved).noneMatch(row -> row.getForecastType() == ForecastType.INVERSION);
+    }
+
+    @Test
     @DisplayName("writeComponents: bluebell-only → writes ONLY the BLUEBELL row, no FIERY/GOLDEN")
     void writeComponents_bluebellOnly_writesOnlyComponents() {
         when(repository.findComponent(
