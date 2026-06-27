@@ -1,0 +1,71 @@
+{
+  "locationName": "Eval — Flat Grey Overcast (hand-authored)",
+  "solarEventTime": "2026-11-08T16:05:00",
+  "targetType": "SUNSET",
+  "cloud": { "lowCloudPercent": 100, "midCloudPercent": 95, "highCloudPercent": 20 },
+  "weather": {
+    "visibilityMetres": 9000,
+    "windSpeedMs": 8.50,
+    "windDirectionDegrees": 260,
+    "precipitationMm": 0.30,
+    "humidityPercent": 90,
+    "weatherCode": 51,
+    "shortwaveRadiationWm2": 12.00,
+    "dewPointCelsius": 7.5,
+    "pressureHpa": 998.0,
+    "snowfallCm": null,
+    "snowDepthMetres": null,
+    "freezingLevelMetres": null
+  },
+  "aerosol": {
+    "pm25": 6.0,
+    "dustUgm3": 0.0,
+    "aerosolOpticalDepth": 0.08,
+    "boundaryLayerHeightMetres": 450
+  },
+  "comfort": {
+    "temperatureCelsius": 8.0,
+    "apparentTemperatureCelsius": 4.0,
+    "precipitationProbability": 70
+  },
+  "directionalCloud": {
+    "solarLowCloudPercent": 96,
+    "solarMidCloudPercent": 90,
+    "solarHighCloudPercent": 10,
+    "antisolarLowCloudPercent": 92,
+    "antisolarMidCloudPercent": 88,
+    "antisolarHighCloudPercent": 5,
+    "farSolarLowCloudPercent": 95
+  },
+  "tide": null,
+  "cloudApproach": {
+    "solarTrend": {
+      "slots": [
+        { "hoursBeforeEvent": 3, "lowCloudPercent": 70, "midCloudPercent": 85, "highCloudPercent": 10 },
+        { "hoursBeforeEvent": 2, "lowCloudPercent": 85, "midCloudPercent": 90, "highCloudPercent": 10 },
+        { "hoursBeforeEvent": 1, "lowCloudPercent": 95, "midCloudPercent": 92, "highCloudPercent": 10 },
+        { "hoursBeforeEvent": 0, "lowCloudPercent": 96, "midCloudPercent": 90, "highCloudPercent": 10 }
+      ]
+    },
+    "upwindSample": {
+      "distanceKm": 75,
+      "windFromBearing": 260,
+      "currentLowCloudPercent": 98,
+      "eventLowCloudPercent": 95
+    }
+  },
+  "mistTrend": null,
+  "locationOrientation": null,
+  "surge": null,
+  "adjustedRangeMetres": null,
+  "astronomicalRangeMetres": null,
+  "inversionScore": null,
+  "bluebellConditionScore": null,
+  "stability": "UNSETTLED",
+  "stabilityReason": "Frontal system overhead, falling pressure, high precipitation probability",
+  "pressureTrend": {
+    "pressureHpa": [1002.0, 1001.0, 1000.0, 999.0, 998.0, 997.5, 997.0],
+    "tendencyHpa6h": -5.0,
+    "tendencyLabel": "FALLING_RAPIDLY"
+  }
+}
