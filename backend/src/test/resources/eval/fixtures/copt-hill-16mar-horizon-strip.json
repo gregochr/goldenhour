@@ -1,0 +1,62 @@
+{
+  "locationName": "Copt Hill",
+  "solarEventTime": "2026-03-18T18:11:00",
+  "targetType": "SUNSET",
+  "cloud": { "lowCloudPercent": 40, "midCloudPercent": 30, "highCloudPercent": 60 },
+  "weather": {
+    "visibilityMetres": 20000,
+    "windSpeedMs": 5.50,
+    "windDirectionDegrees": 270,
+    "precipitationMm": 0.00,
+    "humidityPercent": 65,
+    "weatherCode": 2,
+    "shortwaveRadiationWm2": 45.00,
+    "dewPointCelsius": null,
+    "pressureHpa": 1013.25,
+    "snowfallCm": null,
+    "snowDepthMetres": null,
+    "freezingLevelMetres": null
+  },
+  "aerosol": {
+    "pm25": 4.00,
+    "dustUgm3": 0.00,
+    "aerosolOpticalDepth": 0.10,
+    "boundaryLayerHeightMetres": 900
+  },
+  "comfort": {
+    "temperatureCelsius": 8.5,
+    "apparentTemperatureCelsius": 5.5,
+    "precipitationProbability": 5
+  },
+  "directionalCloud": {
+    "solarLowCloudPercent": 64,
+    "solarMidCloudPercent": 10,
+    "solarHighCloudPercent": 55,
+    "antisolarLowCloudPercent": 20,
+    "antisolarMidCloudPercent": 15,
+    "antisolarHighCloudPercent": 65,
+    "farSolarLowCloudPercent": 12
+  },
+  "tide": null,
+  "cloudApproach": {
+    "solarTrend": {
+      "slots": [
+        { "hoursBeforeEvent": 3, "lowCloudPercent": 20, "midCloudPercent": null, "highCloudPercent": null },
+        { "hoursBeforeEvent": 2, "lowCloudPercent": 45, "midCloudPercent": null, "highCloudPercent": null },
+        { "hoursBeforeEvent": 1, "lowCloudPercent": 58, "midCloudPercent": null, "highCloudPercent": null },
+        { "hoursBeforeEvent": 0, "lowCloudPercent": 64, "midCloudPercent": null, "highCloudPercent": null }
+      ]
+    },
+    "upwindSample": null
+  },
+  "mistTrend": null,
+  "locationOrientation": null,
+  "surge": null,
+  "adjustedRangeMetres": null,
+  "astronomicalRangeMetres": null,
+  "inversionScore": null,
+  "bluebellConditionScore": null,
+  "stability": null,
+  "stabilityReason": null,
+  "pressureTrend": null
+}

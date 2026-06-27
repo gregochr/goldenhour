@@ -1,0 +1,71 @@
+{
+  "locationName": "Eval — Middling Hazy Mixed (hand-authored)",
+  "solarEventTime": "2026-10-12T18:00:00",
+  "targetType": "SUNSET",
+  "cloud": { "lowCloudPercent": 35, "midCloudPercent": 45, "highCloudPercent": 30 },
+  "weather": {
+    "visibilityMetres": 14000,
+    "windSpeedMs": 4.50,
+    "windDirectionDegrees": 200,
+    "precipitationMm": 0,
+    "humidityPercent": 75,
+    "weatherCode": 3,
+    "shortwaveRadiationWm2": 35.00,
+    "dewPointCelsius": 10.0,
+    "pressureHpa": 1014.0,
+    "snowfallCm": null,
+    "snowDepthMetres": null,
+    "freezingLevelMetres": null
+  },
+  "aerosol": {
+    "pm25": 22.0,
+    "dustUgm3": 4.0,
+    "aerosolOpticalDepth": 0.28,
+    "boundaryLayerHeightMetres": 700
+  },
+  "comfort": {
+    "temperatureCelsius": 13.0,
+    "apparentTemperatureCelsius": 11.5,
+    "precipitationProbability": 10
+  },
+  "directionalCloud": {
+    "solarLowCloudPercent": 35,
+    "solarMidCloudPercent": 40,
+    "solarHighCloudPercent": 35,
+    "antisolarLowCloudPercent": 30,
+    "antisolarMidCloudPercent": 40,
+    "antisolarHighCloudPercent": 30,
+    "farSolarLowCloudPercent": 30
+  },
+  "tide": null,
+  "cloudApproach": {
+    "solarTrend": {
+      "slots": [
+        { "hoursBeforeEvent": 3, "lowCloudPercent": 38, "midCloudPercent": 42, "highCloudPercent": 32 },
+        { "hoursBeforeEvent": 2, "lowCloudPercent": 36, "midCloudPercent": 44, "highCloudPercent": 30 },
+        { "hoursBeforeEvent": 1, "lowCloudPercent": 34, "midCloudPercent": 45, "highCloudPercent": 31 },
+        { "hoursBeforeEvent": 0, "lowCloudPercent": 35, "midCloudPercent": 40, "highCloudPercent": 35 }
+      ]
+    },
+    "upwindSample": {
+      "distanceKm": 50,
+      "windFromBearing": 200,
+      "currentLowCloudPercent": 38,
+      "eventLowCloudPercent": 35
+    }
+  },
+  "mistTrend": null,
+  "locationOrientation": null,
+  "surge": null,
+  "adjustedRangeMetres": null,
+  "astronomicalRangeMetres": null,
+  "inversionScore": null,
+  "bluebellConditionScore": null,
+  "stability": "TRANSITIONAL",
+  "stabilityReason": "Mixed signals, weak ridge, no strong frontal forcing",
+  "pressureTrend": {
+    "pressureHpa": [1014.0, 1014.0, 1013.5, 1013.5, 1014.0, 1014.0, 1013.5],
+    "tendencyHpa6h": -0.5,
+    "tendencyLabel": "STEADY"
+  }
+}

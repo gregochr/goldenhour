@@ -1,0 +1,71 @@
+{
+  "locationName": "Eval — Strong Clearing Canvas (hand-authored)",
+  "solarEventTime": "2026-09-22T18:45:00",
+  "targetType": "SUNSET",
+  "cloud": { "lowCloudPercent": 5, "midCloudPercent": 35, "highCloudPercent": 70 },
+  "weather": {
+    "visibilityMetres": 38000,
+    "windSpeedMs": 2.80,
+    "windDirectionDegrees": 250,
+    "precipitationMm": 0,
+    "humidityPercent": 58,
+    "weatherCode": 3,
+    "shortwaveRadiationWm2": 55.00,
+    "dewPointCelsius": 9.0,
+    "pressureHpa": 1022.0,
+    "snowfallCm": null,
+    "snowDepthMetres": null,
+    "freezingLevelMetres": null
+  },
+  "aerosol": {
+    "pm25": 5.0,
+    "dustUgm3": 7.0,
+    "aerosolOpticalDepth": 0.16,
+    "boundaryLayerHeightMetres": 850
+  },
+  "comfort": {
+    "temperatureCelsius": 15.5,
+    "apparentTemperatureCelsius": 14.8,
+    "precipitationProbability": 0
+  },
+  "directionalCloud": {
+    "solarLowCloudPercent": 8,
+    "solarMidCloudPercent": 25,
+    "solarHighCloudPercent": 75,
+    "antisolarLowCloudPercent": 12,
+    "antisolarMidCloudPercent": 20,
+    "antisolarHighCloudPercent": 60,
+    "farSolarLowCloudPercent": 10
+  },
+  "tide": null,
+  "cloudApproach": {
+    "solarTrend": {
+      "slots": [
+        { "hoursBeforeEvent": 3, "lowCloudPercent": 32, "midCloudPercent": 30, "highCloudPercent": 68 },
+        { "hoursBeforeEvent": 2, "lowCloudPercent": 22, "midCloudPercent": 30, "highCloudPercent": 72 },
+        { "hoursBeforeEvent": 1, "lowCloudPercent": 13, "midCloudPercent": 28, "highCloudPercent": 74 },
+        { "hoursBeforeEvent": 0, "lowCloudPercent": 8, "midCloudPercent": 25, "highCloudPercent": 75 }
+      ]
+    },
+    "upwindSample": {
+      "distanceKm": 55,
+      "windFromBearing": 250,
+      "currentLowCloudPercent": 10,
+      "eventLowCloudPercent": 8
+    }
+  },
+  "mistTrend": null,
+  "locationOrientation": null,
+  "surge": null,
+  "adjustedRangeMetres": null,
+  "astronomicalRangeMetres": null,
+  "inversionScore": null,
+  "bluebellConditionScore": null,
+  "stability": "SETTLED",
+  "stabilityReason": "Building high pressure, light winds, no frontal signals",
+  "pressureTrend": {
+    "pressureHpa": [1019.5, 1020.2, 1020.8, 1021.4, 1022.0, 1022.5, 1023.0],
+    "tendencyHpa6h": 3.5,
+    "tendencyLabel": "RISING"
+  }
+}
