@@ -51,7 +51,7 @@ CREATE TABLE sky_rating_eval_result (
     golden_hour             INT,
     expected_min            INT          NOT NULL,
     expected_max            INT          NOT NULL,
-    miss_direction          VARCHAR(10)  NOT NULL,
+    miss_direction          VARCHAR(10),
     summary                 TEXT,
     input_tokens            BIGINT,
     output_tokens           BIGINT,

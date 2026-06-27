@@ -57,8 +57,9 @@ public class SkyRatingEvalResultEntity {
     @Column(name = "expected_max", nullable = false)
     private int expectedMax;
 
+    /** In-band / below / above, or null in the pathological case of a run that returned no rating. */
     @Enumerated(EnumType.STRING)
-    @Column(name = "miss_direction", nullable = false, length = 10)
+    @Column(name = "miss_direction", length = 10)
     private MissDirection missDirection;
 
     @Column(name = "summary", columnDefinition = "TEXT")
