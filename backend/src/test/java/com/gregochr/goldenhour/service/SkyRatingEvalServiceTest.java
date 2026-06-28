@@ -57,10 +57,18 @@ class SkyRatingEvalServiceTest {
     private SkyRatingEvalRunRepository runRepository;
     @Mock
     private SkyRatingEvalResultRepository resultRepository;
+    @Mock
+    private DynamicSchedulerService dynamicSchedulerService;
 
     private SkyRatingEvalService service() {
         return new SkyRatingEvalService(evaluationService, costCalculator, gitInfoService,
-                runRepository, resultRepository);
+                runRepository, resultRepository, dynamicSchedulerService);
+    }
+
+    @Test
+    void registerJobRegistersTheWeeklyRunnableWithTheScheduler() {
+        service().registerJob();
+        verify(dynamicSchedulerService).registerJobTarget(eq(SkyRatingEvalService.JOB_KEY), any());
     }
 
     @Test

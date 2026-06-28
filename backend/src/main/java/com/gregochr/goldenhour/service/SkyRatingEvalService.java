@@ -10,16 +10,23 @@ import com.gregochr.goldenhour.eval.SkyRatingEvalFixture;
 import com.gregochr.goldenhour.eval.SkyRatingEvalFixtures;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
+import com.gregochr.goldenhour.model.SkyRatingEvalTrendPoint;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.SkyRatingEvalResultRepository;
 import com.gregochr.goldenhour.repository.SkyRatingEvalRunRepository;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.OptionalDouble;
+import java.util.stream.Collectors;
 
 /**
  * The historian for the pass^k sky-rating eval: runs the same frozen fixtures the gated
@@ -43,29 +50,45 @@ public class SkyRatingEvalService {
     /** Default runs per fixture — matches the gated {@code SkyRatingEvalTest} pass^k depth. */
     public static final int DEFAULT_RUNS_PER_FIXTURE = 8;
 
+    /** Scheduler job key — matches the seed row in V118 and the registered runnable. */
+    public static final String JOB_KEY = "sky_rating_eval";
+
     private final EvaluationService evaluationService;
     private final CostCalculator costCalculator;
     private final GitInfoService gitInfoService;
     private final SkyRatingEvalRunRepository runRepository;
     private final SkyRatingEvalResultRepository resultRepository;
+    private final DynamicSchedulerService dynamicSchedulerService;
 
     /**
      * Constructs the service.
      *
-     * @param evaluationService the production scorer (same path the forecast pipeline uses)
-     * @param costCalculator    token → micro-dollar cost
-     * @param gitInfoService    git commit metadata, for attributing drift to a prompt edit
-     * @param runRepository     parent-run persistence
-     * @param resultRepository  per-result persistence
+     * @param evaluationService       the production scorer (same path the forecast pipeline uses)
+     * @param costCalculator          token → micro-dollar cost
+     * @param gitInfoService          git commit metadata, for attributing drift to a prompt edit
+     * @param runRepository           parent-run persistence
+     * @param resultRepository        per-result persistence
+     * @param dynamicSchedulerService the scheduler this service registers its weekly job with
      */
     public SkyRatingEvalService(EvaluationService evaluationService, CostCalculator costCalculator,
             GitInfoService gitInfoService, SkyRatingEvalRunRepository runRepository,
-            SkyRatingEvalResultRepository resultRepository) {
+            SkyRatingEvalResultRepository resultRepository,
+            DynamicSchedulerService dynamicSchedulerService) {
         this.evaluationService = evaluationService;
         this.costCalculator = costCalculator;
         this.gitInfoService = gitInfoService;
         this.runRepository = runRepository;
         this.resultRepository = resultRepository;
+        this.dynamicSchedulerService = dynamicSchedulerService;
+    }
+
+    /**
+     * Registers the weekly eval as a dynamic scheduler target. The job is seeded PAUSED (V118), so
+     * registering the runnable is harmless until an admin resumes it from the Scheduler UI.
+     */
+    @PostConstruct
+    void registerJob() {
+        dynamicSchedulerService.registerJobTarget(JOB_KEY, this::runScheduled);
     }
 
     /**
@@ -139,6 +162,83 @@ public class SkyRatingEvalService {
                 DEFAULT_RUNS_PER_FIXTURE);
         executeRun(run.getId());
         return run;
+    }
+
+    /**
+     * Recent runs, newest first, for the admin runs list.
+     *
+     * @return up to 100 runs
+     */
+    public List<SkyRatingEvalRunEntity> recentRuns() {
+        return runRepository.findTop100ByOrderByRunTimestampDesc();
+    }
+
+    /**
+     * Looks up a single run.
+     *
+     * @param runId the run id
+     * @return the run
+     * @throws IllegalArgumentException if no such run exists
+     */
+    public SkyRatingEvalRunEntity getRun(Long runId) {
+        return runRepository.findById(runId)
+                .orElseThrow(() -> new IllegalArgumentException("No sky-rating eval run: " + runId));
+    }
+
+    /**
+     * All per-(fixture × run-index) results for one run.
+     *
+     * @param runId the run id
+     * @return the run's results, ordered by fixture then run index
+     */
+    public List<SkyRatingEvalResultEntity> resultsForRun(Long runId) {
+        return resultRepository.findByRunIdOrderByFixtureNameAscRunIndexAsc(runId);
+    }
+
+    /**
+     * Builds the calibration-drift series: one aggregate point per (completed run × fixture),
+     * oldest run first. The frontend groups by fixture (a line each, against its band) and by model.
+     *
+     * @return the trend points, ordered by run timestamp then fixture name
+     */
+    public List<SkyRatingEvalTrendPoint> trend() {
+        List<SkyRatingEvalRunEntity> runs =
+                runRepository.findByStatusOrderByRunTimestampAsc(SkyRatingEvalStatus.COMPLETED);
+        if (runs.isEmpty()) {
+            return List.of();
+        }
+        List<Long> runIds = runs.stream().map(SkyRatingEvalRunEntity::getId).toList();
+        Map<Long, List<SkyRatingEvalResultEntity>> resultsByRun = resultRepository.findByRunIdIn(runIds)
+                .stream().collect(Collectors.groupingBy(SkyRatingEvalResultEntity::getRunId));
+
+        return runs.stream()
+                .flatMap(run -> resultsByRun.getOrDefault(run.getId(), List.of()).stream()
+                        .collect(Collectors.groupingBy(SkyRatingEvalResultEntity::getFixtureName))
+                        .entrySet().stream()
+                        .map(entry -> toTrendPoint(run, entry.getKey(), entry.getValue()))
+                        .sorted(java.util.Comparator.comparing(SkyRatingEvalTrendPoint::fixtureName)))
+                .toList();
+    }
+
+    private static SkyRatingEvalTrendPoint toTrendPoint(SkyRatingEvalRunEntity run, String fixtureName,
+            List<SkyRatingEvalResultEntity> group) {
+        SkyRatingEvalResultEntity first = group.getFirst();
+        long passes = group.stream()
+                .filter(r -> r.getMissDirection() == MissDirection.IN_BAND).count();
+        return new SkyRatingEvalTrendPoint(
+                run.getId(), run.getRunTimestamp(), run.getModel(), run.getGitCommitHash(),
+                fixtureName, first.getExpectedMin(), first.getExpectedMax(),
+                meanOf(group, SkyRatingEvalResultEntity::getRating),
+                meanOf(group, SkyRatingEvalResultEntity::getFierySky),
+                meanOf(group, SkyRatingEvalResultEntity::getGoldenHour),
+                group.size(), (int) passes);
+    }
+
+    private static Double meanOf(List<SkyRatingEvalResultEntity> group,
+            java.util.function.Function<SkyRatingEvalResultEntity, Integer> field) {
+        OptionalDouble mean = group.stream()
+                .map(field).filter(Objects::nonNull).mapToInt(Integer::intValue).average();
+        return mean.isPresent() ? mean.getAsDouble() : null;
     }
 
     private void scoreOnce(SkyRatingEvalRunEntity run, SkyRatingEvalFixture fixture,
