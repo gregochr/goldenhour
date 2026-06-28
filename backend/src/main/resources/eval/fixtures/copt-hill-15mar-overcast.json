@@ -1,0 +1,67 @@
+{
+  "locationName": "Copt Hill",
+  "solarEventTime": "2026-03-15T18:08:00",
+  "targetType": "SUNSET",
+  "cloud": { "lowCloudPercent": 100, "midCloudPercent": 99, "highCloudPercent": 0 },
+  "weather": {
+    "visibilityMetres": 19080,
+    "windSpeedMs": 7.70,
+    "windDirectionDegrees": 274,
+    "precipitationMm": 0.10,
+    "humidityPercent": 73,
+    "weatherCode": 51,
+    "shortwaveRadiationWm2": 25.00,
+    "dewPointCelsius": null,
+    "pressureHpa": 1013.25,
+    "snowfallCm": null,
+    "snowDepthMetres": null,
+    "freezingLevelMetres": null
+  },
+  "aerosol": {
+    "pm25": 3.20,
+    "dustUgm3": 0.00,
+    "aerosolOpticalDepth": 0.090,
+    "boundaryLayerHeightMetres": 1210
+  },
+  "comfort": {
+    "temperatureCelsius": 5.9,
+    "apparentTemperatureCelsius": 0.0,
+    "precipitationProbability": 45
+  },
+  "directionalCloud": {
+    "solarLowCloudPercent": 39,
+    "solarMidCloudPercent": 65,
+    "solarHighCloudPercent": 0,
+    "antisolarLowCloudPercent": 95,
+    "antisolarMidCloudPercent": 53,
+    "antisolarHighCloudPercent": 0,
+    "farSolarLowCloudPercent": null
+  },
+  "tide": null,
+  "cloudApproach": {
+    "solarTrend": {
+      "slots": [
+        { "hoursBeforeEvent": 3, "lowCloudPercent": 52, "midCloudPercent": null, "highCloudPercent": null },
+        { "hoursBeforeEvent": 2, "lowCloudPercent": 100, "midCloudPercent": null, "highCloudPercent": null },
+        { "hoursBeforeEvent": 1, "lowCloudPercent": 100, "midCloudPercent": null, "highCloudPercent": null },
+        { "hoursBeforeEvent": 0, "lowCloudPercent": 20, "midCloudPercent": null, "highCloudPercent": null }
+      ]
+    },
+    "upwindSample": {
+      "distanceKm": 67,
+      "windFromBearing": 274,
+      "currentLowCloudPercent": 84,
+      "eventLowCloudPercent": 0
+    }
+  },
+  "mistTrend": null,
+  "locationOrientation": null,
+  "surge": null,
+  "adjustedRangeMetres": null,
+  "astronomicalRangeMetres": null,
+  "inversionScore": null,
+  "bluebellConditionScore": null,
+  "stability": null,
+  "stabilityReason": null,
+  "pressureTrend": null
+}

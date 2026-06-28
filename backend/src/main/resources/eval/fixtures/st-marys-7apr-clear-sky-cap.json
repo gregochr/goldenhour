@@ -1,0 +1,57 @@
+{
+  "locationName": "St. Mary's Lighthouse",
+  "solarEventTime": "2026-04-07T05:23:00",
+  "targetType": "SUNRISE",
+  "cloud": { "lowCloudPercent": 0, "midCloudPercent": 0, "highCloudPercent": 0 },
+  "weather": {
+    "visibilityMetres": 18020,
+    "windSpeedMs": 3.50,
+    "windDirectionDegrees": 156,
+    "precipitationMm": 0,
+    "humidityPercent": 80,
+    "weatherCode": 0,
+    "shortwaveRadiationWm2": 10.00,
+    "dewPointCelsius": 2.4,
+    "pressureHpa": 1013.25,
+    "snowfallCm": null,
+    "snowDepthMetres": null,
+    "freezingLevelMetres": null
+  },
+  "aerosol": {
+    "pm25": 18.50,
+    "dustUgm3": 0.00,
+    "aerosolOpticalDepth": 0.090,
+    "boundaryLayerHeightMetres": 320
+  },
+  "comfort": {
+    "temperatureCelsius": 5.6,
+    "apparentTemperatureCelsius": 2.0,
+    "precipitationProbability": 0
+  },
+  "directionalCloud": null,
+  "tide": {
+    "tideState": "HIGH",
+    "nextHighTideTime": "2026-04-07T05:57:22",
+    "nextHighTideHeightMetres": 1.42,
+    "nextLowTideTime": "2026-04-07T12:10:11",
+    "nextLowTideHeightMetres": -1.61,
+    "tideAligned": null,
+    "nearestHighTideTime": null,
+    "nearestLowTideTime": null,
+    "lunarTideType": null,
+    "lunarPhase": null,
+    "moonAtPerigee": null,
+    "statisticalSize": null
+  },
+  "cloudApproach": null,
+  "mistTrend": null,
+  "locationOrientation": null,
+  "surge": null,
+  "adjustedRangeMetres": null,
+  "astronomicalRangeMetres": null,
+  "inversionScore": null,
+  "bluebellConditionScore": null,
+  "stability": null,
+  "stabilityReason": null,
+  "pressureTrend": null
+}

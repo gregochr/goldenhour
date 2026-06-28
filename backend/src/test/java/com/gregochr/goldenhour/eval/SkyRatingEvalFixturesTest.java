@@ -1,5 +1,7 @@
 package com.gregochr.goldenhour.eval;
 
+import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -9,20 +11,20 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Verifies every registered sky-rating eval fixture is well-formed and <em>faithful</em> — i.e.
- * the frozen JSON deserialises into a fully-augmented {@link AtmosphericData} carrying the blocks
- * the prompt reasons over for colour.
+ * Verifies every registered sky-rating eval fixture deserialises <em>faithfully</em> — the frozen
+ * JSON round-trips into a well-formed {@link AtmosphericData} with no silently-defaulted fields.
  *
- * <p>This runs in the default {@code verify} build (no {@code @Tag}, no Claude). It is the guard
- * against the partial-fixture trap Step 0 flagged: a fixture missing {@code directionalCloud} or
- * {@code cloudApproach.solarTrend} would silently under-exercise the prompt, so those are asserted
- * non-null for every fixture. The per-fixture value spot-checks additionally catch a mistyped JSON
- * field name, which would otherwise deserialise to a silent default rather than the intended value.
+ * <p>This runs in the default {@code verify} build (no {@code @Tag}, no Claude). It does <b>not</b>
+ * require every fixture to be fully augmented: the fixtures are real days ported from
+ * {@code PromptRegressionTest}, and augmentation is the day's reality — some carry directional cloud
+ * and a cloud-approach trend, others (e.g. observer-only Angel of the North) carry only what was
+ * persisted for that run. The per-fixture spot-checks assert distinctive scalar/sub-record values,
+ * which catches a mistyped JSON field name (it would otherwise deserialise to a silent default).
  */
 class SkyRatingEvalFixturesTest {
 
@@ -44,10 +46,10 @@ class SkyRatingEvalFixturesTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("fixtures")
-    void fixtureLoadsAndIsFullyAugmented(SkyRatingEvalFixture fixture) {
+    void everyFixtureDeserialisesWithCoreFields(SkyRatingEvalFixture fixture) {
         AtmosphericData data = SkyRatingEvalFixtures.load(fixture);
 
-        // Always-block — a fixture cannot run without these.
+        // Always-block — a fixture cannot run without these; nulls here mean broken JSON.
         assertNotNull(data.locationName(), "locationName");
         assertNotNull(data.solarEventTime(), "solarEventTime (LocalDateTime must round-trip)");
         assertNotNull(data.targetType(), "targetType");
@@ -55,57 +57,61 @@ class SkyRatingEvalFixturesTest {
         assertNotNull(data.weather(), "weather");
         assertNotNull(data.weather().windSpeedMs(), "weather.windSpeedMs (BigDecimal must parse)");
         assertNotNull(data.aerosol(), "aerosol");
+        assertNotNull(data.aerosol().pm25(), "aerosol.pm25 (BigDecimal must parse)");
         assertNotNull(data.comfort(), "comfort");
-
-        // Faithful-fixture invariant: the colour-load-bearing augmented blocks must be present.
-        assertNotNull(data.directionalCloud(),
-                "directionalCloud must be present — it decides strong vs blocked sky");
-        assertNotNull(data.cloudApproach(), "cloudApproach must be present");
-        assertNotNull(data.cloudApproach().solarTrend(),
-                "cloudApproach.solarTrend must be present — the [BUILDING]/[CLEARING] block");
-        assertNotNull(data.cloudApproach().solarTrend().slots(), "solarTrend.slots");
-        assertEquals(4, data.cloudApproach().solarTrend().slots().size(),
-                "solarTrend should carry the T-3h..T slot series");
+        assertTrue(fixture.band().min() >= 1 && fixture.band().max() <= 5, "band within 1..5");
     }
 
     @Test
-    void strongFixtureCarriesAClearingCanvasTrend() {
-        AtmosphericData data = SkyRatingEvalFixtures.load(byName("strong-clearing-canvas"));
+    void washoutHasBlockedSolarHorizonAndNoCloudApproach() {
+        AtmosphericData data = load("copt-hill-5mar-washout");
 
-        assertEquals(5, data.cloud().lowCloudPercent());
-        assertEquals(35, data.cloud().midCloudPercent());
-        assertEquals(70, data.cloud().highCloudPercent());
-        assertEquals(new BigDecimal("38000"), BigDecimal.valueOf(data.weather().visibilityMetres()));
-        assertEquals(0, new BigDecimal("2.80").compareTo(data.weather().windSpeedMs()),
-                "windSpeedMs scalar must parse from JSON");
-        assertEquals(8, data.directionalCloud().solarLowCloudPercent(),
-                "clear-ish solar blocker lets light through");
-        assertEquals(75, data.directionalCloud().solarHighCloudPercent(), "high canvas at horizon");
-
-        // The canvas (mid/high) must have deserialised on the slots for the clearing check to hold.
-        assertTrue(data.cloudApproach().solarTrend().isClearing(),
-                "blocker clears into the event while the canvas survives");
-        assertFalse(data.cloudApproach().solarTrend().isBuilding(),
-                "a clearing trend is not a building one");
+        assertEquals(1, data.cloud().lowCloudPercent(), "near-clear observer point");
+        assertEquals(67, data.directionalCloud().solarLowCloudPercent(), "blocked solar horizon");
+        assertEquals(100, data.directionalCloud().solarHighCloudPercent());
+        assertNull(data.cloudApproach(), "cloud-approach was not captured for this run");
     }
 
     @Test
-    void flatFixtureCarriesABuildingBlanketTrend() {
-        AtmosphericData data = SkyRatingEvalFixtures.load(byName("flat-grey-overcast"));
+    void spectacularIsObserverPointOnly() {
+        AtmosphericData data = load("angel-of-the-north-2mar-spectacular");
+
+        assertEquals(2, data.cloud().lowCloudPercent());
+        assertEquals(100, data.cloud().highCloudPercent(), "high-cloud canvas overhead");
+        assertNull(data.directionalCloud(), "observer-only — no directional persisted that run");
+        assertNull(data.cloudApproach());
+    }
+
+    @Test
+    void moderateCarriesTideAndDirectionalAtSunrise() {
+        AtmosphericData data = load("st-marys-10mar-moderate");
+
+        assertEquals(TargetType.SUNRISE, data.targetType());
+        assertEquals(0, data.cloud().lowCloudPercent(), "clear low cloud lets light through");
+        assertEquals(100, data.directionalCloud().solarMidCloudPercent(), "mid/high canvas at horizon");
+        assertNotNull(data.tide(), "coastal — routes to CoastalPromptBuilder");
+        assertEquals(TideState.HIGH, data.tide().tideState());
+        assertEquals(0, new BigDecimal("1.11").compareTo(data.tide().nextHighTideHeightMetres()),
+                "tide height BigDecimal must parse");
+    }
+
+    @Test
+    void overcastBuildsTowardTheEventWithAnUnderCalledUpwindBank() {
+        AtmosphericData data = load("copt-hill-15mar-overcast");
 
         assertEquals(100, data.cloud().lowCloudPercent(), "total low overcast");
-        assertEquals(96, data.directionalCloud().solarLowCloudPercent(), "blocked solar horizon");
-        assertEquals(95, data.directionalCloud().farSolarLowCloudPercent(),
-                "far-field stays high — extensive blanket, not a thin strip");
-        assertTrue(data.cloudApproach().solarTrend().isBuilding(),
-                "low cloud builds toward the event");
+        assertEquals(39, data.directionalCloud().solarLowCloudPercent());
+        assertTrue(data.cloudApproach().solarTrend().isBuilding(), "low cloud builds toward the event");
+        assertEquals(84, data.cloudApproach().upwindSample().currentLowCloudPercent(),
+                "cloud is high upwind RIGHT NOW");
+        assertEquals(0, data.cloudApproach().upwindSample().eventLowCloudPercent(),
+                "model optimistically predicts a clear horizon");
     }
 
     @Test
-    void portedFalsePositiveCarriesTheUpwindApproachSignal() {
-        AtmosphericData data = SkyRatingEvalFixtures.load(byName("copt-hill-11mar-false-positive"));
+    void falsePositiveCarriesTheUpwindApproachSignal() {
+        AtmosphericData data = load("copt-hill-11mar-false-positive");
 
-        // Verbatim port of PromptRegressionTest#coptHill_11Mar2026... — spot-check the values.
         assertEquals(7, data.directionalCloud().solarLowCloudPercent(), "clear event-time snapshot");
         assertNotNull(data.cloudApproach().upwindSample(), "the upwind bank is the whole point");
         assertEquals(70, data.cloudApproach().upwindSample().currentLowCloudPercent(),
@@ -115,16 +121,41 @@ class SkyRatingEvalFixturesTest {
     }
 
     @Test
-    void clearSkyCapFixtureHasNoCanvasInAnyDirection() {
-        AtmosphericData data = SkyRatingEvalFixtures.load(byName("clear-sky-no-canvas-cap3"));
+    void horizonStripHasAClearingFarField() {
+        AtmosphericData data = load("copt-hill-16mar-horizon-strip");
+
+        assertEquals(64, data.directionalCloud().solarLowCloudPercent(), "high low-cloud at the horizon");
+        assertEquals(12, data.directionalCloud().farSolarLowCloudPercent(),
+                "far-field clears — thin strip, not an extensive blanket");
+    }
+
+    @Test
+    void clearSkyCapHasNoCanvasInAnyLayerButCarriesTide() {
+        AtmosphericData data = load("st-marys-7apr-clear-sky-cap");
 
         assertEquals(0, data.cloud().lowCloudPercent());
         assertEquals(0, data.cloud().midCloudPercent());
         assertEquals(0, data.cloud().highCloudPercent());
-        assertEquals(0, data.directionalCloud().solarHighCloudPercent(), "no canvas at the horizon");
-        assertFalse(data.cloudApproach().solarTrend().isClearing(),
-                "clearing to bald blue is not a dramatic clearance — no canvas survives");
-        assertFalse(data.cloudApproach().solarTrend().isBuilding());
+        assertNull(data.directionalCloud(), "clear dawn — no directional persisted");
+        assertNotNull(data.tide(), "coastal");
+        assertEquals(2.4, data.weather().dewPointCelsius().doubleValue(), 1e-9,
+                "dewPoint Double must parse");
+    }
+
+    @Test
+    void handAuthoredMiddlingCarriesFullAugmentation() {
+        AtmosphericData data = load("middling-hazy-mixed");
+
+        assertEquals(35, data.cloud().lowCloudPercent());
+        assertNotNull(data.directionalCloud(), "the curated middling fixture is fully augmented");
+        assertEquals(30, data.directionalCloud().farSolarLowCloudPercent());
+        assertNotNull(data.cloudApproach().solarTrend(), "carries the trend block");
+        assertEquals(4, data.cloudApproach().solarTrend().slots().size());
+        assertNotNull(data.pressureTrend(), "and a pressure trend");
+    }
+
+    private static AtmosphericData load(String name) {
+        return SkyRatingEvalFixtures.load(byName(name));
     }
 
     private static SkyRatingEvalFixture byName(String name) {
