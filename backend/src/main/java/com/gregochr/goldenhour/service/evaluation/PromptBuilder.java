@@ -571,14 +571,24 @@ public class PromptBuilder {
                                         Map.entry("golden_hour", Map.of(
                                                 "type", "integer",
                                                 "description", "0-100 inclusive.")),
-                                        Map.entry("summary", Map.of("type", "string")),
+                                        Map.entry("summary", Map.of(
+                                                "type", "string",
+                                                "description",
+                                                "One sentence in Claude's voice explaining the "
+                                                        + "rating from the actual conditions; never "
+                                                        + "a placeholder such as 'test', "
+                                                        + "'placeholder', or an ellipsis.")),
                                         Map.entry("basic_fiery_sky", Map.of(
                                                 "type", "integer",
                                                 "description", "0-100 inclusive.")),
                                         Map.entry("basic_golden_hour", Map.of(
                                                 "type", "integer",
                                                 "description", "0-100 inclusive.")),
-                                        Map.entry("basic_summary", Map.of("type", "string")),
+                                        Map.entry("basic_summary", Map.of(
+                                                "type", "string",
+                                                "description",
+                                                "One sentence explaining the basic (altitude-only) "
+                                                        + "rating; never a placeholder.")),
                                         Map.entry("inversion_score", Map.of(
                                                 "type", "integer",
                                                 "description", "0-10 inclusive.")),

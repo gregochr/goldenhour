@@ -355,6 +355,23 @@ public class PromptBuilderTest {
         }
 
         @Test
+        @DisplayName("summary fields carry a field-level description forbidding placeholders — "
+                + "the guard against degenerate 'test'/'placeholder' summaries the eval surfaced")
+        void outputConfig_summaryFieldsDescribeContentAndForbidPlaceholders() {
+            String configStr = promptBuilder.buildOutputConfig().toString();
+
+            // The bare {"type":"string"} summary field had no field-level guidance, so the model
+            // occasionally satisfied the required field with filler. The description (not a
+            // validation keyword — Anthropic rejects those) is the fix.
+            assertThat(configStr)
+                    .as("summary must describe its content and forbid placeholders")
+                    .contains("never a placeholder such as 'test'");
+            assertThat(configStr)
+                    .as("basic_summary must also forbid placeholders")
+                    .contains("basic (altitude-only) rating; never a placeholder");
+        }
+
+        @Test
         @DisplayName("Output config JSON contains required schema fields")
         void outputConfig_containsRequiredFields() {
             var config = promptBuilder.buildOutputConfig();
