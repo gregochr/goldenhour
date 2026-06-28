@@ -78,19 +78,19 @@ class SkyRatingEvalRepositoryTest {
         SkyRatingEvalRunEntity run = runRepository.save(buildRun(
                 LocalDateTime.of(2026, 6, 27, 3, 0), SkyRatingEvalStatus.COMPLETED));
 
-        resultRepository.save(buildResult(run.getId(), "strong-clearing-canvas", 1, 4,
+        resultRepository.save(buildResult(run.getId(), "st-marys-10mar-moderate", 1, 4,
                 MissDirection.IN_BAND));
-        resultRepository.save(buildResult(run.getId(), "flat-grey-overcast", 1, 1,
+        resultRepository.save(buildResult(run.getId(), "copt-hill-5mar-washout", 1, 1,
                 MissDirection.IN_BAND));
-        resultRepository.save(buildResult(run.getId(), "strong-clearing-canvas", 2, 3,
+        resultRepository.save(buildResult(run.getId(), "st-marys-10mar-moderate", 2, 3,
                 MissDirection.BELOW));
 
         List<SkyRatingEvalResultEntity> results =
                 resultRepository.findByRunIdOrderByFixtureNameAscRunIndexAsc(run.getId());
 
         assertThat(results).hasSize(3);
-        assertThat(results.get(0).getFixtureName()).isEqualTo("flat-grey-overcast");
-        assertThat(results.get(1).getFixtureName()).isEqualTo("strong-clearing-canvas");
+        assertThat(results.get(0).getFixtureName()).isEqualTo("copt-hill-5mar-washout");
+        assertThat(results.get(1).getFixtureName()).isEqualTo("st-marys-10mar-moderate");
         assertThat(results.get(1).getRunIndex()).isEqualTo(1);
         assertThat(results.get(2).getMissDirection()).isEqualTo(MissDirection.BELOW);
         assertThat(results.get(1).getFierySky()).isEqualTo(70);
@@ -104,9 +104,9 @@ class SkyRatingEvalRepositoryTest {
                 LocalDateTime.of(2026, 6, 20, 3, 0), SkyRatingEvalStatus.COMPLETED));
         SkyRatingEvalRunEntity runB = runRepository.save(buildRun(
                 LocalDateTime.of(2026, 6, 27, 3, 0), SkyRatingEvalStatus.COMPLETED));
-        resultRepository.save(buildResult(runA.getId(), "strong-clearing-canvas", 1, 4,
+        resultRepository.save(buildResult(runA.getId(), "st-marys-10mar-moderate", 1, 4,
                 MissDirection.IN_BAND));
-        resultRepository.save(buildResult(runB.getId(), "strong-clearing-canvas", 1, 5,
+        resultRepository.save(buildResult(runB.getId(), "st-marys-10mar-moderate", 1, 5,
                 MissDirection.IN_BAND));
 
         List<SkyRatingEvalResultEntity> results =

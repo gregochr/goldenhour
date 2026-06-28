@@ -1,0 +1,65 @@
+{
+  "locationName": "St. Mary's Lighthouse",
+  "solarEventTime": "2026-03-10T06:34:00",
+  "targetType": "SUNRISE",
+  "cloud": { "lowCloudPercent": 0, "midCloudPercent": 100, "highCloudPercent": 100 },
+  "weather": {
+    "visibilityMetres": 22020,
+    "windSpeedMs": 4.50,
+    "windDirectionDegrees": 204,
+    "precipitationMm": 0,
+    "humidityPercent": 82,
+    "weatherCode": 3,
+    "shortwaveRadiationWm2": 4.00,
+    "dewPointCelsius": null,
+    "pressureHpa": 1013.25,
+    "snowfallCm": null,
+    "snowDepthMetres": null,
+    "freezingLevelMetres": null
+  },
+  "aerosol": {
+    "pm25": 13.00,
+    "dustUgm3": 1.00,
+    "aerosolOpticalDepth": 0.110,
+    "boundaryLayerHeightMetres": 625
+  },
+  "comfort": {
+    "temperatureCelsius": 7.3,
+    "apparentTemperatureCelsius": 3.6,
+    "precipitationProbability": 0
+  },
+  "directionalCloud": {
+    "solarLowCloudPercent": 0,
+    "solarMidCloudPercent": 100,
+    "solarHighCloudPercent": 100,
+    "antisolarLowCloudPercent": 47,
+    "antisolarMidCloudPercent": 2,
+    "antisolarHighCloudPercent": 0,
+    "farSolarLowCloudPercent": null
+  },
+  "tide": {
+    "tideState": "HIGH",
+    "nextHighTideTime": "2026-03-10T07:07:00",
+    "nextHighTideHeightMetres": 1.11,
+    "nextLowTideTime": "2026-03-10T13:15:00",
+    "nextLowTideHeightMetres": -1.22,
+    "tideAligned": true,
+    "nearestHighTideTime": null,
+    "nearestLowTideTime": null,
+    "lunarTideType": null,
+    "lunarPhase": null,
+    "moonAtPerigee": null,
+    "statisticalSize": null
+  },
+  "cloudApproach": null,
+  "mistTrend": null,
+  "locationOrientation": null,
+  "surge": null,
+  "adjustedRangeMetres": null,
+  "astronomicalRangeMetres": null,
+  "inversionScore": null,
+  "bluebellConditionScore": null,
+  "stability": null,
+  "stabilityReason": null,
+  "pressureTrend": null
+}

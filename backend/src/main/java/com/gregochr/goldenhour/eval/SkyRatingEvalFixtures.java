@@ -10,8 +10,8 @@ import java.io.UncheckedIOException;
 import java.util.List;
 
 /**
- * The sky-rating eval fixture set and the loader that deserialises a frozen JSON fixture into a
- * fully-augmented {@link AtmosphericData}.
+ * The sky-rating eval fixture set and the loader that deserialises a frozen JSON fixture into an
+ * {@link AtmosphericData}.
  *
  * <p><b>Loader fidelity.</b> The mapper here mirrors the production replay engine
  * ({@code PromptTestService}): a Jackson 2 {@code ObjectMapper} with {@link JavaTimeModule}, so
@@ -21,17 +21,22 @@ import java.util.List;
  *
  * <p><b>The fixture set.</b> Both halves of the range are present — strong (proves the scorer does
  * not under-rate good conditions) and flat/middling (proves it is not always-high) — because the
- * pass rate is only meaningful if both halves pass. Every fixture is at <em>full augmentation</em>:
- * it carries the always-block plus {@code directionalCloud} and {@code cloudApproach.solarTrend},
- * the blocks the prompt actually reasons over for colour. A partial fixture (always-block only)
- * under-exercises the prompt and is rejected by {@code SkyRatingEvalFixturesTest}.
+ * pass rate is only meaningful if both halves pass.
  *
- * <p>Provenance is noted per fixture: <em>ported</em> fixtures carry the exact input and band of a
- * {@code PromptRegressionTest} case (re-homed, not altered); <em>hand-authored</em> fixtures are
- * constructed at full augmentation to fill bands no ported case covers. Captured-real anchors
- * (a genuine strong/flat day exported from prod) slot in by dropping a JSON file here and adding a
- * registry line — they are the most faithful seed and supersede the hand-authored strong/flat
- * placeholders once available.
+ * <p><b>Real days, real bands.</b> Seven of the eight fixtures are real days ported verbatim from
+ * {@code PromptRegressionTest}: real Open-Meteo / production input <em>and</em> the band Chris
+ * actually observed at that location. Real provenance is the most credible foundation, so
+ * augmentation is taken as the day's reality, not forced — some real days carry full augmentation
+ * (directional cloud + cloud-approach trend), others only what was persisted that run (Angel of the
+ * North is observer-point only). {@code SkyRatingEvalFixturesTest} therefore verifies each fixture
+ * deserialises <em>faithfully</em> (no silent field-name defaults), not that every one is fully
+ * augmented. The lone exception is {@code middling-hazy-mixed}, hand-authored to cover a low-middle
+ * band ({2,3}) no real day supplies. Two fixtures carry tide and exercise the
+ * {@code CoastalPromptBuilder} path.
+ *
+ * <p>A new captured-real day slots in by dropping its exported {@code atmospheric_data_json} here
+ * and adding a registry line — e.g. a fully-augmented strong day from current prod would be the
+ * ideal upgrade over the observer-only Angel anchor.
  */
 public final class SkyRatingEvalFixtures {
 
@@ -42,48 +47,69 @@ public final class SkyRatingEvalFixtures {
      */
     public static final List<SkyRatingEvalFixture> ALL = List.of(
             new SkyRatingEvalFixture(
-                    "strong-clearing-canvas",
-                    "Hand-authored textbook-strong sunset: clear solar-horizon blocker with a "
-                            + "surviving high/mid canvas and a clearing-into-event trend. Proves the "
-                            + "scorer does not UNDER-rate good conditions. Placeholder for a "
-                            + "captured-real 4–5 day.",
-                    RatingBand.atLeast(4),
-                    "strong-clearing-canvas.json"),
-            new SkyRatingEvalFixture(
-                    "flat-grey-overcast",
-                    "Hand-authored flat-grey washout: total low/mid overcast at observer and solar "
-                            + "horizon, building trend, no canvas. Proves the scorer is not "
-                            + "always-high. Placeholder for a captured-real 1–2 day.",
+                    "copt-hill-5mar-washout",
+                    "Real day, ported from PromptRegressionTest#coptHill_5Mar2026_sunset_blocked"
+                            + "SolarHorizon (input + observed band verbatim). Near-clear observer point "
+                            + "but the solar horizon is blocked (67% low / 100% high) — observed a total "
+                            + "washout. Directional cloud, no cloud-approach (not captured that run).",
                     RatingBand.atMost(2),
-                    "flat-grey-overcast.json"),
+                    "copt-hill-5mar-washout.json"),
+            new SkyRatingEvalFixture(
+                    "angel-of-the-north-2mar-spectacular",
+                    "Real day, ported from PromptRegressionTest#angelOfTheNorth_2Mar2026_sunset_"
+                            + "spectacular (prod record 3284; input + observed band verbatim). High-cloud "
+                            + "canvas overhead, observed spectacular. Observer-point only — no directional "
+                            + "or cloud-approach was persisted for that run.",
+                    RatingBand.atLeast(4),
+                    "angel-of-the-north-2mar-spectacular.json"),
+            new SkyRatingEvalFixture(
+                    "st-marys-10mar-moderate",
+                    "Real day, ported from PromptRegressionTest#stMarysLighthouse_10Mar2026_sunrise_"
+                            + "moderate (prod forecast_evaluation). Clear low cloud under a mid/high "
+                            + "canvas, observed 4★. Band widened from the observed exact-4 to {4,5} for "
+                            + "pass^k headroom (Chris). Coastal (tide) — exercises CoastalPromptBuilder.",
+                    RatingBand.atLeast(4),
+                    "st-marys-10mar-moderate.json"),
             new SkyRatingEvalFixture(
                     "copt-hill-11mar-false-positive",
-                    "Ported from PromptRegressionTest#coptHill_11Mar2026_sunset_cloudApproachFalse"
-                            + "Positive (band re-homed, input verbatim). Clear event-time snapshot but "
-                            + "a cloud bank approaching upwind — must not be fooled into a high score.",
+                    "Real day, ported from PromptRegressionTest#coptHill_11Mar2026_sunset_cloud"
+                            + "ApproachFalsePositive (input + observed band verbatim). Clear event-time "
+                            + "snapshot but a cloud bank approaching upwind — must not be fooled into a "
+                            + "high score. Fully augmented (directional + cloud-approach).",
                     RatingBand.atMost(2),
                     "copt-hill-11mar-false-positive.json"),
             new SkyRatingEvalFixture(
+                    "copt-hill-15mar-overcast",
+                    "Real day, ported from PromptRegressionTest#coptHill_15Mar2026_sunset_total"
+                            + "OvercastWithApproach (input + observed band verbatim). Total overcast with "
+                            + "a building trend and an upwind bank the model under-called — observed a "
+                            + "non-event. Fully augmented.",
+                    RatingBand.atMost(2),
+                    "copt-hill-15mar-overcast.json"),
+            new SkyRatingEvalFixture(
                     "copt-hill-16mar-horizon-strip",
-                    "Ported from PromptRegressionTest#coptHill_16Mar2026_horizonStrip (band re-homed, "
-                            + "input verbatim). Thin solar-horizon strip (far-field clears) under a "
-                            + "high-cloud canvas — graded middling, not a washout, not spectacular.",
+                    "Real day, ported from PromptRegressionTest#coptHill_16Mar2026_horizonStrip "
+                            + "(input + observed band verbatim). Thin solar-horizon strip (far-field "
+                            + "clears) under a high-cloud canvas — graded middling, not a washout, not "
+                            + "spectacular. Fully augmented.",
                     new RatingBand(3, 4),
                     "copt-hill-16mar-horizon-strip.json"),
             new SkyRatingEvalFixture(
-                    "middling-hazy-mixed",
-                    "Hand-authored middling sunset: moderate mixed cloud, modest canvas, slightly "
-                            + "hazy air — decent but undramatic. Proves a graded (non-bimodal) "
-                            + "response: the scorer can return the middle of the range.",
-                    new RatingBand(2, 3),
-                    "middling-hazy-mixed.json"),
-            new SkyRatingEvalFixture(
-                    "clear-sky-no-canvas-cap3",
-                    "Hand-authored CLEAR-SKY-CAP edge: a flawless clear dawn with no mid/high canvas. "
-                            + "Clean golden light but no subject in the sky — must cap at 3, never "
-                            + "score high. Guards the clearing-to-bald-blue failure mode.",
+                    "st-marys-7apr-clear-sky-cap",
+                    "Real day, ported from PromptRegressionTest#stMarysLighthouse_7Apr2026_sunrise_"
+                            + "clearSkyNoCanvas (input + observed band verbatim). A flawless clear dawn "
+                            + "with no canvas — clean light but no subject in the sky, observed 3★. Guards "
+                            + "the clearing-to-bald-blue failure mode. Coastal (tide).",
                     RatingBand.atMost(3),
-                    "clear-sky-no-canvas-cap3.json"));
+                    "st-marys-7apr-clear-sky-cap.json"),
+            new SkyRatingEvalFixture(
+                    "middling-hazy-mixed",
+                    "Hand-authored middling sunset (the one synthetic fixture, kept for low-middle "
+                            + "coverage no real day supplies): moderate mixed cloud, modest canvas, "
+                            + "slightly hazy air. Proves a graded (non-bimodal) response — the scorer "
+                            + "can return the middle of the range.",
+                    new RatingBand(2, 3),
+                    "middling-hazy-mixed.json"));
 
     private SkyRatingEvalFixtures() {
     }
