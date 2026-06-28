@@ -101,4 +101,45 @@ describe('SkyRatingEvalView', () => {
     render(<SkyRatingEvalView />);
     expect(await screen.findByTestId('sky-eval-empty')).toBeInTheDocument();
   });
+
+  it('charts per-model accuracy and filters the per-fixture view by selected model', async () => {
+    const multiRuns = [
+      { id: 3, runTimestamp: '2026-06-27T03:00:00', model: 'OPUS', triggerSource: 'SCHEDULED',
+        status: 'COMPLETED', passRate: 1.0, belowMisses: 0, aboveMisses: 0, fixtureCount: 6,
+        costMicroDollars: 500000, gitCommitHash: 'abc1234', gitBranch: 'main', gitDirty: false },
+      { id: 2, runTimestamp: '2026-06-27T03:00:00', model: 'SONNET', triggerSource: 'SCHEDULED',
+        status: 'COMPLETED', passRate: 0.9, belowMisses: 1, aboveMisses: 0, fixtureCount: 6,
+        costMicroDollars: 300000, gitCommitHash: 'abc1234', gitBranch: 'main', gitDirty: false },
+      { id: 1, runTimestamp: '2026-06-27T03:00:00', model: 'HAIKU', triggerSource: 'SCHEDULED',
+        status: 'COMPLETED', passRate: 0.7, belowMisses: 2, aboveMisses: 1, fixtureCount: 6,
+        costMicroDollars: 60000, gitCommitHash: 'abc1234', gitBranch: 'main', gitDirty: false },
+    ];
+    // SONNET has both fixtures; OPUS has only strong-clearing-canvas.
+    const multiTrend = [
+      { runId: 2, runTimestamp: '2026-06-27T03:00:00', model: 'SONNET', gitCommitHash: 'abc1234',
+        fixtureName: 'strong-clearing-canvas', expectedMin: 4, expectedMax: 5,
+        avgRating: 4, avgFierySky: 55, avgGoldenHour: 60, runs: 8, passes: 8 },
+      { runId: 2, runTimestamp: '2026-06-27T03:00:00', model: 'SONNET', gitCommitHash: 'abc1234',
+        fixtureName: 'flat-grey-overcast', expectedMin: 1, expectedMax: 2,
+        avgRating: 1, avgFierySky: 5, avgGoldenHour: 8, runs: 8, passes: 8 },
+      { runId: 3, runTimestamp: '2026-06-27T03:00:00', model: 'OPUS', gitCommitHash: 'abc1234',
+        fixtureName: 'strong-clearing-canvas', expectedMin: 4, expectedMax: 5,
+        avgRating: 5, avgFierySky: 70, avgGoldenHour: 75, runs: 8, passes: 8 },
+    ];
+    getSkyRatingEvalRuns.mockResolvedValue({ data: multiRuns });
+    getSkyRatingEvalTrend.mockResolvedValue({ data: multiTrend });
+
+    render(<SkyRatingEvalView />);
+
+    expect(await screen.findByText(/Model accuracy over time/)).toBeInTheDocument();
+
+    // default model SONNET → both fixtures shown
+    expect(screen.getByTestId('sky-eval-chart-strong-clearing-canvas')).toBeInTheDocument();
+    expect(screen.getByTestId('sky-eval-chart-flat-grey-overcast')).toBeInTheDocument();
+
+    // switch to OPUS → only the fixture OPUS has trend data for remains
+    fireEvent.click(screen.getByTestId('sky-eval-model-OPUS'));
+    expect(screen.getByTestId('sky-eval-chart-strong-clearing-canvas')).toBeInTheDocument();
+    expect(screen.queryByTestId('sky-eval-chart-flat-grey-overcast')).not.toBeInTheDocument();
+  });
 });

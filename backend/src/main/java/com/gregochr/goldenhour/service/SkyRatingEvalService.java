@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -49,6 +50,10 @@ public class SkyRatingEvalService {
 
     /** Default runs per fixture — matches the gated {@code SkyRatingEvalTest} pass^k depth. */
     public static final int DEFAULT_RUNS_PER_FIXTURE = 8;
+
+    /** Models the scheduled eval scores each week, for cross-model accuracy/drift comparison. */
+    public static final List<EvaluationModel> SCHEDULED_MODELS =
+            List.of(EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.OPUS);
 
     /** Scheduler job key — matches the seed row in V118 and the registered runnable. */
     public static final String JOB_KEY = "sky_rating_eval";
@@ -152,16 +157,29 @@ public class SkyRatingEvalService {
     }
 
     /**
-     * Convenience entry point for the scheduler: start + execute synchronously with defaults
-     * (Sonnet, the production near-term scorer; {@link #DEFAULT_RUNS_PER_FIXTURE} runs).
+     * Entry point for the scheduler: scores every fixture with EACH model in
+     * {@link #SCHEDULED_MODELS}, one persisted run per model, so the weekly cadence both
+     * regression-tests the prompt AND measures cross-model accuracy/drift (is Haiku as accurate as
+     * Sonnet as Opus on the ground-truth fixtures?). Each model's run is independent — one model's
+     * failure is logged and does not abort the others. Synchronous today; the per-model runs are the
+     * unit a future batched execution layer would submit.
      *
-     * @return the completed (or failed) run
+     * @return the started runs, one per model (their final status is persisted)
      */
-    public SkyRatingEvalRunEntity runScheduled() {
-        SkyRatingEvalRunEntity run = startRun(EvaluationModel.SONNET, SkyRatingEvalTrigger.SCHEDULED,
-                DEFAULT_RUNS_PER_FIXTURE);
-        executeRun(run.getId());
-        return run;
+    public List<SkyRatingEvalRunEntity> runScheduled() {
+        List<SkyRatingEvalRunEntity> runs = new ArrayList<>();
+        for (EvaluationModel model : SCHEDULED_MODELS) {
+            SkyRatingEvalRunEntity run = startRun(model, SkyRatingEvalTrigger.SCHEDULED,
+                    DEFAULT_RUNS_PER_FIXTURE);
+            runs.add(run);
+            try {
+                executeRun(run.getId());
+            } catch (RuntimeException e) {
+                // executeRun already marked the run FAILED; keep going so the other models still run.
+                LOG.error("Sky-rating eval scheduled run for model {} failed; continuing", model, e);
+            }
+        }
+        return runs;
     }
 
     /**

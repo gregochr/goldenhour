@@ -22,10 +22,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -269,25 +270,39 @@ class SkyRatingEvalServiceTest {
     }
 
     @Test
-    void runScheduledStartsAndExecutesWithSonnetDefaults() {
-        stubScorer(4);
-        AtomicReference<SkyRatingEvalRunEntity> saved = new AtomicReference<>();
+    void runScheduledScoresEveryModelOnePersistedRunEach() {
+        EvaluationDetail detail = new EvaluationDetail(
+                new SunsetEvaluation(3, 50, 60, "A controlled summary."),
+                "prompt", "raw", 100L, new TokenUsage(100, 20, 0, 0));
+        when(evaluationService.evaluateWithDetails(any(AtmosphericData.class),
+                any(EvaluationModel.class), isNull())).thenReturn(detail);
+        when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any()))
+                .thenReturn(COST_PER_CALL);
+
+        // In-memory run store so each model's startRun gets a distinct id and executeRun finds it.
+        Map<Long, SkyRatingEvalRunEntity> store = new HashMap<>();
+        AtomicLong ids = new AtomicLong(0);
         when(runRepository.save(any())).thenAnswer(inv -> {
             SkyRatingEvalRunEntity r = inv.getArgument(0);
             if (r.getId() == null) {
-                r.setId(77L);
+                r.setId(ids.incrementAndGet());
             }
-            saved.set(r);
+            store.put(r.getId(), r);
             return r;
         });
-        when(runRepository.findById(77L)).thenAnswer(inv -> Optional.of(saved.get()));
+        when(runRepository.findById(any()))
+                .thenAnswer(inv -> Optional.ofNullable(store.get(inv.getArgument(0))));
 
-        SkyRatingEvalRunEntity run = service().runScheduled();
+        List<SkyRatingEvalRunEntity> runs = service().runScheduled();
 
-        assertThat(run.getModel()).isEqualTo(EvaluationModel.SONNET);
-        assertThat(run.getTriggerSource()).isEqualTo(SkyRatingEvalTrigger.SCHEDULED);
-        assertThat(run.getRunsPerFixture()).isEqualTo(SkyRatingEvalService.DEFAULT_RUNS_PER_FIXTURE);
-        assertThat(run.getStatus()).isEqualTo(SkyRatingEvalStatus.COMPLETED);
+        // One run per scheduled model, in order, each completed — the cross-model accuracy sweep.
+        assertThat(runs).extracting(SkyRatingEvalRunEntity::getModel)
+                .containsExactly(EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.OPUS);
+        assertThat(runs).allSatisfy(run -> {
+            assertThat(run.getTriggerSource()).isEqualTo(SkyRatingEvalTrigger.SCHEDULED);
+            assertThat(run.getRunsPerFixture()).isEqualTo(SkyRatingEvalService.DEFAULT_RUNS_PER_FIXTURE);
+            assertThat(run.getStatus()).isEqualTo(SkyRatingEvalStatus.COMPLETED);
+        });
     }
 
     private SkyRatingEvalRunEntity runningRun() {
