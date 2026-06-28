@@ -5,10 +5,12 @@ import com.gregochr.goldenhour.entity.SkyRatingEvalResultEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalRunEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalStatus;
 import com.gregochr.goldenhour.entity.SkyRatingEvalTrigger;
+import com.gregochr.goldenhour.eval.MissDirection;
 import com.gregochr.goldenhour.eval.SkyRatingEvalFixture;
 import com.gregochr.goldenhour.eval.SkyRatingEvalFixtures;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
+import com.gregochr.goldenhour.model.SkyRatingEvalTrendPoint;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.SkyRatingEvalResultRepository;
@@ -20,8 +22,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -185,6 +189,107 @@ class SkyRatingEvalServiceTest {
                 .thenReturn(COST_PER_CALL);
     }
 
+    @Test
+    void trendAggregatesPerRunPerFixtureOldestFirst() {
+        SkyRatingEvalRunEntity r1 = completedRun(1L, LocalDateTime.of(2026, 6, 20, 3, 0));
+        SkyRatingEvalRunEntity r2 = completedRun(2L, LocalDateTime.of(2026, 6, 27, 3, 0));
+        when(runRepository.findByStatusOrderByRunTimestampAsc(SkyRatingEvalStatus.COMPLETED))
+                .thenReturn(List.of(r1, r2));
+        when(resultRepository.findByRunIdIn(any())).thenReturn(List.of(
+                resultRow(1L, "strong", 1, 4, 50, 60, MissDirection.IN_BAND),
+                resultRow(1L, "strong", 2, 4, 60, 70, MissDirection.IN_BAND),
+                resultRow(2L, "strong", 1, 5, 80, 90, MissDirection.IN_BAND)));
+
+        List<SkyRatingEvalTrendPoint> trend = service().trend();
+
+        assertThat(trend).hasSize(2);
+        SkyRatingEvalTrendPoint p1 = trend.get(0);
+        assertThat(p1.runId()).isEqualTo(1L);
+        assertThat(p1.fixtureName()).isEqualTo("strong");
+        assertThat(p1.avgRating()).isEqualTo(4.0);
+        assertThat(p1.avgFierySky()).isEqualTo(55.0);
+        assertThat(p1.avgGoldenHour()).isEqualTo(65.0);
+        assertThat(p1.runs()).isEqualTo(2);
+        assertThat(p1.passes()).isEqualTo(2);
+        assertThat(p1.expectedMin()).isEqualTo(4);
+        assertThat(p1.expectedMax()).isEqualTo(5);
+        assertThat(p1.model()).isEqualTo(EvaluationModel.SONNET);
+        assertThat(p1.gitCommitHash()).isEqualTo("abc1234");
+        assertThat(trend.get(1).runId()).isEqualTo(2L);
+        assertThat(trend.get(1).avgRating()).isEqualTo(5.0);
+        assertThat(trend.get(1).passes()).isEqualTo(1);
+    }
+
+    @Test
+    void trendAveragesIgnoreNullRatingsAndCountOnlyInBandAsPasses() {
+        SkyRatingEvalRunEntity r1 = completedRun(1L, LocalDateTime.of(2026, 6, 20, 3, 0));
+        when(runRepository.findByStatusOrderByRunTimestampAsc(SkyRatingEvalStatus.COMPLETED))
+                .thenReturn(List.of(r1));
+        when(resultRepository.findByRunIdIn(any())).thenReturn(List.of(
+                resultRow(1L, "strong", 1, 4, 50, 60, MissDirection.IN_BAND),
+                resultRow(1L, "strong", 2, null, 0, 0, null)));
+
+        List<SkyRatingEvalTrendPoint> trend = service().trend();
+
+        assertThat(trend).hasSize(1);
+        assertThat(trend.get(0).avgRating()).isEqualTo(4.0); // null rating excluded from the mean
+        assertThat(trend.get(0).runs()).isEqualTo(2);
+        assertThat(trend.get(0).passes()).isEqualTo(1); // only the in-band run counts
+    }
+
+    @Test
+    void trendIsEmptyWhenNoCompletedRuns() {
+        when(runRepository.findByStatusOrderByRunTimestampAsc(SkyRatingEvalStatus.COMPLETED))
+                .thenReturn(List.of());
+        assertThat(service().trend()).isEmpty();
+    }
+
+    @Test
+    void recentRunsDelegatesToRepository() {
+        SkyRatingEvalRunEntity r = completedRun(1L, LocalDateTime.of(2026, 6, 20, 3, 0));
+        when(runRepository.findTop100ByOrderByRunTimestampDesc()).thenReturn(List.of(r));
+        assertThat(service().recentRuns()).containsExactly(r);
+    }
+
+    @Test
+    void getRunReturnsRunOrThrowsWhenMissing() {
+        SkyRatingEvalRunEntity r = completedRun(5L, LocalDateTime.of(2026, 6, 20, 3, 0));
+        when(runRepository.findById(5L)).thenReturn(Optional.of(r));
+        when(runRepository.findById(404L)).thenReturn(Optional.empty());
+
+        assertThat(service().getRun(5L)).isSameAs(r);
+        assertThatThrownBy(() -> service().getRun(404L)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void resultsForRunDelegatesToRepository() {
+        SkyRatingEvalResultEntity res = resultRow(1L, "strong", 1, 4, 50, 60, MissDirection.IN_BAND);
+        when(resultRepository.findByRunIdOrderByFixtureNameAscRunIndexAsc(1L)).thenReturn(List.of(res));
+        assertThat(service().resultsForRun(1L)).containsExactly(res);
+    }
+
+    @Test
+    void runScheduledStartsAndExecutesWithSonnetDefaults() {
+        stubScorer(4);
+        AtomicReference<SkyRatingEvalRunEntity> saved = new AtomicReference<>();
+        when(runRepository.save(any())).thenAnswer(inv -> {
+            SkyRatingEvalRunEntity r = inv.getArgument(0);
+            if (r.getId() == null) {
+                r.setId(77L);
+            }
+            saved.set(r);
+            return r;
+        });
+        when(runRepository.findById(77L)).thenAnswer(inv -> Optional.of(saved.get()));
+
+        SkyRatingEvalRunEntity run = service().runScheduled();
+
+        assertThat(run.getModel()).isEqualTo(EvaluationModel.SONNET);
+        assertThat(run.getTriggerSource()).isEqualTo(SkyRatingEvalTrigger.SCHEDULED);
+        assertThat(run.getRunsPerFixture()).isEqualTo(SkyRatingEvalService.DEFAULT_RUNS_PER_FIXTURE);
+        assertThat(run.getStatus()).isEqualTo(SkyRatingEvalStatus.COMPLETED);
+    }
+
     private SkyRatingEvalRunEntity runningRun() {
         return SkyRatingEvalRunEntity.builder()
                 .id(42L)
@@ -194,6 +299,35 @@ class SkyRatingEvalServiceTest {
                 .runsPerFixture(RUNS)
                 .triggerSource(SkyRatingEvalTrigger.SCHEDULED)
                 .status(SkyRatingEvalStatus.RUNNING)
+                .build();
+    }
+
+    private static SkyRatingEvalRunEntity completedRun(Long id, LocalDateTime timestamp) {
+        return SkyRatingEvalRunEntity.builder()
+                .id(id)
+                .runTimestamp(timestamp)
+                .startedAt(timestamp)
+                .model(EvaluationModel.SONNET)
+                .runsPerFixture(8)
+                .triggerSource(SkyRatingEvalTrigger.SCHEDULED)
+                .status(SkyRatingEvalStatus.COMPLETED)
+                .passRate(1.0)
+                .gitCommitHash("abc1234")
+                .build();
+    }
+
+    private static SkyRatingEvalResultEntity resultRow(Long runId, String fixture, int idx,
+            Integer rating, int fiery, int golden, MissDirection direction) {
+        return SkyRatingEvalResultEntity.builder()
+                .runId(runId)
+                .fixtureName(fixture)
+                .runIndex(idx)
+                .rating(rating)
+                .fierySky(fiery)
+                .goldenHour(golden)
+                .expectedMin(4)
+                .expectedMax(5)
+                .missDirection(direction)
                 .build();
     }
 }
