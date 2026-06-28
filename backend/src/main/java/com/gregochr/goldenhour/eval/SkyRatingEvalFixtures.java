@@ -65,10 +65,11 @@ public final class SkyRatingEvalFixtures {
             new SkyRatingEvalFixture(
                     "st-marys-10mar-moderate",
                     "Real day, ported from PromptRegressionTest#stMarysLighthouse_10Mar2026_sunrise_"
-                            + "moderate (prod forecast_evaluation). Clear low cloud under a mid/high "
-                            + "canvas, observed 4★. Band widened from the observed exact-4 to {4,5} for "
-                            + "pass^k headroom (Chris). Coastal (tide) — exercises CoastalPromptBuilder.",
-                    RatingBand.atLeast(4),
+                            + "moderate (prod forecast_evaluation). Clear low cloud under a thick "
+                            + "mid/high canvas, observed 4★ — and the prompt's own rule caps this "
+                            + "scenario at 4 (never 5), so the band is the exact observed {4}. Coastal "
+                            + "(tide) — exercises CoastalPromptBuilder.",
+                    RatingBand.exactly(4),
                     "st-marys-10mar-moderate.json"),
             new SkyRatingEvalFixture(
                     "copt-hill-11mar-false-positive",

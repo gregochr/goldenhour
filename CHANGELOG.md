@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — thick solar-side mid/high cloud read as a blocker, not a lit canvas (sky-rating eval finding)
+- **Symptom.** The eval's St Mary's 10 Mar fixture (clear solar low cloud under 100% mid/high — observed 4★) scored 4 in 6/8 runs but craters to 2 in the other 2, with summaries calling the thick mid cloud a "blanket" with "no clear canvas above". A consistency failure, not a missing rule: the prompt **already** prescribes RATE 4 for "solar low <20% + thick mid >80%" (PromptBuilder system prompt), and even injects an inline `[THICK MID CLOUD — rate 4, not 5]` annotation.
+- **Why it flipped.** Two prompt tensions: the word "blanket" was overloaded (used for both the rate-4 thick-mid case and the rating-1–2 EXTENSIVE BLANKET), and the canvas framing is solar-clear + antisolar-canvas — but this day has the canvas on the **solar** side with a bare antisolar side, so the model occasionally read "100% solar mid + empty antisolar → blocked → 2".
+- **Fix.** Clarified the rule: thick solar-side mid/high above clear low cloud is a **lit canvas, not a blocker** — only solar LOW cloud blocks light, and this holds even when the antisolar side is bare. Dropped the overloaded "blanket" wording from that line. **No expected scores changed** — this steers the model toward the prompt's own stated answer (4), which matches the observation.
+- **Band corrected to `{4}`.** St Mary's 10 Mar was briefly widened to `{4,5}` for pass^k headroom, but the prompt caps this scenario at 4 ("never 5") and the observation was 4 — so the band is restored to the exact observed `{4}`, true to ground truth.
+- Validated by unit tests (prompt content + fixtures, 129 green); the behavioural fix (2s disappearing) is confirmed by re-running `SkyRatingEvalTest`.
+
 ### Fixed — degenerate `test`/`placeholder` summaries (surfaced by the sky-rating eval)
 - **Symptom.** The first real `SkyRatingEvalTest` run showed the scorer intermittently returning stub summaries (`test`, `placeholder`, `…`) across fixtures — and at least one stub carried an off-band rating, polluting the eval signal.
 - **Root cause.** In `PromptBuilder.buildOutputConfig()` the `summary` (and `basic_summary`) fields were bare `{"type":"string"}` with **no field-level description**, while the 0–100 score fields all carry one. All the "one sentence, in Claude's voice" guidance lived only in the (cached) system prompt, far from the constrained field, so under structured-output decoding the model occasionally satisfied the required field with filler.
