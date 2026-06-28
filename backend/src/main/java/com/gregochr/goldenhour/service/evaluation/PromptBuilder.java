@@ -82,7 +82,11 @@ public class PromptBuilder {
             + "not 5) — the thick mid cloud limits colour VARIETY but is a canvas, NOT a blocker. "
             + "This holds even when the antisolar side is bare: the solar-side mid/high IS the canvas. "
             + "Only solar LOW cloud blocks light — never treat thick solar mid/high cloud as "
-            + "'blocked' or 'no canvas'. NEVER rate 5 when solar horizon mid cloud >80%.\n"
+            + "'blocked' or 'no canvas'. Diffuse, soft, or muted warm tones across this canvas are "
+            + "STILL rate 4 (worth the trip) — uniformity and the absence of vivid reds reduce "
+            + "fiery_sky and cap the rating at 4, but do NOT drop it to 3; a large lit canvas with "
+            + "clear light penetration is reliable good light, not a 'maybe'. NEVER rate 5 when "
+            + "solar horizon mid cloud >80%.\n"
             + "- Antisolar mid/high cloud 20-60% = ideal canvas; >60% is still good (more canvas, "
             + "not a penalty). Antisolar LOW cloud does NOT block light and is NEVER a penalty. "
             + "It sits near the far horizon behind the viewer and can itself catch reflected colour. "
@@ -401,7 +405,7 @@ public class PromptBuilder {
                     dc.antisolarLowCloudPercent(), dc.antisolarMidCloudPercent(),
                     dc.antisolarHighCloudPercent()));
             if (dc.solarMidCloudPercent() > 80) {
-                sb.append(" [THICK MID CLOUD — rate 4, not 5]");
+                sb.append(" [THICK MID CLOUD — rate 4 (worth the trip), not 3, not 5]");
             }
             if (dc.farSolarLowCloudPercent() != null) {
                 int near = dc.solarLowCloudPercent();

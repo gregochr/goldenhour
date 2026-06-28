@@ -1023,7 +1023,7 @@ public class PromptBuilderTest {
 
         String message = promptBuilder.buildUserMessage(data);
 
-        assertThat(message).contains("[THICK MID CLOUD — rate 4, not 5]");
+        assertThat(message).contains("[THICK MID CLOUD — rate 4 (worth the trip), not 3, not 5]");
     }
 
     @Test
