@@ -51,9 +51,16 @@ public final class SkyRatingEvalFixtures {
                     "Real day, ported from PromptRegressionTest#coptHill_5Mar2026_sunset_blocked"
                             + "SolarHorizon (input + observed band verbatim). Near-clear observer point "
                             + "but the solar horizon is blocked (67% low / 100% high) — observed a total "
-                            + "washout. Directional cloud, no cloud-approach (not captured that run).",
+                            + "washout. MONITORED (gated=false), not because the band is soft but because "
+                            + "67% low cloud sits right on the 60% block line: the scorer clusters within "
+                            + "a session and flips between sessions (seen at 6/8, 0/8, 8/8, 0/8), so a "
+                            + "single pass^k run is one effective sample, not a verdict. Band stays {1,2} "
+                            + "(the day was a washout — a 3 would be a real over-rating); the weekly "
+                            + "recorder still trends it. A decisively-blocked day (90%+ low) would be a "
+                            + "stable gated monitor — capture one when convenient.",
                     RatingBand.atMost(2),
-                    "copt-hill-5mar-washout.json"),
+                    "copt-hill-5mar-washout.json",
+                    false),
             new SkyRatingEvalFixture(
                     "angel-of-the-north-2mar-spectacular",
                     "Real day, ported from PromptRegressionTest#angelOfTheNorth_2Mar2026_sunset_"
