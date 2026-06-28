@@ -47,14 +47,21 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
 
     /**
      * Extracts the summary text — bounded so it CANNOT over-capture into a following field
-     * (Bug B). {@code (?:[^"\\]|\\.)*} matches any run of non-quote / escaped characters and
-     * stops at the first genuine (unescaped) closing quote, so it physically cannot swallow
-     * {@code ","headline":"..."}. If the value itself contains unescaped quotes this finds no
-     * match; {@link #SUMMARY_PATTERN_SALVAGE} then salvages the field so the fallback never
+     * (Bug B). The capture {@code [^"\\]*(?:\\.[^"\\]*)*} matches any run of non-quote / escaped
+     * characters and stops at the first genuine (unescaped) closing quote, so it physically cannot
+     * swallow {@code ","headline":"..."}. If the value itself contains unescaped quotes this finds
+     * no match; {@link #SUMMARY_PATTERN_SALVAGE} then salvages the field so the fallback never
      * loses the rating.
+     *
+     * <p>The "unrolled loop" form ({@code [^"\\]*(?:\\.[^"\\]*)*}) is used deliberately instead of
+     * the equivalent {@code (?:[^"\\]|\\.)*}: Java compiles an alternation-inside-a-star to a matcher
+     * that recurses once per character, so a long response reaching this fallback overflowed the
+     * stack ({@code StackOverflowError}). The character-class star {@code [^"\\]*} matches
+     * iteratively, so recursion depth is bounded by the number of escape sequences (≈0), not the
+     * input length.
      */
     static final Pattern SUMMARY_PATTERN =
-            Pattern.compile("\"summary\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"\\s*[,}]");
+            Pattern.compile("\"summary\"\\s*:\\s*\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"\\s*[,}]");
 
     /**
      * Legacy greedy summary extractor, used ONLY when {@link #SUMMARY_PATTERN} (bounded) finds no
@@ -81,9 +88,13 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
     static final Pattern BASIC_GOLDEN_HOUR_PATTERN =
             Pattern.compile("\"basic_golden_hour\"\\s*:\\s*(\\d{1,3})");
 
-    /** Extracts the basic summary — bounded against over-capture, same as {@link #SUMMARY_PATTERN}. */
+    /**
+     * Extracts the basic summary — bounded against over-capture, same as {@link #SUMMARY_PATTERN}
+     * (including the stack-safe unrolled-loop form that avoids {@code StackOverflowError} on long
+     * responses).
+     */
     static final Pattern BASIC_SUMMARY_PATTERN =
-            Pattern.compile("\"basic_summary\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"\\s*[,}]");
+            Pattern.compile("\"basic_summary\"\\s*:\\s*\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"\\s*[,}]");
 
     /** Greedy salvage for basic summary, used only when {@link #BASIC_SUMMARY_PATTERN} finds no match. */
     static final Pattern BASIC_SUMMARY_PATTERN_SALVAGE =
