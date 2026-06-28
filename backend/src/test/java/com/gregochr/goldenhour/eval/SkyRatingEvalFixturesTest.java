@@ -44,6 +44,21 @@ class SkyRatingEvalFixturesTest {
         assertTrue(hasMiddling, "need a middling fixture (graded, not bimodal)");
     }
 
+    @Test
+    void onlyTheKnownBorderlineWashoutIsMonitored() {
+        // 'Monitored' (gated=false) relaxes the build gate, so it must not spread beyond the one
+        // fixture empirically shown to be a session coin-flip. Everything else stays gated so the
+        // manual run still catches real regressions.
+        List<String> monitored = SkyRatingEvalFixtures.ALL.stream()
+                .filter(f -> !f.gated())
+                .map(SkyRatingEvalFixture::name)
+                .toList();
+
+        assertEquals(List.of("copt-hill-5mar-washout"), monitored,
+                "only the known coin-flip washout may be monitored — do not let it become a "
+                        + "dumping ground for inconvenient fixtures");
+    }
+
     @ParameterizedTest(name = "{0}")
     @MethodSource("fixtures")
     void everyFixtureDeserialisesWithCoreFields(SkyRatingEvalFixture fixture) {

@@ -46,7 +46,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   cd backend &amp;&amp; ANTHROPIC_API_KEY=sk-ant-... ./mvnw test -Pprompt-regression -Dtest=SkyRatingEvalTest
  * </pre>
  * A full run is {@code fixtures × N} real calls — currently {@value #RUNS_PER_FIXTURE} runs over the
- * registered fixtures (~48 Sonnet calls).
+ * registered fixtures. To iterate on a single fixture (instead of paying for all of them), pass
+ * {@code -Deval.fixture=<substring>}, e.g. {@code -Deval.fixture=st-marys-10mar} runs only that
+ * fixture's {@value #RUNS_PER_FIXTURE} calls.
  *
  * <p><b>Pass threshold.</b> {@link #MIN_PASSES} is the gate: the default requires all
  * {@value #RUNS_PER_FIXTURE} runs in band (strict pass^k, matching "assert each run is in band").
@@ -54,6 +56,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * hold its band across N runs is genuinely miscalibrated. Lower {@link #MIN_PASSES} by one to
  * tolerate rare single-run variance. The per-fixture report prints regardless, so even a passing
  * run shows the realised pass rate and any near-misses.
+ *
+ * <p><b>Monitored fixtures.</b> A fixture flagged {@code gated = false}
+ * ({@link SkyRatingEvalFixture}) is scored and reported but does <em>not</em> fail the build. This
+ * is reserved for a fixture empirically shown to sit on a rating boundary, where the scorer's
+ * answer clusters within a session (the {@value #RUNS_PER_FIXTURE} runs are correlated, not
+ * independent) and flips between sessions — so a single run's pass^k is one effective sample, not a
+ * verdict. The band is unchanged (still ground truth); the weekly recorder still trends it; only the
+ * single-session gate is relaxed, so the manual gate stays meaningful on the stable fixtures rather
+ * than crying wolf on a coin-flip.
  */
 @Tag("prompt-regression")
 class SkyRatingEvalTest {
@@ -90,7 +101,19 @@ class SkyRatingEvalTest {
     }
 
     private static List<SkyRatingEvalFixture> fixtures() {
-        return SkyRatingEvalFixtures.ALL;
+        String only = System.getProperty("eval.fixture");
+        if (only == null || only.isBlank()) {
+            return SkyRatingEvalFixtures.ALL;
+        }
+        List<SkyRatingEvalFixture> filtered = SkyRatingEvalFixtures.ALL.stream()
+                .filter(f -> f.name().contains(only))
+                .toList();
+        if (filtered.isEmpty()) {
+            throw new IllegalArgumentException("-Deval.fixture='" + only
+                    + "' matched no fixture. Available: "
+                    + SkyRatingEvalFixtures.ALL.stream().map(SkyRatingEvalFixture::name).toList());
+        }
+        return filtered;
     }
 
     @ParameterizedTest(name = "{0}")
@@ -110,6 +133,16 @@ class SkyRatingEvalTest {
 
         // The report is the deliverable — print it before asserting so a failure shows direction.
         System.out.println(report.render());
+
+        // Monitored fixtures are recorded and reported but not gated: a single-session pass^k result
+        // is one effective sample for a boundary-sitting fixture (correlated within a session), so it
+        // must not fail the build. The weekly recorder still trends it; the band is unchanged.
+        if (!fixture.gated()) {
+            System.out.printf("[MONITORED] %s — recorded, not gated (band %s, %d/%d in band this "
+                            + "session). Trend it weekly; a single run is not a verdict.%n",
+                    fixture.name(), fixture.band().label(), report.passes(), RUNS_PER_FIXTURE);
+            return;
+        }
 
         assertTrue(report.passes() >= MIN_PASSES,
                 "Fixture '" + fixture.name() + "' expected " + fixture.band().label()

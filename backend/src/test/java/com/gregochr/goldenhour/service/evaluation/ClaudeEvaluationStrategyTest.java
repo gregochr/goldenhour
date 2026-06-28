@@ -173,6 +173,24 @@ class ClaudeEvaluationStrategyTest {
     }
 
     @Test
+    @DisplayName("parseEvaluation() does not StackOverflow on a long summary in the regex fallback")
+    void parseEvaluation_longSummaryInFallback_doesNotStackOverflow() {
+        // A trailing comma makes this invalid JSON, forcing the regex fallback; the summary value is
+        // long. The old (?:[^"\\]|\\.)* capture recursed once per character and overflowed the stack
+        // on long responses (observed crashing real eval runs). The unrolled-loop form matches it
+        // iteratively. 20k chars is well past the recursion limit of the old pattern.
+        String longSummary = "a".repeat(20_000);
+        String malformed = "{\"rating\": 2, \"fiery_sky\": 50, \"golden_hour\": 60, \"summary\": \""
+                + longSummary + "\", }";
+
+        SunsetEvaluation result = strategy.parseEvaluation(malformed, new ObjectMapper());
+
+        assertThat(result.rating()).isEqualTo(2);
+        assertThat(result.fierySkyPotential()).isEqualTo(50);
+        assertThat(result.summary()).hasSize(20_000);
+    }
+
+    @Test
     @DisplayName("parseBluebellEvaluation() parses rating, summary and headline (strict JSON)")
     void parseBluebellEvaluation_strictJson_parsesAllFields() {
         BluebellEvaluation result = strategy.parseBluebellEvaluation(

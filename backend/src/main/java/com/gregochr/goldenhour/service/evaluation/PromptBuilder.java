@@ -78,9 +78,17 @@ public class PromptBuilder {
             + "- IDEAL scenario: solar horizon low cloud <20% AND mid cloud <50%, with high cloud "
             + "present on either horizon as canvas. Score fiery_sky 70-90, rating 4-5.\n"
             + "- Solar horizon low cloud <20% with thick mid cloud (>80%) = light still penetrates "
-            + "below the mid layer, and the mid/high cloud acts as a large canvas. RATE 4 (not 3, "
-            + "not 5) — the mid-cloud blanket limits colour variety. NEVER rate 5 when solar horizon "
-            + "mid cloud >80%.\n"
+            + "below the mid layer, and the mid/high cloud acts as a large lit canvas. RATE 4 (not 3, "
+            + "not 5) — the thick mid cloud limits colour VARIETY but is a canvas, NOT a blocker. "
+            + "This holds even when the antisolar side is bare: the solar-side mid/high IS the canvas. "
+            + "Only solar LOW cloud blocks light — never treat thick solar mid/high cloud as "
+            + "'blocked' or 'no canvas'. When solar low cloud <20%, diffuse/soft/muted warm tones "
+            + "across this canvas are STILL rate 4 (worth the trip) — uniformity and the absence of "
+            + "vivid reds reduce fiery_sky and cap the rating at 4, but do NOT drop it to 3. This "
+            + "rate-4 floor applies ONLY with clear light penetration (solar low <20%); a BLOCKED "
+            + "solar horizon (low cloud >60%) stays rating 1-2 regardless of any mid/high canvas "
+            + "above it — the blocking ceiling always wins. NEVER rate 5 when solar horizon mid "
+            + "cloud >80%.\n"
             + "- Antisolar mid/high cloud 20-60% = ideal canvas; >60% is still good (more canvas, "
             + "not a penalty). Antisolar LOW cloud does NOT block light and is NEVER a penalty. "
             + "It sits near the far horizon behind the viewer and can itself catch reflected colour. "
@@ -399,7 +407,7 @@ public class PromptBuilder {
                     dc.antisolarLowCloudPercent(), dc.antisolarMidCloudPercent(),
                     dc.antisolarHighCloudPercent()));
             if (dc.solarMidCloudPercent() > 80) {
-                sb.append(" [THICK MID CLOUD — rate 4, not 5]");
+                sb.append(" [THICK MID CLOUD — rate 4 (worth the trip), not 3, not 5]");
             }
             if (dc.farSolarLowCloudPercent() != null) {
                 int near = dc.solarLowCloudPercent();
