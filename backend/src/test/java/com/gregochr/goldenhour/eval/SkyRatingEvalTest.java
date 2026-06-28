@@ -46,7 +46,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   cd backend &amp;&amp; ANTHROPIC_API_KEY=sk-ant-... ./mvnw test -Pprompt-regression -Dtest=SkyRatingEvalTest
  * </pre>
  * A full run is {@code fixtures × N} real calls — currently {@value #RUNS_PER_FIXTURE} runs over the
- * registered fixtures (~48 Sonnet calls).
+ * registered fixtures. To iterate on a single fixture (instead of paying for all of them), pass
+ * {@code -Deval.fixture=<substring>}, e.g. {@code -Deval.fixture=st-marys-10mar} runs only that
+ * fixture's {@value #RUNS_PER_FIXTURE} calls.
  *
  * <p><b>Pass threshold.</b> {@link #MIN_PASSES} is the gate: the default requires all
  * {@value #RUNS_PER_FIXTURE} runs in band (strict pass^k, matching "assert each run is in band").
@@ -90,7 +92,19 @@ class SkyRatingEvalTest {
     }
 
     private static List<SkyRatingEvalFixture> fixtures() {
-        return SkyRatingEvalFixtures.ALL;
+        String only = System.getProperty("eval.fixture");
+        if (only == null || only.isBlank()) {
+            return SkyRatingEvalFixtures.ALL;
+        }
+        List<SkyRatingEvalFixture> filtered = SkyRatingEvalFixtures.ALL.stream()
+                .filter(f -> f.name().contains(only))
+                .toList();
+        if (filtered.isEmpty()) {
+            throw new IllegalArgumentException("-Deval.fixture='" + only
+                    + "' matched no fixture. Available: "
+                    + SkyRatingEvalFixtures.ALL.stream().map(SkyRatingEvalFixture::name).toList());
+        }
+        return filtered;
     }
 
     @ParameterizedTest(name = "{0}")
