@@ -45,7 +45,7 @@ import java.util.stream.Collectors;
 @Service
 public class SkyRatingEvalService {
 
-    private static final Logger log = LoggerFactory.getLogger(SkyRatingEvalService.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SkyRatingEvalService.class);
 
     /** Default runs per fixture — matches the gated {@code SkyRatingEvalTest} pass^k depth. */
     public static final int DEFAULT_RUNS_PER_FIXTURE = 8;
@@ -141,12 +141,12 @@ public class SkyRatingEvalService {
                 }
             }
             finalise(run, agg, SkyRatingEvalStatus.COMPLETED, null, startMs);
-            log.info("Sky-rating eval run {} COMPLETED: {}/{} in band ({}%), {} DOWN, {} UP, cost {}µ$",
+            LOG.info("Sky-rating eval run {} COMPLETED: {}/{} in band ({}%), {} DOWN, {} UP, cost {}µ$",
                     run.getId(), agg.passes, agg.totalRuns, Math.round(agg.passRate() * 100),
                     agg.below, agg.above, agg.costMicroDollars);
         } catch (RuntimeException e) {
             finalise(run, agg, SkyRatingEvalStatus.FAILED, e.getMessage(), startMs);
-            log.error("Sky-rating eval run {} FAILED after {} results", run.getId(), agg.totalRuns, e);
+            LOG.error("Sky-rating eval run {} FAILED after {} results", run.getId(), agg.totalRuns, e);
             throw e;
         }
     }
@@ -250,7 +250,7 @@ public class SkyRatingEvalService {
 
         MissDirection direction = null;
         if (rating == null) {
-            log.warn("Sky-rating eval run {}: fixture {} run {} returned no rating",
+            LOG.warn("Sky-rating eval run {}: fixture {} run {} returned no rating",
                     run.getId(), fixture.name(), runIndex);
         } else {
             direction = fixture.band().classify(rating);

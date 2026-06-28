@@ -5,7 +5,6 @@ import com.gregochr.goldenhour.entity.SkyRatingEvalResultEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalRunEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalStatus;
 import com.gregochr.goldenhour.entity.SkyRatingEvalTrigger;
-import com.gregochr.goldenhour.eval.MissDirection;
 import com.gregochr.goldenhour.eval.SkyRatingEvalFixture;
 import com.gregochr.goldenhour.eval.SkyRatingEvalFixtures;
 import com.gregochr.goldenhour.model.AtmosphericData;
