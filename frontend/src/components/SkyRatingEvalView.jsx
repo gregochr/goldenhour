@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceArea, CartesianGrid,
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceArea, CartesianGrid, Legend,
 } from 'recharts';
 import {
   runSkyRatingEval, getSkyRatingEvalRuns, getSkyRatingEvalRun, getSkyRatingEvalTrend,
@@ -16,6 +16,7 @@ const DEFAULT_RUNS_PER_FIXTURE = 8;
 const DEFAULT_FIXTURE_COUNT = 6;
 const POLL_INTERVAL_MS = 4000;
 const FIXTURE_COLOURS = ['#a78bfa', '#f87171', '#fbbf24', '#34d399', '#60a5fa', '#f472b6', '#fb923c', '#22d3ee'];
+const MODEL_COLOURS = { HAIKU: '#60a5fa', SONNET: '#a78bfa', OPUS: '#fbbf24' };
 
 /**
  * Sky-rating calibration eval — the persisted, graphable counterpart to the gated
@@ -119,9 +120,10 @@ const SkyRatingEvalView = () => {
     return d.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' });
   };
 
+  // Per-fixture drift, scoped to the selected model so the small-multiples aren't 3× lines.
   const byFixture = useMemo(() => {
     const map = {};
-    trend.forEach((p) => {
+    trend.filter((p) => p.model === selectedModel).forEach((p) => {
       (map[p.fixtureName] ||= []).push({
         tsLabel: tsLabel(p.runTimestamp),
         avgRating: p.avgRating,
@@ -134,14 +136,24 @@ const SkyRatingEvalView = () => {
       });
     });
     return map;
-  }, [trend]);
+  }, [trend, selectedModel]);
 
-  const passRateSeries = useMemo(() => runs
-    .filter((r) => r.status === 'COMPLETED')
-    .slice()
-    .reverse()
-    .map((r) => ({ tsLabel: tsLabel(r.runTimestamp), passRate: Math.round(r.passRate * 100), model: r.model })),
-  [runs]);
+  // Model accuracy over time: one pass-rate line per model, so you can see whether Haiku keeps up
+  // with Sonnet/Opus on the ground-truth fixtures (and whether any of them drifts).
+  const modelAccuracySeries = useMemo(() => {
+    const byTs = {};
+    runs.filter((r) => r.status === 'COMPLETED').forEach((r) => {
+      const key = tsLabel(r.runTimestamp);
+      (byTs[key] ||= { tsLabel: key });
+      byTs[key][r.model] = Math.round(r.passRate * 100);
+    });
+    return Object.values(byTs).reverse();
+  }, [runs]);
+
+  const modelsPresent = useMemo(
+    () => MODELS.filter((m) => runs.some((r) => r.status === 'COMPLETED' && r.model === m)),
+    [runs],
+  );
 
   const fixtureNames = Object.keys(byFixture);
 
@@ -215,22 +227,33 @@ const SkyRatingEvalView = () => {
         <p className="text-sm text-plex-text-muted">Loading{'…'}</p>
       ) : (
         <>
-          {/* Overall pass-rate trend */}
-          {passRateSeries.length > 0 && (
+          {/* Model accuracy over time — one pass-rate line per model */}
+          {modelAccuracySeries.length > 0 && (
             <div className="card">
               <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-3">
-                Overall pass rate over time
+                Model accuracy over time — % of fixture runs in band
               </p>
-              <ResponsiveContainer width="100%" height={140}>
-                <LineChart data={passRateSeries} margin={{ top: 4, right: 8, bottom: 0, left: -16 }}>
+              <ResponsiveContainer width="100%" height={160}>
+                <LineChart data={modelAccuracySeries} margin={{ top: 4, right: 8, bottom: 0, left: -16 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#ffffff14" />
                   <XAxis dataKey="tsLabel" tick={{ fontSize: 10, fill: '#9ca3af' }} />
                   <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#9ca3af' }} width={32} unit="%" />
                   <Tooltip
                     contentStyle={{ background: '#1f2430', border: '1px solid #374151', fontSize: 12 }}
-                    formatter={(v) => [`${v}%`, 'pass rate']}
+                    formatter={(v, name) => [`${v}%`, name]}
                   />
-                  <Line type="monotone" dataKey="passRate" stroke="#34d399" strokeWidth={2} dot={{ r: 3 }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  {modelsPresent.map((m) => (
+                    <Line
+                      key={m}
+                      type="monotone"
+                      dataKey={m}
+                      stroke={MODEL_COLOURS[m]}
+                      strokeWidth={2}
+                      dot={{ r: 3 }}
+                      connectNulls
+                    />
+                  ))}
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -239,13 +262,15 @@ const SkyRatingEvalView = () => {
           {/* Per-fixture drift small-multiples */}
           {fixtureNames.length === 0 ? (
             <p className="text-sm text-plex-text-muted" data-testid="sky-eval-empty">
-              No completed runs yet — run the eval to start the trend.
+              No completed {selectedModel} runs yet — run the eval (or pick another model) to start the trend.
             </p>
           ) : (
             <div>
               <div className="flex items-center justify-between mb-3">
                 <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide">
-                  Per-fixture drift
+                  Per-fixture drift ·{' '}
+                  <span className="normal-case text-plex-text-secondary">{selectedModel}</span>{' '}
+                  <span className="normal-case text-plex-text-muted">(pick model above)</span>
                 </p>
                 <div className="flex items-center gap-2 text-xs">
                   {['rating', 'subscores'].map((m) => (
