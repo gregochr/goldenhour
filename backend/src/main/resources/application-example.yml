@@ -143,6 +143,16 @@ photocast:
                              # only the evaluated spots, not the whole roster. At 0.5 this is the
                              # routine far-horizon state (sparse scoring is by design). 0.0 disables.
                              # Does NOT change which locations are scored — labelling only.
+  eval:
+    batch:
+      enabled: true              # weekly multi-model sky-rating eval submits via the Anthropic
+                                 # Batch API (50% token discount) instead of synchronous per-call
+                                 # scoring. false reverts the scheduled job to the sync path; the
+                                 # admin single-model trigger is always synchronous either way.
+      poll-timeout-seconds: 3600  # give up awaiting the eval batch after this long (background
+                                  # virtual thread). The ~144-request eval batch normally ends in
+                                  # minutes; this is the dead-batch backstop.
+      poll-interval-seconds: 20   # seconds between batch status checks while awaiting completion
   pipeline:
     safety-timeout: PT4H   # failure backstop for the batch wait phase (ISO-8601 duration).
                            # Anthropic batch latency is load-dependent: nightly (01:00 UTC) batches
