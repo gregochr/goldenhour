@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — batched execution for the weekly multi-model sky-rating eval
+- **Why.** The weekly eval scores every fixture with Haiku, Sonnet, and Opus — ~144 real-time Claude calls each Sunday. Those per-model runs were always "the unit a future batched execution layer would submit" (the deferred-batching note in the multi-model eval). This builds that layer: the same fixtures × runs × models go out as one **Anthropic Batch API** submission, for the 50% token discount and out-of-band execution.
+- **Orchestration.** `SkyRatingEvalBatchService` builds one request per (run × fixture × run-index) via the pipeline's own `BatchRequestFactory`, submits them as a single batch, then — on a background virtual thread — awaits completion and parses each result back to its origin via a self-describing `e_<runId>_<fixtureIdx>_<runIndex>` custom id. Result text is parsed with the same `ClaudeEvaluationStrategy.parseEvaluation` the synchronous scorer and the forecast batch handler use.
+- **Lean, self-contained path.** A thin `SkyRatingEvalBatchClient` wraps the three SDK calls (submit / await-ended / collect-results); the eval does **not** thread its batches through the forecast pipeline's `ForecastBatchEntity` / polling / disposition machinery (that's coupled to forecast persistence). The few-hundred-request weekly batch completes in minutes, so it polls inline.
+- **Shared persistence.** Run lifecycle, band-classification, result rows, and finalisation stay in `SkyRatingEvalService` — the batch path calls its `persistResult`/`finalise` with `isBatch=true` (halving the recorded cost), so both paths write the `sky_rating_eval_*` tables identically. No schema change.
+- **Config.** `photocast.eval.batch.enabled` (default true) routes the weekly scheduled job to the batched path; `false` reverts it to synchronous. The admin single-model trigger stays synchronous. Poll timeout/interval are configurable (`poll-timeout-seconds`/`poll-interval-seconds`). Trigger a batched run on demand from Manage → Operations → Scheduler → `sky_rating_eval`.
+
 ### Changed — Travel Days panel: usable calendar, explicit inclusivity, future-only descending list
 - **Calendar control.** The native date fields had a near-invisible picker icon on the dark theme and only the icon opened the calendar. The whole field now opens it (`showPicker()` on click), and the indicator is inverted/brightened so it reads on dark (`.date-field` rule in `index.css`).
 - **Inclusivity made explicit.** The From/To labels now say "(inclusive)" and the intro states "Both the start and end date are included" — matching the actual behaviour (the gate uses `BETWEEN`, inclusive of both bounds).

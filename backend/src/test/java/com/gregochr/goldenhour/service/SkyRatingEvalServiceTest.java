@@ -61,18 +61,10 @@ class SkyRatingEvalServiceTest {
     private SkyRatingEvalRunRepository runRepository;
     @Mock
     private SkyRatingEvalResultRepository resultRepository;
-    @Mock
-    private DynamicSchedulerService dynamicSchedulerService;
 
     private SkyRatingEvalService service() {
         return new SkyRatingEvalService(evaluationService, costCalculator, gitInfoService,
-                runRepository, resultRepository, dynamicSchedulerService);
-    }
-
-    @Test
-    void registerJobRegistersTheWeeklyRunnableWithTheScheduler() {
-        service().registerJob();
-        verify(dynamicSchedulerService).registerJobTarget(eq(SkyRatingEvalService.JOB_KEY), any());
+                runRepository, resultRepository);
     }
 
     @Test
@@ -161,7 +153,7 @@ class SkyRatingEvalServiceTest {
                 "prompt", "raw", 100L, new TokenUsage(10, 5, 0, 0));
         when(evaluationService.evaluateWithDetails(any(), eq(EvaluationModel.SONNET), isNull()))
                 .thenReturn(noRating);
-        when(costCalculator.calculateCostMicroDollars(eq(EvaluationModel.SONNET), any()))
+        when(costCalculator.calculateCostMicroDollars(eq(EvaluationModel.SONNET), any(), eq(false)))
                 .thenReturn(0L);
         SkyRatingEvalRunEntity run = runningRun();
         when(runRepository.findById(run.getId())).thenReturn(Optional.of(run));
@@ -186,7 +178,7 @@ class SkyRatingEvalServiceTest {
                 "prompt", "raw", 250L, new TokenUsage(3_800, 180, 0, 0));
         when(evaluationService.evaluateWithDetails(any(AtmosphericData.class),
                 eq(EvaluationModel.SONNET), isNull())).thenReturn(detail);
-        when(costCalculator.calculateCostMicroDollars(eq(EvaluationModel.SONNET), any()))
+        when(costCalculator.calculateCostMicroDollars(eq(EvaluationModel.SONNET), any(), eq(false)))
                 .thenReturn(COST_PER_CALL);
     }
 
@@ -276,7 +268,7 @@ class SkyRatingEvalServiceTest {
                 "prompt", "raw", 100L, new TokenUsage(100, 20, 0, 0));
         when(evaluationService.evaluateWithDetails(any(AtmosphericData.class),
                 any(EvaluationModel.class), isNull())).thenReturn(detail);
-        when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any()))
+        when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(), eq(false)))
                 .thenReturn(COST_PER_CALL);
 
         // In-memory run store so each model's startRun gets a distinct id and executeRun finds it.
