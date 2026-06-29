@@ -60,6 +60,14 @@ public enum DispositionCategory {
     SKIPPED_PAST_DATE,
 
     /**
+     * The candidate's target date falls inside a declared travel range (the
+     * operator is away — typically commuting to London — and cannot shoot). The
+     * whole day's slots are skipped so the batch spends nothing on forecasts that
+     * will never be acted on. Managed via Manage → Operations → Travel Days.
+     */
+    SKIPPED_TRAVEL_DAY,
+
+    /**
      * Candidate passed triage but was gated out by the Gate 4 stability policy
      * (e.g. T+3 with TRANSITIONAL stability, T+4+ entirely). The skip reason
      * from the policy is captured in {@code detail}.

@@ -15,6 +15,8 @@ import { useAuroraViewline } from '../hooks/useAuroraViewline.js';
 import { getAuroraLocations, getAuroraForecastResults, getAuroraForecastAvailableDates } from '../api/auroraApi.js';
 import { getDriveTimes } from '../api/settingsApi.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
+import { fetchTravelDayRanges } from '../api/travelDayApi.js';
+import { isTravelDate } from '../utils/conversions.js';
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 
 // Override Leaflet popup width + scrolling.
@@ -278,6 +280,9 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
   const [driveTimeFilter, setDriveTimeFilter] = useState(0); // 0 = All; positive = max minutes
   const [userDriveTimes, setUserDriveTimes] = useState({});
   useEffect(() => { getDriveTimes().then(setUserDriveTimes).catch(() => {}); }, []);
+  // Travel-day ranges — drive the "forecast not executed (away)" popup badge.
+  const [travelRanges, setTravelRanges] = useState([]);
+  useEffect(() => { fetchTravelDayRanges().then(setTravelRanges).catch(() => {}); }, []);
   const [darkSkyFilter, setDarkSkyFilter] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const { status: auroraStatus } = useAuroraStatus();
@@ -582,6 +587,9 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
 
   const selectedLoc = visibleLocations.find((l) => l.name === selectedLocationName) ?? null;
   const selectedDayData = selectedLoc?.forecastsByDate.get(date);
+  // True when the selected date falls in a travel range — the overnight batch
+  // skips Claude forecasts for those days, so the popup says so explicitly.
+  const isTravelDayForDate = isTravelDate(date, travelRanges);
   const sunriseAzimuth = selectedDayData?.sunrise?.azimuthDeg ?? null;
   const sunsetAzimuth  = selectedDayData?.sunset?.azimuthDeg  ?? null;
 
@@ -958,6 +966,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
                           showComfortRows={isWaterfall}
                           role={role}
                           date={date}
+                          travelDay={isTravelDayForDate}
                           driveMinutes={userDriveTimes[String(loc.id)] ?? null}
                           onTideFetchedAt={(ts) => setTideFetchedAt((prev) => ({ ...prev, [loc.name]: ts }))}
                           tideFetchedAt={tideFetchedAt[loc.name] ?? null}
@@ -1041,6 +1050,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
                 showComfortRows={isWaterfall}
                 role={role}
                 date={date}
+                travelDay={isTravelDayForDate}
                 driveMinutes={userDriveTimes[String(loc.id)] ?? null}
                 onTideFetchedAt={(ts) => setTideFetchedAt((prev) => ({ ...prev, [loc.name]: ts }))}
                 tideFetchedAt={tideFetchedAt[loc.name] ?? null}

@@ -797,6 +797,7 @@ export default function HeatmapGrid({
   isPro = false,
   astroScoresByDate = {},
   showAllLocations = false,
+  travelDayDates = new Set(),
 }) {
   const [drillDown, setDrillDown] = useState(null); // { date, regionName, targetType }
 
@@ -911,6 +912,16 @@ export default function HeatmapGrid({
             <div className="text-plex-text-secondary" style={{ fontSize: '11px' }}>
               {getShortDate(date)}
             </div>
+            {travelDayDates.has(date) && (
+              <div
+                data-testid="heatmap-travel-day-badge"
+                title="You're away on this day — forecast not executed"
+                className="mt-0.5 inline-block text-plex-text-muted border border-plex-border rounded-full px-1.5"
+                style={{ fontSize: '10px' }}
+              >
+                ✈️ Away — no forecast
+              </div>
+            )}
             {(times?.sunriseTime || times?.sunsetTime) && (
               <div
                 data-testid="heatmap-day-solar-times"
@@ -1054,4 +1065,5 @@ HeatmapGrid.propTypes = {
   isPro: PropTypes.bool,
   astroScoresByDate: PropTypes.object,
   showAllLocations: PropTypes.bool,
+  travelDayDates: PropTypes.instanceOf(Set),
 };

@@ -203,6 +203,21 @@ export function groupForecastsByLocation(forecasts) {
  * @returns {Map<string, {sunrise: object|null, sunset: object|null, hourly: Array<object>}>}
  *   A map keyed by date string (YYYY-MM-DD).
  */
+/**
+ * Tests whether an ISO date string (YYYY-MM-DD) falls inside any travel range.
+ *
+ * <p>Ranges are inclusive of both bounds. ISO date strings sort lexicographically
+ * in chronological order, so plain string comparison is correct here.
+ *
+ * @param {string} dateStr - the date to test, "YYYY-MM-DD"
+ * @param {Array<{startDate: string, endDate: string}>} ranges - travel ranges
+ * @returns {boolean} true if the date lies within at least one range
+ */
+export function isTravelDate(dateStr, ranges) {
+  if (!dateStr || !ranges || ranges.length === 0) return false;
+  return ranges.some((r) => dateStr >= r.startDate && dateStr <= r.endDate);
+}
+
 export function groupForecastsByDate(forecasts) {
   const map = new Map();
   // Intermediate: collect most-recent HOURLY row per hour slot
