@@ -328,11 +328,14 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
   const [selectedLocationName, setSelectedLocationName] = useState(null);
   const [zoom, setZoom] = useState(9);
   const [activeTypeFilters, setActiveTypeFilters] = useState(new Set());
-  // Minimum star filter — persisted to localStorage as 'mapFilterMinStars'
+  // Minimum-quality threshold (1–5). It's a true "this and above" control, so it
+  // always holds a value; persisted to localStorage as 'mapFilterMinStars', and
+  // defaults to 3★+ when unset (per the filter-bar tidy).
+  const DEFAULT_MIN_STARS = 3;
   const [minStars, setMinStars] = useState(() => {
     const saved = localStorage.getItem('mapFilterMinStars');
     const n = saved !== null ? parseInt(saved, 10) : NaN;
-    return Number.isFinite(n) && n >= 1 && n <= 5 ? n : null;
+    return Number.isFinite(n) && n >= 1 && n <= 5 ? n : DEFAULT_MIN_STARS;
   });
   const [showUnrated, setShowUnrated] = useState(false);
   // Stand-down filter — hidden by default; power users can reveal triaged locations
@@ -346,7 +349,15 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
   const [travelRanges, setTravelRanges] = useState([]);
   useEffect(() => { fetchTravelDayRanges().then(setTravelRanges).catch(() => {}); }, []);
   const [darkSkyFilter, setDarkSkyFilter] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Filters are collapsed by default (a quiet "tell me more" follow-up to Plan);
+  // the open/closed choice persists since users rarely change filters.
+  const [advancedOpen, setAdvancedOpen] = useState(() => localStorage.getItem('mapFiltersOpen') === '1');
+  const toggleAdvancedOpen = () => setAdvancedOpen((v) => {
+    const next = !v;
+    if (next) localStorage.setItem('mapFiltersOpen', '1');
+    else localStorage.removeItem('mapFiltersOpen');
+    return next;
+  });
   const { status: auroraStatus } = useAuroraStatus();
   const viewlineEnabled = role !== 'LITE_USER' && auroraStatus != null
     && ALERT_WORTHY_LEVELS.has(auroraStatus.level);
@@ -530,13 +541,9 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
   }
 
   function handleMinStarsClick(star) {
-    if (minStars === star) {
-      setMinStars(null);
-      localStorage.removeItem('mapFilterMinStars');
-    } else {
-      setMinStars(star);
-      localStorage.setItem('mapFilterMinStars', String(star));
-    }
+    // Threshold control: selecting a level sets "this and above" and persists.
+    setMinStars(star);
+    localStorage.setItem('mapFilterMinStars', String(star));
   }
 
   function toggleShowUnrated() {
@@ -601,10 +608,14 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
 
   const ratingFiltered = typeFiltered.filter((loc) => {
     if (isStandDownLocation(loc)) return showStandDown;
-    if (minStars === null && !showUnrated) return true;
+    const types = loc.locationType ?? [];
+    const isPureWildlife = types.length > 0 && types.every((t) => t === 'WILDLIFE');
     const rating = getRatingForLocation(loc);
-    if (rating == null) return showUnrated;
-    return minStars === null || rating >= minStars;
+    // Wildlife has no sky rating by design, so the sky-quality threshold must not
+    // hide it. Other unrated (not-yet-evaluated) locations stay admin-gated behind
+    // the "unknown" toggle, so the default 3★+ map reads quality-first.
+    if (rating == null) return isPureWildlife || showUnrated;
+    return rating >= minStars;
   });
 
   const driveFiltered = driveTimeFilter === 0
@@ -687,13 +698,22 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
     return { forecast, hourlyData, isPureWildlife, isWaterfall };
   }
 
-  // Count of active advanced filters — drives the badge on the Filters toggle button
-  const advancedFilterCount = activeTypeFilters.size
-    + (minStars !== null ? 1 : 0)
-    + (showUnrated ? 1 : 0)
-    + (showStandDown ? 1 : 0)
-    + (driveTimeFilter > 0 ? 1 : 0)
-    + (darkSkyFilter ? 1 : 0);
+  // Active (non-default) filters drive the collapsed pill summary and its highlight.
+  const STAR_THRESHOLD_LABELS = { 1: '1★+', 2: '2★+', 3: '3★+', 4: '4★+', 5: '5★' };
+  const hasNonDefaultFilters = minStars !== DEFAULT_MIN_STARS
+    || activeTypeFilters.size > 0 || showUnrated || showStandDown
+    || driveTimeFilter > 0 || darkSkyFilter;
+  const filterSummaryParts = [STAR_THRESHOLD_LABELS[minStars]];
+  activeTypeFilters.forEach((t) => filterSummaryParts.push(
+    LOCATION_TYPE_LABELS[t]?.label ?? (t === 'BLUEBELL' ? 'Bluebell' : t),
+  ));
+  if (driveTimeFilter > 0) {
+    filterSummaryParts.push(driveTimeFilter < 60 ? `≤${driveTimeFilter}m` : `≤${driveTimeFilter / 60}h`);
+  }
+  if (darkSkyFilter) filterSummaryParts.push('Dark sky');
+  if (showStandDown) filterSummaryParts.push('+ stand-down');
+  if (showUnrated) filterSummaryParts.push('+ unknown');
+  const filterSummary = filterSummaryParts.join(' · ');
 
   return (
     <div className="flex flex-col gap-4">
@@ -704,7 +724,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
           onChange={(value) => {
             setUserHasOverriddenEvent(true);
             setEventType(value);
-            setMinStars(null);
+            setMinStars(DEFAULT_MIN_STARS);
             setShowUnrated(false);
             setShowStandDown(false);
             localStorage.removeItem('mapFilterMinStars');
@@ -718,15 +738,21 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
         />
         <button
           data-testid="advanced-filters-toggle"
-          onClick={() => setAdvancedOpen((v) => !v)}
+          onClick={toggleAdvancedOpen}
+          aria-expanded={advancedOpen}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
-            advancedFilterCount > 0
+            hasNonDefaultFilters
               ? 'bg-plex-gold/10 border-plex-gold/40 text-plex-gold'
               : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
           }`}
         >
-          Filters{advancedFilterCount > 0 ? ` (${advancedFilterCount})` : ''}
-          <span aria-hidden="true">{advancedOpen ? '▲' : '▼'}</span>
+          <span aria-hidden="true">{advancedOpen ? '▴' : '▾'}</span>
+          Filters
+          {!advancedOpen && (
+            <span data-testid="filter-summary" className="text-plex-text-muted font-normal">
+              · {filterSummary}
+            </span>
+          )}
         </button>
       </div>
 
@@ -735,177 +761,182 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
         className={`overflow-hidden transition-all duration-200 ${advancedOpen ? 'max-h-96' : 'max-h-0'}`}
         data-testid="advanced-filters-panel"
       >
-        <div className="flex items-center gap-2 flex-wrap pb-1">
-          <span className="text-xs text-plex-text-muted mr-1">Filter:</span>
-          <InfoTip text="Type and star filters combine: locations must match both. Within each group, any selection passes." />
-          {/* Location type chips — hidden in Aurora and Astro modes */}
-          {!isAuroraMode && !isAstroMode && Object.entries(LOCATION_TYPE_LABELS).map(([type, { label, emoji }]) => (
-            <button
-              key={type}
-              onClick={() => toggleTypeFilter(type)}
-              className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
-                activeTypeFilters.has(type)
-                  ? 'bg-plex-border border-plex-border-light text-plex-text'
-                  : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
-              }`}
-            >
-              <span className={type === 'WILDLIFE' ? 'brightness-200 contrast-200 inline-block' : undefined} style={type === 'WILDLIFE' ? { filter: 'brightness(2) contrast(1.5)' } : undefined}>{emoji}</span> {label}
-            </button>
-          ))}
-          {/* Bluebell seasonal chip — only shown during bluebell season */}
-          {!isAuroraMode && !isAstroMode && seasonalFeatures.includes('BLUEBELL') && (
-            <button
-              key="BLUEBELL"
-              data-testid="location-type-filter-BLUEBELL"
-              onClick={() => role !== 'LITE_USER' ? toggleTypeFilter('BLUEBELL') : undefined}
-              disabled={role === 'LITE_USER'}
-              className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
-                role === 'LITE_USER'
-                  ? 'opacity-45 cursor-default bg-plex-surface border-plex-border text-plex-text-secondary'
-                  : activeTypeFilters.has('BLUEBELL')
-                    ? 'bg-plex-border border-plex-border-light text-plex-text'
-                    : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
-              }`}
-              title={role === 'LITE_USER' ? 'Upgrade to Pro to filter by Bluebell sites' : undefined}
-            >
-              🌸 Bluebell
-            </button>
-          )}
-          {!isAuroraMode && !isAstroMode && <span className="text-plex-border mx-1">|</span>}
+        <div className="flex flex-col gap-3 pb-1" data-testid="advanced-filters-content">
+
+          {/* ── Minimum quality — a single "this and above" threshold ── */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] uppercase tracking-wide text-plex-text-muted font-semibold">Minimum quality</span>
+              <InfoTip text="Shows locations rated this many stars and above. Combines with the Subject and Logistics filters: a location must match all three." />
+            </div>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <div className="inline-flex rounded-full border border-plex-border overflow-hidden" role="group" aria-label="Minimum quality threshold">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={`star-${star}`}
+                    onClick={() => handleMinStarsClick(star)}
+                    data-testid={`star-filter-${star}`}
+                    aria-pressed={star >= minStars}
+                    title={`Show ${star}★ and above`}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium transition-colors border-l border-plex-border first:border-l-0 ${
+                      star >= minStars
+                        ? 'bg-plex-gold/20 text-plex-gold'
+                        : 'bg-plex-surface text-plex-text-secondary hover:text-plex-text'
+                    }`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="inline-block rounded-full"
+                      style={{ width: 8, height: 8, backgroundColor: RATING_COLOURS[star] }}
+                    />
+                    {star}&#9733;{star < 5 ? '+' : ''}
+                  </button>
+                ))}
+              </div>
+              <span className="text-[11px] text-plex-text-muted" data-testid="quality-hint">
+                showing {minStars}★ and above · saved
+              </span>
+            </div>
+
+            {/* Admin-only debug toggles — surface washouts / unknown-state locations
+                so an empty map reads as "nothing good" rather than a load failure.
+                Not a photographer feature, hence the admin gate. */}
+            {role === 'ADMIN' && !isAuroraMode && !isAstroMode && (
+              <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                <span className="text-[10px] uppercase tracking-wide text-plex-text-muted/70 border border-plex-border rounded px-1.5 py-px">admin</span>
+                <button
+                  onClick={toggleShowStandDown}
+                  disabled={!hasStandDown}
+                  data-testid="star-filter-standdown"
+                  title={!hasStandDown
+                    ? 'No stand-down locations in view'
+                    : showStandDown ? 'Hide stand-down locations' : 'Show stand-down locations'}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
+                    !hasStandDown
+                      ? 'bg-plex-surface border-plex-border text-plex-text-muted/40 cursor-not-allowed'
+                      : showStandDown
+                        ? 'bg-plex-gold/20 border-plex-gold/50 text-plex-gold'
+                        : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
+                  }`}
+                >
+                  <span aria-hidden="true" className="inline-block rounded-full" style={{ width: 8, height: 8, backgroundColor: STAND_DOWN_COLOUR }} />
+                  &mdash; stand-down
+                </button>
+                <button
+                  onClick={toggleShowUnrated}
+                  disabled={!hasUnrated}
+                  data-testid="star-filter-unrated"
+                  title={!hasUnrated ? 'No unknown-state locations in view' : 'Toggle locations with no evaluation'}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors ${
+                    !hasUnrated
+                      ? 'bg-transparent border border-dashed border-plex-text-muted/20 text-plex-text-muted/40 cursor-not-allowed'
+                      : showUnrated
+                        ? 'bg-plex-text-muted/20 border border-dashed border-plex-text-muted/60 text-plex-text-secondary'
+                        : 'bg-transparent border border-dashed border-plex-text-muted/30 text-plex-text-muted hover:text-plex-text-secondary'
+                  }`}
+                >
+                  <span aria-hidden="true" className="inline-block rounded-full" style={{ width: 8, height: 8, backgroundColor: 'transparent', border: '1px dashed #888780' }} />
+                  ? unknown
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* ── Subject — location-type chips (hidden in Aurora/Astro modes) ── */}
           {!isAuroraMode && !isAstroMode && (
-            <>
-              <button
-                onClick={toggleShowStandDown}
-                disabled={!hasStandDown}
-                data-testid="star-filter-standdown"
-                title={!hasStandDown
-                  ? 'No stand-down locations in view'
-                  : showStandDown
-                    ? 'Hide stand-down locations'
-                    : 'Show stand-down locations'}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
-                  !hasStandDown
-                    ? 'bg-plex-surface border-plex-border text-plex-text-muted/40 cursor-not-allowed'
-                    : showStandDown
-                      ? 'bg-plex-gold/20 border-plex-gold/50 text-plex-gold'
-                      : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
-                }`}
-              >
-                <span
-                  aria-hidden="true"
-                  className="inline-block rounded-full"
-                  style={{ width: 8, height: 8, backgroundColor: STAND_DOWN_COLOUR }}
-                />
-                &mdash; stand-down
-              </button>
-              <span className="text-plex-border mx-1">|</span>
-            </>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[11px] uppercase tracking-wide text-plex-text-muted font-semibold">Subject</span>
+              <div className="flex items-center gap-2 flex-wrap">
+                {Object.entries(LOCATION_TYPE_LABELS).map(([type, { label, emoji }]) => (
+                  <button
+                    key={type}
+                    onClick={() => toggleTypeFilter(type)}
+                    className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+                      activeTypeFilters.has(type)
+                        ? 'bg-plex-border border-plex-border-light text-plex-text'
+                        : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
+                    }`}
+                  >
+                    <span className={type === 'WILDLIFE' ? 'brightness-200 contrast-200 inline-block' : undefined} style={type === 'WILDLIFE' ? { filter: 'brightness(2) contrast(1.5)' } : undefined}>{emoji}</span> {label}
+                  </button>
+                ))}
+                {seasonalFeatures.includes('BLUEBELL') && (
+                  <button
+                    key="BLUEBELL"
+                    data-testid="location-type-filter-BLUEBELL"
+                    onClick={() => role !== 'LITE_USER' ? toggleTypeFilter('BLUEBELL') : undefined}
+                    disabled={role === 'LITE_USER'}
+                    className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+                      role === 'LITE_USER'
+                        ? 'opacity-45 cursor-default bg-plex-surface border-plex-border text-plex-text-secondary'
+                        : activeTypeFilters.has('BLUEBELL')
+                          ? 'bg-plex-border border-plex-border-light text-plex-text'
+                          : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
+                    }`}
+                    title={role === 'LITE_USER' ? 'Upgrade to Pro to filter by Bluebell sites' : undefined}
+                  >
+                    🌸 Bluebell
+                  </button>
+                )}
+              </div>
+            </div>
           )}
-          {[1, 2, 3, 4, 5].map((star) => (
-            <button
-              key={`star-${star}`}
-              onClick={() => handleMinStarsClick(star)}
-              data-testid={`star-filter-${star}`}
-              title={minStars === star ? `Showing ${star}★ and above — click to clear` : `Show ${star}★ and above`}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
-                minStars !== null && star >= minStars
-                  ? 'bg-plex-gold/20 border-plex-gold/50 text-plex-gold'
-                  : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
-              }`}
-            >
-              <span
-                aria-hidden="true"
-                className="inline-block rounded-full"
-                style={{ width: 8, height: 8, backgroundColor: RATING_COLOURS[star] }}
-              />
-              {star}&#9733;
-            </button>
-          ))}
-          {role === 'ADMIN' && (
-            <>
-              <span className="text-plex-border mx-1">|</span>
-              <button
-                onClick={toggleShowUnrated}
-                disabled={!hasUnrated}
-                data-testid="star-filter-unrated"
-                title={!hasUnrated
-                  ? 'No unknown-state locations in view'
-                  : 'Toggle locations with no evaluation'}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors ${
-                  !hasUnrated
-                    ? 'bg-transparent border border-dashed border-plex-text-muted/20 text-plex-text-muted/40 cursor-not-allowed'
-                    : showUnrated
-                      ? 'bg-plex-text-muted/20 border border-dashed border-plex-text-muted/60 text-plex-text-secondary'
-                      : 'bg-transparent border border-dashed border-plex-text-muted/30 text-plex-text-muted hover:text-plex-text-secondary'
-                }`}
+
+          {/* ── Logistics — drive time, dark-sky, clear ── */}
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[11px] uppercase tracking-wide text-plex-text-muted font-semibold">Logistics</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                value={driveTimeFilter}
+                onChange={(e) => setDriveTimeFilter(parseInt(e.target.value, 10))}
+                className="text-xs px-2 py-1 bg-plex-surface border border-plex-border rounded-full text-plex-text-secondary focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                data-testid="drive-time-filter-select"
+                title="Filter by drive time from last-refreshed position"
               >
-                <span
-                  aria-hidden="true"
-                  className="inline-block rounded-full"
-                  style={{
-                    width: 8,
-                    height: 8,
-                    backgroundColor: 'transparent',
-                    border: '1px dashed #888780',
+                <option value={0}>🚗 Any drive time</option>
+                <option value={30}>🚗 ≤30 min</option>
+                <option value={45}>🚗 ≤45 min</option>
+                <option value={60}>🚗 ≤60 min</option>
+                <option value={90}>🚗 ≤90 min</option>
+                <option value={120}>🚗 ≤2 hrs</option>
+              </select>
+              {!isAuroraMode && !isAstroMode && (
+                <>
+                  <button
+                    onClick={() => setDarkSkyFilter((v) => !v)}
+                    data-testid="dark-sky-filter-toggle"
+                    title={`Show only locations with a light pollution rating of ${darkSkyThreshold} or lower — suitable for aurora, astrophotography, and stargazing.`}
+                    className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+                      darkSkyFilter
+                        ? 'bg-indigo-900/40 border-indigo-500/60 text-indigo-300'
+                        : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
+                    }`}
+                  >
+                    🔭 Dark sky only
+                  </button>
+                  <InfoTip text={`Shows locations with a light pollution rating of ${darkSkyThreshold} or lower — suitable for aurora, astrophotography, and stargazing.${role === 'ADMIN' ? '\n\nRun 🌌 Refresh Light Pollution in Location Management to populate ratings.' : ''}`} />
+                </>
+              )}
+              {hasNonDefaultFilters && (
+                <button
+                  onClick={() => {
+                    setActiveTypeFilters(new Set());
+                    setMinStars(DEFAULT_MIN_STARS);
+                    setShowUnrated(false);
+                    setShowStandDown(false);
+                    setDriveTimeFilter(0);
+                    setDarkSkyFilter(false);
+                    localStorage.removeItem('mapFilterMinStars');
+                    localStorage.removeItem('mapFilterShowStandDown');
                   }}
-                />
-                ? unknown
-              </button>
-            </>
-          )}
-          <span className="text-plex-border mx-1">|</span>
-          <select
-            value={driveTimeFilter}
-            onChange={(e) => setDriveTimeFilter(parseInt(e.target.value, 10))}
-            className="text-xs px-2 py-1 bg-plex-surface border border-plex-border rounded-full text-plex-text-secondary focus:outline-none focus:ring-1 focus:ring-plex-gold"
-            data-testid="drive-time-filter-select"
-            title="Filter by drive time from last-refreshed position"
-          >
-            <option value={0}>🚗 All</option>
-            <option value={30}>🚗 ≤30 min</option>
-            <option value={45}>🚗 ≤45 min</option>
-            <option value={60}>🚗 ≤60 min</option>
-            <option value={90}>🚗 ≤90 min</option>
-            <option value={120}>🚗 ≤2 hrs</option>
-          </select>
-          {/* Dark sky chip — hidden in Astro and Aurora modes (light pollution filtering already implicit) */}
-          {!isAuroraMode && !isAstroMode && (
-            <>
-              <span className="text-plex-border mx-1">|</span>
-              <button
-                onClick={() => setDarkSkyFilter((v) => !v)}
-                data-testid="dark-sky-filter-toggle"
-                title={`Show only locations with a light pollution rating of ${darkSkyThreshold} or lower — suitable for aurora, astrophotography, and stargazing.`}
-                className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
-                  darkSkyFilter
-                    ? 'bg-indigo-900/40 border-indigo-500/60 text-indigo-300'
-                    : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
-                }`}
-              >
-                🔭 Dark sky
-              </button>
-              <InfoTip text={`Shows locations with a light pollution rating of ${darkSkyThreshold} or lower — suitable for aurora, astrophotography, and stargazing.${role === 'ADMIN' ? '\n\nRun 🌌 Refresh Light Pollution in Location Management to populate ratings.' : ''}`} />
-            </>
-          )}
-          {(activeTypeFilters.size > 0 || minStars !== null || showUnrated
-              || showStandDown || driveTimeFilter > 0 || darkSkyFilter) && (
-            <button
-              onClick={() => {
-                setActiveTypeFilters(new Set());
-                setMinStars(null);
-                setShowUnrated(false);
-                setShowStandDown(false);
-                setDriveTimeFilter(0);
-                setDarkSkyFilter(false);
-                localStorage.removeItem('mapFilterMinStars');
-                localStorage.removeItem('mapFilterShowStandDown');
-              }}
-              className="px-3 py-1 text-xs font-medium rounded-full border border-plex-border text-plex-text-muted hover:text-plex-text-secondary transition-colors"
-              data-testid="clear-all-filters"
-            >
-              Clear
-            </button>
-          )}
+                  className="px-3 py-1 text-xs font-medium rounded-full border border-plex-border text-plex-text-muted hover:text-plex-text-secondary transition-colors"
+                  data-testid="clear-all-filters"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

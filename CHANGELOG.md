@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Map filter bar tidy (threshold control, grouped, collapsed default)
+- **Why.** The Map is the "tell me more" follow-up to Plan, so the filter bar should be quiet by default. The old bar was one undifferentiated strip of ~16 controls with pipe separators, and the six rating "dots" looked like independent toggles when they actually behave as a minimum threshold.
+- **Minimum-quality threshold.** The 1–5★ controls now render as a single segmented "this and above" control (`1★+ · 2★+ · 3★+ · 4★+ · 5★`) with a saved-state hint. It's a true threshold — selecting a level sets it (no more toggle-off), keeps each rating colour pip, persists to localStorage, and **defaults to 3★+** when unset.
+- **Grouped & labelled.** Controls are grouped under **Minimum quality / Subject / Logistics** labels instead of pipe separators.
+- **Admin-gated debug toggles.** The `— stand-down` and `? unknown` filters are a debug affordance (surface a washout instead of an empty map you can't distinguish from a load failure), so both are now **admin-only**, shown under a small "admin" tag inside the Quality group. Photographers (LITE/PRO) see only the threshold.
+- **Collapsed by default.** The filter bar defaults to collapsed — a single `▾ Filters · 3★+ …` pill summarising the active threshold and any other active filters; the open/closed choice persists. The event toggles (Sunrise/Sunset/Astro/Aurora) stay always-visible (they're the mode switch, not a filter).
+- **Filtering.** Wildlife (no sky rating by design) is exempt from the quality threshold so it never disappears; other unrated/not-yet-evaluated colour locations stay behind the admin "unknown" toggle, so the default 3★+ map reads quality-first.
+
 ### Fixed — Map marker collision in dense corridors (Hadrian's Wall)
 - **Why.** Dense corridors (Hadrian's Wall packs ~7 spots into a few km) collided two ways at typical zoom: permanent name-labels overlapped into unreadable text-soup, and the rating discs themselves piled up.
 - **Labels on demand (the biggest win).** Dropped the permanent name label under every marker. The default marker is now the rating disc only; the name appears as a small dark chip below the disc on hover/focus (desktop) and is otherwise out of the way. The marker icon footprint shrank from 100×62 to the 44×44 disc, so markers occupy far less space.

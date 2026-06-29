@@ -64,8 +64,15 @@ vi.mock('../api/auroraApi.js', () => ({
   getAuroraForecastAvailableDates: vi.fn().mockResolvedValue(['2026-04-01']),
 }));
 
+// Astro scores ≥ 3 for the two Bortle-classed locations so they survive the
+// default 3★+ quality threshold; this isolates the astro-mode bortle filter
+// (the behaviour under test) from the threshold. LightPolluted has no bortle
+// class, so it is excluded by the astro filter regardless of its score.
 vi.mock('../api/astroApi.js', () => ({
-  getAstroConditions: vi.fn().mockResolvedValue([]),
+  getAstroConditions: vi.fn().mockResolvedValue([
+    { locationName: 'DarkSite', stars: 4 },
+    { locationName: 'ModerateSky', stars: 3 },
+  ]),
   getAstroAvailableDates: vi.fn().mockResolvedValue([]),
 }));
 
@@ -224,8 +231,10 @@ describe('MapView astro mode filtering', () => {
       fireEvent.click(screen.getByTestId('type-astro'));
     });
     // In ASTRO mode, only locations with bortleClass != null are rendered.
-    // DarkSite (bortle 3) and ModerateSky (bortle 5) should be visible, LightPolluted (null) should not.
-    const markers = screen.getAllByTestId('marker');
+    // DarkSite (bortle 3, astro 4★) and ModerateSky (bortle 5, astro 3★) survive
+    // both the astro bortle filter and the default 3★+ threshold; LightPolluted
+    // (bortleClass null) is excluded by the astro filter.
+    const markers = await screen.findAllByTestId('marker');
     expect(markers).toHaveLength(2);
   });
 

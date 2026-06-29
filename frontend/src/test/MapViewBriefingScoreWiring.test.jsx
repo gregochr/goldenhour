@@ -94,9 +94,11 @@ function makeLocation(name, id) {
     lon: -0.6,
     regionName: 'The North Yorkshire Coast',
     locationType: ['SEASCAPE'],
+    // A forecast rating keeps the marker visible under the default 3★+ quality
+    // threshold; these tests exercise the briefingScore wiring, not the filter.
     forecastsByDate: new Map([[TODAY, {
-      sunrise: { solarEventTime: `${TODAY}T06:00:00` },
-      sunset: { solarEventTime: `${TODAY}T18:00:00` },
+      sunrise: { solarEventTime: `${TODAY}T06:00:00`, rating: 4 },
+      sunset: { solarEventTime: `${TODAY}T18:00:00`, rating: 4 },
     }]]),
   };
 }
