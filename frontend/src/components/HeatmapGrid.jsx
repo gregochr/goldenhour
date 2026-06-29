@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { computeCellTier, isCellVisible, resolveRegionDisplay } from '../utils/tierUtils.js';
 import { formatEventTimeUk, formatTideHighlight } from '../utils/conversions.js';
 import InfoTip from './InfoTip.jsx';
+import SlotLocationName from './shared/SlotLocationName.jsx';
 import { RATING_COLOURS } from './markerUtils.js';
 
 // ── Pure helpers (copied from DailyBriefing — shared logic) ─────────────────
@@ -165,16 +166,6 @@ function UnscoredPill({ verdict }) {
   );
 }
 
-function Chevron({ open, className = '' }) {  return (
-    <span
-      aria-hidden="true"
-      className={`inline-block transition-transform duration-200 leading-none select-none ${open ? 'rotate-90' : 'rotate-0'} ${className}`}
-    >
-      ▶
-    </span>
-  );
-}
-
 /**
  * Sort order for drill-down location slots:
  *   1. King tide + GO
@@ -275,7 +266,7 @@ function isPoorSlot(slot) {
   return slot.verdict === 'STANDDOWN';
 }
 
-function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evaluationComplete = false, showAllLocations = false }) {
+function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evaluationComplete = false, showAllLocations = false, date = null, targetType = null, onShowOnMap = null }) {
   // Track which rows are *collapsed* (not expanded) so default is expanded —
   // any slot not in this set shows its full summary.
   const [collapsedRows, setCollapsedRows] = useState(new Set());
@@ -347,10 +338,13 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
             ) : (
               <UnscoredPill verdict={slot.verdict} />
             )}
-            <span className="font-medium text-plex-text" style={{ fontSize: '13px' }}>
-              {typeIcon && <span data-testid="slot-type-icon">{typeIcon} </span>}
-              {slot.locationName}
-            </span>
+            <SlotLocationName
+              name={slot.locationName}
+              typeIcon={typeIcon}
+              date={date}
+              targetType={targetType}
+              onShowOnMap={onShowOnMap}
+            />
             <span className="text-plex-text-secondary" style={{ fontSize: '12px' }}>
               {formatTime(slot.solarEventTime)}
             </span>
@@ -425,10 +419,13 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
                 <span className="inline-block px-2 py-0.5 rounded text-[12px] font-bold bg-red-900/40 text-red-300/70">
                   Poor
                 </span>
-                <span className="font-medium text-plex-text" style={{ fontSize: '13px' }}>
-                  {typeIcon && <span>{typeIcon} </span>}
-                  {slot.locationName}
-                </span>
+                <SlotLocationName
+                  name={slot.locationName}
+                  typeIcon={typeIcon}
+                  date={date}
+                  targetType={targetType}
+                  onShowOnMap={onShowOnMap}
+                />
                 <span className="text-plex-text-muted" style={{ fontSize: '12px' }}>
                   {slot.claudeHeadline || slot.standdownReason || slot.flags?.[0] || 'Poor conditions'}
                 </span>
@@ -573,6 +570,9 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
                   evaluationComplete={slotScores.size > 0 || (region.slots || []).some((s) => s.claudeRating != null)}
                   isPro={isPro}
                   showAllLocations={showAllLocations}
+                  date={date}
+                  targetType={es.targetType}
+                  onShowOnMap={onShowOnMap}
                 />
               )}
             </div>

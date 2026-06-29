@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — click a Plan-tab location to open it on the map
+- **Why.** From the briefing drill-down you could see a location's verdict and headline, but reaching its full forecast meant switching to Map, finding the date, the event type, and the marker by hand. The location name is the obvious thing to click — now it is.
+- **What.** Each location name in the briefing drill-down slot list is now a button. Clicking it switches to the Map tab with the date and solar event (sunrise/sunset) pre-selected, flies to the location, and opens its popup. Mobile selection drives the existing bottom sheet; desktop opens the Leaflet popup once the fly animation settles (so the marker has declustered).
+- **How.** New shared `SlotLocationName` component renders the clickable name (falls back to a plain label when no handler/date is supplied). `LocationSlotList` in both `HeatmapGrid` and `DailyBriefing` thread `onShowOnMap(date, targetType, locationName)` through. `App.handleShowOnMap` gained an optional `locationName` plus a monotonic nonce so repeat taps re-trigger selection; `MapView` flies to the location and a new `HandoffPopupController` opens its popup via a marker-ref map.
+
 ### Added — travel-day gate: skip forecasts for dates you're away
 - **Why.** The sole operator commutes to London on a roster that changes week to week; on those days no photography happens at the configured locations, so any overnight Claude forecast whose **target** date falls on a travel day is pure spend with no payoff.
 - **Gate (per target-date, not whole-run).** `ForecastTaskCollector.collectForecastCandidates` now skips every candidate whose target date is a declared travel day — mirroring the existing PAST_DATE skip — with a new `SKIPPED_TRAVEL_DAY` disposition and a `[BATCH DIAG] SKIP date … reason=TRAVEL_DAY` log line. The nightly batch still runs and still covers non-travel days; only the unusable target dates drop out. An empty `travel_day` table makes the gate a no-op.
