@@ -167,15 +167,16 @@ describe('HeatmapGrid — verdict labels', () => {
     expect(standdownCell.textContent).not.toContain('Maybe');
   });
 
-  it('GO cell uses green text colour', () => {
+  it('GO cell verdict label uses the go CSS-var colour', () => {
     renderGrid();
 
     const cells = screen.getAllByTestId('heatmap-cell');
     const goCell = cells.find((c) => c.textContent.includes('Worth it sunset'));
-    expect(goCell.querySelector('.text-green-300')).toBeTruthy();
+    const label = [...goCell.children].find((el) => el.textContent.includes('Worth it sunset'));
+    expect(label.style.color).toBe('var(--color-verdict-go)');
   });
 
-  it('MARGINAL cell uses amber text colour', () => {
+  it('MARGINAL cell verdict label uses the marginal CSS-var colour', () => {
     const days = [DATE_1].map((date) => ({
       date,
       eventSummaries: [{
@@ -196,7 +197,8 @@ describe('HeatmapGrid — verdict labels', () => {
 
     const cells = screen.getAllByTestId('heatmap-cell');
     const marginalCell = cells.find((c) => c.textContent.includes('Maybe sunset'));
-    expect(marginalCell.querySelector('.text-amber-300')).toBeTruthy();
+    const label = [...marginalCell.children].find((el) => el.textContent.includes('Maybe sunset'));
+    expect(label.style.color).toBe('var(--color-verdict-marginal)');
   });
 });
 
@@ -230,8 +232,8 @@ describe('HeatmapGrid — tide badge formatting', () => {
   });
 });
 
-describe('HeatmapGrid — region gloss', () => {
-  it('renders gloss text instead of clear% when gloss is present', () => {
+describe('HeatmapGrid — region gloss in hover tip', () => {
+  it('renders the gloss sentence in the cell hover tip (not the visible cell body)', () => {
     const days = [DATE_1].map((date) => ({
       date,
       eventSummaries: [{
@@ -251,12 +253,11 @@ describe('HeatmapGrid — region gloss', () => {
       briefingDays: days,
     });
 
-    const cells = screen.getAllByTestId('heatmap-cell');
-    expect(cells[0].textContent).toContain('High cirrus canvas');
-    expect(cells[0].textContent).not.toContain('% clear');
+    const tip = screen.getByTestId('cell-hover-tip');
+    expect(tip.textContent).toContain('High cirrus canvas');
   });
 
-  it('falls back to clear% when gloss is null', () => {
+  it('prefers glossDetail over glossHeadline in the hover tip', () => {
     const days = [DATE_1].map((date) => ({
       date,
       eventSummaries: [{
@@ -265,6 +266,32 @@ describe('HeatmapGrid — region gloss', () => {
           regionName: 'North East',
           verdict: 'GO',
           summary: 'Clear skies',
+          glossHeadline: 'High cirrus canvas',
+          glossDetail: 'Thin high cloud at 40% provides colour canvas.',
+          slots: [{ locationName: 'Bamburgh', verdict: 'GO', solarEventTime: `${date}T19:30:00` }],
+        }],
+      }],
+    }));
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    const tip = screen.getByTestId('cell-hover-tip');
+    expect(tip.textContent).toContain('Thin high cloud at 40% provides colour canvas.');
+    expect(tip.textContent).not.toContain('High cirrus canvas');
+  });
+
+  it('falls back to summary in the hover tip when no gloss fields present', () => {
+    const days = [DATE_1].map((date) => ({
+      date,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          summary: 'Clear skies all evening',
           glossHeadline: null,
           slots: [
             { locationName: 'Bamburgh', verdict: 'GO', solarEventTime: `${date}T19:30:00`, lowCloudPercent: 20 },
@@ -279,12 +306,11 @@ describe('HeatmapGrid — region gloss', () => {
       briefingDays: days,
     });
 
-    const cells = screen.getAllByTestId('heatmap-cell');
-    expect(cells[0].textContent).not.toContain('High cirrus');
-    // Should show clear% (exact value depends on computation)
+    const tip = screen.getByTestId('cell-hover-tip');
+    expect(tip.textContent).toContain('Clear skies all evening');
   });
 
-  it('gloss text is italic', () => {
+  it('gloss text in the hover tip is italic', () => {
     const days = [DATE_1].map((date) => ({
       date,
       eventSummaries: [{
@@ -304,8 +330,8 @@ describe('HeatmapGrid — region gloss', () => {
       briefingDays: days,
     });
 
-    const cells = screen.getAllByTestId('heatmap-cell');
-    const glossDiv = cells[0].querySelector('.italic');
+    const tip = screen.getByTestId('cell-hover-tip');
+    const glossDiv = tip.querySelector('.italic');
     expect(glossDiv).toBeTruthy();
     expect(glossDiv.textContent).toContain('Clear all layers');
   });
@@ -358,37 +384,6 @@ function buildMixedBriefingDays(date, regionName, slotVerdicts) {
   }];
 }
 
-describe('HeatmapGrid — verdict gradient bar', () => {
-  it('gradient reflects 2 GO + 1 STANDDOWN as ~33% red then ~67% green', () => {
-    const days = buildMixedBriefingDays(DATE_1, 'North East', ['GO', 'GO', 'STANDDOWN']);
-    renderGrid({
-      events: [{ date: DATE_1, targetType: 'SUNSET' }],
-      briefingDays: days,
-    });
-
-    const gradient = screen.queryByTestId('verdict-gradient');
-    expect(gradient).toBeTruthy();
-    // 1/3 STANDDOWN = 33.33% (left), 0% MARGINAL, 2/3 GO (right)
-    const bg = gradient.style.background;
-    expect(bg).toContain('33.3');
-    expect(bg).toContain('var(--color-verdict-standdown)');
-    expect(bg).toContain('var(--color-verdict-go)');
-  });
-
-  it('all-GO region has 100% green gradient', () => {
-    renderGrid({
-      events: [{ date: DATE_1, targetType: 'SUNSET' }],
-    });
-
-    const gradient = screen.queryAllByTestId('verdict-gradient')[0];
-    expect(gradient).toBeTruthy();
-    const bg = gradient.style.background;
-    // 100% GO → green covers full width
-    expect(bg).toContain('100%');
-    expect(bg).toContain('var(--color-verdict-go)');
-  });
-});
-
 describe('HeatmapGrid — STANDDOWN slots in drill-down', () => {
   it('STANDDOWN slots hidden by default when drill-down is expanded', () => {
     const days = buildMixedBriefingDays(DATE_1, 'North East', ['GO', 'STANDDOWN', 'STANDDOWN']);
@@ -409,7 +404,7 @@ describe('HeatmapGrid — STANDDOWN slots in drill-down', () => {
     expect(screen.queryByTestId('standdown-divider')).toBeNull();
   });
 
-  it('STANDDOWN slots visible with reason when showAllLocations is true', () => {
+  it('STANDDOWN slots listed in the Poor section when showAllLocations is true', () => {
     const days = buildMixedBriefingDays(DATE_1, 'North East', ['GO', 'STANDDOWN', 'STANDDOWN']);
     renderGrid({
       events: [{ date: DATE_1, targetType: 'SUNSET' }],
@@ -425,11 +420,12 @@ describe('HeatmapGrid — STANDDOWN slots in drill-down', () => {
     const standdownSlots = screen.queryAllByTestId('standdown-slot');
     expect(standdownSlots).toHaveLength(2);
 
-    // Divider text present
-    expect(screen.getByTestId('standdown-divider').textContent).toBe('Poor conditions');
+    // Divider text now describes the poor, not-evaluated count — no per-row reason
+    expect(screen.getByTestId('standdown-divider').textContent.replace(/\s+/g, ' ').trim())
+      .toBe('poor · not evaluated · 2 locations');
 
-    // Standdown reason text shown on the STANDDOWN slots
-    expect(standdownSlots[0].textContent).toContain('Heavy cloud');
+    // The poor row carries the location name (Loc1 / Loc2 from buildMixedBriefingDays)
+    expect(standdownSlots[0].textContent).toContain('Loc');
   });
 
   it('fully-STANDDOWN region cell is disabled when toggle is off', () => {
@@ -460,18 +456,18 @@ describe('HeatmapGrid — STANDDOWN slots in drill-down', () => {
     fireEvent.click(cell);
     expect(screen.getByTestId('drill-down-panel')).toBeTruthy();
 
-    // Both STANDDOWN slots visible with their reason
+    // Both STANDDOWN slots visible (as poor rows with their name)
     const standdownSlots = screen.queryAllByTestId('standdown-slot');
     expect(standdownSlots).toHaveLength(2);
-    expect(standdownSlots[0].textContent).toContain('Heavy cloud');
+    expect(standdownSlots[0].textContent).toContain('Loc');
 
     // No hint — the STANDDOWN slots themselves are the content
     expect(screen.queryByTestId('standdown-hint')).toBeNull();
   });
 });
 
-describe('HeatmapGrid — glossDetail InfoTip', () => {
-  it('renders InfoTip trigger when glossDetail is present', () => {
+describe('HeatmapGrid — glossDetail in cell hover tip', () => {
+  it('hover tip carries glossDetail text when present', () => {
     const days = [DATE_1].map((date) => ({
       date,
       eventSummaries: [{
@@ -492,11 +488,11 @@ describe('HeatmapGrid — glossDetail InfoTip', () => {
       briefingDays: days,
     });
 
-    const trigger = screen.queryByTestId('infotip-trigger');
-    expect(trigger).toBeTruthy();
+    const tip = screen.getByTestId('cell-hover-tip');
+    expect(tip.textContent).toContain('High cloud at 40% provides excellent colour canvas.');
   });
 
-  it('does not render InfoTip when glossDetail is null', () => {
+  it('hover tip falls back to glossHeadline when glossDetail is null', () => {
     const days = [DATE_1].map((date) => ({
       date,
       eventSummaries: [{
@@ -517,11 +513,11 @@ describe('HeatmapGrid — glossDetail InfoTip', () => {
       briefingDays: days,
     });
 
-    const trigger = screen.queryByTestId('infotip-trigger');
-    expect(trigger).toBeNull();
+    const tip = screen.getByTestId('cell-hover-tip');
+    expect(tip.textContent).toContain('High cirrus canvas');
   });
 
-  it('InfoTip shows glossDetail text when clicked', () => {
+  it('no in-cell InfoTip trigger is rendered anymore', () => {
     const days = [DATE_1].map((date) => ({
       date,
       eventSummaries: [{
@@ -542,11 +538,7 @@ describe('HeatmapGrid — glossDetail InfoTip', () => {
       briefingDays: days,
     });
 
-    const trigger = screen.getByTestId('infotip-trigger');
-    fireEvent.click(trigger);
-
-    const popover = screen.getByTestId('infotip-popover');
-    expect(popover.textContent).toContain('Excellent colour potential');
+    expect(screen.queryByTestId('infotip-trigger')).toBeNull();
   });
 });
 
@@ -576,8 +568,11 @@ describe('HeatmapGrid — glossDetail in drill-down', () => {
     const cell = screen.getByTestId('heatmap-cell');
     fireEvent.click(cell);
 
-    // glossDetail should appear immediately between event row and locations
-    expect(screen.getByText('Thin high cloud at 40% provides colour canvas. Horizon clear.')).toBeTruthy();
+    // glossDetail should appear immediately between event row and locations.
+    // (The same sentence also appears in the cell hover tip, so scope the query
+    // to the drill-down panel.)
+    const drillDown = screen.getByTestId('drill-down-panel');
+    expect(drillDown.textContent).toContain('Thin high cloud at 40% provides colour canvas. Horizon clear.');
   });
 
   it('briefing drill-down omits glossDetail when null', () => {
@@ -803,38 +798,8 @@ describe('HeatmapGrid — cell accessibility and keyboard', () => {
   });
 });
 
-describe('HeatmapGrid — InfoTip click does not trigger cell drill-down', () => {
-  it('clicking InfoTip inside a cell does not open drill-down', () => {
-    const days = [DATE_1].map((date) => ({
-      date,
-      eventSummaries: [{
-        targetType: 'SUNSET',
-        regions: [{
-          regionName: 'North East',
-          verdict: 'GO',
-          summary: 'Clear skies',
-          glossHeadline: 'High cirrus canvas',
-          glossDetail: 'Cloud detail text.',
-          slots: [{ locationName: 'Bamburgh', verdict: 'GO', solarEventTime: `${date}T19:30:00` }],
-        }],
-      }],
-    }));
-
-    renderGrid({
-      events: [{ date: DATE_1, targetType: 'SUNSET' }],
-      briefingDays: days,
-    });
-
-    // Click the InfoTip — not the cell
-    fireEvent.click(screen.getByTestId('infotip-trigger'));
-
-    // Popover should show
-    expect(screen.getByTestId('infotip-popover')).toBeInTheDocument();
-    // Drill-down must NOT open
-    expect(screen.queryByTestId('drill-down-panel')).toBeNull();
-  });
-
-  it('clicking cell body still opens drill-down when InfoTip is present', () => {
+describe('HeatmapGrid — cell click opens drill-down', () => {
+  it('clicking cell body opens drill-down when a gloss hover tip is present', () => {
     const days = [DATE_1].map((date) => ({
       date,
       eventSummaries: [{
@@ -1050,10 +1015,11 @@ describe('HeatmapGrid — backend-cached Claude scores', () => {
 
     const meanBadge = screen.queryByTestId('mean-score-badge');
     expect(meanBadge).toBeTruthy();
-    expect(meanBadge.textContent).toContain('4.0');
+    // A single 4★ slot → mean 4, rendered without a trailing .0
+    expect(meanBadge.textContent).toContain('4★');
   });
 
-  it('shows full summary and secondary scores by default (expanded)', () => {
+  it('row is collapsed by default \u2014 full summary revealed only on row-head click', () => {
     const days = buildDaysWithCachedScores(
       4, 78, 52, 'Dramatic light expected. Cloud approaching from the west.',
     );
@@ -1064,42 +1030,22 @@ describe('HeatmapGrid — backend-cached Claude scores', () => {
 
     fireEvent.click(screen.getByTestId('heatmap-cell'));
 
-    // Expanded by default: full summary visible
+    // Collapsed by default \u2014 no expanded-detail block yet
+    expect(screen.queryByTestId('expanded-detail')).toBeNull();
+
+    // Reveal by clicking the row head
+    fireEvent.click(screen.getByTestId('drilldown-row-head'));
+
     const detail = screen.getByTestId('expanded-detail');
     expect(detail.textContent).toContain('Dramatic light expected.');
     expect(detail.textContent).toContain('Cloud approaching from the west.');
 
-    // Secondary scores visible
+    // Secondary scores visible when expanded
     expect(screen.getByTestId('fiery-sky-score').textContent).toContain('78');
     expect(screen.getByTestId('golden-hour-score').textContent).toContain('52');
-
-    // Toggle shows minus (already expanded)
-    expect(screen.getByTestId('expand-toggle').textContent).toBe('\u2212');
   });
 
-  it('collapses to first-sentence preview on toggle click', () => {
-    const days = buildDaysWithCachedScores(
-      3, 45, 60, 'Average conditions today. Cloud will build later in the afternoon.',
-    );
-    renderGrid({
-      events: [{ date: DATE_1, targetType: 'SUNSET' }],
-      briefingDays: days,
-    });
-
-    fireEvent.click(screen.getByTestId('heatmap-cell'));
-
-    const toggle = screen.getByTestId('expand-toggle');
-    fireEvent.click(toggle); // collapse
-
-    // Collapsed: first sentence only, no expanded-detail block
-    expect(screen.queryByTestId('expanded-detail')).toBeNull();
-    const slot = screen.getByTestId('briefing-slot');
-    expect(slot.textContent).toContain('Average conditions today.');
-    expect(slot.textContent).not.toContain('Cloud will build');
-    expect(toggle.textContent).toBe('+');
-  });
-
-  it('re-expands on second click', () => {
+  it('re-collapses on a second row-head click', () => {
     const days = buildDaysWithCachedScores(4, 78, 52, 'Dramatic light.');
     renderGrid({
       events: [{ date: DATE_1, targetType: 'SUNSET' }],
@@ -1108,15 +1054,15 @@ describe('HeatmapGrid — backend-cached Claude scores', () => {
 
     fireEvent.click(screen.getByTestId('heatmap-cell'));
 
-    const toggle = screen.getByTestId('expand-toggle');
-    fireEvent.click(toggle); // collapse
-    fireEvent.click(toggle); // re-expand
-
+    const rowHead = screen.getByTestId('drilldown-row-head');
+    fireEvent.click(rowHead); // expand
     expect(screen.getByTestId('expanded-detail')).toBeTruthy();
-    expect(toggle.textContent).toBe('\u2212');
+
+    fireEvent.click(rowHead); // collapse again
+    expect(screen.queryByTestId('expanded-detail')).toBeNull();
   });
 
-  it('falls back to verdict pill when no Claude scores exist', () => {
+  it('falls back to verdict pill (no score badge) when no Claude scores exist', () => {
     const days = buildDaysWithCachedScores(null, null, null, null);
     renderGrid({
       events: [{ date: DATE_1, targetType: 'SUNSET' }],
@@ -1125,13 +1071,16 @@ describe('HeatmapGrid — backend-cached Claude scores', () => {
 
     fireEvent.click(screen.getByTestId('heatmap-cell'));
 
-    // No score badge
+    // No score badge (rating null) \u2014 the row shows a muted dash instead
     expect(screen.queryByTestId('score-badge')).toBeNull();
-    // No expand toggle
-    expect(screen.queryByTestId('expand-toggle')).toBeNull();
+    // No expanded detail and clicking the row head does nothing (no reasoning)
+    const rowHead = screen.getByTestId('drilldown-row-head');
+    expect(rowHead.getAttribute('role')).toBeNull();
+    fireEvent.click(rowHead);
+    expect(screen.queryByTestId('expanded-detail')).toBeNull();
   });
 
-  it('does not show expand toggle when summary is null', () => {
+  it('row head is not interactive (no reasoning) when summary is null', () => {
     const days = buildDaysWithCachedScores(4, 78, 52, null);
     renderGrid({
       events: [{ date: DATE_1, targetType: 'SUNSET' }],
@@ -1142,68 +1091,22 @@ describe('HeatmapGrid — backend-cached Claude scores', () => {
 
     // Score badge shows (rating is set)
     expect(screen.getByTestId('score-badge')).toBeTruthy();
-    // But no expand toggle (no summary to show)
-    expect(screen.queryByTestId('expand-toggle')).toBeNull();
-  });
-
-  it('truncates first sentence to 100 chars with ellipsis when collapsed', () => {
-    const longSentence = 'A'.repeat(120) + '.';
-    const days = buildDaysWithCachedScores(3, 50, 50, longSentence);
-    renderGrid({
-      events: [{ date: DATE_1, targetType: 'SUNSET' }],
-      briefingDays: days,
-    });
-
-    fireEvent.click(screen.getByTestId('heatmap-cell'));
-    // Collapse first \u2014 default is expanded
-    fireEvent.click(screen.getByTestId('expand-toggle'));
-
-    const slot = screen.getByTestId('briefing-slot');
-    // Should contain the truncation ellipsis
-    expect(slot.textContent).toContain('\u2026');
-    // Should NOT contain the full 120-char sentence
-    expect(slot.textContent).not.toContain(longSentence);
+    // But the row head has no button role and no arrow \u2014 nothing to expand
+    const rowHead = screen.getByTestId('drilldown-row-head');
+    expect(rowHead.getAttribute('role')).toBeNull();
+    expect(rowHead.textContent).not.toContain('\u25b6');
+    fireEvent.click(rowHead);
+    expect(screen.queryByTestId('expanded-detail')).toBeNull();
   });
 });
 
 // \u2500\u2500 Gate 2 redesign: claudeHeadline + displayVerdict-based filtering \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
-describe('HeatmapGrid \u2014 Gate 2 claudeHeadline and Claude-elevated slots', () => {
-  it('renders Claude headline under a regular slot row when present', () => {
-    const days = [{
-      date: DATE_1,
-      eventSummaries: [{
-        targetType: 'SUNSET',
-        regions: [{
-          regionName: 'North East',
-          verdict: 'GO',
-          summary: 'Clear skies',
-          slots: [{
-            locationName: 'Bamburgh',
-            verdict: 'GO',
-            solarEventTime: `${DATE_1}T19:30:00`,
-            claudeRating: 4,
-            claudeSummary: 'Plenty of cloud canvas.',
-            claudeHeadline: 'Pre-frontal fire \u2014 mid cloud catches colour',
-          }],
-        }],
-      }],
-    }];
-    renderGrid({
-      events: [{ date: DATE_1, targetType: 'SUNSET' }],
-      briefingDays: days,
-    });
-
-    fireEvent.click(screen.getByTestId('heatmap-cell'));
-
-    const headline = screen.getByTestId('slot-headline');
-    expect(headline.textContent).toContain('Pre-frontal fire');
-  });
-
+describe('HeatmapGrid \u2014 Gate 2 displayVerdict-based slot placement', () => {
   it('keeps a Claude-elevated STANDDOWN slot in the main list (displayVerdict overrides verdict)', () => {
     // Triage said STANDDOWN (Heavy cloud) but Claude rated 4\u2605 and elevated the slot
     // to WORTH_IT via DisplayVerdict.resolve. The slot must NOT be banished to the
-    // dimmed "Poor conditions" section.
+    // dimmed "Poor" section.
     const days = [{
       date: DATE_1,
       eventSummaries: [{
@@ -1220,7 +1123,7 @@ describe('HeatmapGrid \u2014 Gate 2 claudeHeadline and Claude-elevated slots', (
             solarEventTime: `${DATE_1}T19:30:00`,
             standdownReason: 'Heavy cloud',
             claudeRating: 4,
-            claudeHeadline: 'Cloud breaking up just in time',
+            claudeSummary: 'Cloud breaking up just in time.',
             flags: [],
           }],
         }],
@@ -1236,11 +1139,11 @@ describe('HeatmapGrid \u2014 Gate 2 claudeHeadline and Claude-elevated slots', (
     // The slot is in the main list (briefing-slot), not the dimmed standdown row
     expect(screen.queryAllByTestId('briefing-slot')).toHaveLength(1);
     expect(screen.queryAllByTestId('standdown-slot')).toHaveLength(0);
-    // The headline is rendered
-    expect(screen.getByTestId('slot-headline').textContent).toContain('Cloud breaking up');
+    // The elevated slot keeps its Claude star badge
+    expect(screen.getByTestId('score-badge').textContent).toContain('4\u2605');
   });
 
-  it('shows claudeHeadline in the dimmed Poor row when slot is genuinely STAND_DOWN', () => {
+  it('banishes a genuinely STAND_DOWN slot to the dimmed Poor row (name only, no reasoning)', () => {
     const days = [{
       date: DATE_1,
       eventSummaries: [{
@@ -1256,7 +1159,7 @@ describe('HeatmapGrid \u2014 Gate 2 claudeHeadline and Claude-elevated slots', (
             solarEventTime: `${DATE_1}T19:30:00`,
             standdownReason: 'Rain',
             claudeRating: 1,
-            claudeHeadline: 'Heavy rain \u2014 stay in and edit',
+            claudeSummary: 'Heavy rain \u2014 stay in and edit.',
             flags: ['Active rain'],
           }],
         }],
@@ -1271,7 +1174,11 @@ describe('HeatmapGrid \u2014 Gate 2 claudeHeadline and Claude-elevated slots', (
     fireEvent.click(screen.getByTestId('heatmap-cell'));
 
     const standdownSlot = screen.getByTestId('standdown-slot');
-    expect(standdownSlot.textContent).toContain('Heavy rain \u2014 stay in and edit');
+    // The poor row shows the plain location name \u2014 no reasoning/headline
+    expect(standdownSlot.textContent).toContain('Bamburgh');
+    expect(standdownSlot.textContent).not.toContain('stay in and edit');
+    // Not surfaced as a live briefing slot
+    expect(screen.queryAllByTestId('briefing-slot')).toHaveLength(0);
   });
 });
 
@@ -1332,7 +1239,7 @@ function renderDales(days, date) {
 }
 
 describe('HeatmapGrid — lightly-evaluated framing', () => {
-  it('scope-marks the header and renders distinct pills when lightly evaluated', () => {
+  it('scope-marks the header with the evaluated count when lightly evaluated', () => {
     const date = DATE_1;
     renderDales(lightlyEvaluatedDays(date), date);
     fireEvent.click(screen.getByTestId('heatmap-cell'));
@@ -1342,13 +1249,11 @@ describe('HeatmapGrid — lightly-evaluated framing', () => {
     const note = screen.getByTestId('coverage-note');
     expect(note.textContent.replace(/\s+/g, ' ')).toContain('1 of 3 evaluated');
 
-    // Unscored-but-clear slots get the distinct ghost pill, never "Worth it".
-    const ghosts = screen.getAllByTestId('unscored-pill');
-    expect(ghosts.length).toBe(2);
-    ghosts.forEach((p) => expect(p.textContent).toContain('not scored'));
-
-    // The Claude-scored slot keeps its star badge — visually distinct.
-    expect(screen.getByTestId('score-badge').textContent).toContain('4★');
+    // The single Claude-scored slot keeps its star badge; unscored slots show a
+    // muted dash instead of a star pill.
+    const badges = screen.getAllByTestId('score-badge');
+    expect(badges).toHaveLength(1);
+    expect(badges[0].textContent).toContain('4★');
   });
 
   it('omits the coverage note when the region is not lightly evaluated', () => {
@@ -1358,12 +1263,11 @@ describe('HeatmapGrid — lightly-evaluated framing', () => {
     expect(screen.queryByTestId('coverage-note')).toBeNull();
   });
 
-  it('fully-covered region: no ghost pills and no coverage note', () => {
+  it('fully-covered region: a star badge per slot and no coverage note', () => {
     const date = DATE_1;
     renderDales(lightlyEvaluatedDays(date, { lightlyEvaluated: false, allScored: true }), date);
     fireEvent.click(screen.getByTestId('heatmap-cell'));
     expect(screen.queryByTestId('coverage-note')).toBeNull();
-    expect(screen.queryAllByTestId('unscored-pill').length).toBe(0);
     expect(screen.getAllByTestId('score-badge').length).toBe(3);
   });
 });

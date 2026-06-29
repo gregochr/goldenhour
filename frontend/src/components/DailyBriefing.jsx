@@ -9,12 +9,15 @@ import { useAuth } from '../context/AuthContext.jsx';
 import HeatmapGrid from './HeatmapGrid.jsx';
 import SlotLocationName from './shared/SlotLocationName.jsx';
 import HotTopicStrip from './HotTopicStrip.jsx';
-import QualitySlider from './QualitySlider.jsx';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
 import { computeCellTier, isCellVisible, resolveRegionDisplay } from '../utils/tierUtils.js';
 import { formatEventTimeUk, formatTideHighlight, isTravelDate } from '../utils/conversions.js';
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+
+// The quality slider was retired from the Plan tab — poor cells are now muted
+// passively rather than hidden, so every tier is shown (5 = include stand-down).
+const SHOW_ALL_TIER = 5;
 
 // ── Small shared components ─────────────────────────────────────────────────
 /* eslint-disable react/prop-types */
@@ -305,56 +308,45 @@ function getSortedRegions(upcomingEvents, briefingDays) {
 // ── EventSummaryRow (mobile collapsed: compact per-event row) ──────────────
 
 /* eslint-disable react/prop-types */
-function EventSummaryRow({ dayLabel, es, travelDay, isOpen, onToggle }) {
+function EventSummaryRow({ dayLabel, es, isOpen, onToggle }) {
   const emoji = es.targetType === 'SUNRISE' ? '🌅' : '🌇';
   const eventLabel = es.targetType === 'SUNRISE' ? 'Sunrise' : 'Sunset';
   const counts = getVerdictCounts(es);
   const tideAligned = hasTideAligned(es);
 
-  const countColours = {
-    GO: 'text-green-400',
-    MARGINAL: 'text-amber-400',
-    STANDDOWN: 'text-red-400',
-  };
+  // Mostly-poor rows (nothing worth it) fade back so the eye skips to the green rows.
+  const mostlyPoor = counts.GO === 0;
 
   return (
     <button
       data-testid="event-summary-row"
       className="w-full flex items-center gap-2 text-xs min-h-[44px] px-1 rounded hover:bg-plex-bg/30 text-left"
+      style={{ opacity: mostlyPoor ? 0.4 : 1 }}
       onClick={onToggle}
     >
       <span className="w-36 shrink-0 font-medium text-plex-text" style={{ fontSize: '13px' }}>
         {emoji} {dayLabel} {eventLabel}
       </span>
-      <span className="flex gap-2 flex-wrap flex-1 items-center">
-        {travelDay && (
-          <span
-            data-testid="travel-day-chip"
-            title="You're away on this day — forecast not executed"
-            className="text-plex-text-muted border border-plex-border rounded-full px-2 py-0.5"
-            style={{ fontSize: '11px' }}
-          >
-            ✈️ Away — no forecast
-          </span>
-        )}
+      {/* Counts read at a glance — lowercase so they stop shouting. */}
+      <span className="flex gap-2.5 flex-wrap flex-1 items-center" style={{ fontFamily: 'var(--font-mono)' }}>
         {counts.GO > 0 && (
-          <span className={countColours.GO} data-testid="go-count" style={{ fontSize: '12px' }}>
-            {counts.GO} GO
+          <span data-testid="go-count" style={{ fontSize: '12px', color: 'var(--color-verdict-go)' }}>
+            {counts.GO} go
           </span>
         )}
         {counts.MARGINAL > 0 && (
-          <span className={countColours.MARGINAL} data-testid="marginal-count" style={{ fontSize: '12px' }}>
-            {counts.MARGINAL} MARGINAL
+          <span data-testid="marginal-count" style={{ fontSize: '12px', color: 'var(--color-verdict-marginal)' }}>
+            {counts.MARGINAL} maybe
           </span>
         )}
         {counts.STANDDOWN > 0 && (
-          <span className={countColours.STANDDOWN} data-testid="standdown-count" style={{ fontSize: '12px' }}>
-            {counts.STANDDOWN} STANDDOWN
+          <span data-testid="standdown-count" className="text-plex-text-muted" style={{ fontSize: '12px' }}>
+            {counts.STANDDOWN} poor
           </span>
         )}
       </span>
       {tideAligned && (
-        <span title="Tide-aligned location in this event" className="text-blue-400 shrink-0">
+        <span title="Tide-aligned location in this event" className="shrink-0" style={{ color: 'var(--color-tide)' }}>
           🌊
         </span>
       )}
@@ -704,6 +696,8 @@ function MobileRegionCard({ date, regionName, briefingDays, driveMap, typeMap, i
 // ── BestBetBanner (updated: side-by-side on sm+, pick ② muted) ───────────────
 
 function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick, stale = false }) {
+  // Which card has its detail paragraph expanded past the 2-line clamp.
+  const [expandedRank, setExpandedRank] = useState(null);
   if (!picks || picks.length === 0) return null;
 
   return (
@@ -711,26 +705,20 @@ function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick, stale = fals
       {stale && (
         <div
           data-testid="best-bet-stale"
-          className="mb-1.5 flex items-center gap-1.5 text-amber-400"
-          style={{ fontSize: '11px' }}
+          className="mb-1.5 flex items-center gap-1.5"
+          style={{ fontSize: '11px', color: 'var(--color-verdict-marginal)' }}
           title="This run's best-bet advisor failed — showing the last successful recommendation. Conditions may have changed."
         >
           <span aria-hidden="true">⚠</span>
           <span>From an earlier forecast — today&apos;s update didn&apos;t complete, so conditions may have changed.</span>
         </div>
       )}
-      <div className="flex flex-col sm:flex-row gap-1.5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {picks.map((pick) => {
           const eventKey = resolveEventKey(pick.event, todayStr, tomorrowStr);
           const navigable = pick.event != null && eventKey != null;
           const lowConf = pick.confidence === 'low';
-
           const isPrimary = pick.rank === 1;
-          const borderClass = lowConf ? 'border-plex-border'
-            : isPrimary ? 'border-green-600/60' : 'border-slate-400/40';
-          const bgClass = lowConf ? 'bg-plex-surface/30'
-            : isPrimary ? 'bg-green-600/5' : 'bg-slate-400/5';
-          const cursorClass = navigable ? 'cursor-pointer hover:bg-plex-surface/50' : 'cursor-default';
 
           const pick1 = picks[0];
           const isNearestGood = pick.rank === 2
@@ -739,53 +727,83 @@ function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick, stale = fals
           const rankLabel = pick.rank === 1
             ? '① BEST BET'
             : isNearestGood ? '② NEAREST GOOD' : '② ALSO GOOD';
-          const rankColour = lowConf ? 'text-plex-text-muted'
-            : isPrimary ? 'text-green-400' : 'text-slate-300';
+          // Lead colour belongs to the verdict family; chrome stays bone.
+          const labelColour = lowConf
+            ? 'var(--color-plex-text-muted)'
+            : isPrimary ? 'var(--color-verdict-go)' : 'var(--color-plex-text-secondary)';
+          const accentColour = isPrimary && !lowConf
+            ? 'var(--color-verdict-go)' : 'var(--color-plex-border-light)';
+
+          const expanded = expandedRank === pick.rank;
+          const clampStyle = expanded
+            ? {}
+            : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' };
 
           return (
-            <button
+            <div
               key={pick.rank}
               data-testid={`best-bet-pick-${pick.rank}`}
-              disabled={!navigable}
-              className={`flex-1 text-left rounded px-3 py-2.5 border transition-colors
-                ${borderClass} ${bgClass} ${cursorClass}`}
+              role={navigable ? 'button' : undefined}
+              tabIndex={navigable ? 0 : undefined}
+              className={`rounded border border-plex-border transition-colors
+                ${navigable ? 'cursor-pointer hover:bg-plex-surface-light/40' : 'cursor-default'}`}
+              style={{ padding: '14px 16px', borderLeft: `3px solid ${accentColour}` }}
               onClick={navigable ? () => onPickClick(eventKey) : undefined}
+              onKeyDown={navigable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPickClick(eventKey); } } : undefined}
             >
-              <div className="flex items-center gap-2 mb-0.5">
-                <span className={`font-bold uppercase tracking-wider ${rankColour}`}
-                  style={{ fontSize: '11px' }}>
+              <div className="flex items-baseline justify-between gap-3">
+                <span
+                  className="font-semibold uppercase"
+                  style={{ fontSize: '11px', letterSpacing: '0.08em', color: labelColour }}
+                >
                   {rankLabel}
                 </span>
-                {lowConf && (
-                  <span className="text-plex-text-muted italic" style={{ fontSize: '11px' }}>
-                    (low confidence)
-                  </span>
-                )}
                 {pick.region && (
-                  <span className="text-plex-text-muted ml-auto" style={{ fontSize: '11px' }}>
+                  <span className="text-plex-text-muted text-right" style={{ fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
                     {pick.region}
                   </span>
                 )}
               </div>
+              {lowConf && (
+                <span className="text-plex-text-muted italic" style={{ fontSize: '11px' }}>
+                  (low confidence)
+                </span>
+              )}
               {pick.dayName && pick.eventType && (
-                <p className="text-plex-text-secondary leading-snug mb-0.5"
-                  style={{ fontSize: '13px' }}>
+                <p className="text-plex-text-secondary" style={{ fontSize: '12px', fontFamily: 'var(--font-mono)', marginTop: '6px' }}>
                   {pick.dayName} {pick.eventType}
                   {pick.eventTime && <> · {pick.eventTime}</>}
                   {pick.nearestDriveMinutes != null && pick.nearestDriveMinutes > 0
                     && <> · {pick.nearestDriveMinutes} min drive</>}
                 </p>
               )}
-              <p className="font-medium leading-snug text-plex-text"
-                style={{ fontSize: '14px' }}>
+              <p className="font-semibold text-plex-text" style={{ fontSize: '16px', letterSpacing: '-0.01em', marginTop: '4px', textWrap: 'balance' }}>
                 {pick.headline}
               </p>
               {pick.detail && (
-                <p className="text-plex-text-secondary mt-0.5 leading-relaxed" style={{ fontSize: '12px' }}>
-                  {pick.detail}
-                </p>
+                <>
+                  <p
+                    data-testid="best-bet-detail"
+                    className="text-plex-text-secondary"
+                    style={{ fontSize: '13px', fontFamily: 'var(--font-serif)', lineHeight: 1.55, marginTop: '8px', ...clampStyle }}
+                  >
+                    {pick.detail}
+                  </p>
+                  <button
+                    type="button"
+                    data-testid="best-bet-read-more"
+                    className="text-plex-text-muted hover:text-plex-text underline"
+                    style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', marginTop: '6px', textUnderlineOffset: '2px' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setExpandedRank(expanded ? null : pick.rank);
+                    }}
+                  >
+                    {expanded ? 'Show less ▴' : 'Read more ▾'}
+                  </button>
+                </>
               )}
-            </button>
+            </div>
           );
         })}
       </div>
@@ -866,7 +884,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
   const [isExpanded, setIsExpanded] = useState(false);
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
   const [openCardKeys, setOpenCardKeys] = useState(new Set()); // "date-regionName"
-  const [qualityTier, setQualityTier] = useLocalStorageState('plannerQualityTier', 2);
+  const qualityTier = SHOW_ALL_TIER;
   const [showAllLocations, setShowAllLocations] = useLocalStorageState('showStanddownLocations', false);
   const intervalRef = useRef(null);
 
@@ -1064,27 +1082,6 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(d);
   })();
 
-  /** Slider cell counts: total cells and visible cells at current qualityTier. */
-  const sliderCounts = useMemo(() => {
-    if (!briefing) return { showing: 0, total: 0 };
-    let total = 0;
-    let showing = 0;
-    for (const regionName of sortedRegions) {
-      for (const { date, targetType } of upcomingEvents) {
-        const day = briefing.days.find((d) => d.date === date);
-        if (!day) continue;
-        const es = (day.eventSummaries || []).find((e) => e.targetType === targetType);
-        if (!es) continue;
-        const region = (es.regions || []).find((r) => r.regionName === regionName);
-        if (!region) continue;
-        total += 1;
-        const tier = computeCellTier(region);
-        if (isCellVisible(tier, qualityTier)) showing += 1;
-      }
-    }
-    return { showing, total };
-  }, [briefing, sortedRegions, upcomingEvents, qualityTier]);
-
   if (loading) {
     return (
       <div data-testid="daily-briefing-loading" className="card mb-4">
@@ -1208,7 +1205,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
         </div>
       ) : null}
 
-      {/* ── Hot Topics strip — seasonal conditions between Best Bet and slider ── */}
+      {/* ── Hot Topics strip — seasonal conditions below the Best Bet cards ── */}
       {briefing.hotTopics?.length > 0 ? (
         <HotTopicStrip
           hotTopics={briefing.hotTopics}
@@ -1219,20 +1216,6 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
         />
       ) : null}
 
-      {/* ── Quality threshold slider + show-all toggle (desktop + mobile) ── */}
-      {dayDates.length > 0 && (
-        <div data-testid="quality-slider-row">
-          <QualitySlider
-            value={qualityTier}
-            onChange={setQualityTier}
-            showing={sliderCounts.showing}
-            total={sliderCounts.total}
-            showAllLocations={showAllLocations}
-            onShowAllLocationsChange={setShowAllLocations}
-          />
-        </div>
-      )}
-
       {/* ── Mobile section (sm:hidden) ── */}
       <div className="sm:hidden">
         {/* Compact event-summary rows — always visible */}
@@ -1242,14 +1225,13 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
               No upcoming events
             </p>
           ) : (
-            mobileEvents.map(({ es, dayLabel, date, travelDay }) => {
+            mobileEvents.map(({ es, dayLabel, date }) => {
               const eventKey = `${date}-${es.targetType}`;
               return (
                 <div key={eventKey} data-event-key={eventKey}>
                   <EventSummaryRow
                     dayLabel={dayLabel}
                     es={es}
-                    travelDay={travelDay}
                     isOpen={isExpanded}
                     onToggle={() => setIsExpanded((v) => !v)}
                   />
@@ -1374,6 +1356,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
         isPro={isPro}
         astroScoresByDate={astroScoresByDate}
         showAllLocations={showAllLocations}
+        onShowAllLocationsChange={setShowAllLocations}
         travelDayDates={travelDayDates}
       />
     </div>
