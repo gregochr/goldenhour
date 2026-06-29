@@ -1367,3 +1367,35 @@ describe('HeatmapGrid — lightly-evaluated framing', () => {
     expect(screen.getAllByTestId('score-badge').length).toBe(3);
   });
 });
+
+// ── Clickable location name → Show on Map handoff ───────────────────────────
+
+describe('HeatmapGrid — clickable location name', () => {
+  it('calls onShowOnMap with date, event type and location name when a slot name is clicked', () => {
+    const onShowOnMap = vi.fn();
+    const regionName = 'North East';
+    const days = buildBriefingDays([DATE_1], regionName, ['Bamburgh']);
+
+    render(
+      <HeatmapGrid
+        events={[{ date: DATE_1, targetType: 'SUNSET' }]}
+        sortedRegions={[regionName]}
+        briefingDays={days}
+        qualityTier={5}
+        driveMap={new Map()}
+        typeMap={new Map()}
+        todayStr={futureDateStr(0)}
+        tomorrowStr={DATE_1}
+        onShowOnMap={onShowOnMap}
+        astroScoresByDate={{}}
+        showAllLocations={false}
+        travelDayDates={new Set()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+    fireEvent.click(screen.getByTestId('slot-location-link'));
+
+    expect(onShowOnMap).toHaveBeenCalledWith(DATE_1, 'SUNSET', 'Bamburgh');
+  });
+});

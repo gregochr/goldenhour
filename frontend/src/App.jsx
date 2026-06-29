@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { computeAutoSelection } from './utils/conversions.js';
 import ViewToggle from './components/ViewToggle.jsx';
 import DateStrip from './components/DateStrip.jsx';
@@ -92,6 +92,8 @@ function AppInner() {
 
   /** Pending handoff from Plan tab to Map tab (event type to pre-select). */
   const [mapHandoff, setMapHandoff] = useState(null);
+  /** Monotonic counter so repeat taps on the same location re-trigger the handoff. */
+  const handoffNonce = useRef(0);
 
   /** Briefing evaluation scores lifted from DailyBriefing, passed to MapView. */
   const [briefingScores, setBriefingScores] = useState(new Map());
@@ -121,7 +123,7 @@ function AppInner() {
   const [selectedDate, setSelectedDate] = useState(null);
 
   /** Called from Plan tab drill-down — switches to Map tab with pre-selected date + event type or filter action. */
-  const handleShowOnMap = (dateOrHandoff, eventType) => {
+  const handleShowOnMap = (dateOrHandoff, eventType, locationName = null) => {
     if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.filterAction) {
       // Hot Topic pill tap: { filterAction, date }
       if (dateOrHandoff.date) {
@@ -129,9 +131,11 @@ function AppInner() {
       }
       setMapHandoff({ filterAction: dateOrHandoff.filterAction });
     } else {
-      // Best Bet / drill-down: (date, eventType)
+      // Best Bet / drill-down: (date, eventType, locationName?).
+      // The nonce lets MapView re-trigger selection when the same location is
+      // tapped twice in a row (e.g. after the popup was dismissed).
       setSelectedDate(dateOrHandoff);
-      setMapHandoff({ eventType });
+      setMapHandoff({ eventType, locationName, nonce: handoffNonce.current++ });
     }
     setViewMode('map');
   };
@@ -338,6 +342,8 @@ function AppInner() {
                 autoEventType={autoSelection?.eventType ?? null}
                 handoffEventType={mapHandoff?.eventType ?? null}
                 handoffFilterAction={mapHandoff?.filterAction ?? null}
+                handoffLocationName={mapHandoff?.locationName ?? null}
+                handoffNonce={mapHandoff?.nonce ?? null}
                 briefingScores={briefingScores}
                 onForecastRun={refresh}
                 seasonalFeatures={seasonalFeatures}

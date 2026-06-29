@@ -7,6 +7,7 @@ import { getDriveTimes } from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import HeatmapGrid from './HeatmapGrid.jsx';
+import SlotLocationName from './shared/SlotLocationName.jsx';
 import HotTopicStrip from './HotTopicStrip.jsx';
 import QualitySlider from './QualitySlider.jsx';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
@@ -414,7 +415,7 @@ function isPoorSlot(slot) {
   return slot.verdict === 'STANDDOWN';
 }
 
-function LocationSlotList({ slots, driveMap, typeMap }) {  const visible = sortedSlots((slots || []).filter((s) => !isPoorSlot(s)));
+function LocationSlotList({ slots, driveMap, typeMap, date = null, targetType = null, onShowOnMap = null }) {  const visible = sortedSlots((slots || []).filter((s) => !isPoorSlot(s)));
   const standdowns = sortedSlots((slots || []).filter(isPoorSlot));
   if (visible.length === 0 && standdowns.length === 0) return null;
   return (
@@ -431,10 +432,13 @@ function LocationSlotList({ slots, driveMap, typeMap }) {  const visible = sorte
             {slot.claudeRating != null
               ? <VerdictPill displayVerdict={slot.displayVerdict} verdict={slot.verdict} />
               : <UnscoredPill verdict={slot.verdict} />}
-            <span className="font-medium text-plex-text" style={{ fontSize: '13px' }}>
-              {typeIcon && <span data-testid="slot-type-icon">{typeIcon} </span>}
-              {slot.locationName}
-            </span>
+            <SlotLocationName
+              name={slot.locationName}
+              typeIcon={typeIcon}
+              date={date}
+              targetType={targetType}
+              onShowOnMap={onShowOnMap}
+            />
             <span className="text-plex-text-secondary" style={{ fontSize: '12px' }}>
               {formatTime(slot.solarEventTime)}
             </span>
@@ -466,10 +470,13 @@ function LocationSlotList({ slots, driveMap, typeMap }) {  const visible = sorte
             data-testid="briefing-slot-standdown"
           >
             <VerdictPill verdict={slot.verdict} />
-            <span className="font-medium text-plex-text" style={{ fontSize: '13px' }}>
-              {typeIcon && <span data-testid="slot-type-icon">{typeIcon} </span>}
-              {slot.locationName}
-            </span>
+            <SlotLocationName
+              name={slot.locationName}
+              typeIcon={typeIcon}
+              date={date}
+              targetType={targetType}
+              onShowOnMap={onShowOnMap}
+            />
             {subtitle && (
               <span
                 data-testid="slot-standdown-reason"
@@ -563,7 +570,8 @@ function EventDrillList({ events, driveMap, typeMap, date, onShowOnMap }) {  con
             </div>
 
             {isExpanded && (
-              <LocationSlotList slots={region.slots} driveMap={driveMap} typeMap={typeMap} />
+              <LocationSlotList slots={region.slots} driveMap={driveMap} typeMap={typeMap}
+                date={date} targetType={es.targetType} onShowOnMap={onShowOnMap} />
             )}
           </div>
         );

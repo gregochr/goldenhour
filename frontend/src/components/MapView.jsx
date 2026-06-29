@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents, useMap } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
@@ -124,6 +124,37 @@ function FlyToController({ target }) {
 
 FlyToController.propTypes = {
   target: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
+};
+
+/**
+ * Opens the desktop Leaflet popup for a handed-off location once the fly-to
+ * animation settles (so the marker has declustered). Re-fires whenever the
+ * {@code nonce} changes, allowing the same location to be re-selected.
+ */
+function HandoffPopupController({ locationName, nonce, markerRefs }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!locationName || typeof map.once !== 'function') return undefined;
+    const open = () => {
+      const marker = markerRefs.current.get(locationName);
+      if (marker && typeof marker.openPopup === 'function') marker.openPopup();
+    };
+    // Open after the fly animation ends; a timeout covers the case where the
+    // map is already centred on the target and no move event fires.
+    map.once('moveend', open);
+    const timer = setTimeout(open, 700);
+    return () => {
+      map.off('moveend', open);
+      clearTimeout(timer);
+    };
+  }, [locationName, nonce, map, markerRefs]);
+  return null;
+}
+
+HandoffPopupController.propTypes = {
+  locationName: PropTypes.string,
+  nonce: PropTypes.number,
+  markerRefs: PropTypes.shape({ current: PropTypes.instanceOf(Map) }).isRequired,
 };
 
 /**
@@ -258,7 +289,7 @@ function getNextEventType(locations, date) {
 
 const ALERT_WORTHY_LEVELS = new Set(['MODERATE', 'STRONG']);
 
-function MapView({ locations, date, autoEventType, handoffEventType, handoffFilterAction, briefingScores = new Map(), onForecastRun, seasonalFeatures = [] }) {
+function MapView({ locations, date, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [] }) {
   const { role } = useAuth();
   const isMobile = useIsMobile();
   const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
@@ -299,6 +330,9 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
   const [astroAvailableDates, setAstroAvailableDates] = useState([]); // ISO date strings
   const [flyTarget, setFlyTarget] = useState(null);
   const [tideFetchedAt, setTideFetchedAt] = useState({});
+  // Live Leaflet marker instances keyed by location name — used to open a popup
+  // programmatically when the Plan tab hands off a specific location.
+  const markerRefs = useRef(new Map());
 
   // Aurora is available when the user is ADMIN/PRO and either the state machine is active
   // or there are stored forecast results for any date on the date strip.
@@ -350,6 +384,22 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
       })();
     }
   }, [handoffFilterAction]);
+
+  // Apply a specific-location handoff from a Plan tab drill-down: fly to the
+  // location and select it. HandoffPopupController opens its popup once the fly
+  // animation settles. The nonce makes repeat taps re-trigger this effect.
+  useEffect(() => {
+    if (!handoffLocationName) return;
+    const loc = locations.find((l) => l.name === handoffLocationName && l.enabled !== false);
+    if (!loc) return;
+    (async () => {
+      setSelectedLocationName(loc.name);
+      setFlyTarget({ lat: loc.lat, lon: loc.lon });
+    })();
+    // locations intentionally omitted: re-running on every locations identity
+    // change would re-fly mid-session. Nonce + name capture the intent to refly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handoffLocationName, handoffNonce]);
   const [tideClassifications, setTideClassifications] = useState({});
 
   // Inject popup width styles (desktop only)
@@ -873,6 +923,11 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
           />
           <ZoomTracker onZoom={setZoom} />
           <FlyToController target={flyTarget} />
+          <HandoffPopupController
+            locationName={handoffLocationName}
+            nonce={handoffNonce}
+            markerRefs={markerRefs}
+          />
           {viewlineEnabled && eventType === 'AURORA' && date === new Date().toLocaleDateString('en-CA') && (
             <AuroraViewlineOverlay viewline={viewline} forecastKp={auroraStatus?.forecastKp} />
           )}
@@ -945,6 +1000,10 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
                   key={`${loc.name}-${userDriveTimes[String(loc.id)] ?? 'none'}`}
                   position={[loc.lat, loc.lon]}
                   icon={icon}
+                  ref={(m) => {
+                    if (m) markerRefs.current.set(loc.name, m);
+                    else markerRefs.current.delete(loc.name);
+                  }}
                   eventHandlers={{
                     click: () => setSelectedLocationName(loc.name),
                     ...(isMobile ? {} : {
@@ -1085,8 +1144,11 @@ MapView.propTypes = {
   autoEventType: PropTypes.string,
   handoffEventType: PropTypes.string,
   handoffFilterAction: PropTypes.string,
+  handoffLocationName: PropTypes.string,
+  handoffNonce: PropTypes.number,
   briefingScores: PropTypes.instanceOf(Map),
   onForecastRun: PropTypes.func,
+  seasonalFeatures: PropTypes.arrayOf(PropTypes.string),
 };
 
 export default React.memo(MapView);
