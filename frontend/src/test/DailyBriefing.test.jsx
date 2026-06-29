@@ -832,8 +832,8 @@ describe('DailyBriefing', () => {
     render(<DailyBriefing />);
     await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
 
-    expect(screen.getByTestId('go-count')).toHaveTextContent('2 GO');
-    expect(screen.getByTestId('standdown-count')).toHaveTextContent('1 STANDDOWN');
+    expect(screen.getByTestId('go-count')).toHaveTextContent('2 go');
+    expect(screen.getByTestId('standdown-count')).toHaveTextContent('1 poor');
   });
 
   it('shows MARGINAL count when present', async () => {
@@ -857,7 +857,7 @@ describe('DailyBriefing', () => {
     render(<DailyBriefing />);
     await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
 
-    expect(screen.getByTestId('marginal-count')).toHaveTextContent('1 MARGINAL');
+    expect(screen.getByTestId('marginal-count')).toHaveTextContent('1 maybe');
   });
 
   it('shows tide alignment indicator in compact row when a slot is tide-aligned', async () => {
@@ -1285,6 +1285,27 @@ describe('DailyBriefing', () => {
       expect(screen.getByText('Rare king tide.')).toBeInTheDocument();
     });
 
+    it('read-more button toggles the detail clamp label and does not navigate', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
+        { rank: 1, headline: 'Go to Lake District', detail: 'A long detailed analysis.',
+          event: 'tomorrow_sunset', region: 'Lake District', confidence: 'high' },
+      ]));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('best-bet-banner'));
+
+      const readMore = screen.getByTestId('best-bet-read-more');
+      expect(readMore).toHaveTextContent('Read more ▾');
+
+      // Clicking read-more expands (label flips) without triggering card navigation.
+      fireEvent.click(readMore);
+      expect(readMore).toHaveTextContent('Show less ▴');
+      expect(screen.queryByTestId('briefing-expanded')).toBeNull();
+
+      // Clicking again collapses back.
+      fireEvent.click(readMore);
+      expect(readMore).toHaveTextContent('Read more ▾');
+    });
+
     it('renders two picks with different visual weight', async () => {
       getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
         { rank: 1, headline: 'First pick', detail: 'Detail 1.',
@@ -1299,33 +1320,34 @@ describe('DailyBriefing', () => {
       expect(screen.getByText('① BEST BET')).toBeInTheDocument();
       expect(screen.getByText('② ALSO GOOD')).toBeInTheDocument();
 
-      // BEST BET uses WORTH IT green accent, ALSO GOOD uses silver accent
+      // BEST BET (primary, high-conf) gets the verdict-go left accent;
+      // ALSO GOOD (secondary) gets the muted bone accent.
       const pick1 = screen.getByTestId('best-bet-pick-1');
       const pick2 = screen.getByTestId('best-bet-pick-2');
-      expect(pick1).toHaveClass('border-green-600/60');
-      expect(pick1).toHaveClass('bg-green-600/5');
-      expect(pick2).toHaveClass('border-slate-400/40');
-      expect(pick2).toHaveClass('bg-slate-400/5');
-      // Also Good must NOT pick up any of the WORTH IT green styling.
-      expect(pick2).not.toHaveClass('border-green-600/60');
-      expect(pick2).not.toHaveClass('bg-green-600/5');
+      expect(pick1.style.borderLeft).toBe('3px solid var(--color-verdict-go)');
+      expect(pick2.style.borderLeft).toBe('3px solid var(--color-plex-border-light)');
+      // Also Good must NOT pick up the verdict-go accent.
+      expect(pick2.style.borderLeft).not.toContain('var(--color-verdict-go)');
 
       const label1 = screen.getByText('① BEST BET');
       const label2 = screen.getByText('② ALSO GOOD');
-      expect(label1).toHaveClass('text-green-400');
-      expect(label2).toHaveClass('text-slate-300');
-      expect(label2).not.toHaveClass('text-green-400');
+      expect(label1.style.color).toBe('var(--color-verdict-go)');
+      expect(label2.style.color).toBe('var(--color-plex-text-secondary)');
+      expect(label2.style.color).not.toBe('var(--color-verdict-go)');
     });
 
-    it('stay-home pick button is disabled', async () => {
+    it('stay-home pick is not navigable (no role/click handler)', async () => {
       getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
         { rank: 1, headline: 'Stay in tonight', detail: 'Nothing worth it.',
           event: null, region: null, confidence: 'high' },
       ]));
       render(<DailyBriefing />);
       await waitFor(() => screen.getByTestId('best-bet-banner'));
-      const btn = screen.getByTestId('best-bet-pick-1');
-      expect(btn).toBeDisabled();
+      const pick = screen.getByTestId('best-bet-pick-1');
+      // Non-navigable: no role="button", and clicking does not expand the briefing.
+      expect(pick).not.toHaveAttribute('role', 'button');
+      fireEvent.click(pick);
+      expect(screen.queryByTestId('briefing-expanded')).toBeNull();
     });
 
     it('clicking a pick expands the briefing-expanded section', async () => {
@@ -1378,14 +1400,13 @@ describe('DailyBriefing', () => {
       render(<DailyBriefing />);
       await waitFor(() => screen.getByTestId('best-bet-banner'));
       const pick1 = screen.getByTestId('best-bet-pick-1');
-      expect(pick1).toHaveClass('border-plex-border');
-      expect(pick1).toHaveClass('bg-plex-surface/30');
-      expect(pick1).not.toHaveClass('border-green-600/60');
-      expect(pick1).not.toHaveClass('bg-green-600/5');
+      // Low-conf primary uses the muted bone accent, not the verdict-go green.
+      expect(pick1.style.borderLeft).toBe('3px solid var(--color-plex-border-light)');
+      expect(pick1.style.borderLeft).not.toContain('var(--color-verdict-go)');
 
       const label1 = screen.getByText('① BEST BET');
-      expect(label1).toHaveClass('text-plex-text-muted');
-      expect(label1).not.toHaveClass('text-green-400');
+      expect(label1.style.color).toBe('var(--color-plex-text-muted)');
+      expect(label1.style.color).not.toBe('var(--color-verdict-go)');
     });
 
     it('renders structured header with day, event type, time, and drive', async () => {
@@ -1934,195 +1955,6 @@ describe('DailyBriefing', () => {
     });
   });
 
-  describe('Show all locations toggle', () => {
-    it('renders toggle switch on desktop', async () => {
-      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
-      getDailyBriefing.mockResolvedValue(buildBriefing());
-      getDriveTimes.mockResolvedValue({});
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
-
-      const toggle = screen.queryByTestId('show-all-locations-toggle');
-      expect(toggle).toBeInTheDocument();
-      expect(toggle).toHaveAttribute('role', 'switch');
-    });
-
-    it('toggle starts with aria-checked="false" by default', async () => {
-      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
-      getDailyBriefing.mockResolvedValue(buildBriefing());
-      getDriveTimes.mockResolvedValue({});
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
-
-      const toggle = screen.getByTestId('show-all-locations-toggle');
-      expect(toggle).toHaveAttribute('aria-checked', 'false');
-    });
-
-    it('clicking toggle flips aria-checked from false to true', async () => {
-      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
-      getDailyBriefing.mockResolvedValue(buildBriefing());
-      getDriveTimes.mockResolvedValue({});
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
-
-      const toggle = screen.getByTestId('show-all-locations-toggle');
-      expect(toggle).toHaveAttribute('aria-checked', 'false');
-
-      fireEvent.click(toggle);
-      expect(toggle).toHaveAttribute('aria-checked', 'true');
-    });
-
-    it('clicking toggle twice returns aria-checked to false', async () => {
-      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
-      getDailyBriefing.mockResolvedValue(buildBriefing());
-      getDriveTimes.mockResolvedValue({});
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
-
-      const toggle = screen.getByTestId('show-all-locations-toggle');
-      fireEvent.click(toggle);
-      expect(toggle).toHaveAttribute('aria-checked', 'true');
-      fireEvent.click(toggle);
-      expect(toggle).toHaveAttribute('aria-checked', 'false');
-    });
-
-    it('toggle track data-checked updates when clicked', async () => {
-      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
-      getDailyBriefing.mockResolvedValue(buildBriefing());
-      getDriveTimes.mockResolvedValue({});
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
-
-      const toggle = screen.getByTestId('show-all-locations-toggle');
-      const track = toggle.querySelector('.quality-toggle-track');
-      expect(track).toHaveAttribute('data-checked', 'false');
-
-      fireEvent.click(toggle);
-      expect(track).toHaveAttribute('data-checked', 'true');
-    });
-
-    it('toggle displays "Show all locations" label text', async () => {
-      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
-      getDailyBriefing.mockResolvedValue(buildBriefing());
-      getDriveTimes.mockResolvedValue({});
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
-
-      const slider = screen.getByTestId('quality-slider');
-      expect(slider).toHaveTextContent('Show all locations');
-    });
-  });
-
-  describe('Quality slider row layout', () => {
-    it('slider row contains the quality slider', async () => {
-      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
-      getDailyBriefing.mockResolvedValue(buildBriefing());
-      getDriveTimes.mockResolvedValue({});
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
-
-      const row = screen.getByTestId('quality-slider-row');
-      expect(row.querySelector('[data-testid="quality-slider"]')).toBeTruthy();
-    });
-
-    it('toggle is inside the quality slider component', async () => {
-      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
-      getDailyBriefing.mockResolvedValue(buildBriefing());
-      getDriveTimes.mockResolvedValue({});
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
-
-      const slider = screen.getByTestId('quality-slider');
-      const toggle = slider.querySelector('[data-testid="show-all-locations-toggle"]');
-      expect(toggle).toBeInTheDocument();
-    });
-
-    it('quality slider row is not rendered when briefing has no days', async () => {
-      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
-      getDailyBriefing.mockResolvedValue(buildBriefing({ days: [] }));
-      getDriveTimes.mockResolvedValue({});
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('daily-briefing'));
-
-      expect(screen.queryByTestId('quality-slider-row')).not.toBeInTheDocument();
-    });
-
-    it('quality slider row is rendered when briefing has days', async () => {
-      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
-      getDailyBriefing.mockResolvedValue(buildBriefing());
-      getDriveTimes.mockResolvedValue({});
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
-
-      expect(screen.getByTestId('quality-slider-row')).toBeInTheDocument();
-    });
-
-    // ── Slider prop wiring ──────────────────────────────────────────────────
-    // Kills mutations that swap showing↔total, hardcode value, or swap setters.
-
-    it('slider displays correct initial cell counts from sliderCounts', async () => {
-      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
-      getDailyBriefing.mockResolvedValue(buildBriefing());
-      getDriveTimes.mockResolvedValue({});
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
-
-      // Default qualityTier=2: 3 total cells, 1 visible (Lake District sunset at tier 2)
-      const slider = screen.getByTestId('quality-slider');
-      expect(slider).toHaveTextContent(/Showing 1 of 3 cells/);
-    });
-
-    it('slider initial aria-valuetext matches default qualityTier 2', async () => {
-      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
-      getDailyBriefing.mockResolvedValue(buildBriefing());
-      getDriveTimes.mockResolvedValue({});
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
-
-      const input = screen.getByRole('slider');
-      expect(input).toHaveAttribute('aria-valuetext', 'All worth it');
-    });
-
-    it('dragging slider to show-everything updates the showing count', async () => {
-      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
-      getDailyBriefing.mockResolvedValue(buildBriefing());
-      getDriveTimes.mockResolvedValue({});
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
-
-      // Drag to visual 0 → internal tier 5 (everything visible)
-      fireEvent.change(screen.getByRole('slider'), { target: { value: '0' } });
-
-      const slider = screen.getByTestId('quality-slider');
-      expect(slider).toHaveTextContent(/Showing 3 of 3 cells/);
-    });
-
-    it('dragging slider to best-only reduces the showing count', async () => {
-      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
-      getDailyBriefing.mockResolvedValue(buildBriefing());
-      getDriveTimes.mockResolvedValue({});
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
-
-      // Drag to visual 5 → internal tier 0 (best only — no cells match)
-      fireEvent.change(screen.getByRole('slider'), { target: { value: '5' } });
-
-      const slider = screen.getByTestId('quality-slider');
-      expect(slider).toHaveTextContent(/Showing 0 of 3 cells/);
-    });
-
-    it('showing and total are not swapped at default tier', async () => {
-      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
-      getDailyBriefing.mockResolvedValue(buildBriefing());
-      getDriveTimes.mockResolvedValue({});
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
-
-      // A mutation swapping showing↔total would display "Showing 3 of 1 cells"
-      const slider = screen.getByTestId('quality-slider');
-      expect(slider.textContent).not.toMatch(/Showing 3 of 1/);
-    });
-  });
 });
 
 // ── Lightly-evaluated framing (mobile/shared drill list) ───────────────────────

@@ -2,18 +2,22 @@
 
 @theme {
   --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-serif: 'Newsreader', Georgia, ui-serif, serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
 
-  --color-plex-gold: #E5A00D;
-  --color-plex-gold-light: #F5C518;
-  --color-plex-gold-dark: #CC8A00;
-  --color-plex-bg: #181A1E;
-  --color-plex-surface: #252830;
-  --color-plex-surface-light: #2F323A;
-  --color-plex-border: #3A3D45;
-  --color-plex-border-light: #4A4D55;
-  --color-plex-text: #EBEBEB;
-  --color-plex-text-secondary: #A0A0A0;
-  --color-plex-text-muted: #6B6B6B;
+  /* Kodachrome Field Guide palette (Option B) — brand/interactive accent is warm
+     bone, identical to ink, so chrome never competes with the verdict semantics. */
+  --color-plex-gold: #F2E7D3;
+  --color-plex-gold-light: #FBF4E6;
+  --color-plex-gold-dark: #D9C9A8;
+  --color-plex-bg: #181210;
+  --color-plex-surface: #221A15;
+  --color-plex-surface-light: #2A2019;
+  --color-plex-border: #3A2C23;
+  --color-plex-border-light: #4A3A2E;
+  --color-plex-text: #F2E7D3;
+  --color-plex-text-secondary: rgba(242, 231, 211, 0.66);
+  --color-plex-text-muted: rgba(242, 231, 211, 0.42);
 
   --color-sunrise-50: #fff7ed;
   --color-sunrise-100: #ffedd5;
@@ -27,10 +31,14 @@
   --color-sunset-600: #9333ea;
   --color-sunset-700: #7e22ce;
 
-  --color-verdict-go: #16a34a;
-  --color-verdict-marginal: #d97706;
-  --color-verdict-standdown: #b91c1c;
-  --color-verdict-awaiting: #6b7280;
+  /* Verdicts — the only colour in the UI that carries meaning. */
+  --color-verdict-go: #8AAE72;
+  --color-verdict-marginal: #E0A542;
+  --color-verdict-standdown: #C8452F;
+  --color-verdict-awaiting: rgba(242, 231, 211, 0.42);
+
+  /* Tide facts (objective, independent of the sky verdict). */
+  --color-tide: #6FA8B0;
 }
 
 @layer base {
@@ -59,16 +67,16 @@
 
 /* Leaflet zoom controls — dark Plex theme */
 .leaflet-control-zoom {
-  border: 1px solid #3A3D45 !important;
+  border: 1px solid #3A2C23 !important;
   border-radius: 8px !important;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4) !important;
 }
 
 .leaflet-control-zoom a {
-  background-color: #252830 !important;
-  color: #EBEBEB !important;
-  border-color: #3A3D45 !important;
+  background-color: #221A15 !important;
+  color: #F2E7D3 !important;
+  border-color: #3A2C23 !important;
   width: 32px !important;
   height: 32px !important;
   line-height: 32px !important;
@@ -78,16 +86,16 @@
 }
 
 .leaflet-control-zoom a:hover {
-  background-color: #3A3D45 !important;
-  color: #E5A00D !important;
+  background-color: #3A2C23 !important;
+  color: #F2E7D3 !important;
 }
 
 .leaflet-control-zoom a:active {
-  background-color: #4A4D55 !important;
+  background-color: #4A3A2E !important;
 }
 
 .leaflet-control-zoom-in {
-  border-bottom: 1px solid #3A3D45 !important;
+  border-bottom: 1px solid #3A2C23 !important;
   border-radius: 7px 7px 0 0 !important;
 }
 
@@ -98,18 +106,18 @@
 
 /* Leaflet attribution — subtle dark style */
 .leaflet-control-attribution {
-  background-color: rgba(37, 40, 48, 0.85) !important;
-  color: #6B6B6B !important;
+  background-color: rgba(34, 26, 21, 0.85) !important;
+  color: rgba(242, 231, 211, 0.42) !important;
   font-size: 10px !important;
   border-radius: 4px 0 0 0;
 }
 
 .leaflet-control-attribution a {
-  color: #A0A0A0 !important;
+  color: rgba(242, 231, 211, 0.66) !important;
 }
 
 .leaflet-control-attribution a:hover {
-  color: #E5A00D !important;
+  color: #F2E7D3 !important;
 }
 
 /* Quality slider — muted single-colour track */
@@ -130,10 +138,10 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: rgba(212, 168, 67, 0.85);
+  background: rgba(242, 231, 211, 0.85);
   border: none;
   cursor: pointer;
-  box-shadow: 0 0 6px rgba(212, 168, 67, 0.3);
+  box-shadow: 0 0 6px rgba(242, 231, 211, 0.3);
   transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
@@ -141,15 +149,15 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: rgba(212, 168, 67, 0.85);
+  background: rgba(242, 231, 211, 0.85);
   border: none;
   cursor: pointer;
-  box-shadow: 0 0 6px rgba(212, 168, 67, 0.3);
+  box-shadow: 0 0 6px rgba(242, 231, 211, 0.3);
 }
 
 .quality-slider:hover::-webkit-slider-thumb {
-  background: rgba(212, 168, 67, 1);
-  box-shadow: 0 0 10px rgba(212, 168, 67, 0.5);
+  background: rgba(242, 231, 211, 1);
+  box-shadow: 0 0 10px rgba(242, 231, 211, 0.5);
   transform: scale(1.1);
 }
 
@@ -167,7 +175,7 @@
 }
 
 .quality-toggle-track[data-checked='true'] {
-  background: rgba(212, 168, 67, 0.5);
+  background: rgba(242, 231, 211, 0.45);
 }
 
 .quality-toggle-thumb {
@@ -208,6 +216,35 @@
   opacity: 0.04;
   pointer-events: none !important;
   transition: opacity 0.35s ease;
+}
+
+/* Heatmap cell hover tooltip (desktop) — verdict + gloss + weather, one
+   interaction away. The cell must keep overflow visible so this isn't clipped. */
+.heatmap-cell-tip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-plex-surface-light);
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 5px;
+  padding: 9px 11px;
+  width: 200px;
+  z-index: 30;
+  pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease;
+}
+
+.heatmap-cell-hoverable:hover {
+  z-index: 40;
+}
+
+.heatmap-cell-hoverable:hover .heatmap-cell-tip {
+  opacity: 1;
+  visibility: visible;
 }
 
 /* Bottom sheet slide-up animation */

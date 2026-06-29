@@ -2,7 +2,6 @@ import React, { useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import { computeCellTier, isCellVisible, resolveRegionDisplay } from '../utils/tierUtils.js';
 import { formatEventTimeUk, formatTideHighlight } from '../utils/conversions.js';
-import InfoTip from './InfoTip.jsx';
 import SlotLocationName from './shared/SlotLocationName.jsx';
 import { RATING_COLOURS } from './markerUtils.js';
 
@@ -138,33 +137,6 @@ function VerdictPill({ displayVerdict, verdict, label }) {
   );
 }
 
-function FlagChip({ label }) {  return (
-    <span className="inline-block px-1.5 py-0.5 rounded bg-plex-surface border border-plex-border text-[11px] text-plex-text-secondary font-medium">
-      {label}
-    </span>
-  );
-}
-
-/**
- * Outline/ghost pill for a slot that has clear-or-mixed weather but was NOT
- * PhotoCast-evaluated. Visually distinct (no fill, lighter weight) from both the
- * solid scored verdict pill and the star badge, so the eye can tell
- * "Claude rated this" apart from "the sky is clear here". Says what the data is:
- * clear weather, not scored — never the bare "Worth it" used for AI-rated slots.
- */
-function UnscoredPill({ verdict }) {
-  const label = verdict === 'GO' ? 'Clear · not scored'
-    : verdict === 'MARGINAL' ? 'Maybe · not scored'
-      : 'Not scored';
-  return (
-    <span
-      data-testid="unscored-pill"
-      className="inline-block px-2 py-0.5 rounded text-[12px] font-normal border border-plex-border text-plex-text-secondary bg-transparent"
-    >
-      {label}
-    </span>
-  );
-}
 
 /**
  * Sort order for drill-down location slots:
@@ -224,16 +196,15 @@ function ratingStyle(rating) {
 }
 
 /**
- * Extracts the first sentence from text, truncated to maxChars with ellipsis.
+ * Rank-bucketed star-pill colours from the Kodachrome tidy-up: 4–5★ green,
+ * 3★ amber, 1–2★ red. Returns an inline style object so the heatmap cell pill
+ * and drill-down star pills read identically.
  */
-function firstSentence(text, maxChars = 100) {
-  if (!text) return '';
-  const match = text.match(/^([^.!?]+[.!?])/);
-  let sentence = match ? match[1] : text;
-  if (sentence.length > maxChars) {
-    sentence = sentence.slice(0, maxChars - 1) + '\u2026';
-  }
-  return sentence;
+function starPillStyle(rating) {
+  if (rating >= 4) return { background: 'rgba(138,174,114,0.25)', color: '#b6d49e' };
+  if (rating >= 3) return { background: 'rgba(224,165,66,0.22)', color: '#f0cd8a' };
+  if (rating >= 2) return { background: 'rgba(200,69,47,0.22)', color: '#f0a08e' };
+  return { background: 'rgba(200,69,47,0.30)', color: '#f0a08e' };
 }
 
 /**
@@ -266,13 +237,34 @@ function isPoorSlot(slot) {
   return slot.verdict === 'STANDDOWN';
 }
 
+/** Grid template shared by viable and poor drill-down rows: star · name · chips · drive. */
+const ROW_GRID = '46px 1fr auto auto';
+
+/** Tide-fact chip (teal) — or a muted variant for the not-evaluated poor section. */
+function TideChip({ label, muted = false }) {
+  return (
+    <span
+      className="rounded whitespace-nowrap"
+      style={{
+        fontSize: '10px',
+        fontWeight: 500,
+        padding: '1px 6px',
+        ...(muted
+          ? { background: 'rgba(242,231,211,0.04)', color: 'var(--color-plex-text-muted)', border: '1px solid rgba(242,231,211,0.06)' }
+          : { background: 'rgba(111,168,176,0.16)', color: 'var(--color-tide)' }),
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
 function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evaluationComplete = false, showAllLocations = false, date = null, targetType = null, onShowOnMap = null }) {
-  // Track which rows are *collapsed* (not expanded) so default is expanded —
-  // any slot not in this set shows its full summary.
-  const [collapsedRows, setCollapsedRows] = useState(new Set());
+  // Rows are collapsed by default — the reasoning sentence is one tap away.
+  const [expandedRows, setExpandedRows] = useState(new Set());
   const visible = sortedSlots((slots || []).filter((s) => !isPoorSlot(s)));
   const standdownSlots = showAllLocations
-    ? (slots || []).filter(isPoorSlot)
+    ? sortedSlots((slots || []).filter(isPoorSlot))
     : [];
 
   const hasHiddenStanddowns = !showAllLocations && (slots || []).some(isPoorSlot);
@@ -280,17 +272,17 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
   if (visible.length === 0 && standdownSlots.length === 0) {
     if (hasHiddenStanddowns) {
       return (
-        <div className="ml-4 mt-1 text-plex-text-muted italic" style={{ fontSize: '12px' }}
+        <div className="mt-1 px-2 text-plex-text-muted italic" style={{ fontSize: '12px' }}
           data-testid="standdown-hint">
-          No viable locations for this event. Toggle &ldquo;Show all locations&rdquo; to see why.
+          No viable locations for this event. Toggle &ldquo;Include poor locations&rdquo; to see why.
         </div>
       );
     }
     return null;
   }
 
-  // Re-sort by Claude score only after evaluation completes or cached scores exist.
-  // During streaming, keep triage order so rows don't jump around.
+  // Re-sort by Claude score (star descending) once scores exist; keep triage order
+  // while streaming so rows don't jump around.
   const hasCachedScores = visible.some((s) => s.claudeRating != null);
   const sorted = ((evaluationComplete || hasCachedScores) && (scores.size > 0 || hasCachedScores))
     ? [...visible].sort((a, b) => {
@@ -305,7 +297,7 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
     : visible;
 
   const toggleExpand = (name) => {
-    setCollapsedRows((prev) => {
+    setExpandedRows((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
       else next.add(name);
@@ -314,77 +306,76 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
   };
 
   return (
-    <div className="ml-4 mt-0.5 mb-1" data-testid="region-slots">
+    <div className="mt-1" data-testid="region-slots">
       {sorted.map((slot) => {
         const drive = formatDriveDuration(driveMap.get(slot.locationName));
         const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
         const score = mergedScore(slot, scores.get(slot.locationName));
-        const expanded = !collapsedRows.has(slot.locationName);
-        const hasSummary = !!score?.summary;
+        const rating = score?.rating;
+        const reasoning = score?.summary;
+        const open = expandedRows.has(slot.locationName);
         return (
-          <div
-            key={slot.locationName}
-            className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30 transition-all duration-500 mt-1"
-            data-testid="briefing-slot"
-          >
-            {score?.rating != null ? (
-              <span
-                data-testid="score-badge"
-                className="inline-block px-2 py-0.5 rounded text-[12px] font-bold animate-fade-in"
-                style={ratingStyle(score.rating)}
+          <div key={slot.locationName} data-testid="briefing-slot" className="rounded">
+            <div
+              data-testid="drilldown-row-head"
+              role={reasoning ? 'button' : undefined}
+              tabIndex={reasoning ? 0 : undefined}
+              className={`rounded ${reasoning ? 'cursor-pointer hover:bg-plex-surface-light/40' : ''}`}
+              style={{ display: 'grid', gridTemplateColumns: ROW_GRID, gap: '12px', alignItems: 'center', padding: '9px 10px' }}
+              onClick={reasoning ? () => toggleExpand(slot.locationName) : undefined}
+              onKeyDown={reasoning ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpand(slot.locationName); } } : undefined}
+            >
+              {rating != null ? (
+                <span
+                  data-testid="score-badge"
+                  className="inline-flex items-center justify-center rounded font-bold animate-fade-in"
+                  style={{ fontSize: '11px', padding: '3px 0', ...starPillStyle(rating) }}
+                >
+                  {rating}★
+                </span>
+              ) : (
+                <span className="text-center text-plex-text-muted" style={{ fontSize: '11px' }} aria-hidden="true">—</span>
+              )}
+              <span className="flex items-center" style={{ minWidth: 0 }}>
+                {reasoning && (
+                  <span
+                    aria-hidden="true"
+                    className="inline-block text-plex-text-muted transition-transform shrink-0"
+                    style={{ fontSize: '10px', marginRight: '6px', transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
+                  >
+                    ▶
+                  </span>
+                )}
+                <SlotLocationName
+                  name={slot.locationName}
+                  typeIcon={typeIcon}
+                  date={date}
+                  targetType={targetType}
+                  onShowOnMap={onShowOnMap}
+                />
+              </span>
+              <span className="flex gap-1 justify-end">
+                {(slot.flags || []).map((flag) => <TideChip key={flag} label={flag} />)}
+              </span>
+              {drive ? (
+                <span
+                  data-testid="slot-drive-time"
+                  className="text-plex-text-muted whitespace-nowrap text-right"
+                  style={{ fontSize: '11px', fontFamily: 'var(--font-mono)' }}
+                >
+                  🚗 {drive}
+                </span>
+              ) : <span />}
+            </div>
+            {open && reasoning && (
+              <div
+                data-testid="expanded-detail"
+                className="text-plex-text-secondary italic animate-fade-in"
+                style={{ fontSize: '12px', fontFamily: 'var(--font-serif)', lineHeight: 1.5, padding: '0 10px 10px 68px' }}
               >
-                {score.rating}★
-              </span>
-            ) : (
-              <UnscoredPill verdict={slot.verdict} />
-            )}
-            <SlotLocationName
-              name={slot.locationName}
-              typeIcon={typeIcon}
-              date={date}
-              targetType={targetType}
-              onShowOnMap={onShowOnMap}
-            />
-            <span className="text-plex-text-secondary" style={{ fontSize: '12px' }}>
-              {formatTime(slot.solarEventTime)}
-            </span>
-            {drive && (
-              <span className="text-plex-text-secondary" data-testid="slot-drive-time" style={{ fontSize: '12px' }}>
-                🚗 {drive}
-              </span>
-            )}
-            {slot.flags?.map((flag) => <FlagChip key={flag} label={flag} />)}
-            {slot.claudeHeadline && (
-              <span
-                data-testid="slot-headline"
-                className="w-full text-plex-text font-medium animate-fade-in"
-                style={{ fontSize: '12px' }}
-              >
-                {slot.claudeHeadline}
-              </span>
-            )}
-            {hasSummary && !expanded && !slot.claudeHeadline && (
-              <span className="w-full text-plex-text-secondary truncate animate-fade-in" style={{ fontSize: '11px' }}>
-                {firstSentence(score.summary)}
-              </span>
-            )}
-            {hasSummary && (
-              <button
-                onClick={() => toggleExpand(slot.locationName)}
-                className="ml-auto text-plex-text-muted hover:text-plex-text text-xs px-1"
-                data-testid="expand-toggle"
-                aria-label={expanded ? 'Collapse summary' : 'Expand summary'}
-              >
-                {expanded ? '\u2212' : '+'}
-              </button>
-            )}
-            {expanded && hasSummary && (
-              <div className="w-full mt-1 animate-fade-in" data-testid="expanded-detail">
-                <p className="text-plex-text-secondary" style={{ fontSize: '11px', lineHeight: '1.5' }}>
-                  {score.summary}
-                </p>
+                {reasoning}
                 {(score.fierySkyPotential != null || score.goldenHourPotential != null) && (
-                  <div className="flex gap-3 mt-1 text-plex-text-muted" style={{ fontSize: '11px' }}>
+                  <div className="flex gap-3 mt-1 text-plex-text-muted not-italic" style={{ fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
                     {score.fierySkyPotential != null && (
                       <span data-testid="fiery-sky-score">Fiery Sky {score.fierySkyPotential}</span>
                     )}
@@ -401,11 +392,14 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
 
       {standdownSlots.length > 0 && (
         <>
-          <div className="flex items-center gap-2 mt-2 mb-1">
-            <div className="flex-1 h-px bg-plex-border/30" />
-            <span className="text-plex-text-muted" style={{ fontSize: '11px' }}
-              data-testid="standdown-divider">Poor conditions</span>
-            <div className="flex-1 h-px bg-plex-border/30" />
+          <div
+            data-testid="standdown-divider"
+            className="flex items-center gap-2.5 text-plex-text-muted uppercase"
+            style={{ fontSize: '10px', letterSpacing: '0.06em', fontFamily: 'var(--font-mono)', padding: '12px 10px 6px' }}
+          >
+            <span className="flex-1 h-px bg-plex-border" />
+            poor · not evaluated · {standdownSlots.length} {standdownSlots.length === 1 ? 'location' : 'locations'}
+            <span className="flex-1 h-px bg-plex-border" />
           </div>
           {standdownSlots.map((slot) => {
             const drive = formatDriveDuration(driveMap.get(slot.locationName));
@@ -413,27 +407,28 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
             return (
               <div
                 key={slot.locationName}
-                className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30 mt-1 opacity-50"
                 data-testid="standdown-slot"
+                className="text-plex-text-muted"
+                style={{ display: 'grid', gridTemplateColumns: ROW_GRID, gap: '12px', alignItems: 'center', padding: '7px 10px' }}
               >
-                <span className="inline-block px-2 py-0.5 rounded text-[12px] font-bold bg-red-900/40 text-red-300/70">
+                <span
+                  className="inline-flex items-center justify-center rounded font-bold uppercase"
+                  style={{ fontSize: '10px', letterSpacing: '0.04em', padding: '3px 0', background: 'rgba(200,69,47,0.18)', color: 'rgba(240,160,142,0.75)' }}
+                >
                   Poor
                 </span>
-                <SlotLocationName
-                  name={slot.locationName}
-                  typeIcon={typeIcon}
-                  date={date}
-                  targetType={targetType}
-                  onShowOnMap={onShowOnMap}
-                />
-                <span className="text-plex-text-muted" style={{ fontSize: '12px' }}>
-                  {slot.claudeHeadline || slot.standdownReason || slot.flags?.[0] || 'Poor conditions'}
+                <span className="flex items-center text-plex-text-muted" style={{ fontSize: '13px', minWidth: 0 }}>
+                  {typeIcon && <span className="mr-1">{typeIcon}</span>}
+                  {slot.locationName}
                 </span>
-                {drive && (
-                  <span className="text-plex-text-secondary" style={{ fontSize: '12px' }}>
-                    {drive}
+                <span className="flex gap-1 justify-end">
+                  {(slot.flags || []).map((flag) => <TideChip key={flag} label={flag} muted />)}
+                </span>
+                {drive ? (
+                  <span className="whitespace-nowrap text-right" style={{ fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
+                    🚗 {drive}
                   </span>
-                )}
+                ) : <span />}
               </div>
             );
           })}
@@ -445,7 +440,7 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
 
 // ── HeatmapDrillDown ──────────────────────────────────────────────────────────
 
-function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap, typeMap, onClose, onShowOnMap, evaluationScores = new Map(), isPro = false, showAllLocations = false }) {
+function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap, typeMap, onClose, onShowOnMap, evaluationScores = new Map(), isPro = false, showAllLocations = false, onShowAllLocationsChange = null }) {
   const day = briefingDays.find((d) => d.date === date);
 
   const events = [];
@@ -474,18 +469,33 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
       style={{ gridColumn: '1 / -1' }}
       className="px-3 py-2.5 rounded bg-plex-bg/50 border border-plex-border/30 mt-0.5"
     >
-      <div className="flex items-center justify-between mb-2">
-        <span className="font-semibold text-plex-text" style={{ fontSize: '13px' }}>
+      <div className="flex items-center gap-3 mb-2">
+        <span className="font-semibold text-plex-text" style={{ fontSize: '15px' }}>
           {regionName} — {getShortDate(date)}
           {targetType && (
-            <span className="ml-1.5 text-plex-text-secondary" style={{ fontSize: '12px' }}>
+            <span className="ml-1.5 text-plex-text-secondary" style={{ fontSize: '12px', fontFamily: 'var(--font-mono)' }}>
               {targetType === 'SUNRISE' ? '🌅 Sunrise' : '🌇 Sunset'}
             </span>
           )}
         </span>
+        {onShowAllLocationsChange && (
+          <button
+            type="button"
+            data-testid="drilldown-show-all-toggle"
+            onClick={() => onShowAllLocationsChange(!showAllLocations)}
+            className="ml-auto flex items-center gap-1.5 text-plex-text-secondary hover:text-plex-text transition-colors"
+            style={{ fontSize: '11px' }}
+            aria-pressed={showAllLocations}
+          >
+            <span>Include poor locations</span>
+            <span className="quality-toggle-track" data-checked={showAllLocations ? 'true' : 'false'}>
+              <span className="quality-toggle-thumb" />
+            </span>
+          </button>
+        )}
         <button
           onClick={onClose}
-          className="text-plex-text-muted hover:text-plex-text px-1 text-sm"
+          className={`text-plex-text-muted hover:text-plex-text px-1 text-sm ${onShowAllLocationsChange ? '' : 'ml-auto'}`}
           aria-label="Close drill-down"
         >
           ✕
@@ -557,7 +567,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
               </div>
 
               {region.glossDetail && (
-                <div className="text-plex-text-secondary px-2 py-1" style={{ fontSize: '13px' }}>
+                <div className="text-plex-text-secondary italic px-2 py-1" style={{ fontSize: '13px', fontFamily: 'var(--font-serif)', lineHeight: 1.5 }}>
                   {region.glossDetail}
                 </div>
               )}
@@ -587,12 +597,13 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
 
 function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map(), showAllLocations = false }) {  const cellData = getSubCellData(date, regionName, targetType, briefingDays);
 
-  // Empty cell — region doesn't appear in this event type
+  // Empty cell — region doesn't appear in this event type. Minimal: a muted
+  // dash, no hover, no interaction; sized to align with the tidy ~52px band.
   if (!cellData) {
     return (
       <div
-        className="text-center py-2 text-plex-text-muted opacity-30"
-        style={{ fontSize: '12px' }}
+        className="flex items-center justify-center rounded text-plex-text-muted italic"
+        style={{ minHeight: '52px', fontSize: '12px', opacity: 0.3, cursor: 'default' }}
       >
         —
       </div>
@@ -611,24 +622,7 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
   const tideHighlight = (region.tideHighlights || []).find((h) =>
     h.toLowerCase().includes('king') || h.toLowerCase().includes('spring') || h.toLowerCase().includes('extra'));
   const tideLabel = tideHighlight ? formatTideHighlight(tideHighlight) : null;
-  const hasKingTide = tideHighlight?.toLowerCase().includes('king');
   const alignedCount = (region.slots || []).filter((s) => s.tideAligned).length;
-
-  // Cell background colour by tier
-  const tierBg = {
-    0: 'bg-green-600/30 border-green-600/40 hover:bg-green-600/45', // go-king: strongest green
-    1: 'bg-green-600/22 border-green-600/25 hover:bg-green-600/38', // go-tide: medium green
-    2: 'bg-green-600/15 border-green-600/18 hover:bg-green-600/30', // go-plain: light green
-    3: 'bg-amber-500/22 border-amber-500/28 hover:bg-amber-500/36', // ma-tide: medium amber
-    4: 'bg-amber-500/14 border-amber-500/18 hover:bg-amber-500/28', // ma-plain: light amber
-    5: 'border-red-500/8',                                            // standdown: faint red
-  };
-
-  const verdictTextColour = isStanddown
-    ? 'text-plex-text-muted'
-    : displaySignal === 'WORTH_IT'
-      ? 'text-green-300'
-      : 'text-amber-300';
 
   const eventLabel = targetType === 'SUNRISE' ? 'sunrise' : 'sunset';
   const verdictLabel = displaySignal === 'STAND_DOWN' ? 'Poor'
@@ -636,22 +630,66 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
       : displaySignal === 'WORTH_IT' ? `Worth it ${eventLabel}`
         : `Maybe ${eventLabel}`;
 
-  // Clear % from best slot
-  const bestSlot = (region.slots || []).reduce((best, s) => {
-    if (!best) return s;
-    const bOrder = VERDICT_ORDER[best.verdict] ?? 3;
-    const sOrder = VERDICT_ORDER[s.verdict] ?? 3;
-    return sOrder < bOrder ? s : best;
-  }, null);
-  const clearPct = bestSlot?.lowCloudPercent != null
-    ? Math.round(100 - bestSlot.lowCloudPercent)
-    : null;
-
-  const visibilityClass = visible ? 'heatmap-cell-visible' : 'heatmap-cell-hidden';
-
   const standdownClickable = isStanddown && showAllLocations;
   const cellDisabled = (isStanddown && !showAllLocations) || !visible || past;
   const cellClickable = !cellDisabled;
+
+  // ── Poor cell — collapses to a single quiet word, vertically centred ──
+  // No gloss, no weather line, no distribution bar: ~30 of 42 cells stop shouting.
+  if (isStanddown) {
+    return (
+      <div
+        data-testid="heatmap-cell"
+        role="button"
+        tabIndex={cellDisabled ? -1 : 0}
+        aria-disabled={cellDisabled || undefined}
+        className={`flex items-center justify-center rounded border transition-all
+          ${standdownClickable ? 'cursor-pointer hover:scale-[1.01]' : 'cursor-default'}
+          ${isActive ? 'ring-1 ring-plex-text/25' : ''}`}
+        style={{
+          minHeight: '52px',
+          background: 'rgba(200,69,47,0.06)',
+          borderColor: 'rgba(200,69,47,0.12)',
+          pointerEvents: cellClickable ? undefined : 'none',
+        }}
+        onClick={cellClickable ? () => onToggle(date, regionName, targetType) : undefined}
+        onKeyDown={cellClickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(date, regionName, targetType); } } : undefined}
+      >
+        <span className="text-plex-text-muted" style={{ fontSize: '10px', opacity: 0.7 }}>
+          Poor
+        </span>
+      </div>
+    );
+  }
+
+  // ── Good / Maybe cell — quiet by default; the gloss sentence moves to hover ──
+  const isGo = displaySignal === 'WORTH_IT';
+  const cellBg = isGo
+    ? { background: 'rgba(138,174,114,0.18)', borderColor: 'rgba(138,174,114,0.35)' }
+    : { background: 'rgba(224,165,66,0.14)', borderColor: 'rgba(224,165,66,0.28)' };
+  const verdictColour = isGo ? 'var(--color-verdict-go)' : 'var(--color-verdict-marginal)';
+
+  const weatherLine = region.regionTemperatureCelsius != null
+    ? `${weatherCodeToIcon(region.regionWeatherCode)}${Math.round(region.regionTemperatureCelsius)}°C${region.regionWindSpeedMs != null ? ` ${msToMph(region.regionWindSpeedMs)}mph` : ''}`
+    : null;
+
+  // Gloss sentence shown only on hover (one interaction away).
+  const glossSentence = region.glossDetail || region.glossHeadline || region.summary || null;
+
+  // Mean Claude rating across the cell's scored locations.
+  const ratings = [];
+  const prefix = `${regionName}|${date}|${targetType}|`;
+  for (const [key, result] of evaluationScores) {
+    if (key.startsWith(prefix) && result.rating != null) ratings.push(result.rating);
+  }
+  if (ratings.length === 0 && region?.slots) {
+    for (const s of region.slots) {
+      if (s.claudeRating != null) ratings.push(s.claudeRating);
+    }
+  }
+  const meanRating = ratings.length > 0
+    ? parseFloat((ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1))
+    : null;
 
   return (
     <div
@@ -659,118 +697,63 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
       role="button"
       tabIndex={cellDisabled ? -1 : 0}
       aria-disabled={cellDisabled || undefined}
-      aria-hidden={!visible}
-      className={`relative rounded border text-left p-1.5 transition-all ${visibilityClass}
-        ${tierBg[cellTier] || ''}
-        ${(isStanddown && !standdownClickable) ? 'cursor-default' : 'cursor-pointer hover:scale-[1.01]'}
-        ${isActive ? 'ring-1 ring-white/25' : ''}`}
-      style={{
-        pointerEvents: cellClickable ? undefined : 'none',
-        opacity: isStanddown ? (visible ? 0.55 : 0.04) : undefined,
-      }}
+      className={`heatmap-cell-hoverable relative flex flex-col gap-0.5 rounded border text-left px-2 py-1.5 transition-transform
+        ${cellClickable ? 'cursor-pointer hover:scale-[1.015]' : 'cursor-default'}
+        ${isActive ? 'ring-1 ring-plex-text/25' : ''}`}
+      style={{ minHeight: '52px', ...cellBg, pointerEvents: cellClickable ? undefined : 'none' }}
       onClick={cellClickable ? () => onToggle(date, regionName, targetType) : undefined}
       onKeyDown={cellClickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(date, regionName, targetType); } } : undefined}
     >
-      <div className={`font-medium ${verdictTextColour}`} style={{ fontSize: '11px' }}>
+      <div className="font-medium" style={{ fontSize: '11px', color: verdictColour }}>
         {verdictLabel}
       </div>
 
-      {!isStanddown && region && (
-        <>
-          {region.glossHeadline ? (
-            <div className="text-plex-text-secondary italic mt-0.5 flex items-center gap-0.5"
-              style={{ fontSize: '10px' }}>
-              <span>{region.glossHeadline}</span>
-              {region.glossDetail && <InfoTip text={region.glossDetail} position="below" />}
-            </div>
-          ) : clearPct != null && (
-            <div className="text-plex-text-secondary" style={{ fontSize: '10px' }}>
-              {clearPct}% clear
-            </div>
-          )}
-          {region.regionTemperatureCelsius != null && (
-            <div className="text-plex-text-secondary mt-0.5" style={{ fontSize: '10px' }}>
-              {weatherCodeToIcon(region.regionWeatherCode)}
-              {Math.round(region.regionTemperatureCelsius)}°C
-              {region.regionWindSpeedMs != null
-                && ` ${msToMph(region.regionWindSpeedMs)}mph`}
-            </div>
-          )}
-          {(tideLabel || alignedCount > 0) && (
-            <div className="flex flex-wrap gap-0.5 mt-0.5">
-              {tideLabel && (
-                <span className={`rounded px-1 font-medium ${hasKingTide ? 'bg-red-500/20 text-red-300' : 'bg-amber-500/20 text-amber-300'}`}
-                  style={{ fontSize: '9px' }}>
-                  {tideLabel}
-                </span>
-              )}
-              {alignedCount > 0 && !tideLabel && (
-                <span className="rounded px-1 bg-teal-500/20 text-teal-300 font-medium"
-                  style={{ fontSize: '9px' }}>
-                  {alignedCount} {alignedCount === 1 ? 'tide aligned' : 'tides aligned'}
-                </span>
-              )}
-            </div>
-          )}
-        </>
-      )}
-
-      {/* Mean Claude score badge */}
-      {!isStanddown && (() => {
-        const prefix = `${regionName}|${date}|${targetType}|`;
-        const ratings = [];
-        for (const [key, result] of evaluationScores) {
-          if (key.startsWith(prefix) && result.rating != null) {
-            ratings.push(result.rating);
-          }
-        }
-        // Fall back to backend-cached scores from forecast_evaluation rows
-        if (ratings.length === 0 && region?.slots) {
-          for (const s of region.slots) {
-            if (s.claudeRating != null) ratings.push(s.claudeRating);
-          }
-        }
-        if (ratings.length === 0) return null;
-        const mean = (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1);
-        const meanNum = parseFloat(mean);
-        const pillColour = meanNum >= 4 ? 'bg-green-600/60 text-green-200'
-          : meanNum >= 3 ? 'bg-amber-600/60 text-amber-200'
-            : 'bg-red-700/50 text-red-200';
-        return (
-          <div className="mt-0.5" data-testid="mean-score-badge">
-            <span className={`rounded px-1 font-medium ${pillColour}`} style={{ fontSize: '10px' }}>
-              {mean}★
-            </span>
-          </div>
-        );
-      })()}
-
-      {isStanddown && region?.summary && (
-        <div className="text-red-300/60 mt-0.5" style={{ fontSize: '10px' }}>
-          {region.summary.slice(0, 30)}
+      {weatherLine && (
+        <div className="text-plex-text-secondary" style={{ fontSize: '10px', fontFamily: 'var(--font-mono)' }}>
+          {weatherLine}
         </div>
       )}
 
-      {/* Verdict distribution bar */}
-      {(() => {
-        const allSlots = region?.slots || [];
-        const total = allSlots.length;
-        if (total === 0) return null;
-        const marginalCount = allSlots.filter((s) => s.verdict === 'MARGINAL').length;
-        const standdownCount = allSlots.filter((s) => s.verdict === 'STANDDOWN').length;
-        const standdownPct = (standdownCount / total) * 100;
-        const marginalPct = (marginalCount / total) * 100;
-        return (
-          <div
-            className="absolute bottom-0 left-0 right-0 rounded-b"
-            style={{
-              height: '4px',
-              background: `linear-gradient(to right, var(--color-verdict-standdown) 0% ${standdownPct}%, var(--color-verdict-marginal) ${standdownPct}% ${standdownPct + marginalPct}%, var(--color-verdict-go) ${standdownPct + marginalPct}% 100%)`,
-            }}
-            data-testid="verdict-gradient"
-          />
-        );
-      })()}
+      {(tideLabel || alignedCount > 0) && (
+        <div className="flex flex-wrap gap-0.5">
+          <span
+            className="rounded px-1 font-medium"
+            style={{ fontSize: '9px', background: 'rgba(111,168,176,0.18)', color: 'var(--color-tide)' }}
+          >
+            {tideLabel || `${alignedCount} ${alignedCount === 1 ? 'tide aligned' : 'tides aligned'}`}
+          </span>
+        </div>
+      )}
+
+      {meanRating != null && (
+        <div data-testid="mean-score-badge">
+          <span className="inline-block rounded px-1.5 font-semibold" style={{ fontSize: '10px', ...starPillStyle(meanRating) }}>
+            {meanRating}★
+          </span>
+        </div>
+      )}
+
+      {/* Hover tooltip — verdict + gloss (Newsreader italic) + weather */}
+      {(glossSentence || weatherLine) && (
+        <div className="heatmap-cell-tip" data-testid="cell-hover-tip">
+          <div className="font-semibold" style={{ fontSize: '11px', color: verdictColour, marginBottom: '4px' }}>
+            {verdictLabel}
+          </div>
+          {glossSentence && (
+            <div
+              className="text-plex-text-secondary italic"
+              style={{ fontSize: '11px', fontFamily: 'var(--font-serif)', lineHeight: 1.4, marginBottom: '6px' }}
+            >
+              {glossSentence}
+            </div>
+          )}
+          {weatherLine && (
+            <div className="text-plex-text-muted" style={{ fontSize: '10px', fontFamily: 'var(--font-mono)' }}>
+              {weatherLine}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -797,6 +780,7 @@ export default function HeatmapGrid({
   isPro = false,
   astroScoresByDate = {},
   showAllLocations = false,
+  onShowAllLocationsChange = null,
   travelDayDates = new Set(),
 }) {
   const [drillDown, setDrillDown] = useState(null); // { date, regionName, targetType }
@@ -1039,6 +1023,7 @@ export default function HeatmapGrid({
                 evaluationScores={evaluationScores}
                 isPro={isPro}
                 showAllLocations={showAllLocations}
+                onShowAllLocationsChange={onShowAllLocationsChange}
               />
             )}
           </React.Fragment>
@@ -1065,5 +1050,6 @@ HeatmapGrid.propTypes = {
   isPro: PropTypes.bool,
   astroScoresByDate: PropTypes.object,
   showAllLocations: PropTypes.bool,
+  onShowAllLocationsChange: PropTypes.func,
   travelDayDates: PropTypes.instanceOf(Set),
 };

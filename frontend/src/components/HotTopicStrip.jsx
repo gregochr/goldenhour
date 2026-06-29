@@ -1,23 +1,31 @@
 import { useState } from 'react';
 import PropTypes from 'prop-types';
 import InfoTip from './InfoTip.jsx';
-import { bortleLabel, moonIlluminationStyle, MOON_EMOJI, MOON_PHASE_NAME } from '../utils/conversions.js';
+import { bortleLabel, moonIlluminationStyle, MOON_EMOJI } from '../utils/conversions.js';
 
-/** Accent colours keyed by topic type. */
+/**
+ * Accent colours keyed by topic type. Per the Kodachrome tidy-up, atmospheric
+ * "fact" topics share the tide teal and the nightglow topics share a violet so
+ * the strip reads as a small, coherent palette rather than a rainbow \u2014 the warm
+ * reds/ambers/greens stay reserved for verdict semantics elsewhere.
+ */
+const TIDE_TEAL = '#6FA8B0';
+const NIGHTGLOW_VIOLET = '#8E86D6';
+
 const HOT_TOPIC_STYLES = {
   BLUEBELL:    { color: '#8b5cf6', emoji: '\uD83D\uDC9C' },
-  KING_TIDE:   { color: '#3b82f6', emoji: '\uD83D\uDC51' },
-  SPRING_TIDE: { color: '#60a5fa', emoji: '\uD83C\uDF0A' },
+  KING_TIDE:   { color: TIDE_TEAL, emoji: '\uD83D\uDC51' },
+  SPRING_TIDE: { color: TIDE_TEAL, emoji: '\uD83C\uDF0A' },
   STORM_SURGE: { color: '#f59e0b', emoji: '\u26A1' },
-  AURORA:      { color: '#4ade80', emoji: '\uD83C\uDF0C' },
+  AURORA:      { color: NIGHTGLOW_VIOLET, emoji: '\uD83C\uDF0C' },
   DUST:        { color: '#f97316', emoji: '\uD83C\uDF05' },
-  INVERSION:   { color: '#94a3b8', emoji: '\u2601\uFE0F' },
+  INVERSION:   { color: TIDE_TEAL, emoji: '\u2601\uFE0F' },
   SUPERMOON:   { color: '#fbbf24', emoji: '\uD83C\uDF15' },
   SNOW_FRESH:  { color: '#e0f2fe', emoji: '\u2744\uFE0F' },
   SNOW_MIST:   { color: '#cbd5e1', emoji: '\uD83C\uDF2B\uFE0F' },
   SNOW_TOPS:   { color: '#bfdbfe', emoji: '\uD83C\uDFD4\uFE0F' },
-  NLC:         { color: '#818cf8', emoji: '\u2728' },
-  METEOR:      { color: '#a78bfa', emoji: '\u2604\uFE0F' },
+  NLC:         { color: NIGHTGLOW_VIOLET, emoji: '\u2728' },
+  METEOR:      { color: NIGHTGLOW_VIOLET, emoji: '\u2604\uFE0F' },
   EQUINOX:     { color: '#fcd34d', emoji: '\u2600\uFE0F' },
   CLEARANCE:   { color: '#fb923c', emoji: '\u26C5' },
 };
@@ -72,59 +80,6 @@ function resolveAuroraData(topic, auroraTonight, auroraTomorrow) {
 }
 
 /**
- * Builds a subtitle line for expandable pills.
- */
-function buildSubtitle(topic, auroraData) {
-  if (topic.type === 'AURORA' && auroraData) {
-    const kp = auroraData.kp ?? auroraData.peakKp;
-    const timing = topic.detail?.toLowerCase().includes('tonight') ? 'tonight' : 'tomorrow';
-    const clearCount = auroraData.regions
-      ?.reduce((sum, r) => sum + (r.clearLocationCount || 0), 0) ?? 0;
-    const parts = [];
-    if (kp != null) parts.push(`Kp ${kp.toFixed(1)} forecast ${timing}`);
-    if (clearCount > 0) parts.push(`${clearCount} locations clear`);
-    return parts.join(' \u00b7 ') || null;
-  }
-  if (topic.type === 'BLUEBELL' && topic.expandedDetail?.bluebellMetrics) {
-    const m = topic.expandedDetail.bluebellMetrics;
-    return `${m.scoringLocationCount} locations scoring \u00b7 best ${m.bestScore}/5`;
-  }
-  if ((topic.type === 'KING_TIDE' || topic.type === 'SPRING_TIDE')
-      && topic.expandedDetail?.tideMetrics) {
-    const m = topic.expandedDetail.tideMetrics;
-    const parts = [m.tidalClassification, m.lunarPhase];
-    const sr = m.sunriseAlignedCount ?? 0;
-    const ss = m.sunsetAlignedCount ?? 0;
-    if (sr > 0 || ss > 0) {
-      const alignParts = [];
-      if (sr > 0) alignParts.push(`${sr} ${sr === 1 ? 'tide' : 'tides'} aligned at sunrise`);
-      if (ss > 0) alignParts.push(`${ss} ${ss === 1 ? 'tide' : 'tides'} aligned at sunset`);
-      parts.push(alignParts.join(' \u00b7 '));
-    } else {
-      parts.push('no tide alignments today');
-    }
-    return parts.filter(Boolean).join(' \u00b7 ');
-  }
-  return null;
-}
-
-/**
- * Builds a moon-phase line for the collapsed aurora pill header.
- * Returns null when aurora data or moon phase is absent (graceful degradation).
- */
-function buildMoonLine(auroraData) {
-  if (!auroraData?.moonPhase) return null;
-  const illum = Math.round(auroraData.moonIlluminationPct ?? 0);
-  const emoji = MOON_EMOJI[auroraData.moonPhase] || '';
-  const phaseName = MOON_PHASE_NAME[auroraData.moonPhase] || auroraData.moonPhase;
-  const { colourClass, suffix } = moonIlluminationStyle(
-    auroraData.moonIlluminationPct ?? 0, auroraData.windowQuality,
-    auroraData.moonRiseTime, auroraData.moonSetTime,
-  );
-  return { emoji, phaseName, illum, colourClass, suffix };
-}
-
-/**
  * Expanded aurora detail card rendered below an AURORA pill.
  */
 function AuroraExpandedCard({ auroraData }) {
@@ -141,8 +96,8 @@ function AuroraExpandedCard({ auroraData }) {
         marginTop: '6px',
         padding: '10px 12px',
         borderRadius: '6px',
-        border: '1px solid rgba(74, 222, 128, 0.15)',
-        background: 'rgba(74, 222, 128, 0.04)',
+        border: `1px solid ${NIGHTGLOW_VIOLET}26`,
+        background: `${NIGHTGLOW_VIOLET}0A`,
       }}
     >
       {/* Header: alert level + Kp */}
@@ -511,166 +466,163 @@ export default function HotTopicStrip({
         const isExpanded = expandedKey === pillKey;
         const auroraData = isAurora ? resolveAuroraData(topic, auroraTonight, auroraTomorrow) : null;
 
-        // Generic expand: aurora uses frontend join, others use expandedDetail
-        const canExpand = !isLiteUser
+        // Rich expand: aurora uses the frontend join, bluebell/tide use expandedDetail.
+        const canExpandRich = !isLiteUser
           && ((isAurora && auroraData != null) || topic.expandedDetail != null);
 
-        const subtitle = canExpand ? buildSubtitle(topic, auroraData) : null;
-        const moonLine = isAurora ? buildMoonLine(auroraData) : null;
-
-        // For expandable pills, regions are shown in the expanded body, not the collapsed pill
-        const regionLine = !canExpand && topic.regions?.length > 0
-          ? topic.regions.join(', ')
-          : null;
+        // Plain expand: a topic with regions but no rich card reveals its region
+        // list on tap. The region list never renders inline by default — a long
+        // list is the worst density offender on mobile.
+        const regionCount = topic.regions?.length ?? 0;
+        const canRevealRegions = !isLiteUser && !canExpandRich && regionCount > 0;
+        const isExpandable = canExpandRich || canRevealRegions;
 
         const handleClick = () => {
           if (isLiteUser) return;
-          if (canExpand) {
+          if (isExpandable) {
             setExpandedKey(isExpanded ? null : pillKey);
           } else if (!isAurora) {
-            // AURORA pills without data don't expand and don't trigger onTopicTap
+            // Nothing to reveal — fall back to the legacy map-filter tap.
+            // AURORA pills without data never expand and never call onTopicTap.
             onTopicTap?.(topic);
           }
         };
 
         return (
-          <div key={pillKey}>
+          <div
+            key={pillKey}
+            style={{
+              borderRadius: '0 6px 6px 0',
+              border: `1px solid ${style.color}33`,
+              borderLeft: `3px solid ${style.color}`,
+              background: `${style.color}0F`,
+              opacity: isLiteUser ? 0.45 : 1,
+            }}
+          >
             <button
               data-testid={`hot-topic-pill-${topic.type}`}
               onClick={handleClick}
               disabled={isLiteUser}
               style={{
                 display: 'flex',
-                flexDirection: 'column',
-                gap: '2px',
-                padding: '8px 14px',
-                borderRadius: '0 8px 8px 0',
-                border: `1px solid ${style.color}33`,
-                borderLeft: `3px solid ${style.color}`,
-                background: `${style.color}0F`,
-                cursor: isLiteUser ? 'default' : 'pointer',
-                opacity: isLiteUser ? 0.45 : 1,
-                pointerEvents: isLiteUser ? 'none' : 'auto',
-                textAlign: 'left',
-                transition: 'background 0.15s',
+                alignItems: 'center',
+                gap: '12px',
+                padding: '9px 13px',
                 width: '100%',
+                background: 'transparent',
+                border: 'none',
+                textAlign: 'left',
+                cursor: isLiteUser ? 'default' : 'pointer',
+                pointerEvents: isLiteUser ? 'none' : 'auto',
+                transition: 'background 0.15s',
               }}
             >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'flex-start',
-                  gap: '12px',
-                  marginBottom: '4px',
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    flexShrink: 0,
-                  }}
-                >
-                  {style.emoji && (
-                    <span
-                      style={{
-                        fontSize: '14px',
-                        lineHeight: 1,
-                        ...(topic.type === 'INVERSION' ? { display: 'inline-block', transform: 'rotate(180deg)' } : {}),
-                      }}
-                    >
-                      {style.emoji}
-                    </span>
-                  )}
-                  <span
-                    style={{
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.5px',
-                      color: style.color,
-                      filter: 'brightness(1.4)',
-                    }}
-                  >
-                    {topic.label}
-                  </span>
-                  {topic.description && (
-                    <span style={{ color: `${style.color}99` }}>
-                      <InfoTip text={topic.description} position="above" />
-                    </span>
-                  )}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  {regionLine && (
-                    <span
-                      style={{
-                        fontSize: '11px',
-                        color: 'rgba(255, 255, 255, 0.45)',
-                        textAlign: 'right',
-                        lineHeight: 1.3,
-                        whiteSpace: 'normal',
-                        wordBreak: 'normal',
-                      }}
-                    >
-                      {regionLine}
-                    </span>
-                  )}
-                  {canExpand && (
-                    <span
-                      data-testid={`expand-chevron-${topic.type}`}
-                      style={{
-                        fontSize: '10px',
-                        color: 'rgba(255,255,255,0.4)',
-                        transition: 'transform 0.15s',
-                        transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                        flexShrink: 0,
-                      }}
-                    >
-                      {'\u25B6'}
-                    </span>
-                  )}
-                </div>
-              </div>
-              {subtitle && (
-                <span
-                  data-testid={`subtitle-${topic.type}`}
-                  style={{
-                    fontSize: '11px',
-                    color: 'rgba(255, 255, 255, 0.5)',
-                    marginBottom: '2px',
-                  }}
-                >
-                  {subtitle}
-                </span>
-              )}
-              {moonLine && (
-                <span
-                  data-testid="aurora-pill-moon-line"
-                  style={{ fontSize: '11px', marginBottom: '2px' }}
-                >
-                  {moonLine.emoji}{' '}
-                  <span style={{ color: 'rgba(255, 255, 255, 0.5)' }}>
-                    {moonLine.phaseName}
-                  </span>
-                  {' · '}
-                  <span className={moonLine.colourClass}>
-                    {moonLine.illum}%{moonLine.suffix}
-                  </span>
-                </span>
-              )}
+              {/* Label group — emoji + bone label + optional infotip */}
               <span
                 style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  flexShrink: 0,
+                }}
+              >
+                {style.emoji && (
+                  <span
+                    style={{
+                      fontSize: '14px',
+                      lineHeight: 1,
+                      ...(topic.type === 'INVERSION' ? { display: 'inline-block', transform: 'rotate(180deg)' } : {}),
+                    }}
+                  >
+                    {style.emoji}
+                  </span>
+                )}
+                <span
+                  style={{
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: 'var(--color-plex-text)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {topic.label}
+                </span>
+                {topic.description && (
+                  <span style={{ color: 'var(--color-plex-text-muted)' }}>
+                    <InfoTip text={topic.description} position="above" />
+                  </span>
+                )}
+              </span>
+
+              {/* Detail sentence — single line, ellipsis-truncated */}
+              <span
+                data-testid={`topic-detail-${topic.type}`}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
                   fontSize: '12px',
-                  color: 'rgba(255, 255, 255, 0.55)',
-                  ...(canExpand ? { fontStyle: 'italic' } : {}),
+                  color: 'var(--color-plex-text-secondary)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
                 }}
               >
                 {topic.detail}
               </span>
+
+              {/* Region count — just the number, never the inline list */}
+              {regionCount > 0 && (
+                <span
+                  data-testid={`topic-region-count-${topic.type}`}
+                  style={{
+                    flexShrink: 0,
+                    fontSize: '11px',
+                    fontFamily: 'var(--font-mono)',
+                    color: 'var(--color-plex-text-muted)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {regionCount} {regionCount === 1 ? 'region' : 'regions'}
+                </span>
+              )}
+
+              {/* Chevron — rotates when open */}
+              {isExpandable && (
+                <span
+                  data-testid={`expand-chevron-${topic.type}`}
+                  style={{
+                    flexShrink: 0,
+                    fontSize: '10px',
+                    color: 'var(--color-plex-text-muted)',
+                    transition: 'transform 0.15s',
+                    transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                  }}
+                >
+                  {'▶'}
+                </span>
+              )}
             </button>
-            {isExpanded && <ExpandedCard topic={topic} auroraData={auroraData} />}
+
+            {/* Expanded body — rich card, or the plain region list */}
+            {isExpanded && canExpandRich && (
+              <div style={{ padding: '0 13px 10px' }}>
+                <ExpandedCard topic={topic} auroraData={auroraData} />
+              </div>
+            )}
+            {isExpanded && canRevealRegions && (
+              <div
+                data-testid={`topic-regions-${topic.type}`}
+                style={{
+                  padding: '0 13px 10px',
+                  fontSize: '11px',
+                  fontFamily: 'var(--font-mono)',
+                  color: 'var(--color-plex-text-muted)',
+                  lineHeight: 1.5,
+                }}
+              >
+                {topic.regions.join(', ')}
+              </div>
+            )}
           </div>
         );
       })}
@@ -682,7 +634,7 @@ export default function HotTopicStrip({
             alignItems: 'center',
             fontSize: '11px',
             fontWeight: 600,
-            color: '#d4a843',
+            color: 'var(--color-plex-text)',
             whiteSpace: 'nowrap',
             padding: '0 8px',
           }}
