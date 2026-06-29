@@ -80,12 +80,12 @@ class SkyRatingEvalControllerTest extends AbstractControllerTest {
     void trendReturnsSeries() throws Exception {
         SkyRatingEvalTrendPoint point = new SkyRatingEvalTrendPoint(
                 7L, LocalDateTime.of(2026, 6, 28, 3, 0), EvaluationModel.SONNET, "abc1234",
-                "angel-of-the-north-2mar-spectacular", 4, 5, 4.0, 55.0, 60.0, 8, 8);
+                "st-marys-10mar-moderate", 4, 4, 4.0, 55.0, 60.0, 8, 8);
         when(skyRatingEvalService.trend()).thenReturn(List.of(point));
 
         mockMvc.perform(get("/api/admin/sky-rating-eval/trend"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].fixtureName").value("angel-of-the-north-2mar-spectacular"))
+                .andExpect(jsonPath("$[0].fixtureName").value("st-marys-10mar-moderate"))
                 .andExpect(jsonPath("$[0].expectedMin").value(4))
                 .andExpect(jsonPath("$[0].avgRating").value(4.0))
                 .andExpect(jsonPath("$[0].passes").value(8));

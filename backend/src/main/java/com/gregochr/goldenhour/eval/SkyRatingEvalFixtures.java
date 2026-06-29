@@ -61,14 +61,13 @@ public final class SkyRatingEvalFixtures {
                     RatingBand.atMost(2),
                     "copt-hill-5mar-washout.json",
                     false),
-            new SkyRatingEvalFixture(
-                    "angel-of-the-north-2mar-spectacular",
-                    "Real day, ported from PromptRegressionTest#angelOfTheNorth_2Mar2026_sunset_"
-                            + "spectacular (prod record 3284; input + observed band verbatim). High-cloud "
-                            + "canvas overhead, observed spectacular. Observer-point only — no directional "
-                            + "or cloud-approach was persisted for that run.",
-                    RatingBand.atLeast(4),
-                    "angel-of-the-north-2mar-spectacular.json"),
+            // RETIRED: angel-of-the-north-2mar-spectacular (observer-only) — obsolete. The app now
+            // always augments forecasts with directional cloud, so an observer-only input is a shape
+            // production no longer produces; and the {4,5} band came from the observed evening while
+            // the fixture's input (100% high cloud, no clear-horizon data) only justifies a cautious
+            // 3 — a right-answer-to-the-wrong-question test. TODO: replace with a captured-real,
+            // FULLY-AUGMENTED spectacular day from current prod to restore a "can it return a 5?"
+            // probe (st-marys-10mar-moderate covers the {4} strong-but-not-spectacular half meanwhile).
             new SkyRatingEvalFixture(
                     "st-marys-10mar-moderate",
                     "Real day, ported from PromptRegressionTest#stMarysLighthouse_10Mar2026_sunrise_"

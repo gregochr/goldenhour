@@ -88,16 +88,6 @@ class SkyRatingEvalFixturesTest {
     }
 
     @Test
-    void spectacularIsObserverPointOnly() {
-        AtmosphericData data = load("angel-of-the-north-2mar-spectacular");
-
-        assertEquals(2, data.cloud().lowCloudPercent());
-        assertEquals(100, data.cloud().highCloudPercent(), "high-cloud canvas overhead");
-        assertNull(data.directionalCloud(), "observer-only — no directional persisted that run");
-        assertNull(data.cloudApproach());
-    }
-
-    @Test
     void moderateCarriesTideAndDirectionalAtSunrise() {
         AtmosphericData data = load("st-marys-10mar-moderate");
 

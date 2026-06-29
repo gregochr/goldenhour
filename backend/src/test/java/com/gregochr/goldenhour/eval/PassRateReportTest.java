@@ -81,11 +81,11 @@ class PassRateReportTest {
 
     @Test
     void renderMentionsBandPassRateAndBothMissDirections() {
-        PassRateReport report = new PassRateReport("angel-of-the-north-2mar-spectacular", RatingBand.atLeast(4));
+        PassRateReport report = new PassRateReport("example-strong-fixture", RatingBand.atLeast(4));
         feed(report, 5, 4, 3, 5);
 
         String rendered = report.render();
-        assertTrue(rendered.contains("angel-of-the-north-2mar-spectacular"), "names the fixture");
+        assertTrue(rendered.contains("example-strong-fixture"), "names the fixture");
         assertTrue(rendered.contains("{4–5}"), "shows the band");
         assertTrue(rendered.contains("passRate=75.0%"), "shows the pass rate");
         assertTrue(rendered.contains("1 DOWN"), "shows the below-band miss count");
