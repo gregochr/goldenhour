@@ -14,11 +14,15 @@ import java.util.List;
 public interface TravelDayRepository extends JpaRepository<TravelDayEntity, Long> {
 
     /**
-     * Returns all travel ranges ordered by start date ascending (display order).
+     * Returns the current and upcoming travel ranges — those whose end date is on or after
+     * {@code today} — ordered by start date descending (furthest-future range first). Past ranges
+     * (entirely before today) are excluded, since they neither gate any upcoming forecast nor need
+     * to clutter the admin list.
      *
-     * @return all ranges, soonest first
+     * @param today the cutoff date (a range is kept when {@code endDate >= today})
+     * @return current and future ranges, furthest-future first
      */
-    List<TravelDayEntity> findAllByOrderByStartDateAsc();
+    List<TravelDayEntity> findByEndDateGreaterThanEqualOrderByStartDateDesc(LocalDate today);
 
     /**
      * Tests whether the given date falls inside any travel range (inclusive of

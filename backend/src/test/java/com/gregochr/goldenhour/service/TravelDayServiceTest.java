@@ -46,7 +46,7 @@ class TravelDayServiceTest {
     }
 
     @Test
-    @DisplayName("list maps entities to responses, soonest first")
+    @DisplayName("list maps current/future ranges to responses (repository supplies the order)")
     void listMapsEntities() {
         TravelDayEntity entity = TravelDayEntity.builder()
                 .id(7L)
@@ -54,7 +54,8 @@ class TravelDayServiceTest {
                 .endDate(LocalDate.of(2026, 7, 3))
                 .note("London")
                 .build();
-        when(repository.findAllByOrderByStartDateAsc()).thenReturn(List.of(entity));
+        when(repository.findByEndDateGreaterThanEqualOrderByStartDateDesc(any()))
+                .thenReturn(List.of(entity));
 
         List<TravelDayResponse> result = service.list();
 
@@ -64,6 +65,19 @@ class TravelDayServiceTest {
             assertThat(r.endDate()).isEqualTo(LocalDate.of(2026, 7, 3));
             assertThat(r.note()).isEqualTo("London");
         });
+    }
+
+    @Test
+    @DisplayName("list filters by end date >= today (Europe/London)")
+    void listFiltersPastRangesByToday() {
+        ArgumentCaptor<LocalDate> cutoff = ArgumentCaptor.forClass(LocalDate.class);
+        when(repository.findByEndDateGreaterThanEqualOrderByStartDateDesc(cutoff.capture()))
+                .thenReturn(List.of());
+
+        service.list();
+
+        assertThat(cutoff.getValue())
+                .isEqualTo(LocalDate.now(java.time.ZoneId.of("Europe/London")));
     }
 
     @Test

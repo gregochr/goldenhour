@@ -56,6 +56,16 @@ export default function TravelDaysView() {
     })();
   }, [load]);
 
+  // Open the native date calendar when the field is clicked anywhere (not just the
+  // small indicator icon). showPicker requires a user gesture; the click provides it.
+  const openPicker = (e) => {
+    try {
+      e.currentTarget.showPicker?.();
+    } catch {
+      // showPicker is unsupported on this browser, or the picker is already open.
+    }
+  };
+
   const handleAdd = async (e) => {
     e.preventDefault();
     if (!startDate || !endDate) {
@@ -100,7 +110,7 @@ export default function TravelDaysView() {
         On a travel day you&apos;re away and can&apos;t shoot, so the overnight batch
         skips any forecast whose target date falls inside a range — no Claude spend
         on days you can&apos;t use. Travel changes weekly; add and remove ranges as
-        your roster changes.
+        your roster changes. Both the start and end date are included.
       </p>
 
       {error && (
@@ -115,22 +125,24 @@ export default function TravelDaysView() {
         data-testid="travel-day-form"
       >
         <label className="flex flex-col gap-1 text-xs text-plex-text-muted">
-          From
+          From <span className="text-plex-text-muted/70">(inclusive)</span>
           <input
             type="date"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
-            className="bg-plex-bg border border-plex-border rounded px-2 py-1 text-sm text-plex-text"
+            onClick={openPicker}
+            className="date-field bg-plex-bg border border-plex-border rounded px-2 py-1 text-sm text-plex-text cursor-pointer"
             data-testid="travel-day-start"
           />
         </label>
         <label className="flex flex-col gap-1 text-xs text-plex-text-muted">
-          To
+          To <span className="text-plex-text-muted/70">(inclusive)</span>
           <input
             type="date"
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
-            className="bg-plex-bg border border-plex-border rounded px-2 py-1 text-sm text-plex-text"
+            onClick={openPicker}
+            className="date-field bg-plex-bg border border-plex-border rounded px-2 py-1 text-sm text-plex-text cursor-pointer"
             data-testid="travel-day-end"
           />
         </label>
