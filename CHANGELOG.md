@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Plan → Map handoff: "View on map" from Best Bet cards
+- **Why.** The Plan view answers "where should I go?"; the Map answers "show me exactly where." The jump should carry context so the user never re-orients on arrival. (Part B of the map filter / handoff addendum.)
+- **Bet card → region (B1).** Each navigable Best Bet / Also Good card gets a `🗺 View on map →` affordance (distinct from "Read more"). Clicking it sets the Map's date and event to the bet's, switches to the Map tab, and **fit-bounds to the bet's region** so all that region's pins fill the view (the macro view).
+- **Plumbing.** `DailyBriefing` derives date + event from the resolved event key and hands off `{ region, date, eventType }`; `App.handleShowOnMap` routes region handoffs into a new `handoffRegion` prop; `MapView` adds a `FitBoundsController` that fits the map to the region's locations on each handoff (nonce-keyed so repeat taps re-fit).
+- **Consistent cue (B2/B3).** The bet card reuses the same `🗺` map cue as the drill-down location rows, which keep jumping to a single pin (the micro view) — same gesture, two scopes.
+
 ### Changed — Map filter bar tidy (threshold control, grouped, collapsed default)
 - **Why.** The Map is the "tell me more" follow-up to Plan, so the filter bar should be quiet by default. The old bar was one undifferentiated strip of ~16 controls with pipe separators, and the six rating "dots" looked like independent toggles when they actually behave as a minimum threshold.
 - **Minimum-quality threshold.** The 1–5★ controls now render as a single segmented "this and above" control (`1★+ · 2★+ · 3★+ · 4★+ · 5★`) with a saved-state hint. It's a true threshold — selecting a level sets it (no more toggle-off), keeps each rating colour pip, persists to localStorage, and **defaults to 3★+** when unset.

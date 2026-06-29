@@ -154,6 +154,29 @@ FlyToController.propTypes = {
 };
 
 /**
+ * Fits the map to a region's locations when handed off from a Plan-tab bet card.
+ * The {@code key} (a monotonic nonce) lets the same region re-fit on repeat taps.
+ */
+function FitBoundsController({ target }) {
+  const map = useMap();
+  useEffect(() => {
+    if (target?.points?.length) {
+      map.fitBounds(L.latLngBounds(target.points), { padding: [60, 60], maxZoom: 12, animate: true });
+    }
+    // Only re-fit when the handoff key changes, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target?.key]);
+  return null;
+}
+
+FitBoundsController.propTypes = {
+  target: PropTypes.shape({
+    points: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
+    key: PropTypes.number,
+  }),
+};
+
+/**
  * Opens the desktop Leaflet popup for a handed-off location once the fly-to
  * animation settles (so the marker has declustered). Re-fires whenever the
  * {@code nonce} changes, allowing the same location to be re-selected.
@@ -320,7 +343,7 @@ function getNextEventType(locations, date) {
 
 const ALERT_WORTHY_LEVELS = new Set(['MODERATE', 'STRONG']);
 
-function MapView({ locations, date, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [] }) {
+function MapView({ locations, date, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [] }) {
   const { role } = useAuth();
   const isMobile = useIsMobile();
   const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
@@ -371,6 +394,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
   const [astroScores, setAstroScores] = useState({}); // locationName → { stars, summary, ... }
   const [astroAvailableDates, setAstroAvailableDates] = useState([]); // ISO date strings
   const [flyTarget, setFlyTarget] = useState(null);
+  const [fitBoundsTarget, setFitBoundsTarget] = useState(null);
   const [tideFetchedAt, setTideFetchedAt] = useState({});
   // Live Leaflet marker instances keyed by location name — used to open a popup
   // programmatically when the Plan tab hands off a specific location.
@@ -442,6 +466,20 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
     // change would re-fly mid-session. Nonce + name capture the intent to refly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handoffLocationName, handoffNonce]);
+
+  // Apply a region handoff from a Plan-tab bet card: fit the map to the spread of
+  // that region's locations (the macro view), so the pins shown match the bet.
+  useEffect(() => {
+    if (!handoffRegion) return;
+    const points = locations
+      .filter((l) => l.enabled !== false && l.regionName === handoffRegion
+        && l.lat != null && l.lon != null)
+      .map((l) => [l.lat, l.lon]);
+    if (points.length === 0) return;
+    (async () => setFitBoundsTarget({ points, key: handoffNonce ?? 0 }))();
+    // locations intentionally omitted (see the location handoff above).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handoffRegion, handoffNonce]);
   const [tideClassifications, setTideClassifications] = useState({});
 
   // Inject popup width styles (desktop only)
@@ -985,6 +1023,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
           />
           <ZoomTracker onZoom={setZoom} />
           <FlyToController target={flyTarget} />
+          <FitBoundsController target={fitBoundsTarget} />
           <HandoffPopupController
             locationName={handoffLocationName}
             nonce={handoffNonce}
@@ -1210,6 +1249,7 @@ MapView.propTypes = {
   handoffEventType: PropTypes.string,
   handoffFilterAction: PropTypes.string,
   handoffLocationName: PropTypes.string,
+  handoffRegion: PropTypes.string,
   handoffNonce: PropTypes.number,
   briefingScores: PropTypes.instanceOf(Map),
   onForecastRun: PropTypes.func,
