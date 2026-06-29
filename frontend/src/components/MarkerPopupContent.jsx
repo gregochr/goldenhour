@@ -190,6 +190,32 @@ const SCORE_TOOLTIPS = {
 };
 
 /**
+ * Score-bar fills run muted-grey (low) → hot colour (high), so a higher score
+ * both fills further AND glows hotter. The gradient is sized to the full track
+ * and the unfilled remainder is masked, so a low score shows only the muted end.
+ */
+const FIERY_FILL = 'linear-gradient(90deg, #B5A06A, #E0A542 45%, #C8452F)';
+const GOLDEN_FILL = 'linear-gradient(90deg, #6B6453, #C88E2E 45%, #F5C518)';
+
+/** Value-number tint ramps (low → high), matching each bar's direction. */
+const FIERY_TINT = ['#8A8175', '#E0A542', '#E86A4A'];
+const GOLDEN_TINT = ['#8A8175', '#C88E2E', '#F5C518'];
+
+/** Linear interpolation between two #rrggbb hex colours, returning an rgb() string. */
+function lerpHex(a, b, t) {
+  const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16));
+  const pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16));
+  const c = pa.map((v, i) => Math.round(v + (pb[i] - v) * t));
+  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+}
+
+/** Maps a 0–100 score onto a 3-stop colour ramp (stops at 0/50/100). */
+function rampTint(stops, pct) {
+  const t = Math.min(1, Math.max(0, pct / 100));
+  return t <= 0.5 ? lerpHex(stops[0], stops[1], t / 0.5) : lerpHex(stops[1], stops[2], (t - 0.5) / 0.5);
+}
+
+/**
  * Inline score bar used inside both Leaflet popups and the mobile bottom sheet.
  *
  * @param {object} props
@@ -198,23 +224,28 @@ const SCORE_TOOLTIPS = {
  */
 function PopupScoreRow({ label, score }) {
   const pct = score != null ? Math.min(100, Math.max(0, score)) : null;
-  const barColour =
-    pct == null  ? '#6B6B6B' :
-    pct > 75     ? '#E5A00D' :
-    pct > 50     ? '#CC8A00' :
-    pct > 25     ? '#A06E00' :
-                   '#6B6B6B';
+  const isFiery = label === 'Fiery Sky';
+  const fill = isFiery ? FIERY_FILL : GOLDEN_FILL;
+  const numberTint = pct == null
+    ? 'var(--color-plex-text-muted)'
+    : rampTint(isFiery ? FIERY_TINT : GOLDEN_TINT, pct);
   return (
     <div style={{ marginBottom: '4px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#A0A0A0', marginBottom: '2px' }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', borderBottom: '1px dotted #6B6B6B' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--color-plex-text-secondary)', marginBottom: '2px' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', borderBottom: '1px dotted var(--color-plex-text-muted)' }}>
           {label}
           {SCORE_TOOLTIPS[label] && <InfoTip text={SCORE_TOOLTIPS[label]} />}
         </span>
-        <span style={{ fontWeight: '600', color: '#EBEBEB' }}>{pct != null ? pct : '—'}</span>
+        <span style={{ fontWeight: '600', fontFamily: "'IBM Plex Mono', monospace", color: numberTint }}>{pct != null ? pct : '—'}</span>
       </div>
-      <div style={{ height: '6px', background: '#3A3D45', borderRadius: '9999px', overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: pct != null ? `${pct}%` : '0%', background: barColour, borderRadius: '9999px' }} />
+      <div style={{ position: 'relative', height: '6px', background: fill, borderRadius: '999px', overflow: 'hidden' }}>
+        <div
+          style={{
+            position: 'absolute', top: 0, right: 0, height: '100%',
+            width: pct != null ? `${100 - pct}%` : '100%',
+            background: 'var(--color-plex-surface-light)',
+          }}
+        />
       </div>
     </div>
   );
@@ -234,9 +265,8 @@ PopupScoreRow.propTypes = {
  * @param {object} props
  * @param {string} props.triageReason - TriageReason enum value.
  * @param {string|null} props.triageMessage - Formatted stand-down reason.
- * @param {boolean} props.darkMode - True when rendered on a dark surface.
  */
-function StandDownBadge({ triageReason, triageMessage, darkMode }) {
+function StandDownBadge({ triageReason, triageMessage }) {
   return (
     <div
       data-testid="triage-standdown-badge"
@@ -248,7 +278,7 @@ function StandDownBadge({ triageReason, triageMessage, darkMode }) {
         background: 'rgba(80, 19, 19, 0.18)',
         border: '1px solid rgba(163, 45, 45, 0.5)',
         borderRadius: '6px',
-        color: darkMode ? '#f1d6d6' : '#501313',
+        color: '#f1d6d6',
       }}
     >
       <div style={{ fontWeight: 700, marginBottom: '2px' }}>
@@ -262,7 +292,6 @@ function StandDownBadge({ triageReason, triageMessage, darkMode }) {
 StandDownBadge.propTypes = {
   triageReason: PropTypes.string.isRequired,
   triageMessage: PropTypes.string,
-  darkMode: PropTypes.bool,
 };
 
 /**
@@ -280,7 +309,6 @@ StandDownBadge.propTypes = {
  * @param {string} props.date - Selected date string (YYYY-MM-DD).
  * @param {function} props.onTideFetchedAt - Called with fetchedAt timestamp from TideIndicator.
  * @param {string|null} props.tideFetchedAt - Previously fetched tide timestamp for footer display.
- * @param {boolean} [props.darkMode=false] - True when rendered on a dark surface (e.g. BottomSheet).
  * @param {object|null} [props.briefingScore] - Briefing evaluation result for this location/date/event.
  *   When `forecast` is null but `briefingScore.triageReason` is set, the popover renders a
  *   stand-down branch instead of the "no forecast yet" empty state.
@@ -302,7 +330,6 @@ export default function MarkerPopupContent({
   isAuroraMode = false,
   astroScore = null,
   isAstroMode = false,
-  darkMode = false,
   onForecastRun,
   driveMinutes = null,
   briefingScore = null,
@@ -359,8 +386,8 @@ export default function MarkerPopupContent({
   const blueStart   = forecast ? formatEventTimeUk(forecast.blueHourStart) : null;
   const blueEnd     = forecast ? formatEventTimeUk(forecast.blueHourEnd) : null;
 
-  const goldenPillStyle = { ...POPUP_PILL, background: '#451a03', color: '#fcd34d', border: '1px solid rgba(217,119,6,0.4)' };
-  const bluePillStyle   = { ...POPUP_PILL, background: '#1e1b4b', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.4)' };
+  const goldenPillStyle = { ...POPUP_PILL, background: 'rgba(224,165,66,0.12)', color: 'var(--color-verdict-marginal)', border: '1px solid rgba(224,165,66,0.28)', fontFamily: "'IBM Plex Mono', monospace" };
+  const bluePillStyle   = { ...POPUP_PILL, background: 'rgba(124,141,214,0.12)', color: '#aab4e6', border: '1px solid rgba(124,141,214,0.28)', fontFamily: "'IBM Plex Mono', monospace" };
 
   const locTypes    = (location.locationType ?? []).filter((t) => POPUP_LOC_TYPE_META[t]);
   const solarTypes  = (location.solarEventType ?? []).filter((t) => POPUP_SOLAR_EVENT_META[t]);
@@ -372,16 +399,17 @@ export default function MarkerPopupContent({
       {/* Row 1: Title + drive time + event time pill */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '6px', marginBottom: '8px' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-          <div style={{ fontWeight: '800', fontSize: '17px', color: darkMode ? '#EBEBEB' : '#0f172a' }}>
+          <div style={{ fontWeight: '700', fontSize: '18px', letterSpacing: '-0.01em', color: 'var(--color-plex-text)' }}>
             {location.name}
           </div>
         </div>
         {eventTime && (
           <span style={{
             ...POPUP_PILL,
-            background: isSunrise ? 'rgba(249,115,22,0.15)' : 'rgba(168,85,247,0.15)',
-            color:      isSunrise ? '#fb923c'                : '#c084fc',
-            border:     `1px solid ${isSunrise ? 'rgba(249,115,22,0.35)' : 'rgba(168,85,247,0.35)'}`,
+            fontFamily: "'IBM Plex Mono', monospace",
+            background: 'rgba(124,141,214,0.14)',
+            color: '#aab4e6',
+            border: '1px solid rgba(124,141,214,0.3)',
           }}>
             {isSunrise ? '🌅' : '🌇'} {isSunrise ? 'Sunrise' : 'Sunset'} · {eventTime}
           </span>
@@ -414,7 +442,7 @@ export default function MarkerPopupContent({
             <div style={{ display: 'table', width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
               {hourlyData.map((h) => (
                 <div key={h.solarEventTime} style={{ display: 'table-row' }}>
-                  <div style={{ display: 'table-cell', color: '#6B6B6B', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
+                  <div style={{ display: 'table-cell', color: 'var(--color-plex-text-muted)', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
                     {formatEventTimeUk(h.solarEventTime)}
                   </div>
                   <div style={{ display: 'table-cell', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
@@ -431,7 +459,7 @@ export default function MarkerPopupContent({
             </div>
           </div>
         ) : (
-          <div style={{ fontSize: '12px', color: '#9ca3af', fontStyle: 'italic' }}>
+          <div style={{ fontSize: '12px', color: 'var(--color-plex-text-muted)', fontStyle: 'italic' }}>
             No hourly forecast available
           </div>
         )
@@ -439,9 +467,10 @@ export default function MarkerPopupContent({
         <>
           <div style={{ marginBottom: '6px' }}>
             {forecast.rating != null && (
-              <div style={{ fontSize: '14px', color: '#E5A00D', letterSpacing: '2px', marginBottom: '4px' }}>
-                {'★'.repeat(forecast.rating)}{'☆'.repeat(5 - forecast.rating)}
-                <span style={{ fontSize: '11px', color: '#6B6B6B', marginLeft: '6px', letterSpacing: 0 }}>
+              <div style={{ fontSize: '16px', letterSpacing: '2px', marginBottom: '4px' }}>
+                <span style={{ color: 'var(--color-verdict-marginal)' }}>{'★'.repeat(forecast.rating)}</span>
+                <span style={{ color: 'var(--color-plex-text-muted)' }}>{'☆'.repeat(5 - forecast.rating)}</span>
+                <span style={{ fontSize: '12px', color: 'var(--color-plex-text-muted)', fontFamily: "'IBM Plex Mono', monospace", marginLeft: '8px', letterSpacing: 0 }}>
                   {forecast.rating}/5
                 </span>
               </div>
@@ -514,7 +543,7 @@ export default function MarkerPopupContent({
           )}
           {driveMinutes != null && driveMinutes > 0 && (
             <div style={{ marginBottom: '6px' }} data-testid="drive-time-badge">
-              <span style={{ ...POPUP_PILL, background: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', color: '#9ca3af', border: '1px solid rgba(156,163,175,0.2)' }}>
+              <span style={{ ...POPUP_PILL, background: 'rgba(255,255,255,0.05)', color: 'var(--color-plex-text-secondary)', border: '1px solid var(--color-plex-border-light)' }}>
                 🚗 {formatDriveTime(driveMinutes)}
               </span>
             </div>
@@ -526,7 +555,7 @@ export default function MarkerPopupContent({
                 ...POPUP_PILL,
                 display: 'block',
                 background: 'rgba(30,30,50,0.5)',
-                color: '#6b7280',
+                color: 'var(--color-plex-text-muted)',
                 border: '1px solid rgba(107,114,128,0.3)',
                 fontSize: '11px',
                 padding: '6px 10px',
@@ -628,7 +657,7 @@ export default function MarkerPopupContent({
                 ...POPUP_PILL,
                 display: 'block',
                 background: 'rgba(30,30,50,0.5)',
-                color: '#6b7280',
+                color: 'var(--color-plex-text-muted)',
                 border: '1px solid rgba(107,114,128,0.3)',
                 fontSize: '11px',
                 padding: '6px 10px',
@@ -699,31 +728,31 @@ export default function MarkerPopupContent({
             <StandDownBadge
               triageReason={forecast.triageReason}
               triageMessage={forecast.triageMessage}
-              darkMode={darkMode}
             />
           )}
           {!forecast.triageReason && forecast.summary && (
-            <div style={{ fontSize: '12px', lineHeight: '1.5', color: darkMode ? '#A0A0A0' : '#3A3D45', marginBottom: '8px' }}>
+            <div style={{ fontSize: '13px', lineHeight: '1.55', fontFamily: "'Newsreader', Georgia, serif", color: 'var(--color-plex-text-secondary)', marginBottom: '8px' }}>
               {forecast.summary}
             </div>
           )}
           {role === 'LITE_USER' && (
-            <p data-testid="upgrade-hint" style={{ fontSize: '12px', color: '#6B6B6B', marginBottom: '8px' }}>
-              <a href="/upgrade" style={{ color: '#6366f1', textDecoration: 'none' }}>Upgrade to Pro</a> for Fiery Sky &amp; Golden Hour scores, storm surge analysis, and full AI analysis
+            <p data-testid="upgrade-hint" style={{ fontSize: '12px', color: 'var(--color-plex-text-muted)', marginBottom: '8px' }}>
+              <a href="/upgrade" style={{ color: 'var(--color-plex-text)', textDecoration: 'underline', textUnderlineOffset: '2px' }}>Upgrade to Pro</a> for Fiery Sky &amp; Golden Hour scores, storm surge analysis, and full AI analysis
             </p>
           )}
 
-          {/* "More details" toggle */}
+          {/* "More details" toggle — bone/mono underline, matching the drill-down affordance */}
           <button
             data-testid="more-details-toggle"
             onClick={onToggleExpanded}
             style={{
               background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0',
-              fontSize: '11px', fontWeight: '600', color: '#6366f1',
+              fontSize: '12px', fontWeight: '600', color: 'var(--color-plex-text-muted)',
+              fontFamily: "'IBM Plex Mono', monospace", textDecoration: 'underline', textUnderlineOffset: '2px',
               display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '6px',
             }}
           >
-            {isExpanded ? '▾ Less details' : '▸ More details'}
+            {isExpanded ? 'Less details ▴' : 'More details ▾'}
           </button>
 
           {isExpanded && (
@@ -734,7 +763,7 @@ export default function MarkerPopupContent({
                   {locTypes.map((t) => {
                     const m = POPUP_LOC_TYPE_META[t];
                     return (
-                      <span key={t} style={{ ...POPUP_PILL, background: '#252830', color: '#EBEBEB', border: '1px solid #374151' }}>
+                      <span key={t} style={{ ...POPUP_PILL, borderRadius: '6px', background: 'var(--color-plex-surface-light)', color: 'var(--color-plex-text)', border: '1px solid var(--color-plex-border-light)' }}>
                         {m.emoji} {m.label}
                       </span>
                     );
@@ -748,7 +777,7 @@ export default function MarkerPopupContent({
                   {solarTypes.map((t) => {
                     const m = POPUP_SOLAR_EVENT_META[t];
                     return (
-                      <span key={t} style={{ ...POPUP_PILL, background: '#431407', color: '#fcd34d', border: '1px solid rgba(146,64,14,0.5)' }}>
+                      <span key={t} style={{ ...POPUP_PILL, borderRadius: '6px', background: 'rgba(224,165,66,0.12)', color: 'var(--color-verdict-marginal)', border: '1px solid rgba(224,165,66,0.28)' }}>
                         {m.emoji} {m.label}
                       </span>
                     );
@@ -760,7 +789,7 @@ export default function MarkerPopupContent({
               {coastalTides.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
                   {coastalTides.map((t) => (
-                    <span key={t} style={{ ...POPUP_PILL, background: '#083344', color: '#67e8f9', border: '1px solid rgba(22,163,190,0.4)' }}>
+                    <span key={t} style={{ ...POPUP_PILL, borderRadius: '6px', background: 'rgba(111,168,176,0.16)', color: 'var(--color-tide)', border: '1px solid rgba(111,168,176,0.3)' }}>
                       🌊 {POPUP_TIDE_META[t]}
                     </span>
                   ))}
@@ -808,7 +837,7 @@ export default function MarkerPopupContent({
               {/* Score bars — PRO/ADMIN only */}
               {role !== 'LITE_USER' && forecast && forecast.fierySkyPotential != null && (
                 <div style={{ marginBottom: '6px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: '#6B6B6B', marginBottom: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: 'var(--color-plex-text-muted)', marginBottom: '4px' }}>
                     <span>Scores</span>
                     <InfoTip text="Fiery Sky measures dramatic colour from clouds catching light. Golden Hour measures overall light quality and can score high even with clear sky." />
                   </div>
@@ -819,7 +848,7 @@ export default function MarkerPopupContent({
 
               {/* Comfort rows */}
               {forecast.temperatureCelsius != null && (
-                <div style={{ borderTop: `1px solid ${darkMode ? '#3A3D45' : '#e5e7eb'}`, paddingTop: '6px', marginTop: '4px', fontSize: '12px', color: darkMode ? '#A0A0A0' : '#3A3D45', lineHeight: '1.8' }}>
+                <div style={{ borderTop: `1px solid var(--color-plex-border)`, paddingTop: '6px', marginTop: '4px', fontSize: '12px', color: 'var(--color-plex-text-secondary)', lineHeight: '1.8' }}>
                   <div style={{ display: 'flex', alignItems: 'center' }}><ThermometerIcon /><strong>{Math.round(forecast.temperatureCelsius)}°C</strong>&nbsp;· feels like {Math.round(forecast.apparentTemperatureCelsius ?? forecast.temperatureCelsius)}°C</div>
                   <div style={{ display: 'flex', alignItems: 'center' }}><WindIcon /><strong>{mpsToMph(forecast.windSpeed)} mph</strong>&nbsp;{degreesToCompass(forecast.windDirection)}</div>
                   <div style={{ display: 'flex', alignItems: 'center' }}><RainIcon /><strong>{forecast.precipitationProbabilityPercent ?? 0}%</strong>&nbsp;rain chance</div>
@@ -831,7 +860,7 @@ export default function MarkerPopupContent({
 
               {/* Footer: generated at (non-admin only — admin sees it always below) */}
               {role !== 'ADMIN' && forecast?.forecastRunAt && (
-                <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: `1px solid ${darkMode ? '#3A3D45' : '#e5e7eb'}`, fontSize: '10px', color: '#9ca3af' }}>
+                <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: `1px solid var(--color-plex-border)`, fontSize: '10px', color: 'var(--color-plex-text-muted)' }}>
                   {buildGeneratedFooter(forecast)}
                 </div>
               )}
@@ -840,14 +869,14 @@ export default function MarkerPopupContent({
 
           {/* Hourly comfort rows for waterfall locations */}
           {showComfortRows && hourlyData.length > 0 && (
-            <div style={{ borderTop: `1px solid ${darkMode ? '#3A3D45' : '#e5e7eb'}`, paddingTop: '6px', marginTop: '6px' }}>
+            <div style={{ borderTop: `1px solid var(--color-plex-border)`, paddingTop: '6px', marginTop: '6px' }}>
               <div style={{ fontSize: '11px', fontWeight: '700', color: '#38bdf8', marginBottom: '6px' }}>
                 💦 Hourly comfort during daylight hours
               </div>
               <div style={{ display: 'table', width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
                 {hourlyData.map((h) => (
                   <div key={h.solarEventTime} style={{ display: 'table-row' }}>
-                    <div style={{ display: 'table-cell', color: '#6B6B6B', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
+                    <div style={{ display: 'table-cell', color: 'var(--color-plex-text-muted)', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
                       {formatEventTimeUk(h.solarEventTime)}
                     </div>
                     <div style={{ display: 'table-cell', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
@@ -867,7 +896,7 @@ export default function MarkerPopupContent({
 
           {/* Footer: always visible for ADMIN */}
           {role === 'ADMIN' && forecast?.forecastRunAt && (
-            <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: `1px solid ${darkMode ? '#3A3D45' : '#e5e7eb'}`, fontSize: '10px', color: '#9ca3af' }}>
+            <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: `1px solid var(--color-plex-border)`, fontSize: '10px', color: 'var(--color-plex-text-muted)' }}>
               {buildGeneratedFooter(forecast)}
               {tideFetchedAt && (
                 <div>Tide data fetched: {formatGeneratedAtFull(tideFetchedAt)}</div>
@@ -922,7 +951,7 @@ export default function MarkerPopupContent({
 
             {/* Sub-row: type · region */}
             {subParts.length > 0 && (
-              <div style={{ fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--color-plex-text-muted)', marginBottom: '6px' }}>
                 {subParts.join(' · ')}
               </div>
             )}
@@ -931,7 +960,7 @@ export default function MarkerPopupContent({
             {(emptySunriseTime || emptySunsetTime) && (
               <div data-testid="solar-times-row" style={{
                 display: 'flex', gap: '12px', padding: '5px 8px', borderRadius: '6px',
-                background: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                background: 'rgba(255,255,255,0.04)',
                 marginBottom: '6px', fontSize: '11px',
               }}>
                 {emptySunriseTime && (
@@ -956,12 +985,12 @@ export default function MarkerPopupContent({
                   </span>
                 )}
                 {hasBortleChip && (
-                  <span data-testid="light-pollution-badge" style={{ ...POPUP_PILL, background: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', color: '#9ca3af', border: '1px solid rgba(156,163,175,0.2)' }}>
+                  <span data-testid="light-pollution-badge" style={{ ...POPUP_PILL, background: 'rgba(255,255,255,0.05)', color: 'var(--color-plex-text-secondary)', border: '1px solid var(--color-plex-border-light)' }}>
                     💡 Light pollution: {bortleLabel(location.bortleClass)} (Bortle {location.bortleClass})
                   </span>
                 )}
                 {hasDriveChip && (
-                  <span data-testid="drive-time-badge" style={{ ...POPUP_PILL, background: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', color: '#9ca3af', border: '1px solid rgba(156,163,175,0.2)' }}>
+                  <span data-testid="drive-time-badge" style={{ ...POPUP_PILL, background: 'rgba(255,255,255,0.05)', color: 'var(--color-plex-text-secondary)', border: '1px solid var(--color-plex-border-light)' }}>
                     🚗 {formatDriveTime(driveMinutes)}
                   </span>
                 )}
@@ -972,28 +1001,28 @@ export default function MarkerPopupContent({
               <StandDownBadge
                 triageReason={briefingScore.triageReason}
                 triageMessage={briefingScore.triageMessage}
-                darkMode={darkMode}
               />
             ) : isBatchScored ? (
               <>
                 {briefingScore.rating != null && (
                   <div style={{ marginBottom: '6px' }}>
-                    <div style={{ fontSize: '14px', color: '#E5A00D', letterSpacing: '2px', marginBottom: '4px' }}>
-                      {'★'.repeat(briefingScore.rating)}{'☆'.repeat(5 - briefingScore.rating)}
-                      <span style={{ fontSize: '11px', color: '#6B6B6B', marginLeft: '6px', letterSpacing: 0 }}>
+                    <div style={{ fontSize: '16px', letterSpacing: '2px', marginBottom: '4px' }}>
+                      <span style={{ color: 'var(--color-verdict-marginal)' }}>{'★'.repeat(briefingScore.rating)}</span>
+                      <span style={{ color: 'var(--color-plex-text-muted)' }}>{'☆'.repeat(5 - briefingScore.rating)}</span>
+                      <span style={{ fontSize: '12px', color: 'var(--color-plex-text-muted)', fontFamily: "'IBM Plex Mono', monospace", marginLeft: '8px', letterSpacing: 0 }}>
                         {briefingScore.rating}/5
                       </span>
                     </div>
                   </div>
                 )}
                 {briefingScore.summary && (
-                  <div style={{ fontSize: '12px', lineHeight: '1.5', color: darkMode ? '#A0A0A0' : '#3A3D45', marginBottom: '8px' }}>
+                  <div style={{ fontSize: '13px', lineHeight: '1.55', fontFamily: "'Newsreader', Georgia, serif", color: 'var(--color-plex-text-secondary)', marginBottom: '8px' }}>
                     {briefingScore.summary}
                   </div>
                 )}
                 {role !== 'LITE_USER' && briefingScore.fierySkyPotential != null && (
                   <div style={{ marginBottom: '6px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: '#6B6B6B', marginBottom: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: 'var(--color-plex-text-muted)', marginBottom: '4px' }}>
                       <span>Scores</span>
                       <InfoTip text="Fiery Sky measures dramatic colour from clouds catching light. Golden Hour measures overall light quality and can score high even with clear sky." />
                     </div>
@@ -1002,8 +1031,8 @@ export default function MarkerPopupContent({
                   </div>
                 )}
                 {role === 'LITE_USER' && (
-                  <p data-testid="upgrade-hint" style={{ fontSize: '12px', color: '#6B6B6B', marginBottom: '8px' }}>
-                    <a href="/upgrade" style={{ color: '#6366f1', textDecoration: 'none' }}>Upgrade to Pro</a> for Fiery Sky &amp; Golden Hour scores, storm surge analysis, and full AI analysis
+                  <p data-testid="upgrade-hint" style={{ fontSize: '12px', color: 'var(--color-plex-text-muted)', marginBottom: '8px' }}>
+                    <a href="/upgrade" style={{ color: 'var(--color-plex-text)', textDecoration: 'underline', textUnderlineOffset: '2px' }}>Upgrade to Pro</a> for Fiery Sky &amp; Golden Hour scores, storm surge analysis, and full AI analysis
                   </p>
                 )}
               </>
@@ -1011,13 +1040,13 @@ export default function MarkerPopupContent({
               <>
                 {/* Dashed divider */}
                 <div style={{
-                  borderTop: `1px dashed ${darkMode ? '#3A3D45' : '#d1d5db'}`,
+                  borderTop: '1px dashed var(--color-plex-border)',
                   textAlign: 'center', position: 'relative', margin: '8px 0',
                 }}>
                   <span style={{
                     position: 'relative', top: '-8px',
-                    background: darkMode ? '#1a1a2e' : '#fff',
-                    padding: '0 8px', fontSize: '11px', color: '#6b7280',
+                    background: 'var(--color-plex-surface)',
+                    padding: '0 8px', fontSize: '11px', color: 'var(--color-plex-text-muted)',
                   }}>
                     no forecast yet
                   </span>
@@ -1104,7 +1133,6 @@ MarkerPopupContent.propTypes = {
     moonIlluminationPct: PropTypes.number,
   }),
   isAstroMode: PropTypes.bool,
-  darkMode: PropTypes.bool,
   onForecastRun: PropTypes.func,
   driveMinutes: PropTypes.number,
   briefingScore: PropTypes.shape({
