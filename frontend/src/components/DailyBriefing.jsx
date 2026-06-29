@@ -695,7 +695,7 @@ function MobileRegionCard({ date, regionName, briefingDays, driveMap, typeMap, i
 
 // ── BestBetBanner (updated: side-by-side on sm+, pick ② muted) ───────────────
 
-function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick, stale = false }) {
+function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick, onViewOnMap = null, stale = false }) {
   // Which card has its detail paragraph expanded past the 2-line clamp.
   const [expandedRank, setExpandedRank] = useState(null);
   if (!picks || picks.length === 0) return null;
@@ -803,6 +803,24 @@ function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick, stale = fals
                   </button>
                 </>
               )}
+              {/* Jump to the bet's region on the map (macro view) — same map-pin
+                  cue as the location rows (which jump to a single pin). */}
+              {navigable && pick.region && onViewOnMap && (
+                <div style={{ marginTop: '8px' }}>
+                  <button
+                    type="button"
+                    data-testid="best-bet-view-on-map"
+                    className="text-plex-text-muted hover:text-plex-text underline inline-flex items-center gap-1"
+                    style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', textUnderlineOffset: '2px' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onViewOnMap(pick, eventKey);
+                    }}
+                  >
+                    🗺 View on map →
+                  </button>
+                </div>
+              )}
             </div>
           );
         })}
@@ -829,6 +847,7 @@ BestBetBanner.propTypes = {
   todayStr: PropTypes.string.isRequired,
   tomorrowStr: PropTypes.string.isRequired,
   onPickClick: PropTypes.func.isRequired,
+  onViewOnMap: PropTypes.func,
   stale: PropTypes.bool,
 };
 
@@ -1048,6 +1067,13 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
     setIsExpanded(true);
   }, []);
 
+  // Best Bet "View on map": derive the date + event from the resolved event key
+  // and hand off to the Map tab, fit-bounds to the bet's region.
+  const handleBetViewOnMap = useCallback((pick, eventKey) => {
+    if (!onShowOnMap || !eventKey || !pick?.region) return;
+    onShowOnMap({ region: pick.region, date: eventKey.slice(0, 10), eventType: eventKey.slice(11) });
+  }, [onShowOnMap]);
+
   const handleHotTopicTap = useCallback((topic) => {
     if (topic.filterAction && onShowOnMap) {
       onShowOnMap({ filterAction: topic.filterAction, date: topic.date });
@@ -1187,6 +1213,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
           todayStr={todayStr}
           tomorrowStr={tomorrowStr}
           onPickClick={handlePickClick}
+          onViewOnMap={handleBetViewOnMap}
           stale={briefing.bestBetStatus === 'FAILED'}
         />
       ) : !isPro && briefing.bestBets?.length > 0 ? (

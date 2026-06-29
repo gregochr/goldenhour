@@ -130,6 +130,17 @@ function AppInner() {
         setSelectedDate(dateOrHandoff.date);
       }
       setMapHandoff({ filterAction: dateOrHandoff.filterAction });
+    } else if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.region) {
+      // Best Bet "View on map": { region, date, eventType } — set the matching
+      // date + event and fit-bounds to the region's pins (the macro view).
+      if (dateOrHandoff.date) {
+        setSelectedDate(dateOrHandoff.date);
+      }
+      setMapHandoff({
+        eventType: dateOrHandoff.eventType,
+        region: dateOrHandoff.region,
+        nonce: handoffNonce.current++,
+      });
     } else {
       // Best Bet / drill-down: (date, eventType, locationName?).
       // The nonce lets MapView re-trigger selection when the same location is
@@ -343,6 +354,7 @@ function AppInner() {
                 handoffEventType={mapHandoff?.eventType ?? null}
                 handoffFilterAction={mapHandoff?.filterAction ?? null}
                 handoffLocationName={mapHandoff?.locationName ?? null}
+                handoffRegion={mapHandoff?.region ?? null}
                 handoffNonce={mapHandoff?.nonce ?? null}
                 briefingScores={briefingScores}
                 onForecastRun={refresh}

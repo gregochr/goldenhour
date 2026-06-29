@@ -1306,6 +1306,25 @@ describe('DailyBriefing', () => {
       expect(readMore).toHaveTextContent('Read more ▾');
     });
 
+    it('View on map hands off the bet region, date and event', async () => {
+      const onShowOnMap = vi.fn();
+      getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
+        { rank: 1, headline: 'Go shoot', detail: 'Clear.', event: 'tomorrow_sunset',
+          region: 'Northumberland', confidence: 'high' },
+      ]));
+      render(<DailyBriefing onShowOnMap={onShowOnMap} />);
+      await waitFor(() => screen.getByTestId('best-bet-banner'));
+
+      fireEvent.click(screen.getByTestId('best-bet-view-on-map'));
+
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(tomorrow);
+      expect(onShowOnMap).toHaveBeenCalledWith({
+        region: 'Northumberland', date: tomorrowStr, eventType: 'SUNSET',
+      });
+    });
+
     it('renders two picks with different visual weight', async () => {
       getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
         { rank: 1, headline: 'First pick', detail: 'Detail 1.',
