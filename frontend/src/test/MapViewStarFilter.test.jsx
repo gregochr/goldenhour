@@ -134,16 +134,21 @@ describe('MapView advanced filters toggle', () => {
     expect(screen.getByTestId('advanced-filters-toggle')).toBeInTheDocument();
   });
 
-  it('Filters button shows no badge when no advanced filters are active', () => {
+  it('Filters summary shows the default threshold and no highlight when no advanced filters are active', () => {
     renderMap();
     const btn = screen.getByTestId('advanced-filters-toggle');
-    expect(btn.textContent).not.toMatch(/\(/);
+    // At default (3★+, nothing else) the summary still shows the threshold label,
+    // but the button is not highlighted (hasNonDefaultFilters === false).
+    expect(screen.getByTestId('filter-summary').textContent).toContain('3★+');
+    expect(btn.className).not.toMatch(/plex-gold/);
   });
 
-  it('Filters button shows badge count when a star filter is active', () => {
-    localStorage.setItem('mapFilterMinStars', '3');
+  it('Filters summary reflects a non-default star threshold', () => {
     renderMap();
-    expect(screen.getByTestId('advanced-filters-toggle').textContent).toMatch(/\(1\)/);
+    // Selecting a non-default threshold updates the summary text (no numeric badge anymore).
+    fireEvent.click(screen.getByTestId('star-filter-5'));
+    expect(screen.getByTestId('filter-summary').textContent).toContain('5★');
+    expect(screen.getByTestId('advanced-filters-toggle').className).toMatch(/plex-gold/);
   });
 
   it('clicking the toggle opens the advanced panel', () => {
@@ -177,11 +182,13 @@ describe('MapView star filter — localStorage persistence', () => {
       }
     });
 
-    it('no star button is active when localStorage is empty', () => {
+    it('defaults to the 3★+ threshold when localStorage is empty (3/4/5 highlighted)', () => {
       renderMap();
-      for (let s = 1; s <= 5; s++) {
-        expect(screen.getByTestId(`star-filter-${s}`).className).not.toMatch(/plex-gold/);
-      }
+      expect(screen.getByTestId('star-filter-1').className).not.toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-2').className).not.toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-3').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-4').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-5').className).toMatch(/plex-gold/);
     });
 
     it('pre-selects the saved minimum from localStorage on mount — highlights that star and all above', () => {
@@ -194,20 +201,24 @@ describe('MapView star filter — localStorage persistence', () => {
       expect(screen.getByTestId('star-filter-5').className).toMatch(/plex-gold/);
     });
 
-    it('ignores invalid localStorage values', () => {
+    it('ignores invalid localStorage values and falls back to the default 3★+ threshold', () => {
       localStorage.setItem('mapFilterMinStars', 'banana');
       renderMap();
-      for (let s = 1; s <= 5; s++) {
-        expect(screen.getByTestId(`star-filter-${s}`).className).not.toMatch(/plex-gold/);
-      }
+      expect(screen.getByTestId('star-filter-1').className).not.toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-2').className).not.toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-3').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-4').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-5').className).toMatch(/plex-gold/);
     });
 
-    it('ignores out-of-range localStorage values', () => {
+    it('ignores out-of-range localStorage values and falls back to the default 3★+ threshold', () => {
       localStorage.setItem('mapFilterMinStars', '9');
       renderMap();
-      for (let s = 1; s <= 5; s++) {
-        expect(screen.getByTestId(`star-filter-${s}`).className).not.toMatch(/plex-gold/);
-      }
+      expect(screen.getByTestId('star-filter-1').className).not.toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-2').className).not.toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-3').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-4').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-5').className).toMatch(/plex-gold/);
     });
   });
 
@@ -240,38 +251,47 @@ describe('MapView star filter — localStorage persistence', () => {
       }
     });
 
-    it('clears the active minimum when the same star is clicked again (toggle off)', () => {
+    it('keeps the minimum when the same star is clicked again (threshold no longer toggles off)', () => {
       renderMap();
-      fireEvent.click(screen.getByTestId('star-filter-3'));
-      fireEvent.click(screen.getByTestId('star-filter-3'));
-      expect(localStorage.getItem('mapFilterMinStars')).toBeNull();
+      fireEvent.click(screen.getByTestId('star-filter-4'));
+      fireEvent.click(screen.getByTestId('star-filter-4'));
+      // Threshold stays at 4 — still persisted and still highlighted (4 and above).
+      expect(localStorage.getItem('mapFilterMinStars')).toBe('4');
+      expect(screen.getByTestId('star-filter-4').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-5').className).toMatch(/plex-gold/);
       expect(screen.getByTestId('star-filter-3').className).not.toMatch(/plex-gold/);
     });
   });
 
   describe('clear all filters button', () => {
-    it('is not shown when no filters are active', () => {
+    it('is not shown at the default threshold with no other filters active', () => {
       renderMap();
+      // Default is 3★+ and nothing else → hasNonDefaultFilters is false → no Clear button.
       expect(screen.queryByTestId('clear-all-filters')).not.toBeInTheDocument();
     });
 
-    it('appears when a star filter is active', () => {
+    it('appears when a non-default star threshold is active', () => {
       renderMap();
-      fireEvent.click(screen.getByTestId('star-filter-3'));
+      fireEvent.click(screen.getByTestId('star-filter-5'));
       expect(screen.getByTestId('clear-all-filters')).toBeInTheDocument();
     });
 
-    it('removes the active star filter on click', () => {
+    it('resets the threshold back to the default 3★+ on click', () => {
       renderMap();
-      fireEvent.click(screen.getByTestId('star-filter-4'));
+      fireEvent.click(screen.getByTestId('star-filter-5'));
       fireEvent.click(screen.getByTestId('clear-all-filters'));
-      expect(screen.getByTestId('star-filter-4').className).not.toMatch(/plex-gold/);
+      // Back to the default 3★+ threshold — 3/4/5 highlighted, 1/2 not.
+      expect(screen.getByTestId('star-filter-1').className).not.toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-2').className).not.toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-3').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-4').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-5').className).toMatch(/plex-gold/);
     });
 
     it('removes mapFilterMinStars from localStorage on click', () => {
-      localStorage.setItem('mapFilterMinStars', '3');
       renderMap();
-      // Clear button should appear because minStars=3 is loaded from localStorage
+      // Select a non-default threshold so the Clear button appears, then clear it.
+      fireEvent.click(screen.getByTestId('star-filter-5'));
       fireEvent.click(screen.getByTestId('clear-all-filters'));
       expect(localStorage.getItem('mapFilterMinStars')).toBeNull();
     });
@@ -520,6 +540,9 @@ describe('MapView filter behaviour — stand-down hide/show', () => {
       ...makeLocations([5, 4, 3, 2, 1]),
       makeStandDownLocation(),
     ]});
+    // Drop the threshold to 1★+ so all five rated locations pass, isolating the
+    // additive behaviour of the stand-down toggle from the default 3★+ threshold.
+    fireEvent.click(screen.getByTestId('star-filter-1'));
     fireEvent.click(screen.getByTestId('star-filter-standdown'));
     // All 5 rated + 1 stand-down visible
     expect(visibleCount()).toBe(6);
@@ -594,16 +617,23 @@ describe('MapView filter behaviour — unrated (non-stand-down)', () => {
   beforeEach(() => { mockRole = 'ADMIN'; localStorage.clear(); });
   afterEach(() => { localStorage.clear(); });
 
-  it('truly unrated locations (no triage) are shown when no filter is active', () => {
+  it('truly unrated locations (no triage) are hidden by default and revealed by the admin unknown toggle', () => {
     renderMap({ locations: [...makeLocations([4]), makeUnratedLocation()] });
-    // Legacy behaviour: null-rating non-triaged locations are visible by default
+    // With the always-on default 3★+ threshold, truly-unrated non-wildlife locations
+    // are hidden by default → only the 4★ is visible.
+    expect(visibleCount()).toBe(1);
+    // The admin "unknown" toggle reveals them.
+    fireEvent.click(screen.getByTestId('star-filter-unrated'));
     expect(visibleCount()).toBe(2);
   });
 
   it('stand-down pill does NOT toggle truly unrated locations', () => {
     renderMap({ locations: [...makeLocations([4]), makeUnratedLocation()] });
+    // Reveal the unrated loc via the unknown toggle so we have 2 visible to start.
+    fireEvent.click(screen.getByTestId('star-filter-unrated'));
+    expect(visibleCount()).toBe(2);
+    // Toggling stand-down is independent of the unrated slot → still 2.
     fireEvent.click(screen.getByTestId('star-filter-standdown'));
-    // Still 2 — toggling stand-down is independent of the unrated slot
     expect(visibleCount()).toBe(2);
   });
 
@@ -630,23 +660,28 @@ describe('MapView filter behaviour — unrated (non-stand-down)', () => {
   });
 });
 
-describe('MapView advanced filter count badge', () => {
+describe('MapView filter summary text (admin stand-down + threshold)', () => {
   beforeEach(() => { mockRole = 'ADMIN'; localStorage.clear(); });
   afterEach(() => { localStorage.clear(); });
 
-  it('showStandDown contributes 1 to the filter count badge', () => {
+  it('showStandDown adds "+ stand-down" to the filter summary', () => {
     renderMap({ locations: [...makeLocations(), makeStandDownLocation()] });
-    // Fresh — no badge
-    expect(screen.getByTestId('advanced-filters-toggle').textContent).not.toMatch(/\(/);
+    // Fresh — default threshold label, no stand-down marker yet.
+    expect(screen.getByTestId('filter-summary').textContent).toContain('3★+');
+    expect(screen.getByTestId('filter-summary').textContent).not.toContain('stand-down');
     fireEvent.click(screen.getByTestId('star-filter-standdown'));
-    expect(screen.getByTestId('advanced-filters-toggle').textContent).toMatch(/\(1\)/);
+    expect(screen.getByTestId('filter-summary').textContent).toContain('+ stand-down');
+    // Activating a non-default filter highlights the toggle button.
+    expect(screen.getByTestId('advanced-filters-toggle').className).toMatch(/plex-gold/);
   });
 
-  it('stand-down + star threshold combine to count = 2', () => {
+  it('stand-down + a non-default threshold both appear in the summary', () => {
     renderMap({ locations: [...makeLocations(), makeStandDownLocation()] });
     fireEvent.click(screen.getByTestId('star-filter-standdown'));
     fireEvent.click(screen.getByTestId('star-filter-4'));
-    expect(screen.getByTestId('advanced-filters-toggle').textContent).toMatch(/\(2\)/);
+    const summary = screen.getByTestId('filter-summary').textContent;
+    expect(summary).toContain('4★+');
+    expect(summary).toContain('+ stand-down');
   });
 
   it('Clear button appears when only stand-down is active', () => {
