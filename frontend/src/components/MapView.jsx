@@ -50,6 +50,17 @@ const popupStyles = `
   .leaflet-popup-close-button:hover {
     color: var(--color-plex-text) !important;
   }
+  /* Map markers — names are revealed on hover/focus (no permanent labels), and
+     the hovered disc lifts above its neighbours so an overlapped marker pops
+     fully forward rather than staying half-buried. */
+  .photocast-marker:hover .marker-name-chip,
+  .photocast-marker:focus-within .marker-name-chip {
+    opacity: 1 !important;
+  }
+  .leaflet-marker-icon.photocast-marker:hover,
+  .leaflet-marker-icon.photocast-marker:focus-within {
+    z-index: 1000 !important;
+  }
 `;
 
 /**
@@ -222,32 +233,36 @@ function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildli
   const svg = isStandDown
     ? buildStandDownSvg()
     : buildMarkerSvg(label, colour, fierySky, goldenHour, rating, isPureWildlife);
+  // Name is no longer a permanent label (they collide into text-soup in dense
+  // corridors). It's an absolutely-positioned chip, hidden by default and
+  // revealed on hover/focus via the `.photocast-marker` CSS in popupStyles.
   const html = `
-    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
+    <div style="position:relative;width:44px;height:44px;display:flex;align-items:center;justify-content:center;">
       ${svg}
-      <div style="
-        background:rgba(15,23,42,0.85);
-        color:#f1f5f9;
+      <div class="marker-name-chip" style="
+        position:absolute;top:calc(100% + 5px);left:50%;transform:translateX(-50%);
+        background:rgba(13,10,8,0.92);
+        color:var(--color-plex-text, #F2E7D3);
         font-size:10px;font-weight:600;
-        padding:2px 7px;border-radius:4px;
+        padding:3px 7px;border-radius:3px;
         white-space:nowrap;
-        max-width:90px;overflow:hidden;text-overflow:ellipsis;
-        box-shadow:0 1px 4px rgba(0,0,0,0.5);
-        border:1px solid rgba(255,255,255,0.08);
+        box-shadow:0 2px 8px rgba(0,0,0,0.5);
+        border:1px solid rgba(255,255,255,0.1);
+        opacity:0;pointer-events:none;transition:opacity 0.12s ease;
       " title="${locationName}">${locationName}</div>
     </div>
   `;
 
   return L.divIcon({
     html,
-    className: '',
-    iconSize: [100, 62],
-    iconAnchor: [50, 22],
+    className: 'photocast-marker',
+    iconSize: [44, 44],
+    iconAnchor: [22, 22],
     rating: rating,
     fierySky: fierySky,
     goldenHour: goldenHour,
     excludeFromCluster: excludeFromCluster,
-    popupAnchor: [0, -26],
+    popupAnchor: [0, -24],
   });
 }
 
@@ -977,8 +992,12 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
           <MarkerClusterGroup
             chunkedLoading
             iconCreateFunction={(cluster) => createClusterIcon(cluster, role)}
-            maxClusterRadius={60}
-            disableClusteringAtZoom={10}
+            // Dense corridors (e.g. Hadrian's Wall — 7 spots in a few km) must
+            // collapse to one count-only bubble until zoomed in far enough that the
+            // discs no longer collide. A wider radius merges co-located spots; a
+            // higher disable-zoom keeps them clustered until street-level.
+            maxClusterRadius={80}
+            disableClusteringAtZoom={13}
             showCoverageOnHover={false}
             spiderfyOnMaxZoom
             zoomToBoundsOnClick
