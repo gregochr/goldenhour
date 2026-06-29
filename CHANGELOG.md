@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Map marker collision in dense corridors (Hadrian's Wall)
+- **Why.** Dense corridors (Hadrian's Wall packs ~7 spots into a few km) collided two ways at typical zoom: permanent name-labels overlapped into unreadable text-soup, and the rating discs themselves piled up.
+- **Labels on demand (the biggest win).** Dropped the permanent name label under every marker. The default marker is now the rating disc only; the name appears as a small dark chip below the disc on hover/focus (desktop) and is otherwise out of the way. The marker icon footprint shrank from 100×62 to the 44×44 disc, so markers occupy far less space.
+- **Hovered disc lifts to front.** On hover/focus the disc's `z-index` is raised so an overlapped marker pops fully above its neighbours — readable and clickable rather than half-buried. (CSS in `MapView`'s injected popup styles.)
+- **Cluster tuning.** Raised `maxClusterRadius` 60→80 and `disableClusteringAtZoom` 10→13 so a co-located corridor collapses into one bubble until zoomed in to street level. The cluster bubble already shows count-only with colour = group-average score (unchanged); per-location numbers appear only once unclustered.
+- No behavioural change to the cluster icon builder or the rating ramp; full frontend suite green (1553).
+
 ### Changed — Map location popup reskin + tidy (Kodachrome)
 - **Why.** The global Kodachrome reskin never reached `MarkerPopupContent`, so the map popup still rendered the old light theme (white card, slate text, gold `#E5A00D` pills, blurple links) — a bright white card on the dark map.
 - **Reskin.** Replaced the popup's hard-coded hex with `--color-plex-*` tokens so it tracks the theme: the Leaflet popup wrapper/tip/close-button now use `--color-plex-surface` + `--border-light` + a soft shadow (`MapView.jsx`); title/summary/footers use bone ink; the summary sentence uses Newsreader serif. Pills moved off gold — event pill cool blue, type tag surface-light, sunrise/sunset + golden amber, blue hour blue, drive chip neutral, tide chip tide-teal. "More details" link is now bone/mono underlined (was blue). Stars: `--color-verdict-marginal` filled, muted empty.
