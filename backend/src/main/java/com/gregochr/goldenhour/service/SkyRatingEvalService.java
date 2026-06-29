@@ -15,7 +15,6 @@ import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.SkyRatingEvalResultRepository;
 import com.gregochr.goldenhour.repository.SkyRatingEvalRunRepository;
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -63,37 +62,24 @@ public class SkyRatingEvalService {
     private final GitInfoService gitInfoService;
     private final SkyRatingEvalRunRepository runRepository;
     private final SkyRatingEvalResultRepository resultRepository;
-    private final DynamicSchedulerService dynamicSchedulerService;
 
     /**
      * Constructs the service.
      *
-     * @param evaluationService       the production scorer (same path the forecast pipeline uses)
-     * @param costCalculator          token → micro-dollar cost
-     * @param gitInfoService          git commit metadata, for attributing drift to a prompt edit
-     * @param runRepository           parent-run persistence
-     * @param resultRepository        per-result persistence
-     * @param dynamicSchedulerService the scheduler this service registers its weekly job with
+     * @param evaluationService the production scorer (same path the forecast pipeline uses)
+     * @param costCalculator    token → micro-dollar cost
+     * @param gitInfoService    git commit metadata, for attributing drift to a prompt edit
+     * @param runRepository     parent-run persistence
+     * @param resultRepository  per-result persistence
      */
     public SkyRatingEvalService(EvaluationService evaluationService, CostCalculator costCalculator,
             GitInfoService gitInfoService, SkyRatingEvalRunRepository runRepository,
-            SkyRatingEvalResultRepository resultRepository,
-            DynamicSchedulerService dynamicSchedulerService) {
+            SkyRatingEvalResultRepository resultRepository) {
         this.evaluationService = evaluationService;
         this.costCalculator = costCalculator;
         this.gitInfoService = gitInfoService;
         this.runRepository = runRepository;
         this.resultRepository = resultRepository;
-        this.dynamicSchedulerService = dynamicSchedulerService;
-    }
-
-    /**
-     * Registers the weekly eval as a dynamic scheduler target. The job is seeded PAUSED (V118), so
-     * registering the runnable is harmless until an admin resumes it from the Scheduler UI.
-     */
-    @PostConstruct
-    void registerJob() {
-        dynamicSchedulerService.registerJobTarget(JOB_KEY, this::runScheduled);
     }
 
     /**
@@ -262,10 +248,30 @@ public class SkyRatingEvalService {
     private void scoreOnce(SkyRatingEvalRunEntity run, SkyRatingEvalFixture fixture,
             AtmosphericData data, int runIndex, Aggregate agg) {
         EvaluationDetail detail = evaluationService.evaluateWithDetails(data, run.getModel(), null);
-        SunsetEvaluation eval = detail.evaluation();
-        TokenUsage usage = detail.tokenUsage();
-        Integer rating = eval.rating();
+        persistResult(run, fixture, runIndex, detail.evaluation(), detail.tokenUsage(),
+                detail.durationMs(), false, agg);
+    }
 
+    /**
+     * Persists one scored result into {@code sky_rating_eval_result} and folds it into the run's
+     * aggregate. Shared by the synchronous {@link #scoreOnce} path and the batched path
+     * ({@link SkyRatingEvalBatchService}), so both surfaces band-classify, cost, and accumulate
+     * identically — the only difference is {@code isBatch} (which halves the cost) and the absence
+     * of a per-call {@code durationMs} for batch rows.
+     *
+     * @param run        the parent run
+     * @param fixture    the scored fixture (supplies the expected band)
+     * @param runIndex   1-based repeat index within the fixture
+     * @param eval       the parsed evaluation (rating may be null)
+     * @param usage      token usage for this call
+     * @param durationMs wall-clock duration for the call, or {@code null} for batch rows
+     * @param isBatch    whether this was a Batch API call (50% cost discount)
+     * @param agg        the run accumulator to fold this result into
+     */
+    void persistResult(SkyRatingEvalRunEntity run, SkyRatingEvalFixture fixture, int runIndex,
+            SunsetEvaluation eval, TokenUsage usage, Long durationMs, boolean isBatch,
+            Aggregate agg) {
+        Integer rating = eval.rating();
         MissDirection direction = null;
         if (rating == null) {
             LOG.warn("Sky-rating eval run {}: fixture {} run {} returned no rating",
@@ -274,7 +280,7 @@ public class SkyRatingEvalService {
             direction = fixture.band().classify(rating);
         }
 
-        long cost = costCalculator.calculateCostMicroDollars(run.getModel(), usage);
+        long cost = costCalculator.calculateCostMicroDollars(run.getModel(), usage, isBatch);
         resultRepository.save(SkyRatingEvalResultEntity.builder()
                 .runId(run.getId())
                 .fixtureName(fixture.name())
@@ -288,13 +294,13 @@ public class SkyRatingEvalService {
                 .summary(eval.summary())
                 .inputTokens(usage.inputTokens())
                 .outputTokens(usage.outputTokens())
-                .durationMs(detail.durationMs())
+                .durationMs(durationMs)
                 .build());
 
         agg.record(direction, usage, cost);
     }
 
-    private void finalise(SkyRatingEvalRunEntity run, Aggregate agg, SkyRatingEvalStatus status,
+    void finalise(SkyRatingEvalRunEntity run, Aggregate agg, SkyRatingEvalStatus status,
             String errorMessage, long startMs) {
         run.setFixtureCount(SkyRatingEvalFixtures.ALL.size());
         run.setTotalRuns(agg.totalRuns);
@@ -312,8 +318,8 @@ public class SkyRatingEvalService {
         runRepository.save(run);
     }
 
-    /** Mutable per-run accumulator. */
-    private static final class Aggregate {
+    /** Mutable per-run accumulator. Package-private so the batched path can drive finalisation. */
+    static final class Aggregate {
         private int totalRuns;
         private int passes;
         private int below;
