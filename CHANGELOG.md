@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Map location popup reskin + tidy (Kodachrome)
+- **Why.** The global Kodachrome reskin never reached `MarkerPopupContent`, so the map popup still rendered the old light theme (white card, slate text, gold `#E5A00D` pills, blurple links) — a bright white card on the dark map.
+- **Reskin.** Replaced the popup's hard-coded hex with `--color-plex-*` tokens so it tracks the theme: the Leaflet popup wrapper/tip/close-button now use `--color-plex-surface` + `--border-light` + a soft shadow (`MapView.jsx`); title/summary/footers use bone ink; the summary sentence uses Newsreader serif. Pills moved off gold — event pill cool blue, type tag surface-light, sunrise/sunset + golden amber, blue hour blue, drive chip neutral, tide chip tide-teal. "More details" link is now bone/mono underlined (was blue). Stars: `--color-verdict-marginal` filled, muted empty.
+- **Score bars — corrected direction.** Both bars now run muted-grey (low) → hot (high), so a higher score fills further AND glows hotter (Fiery Sky was previously backwards). The gradient is sized to the full track and the remainder masked, so a low score shows only the muted end. The value number is tinted value-driven along the same ramp (a Fiery Sky of 20 reads muted, not red).
+- **Tidy.** The existing "More details" collapse is kept — stars + drive + tide + summary lead; the type/sunrise-sunset/golden-blue tag rows + Scores + footer stay one tap away.
+- **Cleanup.** Dropped the now-obsolete `darkMode` light-theme branches (the app is uniformly dark). Popup tests stay green (130).
+
 ### Changed — Plan tab reskin (Kodachrome / Option B bone accent) + density tidy-up
 - **Why.** The Plan tab leant on repeated low-value text (POOR cells shouting, per-location reasoning paragraphs, inline region lists) and a brand accent that collided with the "stand down" red. The fix: lead with the verdict/star, push prose one interaction away, and free colour to mean only verdict semantics.
 - **Reskin.** `index.css` adopts the warm Kodachrome palette — surfaces `#181210`/`#221A15`/`#2A2019`, bone ink `#F2E7D3`, verdict tokens `go #8AAE72` / `marginal #E0A542` / `standdown #C8452F`, new `--color-tide #6FA8B0`. The interactive/brand accent (`--color-plex-gold`) moves to **bone `#F2E7D3` (Option B)** so chrome never competes with the verdict colours. Added Newsreader (serif gloss/reasoning) and IBM Plex Mono (meta/counts) via `index.html` + `--font-serif`/`--font-mono` theme tokens. Leaflet control colours repointed to the new palette.

@@ -29,10 +29,26 @@ const popupStyles = `
     max-height: 380px !important;
     overflow-y: auto !important;
     overflow-x: hidden !important;
+    background: var(--color-plex-surface) !important;
+    color: var(--color-plex-text) !important;
+    border: 1px solid var(--color-plex-border-light) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6) !important;
   }
   .leaflet-popup-content {
     overflow-y: visible !important;
     overflow-x: hidden !important;
+  }
+  .leaflet-popup-tip {
+    background: var(--color-plex-surface) !important;
+    border: 1px solid var(--color-plex-border-light) !important;
+    box-shadow: none !important;
+  }
+  .leaflet-popup-close-button {
+    color: var(--color-plex-text-muted) !important;
+  }
+  .leaflet-popup-close-button:hover {
+    color: var(--color-plex-text) !important;
   }
 `;
 
@@ -1119,7 +1135,6 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
                 isAuroraMode={isAuroraMode}
                 astroScore={astroScores[loc.name] ?? null}
                 isAstroMode={isAstroMode}
-                darkMode
                 onForecastRun={onForecastRun}
               />
             </div>
