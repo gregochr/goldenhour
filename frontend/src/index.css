@@ -192,18 +192,14 @@
   background: #fff;
 }
 
-/* Hot Topic grid — two-column responsive layout */
+/* Hot Topic strip — single-column vertical stack (one collapsed row per topic).
+   The tidy-up reveals each topic's region list on tap, so rows must span the
+   full width; a two-column grid truncated the detail/region text. */
 .hot-topic-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   padding: 8px 0;
-}
-
-@media (max-width: 640px) {
-  .hot-topic-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* Heatmap cell visibility transitions */
