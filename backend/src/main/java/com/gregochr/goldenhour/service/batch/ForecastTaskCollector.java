@@ -30,6 +30,7 @@ import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.OpenMeteoService;
 import com.gregochr.goldenhour.service.SolarService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
+import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
 import com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter;
 import com.gregochr.goldenhour.util.TimeSlotUtils;
@@ -126,6 +127,7 @@ public class ForecastTaskCollector {
     private final FreshnessResolver freshnessResolver;
     private final StabilitySnapshotProvider stabilitySnapshotProvider;
     private final SurvivorAtmosphereWriter survivorAtmosphereWriter;
+    private final TravelDayService travelDayService;
 
     /** Minimum ratio of successful weather pre-fetches to proceed (scheduled path only). */
     private final double minPrefetchSuccessRatio;
@@ -153,6 +155,7 @@ public class ForecastTaskCollector {
      * @param freshnessResolver         per-stability cache freshness thresholds
      * @param stabilitySnapshotProvider provides the latest stability snapshot
      * @param survivorAtmosphereWriter  captures survivor atmospheric readings at submission time
+     * @param travelDayService          gates out candidates whose target date is a travel day
      * @param minPrefetchSuccessRatio   minimum prefetch ratio to proceed (scheduled path)
      * @param forceEvalCap              max force-evaluated headline candidates per cycle
      */
@@ -167,6 +170,7 @@ public class ForecastTaskCollector {
             FreshnessResolver freshnessResolver,
             StabilitySnapshotProvider stabilitySnapshotProvider,
             SurvivorAtmosphereWriter survivorAtmosphereWriter,
+            TravelDayService travelDayService,
             @Value("${photocast.batch.min-prefetch-success-ratio:0.5}")
             double minPrefetchSuccessRatio,
             @Value("${photocast.batch.force-eval-cap:6}")
@@ -182,6 +186,7 @@ public class ForecastTaskCollector {
         this.freshnessResolver = freshnessResolver;
         this.stabilitySnapshotProvider = stabilitySnapshotProvider;
         this.survivorAtmosphereWriter = survivorAtmosphereWriter;
+        this.travelDayService = travelDayService;
         this.minPrefetchSuccessRatio = minPrefetchSuccessRatio;
         this.forceEvalCap = forceEvalCap;
     }
@@ -828,6 +833,7 @@ public class ForecastTaskCollector {
         int skippedVerdict = 0;
         int skippedUnknown = 0;
         int skippedPastDate = 0;
+        int skippedTravelDay = 0;
         int totalSlots = 0;
         Map<ForecastStability, int[]> cachedByStability = new HashMap<>();
         Map<ForecastStability, int[]> eligibleByStability = new HashMap<>();
@@ -864,6 +870,32 @@ public class ForecastTaskCollector {
                 skippedPastDate += daySlots;
                 totalSlots += daySlots;
                 LOG.warn("[BATCH DIAG] SKIP date {} | reason=PAST_DATE ({} slots skipped)",
+                        date, daySlots);
+                continue;
+            }
+            // Travel-day gate (per target date): the operator is away on this date
+            // and cannot shoot, so every slot's forecast is unactionable spend. Skip
+            // the whole day's slots with a SKIPPED_TRAVEL_DAY disposition. An empty
+            // travel_day table makes this a no-op.
+            if (travelDayService.isTravelDay(date)) {
+                int daySlots = 0;
+                for (BriefingEventSummary eventSummary : day.eventSummaries()) {
+                    TargetType targetType = eventSummary.targetType();
+                    for (BriefingRegion region : eventSummary.regions()) {
+                        if (region.slots() == null) {
+                            continue;
+                        }
+                        for (BriefingSlot slot : region.slots()) {
+                            dispositions.add(new CandidateDisposition(
+                                    null, slot.locationName(), date, targetType, daysAhead,
+                                    DispositionCategory.SKIPPED_TRAVEL_DAY, "Travel day — away"));
+                            daySlots++;
+                        }
+                    }
+                }
+                skippedTravelDay += daySlots;
+                totalSlots += daySlots;
+                LOG.warn("[BATCH DIAG] SKIP date {} | reason=TRAVEL_DAY ({} slots skipped)",
                         date, daySlots);
                 continue;
             }
@@ -946,8 +978,8 @@ public class ForecastTaskCollector {
         }
 
         LOG.warn("[BATCH DIAG] Task collection complete — {} tasks from {} total slots "
-                        + "(pastDate={}, cached={}, verdict={}, unknownLoc={})",
-                candidates.size(), totalSlots, skippedPastDate, skippedCache,
+                        + "(pastDate={}, travelDay={}, cached={}, verdict={}, unknownLoc={})",
+                candidates.size(), totalSlots, skippedPastDate, skippedTravelDay, skippedCache,
                 skippedVerdict, skippedUnknown);
         logStabilityBreakdown(eligibleByStability, cachedByStability);
         return candidates;

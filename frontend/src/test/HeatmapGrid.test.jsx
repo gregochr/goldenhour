@@ -50,7 +50,7 @@ function buildBriefingDays(dates, regionName, locationNames) {
   }));
 }
 
-function renderGrid({ events, briefingDays, showAllLocations } = {}) {
+function renderGrid({ events, briefingDays, showAllLocations, travelDayDates } = {}) {
   const regionName = 'North East';
   const locNames = ['Bamburgh', 'Kielder'];
   const days = briefingDays || buildBriefingDays([DATE_1, DATE_2], regionName, locNames);
@@ -73,6 +73,7 @@ function renderGrid({ events, briefingDays, showAllLocations } = {}) {
       onShowOnMap={vi.fn()}
       astroScoresByDate={{}}
       showAllLocations={showAllLocations || false}
+      travelDayDates={travelDayDates || new Set()}
     />,
   );
 }
@@ -89,6 +90,20 @@ describe('HeatmapGrid — no aurora cells after column removal', () => {
     });
     expect(screen.queryByTestId('aurora-heatmap-cell')).toBeNull();
     expect(screen.queryByTestId('aurora-drill-down')).toBeNull();
+  });
+});
+
+describe('HeatmapGrid — travel-day badge', () => {
+  it('renders an "Away — no forecast" badge in the header of a travel day', () => {
+    renderGrid({ travelDayDates: new Set([DATE_1]) });
+    const badges = screen.getAllByTestId('heatmap-travel-day-badge');
+    expect(badges).toHaveLength(1);
+    expect(badges[0].textContent).toContain('no forecast');
+  });
+
+  it('renders no travel-day badge when no dates are travel days', () => {
+    renderGrid({ travelDayDates: new Set() });
+    expect(screen.queryByTestId('heatmap-travel-day-badge')).toBeNull();
   });
 });
 

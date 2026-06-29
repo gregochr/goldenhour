@@ -52,6 +52,17 @@ describe('MarkerPopupContent', () => {
     expect(screen.getByText('Bamburgh')).toBeInTheDocument();
   });
 
+  it('shows the travel-day notice when travelDay is true', () => {
+    renderPopup({ role: 'PRO_USER', travelDay: true });
+    const notice = screen.getByTestId('popup-travel-day-notice');
+    expect(notice.textContent).toContain('Forecast not run');
+  });
+
+  it('hides the travel-day notice when travelDay is false', () => {
+    renderPopup({ role: 'PRO_USER', travelDay: false });
+    expect(screen.queryByTestId('popup-travel-day-notice')).toBeNull();
+  });
+
   it('renders star rating for all roles', () => {
     renderPopup({ role: 'LITE_USER' });
     expect(screen.getByText('4/5')).toBeInTheDocument();

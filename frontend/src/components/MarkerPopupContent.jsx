@@ -306,6 +306,7 @@ export default function MarkerPopupContent({
   onForecastRun,
   driveMinutes = null,
   briefingScore = null,
+  travelDay = false,
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [runningForecast, setRunningForecast] = useState(false);
@@ -386,6 +387,22 @@ export default function MarkerPopupContent({
           </span>
         )}
       </div>
+
+      {/* Travel-day notice: the overnight batch skips Claude forecasts on days
+          you're away, so explain the absence rather than showing a blank slot. */}
+      {travelDay && (
+        <div
+          data-testid="popup-travel-day-notice"
+          style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            background: 'rgba(148,113,74,0.15)', color: '#c5a46f',
+            border: '1px solid rgba(148,113,74,0.4)', borderRadius: '8px',
+            padding: '7px 10px', fontSize: '12px', marginBottom: '8px',
+          }}
+        >
+          ✈️ <span>Forecast not run — you&apos;re away (travel day).</span>
+        </div>
+      )}
 
       {/* First glance: star rating + summary */}
       {isPureWildlife ? (
@@ -1098,4 +1115,5 @@ MarkerPopupContent.propTypes = {
     triageReason: PropTypes.string,
     triageMessage: PropTypes.string,
   }),
+  travelDay: PropTypes.bool,
 };

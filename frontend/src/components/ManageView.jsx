@@ -10,6 +10,7 @@ import ModelTestView from './ModelTestView.jsx';
 import BriefingModelTestView from './BriefingModelTestView.jsx';
 import PromptTestView from './PromptTestView.jsx';
 import SchedulerView from './SchedulerView.jsx';
+import TravelDaysView from './TravelDaysView.jsx';
 import SkyRatingEvalView from './SkyRatingEvalView.jsx';
 import PipelineRunsView from './PipelineRunsView.jsx';
 import HotTopicSimulation from './HotTopicSimulation.jsx';
@@ -40,6 +41,7 @@ const GROUPS = [
       { value: 'prompttest', label: 'Prompt Test' },
       { value: 'skyeval', label: 'Sky Eval' },
       { value: 'scheduler', label: 'Scheduler' },
+      { value: 'traveldays', label: 'Travel Days' },
       { value: 'hottopics', label: 'Hot Topics' },
     ],
   },
@@ -235,6 +237,13 @@ export default function ManageView({ onComplete }) {
           <div className="card flex flex-col gap-4">
             <p className="text-sm font-semibold text-plex-text">Scheduler</p>
             <SchedulerView />
+          </div>
+        )}
+
+        {activeTab === 'traveldays' && (
+          <div className="card flex flex-col gap-4">
+            <p className="text-sm font-semibold text-plex-text">Travel Days</p>
+            <TravelDaysView />
           </div>
         )}
 

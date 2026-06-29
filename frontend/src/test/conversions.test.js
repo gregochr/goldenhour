@@ -16,6 +16,7 @@ import {
   moonIlluminationStyle,
   MOON_EMOJI,
   MOON_PHASE_NAME,
+  isTravelDate,
 } from '../utils/conversions.js';
 
 describe('mpsToMph', () => {
@@ -617,5 +618,35 @@ describe('MOON_PHASE_NAME', () => {
       expect(name).not.toContain('_');
       expect(name.length).toBeGreaterThan(0);
     });
+  });
+});
+
+describe('isTravelDate', () => {
+  const ranges = [
+    { startDate: '2026-07-01', endDate: '2026-07-03' },
+    { startDate: '2026-07-10', endDate: '2026-07-10' },
+  ];
+
+  it('returns true for a date inside a multi-day range', () => {
+    expect(isTravelDate('2026-07-02', ranges)).toBe(true);
+  });
+
+  it('is inclusive of both range bounds', () => {
+    expect(isTravelDate('2026-07-01', ranges)).toBe(true);
+    expect(isTravelDate('2026-07-03', ranges)).toBe(true);
+  });
+
+  it('matches a single-day range', () => {
+    expect(isTravelDate('2026-07-10', ranges)).toBe(true);
+  });
+
+  it('returns false for a date outside every range', () => {
+    expect(isTravelDate('2026-07-05', ranges)).toBe(false);
+  });
+
+  it('returns false for empty or missing inputs', () => {
+    expect(isTravelDate('2026-07-02', [])).toBe(false);
+    expect(isTravelDate('2026-07-02', null)).toBe(false);
+    expect(isTravelDate('', ranges)).toBe(false);
   });
 });

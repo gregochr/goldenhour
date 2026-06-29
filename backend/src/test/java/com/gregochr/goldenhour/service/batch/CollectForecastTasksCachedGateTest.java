@@ -66,6 +66,7 @@ class CollectForecastTasksCachedGateTest {
     @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
     @Mock private com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter
             survivorAtmosphereWriter;
+    @Mock private com.gregochr.goldenhour.service.TravelDayService travelDayService;
 
     private ForecastTaskCollector collector;
 
@@ -85,7 +86,20 @@ class CollectForecastTasksCachedGateTest {
                 locationService, briefingService,
                 briefingEvaluationService, forecastService, stabilityClassifier,
                 modelSelectionService, openMeteoService, solarService,
-                freshnessResolver, stabilitySnapshotProvider, survivorAtmosphereWriter, 0.5, 0);
+                freshnessResolver, stabilitySnapshotProvider, survivorAtmosphereWriter,
+                travelDayService, 0.5, 0);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<?> invokeCollectForecastCandidates(DailyBriefingResponse briefing,
+            List<CandidateDisposition> dispositions) throws Exception {
+        Method method = ForecastTaskCollector.class
+                .getDeclaredMethod("collectForecastCandidates",
+                        DailyBriefingResponse.class, List.class,
+                        CandidateCollectionStrategy.class);
+        method.setAccessible(true);
+        return (List<?>) method.invoke(collector, briefing, dispositions,
+                NightlyCandidateCollectionStrategy.INSTANCE);
     }
 
     @SuppressWarnings("unchecked")
@@ -254,6 +268,49 @@ class CollectForecastTasksCachedGateTest {
                     briefingWithOneSlot("North East", "Bamburgh"));
 
             assertThat(tasks).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("Travel-day gate")
+    class TravelDayGate {
+
+        @Test
+        @DisplayName("target date is a travel day — whole day skipped, no candidate, "
+                + "SKIPPED_TRAVEL_DAY disposition recorded")
+        void travelDaySkipsWholeDay() throws Exception {
+            when(travelDayService.isTravelDay(tomorrow)).thenReturn(true);
+
+            List<CandidateDisposition> dispositions = new ArrayList<>();
+            List<?> tasks = invokeCollectForecastCandidates(
+                    briefingWithOneSlot("North East", "Bamburgh"), dispositions);
+
+            assertThat(tasks).isEmpty();
+            assertThat(dispositions)
+                    .singleElement()
+                    .satisfies(d -> {
+                        assertThat(d.category())
+                                .isEqualTo(com.gregochr.goldenhour.entity.DispositionCategory
+                                        .SKIPPED_TRAVEL_DAY);
+                        assertThat(d.locationName()).isEqualTo("Bamburgh");
+                        assertThat(d.evaluationDate()).isEqualTo(tomorrow);
+                    });
+        }
+
+        @Test
+        @DisplayName("not a travel day — slot passes through to a candidate")
+        void nonTravelDayPassesThrough() throws Exception {
+            when(travelDayService.isTravelDay(tomorrow)).thenReturn(false);
+            when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(null);
+            when(briefingEvaluationService.hasFreshEvaluation(any(), any(Duration.class)))
+                    .thenReturn(false);
+            when(locationService.findAllEnabled())
+                    .thenReturn(List.of(locationEntity("Bamburgh", 42L)));
+
+            List<?> tasks = invokeCollectForecastCandidates(
+                    briefingWithOneSlot("North East", "Bamburgh"));
+
+            assertThat(tasks).hasSize(1);
         }
     }
 

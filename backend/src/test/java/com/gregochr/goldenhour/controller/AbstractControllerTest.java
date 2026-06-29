@@ -37,6 +37,7 @@ import com.gregochr.goldenhour.service.RunProgressTracker;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TideService;
+import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.TurnstileService;
 import com.gregochr.goldenhour.service.UserService;
 import com.gregochr.goldenhour.service.UserSettingsService;
@@ -194,6 +195,9 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected TideService tideService;
+
+    @MockitoBean
+    protected TravelDayService travelDayService;
 
     @MockitoBean
     protected TurnstileService turnstileService;

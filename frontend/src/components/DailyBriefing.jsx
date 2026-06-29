@@ -4,13 +4,14 @@ import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { getDriveTimes } from '../api/settingsApi.js';
+import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import HeatmapGrid from './HeatmapGrid.jsx';
 import HotTopicStrip from './HotTopicStrip.jsx';
 import QualitySlider from './QualitySlider.jsx';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
 import { computeCellTier, isCellVisible, resolveRegionDisplay } from '../utils/tierUtils.js';
-import { formatEventTimeUk, formatTideHighlight } from '../utils/conversions.js';
+import { formatEventTimeUk, formatTideHighlight, isTravelDate } from '../utils/conversions.js';
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -303,7 +304,7 @@ function getSortedRegions(upcomingEvents, briefingDays) {
 // ── EventSummaryRow (mobile collapsed: compact per-event row) ──────────────
 
 /* eslint-disable react/prop-types */
-function EventSummaryRow({ dayLabel, es, isOpen, onToggle }) {
+function EventSummaryRow({ dayLabel, es, travelDay, isOpen, onToggle }) {
   const emoji = es.targetType === 'SUNRISE' ? '🌅' : '🌇';
   const eventLabel = es.targetType === 'SUNRISE' ? 'Sunrise' : 'Sunset';
   const counts = getVerdictCounts(es);
@@ -324,7 +325,17 @@ function EventSummaryRow({ dayLabel, es, isOpen, onToggle }) {
       <span className="w-36 shrink-0 font-medium text-plex-text" style={{ fontSize: '13px' }}>
         {emoji} {dayLabel} {eventLabel}
       </span>
-      <span className="flex gap-2 flex-wrap flex-1">
+      <span className="flex gap-2 flex-wrap flex-1 items-center">
+        {travelDay && (
+          <span
+            data-testid="travel-day-chip"
+            title="You're away on this day — forecast not executed"
+            className="text-plex-text-muted border border-plex-border rounded-full px-2 py-0.5"
+            style={{ fontSize: '11px' }}
+          >
+            ✈️ Away — no forecast
+          </span>
+        )}
         {counts.GO > 0 && (
           <span className={countColours.GO} data-testid="go-count" style={{ fontSize: '12px' }}>
             {counts.GO} GO
@@ -904,6 +915,12 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
     getDriveTimes().then(setUserDriveTimes).catch(() => {});
   }, []);
 
+  /** Travel-day ranges — drives the "forecast not executed (away)" overlay. */
+  const [travelRanges, setTravelRanges] = useState([]);
+  useEffect(() => {
+    fetchTravelDayRanges().then(setTravelRanges).catch(() => {});
+  }, []);
+
   /** Map from location name → drive minutes (per-user). */
   const driveMap = useMemo(() => {
     const m = new Map();
@@ -1019,6 +1036,12 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
 
   const dayDates = useMemo(() => [...new Set(upcomingEvents.map((e) => e.date))], [upcomingEvents]);
 
+  /** Set of upcoming date strings the operator is away (forecast not executed). */
+  const travelDayDates = useMemo(
+    () => new Set(dayDates.filter((d) => isTravelDate(d, travelRanges))),
+    [dayDates, travelRanges],
+  );
+
 
   const sortedRegions = useMemo(() => {
     if (!briefing) return [];
@@ -1093,7 +1116,10 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
   const mobileEvents = upcomingEvents.map(({ date, targetType }) => {
     const day = briefing.days.find((d) => d.date === date);
     const es = (day?.eventSummaries || []).find((e) => e.targetType === targetType);
-    return es ? { es, dayLabel: getDayLabel(date, todayStr, tomorrowStr), date } : null;
+    return es
+      ? { es, dayLabel: getDayLabel(date, todayStr, tomorrowStr), date,
+          travelDay: travelDayDates.has(date) }
+      : null;
   }).filter(Boolean);
 
   const toggleCard = (cardKey) => {
@@ -1208,13 +1234,14 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
               No upcoming events
             </p>
           ) : (
-            mobileEvents.map(({ es, dayLabel, date }) => {
+            mobileEvents.map(({ es, dayLabel, date, travelDay }) => {
               const eventKey = `${date}-${es.targetType}`;
               return (
                 <div key={eventKey} data-event-key={eventKey}>
                   <EventSummaryRow
                     dayLabel={dayLabel}
                     es={es}
+                    travelDay={travelDay}
                     isOpen={isExpanded}
                     onToggle={() => setIsExpanded((v) => !v)}
                   />
@@ -1339,6 +1366,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
         isPro={isPro}
         astroScoresByDate={astroScoresByDate}
         showAllLocations={showAllLocations}
+        travelDayDates={travelDayDates}
       />
     </div>
   );
