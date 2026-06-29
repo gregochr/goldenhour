@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.NoSuchElementException;
 
@@ -50,13 +51,16 @@ public class TravelDayService {
     }
 
     /**
-     * Lists all travel ranges, soonest first.
+     * Lists the current and upcoming travel ranges, furthest-future range first. Ranges that have
+     * already ended (end date before today, Europe/London) are omitted — they neither gate any
+     * upcoming forecast nor belong in the admin list.
      *
-     * @return the ranges as API views
+     * @return the current/future ranges as API views, furthest-future first
      */
     @Transactional(readOnly = true)
     public List<TravelDayResponse> list() {
-        return repository.findAllByOrderByStartDateAsc().stream()
+        LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
+        return repository.findByEndDateGreaterThanEqualOrderByStartDateDesc(today).stream()
                 .map(TravelDayResponse::from)
                 .toList();
     }

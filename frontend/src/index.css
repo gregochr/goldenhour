@@ -239,3 +239,15 @@
 .animate-fade-in {
   animation: fade-in 300ms ease-out;
 }
+
+/* Native date inputs — make the calendar picker indicator visible on the dark theme
+   and let the whole field act as a calendar trigger (paired with showPicker on click). */
+.date-field::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.date-field::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
