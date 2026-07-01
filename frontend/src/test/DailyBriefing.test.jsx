@@ -29,16 +29,22 @@ import { getSimulationState } from '../api/hotTopicSimulationApi.js';
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
 
-function futureDateStr(daysAhead = 1) {
+// Mirror DailyBriefing's own today/tomorrow derivation exactly: local-calendar day
+// arithmetic, formatted in Europe/London. Using UTC here diverges from the component in
+// the 23:00–24:00 UTC window under BST (UTC-tomorrow collapses to London-today), which
+// flips the first heatmap column from "Tomorrow" to "Today" and fails the header tests.
+function londonDateStr(offsetDays = 0) {
   const d = new Date();
-  d.setUTCDate(d.getUTCDate() + daysAhead);
-  return d.toISOString().slice(0, 10);
+  d.setDate(d.getDate() + offsetDays);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(d);
+}
+
+function futureDateStr(daysAhead = 1) {
+  return londonDateStr(daysAhead);
 }
 
 function pastDateStr() {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - 1);
-  return d.toISOString().slice(0, 10);
+  return londonDateStr(-1);
 }
 
 // ── Standard fixture ─────────────────────────────────────────────────────────

@@ -83,6 +83,7 @@ public class BriefingService {
     private final EvaluationViewService evaluationViewService;
     private final com.gregochr.goldenhour.service.pipeline.BestBetFallbackService bestBetFallbackService;
     private final SeasonalWindow bluebellSeason;
+    private final NlcClarityService nlcClarityService;
     /** Horizon offset distance in metres — geometric horizon for low cloud at ~1 km altitude. */
     private static final double HORIZON_OFFSET_METRES = 113_000.0;
 
@@ -130,6 +131,7 @@ public class BriefingService {
      * @param evaluationViewService      merged evaluation view service (lazy to break cycle)
      * @param bestBetFallbackService     serves the fail-safe stale best-bet fallback on FAILED
      * @param bluebellSeason             the configured bluebell season window
+     * @param nlcClarityService          caches which nights have a clear dark-sky NLC chance
      */
     public BriefingService(LocationService locationService,
             OpenMeteoClient openMeteoClient,
@@ -147,7 +149,8 @@ public class BriefingService {
             @Lazy BriefingEvaluationService briefingEvaluationService,
             @Lazy EvaluationViewService evaluationViewService,
             com.gregochr.goldenhour.service.pipeline.BestBetFallbackService bestBetFallbackService,
-            SeasonalWindow bluebellSeason) {
+            SeasonalWindow bluebellSeason,
+            NlcClarityService nlcClarityService) {
         this.locationService = locationService;
         this.openMeteoClient = openMeteoClient;
         this.jobRunService = jobRunService;
@@ -167,6 +170,7 @@ public class BriefingService {
         this.evaluationViewService = evaluationViewService;
         this.bestBetFallbackService = bestBetFallbackService;
         this.bluebellSeason = bluebellSeason;
+        this.nlcClarityService = nlcClarityService;
     }
 
     /**
@@ -385,6 +389,14 @@ public class BriefingService {
 
         long totalMs = System.currentTimeMillis() - briefingStart;
         String circuit = circuitState();
+
+        // Refresh the NLC clarity cache off the weather already fetched above (no extra API call)
+        // so the NLC hot topic can gate on real dark-sky cloud cover for each night in the window.
+        try {
+            nlcClarityService.refresh(locationWeathers, dates);
+        } catch (Exception e) {
+            LOG.warn("NLC clarity refresh failed — NLC topic may be suppressed: {}", e.getMessage());
+        }
 
         List<HotTopic> hotTopics = hotTopicAggregator.getHotTopics(today, today.plusDays(3));
         hotTopics = bluebellGlossService.enrichGlosses(hotTopics);
