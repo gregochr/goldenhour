@@ -1174,7 +1174,10 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Past today event is skipped and not in validEvents")
         void pastTodayEventSkipped() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            // Date the day in Europe/London to match the advisor's own "today"
+            // (LocalDate.now(Europe/London)); using UTC here diverges from it in the
+            // 23:00–24:00 UTC window under BST, silently disabling the past-event skip.
+            LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
             LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
             LocalDateTime pastTime = now.minusHours(2);
             BriefingDay day = new BriefingDay(today, List.of(
@@ -1483,7 +1486,10 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Past events on today are skipped before counting the 6-event limit")
         void pastEventsSkippedBeforeCounting() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            // Date "today" in Europe/London to match the advisor's own "today"
+            // (LocalDate.now(Europe/London)); a UTC date diverges from it in the
+            // 23:00–24:00 UTC window under BST, silently disabling the past-event skip.
+            LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
             LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
             LocalDateTime pastTime = now.minusHours(2);
             // Today has 1 past event + 1 future event, then 3 more days × 2
@@ -1495,7 +1501,7 @@ class BriefingBestBetAdvisorTest {
                             region("TodayRegion", Verdict.GO, 1, 0, 0)), List.of())
             )));
             for (int i = 1; i <= 3; i++) {
-                LocalDate date = LocalDate.now(ZoneOffset.UTC).plusDays(i);
+                LocalDate date = today.plusDays(i);
                 days.add(new BriefingDay(date, List.of(
                         new BriefingEventSummary(TargetType.SUNRISE, List.of(
                                 region("Region" + i, Verdict.GO, 1, 0, 0)), List.of()),
@@ -1800,6 +1806,13 @@ class BriefingBestBetAdvisorTest {
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
                             regionWithTime("Northumberland", Verdict.GO, 2, 0, 0, sunsetTime)),
                             List.of())));
+
+            // Give the sunset region colour coverage so the honesty gate (dropUnevaluatedPicks)
+            // keeps it as the rank-1 anchor. Without coverage it is dropped as zero-evaluation,
+            // and the aurora pick — now the sole head — correctly loses its relationship.
+            when(briefingEvaluationService.getCachedScores("Northumberland", today, TargetType.SUNSET))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 80, 70, "Good")));
 
             List<BestBet> picks = advisor.advise(List.of(day), 42L, Map.of()).picks();
 
