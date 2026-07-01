@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Best Bet never recommends a day it hasn't colour-evaluated
+- **Why.** The advisor could crown a day on weather **GO count + tide-alignment alone**, with zero Claude colour ratings behind it — e.g. a far-out T+3 Saturday that was never colour-evaluated presented as "settled skies, best GO count, conditions locked in", while the grid (reading the same absence of colour data) showed it "Poor". A clear sky is not a good sky; this app's whole premise is the colour evaluation, so a pick with no rating is a guess dressed as a recommendation. Confirmed against prod: the crowned pick's `claude_average_rating` was NULL and `cached_evaluation` had zero rows for that date.
+- **Fix.** `BriefingBestBetAdvisor` now drops any pick with **zero colour coverage** (`claudeRatedCount == 0`) before ranking (`dropUnevaluatedPicks`); stay-home and aurora picks are exempt (they make no colour claim). If that leaves nothing, the advisor returns `SUCCESS_NO_PICKS` — the honest "nothing evaluated" state — rather than `FAILED` (which would resurrect a stale pick via the fallback) and rather than crowning the guess. Survivors are renumbered so the best-evidenced pick holds rank 1.
+- Note: this composes with the travel-day filtering below — an all-travel window already yields no candidates; this additionally guards the non-travel far-out case (a genuine LLM misfire on GO count).
+
+### Fixed — travel days now respect the calendar in Best Bet, hot topics, and the heatmap
+- **Why.** The travel-day gate only ever filtered the forecast *batch* (`ForecastTaskCollector`). The Best Bet advisor and the hot-topic strip run off the briefing independently and had no travel-day awareness — so an overnight run that (correctly) submitted zero batches because the whole window was a travel day still crowned a travel-day Best Bet off verdict-only data (a NULL-rated "pick"), and the heatmap labelled away days "Poor" as if they'd been evaluated.
+- **Best Bet / Also Good.** `BriefingBestBetAdvisor.buildRollupJson` now skips travel-day events entirely (and gates the aurora candidate on `!isTravelDay(today)`), so they never enter the prompt. An all-travel window yields an empty candidate set, which Claude already resolves to the honest "flat week — stay home" pick. (Deliberately *not* a hard short-circuit — the advisor still runs so the stay-home message is produced.)
+- **Hot topics.** `HotTopicAggregator` drops any topic dated on a travel day — no "Spring tide today" / "Aurora tomorrow night" for days you're away.
+- **Heatmap cells.** A travel-day cell now reads **"✈️ Away"** instead of a verdict like "Poor" — "Poor" falsely asserted an evaluation that never ran. (The day-header "Away — no forecast" badge and the map-popup notice were already in place.)
+- Tests: rollup excludes travel-day events; aggregator suppresses travel-day topics; heatmap renders "Away" not a verdict.
+
 ### Added — Plan → Map handoff: "View on map" from Best Bet cards
 - **Why.** The Plan view answers "where should I go?"; the Map answers "show me exactly where." The jump should carry context so the user never re-orients on arrival. (Part B of the map filter / handoff addendum.)
 - **Bet card → region (B1).** Each navigable Best Bet / Also Good card gets a `🗺 View on map →` affordance (distinct from "Read more"). Clicking it sets the Map's date and event to the bet's, switches to the Map tab, and **fit-bounds to the bet's region** so all that region's pins fill the view (the macro view).

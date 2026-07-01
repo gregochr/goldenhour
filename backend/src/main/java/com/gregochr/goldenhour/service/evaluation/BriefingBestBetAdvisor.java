@@ -37,6 +37,7 @@ import com.gregochr.goldenhour.service.BriefingRatingStats;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
+import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -411,6 +412,7 @@ public class BriefingBestBetAdvisor {
     private final AuroraStateCache auroraStateCache;
     private final StabilitySnapshotProvider stabilitySnapshotProvider;
     private final BriefingEvaluationService briefingEvaluationService;
+    private final TravelDayService travelDayService;
 
     /**
      * Response-token ceiling for the best-bet JSON on standard (non-thinking) calls.
@@ -429,6 +431,7 @@ public class BriefingBestBetAdvisor {
      * @param auroraStateCache           read-only access to the current aurora alert state
      * @param stabilitySnapshotProvider  provides the latest stability summary for region rollup
      * @param briefingEvaluationService  cached Claude evaluation scores from drill-down
+     * @param travelDayService           excludes travel-day events from the candidate rollup
      * @param maxTokens                  response-token ceiling for standard best-bet calls
      *                                   ({@code photocast.best-bet.max-tokens})
      */
@@ -438,6 +441,7 @@ public class BriefingBestBetAdvisor {
             AuroraStateCache auroraStateCache,
             StabilitySnapshotProvider stabilitySnapshotProvider,
             @Lazy BriefingEvaluationService briefingEvaluationService,
+            TravelDayService travelDayService,
             @Value("${photocast.best-bet.max-tokens:" + DEFAULT_MAX_TOKENS + "}") int maxTokens) {
         this.anthropicApiClient = anthropicApiClient;
         this.objectMapper = objectMapper;
@@ -446,6 +450,7 @@ public class BriefingBestBetAdvisor {
         this.auroraStateCache = auroraStateCache;
         this.stabilitySnapshotProvider = stabilitySnapshotProvider;
         this.briefingEvaluationService = briefingEvaluationService;
+        this.travelDayService = travelDayService;
         this.maxTokens = maxTokens;
     }
 
@@ -571,11 +576,26 @@ public class BriefingBestBetAdvisor {
             }
             List<BestBet> validated = validateAndFilterPicks(
                     parsed.picks(), rollup.validEvents(), rollup.validRegions(), rollup.validDayNames());
-            List<BestBet> covered = applyCoverageAwareRanking(validated, rollup.coverageByKey());
+            if (validated.isEmpty()) {
+                // Picks parsed but none named a valid event/region — nothing usable came back.
+                LOG.warn("Best-bet advisor parsed picks but all failed validation — FAILED "
+                        + "(jobRunId={})", jobRunId);
+                return BestBetResult.failed();
+            }
+            List<BestBet> evidenced = dropUnevaluatedPicks(validated, rollup.coverageByKey());
+            if (evidenced.isEmpty()) {
+                // Valid picks came back, but none carry any Claude colour rating. A weather GO
+                // count alone is not evidence of a good sky, so we decline rather than dress up a
+                // guess as a recommendation — this is the honest "nothing evaluated" state.
+                LOG.info("Best-bet advisor: no pick carries a colour evaluation — declining with "
+                        + "no-picks (jobRunId={})", jobRunId);
+                return BestBetResult.noPicks();
+            }
+            List<BestBet> covered = applyCoverageAwareRanking(evidenced, rollup.coverageByKey());
             List<BestBet> enriched = enrichWithEventData(covered, days);
             if (enriched.isEmpty()) {
-                // Picks parsed but none survived validation — nothing usable came back.
-                LOG.warn("Best-bet advisor parsed picks but all failed validation — FAILED "
+                // Picks parsed but none survived enrichment — nothing usable came back.
+                LOG.warn("Best-bet advisor parsed picks but none survived enrichment — FAILED "
                         + "(jobRunId={})", jobRunId);
                 return BestBetResult.failed();
             }
@@ -854,13 +874,48 @@ public class BriefingBestBetAdvisor {
      * picks are exempt; every other pick must clear {@link #MIN_HEADLINE_CLAUDE_COVERAGE}.
      */
     private boolean isHeadlineEligible(BestBet pick, Map<String, CandidateCoverage> coverage) {
+        return isColourExempt(pick) || ratedCount(pick, coverage) >= MIN_HEADLINE_CLAUDE_COVERAGE;
+    }
+
+    /**
+     * Whether a pick is exempt from the colour-evidence requirement. Stay-home picks crown nothing,
+     * and aurora picks claim aurora visibility (with their own clear-sky gate in the prompt), not
+     * sky colour — so neither needs a Claude colour rating behind it. Every other pick does.
+     */
+    private boolean isColourExempt(BestBet pick) {
         if (pick.event() == null && pick.region() == null) {
             return true;
         }
-        if (pick.event() != null && pick.event().endsWith("_aurora")) {
-            return true;
+        return pick.event() != null && pick.event().endsWith("_aurora");
+    }
+
+    /**
+     * Drops picks with zero Claude colour coverage. A best bet's entire premise is Claude's colour
+     * evaluation; a region/event with no colour rating at all — only a weather GO count — is not
+     * evidence of a good sky, so recommending it (even hedged) is dishonest. Stay-home and aurora
+     * picks are {@link #isColourExempt exempt}. Survivors are renumbered so the highest remaining
+     * pick holds rank 1; an empty result signals "no colour-backed recommendation available", which
+     * the caller maps to {@code SUCCESS_NO_PICKS} (an honest decline), never {@code FAILED}.
+     *
+     * @param picks    validated picks in ranked order
+     * @param coverage per-{@code event|region} Claude coverage from the rollup
+     * @return the picks that carry colour evidence, renumbered; possibly empty
+     */
+    List<BestBet> dropUnevaluatedPicks(List<BestBet> picks,
+            Map<String, CandidateCoverage> coverage) {
+        List<BestBet> kept = new ArrayList<>();
+        for (BestBet p : picks) {
+            if (isColourExempt(p) || ratedCount(p, coverage) > 0) {
+                kept.add(p);
+            } else {
+                LOG.info("Best-bet: dropped zero-coverage pick region='{}' event='{}' — no colour "
+                        + "evaluation behind it", p.region(), p.event());
+            }
         }
-        return ratedCount(pick, coverage) >= MIN_HEADLINE_CLAUDE_COVERAGE;
+        if (kept.isEmpty() || kept.size() == picks.size()) {
+            return kept;
+        }
+        return rerankWithRecomputedRelationships(kept);
     }
 
     private int ratedCount(BestBet pick, Map<String, CandidateCoverage> coverage) {
@@ -974,6 +1029,12 @@ public class BriefingBestBetAdvisor {
         ArrayNode eventsNode = objectMapper.createArrayNode();
         int eventCount = 0;
         for (BriefingDay day : days) {
+            // Travel-day gate: the operator is away on this date, so its events can never be a
+            // best bet. Excluding them here keeps invalid candidates out of the prompt entirely —
+            // an all-travel window yields an empty rollup and an honest "stay home" no-picks result.
+            if (travelDayService.isTravelDay(day.date())) {
+                continue;
+            }
             for (BriefingEventSummary es : day.eventSummaries()) {
                 if (day.date().equals(today) && isEventPast(es, now)) {
                     continue;
@@ -1012,7 +1073,8 @@ public class BriefingBestBetAdvisor {
 
         if (auroraStateCache.isActive()
                 && auroraStateCache.getCurrentLevel() != null
-                && auroraStateCache.getCurrentLevel().isAlertWorthy()) {
+                && auroraStateCache.getCurrentLevel().isAlertWorthy()
+                && !travelDayService.isTravelDay(today)) {
             String auroraEventId = today + "_aurora";
             String auroraRegion = appendAuroraEvent(eventsNode, auroraEventId);
             validEvents.add(auroraEventId);

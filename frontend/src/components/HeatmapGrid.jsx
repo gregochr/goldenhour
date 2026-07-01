@@ -595,7 +595,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
 
 // ── Sub-column cell ───────────────────────────────────────────────────────────
 
-function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map(), showAllLocations = false }) {  const cellData = getSubCellData(date, regionName, targetType, briefingDays);
+function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map(), showAllLocations = false, travelDayDates = new Set() }) {  const cellData = getSubCellData(date, regionName, targetType, briefingDays);
 
   // Empty cell — region doesn't appear in this event type. Minimal: a muted
   // dash, no hover, no interaction; sized to align with the tidy ~52px band.
@@ -611,6 +611,28 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
   }
 
   const { region, past } = cellData;
+
+  // Travel day — the operator is away, so no forecast was run for this date. Show a neutral
+  // "Away" rather than a verdict like "Poor", which would falsely assert an evaluated judgement.
+  if (travelDayDates.has(date)) {
+    return (
+      <div
+        data-testid="heatmap-cell-away"
+        title="You're away on this day — forecast not run"
+        className="flex items-center justify-center rounded border"
+        style={{
+          minHeight: '52px',
+          background: 'rgba(148,113,74,0.06)',
+          borderColor: 'rgba(148,113,74,0.15)',
+          cursor: 'default',
+        }}
+      >
+        <span className="text-plex-text-muted" style={{ fontSize: '10px', opacity: 0.7 }}>
+          ✈️ Away
+        </span>
+      </div>
+    );
+  }
 
   const cellTier = computeCellTier(region);
   const visible = isCellVisible(cellTier, qualityTier);
@@ -1005,6 +1027,7 @@ export default function HeatmapGrid({
                   onToggle={toggleDrillDown}
                   evaluationScores={evaluationScores}
                   showAllLocations={showAllLocations}
+                  travelDayDates={travelDayDates}
                 />
               );
             })}

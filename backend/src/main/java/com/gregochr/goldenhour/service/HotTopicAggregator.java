@@ -22,17 +22,21 @@ public class HotTopicAggregator {
 
     private final List<HotTopicStrategy> strategies;
     private final HotTopicSimulationService simulationService;
+    private final TravelDayService travelDayService;
 
     /**
      * Constructs a {@code HotTopicAggregator} with all registered strategies.
      *
      * @param strategies        all {@link HotTopicStrategy} beans in the application context
      * @param simulationService admin simulation override service
+     * @param travelDayService  suppresses topics dated on a travel day (operator is away)
      */
     public HotTopicAggregator(List<HotTopicStrategy> strategies,
-                               HotTopicSimulationService simulationService) {
+                               HotTopicSimulationService simulationService,
+                               TravelDayService travelDayService) {
         this.strategies = strategies;
         this.simulationService = simulationService;
+        this.travelDayService = travelDayService;
     }
 
     /**
@@ -52,6 +56,9 @@ public class HotTopicAggregator {
         }
         return strategies.stream()
                 .flatMap(s -> s.detect(fromDate, toDate).stream())
+                // Suppress topics dated on a travel day — the operator is away and can't act on
+                // them ("Spring tide today", "Aurora tomorrow night" are noise when you're in London).
+                .filter(topic -> topic.date() == null || !travelDayService.isTravelDay(topic.date()))
                 .sorted()
                 .toList();
     }

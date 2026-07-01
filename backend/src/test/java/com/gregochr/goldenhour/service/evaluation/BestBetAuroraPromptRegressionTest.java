@@ -23,6 +23,7 @@ import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
+import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -109,7 +110,7 @@ class BestBetAuroraPromptRegressionTest {
         BriefingBestBetAdvisor advisor = new BriefingBestBetAdvisor(
                 apiClient, objectMapper, mock(JobRunService.class), mss, cache,
                 mock(StabilitySnapshotProvider.class),
-                mock(BriefingEvaluationService.class), 4096);
+                mock(BriefingEvaluationService.class), mock(TravelDayService.class), 4096);
 
         BriefingBestBetAdvisor.RollupResult rollup =
                 advisor.buildRollupJson(List.of(day), now);
@@ -173,7 +174,7 @@ class BestBetAuroraPromptRegressionTest {
         BriefingBestBetAdvisor advisor = new BriefingBestBetAdvisor(
                 apiClient, objectMapper, mock(JobRunService.class), mss, cache,
                 mock(StabilitySnapshotProvider.class),
-                mock(BriefingEvaluationService.class), 4096);
+                mock(BriefingEvaluationService.class), mock(TravelDayService.class), 4096);
 
         BriefingBestBetAdvisor.RollupResult rollup =
                 advisor.buildRollupJson(List.of(day), now);
@@ -217,7 +218,7 @@ class BestBetAuroraPromptRegressionTest {
         BriefingBestBetAdvisor advisor = new BriefingBestBetAdvisor(
                 apiClient, objectMapper, mock(JobRunService.class), mss, cache,
                 mock(StabilitySnapshotProvider.class),
-                mock(BriefingEvaluationService.class), 4096);
+                mock(BriefingEvaluationService.class), mock(TravelDayService.class), 4096);
 
         BriefingBestBetAdvisor.RollupResult rollup =
                 advisor.buildRollupJson(List.of(day), now);
