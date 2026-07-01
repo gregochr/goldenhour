@@ -105,6 +105,20 @@ describe('HeatmapGrid — travel-day badge', () => {
     renderGrid({ travelDayDates: new Set() });
     expect(screen.queryByTestId('heatmap-travel-day-badge')).toBeNull();
   });
+
+  it('shows "Away" (not a verdict) in a travel-day cell', () => {
+    // A single GO column that would otherwise read "Worth it sunset" must read "Away" on a
+    // travel day, and must not assert a verdict cell for that date.
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      travelDayDates: new Set([DATE_1]),
+    });
+
+    const awayCells = screen.getAllByTestId('heatmap-cell-away');
+    expect(awayCells.length).toBeGreaterThan(0);
+    expect(awayCells[0].textContent).toContain('Away');
+    expect(screen.queryByTestId('heatmap-cell')).toBeNull();
+  });
 });
 
 describe('HeatmapGrid — verdict labels', () => {

@@ -36,6 +36,7 @@ import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
+import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -83,6 +84,7 @@ class BriefingBestBetAdvisorTest {
     @Mock private AuroraStateCache auroraStateCache;
     @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
     @Mock private BriefingEvaluationService briefingEvaluationService;
+    @Mock private TravelDayService travelDayService;
 
     /** Response-token ceiling injected into the advisor under test. */
     private static final int TEST_MAX_TOKENS = 4096;
@@ -94,7 +96,7 @@ class BriefingBestBetAdvisorTest {
         advisor = new BriefingBestBetAdvisor(
                 anthropicApiClient, new ObjectMapper().findAndRegisterModules(),
                 jobRunService, modelSelectionService, auroraStateCache,
-                stabilitySnapshotProvider, briefingEvaluationService, TEST_MAX_TOKENS);
+                stabilitySnapshotProvider, briefingEvaluationService, travelDayService, TEST_MAX_TOKENS);
     }
 
     // ── parseBestBets ──
@@ -370,6 +372,7 @@ class BriefingBestBetAdvisorTest {
             Message message = messageWithStopReason(truncated, StopReason.MAX_TOKENS);
             when(anthropicApiClient.createMessage(any())).thenReturn(message);
 
+            stubCoverage("Northumberland", tomorrow, TargetType.SUNSET);
             List<BriefingDay> days = List.of(new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET,
                             List.of(region("Northumberland", Verdict.GO, 3, 0, 0)), List.of()))));
@@ -416,7 +419,7 @@ class BriefingBestBetAdvisorTest {
             BriefingBestBetAdvisor custom = new BriefingBestBetAdvisor(
                     anthropicApiClient, new ObjectMapper().findAndRegisterModules(),
                     jobRunService, modelSelectionService, auroraStateCache,
-                    stabilitySnapshotProvider, briefingEvaluationService, customMax);
+                    stabilitySnapshotProvider, briefingEvaluationService, travelDayService, customMax);
             when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
                     .thenReturn(EvaluationModel.HAIKU);
             when(anthropicApiClient.createMessage(any()))
@@ -536,6 +539,38 @@ class BriefingBestBetAdvisorTest {
 
             BestBetResult result = advisor.advise(List.of(), 1L, Map.of());
             assertThat(result.status()).isEqualTo(BestBetStatus.FAILED);
+        }
+
+        @Test
+        @DisplayName("advise(): a big-GO-count region with zero colour rating is dropped → NO_PICKS")
+        void adviseZeroColourCoverageDroppedToNoPicks() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneId.of("Europe/London")).plusDays(1);
+            String eventId = tomorrow + "_sunset";
+            // Claude crowns a region on GO count alone — no cached colour rating (coverage 0).
+            String raw = "{\"picks\":[{\"rank\":1,\"headline\":\"Best GO count\",\"detail\":\"Clear.\","
+                    + "\"event\":\"" + eventId + "\",\"region\":\"Northumberland\","
+                    + "\"confidence\":\"high\"}]}";
+            TextBlock tb = mock(TextBlock.class);
+            when(tb.text()).thenReturn(raw);
+            ContentBlock cb = mock(ContentBlock.class);
+            when(cb.isText()).thenReturn(true);
+            when(cb.asText()).thenReturn(tb);
+            Message message = mock(Message.class);
+            when(message.content()).thenReturn(List.of(cb));
+            when(anthropicApiClient.createMessage(any())).thenReturn(message);
+
+            // Deliberately NO stubCoverage(...) — Northumberland has zero colour evaluation.
+            List<BriefingDay> days = List.of(new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET,
+                            List.of(region("Northumberland", Verdict.GO, 9, 0, 0)), List.of()))));
+
+            BestBetResult result = advisor.advise(days, 1L, Map.of());
+
+            // Honest decline (stay-home), NOT crowned and NOT FAILED (which would resurface a stale pick).
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_NO_PICKS);
+            assertThat(result.picks()).isEmpty();
         }
     }
 
@@ -1116,6 +1151,26 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
+        @DisplayName("Travel-day event is excluded from the rollup and validEvents")
+        void travelDayEventSkipped() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            when(travelDayService.isTravelDay(tomorrow)).thenReturn(true);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)
+                    ), List.of())
+            ));
+
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(day), now);
+
+            String eventId = tomorrow.toString() + "_sunset";
+            assertThat(result.json()).doesNotContain(eventId);
+            assertThat(result.validEvents()).isEmpty();
+        }
+
+        @Test
         @DisplayName("Past today event is skipped and not in validEvents")
         void pastTodayEventSkipped() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
@@ -1498,6 +1553,7 @@ class BriefingBestBetAdvisorTest {
             when(message.content()).thenReturn(List.of(contentBlock));
             when(anthropicApiClient.createMessage(any())).thenReturn(message);
 
+            stubCoverage("Northumberland", tomorrow, TargetType.SUNSET);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
                             region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
@@ -1527,6 +1583,7 @@ class BriefingBestBetAdvisorTest {
             when(message.content()).thenReturn(List.of(contentBlock));
             when(anthropicApiClient.createMessage(any())).thenReturn(message);
 
+            stubCoverage("Northumberland", tomorrow, TargetType.SUNSET);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
                             regionWithTime("Northumberland", Verdict.GO, 3, 0, 0, eventTime)
@@ -1627,6 +1684,8 @@ class BriefingBestBetAdvisorTest {
             when(message.content()).thenReturn(List.of(contentBlock));
             when(anthropicApiClient.createMessage(any())).thenReturn(message);
 
+            stubCoverage("Northumberland", tomorrow, TargetType.SUNRISE);
+            stubCoverage("Northumberland", tomorrow, TargetType.SUNSET);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNRISE, List.of(
                             regionWithTime("Northumberland", Verdict.GO, 2, 0, 0, sunriseTime)),
@@ -1677,6 +1736,8 @@ class BriefingBestBetAdvisorTest {
             when(message.content()).thenReturn(List.of(contentBlock));
             when(anthropicApiClient.createMessage(any())).thenReturn(message);
 
+            stubCoverage("Northumberland", tomorrow, TargetType.SUNSET);
+            stubCoverage("The Lake District", tomorrow, TargetType.SUNSET);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
                             regionWithTime("Northumberland", Verdict.GO, 2, 0, 0, sunsetTime),
@@ -3369,6 +3430,16 @@ class BriefingBestBetAdvisorTest {
     private void stubModelSelection() {
         when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
                 .thenReturn(EvaluationModel.OPUS);
+    }
+
+    /**
+     * Stubs one cached colour rating for a region/event so its candidate has non-zero Claude
+     * coverage — otherwise {@code dropUnevaluatedPicks} removes it as an un-evidenced pick.
+     */
+    private void stubCoverage(String region, LocalDate date, TargetType type) {
+        when(briefingEvaluationService.getCachedScores(region, date, type))
+                .thenReturn(Map.of("Loc",
+                        new BriefingEvaluationResult("Loc", 4, 70, 60, "Good")));
     }
 
     private static BriefingRegion region(String name, Verdict verdict,
