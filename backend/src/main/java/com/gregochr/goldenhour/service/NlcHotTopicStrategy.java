@@ -1,30 +1,26 @@
 package com.gregochr.goldenhour.service;
 
-import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.model.HotTopic;
-import com.gregochr.goldenhour.model.SeasonalWindow;
-import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.model.NlcNightClarity;
 import org.springframework.stereotype.Component;
 
+import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.time.MonthDay;
+import java.time.format.TextStyle;
 import java.util.List;
-import java.util.Objects;
+import java.util.Locale;
 
 /**
- * Detects noctilucent cloud (NLC) season hot topics from a fixed seasonal window.
+ * Detects noctilucent cloud (NLC) hot topics — but only for nights with a real viewing chance.
  *
- * <p>Noctilucent clouds are extremely high ice clouds that catch sunlight after sunset,
- * glowing electric blue on the northern horizon. They are visible from northern England
- * only from late May to early August. This is a pure calendar heads-up — it fires for the
- * earliest in-season day in the window and points photographers at dark-sky locations with
- * a clear northern horizon. Makes no external API calls.
- *
- * <p>The season is held as a private {@link SeasonalWindow} constant rather than a Spring
- * bean: the bluebell window is already the sole {@code SeasonalWindow} bean and is injected
- * by type at several sites, so registering a second bean would make those injections
- * ambiguous. A private constant keeps the same calendar-gate behaviour without that risk.
+ * <p>Noctilucent clouds are extremely high ice clouds that catch sunlight after sunset, glowing
+ * electric blue on the northern horizon. They are visible from northern England only from late
+ * May to early August, and only when the northern sky is actually clear. Rather than firing a
+ * calendar reminder every night of the season (which quickly becomes ignored wallpaper), this
+ * detector reads the {@link NlcClarityService} cache — populated during the briefing run from
+ * real cloud cover at dark-sky locations — and fires only when a clear night exists in the
+ * window, naming the earliest one. When no dark-sky location is forecast clear, the topic is
+ * suppressed entirely. Makes no external API calls.
  */
 @Component
 public class NlcHotTopicStrategy implements HotTopicStrategy {
@@ -32,60 +28,71 @@ public class NlcHotTopicStrategy implements HotTopicStrategy {
     private static final String NLC_DESCRIPTION =
             "Noctilucent clouds are extremely high ice clouds that catch sunlight after"
                     + " sunset, glowing electric blue on the northern horizon."
-                    + " Visible late May to early August.";
+                    + " Visible late May to early August, and only under a clear northern sky.";
 
     /** Topic priority — calendar heads-up, sorts below the act-on-it topics. */
     private static final int PRIORITY = 8;
 
-    /** NLC visibility season for northern England: late May to early August. */
-    private static final SeasonalWindow NLC_SEASON =
-            new SeasonalWindow(MonthDay.of(5, 25), MonthDay.of(8, 10), "NLC");
-
-    private final LocationRepository locationRepository;
+    private final NlcClarityService clarityService;
 
     /**
      * Constructs an {@code NlcHotTopicStrategy}.
      *
-     * @param locationRepository repository for dark-sky region lookups
+     * @param clarityService cache of which upcoming nights have a clear dark-sky NLC chance
      */
-    public NlcHotTopicStrategy(LocationRepository locationRepository) {
-        this.locationRepository = locationRepository;
+    public NlcHotTopicStrategy(NlcClarityService clarityService) {
+        this.clarityService = clarityService;
     }
 
     /**
      * {@inheritDoc}
      *
-     * <p>Emits a single topic dated to the earliest in-season day within the window,
-     * or empty when no day in the window falls in NLC season.
+     * <p>Emits a single topic for the earliest clear night within the window, or empty when the
+     * clarity scan found no viable night (out of season, cloudy everywhere, or not yet computed).
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        for (LocalDate date = fromDate; !date.isAfter(toDate); date = date.plusDays(1)) {
-            if (NLC_SEASON.isActive(date)) {
-                return List.of(buildTopic(date));
-            }
+        NlcNightClarity clarity = clarityService.getCached();
+        if (clarity == null || !clarity.hasClearNight()) {
+            return List.of();
         }
-        return List.of();
-    }
 
-    private HotTopic buildTopic(LocalDate date) {
-        List<String> darkSkyRegions =
-                locationRepository.findByBortleClassIsNotNullAndEnabledTrue().stream()
-                        .map(LocationEntity::getRegion)
-                        .filter(Objects::nonNull)
-                        .map(RegionEntity::getName)
-                        .distinct()
-                        .toList();
+        NlcNightClarity.ClearNight night = clarity.clearNights().stream()
+                .filter(n -> !n.date().isBefore(fromDate) && !n.date().isAfter(toDate))
+                .findFirst()
+                .orElse(null);
+        if (night == null) {
+            return List.of();
+        }
 
-        return new HotTopic(
+        return List.of(new HotTopic(
                 "NLC",
                 "Noctilucent cloud season",
-                "NLC season — check the northern horizon after dusk",
-                date,
+                buildDetail(night, fromDate),
+                night.date(),
                 PRIORITY,
                 null,
-                darkSkyRegions,
+                night.regions(),
                 NLC_DESCRIPTION,
-                null);
+                null));
+    }
+
+    private String buildDetail(NlcNightClarity.ClearNight night, LocalDate today) {
+        String locations = night.clearLocationCount() == 1
+                ? "1 dark-sky location"
+                : night.clearLocationCount() + " dark-sky locations";
+        return String.format("Clear northern horizon %s — %s",
+                formatNightLabel(night.date(), today), locations);
+    }
+
+    private String formatNightLabel(LocalDate date, LocalDate today) {
+        if (date.isEqual(today)) {
+            return "tonight";
+        }
+        if (date.isEqual(today.plusDays(1))) {
+            return "tomorrow night";
+        }
+        DayOfWeek dow = date.getDayOfWeek();
+        return dow.getDisplayName(TextStyle.FULL, Locale.UK) + " night";
     }
 }
