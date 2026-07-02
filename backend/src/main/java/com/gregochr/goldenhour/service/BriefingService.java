@@ -41,7 +41,6 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -84,6 +83,10 @@ public class BriefingService {
     private final com.gregochr.goldenhour.service.pipeline.BestBetFallbackService bestBetFallbackService;
     private final SeasonalWindow bluebellSeason;
     private final NlcClarityService nlcClarityService;
+    private final java.time.Clock clock;
+
+    /** UK civil-date zone for "today" derivation. */
+    private static final ZoneId LONDON = ZoneId.of("Europe/London");
     /** Horizon offset distance in metres — geometric horizon for low cloud at ~1 km altitude. */
     private static final double HORIZON_OFFSET_METRES = 113_000.0;
 
@@ -132,6 +135,7 @@ public class BriefingService {
      * @param bestBetFallbackService     serves the fail-safe stale best-bet fallback on FAILED
      * @param bluebellSeason             the configured bluebell season window
      * @param nlcClarityService          caches which nights have a clear dark-sky NLC chance
+     * @param clock                      UTC clock supplying "now" and (via London) "today"
      */
     public BriefingService(LocationService locationService,
             OpenMeteoClient openMeteoClient,
@@ -150,7 +154,8 @@ public class BriefingService {
             @Lazy EvaluationViewService evaluationViewService,
             com.gregochr.goldenhour.service.pipeline.BestBetFallbackService bestBetFallbackService,
             SeasonalWindow bluebellSeason,
-            NlcClarityService nlcClarityService) {
+            NlcClarityService nlcClarityService,
+            java.time.Clock clock) {
         this.locationService = locationService;
         this.openMeteoClient = openMeteoClient;
         this.jobRunService = jobRunService;
@@ -171,6 +176,7 @@ public class BriefingService {
         this.bestBetFallbackService = bestBetFallbackService;
         this.bluebellSeason = bluebellSeason;
         this.nlcClarityService = nlcClarityService;
+        this.clock = clock;
     }
 
     /**
@@ -214,7 +220,7 @@ public class BriefingService {
 
             // Overlay live hot topics so simulation toggles take effect immediately
             // without requiring a full briefing refresh.
-            LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
+            LocalDate today = LocalDate.now(clock.withZone(LONDON));
             List<HotTopic> rawTopics = hotTopicAggregator.getHotTopics(today, today.plusDays(3));
             List<HotTopic> liveTopics = rawTopics == null ? List.of() : rawTopics;
 
@@ -320,7 +326,7 @@ public class BriefingService {
             return;
         }
 
-        LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
+        LocalDate today = LocalDate.now(clock.withZone(LONDON));
         List<LocalDate> dates = List.of(today, today.plusDays(1), today.plusDays(2), today.plusDays(3));
 
         int succeeded = 0;
@@ -405,7 +411,7 @@ public class BriefingService {
 
         if (aboveThreshold) {
             DailyBriefingResponse response = new DailyBriefingResponse(
-                    LocalDateTime.now(ZoneOffset.UTC), headline, days, bestBets,
+                    LocalDateTime.now(clock), headline, days, bestBets,
                     auroraTonight, auroraTomorrow, false, partialFailure, failed,
                     bestBetAdvisor.getModelDisplayName(), hotTopics, seasonalFeatures,
                     bestBetStatus);
@@ -430,7 +436,7 @@ public class BriefingService {
                         succeeded, total, failed, lkg.generatedAt(), circuit, totalMs);
             } else {
                 DailyBriefingResponse response = new DailyBriefingResponse(
-                        LocalDateTime.now(ZoneOffset.UTC), headline, days, bestBets,
+                        LocalDateTime.now(clock), headline, days, bestBets,
                         auroraTonight, auroraTomorrow, false, partialFailure, failed,
                         bestBetAdvisor.getModelDisplayName(), hotTopics, seasonalFeatures,
                         bestBetStatus);

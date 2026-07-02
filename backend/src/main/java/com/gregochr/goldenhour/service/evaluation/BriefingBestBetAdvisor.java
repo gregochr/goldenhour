@@ -421,6 +421,11 @@ public class BriefingBestBetAdvisor {
      */
     private final int maxTokens;
 
+    private final java.time.Clock clock;
+
+    /** UK civil-date zone for "today" derivation. */
+    private static final ZoneId LONDON = ZoneId.of("Europe/London");
+
     /**
      * Constructs a {@code BriefingBestBetAdvisor}.
      *
@@ -433,6 +438,7 @@ public class BriefingBestBetAdvisor {
      * @param briefingEvaluationService  cached Claude evaluation scores from drill-down
      * @param travelDayService           excludes travel-day events from the candidate rollup
      * @param maxTokens                  response-token ceiling for standard best-bet calls
+     * @param clock                      UTC clock supplying "now" and (via London) "today"
      *                                   ({@code photocast.best-bet.max-tokens})
      */
     public BriefingBestBetAdvisor(AnthropicApiClient anthropicApiClient,
@@ -442,7 +448,8 @@ public class BriefingBestBetAdvisor {
             StabilitySnapshotProvider stabilitySnapshotProvider,
             @Lazy BriefingEvaluationService briefingEvaluationService,
             TravelDayService travelDayService,
-            @Value("${photocast.best-bet.max-tokens:" + DEFAULT_MAX_TOKENS + "}") int maxTokens) {
+            @Value("${photocast.best-bet.max-tokens:" + DEFAULT_MAX_TOKENS + "}") int maxTokens,
+            java.time.Clock clock) {
         this.anthropicApiClient = anthropicApiClient;
         this.objectMapper = objectMapper;
         this.jobRunService = jobRunService;
@@ -452,6 +459,7 @@ public class BriefingBestBetAdvisor {
         this.briefingEvaluationService = briefingEvaluationService;
         this.travelDayService = travelDayService;
         this.maxTokens = maxTokens;
+        this.clock = clock;
     }
 
     /**
@@ -538,7 +546,7 @@ public class BriefingBestBetAdvisor {
             EvaluationModel model = modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET);
             boolean useExtendedThinking = modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET)
                     && model != EvaluationModel.HAIKU;
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDateTime now = LocalDateTime.now(clock);
             RollupResult rollup = buildRollupJson(days, now);
             long startMs = System.currentTimeMillis();
 
@@ -656,7 +664,7 @@ public class BriefingBestBetAdvisor {
      * derived from the triage data hierarchy, not from Claude's output.
      */
     private List<BestBet> enrichWithEventData(List<BestBet> picks, List<BriefingDay> days) {
-        LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
+        LocalDate today = LocalDate.now(clock.withZone(LONDON));
         return picks.stream().map(pick -> {
             if (pick.event() == null) {
                 return pick;
@@ -1016,7 +1024,7 @@ public class BriefingBestBetAdvisor {
      */
     RollupResult buildRollupJson(List<BriefingDay> days, LocalDateTime now)
             throws JsonProcessingException {
-        LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
+        LocalDate today = LocalDate.now(clock.withZone(LONDON));
         Set<String> validEvents = new LinkedHashSet<>();
         Set<String> validRegions = new LinkedHashSet<>();
         Set<String> validDayNames = new LinkedHashSet<>();
@@ -1512,7 +1520,7 @@ public class BriefingBestBetAdvisor {
      */
     public ComparisonRun compareModels(List<BriefingDay> days,
             Map<String, Integer> driveMap) throws com.fasterxml.jackson.core.JsonProcessingException {
-        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        LocalDateTime now = LocalDateTime.now(clock);
         RollupResult rollup = buildRollupJson(days, now);
         List<EvaluationModel> models = List.of(
                 EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.SONNET_ET,

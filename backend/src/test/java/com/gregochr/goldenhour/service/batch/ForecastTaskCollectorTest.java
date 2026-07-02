@@ -79,7 +79,11 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class ForecastTaskCollectorTest {
 
-    private static final LocalDate TODAY = LocalDate.now();
+    // Fixed date + clock so "today" is deterministic (previously flaked in the 23:00-24:00 UTC
+    // window when the test's UTC today diverged from the collector's Europe/London today).
+    private static final LocalDate TODAY = LocalDate.of(2026, 1, 15);
+    private static final java.time.Clock CLOCK = java.time.Clock.fixed(
+            TODAY.atTime(12, 0).toInstant(java.time.ZoneOffset.UTC), java.time.ZoneOffset.UTC);
     private static final LocalDateTime EVENT_TIME = TODAY.atTime(5, 30);
     private static final double MIN_PREFETCH_RATIO = 0.5;
 
@@ -121,7 +125,7 @@ class ForecastTaskCollectorTest {
                 forecastService, stabilityClassifier, modelSelectionService,
                 openMeteoService, solarService, freshnessResolver,
                 stabilitySnapshotProvider, survivorAtmosphereWriter, travelDayService,
-                MIN_PREFETCH_RATIO, 0);
+                MIN_PREFETCH_RATIO, 0, CLOCK);
         // Default freshness threshold (matches UNSETTLED-equivalent default in legacy code)
         lenient().when(freshnessResolver.maxAgeFor(any())).thenReturn(Duration.ofHours(6));
     }

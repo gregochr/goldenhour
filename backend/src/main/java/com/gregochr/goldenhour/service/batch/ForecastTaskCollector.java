@@ -44,7 +44,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -141,6 +140,11 @@ public class ForecastTaskCollector {
      */
     private final int forceEvalCap;
 
+    private final java.time.Clock clock;
+
+    /** UK civil-date zone for "today" derivation. */
+    private static final ZoneId LONDON = ZoneId.of("Europe/London");
+
     /**
      * Constructs the collector.
      *
@@ -158,6 +162,7 @@ public class ForecastTaskCollector {
      * @param travelDayService          gates out candidates whose target date is a travel day
      * @param minPrefetchSuccessRatio   minimum prefetch ratio to proceed (scheduled path)
      * @param forceEvalCap              max force-evaluated headline candidates per cycle
+     * @param clock                     UTC clock supplying "now" and (via London) "today"
      */
     public ForecastTaskCollector(LocationService locationService,
             BriefingService briefingService,
@@ -174,7 +179,8 @@ public class ForecastTaskCollector {
             @Value("${photocast.batch.min-prefetch-success-ratio:0.5}")
             double minPrefetchSuccessRatio,
             @Value("${photocast.batch.force-eval-cap:6}")
-            int forceEvalCap) {
+            int forceEvalCap,
+            java.time.Clock clock) {
         this.locationService = locationService;
         this.briefingService = briefingService;
         this.briefingEvaluationService = briefingEvaluationService;
@@ -189,6 +195,7 @@ public class ForecastTaskCollector {
         this.travelDayService = travelDayService;
         this.minPrefetchSuccessRatio = minPrefetchSuccessRatio;
         this.forceEvalCap = forceEvalCap;
+        this.clock = clock;
     }
 
     /**
@@ -533,8 +540,8 @@ public class ForecastTaskCollector {
      * dates. Matches the {@code today} computation used in
      * {@link #collectForecastCandidates}.
      */
-    private static int daysAheadFor(LocalDate date) {
-        LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
+    private int daysAheadFor(LocalDate date) {
+        LocalDate today = LocalDate.now(clock.withZone(LONDON));
         return (int) ChronoUnit.DAYS.between(today, date);
     }
 
@@ -561,7 +568,7 @@ public class ForecastTaskCollector {
         if (forceEvalCap <= 0 || briefing.days() == null) {
             return Set.of();
         }
-        LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
+        LocalDate today = LocalDate.now(clock.withZone(LONDON));
         List<ForceEvalCell> cells = new ArrayList<>();
         for (BriefingDay day : briefing.days()) {
             int daysAhead = (int) ChronoUnit.DAYS.between(today, day.date());
@@ -846,7 +853,7 @@ public class ForecastTaskCollector {
 
         // Use Europe/London because solar events are for UK locations — a sunrise
         // in Northumberland on April 19th BST is what matters, not the UTC date.
-        LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
+        LocalDate today = LocalDate.now(clock.withZone(LONDON));
 
         for (BriefingDay day : briefing.days()) {
             LocalDate date = day.date();
@@ -1013,7 +1020,7 @@ public class ForecastTaskCollector {
 
     private CloudPointCache prefetchBatchCloudPoints(List<ForecastCandidate> candidates,
             Map<String, WeatherExtractionResult> prefetchedWeather) {
-        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        LocalDateTime now = LocalDateTime.now(clock);
         List<double[]> allPoints = new ArrayList<>();
 
         for (ForecastCandidate c : candidates) {

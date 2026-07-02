@@ -68,7 +68,10 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class ForecastTaskCollectorForceEvalTest {
 
-    private static final LocalDate TODAY = LocalDate.now();
+    // Fixed date + clock so "today" is deterministic (no near-midnight UTC/London flake).
+    private static final LocalDate TODAY = LocalDate.of(2026, 1, 15);
+    private static final java.time.Clock CLOCK = java.time.Clock.fixed(
+            TODAY.atTime(12, 0).toInstant(java.time.ZoneOffset.UTC), java.time.ZoneOffset.UTC);
     private static final LocalDateTime EVENT_TIME = TODAY.atTime(5, 30);
 
     @Mock private LocationService locationService;
@@ -90,7 +93,8 @@ class ForecastTaskCollectorForceEvalTest {
                 locationService, briefingService, briefingEvaluationService,
                 forecastService, stabilityClassifier, modelSelectionService,
                 openMeteoService, solarService, freshnessResolver,
-                stabilitySnapshotProvider, survivorAtmosphereWriter, travelDayService, 0.5, cap);
+                stabilitySnapshotProvider, survivorAtmosphereWriter, travelDayService, 0.5, cap,
+                CLOCK);
         lenient().when(freshnessResolver.maxAgeFor(any())).thenReturn(Duration.ofHours(6));
         return c;
     }

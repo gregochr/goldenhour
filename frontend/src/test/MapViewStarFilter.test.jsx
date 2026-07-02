@@ -86,7 +86,19 @@ vi.mock('../components/markerUtils.js', () => ({
 
 import MapView from '../components/MapView.jsx';
 
-const TODAY = new Date().toLocaleDateString('en-CA');
+// Fixed "today" + a pinned noon clock so the test's date and MapView's computed today always
+// agree — previously flaked near local midnight when the machine-local date diverged from the
+// component's. Only Date is faked, so testing-library's real timer-based waits keep working.
+const TODAY = '2026-01-15';
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function makeForecastsByDate(rating = 4) {
   return new Map([

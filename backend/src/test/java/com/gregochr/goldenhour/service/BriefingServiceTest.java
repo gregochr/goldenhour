@@ -68,6 +68,16 @@ class BriefingServiceTest {
     private static final SeasonalWindow BLUEBELL_WINDOW =
             new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL");
 
+    /**
+     * Fixed clock so the briefing's "today"/"now" are deterministic — noon UTC on the 15th, so
+     * the UTC and Europe/London civil dates agree. Previously these tests flaked in the
+     * 23:00–24:00 UTC window when the test fixtures' date diverged from the service's London today.
+     */
+    private static final java.time.Clock CLOCK = java.time.Clock.fixed(
+            java.time.Instant.parse("2026-01-15T12:00:00Z"), ZoneOffset.UTC);
+    private static final LocalDate FIXED_TODAY = LocalDate.of(2026, 1, 15);
+    private static final LocalDateTime FIXED_NOW = FIXED_TODAY.atTime(12, 0);
+
     @Mock
     private LocationService locationService;
     @Mock
@@ -136,12 +146,12 @@ class BriefingServiceTest {
                 locationService, openMeteoClient,
                 jobRunService, briefingCacheRepository, locationRepository,
                 new ObjectMapper().findAndRegisterModules(),
-                new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
+                new BriefingHeadlineGenerator(CLOCK), bestBetAdvisor, glossService,
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                BLUEBELL_WINDOW, new NlcClarityService());
+                BLUEBELL_WINDOW, new NlcClarityService(), CLOCK);
     }
 
     @Nested
@@ -203,9 +213,9 @@ class BriefingServiceTest {
         when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
                 .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
         when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+                .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
         when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+                .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
         when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
                 .thenAnswer(inv -> {
                     List<?> coords = inv.getArgument(0);
@@ -231,9 +241,9 @@ class BriefingServiceTest {
             when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
                     .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
             when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
             when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
                     .thenAnswer(inv -> ((List<?>) inv.getArgument(0)).stream()
                             .map(c -> buildForecastResponse()).toList());
@@ -382,10 +392,10 @@ class BriefingServiceTest {
                     .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
             org.mockito.Mockito.lenient().when(
                     solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
             org.mockito.Mockito.lenient().when(
                     solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
             // batch mock set up in @BeforeEach
         }
     }
@@ -438,9 +448,9 @@ class BriefingServiceTest {
         // First: successful refresh to populate LKG
         // batch mock set up in @BeforeEach
         when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+                .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
         when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+                .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
 
         briefingService.refreshBriefing();
         DailyBriefingResponse firstCached = briefingService.getCachedBriefing();
@@ -473,13 +483,13 @@ class BriefingServiceTest {
         when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
                 .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
         when(solarService.sunriseUtc(eq(loc1.getLat()), eq(loc1.getLon()), any(LocalDate.class)))
-                .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+                .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
         when(solarService.sunsetUtc(eq(loc1.getLat()), eq(loc1.getLon()), any(LocalDate.class)))
-                .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+                .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
         when(solarService.sunriseUtc(eq(loc2.getLat()), eq(loc2.getLon()), any(LocalDate.class)))
-                .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+                .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
         when(solarService.sunsetUtc(eq(loc2.getLat()), eq(loc2.getLon()), any(LocalDate.class)))
-                .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+                .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
         // batch mock set up in @BeforeEach — both locations succeed
 
         briefingService.refreshBriefing();
@@ -514,12 +524,12 @@ class BriefingServiceTest {
         BriefingService freshService = new BriefingService(
                 locationService, openMeteoClient,
                 jobRunService, briefingCacheRepository, locationRepository, mapper,
-                new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
+                new BriefingHeadlineGenerator(CLOCK), bestBetAdvisor, glossService,
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                BLUEBELL_WINDOW, new NlcClarityService());
+                BLUEBELL_WINDOW, new NlcClarityService(), CLOCK);
         freshService.loadPersistedBriefing();
 
         DailyBriefingResponse cached = freshService.getCachedBriefing();
@@ -546,12 +556,12 @@ class BriefingServiceTest {
                 locationService, openMeteoClient,
                 jobRunService, briefingCacheRepository, locationRepository,
                 new ObjectMapper().findAndRegisterModules(),
-                new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
+                new BriefingHeadlineGenerator(CLOCK), bestBetAdvisor, glossService,
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                BLUEBELL_WINDOW, new NlcClarityService());
+                BLUEBELL_WINDOW, new NlcClarityService(), CLOCK);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -571,12 +581,12 @@ class BriefingServiceTest {
                 locationService, openMeteoClient,
                 jobRunService, briefingCacheRepository, locationRepository,
                 new ObjectMapper().findAndRegisterModules(),
-                new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
+                new BriefingHeadlineGenerator(CLOCK), bestBetAdvisor, glossService,
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                BLUEBELL_WINDOW, new NlcClarityService());
+                BLUEBELL_WINDOW, new NlcClarityService(), CLOCK);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -923,10 +933,10 @@ class BriefingServiceTest {
         private void stubSolarTimes(LocationEntity loc) {
             org.mockito.Mockito.lenient().when(
                     solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
             org.mockito.Mockito.lenient().when(
                     solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
         }
     }
 
@@ -1033,10 +1043,10 @@ class BriefingServiceTest {
         private void stubSolarTimes(LocationEntity loc) {
             org.mockito.Mockito.lenient().when(
                     solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                    .thenReturn(java.time.LocalDateTime.now().withHour(6).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
             org.mockito.Mockito.lenient().when(
                     solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                    .thenReturn(java.time.LocalDateTime.now().withHour(18).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
         }
     }
 
@@ -1110,12 +1120,12 @@ class BriefingServiceTest {
             BriefingService freshService = new BriefingService(
                     locationService, openMeteoClient,
                     jobRunService, briefingCacheRepository, locationRepository, mapper,
-                    new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
+                    new BriefingHeadlineGenerator(CLOCK), bestBetAdvisor, glossService,
                     bluebellGlossService, auroraSummaryBuilder,
                     new BriefingHierarchyBuilder(verdictEvaluator),
                     slotBuilder, eventPublisher, hotTopicAggregator,
                     briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                    BLUEBELL_WINDOW, new NlcClarityService());
+                    BLUEBELL_WINDOW, new NlcClarityService(), CLOCK);
             freshService.loadPersistedBriefing();
 
             // Trigger below-threshold refresh: 1 location, batch throws → succeeded=0, failed=1
@@ -1154,9 +1164,9 @@ class BriefingServiceTest {
             when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
                     .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
             when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
 
             briefingService.refreshBriefing();
 
@@ -1180,9 +1190,9 @@ class BriefingServiceTest {
             when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
                     .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
             when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
 
             // During refresh: buildAuroraTonight() returns null → cached response has auroraTonight=null
             briefingService.refreshBriefing();
@@ -1208,9 +1218,9 @@ class BriefingServiceTest {
             when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
                     .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
             when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
             briefingService.refreshBriefing();
         }
 
@@ -1233,7 +1243,7 @@ class BriefingServiceTest {
 
             // Now simulation is toggled on — aggregator returns topics
             HotTopic bluebell = new HotTopic("BLUEBELL", "Bluebell conditions",
-                    "Misty and still", LocalDate.now(), 1, "BLUEBELL",
+                    "Misty and still", FIXED_TODAY, 1, "BLUEBELL",
                     List.of("Northumberland"), "Bluebell season description", null);
             when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
                     .thenReturn(List.of(bluebell));
@@ -1266,7 +1276,7 @@ class BriefingServiceTest {
         @DisplayName("simulation toggled off — hot topics revert to real detector output")
         void simulationToggledOff_revertsToRealDetectorOutput() {
             HotTopic aurora = new HotTopic("AURORA", "Aurora possible",
-                    "Kp 5 tonight", LocalDate.now(), 1, null,
+                    "Kp 5 tonight", FIXED_TODAY, 1, null,
                     List.of("Northumberland"), "Aurora description", null);
             when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
                     .thenReturn(List.of(aurora));
@@ -1290,7 +1300,7 @@ class BriefingServiceTest {
         @DisplayName("hot topics change between calls — response carries updated list")
         void hotTopicsChange_responseCarriesUpdatedList() {
             HotTopic bluebell = new HotTopic("BLUEBELL", "Bluebell conditions",
-                    "Misty and still", LocalDate.now(), 1, "BLUEBELL",
+                    "Misty and still", FIXED_TODAY, 1, "BLUEBELL",
                     List.of("Northumberland"), null, null);
             when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
                     .thenReturn(List.of(bluebell));
@@ -1298,7 +1308,7 @@ class BriefingServiceTest {
 
             // A second topic is now active
             HotTopic dust = new HotTopic("DUST", "Elevated dust",
-                    "Saharan dust at sunset", LocalDate.now(), 3, null,
+                    "Saharan dust at sunset", FIXED_TODAY, 3, null,
                     List.of("Northumberland"), null, null);
             when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
                     .thenReturn(List.of(bluebell, dust));
@@ -1322,7 +1332,7 @@ class BriefingServiceTest {
 
             // Change hot topics so a new response is built
             HotTopic topic = new HotTopic("INVERSION", "Cloud inversion",
-                    "Strong inversion forecast", LocalDate.now(), 2, null,
+                    "Strong inversion forecast", FIXED_TODAY, 2, null,
                     List.of("The North York Moors"), null, null);
             when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
                     .thenReturn(List.of(topic));
@@ -1455,10 +1465,10 @@ class BriefingServiceTest {
                     .thenReturn(JobRunEntity.builder().id(2L).runType(RunType.BRIEFING).build());
             org.mockito.Mockito.lenient().when(
                     solarService.sunriseUtc(eq(loc1.getLat()), eq(loc1.getLon()), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
             org.mockito.Mockito.lenient().when(
                     solarService.sunsetUtc(eq(loc1.getLat()), eq(loc1.getLon()), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
             // loc2 and loc3 get null forecasts (batch returns [valid, null, null])
             when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
                     .thenReturn(Arrays.asList(buildForecastResponse(), null, null));
@@ -1631,10 +1641,10 @@ class BriefingServiceTest {
         private void stubSolarTimes(LocationEntity loc) {
             org.mockito.Mockito.lenient().when(
                     solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
             org.mockito.Mockito.lenient().when(
                     solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
         }
 
         private LocationEntity locationWithId(long id, String name, double lat, double lon) {
@@ -1667,10 +1677,10 @@ class BriefingServiceTest {
                     .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
             org.mockito.Mockito.lenient().when(
                     solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
             org.mockito.Mockito.lenient().when(
                     solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
 
             briefingService.refreshBriefing();
 
@@ -1733,7 +1743,7 @@ class BriefingServiceTest {
         List<Integer> precipProb = new ArrayList<>();
         List<Double> dewPoint = new ArrayList<>();
 
-        LocalDateTime start = LocalDate.now().atStartOfDay();
+        LocalDateTime start = FIXED_TODAY.atStartOfDay();
         for (int i = 0; i < 48; i++) {
             times.add(start.plusHours(i).toString());
             cloudLow.add(20);
@@ -1913,7 +1923,7 @@ class BriefingServiceTest {
                     .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
             org.mockito.Mockito.lenient().when(
                     solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
             when(evaluationViewService.getScoresForEnrichment(
                     any(), any(LocalDate.class), any(TargetType.class)))
                     .thenReturn(Map.of());
@@ -1949,7 +1959,7 @@ class BriefingServiceTest {
                     .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
             org.mockito.Mockito.lenient().when(
                     solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
             // Only Bamburgh in cache, Durham missing
             BriefingEvaluationResult eval = new BriefingEvaluationResult(
                     "Bamburgh", 5, 90, 85, "Spectacular sunset.", null, null);
@@ -1984,10 +1994,10 @@ class BriefingServiceTest {
                     .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
             org.mockito.Mockito.lenient().when(
                     solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
             org.mockito.Mockito.lenient().when(
                     solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
-                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+                    .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
         }
 
         private double anyDouble() {
