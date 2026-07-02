@@ -151,7 +151,13 @@ class BriefingServiceTest {
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                BLUEBELL_WINDOW, new NlcClarityService(), CLOCK);
+                BLUEBELL_WINDOW, nlc(), CLOCK);
+    }
+
+    /** NLC clarity service wired with a real transect sampler over the mocked Open-Meteo client. */
+    private NlcClarityService nlc() {
+        return new NlcClarityService(
+                new NorthwardTransectSampler(openMeteoClient), locationRepository);
     }
 
     @Nested
@@ -529,7 +535,7 @@ class BriefingServiceTest {
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                BLUEBELL_WINDOW, new NlcClarityService(), CLOCK);
+                BLUEBELL_WINDOW, nlc(), CLOCK);
         freshService.loadPersistedBriefing();
 
         DailyBriefingResponse cached = freshService.getCachedBriefing();
@@ -561,7 +567,7 @@ class BriefingServiceTest {
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                BLUEBELL_WINDOW, new NlcClarityService(), CLOCK);
+                BLUEBELL_WINDOW, nlc(), CLOCK);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -586,7 +592,7 @@ class BriefingServiceTest {
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                BLUEBELL_WINDOW, new NlcClarityService(), CLOCK);
+                BLUEBELL_WINDOW, nlc(), CLOCK);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -1125,7 +1131,7 @@ class BriefingServiceTest {
                     new BriefingHierarchyBuilder(verdictEvaluator),
                     slotBuilder, eventPublisher, hotTopicAggregator,
                     briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                    BLUEBELL_WINDOW, new NlcClarityService(), CLOCK);
+                    BLUEBELL_WINDOW, nlc(), CLOCK);
             freshService.loadPersistedBriefing();
 
             // Trigger below-threshold refresh: 1 location, batch throws → succeeded=0, failed=1
