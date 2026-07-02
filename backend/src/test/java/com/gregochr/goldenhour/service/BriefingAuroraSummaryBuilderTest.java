@@ -293,24 +293,24 @@ class BriefingAuroraSummaryBuilderTest {
         assertThat(targetHour).isAfter(now);
     }
 
-    // ── Fresh weather overrides stale score cloud data ──
+    // ── Clear decision comes from the score's NORTHERN transect, not the overhead point cloud ──
 
     @Test
-    @DisplayName("Fresh enricher cloud data overrides stale score — score says clear, enricher says overcast")
-    void tonightSummary_enricherOverridesStaleScore_clearToOvercast() {
+    @DisplayName("Score transect cloud drives clear — overcast score stays overcast despite clear point weather")
+    void tonightSummary_scoreTransectDrivesClear_overcast() {
         stubGlossPassthrough();
         LocationEntity loc = location(1L, "Bamburgh", "Northumberland");
-        // Score baked in hours ago when skies were clear (30% cloud)
+        // The score's northern-transect cloud (95%) is what the triage used — overcast to the north.
         AuroraForecastScore score = new AuroraForecastScore(
-                loc, 4, AlertLevel.MODERATE, 30, "Active aurora", "Clear skies");
+                loc, 4, AlertLevel.MODERATE, 95, "Active aurora", "Overcast north");
         when(auroraStateCache.isActive()).thenReturn(true);
         when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
         when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
         when(auroraStateCache.getCachedScores()).thenReturn(List.of(score));
-        // Enricher returns fresh data showing storm has arrived (95% cloud)
+        // Point weather overhead looks clear (30%) — but that is not where the aurora is.
         when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
                 .thenReturn(Map.of(1L, new AuroraWeatherEnricher.AuroraWeather(
-                        95, 2.0, 15.0, 63)));
+                        30, 2.0, 15.0, 63)));
 
         AuroraTonightSummary summary = builder.buildAuroraTonight();
 
@@ -319,25 +319,26 @@ class BriefingAuroraSummaryBuilderTest {
         assertThat(region.verdict()).isEqualTo("STANDDOWN");
         assertThat(region.clearLocationCount()).isZero();
         assertThat(region.locations().get(0).clear()).isFalse();
+        // Displayed cloud is the transect figure, not the overhead point cloud.
         assertThat(region.locations().get(0).cloudPercent()).isEqualTo(95);
     }
 
     @Test
-    @DisplayName("Fresh enricher cloud data overrides stale score — score says overcast, enricher says clear")
-    void tonightSummary_enricherOverridesStaleScore_overcastToClear() {
+    @DisplayName("Score transect cloud drives clear — clear score counts even if point weather looks overcast")
+    void tonightSummary_scoreTransectDrivesClear_clear() {
         stubGlossPassthrough();
         LocationEntity loc = location(1L, "Kielder", "Northumberland");
-        // Score baked in hours ago when storm was active (90% cloud)
+        // Clear to the north (20% transect) — the direction that matters for aurora.
         AuroraForecastScore score = new AuroraForecastScore(
-                loc, 3, AlertLevel.MODERATE, 90, "Active aurora", "Overcast");
+                loc, 3, AlertLevel.MODERATE, 20, "Active aurora", "Clear north");
         when(auroraStateCache.isActive()).thenReturn(true);
         when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
         when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
         when(auroraStateCache.getCachedScores()).thenReturn(List.of(score));
-        // Enricher returns fresh data showing storm has passed (20% cloud)
+        // Overhead point cloud is high (90%) — ignored for the clear decision.
         when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
                 .thenReturn(Map.of(1L, new AuroraWeatherEnricher.AuroraWeather(
-                        20, 5.0, 3.0, 0)));
+                        90, 5.0, 3.0, 0)));
 
         AuroraTonightSummary summary = builder.buildAuroraTonight();
 
@@ -382,28 +383,28 @@ class BriefingAuroraSummaryBuilderTest {
         LocationEntity bamburgh = location(2L, "Bamburgh", "Northumberland");
         LocationEntity roseberry = location(3L, "Roseberry Topping", "North York Moors");
 
-        // All scores say clear (baked in when weather was good)
+        // Transect scores: Northumberland clear to the north, North York Moors overcast north.
         AuroraForecastScore s1 = new AuroraForecastScore(
                 kielder, 4, AlertLevel.MODERATE, 20, "Aurora", "Clear");
         AuroraForecastScore s2 = new AuroraForecastScore(
                 bamburgh, 3, AlertLevel.MODERATE, 25, "Aurora", "Clear");
         AuroraForecastScore s3 = new AuroraForecastScore(
-                roseberry, 3, AlertLevel.MODERATE, 15, "Aurora", "Clear");
+                roseberry, 3, AlertLevel.MODERATE, 85, "Aurora", "Overcast north");
 
         when(auroraStateCache.isActive()).thenReturn(true);
         when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
         when(auroraStateCache.getLastTriggerKp()).thenReturn(5.5);
         when(auroraStateCache.getCachedScores()).thenReturn(List.of(s1, s2, s3));
-        // Enricher: Northumberland stays clear, North York Moors now overcast
+        // Point weather supplies temp/wind/code only — its cloud does not affect the clear count.
         when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
                 .thenReturn(Map.of(
                         1L, new AuroraWeatherEnricher.AuroraWeather(25, 3.0, 4.0, 0),
                         2L, new AuroraWeatherEnricher.AuroraWeather(30, 3.5, 5.0, 0),
-                        3L, new AuroraWeatherEnricher.AuroraWeather(85, 4.0, 12.0, 61)));
+                        3L, new AuroraWeatherEnricher.AuroraWeather(40, 4.0, 12.0, 61)));
 
         AuroraTonightSummary summary = builder.buildAuroraTonight();
 
-        // Total: 2 clear (both in Northumberland), not 3 (which stale scores would give)
+        // Total: 2 clear (both in Northumberland) — driven by the transect scores.
         assertThat(summary.clearLocationCount()).isEqualTo(2);
         assertThat(summary.regions()).hasSize(2);
 
@@ -427,20 +428,20 @@ class BriefingAuroraSummaryBuilderTest {
         LocationEntity loc1 = location(1L, "Bamburgh", "Northumberland");
         LocationEntity loc2 = location(2L, "Embleton", "Northumberland");
 
+        // Both transect scores are overcast to the north.
         AuroraForecastScore s1 = new AuroraForecastScore(
-                loc1, 3, AlertLevel.MODERATE, 20, "Aurora", "Clear");
+                loc1, 3, AlertLevel.MODERATE, 92, "Aurora", "Overcast");
         AuroraForecastScore s2 = new AuroraForecastScore(
-                loc2, 3, AlertLevel.MODERATE, 25, "Aurora", "Clear");
+                loc2, 3, AlertLevel.MODERATE, 88, "Aurora", "Overcast");
 
         when(auroraStateCache.isActive()).thenReturn(true);
         when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
         when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
         when(auroraStateCache.getCachedScores()).thenReturn(List.of(s1, s2));
-        // Enricher: storm arrived, all overcast
         when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
                 .thenReturn(Map.of(
-                        1L, new AuroraWeatherEnricher.AuroraWeather(92, 3.0, 18.0, 65),
-                        2L, new AuroraWeatherEnricher.AuroraWeather(88, 3.5, 16.0, 63)));
+                        1L, new AuroraWeatherEnricher.AuroraWeather(50, 3.0, 18.0, 65),
+                        2L, new AuroraWeatherEnricher.AuroraWeather(50, 3.5, 16.0, 63)));
 
         AuroraTonightSummary summary = builder.buildAuroraTonight();
 
@@ -461,10 +462,11 @@ class BriefingAuroraSummaryBuilderTest {
         LocationEntity clearLoc = location(1L, "Kielder", "Northumberland");
         LocationEntity borderLoc = location(2L, "Bamburgh", "Northumberland");
 
+        // The 74/75 boundary lives on the score's transect cloud.
         AuroraForecastScore s1 = new AuroraForecastScore(
-                clearLoc, 4, AlertLevel.MODERATE, 50, "Aurora", "Mixed");
+                clearLoc, 4, AlertLevel.MODERATE, 74, "Aurora", "Just clear");
         AuroraForecastScore s2 = new AuroraForecastScore(
-                borderLoc, 3, AlertLevel.MODERATE, 50, "Aurora", "Mixed");
+                borderLoc, 3, AlertLevel.MODERATE, 75, "Aurora", "Just overcast");
 
         when(auroraStateCache.isActive()).thenReturn(true);
         when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
@@ -472,8 +474,8 @@ class BriefingAuroraSummaryBuilderTest {
         when(auroraStateCache.getCachedScores()).thenReturn(List.of(s1, s2));
         when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
                 .thenReturn(Map.of(
-                        1L, new AuroraWeatherEnricher.AuroraWeather(74, 4.0, 3.0, 2),
-                        2L, new AuroraWeatherEnricher.AuroraWeather(75, 4.0, 3.0, 3)));
+                        1L, new AuroraWeatherEnricher.AuroraWeather(50, 4.0, 3.0, 2),
+                        2L, new AuroraWeatherEnricher.AuroraWeather(50, 4.0, 3.0, 3)));
 
         AuroraTonightSummary summary = builder.buildAuroraTonight();
 

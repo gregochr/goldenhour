@@ -3,8 +3,8 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.model.NlcNightClarity;
-import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.SeasonalWindow;
+import com.gregochr.goldenhour.repository.LocationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -15,6 +15,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -22,12 +23,13 @@ import java.util.concurrent.atomic.AtomicReference;
  * Computes and caches which upcoming nights offer a clear dark-sky chance of seeing noctilucent
  * clouds (NLC) on the northern horizon.
  *
- * <p>Runs during the daily-briefing cycle off the hourly weather already fetched for the
- * briefing's colour locations — no additional external API call. For each in-season night in the
- * window it samples cloud cover at every dark-sky (Bortle-classified) location around solar
- * midnight and records the night as viable when at least one such location is clear. The cached
- * {@link NlcNightClarity} is read by {@link NlcHotTopicStrategy}, which must not make API calls
- * of its own.
+ * <p>NLC glow low on the <em>northern</em> horizon during deep twilight, so — like aurora — what
+ * blocks the view is cloud toward the north, not overhead. For each in-season night in the window
+ * this samples cloud along a northward transect ({@link NorthwardTransectSampler}) at every
+ * dark-sky (Bortle-classified) location for the deep-night hour, and records the night as viable
+ * when at least one such location has a clear northern horizon. The cached
+ * {@link NlcNightClarity} is read by {@link NlcHotTopicStrategy}, which must not make API calls of
+ * its own — this runs during the daily-briefing cycle instead.
  *
  * <p>The season gate matches {@link NlcHotTopicStrategy}: NLC is only visible from northern
  * England from late May to early August, so nights outside that window are never viable.
@@ -52,36 +54,58 @@ public class NlcClarityService {
     private static final DateTimeFormatter HOUR_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm");
 
+    private final NorthwardTransectSampler transectSampler;
+    private final LocationRepository locationRepository;
     private final AtomicReference<NlcNightClarity> cache = new AtomicReference<>();
 
     /**
-     * Recomputes the NLC clarity cache from briefing weather.
+     * Constructs an {@code NlcClarityService}.
      *
-     * @param weathers per-location hourly forecasts already fetched for the briefing
-     * @param nights   candidate night dates (each evening) to evaluate, typically the briefing window
+     * @param transectSampler    shared northward-transect cloud sampler
+     * @param locationRepository repository for dark-sky (Bortle) location lookups
      */
-    public void refresh(List<BriefingSlotBuilder.LocationWeather> weathers, List<LocalDate> nights) {
-        List<BriefingSlotBuilder.LocationWeather> darkSky = weathers.stream()
-                .filter(w -> w.location() != null
-                        && w.location().getBortleClass() != null
-                        && w.forecast() != null)
+    public NlcClarityService(NorthwardTransectSampler transectSampler,
+            LocationRepository locationRepository) {
+        this.transectSampler = transectSampler;
+        this.locationRepository = locationRepository;
+    }
+
+    /**
+     * Recomputes the NLC clarity cache by sampling the northern-horizon transect at every dark-sky
+     * location for each in-season night's deep-night hour.
+     *
+     * @param nights candidate night dates (each evening) to evaluate, typically the briefing window
+     */
+    public void refresh(List<LocalDate> nights) {
+        List<LocalDate> seasonNights = nights.stream().filter(NLC_SEASON::isActive).toList();
+        if (seasonNights.isEmpty()) {
+            cache.set(new NlcNightClarity(List.of()));
+            return;
+        }
+        List<LocationEntity> darkSky = locationRepository.findByBortleClassIsNotNullAndEnabledTrue();
+        if (darkSky.isEmpty()) {
+            cache.set(new NlcNightClarity(List.of()));
+            return;
+        }
+
+        // NLC glows during deep twilight around solar midnight — the deepest part of the night of
+        // `night` falls just after midnight UTC on the following calendar day. One hour key per
+        // in-season night, sampled together in a single transect fetch.
+        List<String> hourKeys = seasonNights.stream()
+                .map(n -> n.plusDays(1).atStartOfDay().format(HOUR_FORMAT))
                 .toList();
+        Map<LocationEntity, int[]> cloud = transectSampler.sample(
+                darkSky, hourKeys, NorthwardTransectSampler.LayerCombiner.MAX_LAYER);
 
         List<NlcNightClarity.ClearNight> clearNights = new ArrayList<>();
-        for (LocalDate night : nights) {
-            if (!NLC_SEASON.isActive(night)) {
-                continue;
-            }
-            // NLC glows during deep twilight around solar midnight — the deepest part of the night
-            // of `night` falls just after midnight UTC on the following calendar day.
-            String hourKey = night.plusDays(1).atStartOfDay().format(HOUR_FORMAT);
+        for (int night = 0; night < seasonNights.size(); night++) {
             Set<String> regions = new LinkedHashSet<>();
             int clearCount = 0;
-            for (BriefingSlotBuilder.LocationWeather w : darkSky) {
-                Integer cloud = combinedCloudAt(w.forecast(), hourKey);
-                if (cloud != null && cloud < CLEAR_SKY_THRESHOLD) {
+            for (LocationEntity loc : darkSky) {
+                int[] hourly = cloud.get(loc);
+                if (hourly != null && hourly[night] < CLEAR_SKY_THRESHOLD) {
                     clearCount++;
-                    String region = regionName(w.location());
+                    String region = regionName(loc);
                     if (region != null) {
                         regions.add(region);
                     }
@@ -89,7 +113,7 @@ public class NlcClarityService {
             }
             if (clearCount > 0) {
                 clearNights.add(new NlcNightClarity.ClearNight(
-                        night, clearCount, new ArrayList<>(regions)));
+                        seasonNights.get(night), clearCount, new ArrayList<>(regions)));
             }
         }
 
@@ -106,35 +130,6 @@ public class NlcClarityService {
      */
     public NlcNightClarity getCached() {
         return cache.get();
-    }
-
-    /**
-     * Combined cloud cover at the given hour, taken as the worst of the low/mid/high layers —
-     * any layer can hide NLC (which sit above the tropopause), so the densest layer governs.
-     *
-     * @return combined cloud percentage 0–100, or {@code null} if the hour is not in the forecast
-     */
-    private Integer combinedCloudAt(OpenMeteoForecastResponse forecast, String hourKey) {
-        OpenMeteoForecastResponse.Hourly hourly = forecast.getHourly();
-        if (hourly == null || hourly.getTime() == null) {
-            return null;
-        }
-        int idx = hourly.getTime().indexOf(hourKey);
-        if (idx < 0) {
-            return null;
-        }
-        int low = valueAt(hourly.getCloudCoverLow(), idx);
-        int mid = valueAt(hourly.getCloudCoverMid(), idx);
-        int high = valueAt(hourly.getCloudCoverHigh(), idx);
-        return Math.max(low, Math.max(mid, high));
-    }
-
-    private static int valueAt(List<Integer> values, int idx) {
-        if (values == null || idx >= values.size()) {
-            return 0;
-        }
-        Integer v = values.get(idx);
-        return v != null ? v : 0;
     }
 
     private static String regionName(LocationEntity location) {

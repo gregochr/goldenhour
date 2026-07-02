@@ -414,9 +414,11 @@ public class BriefingAuroraSummaryBuilder {
                 .map(s -> {
                     AuroraWeatherEnricher.AuroraWeather w =
                             weatherMap.getOrDefault(s.location().getId(), null);
-                    // Use fresh cloud data from the weather enricher when available;
-                    // fall back to the (potentially stale) score cloud percent
-                    int cloud = w != null ? w.cloudPercent() : s.cloudPercent();
+                    // Cloud comes from the score's NORTHERN transect (the same figure the aurora
+                    // triage used to decide viability), not the overhead point cloud — aurora sits
+                    // on the poleward horizon, so the "clear" count must match the triage. Point
+                    // weather is still used for the temperature / wind / weather-code display.
+                    int cloud = s.cloudPercent();
                     return new AuroraLocationSlot(
                             s.location().getName(),
                             s.location().getBortleClass(),

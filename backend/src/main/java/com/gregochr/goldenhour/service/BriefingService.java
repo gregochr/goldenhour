@@ -396,10 +396,11 @@ public class BriefingService {
         long totalMs = System.currentTimeMillis() - briefingStart;
         String circuit = circuitState();
 
-        // Refresh the NLC clarity cache off the weather already fetched above (no extra API call)
-        // so the NLC hot topic can gate on real dark-sky cloud cover for each night in the window.
+        // Refresh the NLC clarity cache — samples the northern-horizon transect at dark-sky
+        // locations for each in-season night, so the NLC hot topic gates on real clear-northern-sky
+        // nights. Runs its own cloud-only fetch (one deduped batch), independent of colour weather.
         try {
-            nlcClarityService.refresh(locationWeathers, dates);
+            nlcClarityService.refresh(dates);
         } catch (Exception e) {
             LOG.warn("NLC clarity refresh failed — NLC topic may be suppressed: {}", e.getMessage());
         }

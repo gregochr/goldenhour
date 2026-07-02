@@ -35,7 +35,10 @@ class WeatherTriageServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new WeatherTriageService(openMeteoClient);
+        // Construct with a real sampler wrapping the mocked client, so the existing
+        // fetchCloudOnlyBatch stubs still drive the transect sampling.
+        service = new WeatherTriageService(
+                new com.gregochr.goldenhour.service.NorthwardTransectSampler(openMeteoClient));
     }
 
     // -------------------------------------------------------------------------
