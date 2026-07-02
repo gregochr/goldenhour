@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import AuroraBanner, { bzStatus, formatDetectedAt } from '../components/AuroraBanner.jsx';
 
@@ -24,8 +24,17 @@ function renderBanner(status) {
 describe('AuroraBanner', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Pin the clock to a fixed noon instant so the relative "today / yesterday / N days ago"
+    // detection formatting is deterministic — previously flaked near local midnight. Only Date is
+    // faked, so testing-library's real setTimeout-based waits keep working.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-01-15T12:00:00Z'));
     // Reset hash
     window.location.hash = '';
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   // ---------------------------------------------------------------------------

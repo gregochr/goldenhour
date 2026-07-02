@@ -53,7 +53,6 @@ import org.slf4j.LoggerFactory;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
@@ -89,6 +88,14 @@ class BriefingBestBetAdvisorTest {
     /** Response-token ceiling injected into the advisor under test. */
     private static final int TEST_MAX_TOKENS = 4096;
 
+    // Fixed date + clock so the advisor's "today"/"now" are deterministic — noon UTC on the 15th,
+    // so UTC and Europe/London civil dates agree. Previously these tests flaked in the
+    // 23:00–24:00 UTC window when the test's date diverged from the advisor's London today.
+    private static final LocalDate FIXED_TODAY = LocalDate.of(2026, 1, 15);
+    private static final LocalDateTime FIXED_NOW = FIXED_TODAY.atTime(12, 0);
+    private static final java.time.Clock CLOCK = java.time.Clock.fixed(
+            FIXED_NOW.toInstant(ZoneOffset.UTC), ZoneOffset.UTC);
+
     private BriefingBestBetAdvisor advisor;
 
     @BeforeEach
@@ -96,7 +103,8 @@ class BriefingBestBetAdvisorTest {
         advisor = new BriefingBestBetAdvisor(
                 anthropicApiClient, new ObjectMapper().findAndRegisterModules(),
                 jobRunService, modelSelectionService, auroraStateCache,
-                stabilitySnapshotProvider, briefingEvaluationService, travelDayService, TEST_MAX_TOKENS);
+                stabilitySnapshotProvider, briefingEvaluationService, travelDayService,
+                TEST_MAX_TOKENS, CLOCK);
     }
 
     // ── parseBestBets ──
@@ -363,7 +371,7 @@ class BriefingBestBetAdvisorTest {
         void adviseTokenLimitedLogsTruncationWarn() {
             stubModelSelection();
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneId.of("Europe/London")).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             String event = tomorrow + "_sunset";
             String truncated = "{\"picks\":[{\"rank\":1,\"headline\":\"Best\",\"detail\":\"Clear.\","
                     + "\"event\":\"" + event + "\",\"region\":\"Northumberland\",\"confidence\":\"high\"},"
@@ -394,7 +402,7 @@ class BriefingBestBetAdvisorTest {
         void adviseHonestEmptyLogsHonestZero() {
             stubModelSelection();
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneId.of("Europe/London")).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             Message message = messageWithStopReason("{\"picks\":[]}", StopReason.END_TURN);
             when(anthropicApiClient.createMessage(any())).thenReturn(message);
 
@@ -419,7 +427,7 @@ class BriefingBestBetAdvisorTest {
             BriefingBestBetAdvisor custom = new BriefingBestBetAdvisor(
                     anthropicApiClient, new ObjectMapper().findAndRegisterModules(),
                     jobRunService, modelSelectionService, auroraStateCache,
-                    stabilitySnapshotProvider, briefingEvaluationService, travelDayService, customMax);
+                    stabilitySnapshotProvider, briefingEvaluationService, travelDayService, customMax, CLOCK);
             when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
                     .thenReturn(EvaluationModel.HAIKU);
             when(anthropicApiClient.createMessage(any()))
@@ -507,7 +515,7 @@ class BriefingBestBetAdvisorTest {
         void adviseAllInvalidMapsToFailed() {
             stubModelSelection();
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneId.of("Europe/London")).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             // Pick names a region NOT present in the rollup → validation drops it.
             String raw = "{\"picks\":[{\"rank\":1,\"headline\":\"h\",\"detail\":\"d\",\"event\":\""
                     + tomorrow + "_sunset\",\"region\":\"Atlantis\",\"confidence\":\"high\"}]}";
@@ -546,7 +554,7 @@ class BriefingBestBetAdvisorTest {
         void adviseZeroColourCoverageDroppedToNoPicks() {
             stubModelSelection();
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneId.of("Europe/London")).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             String eventId = tomorrow + "_sunset";
             // Claude crowns a region on GO count alone — no cached colour rating (coverage 0).
             String raw = "{\"picks\":[{\"rank\":1,\"headline\":\"Best GO count\",\"detail\":\"Clear.\","
@@ -1057,8 +1065,8 @@ class BriefingBestBetAdvisorTest {
             // Full path: getCachedScores → buildRollupJson coverage map → gate.
             stubModelSelection();
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate nearDate = LocalDate.now(ZoneId.of("Europe/London")).plusDays(1);
-            LocalDate farDate = LocalDate.now(ZoneId.of("Europe/London")).plusDays(2);
+            LocalDate nearDate = FIXED_TODAY.plusDays(1);
+            LocalDate farDate = FIXED_TODAY.plusDays(2);
             String nearEvent = nearDate + "_sunset";
             String farEvent = farDate + "_sunset";
 
@@ -1133,8 +1141,8 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Future event is included with date-based ID and dayName")
         void futureEventIncluded() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            LocalDateTime now = FIXED_NOW;
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
                             region("Northumberland", Verdict.GO, 3, 0, 0)
@@ -1154,8 +1162,8 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Travel-day event is excluded from the rollup and validEvents")
         void travelDayEventSkipped() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            LocalDateTime now = FIXED_NOW;
             when(travelDayService.isTravelDay(tomorrow)).thenReturn(true);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
@@ -1174,11 +1182,9 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Past today event is skipped and not in validEvents")
         void pastTodayEventSkipped() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            // Date the day in Europe/London to match the advisor's own "today"
-            // (LocalDate.now(Europe/London)); using UTC here diverges from it in the
-            // 23:00–24:00 UTC window under BST, silently disabling the past-event skip.
-            LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            // Fixed clock: the day, "now" and the advisor's "today" all share one instant.
+            LocalDate today = FIXED_TODAY;
+            LocalDateTime now = FIXED_NOW;
             LocalDateTime pastTime = now.minusHours(2);
             BriefingDay day = new BriefingDay(today, List.of(
                     new BriefingEventSummary(TargetType.SUNRISE, List.of(
@@ -1200,9 +1206,9 @@ class BriefingBestBetAdvisorTest {
             when(auroraStateCache.getLastTriggerKp()).thenReturn(5.2);
             when(auroraStateCache.getDarkSkyLocationCount()).thenReturn(45);
             when(auroraStateCache.getClearLocationCount()).thenReturn(12);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDateTime now = FIXED_NOW;
             BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now);
-            String expectedAuroraId = LocalDate.now(ZoneId.of("Europe/London")) + "_aurora";
+            String expectedAuroraId = FIXED_TODAY + "_aurora";
             assertThat(result.json()).contains(expectedAuroraId);
             assertThat(result.json()).contains("MODERATE");
             assertThat(result.json()).contains("5.2");
@@ -1215,7 +1221,7 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Aurora excluded when cache is inactive")
         void auroraExcludedWhenInactive() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDateTime now = FIXED_NOW;
             BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now);
             assertThat(result.json()).doesNotContain("_aurora");
             assertThat(result.validEvents().stream().noneMatch(e -> e.endsWith("_aurora"))).isTrue();
@@ -1225,8 +1231,8 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("King tide locations listed in rollup")
         void kingTideInRollup() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            LocalDateTime now = FIXED_NOW;
 
             BriefingSlot kingSlot = new BriefingSlot(
                     "Bamburgh", null, Verdict.GO,
@@ -1252,8 +1258,8 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Lunar king tide count included in rollup when slot has KING_TIDE")
         void lunarKingTideCountInRollup() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            LocalDateTime now = FIXED_NOW;
 
             BriefingSlot lunarKingSlot = new BriefingSlot(
                     "Bamburgh", null, Verdict.GO,
@@ -1281,8 +1287,8 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Lunar spring tide count included in rollup when slot has SPRING_TIDE")
         void lunarSpringTideCountInRollup() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            LocalDateTime now = FIXED_NOW;
 
             BriefingSlot springSlot = new BriefingSlot(
                     "Dunstanburgh", null, Verdict.GO,
@@ -1311,8 +1317,8 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Statistical size counts reflect TideInfo.statisticalSize() derivation")
         void statisticalSizeCountsInRollup() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            LocalDateTime now = FIXED_NOW;
 
             // isKingTide=true → statisticalSize()=EXTRA_EXTRA_HIGH
             BriefingSlot extraExtraHighSlot = new BriefingSlot(
@@ -1349,8 +1355,8 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Inland slots produce zero counts for all tide fields")
         void inlandSlotsZeroTideCounts() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            LocalDateTime now = FIXED_NOW;
 
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
@@ -1373,9 +1379,9 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("dayOfWeek and isWeekday not included in event node")
         void dayOfWeekNotIncluded() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate saturday = LocalDate.now(ZoneOffset.UTC).with(
+            LocalDate saturday = FIXED_TODAY.with(
                     java.time.temporal.TemporalAdjusters.next(java.time.DayOfWeek.SATURDAY));
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDateTime now = FIXED_NOW;
             BriefingDay day = new BriefingDay(saturday, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
                             region("Northumberland", Verdict.GO, 2, 0, 0)
@@ -1391,9 +1397,9 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("forecastWindow and validEvents/validRegions included in JSON")
         void forecastWindowAndValidSetsIncluded() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
-            LocalDate dayAfter = LocalDate.now(ZoneOffset.UTC).plusDays(2);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            LocalDate dayAfter = FIXED_TODAY.plusDays(2);
+            LocalDateTime now = FIXED_NOW;
             BriefingDay day1 = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
                             region("Northumberland", Verdict.GO, 2, 0, 0)), List.of())));
@@ -1417,11 +1423,11 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Limits rollup to 6 non-past events")
         void limitsToSixEvents() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDateTime now = FIXED_NOW;
             // 4 days × 2 events = 8 total → should be limited to 6
             List<BriefingDay> days = new java.util.ArrayList<>();
             for (int i = 1; i <= 4; i++) {
-                LocalDate date = LocalDate.now(ZoneOffset.UTC).plusDays(i);
+                LocalDate date = FIXED_TODAY.plusDays(i);
                 days.add(new BriefingDay(date, List.of(
                         new BriefingEventSummary(TargetType.SUNRISE, List.of(
                                 region("Region" + i, Verdict.GO, 1, 0, 0)), List.of()),
@@ -1433,7 +1439,7 @@ class BriefingBestBetAdvisorTest {
             BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(days, now);
             assertThat(result.validEvents()).hasSize(6);
             // Events from day 4 sunset should not be included
-            LocalDate day4 = LocalDate.now(ZoneOffset.UTC).plusDays(4);
+            LocalDate day4 = FIXED_TODAY.plusDays(4);
             assertThat(result.validEvents()).doesNotContain(day4.toString() + "_sunset");
         }
 
@@ -1441,10 +1447,10 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Exactly 6 events all pass through — no truncation")
         void exactlySixEvents_allPassThrough() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDateTime now = FIXED_NOW;
             List<BriefingDay> days = new java.util.ArrayList<>();
             for (int i = 1; i <= 3; i++) {
-                LocalDate date = LocalDate.now(ZoneOffset.UTC).plusDays(i);
+                LocalDate date = FIXED_TODAY.plusDays(i);
                 days.add(new BriefingDay(date, List.of(
                         new BriefingEventSummary(TargetType.SUNRISE, List.of(
                                 region("Region" + i, Verdict.GO, 1, 0, 0)), List.of()),
@@ -1461,10 +1467,10 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("5 events all pass through — below cap")
         void fiveEvents_allPassThrough() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDateTime now = FIXED_NOW;
             List<BriefingDay> days = new java.util.ArrayList<>();
             for (int i = 1; i <= 2; i++) {
-                LocalDate date = LocalDate.now(ZoneOffset.UTC).plusDays(i);
+                LocalDate date = FIXED_TODAY.plusDays(i);
                 days.add(new BriefingDay(date, List.of(
                         new BriefingEventSummary(TargetType.SUNRISE, List.of(
                                 region("Region" + i, Verdict.GO, 1, 0, 0)), List.of()),
@@ -1472,7 +1478,7 @@ class BriefingBestBetAdvisorTest {
                                 region("Region" + i, Verdict.GO, 1, 0, 0)), List.of())
                 )));
             }
-            LocalDate day3 = LocalDate.now(ZoneOffset.UTC).plusDays(3);
+            LocalDate day3 = FIXED_TODAY.plusDays(3);
             days.add(new BriefingDay(day3, List.of(
                     new BriefingEventSummary(TargetType.SUNRISE, List.of(
                             region("Region3", Verdict.GO, 1, 0, 0)), List.of())
@@ -1486,11 +1492,9 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Past events on today are skipped before counting the 6-event limit")
         void pastEventsSkippedBeforeCounting() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            // Date "today" in Europe/London to match the advisor's own "today"
-            // (LocalDate.now(Europe/London)); a UTC date diverges from it in the
-            // 23:00–24:00 UTC window under BST, silently disabling the past-event skip.
-            LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            // Fixed clock: the day, "now" and the advisor's "today" all share one instant.
+            LocalDate today = FIXED_TODAY;
+            LocalDateTime now = FIXED_NOW;
             LocalDateTime pastTime = now.minusHours(2);
             // Today has 1 past event + 1 future event, then 3 more days × 2
             List<BriefingDay> days = new java.util.ArrayList<>();
@@ -1544,7 +1548,7 @@ class BriefingBestBetAdvisorTest {
         void returnsPicksFromValidResponse() {
             stubModelSelection();
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             String eventId = tomorrow.toString() + "_sunset";
 
             TextBlock textBlock = mock(TextBlock.class);
@@ -1573,7 +1577,7 @@ class BriefingBestBetAdvisorTest {
         void enrichesWithStructuredEventData() {
             stubModelSelection();
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneId.of("Europe/London")).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             String eventId = tomorrow.toString() + "_sunset";
             LocalDateTime eventTime = tomorrow.atTime(18, 48);
 
@@ -1665,7 +1669,7 @@ class BriefingBestBetAdvisorTest {
         void differentSlotSurvivesEnrichment() {
             stubModelSelection();
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneId.of("Europe/London")).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             String sunsetEvent = tomorrow + "_sunset";
             String sunriseEvent = tomorrow + "_sunrise";
             LocalDateTime sunsetTime = tomorrow.atTime(19, 30);
@@ -1719,7 +1723,7 @@ class BriefingBestBetAdvisorTest {
         void sameSlotSurvivesEnrichment() {
             stubModelSelection();
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneId.of("Europe/London")).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             String sunsetEvent = tomorrow + "_sunset";
             LocalDateTime sunsetTime = tomorrow.atTime(19, 30);
 
@@ -1778,7 +1782,7 @@ class BriefingBestBetAdvisorTest {
             when(auroraStateCache.getCachedScores()).thenReturn(List.of(
                     new AuroraForecastScore(darkSite, 5, AlertLevel.STRONG, 10, "summary", "detail")));
 
-            LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
+            LocalDate today = FIXED_TODAY;
             String sunsetEvent = today + "_sunset";
             String auroraEvent = today + "_aurora";
             LocalDateTime sunsetTime = today.atTime(19, 30);
@@ -2144,7 +2148,7 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Fans out to 5 variants with the same rollup JSON")
         void fansOutToFiveVariants() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             String eventId = tomorrow.toString() + "_sunset";
 
             Message message = stubMessage(
@@ -2180,7 +2184,7 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Per-variant failure is isolated — other variants still succeed")
         void perModelFailureIsolated() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             String eventId = tomorrow.toString() + "_sunset";
 
             Message goodMessage = stubMessage(
@@ -2214,7 +2218,7 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Correct validation counts returned")
         void correctValidationCounts() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             String eventId = tomorrow.toString() + "_sunset";
 
             // Two picks: one valid (event in rollup), one invalid (bad event)
@@ -2303,7 +2307,7 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("ET variants send ThinkingConfigAdaptive and maxTokens=16000")
         void extendedThinkingVariants_sendCorrectParams() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             Message plain = textOnlyMessage("{\"picks\":[]}");
             when(anthropicApiClient.createMessage(any())).thenReturn(plain);
 
@@ -2333,7 +2337,7 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Standard variants send the configured maxTokens and no thinking config")
         void standardVariants_sendDefaultMaxTokensNoThinking() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             Message plain = textOnlyMessage("{\"picks\":[]}");
             when(anthropicApiClient.createMessage(any())).thenReturn(plain);
 
@@ -2363,7 +2367,7 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("ET variant extracts thinking text from thinking block in response")
         void etVariant_extractsThinkingText_whenThinkingBlockPresent() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
 
             Message plain = textOnlyMessage("{\"picks\":[]}");
             Message withThinking = textPlusThinkingMessage(
@@ -2397,7 +2401,7 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Non-ET variants produce null thinkingText even when API returns text-only")
         void standardVariants_alwaysHaveNullThinkingText() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             Message plain = textOnlyMessage("{\"picks\":[]}");
             when(anthropicApiClient.createMessage(any())).thenReturn(plain);
 
@@ -2417,7 +2421,7 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("ET variant failure is isolated — other variants still produce results")
         void etVariantFailure_doesNotBlockOtherVariants() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             Message plain = textOnlyMessage("{\"picks\":[]}");
 
             // SONNET_ET fails; all others succeed
@@ -2513,13 +2517,13 @@ class BriefingBestBetAdvisorTest {
             when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(summary);
             when(auroraStateCache.isActive()).thenReturn(false);
 
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
                             region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
 
             BriefingBestBetAdvisor.RollupResult rollup = advisor.buildRollupJson(
-                    List.of(day), LocalDateTime.now(ZoneOffset.UTC));
+                    List.of(day), FIXED_NOW);
 
             assertThat(rollup.json()).contains("\"stability\":\"SETTLED\"");
         }
@@ -2542,13 +2546,13 @@ class BriefingBestBetAdvisorTest {
             when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(summary);
             when(auroraStateCache.isActive()).thenReturn(false);
 
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
                             region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
 
             BriefingBestBetAdvisor.RollupResult rollup = advisor.buildRollupJson(
-                    List.of(day), LocalDateTime.now(ZoneOffset.UTC));
+                    List.of(day), FIXED_NOW);
 
             assertThat(rollup.json()).contains("\"stability\":\"TRANSITIONAL\"");
             assertThat(rollup.json()).contains("\"stabilityReason\":\"Front approaching\"");
@@ -2578,13 +2582,13 @@ class BriefingBestBetAdvisorTest {
             when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(summary);
             when(auroraStateCache.isActive()).thenReturn(false);
 
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
                             region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
 
             BriefingBestBetAdvisor.RollupResult rollup = advisor.buildRollupJson(
-                    List.of(day), LocalDateTime.now(ZoneOffset.UTC));
+                    List.of(day), FIXED_NOW);
 
             assertThat(rollup.json()).contains("\"stability\":\"UNSETTLED\"");
             assertThat(rollup.json()).contains("\"stabilityReason\":\"Active frontal zone\"");
@@ -2596,13 +2600,13 @@ class BriefingBestBetAdvisorTest {
             when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(null);
             when(auroraStateCache.isActive()).thenReturn(false);
 
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
                             region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
 
             BriefingBestBetAdvisor.RollupResult rollup = advisor.buildRollupJson(
-                    List.of(day), LocalDateTime.now(ZoneOffset.UTC));
+                    List.of(day), FIXED_NOW);
 
             assertThat(rollup.json()).doesNotContain("\"stability\"");
             assertThat(rollup.json()).doesNotContain("\"stabilityReason\"");
@@ -2622,13 +2626,13 @@ class BriefingBestBetAdvisorTest {
             when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(summary);
             when(auroraStateCache.isActive()).thenReturn(false);
 
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
                             region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
 
             BriefingBestBetAdvisor.RollupResult rollup = advisor.buildRollupJson(
-                    List.of(day), LocalDateTime.now(ZoneOffset.UTC));
+                    List.of(day), FIXED_NOW);
 
             assertThat(rollup.json()).doesNotContain("\"stability\"");
             assertThat(rollup.json()).doesNotContain("\"stabilityReason\"");
@@ -2732,8 +2736,8 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Cached scores add claudeRatedCount and distribution fields")
         void cachedScoresAddedToRegionJson() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            LocalDateTime now = FIXED_NOW;
 
             when(briefingEvaluationService.getCachedScores(
                     "Northumberland", tomorrow, TargetType.SUNSET))
@@ -2761,8 +2765,8 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("No cached scores — claude fields omitted from region JSON")
         void noCachedScores_fieldsOmitted() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            LocalDateTime now = FIXED_NOW;
 
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
@@ -2781,8 +2785,8 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Triaged-only cache entries (null rating) omitted from counts")
         void triagedOnlyEntries_omittedFromCounts() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            LocalDateTime now = FIXED_NOW;
 
             when(briefingEvaluationService.getCachedScores(
                     "Northumberland", tomorrow, TargetType.SUNSET))
@@ -2811,8 +2815,8 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("All-triaged cache returns no claude fields")
         void allTriagedCache_noClaudeFields() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            LocalDateTime now = FIXED_NOW;
 
             when(briefingEvaluationService.getCachedScores(
                     "Northumberland", tomorrow, TargetType.SUNSET))
@@ -2837,8 +2841,8 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Cache lookup uses exact region name, date and targetType")
         void cacheLookupUsesExactParameters() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            LocalDateTime now = FIXED_NOW;
 
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
@@ -2856,8 +2860,8 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Low-rated entries (1-2 stars) count in rated but not high or medium")
         void lowRatedEntries_countInRatedNotHighOrMedium() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            LocalDateTime now = FIXED_NOW;
 
             when(briefingEvaluationService.getCachedScores(
                     "Northumberland", tomorrow, TargetType.SUNSET))
@@ -2885,8 +2889,8 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Medium boundary: rating 3 counted, rating 2 and 4 not")
         void mediumBoundary_exactlyThreeStars() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            LocalDateTime now = FIXED_NOW;
 
             when(briefingEvaluationService.getCachedScores(
                     "Northumberland", tomorrow, TargetType.SUNSET))
@@ -2916,8 +2920,8 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Average rating rounds to one decimal place")
         void averageRatingRoundsToOneDecimal() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            LocalDateTime now = FIXED_NOW;
 
             // Ratings: 2, 3, 5 → avg 3.333... → rounds to 3.3
             when(briefingEvaluationService.getCachedScores(
@@ -2945,8 +2949,8 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Two regions in same event get independent cache lookups")
         void twoRegions_independentCacheLookups() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            LocalDateTime now = FIXED_NOW;
 
             when(briefingEvaluationService.getCachedScores(
                     "Northumberland", tomorrow, TargetType.SUNSET))
@@ -2983,8 +2987,8 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("SUNRISE event passes SUNRISE targetType to cache lookup")
         void sunriseEvent_passesSunriseTargetType() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            LocalDateTime now = FIXED_NOW;
 
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNRISE, List.of(
@@ -3137,7 +3141,7 @@ class BriefingBestBetAdvisorTest {
         void captureWritesRollupToRequestBody() {
             stubModelSelection();
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneId.of("Europe/London")).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             String response = "{\"picks\":[{\"rank\":1,\"headline\":\"h\",\"detail\":\"d\","
                     + "\"event\":\"" + tomorrow + "_sunset\",\"region\":\"Northumberland\","
                     + "\"confidence\":\"high\"}]}";
@@ -3290,7 +3294,7 @@ class BriefingBestBetAdvisorTest {
                     score("Northumberland", 4, 20, 3),
                     score("Northumberland", 4, 30, 3),
                     score("Durham", 5, 80, 3)));
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDateTime now = FIXED_NOW;
 
             BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now);
 
@@ -3306,7 +3310,7 @@ class BriefingBestBetAdvisorTest {
             when(auroraStateCache.getCachedScores()).thenReturn(List.of(
                     score("Northumberland", 5, 20, 3),
                     score("Durham", 2, 25, 3)));
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDateTime now = FIXED_NOW;
 
             BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now);
 
@@ -3320,7 +3324,7 @@ class BriefingBestBetAdvisorTest {
             when(auroraStateCache.getCachedScores()).thenReturn(List.of(
                     score("Northumberland", 4, 20, 2),
                     score("Durham", 4, 25, 6)));
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDateTime now = FIXED_NOW;
 
             BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now);
 
@@ -3332,7 +3336,7 @@ class BriefingBestBetAdvisorTest {
         void noRegionWhenCacheEmpty() throws Exception {
             stubActiveAurora();
             when(auroraStateCache.getCachedScores()).thenReturn(List.of());
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDateTime now = FIXED_NOW;
 
             BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now);
 
@@ -3348,7 +3352,7 @@ class BriefingBestBetAdvisorTest {
                     .name("orphan").lat(55.0).lon(-1.7).bortleClass(3).build();
             when(auroraStateCache.getCachedScores()).thenReturn(List.of(
                     new AuroraForecastScore(noRegion, 5, AlertLevel.MODERATE, 10, "s", "d")));
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDateTime now = FIXED_NOW;
 
             BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now);
 
@@ -3376,10 +3380,10 @@ class BriefingBestBetAdvisorTest {
             when(auroraStateCache.isActive()).thenReturn(false);
             BriefingRegion region = new BriefingRegion("Northumberland", Verdict.GO, "Clear",
                     List.of(), slots, 7.0, 5.0, 1.5, 1, null, null);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())));
-            return advisor.buildRollupJson(List.of(day), LocalDateTime.now(ZoneOffset.UTC));
+            return advisor.buildRollupJson(List.of(day), FIXED_NOW);
         }
 
         @Test

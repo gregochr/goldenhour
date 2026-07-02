@@ -70,8 +70,13 @@ class CollectForecastTasksCachedGateTest {
 
     private ForecastTaskCollector collector;
 
+    // Fixed date + clock so "today" is deterministic (no near-midnight UTC/London flake).
+    private static final LocalDate FIXED_TODAY = LocalDate.of(2026, 1, 15);
+    private static final java.time.Clock CLOCK = java.time.Clock.fixed(
+            FIXED_TODAY.atTime(12, 0).toInstant(java.time.ZoneOffset.UTC), java.time.ZoneOffset.UTC);
+
     /** Tomorrow's date — always in the future so PAST_DATE doesn't trigger. */
-    private final LocalDate tomorrow = LocalDate.now().plusDays(1);
+    private final LocalDate tomorrow = FIXED_TODAY.plusDays(1);
 
     @BeforeEach
     void setUp() {
@@ -87,7 +92,7 @@ class CollectForecastTasksCachedGateTest {
                 briefingEvaluationService, forecastService, stabilityClassifier,
                 modelSelectionService, openMeteoService, solarService,
                 freshnessResolver, stabilitySnapshotProvider, survivorAtmosphereWriter,
-                travelDayService, 0.5, 0);
+                travelDayService, 0.5, 0, CLOCK);
     }
 
     @SuppressWarnings("unchecked")

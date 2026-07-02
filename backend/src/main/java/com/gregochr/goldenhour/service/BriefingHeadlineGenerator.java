@@ -8,10 +8,10 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.Verdict;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -21,9 +21,25 @@ import java.util.List;
  * photography opportunity across all configured regions.
  *
  * <p>Past solar events are excluded so the headline always reflects actionable conditions.
+ * "Today" and "now" both derive from the injected {@link Clock} — a single instant — so they
+ * cannot disagree at a date boundary (the source of the nightly UTC-vs-London test flake).
  */
 @Component
 public class BriefingHeadlineGenerator {
+
+    /** UK civil-date zone for the "Today"/"Tomorrow" labels. */
+    private static final ZoneId LONDON = ZoneId.of("Europe/London");
+
+    private final Clock clock;
+
+    /**
+     * Constructs a {@code BriefingHeadlineGenerator}.
+     *
+     * @param clock UTC clock supplying "now" and (via the London zone) "today"
+     */
+    public BriefingHeadlineGenerator(Clock clock) {
+        this.clock = clock;
+    }
 
     /**
      * Generates a headline summarising the best upcoming opportunities across all days and events.
@@ -32,8 +48,8 @@ public class BriefingHeadlineGenerator {
      * @return one-line headline string
      */
     public String generateHeadline(List<BriefingDay> days) {
-        LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
-        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        LocalDate today = LocalDate.now(clock.withZone(LONDON));
+        LocalDateTime now = LocalDateTime.now(clock);
 
         record EventOpp(LocalDate date, TargetType event,
                 List<BriefingRegion> allRegions, List<BriefingRegion> goRegions) { }
