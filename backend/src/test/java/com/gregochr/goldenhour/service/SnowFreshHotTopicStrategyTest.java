@@ -16,6 +16,9 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -31,11 +34,17 @@ class SnowFreshHotTopicStrategyTest {
     @Mock
     private SurvivorSignalReader survivorSignalReader;
 
+    @Mock
+    private SolarEventFreshness freshness;
+
     private SnowFreshHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        strategy = new SnowFreshHotTopicStrategy(survivorSignalReader);
+        // Default: every solar event is still ahead. Expiry tests override per date.
+        lenient().when(freshness.isAhead(any(LocationEntity.class), any(), any()))
+                .thenReturn(true);
+        strategy = new SnowFreshHotTopicStrategy(survivorSignalReader, freshness);
     }
 
     /** A survivor composite carrying snow depth and humidity readings. */
@@ -99,6 +108,30 @@ class SnowFreshHotTopicStrategyTest {
         when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of());
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a snow row whose solar event has passed is dropped")
+    void detect_expiredEvent_dropped() {
+        when(survivorSignalReader.read(FROM, TO))
+                .thenReturn(List.of(signal(FROM, "The Lake District", 0.05, 70)));
+        when(freshness.isAhead(any(LocationEntity.class), eq(FROM), any())).thenReturn(false);
+
+        assertThat(strategy.detect(FROM, TO)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("enumerates every non-expired snow day; dates to the earliest")
+    void detect_multipleDays_enumeratesAll() {
+        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(
+                signal(FROM.plusDays(1), "The North York Moors", 0.05, 70),
+                signal(FROM, "The Lake District", 0.05, 70)));
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).date()).isEqualTo(FROM);
+        assertThat(topics.get(0).detail()).endsWith("today and tomorrow");
     }
 
     // ── isFreshSnow boundary: depth >= 0.02 m ──

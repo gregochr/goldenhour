@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -48,12 +50,18 @@ class SpringTideHotTopicStrategyTest {
     @Mock
     private ForecastEvaluationRepository forecastEvaluationRepository;
 
+    @Mock
+    private SolarEventFreshness freshness;
+
     private SpringTideHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
+        // Default: every solar event is still ahead. Expiry tests override per date.
+        lenient().when(freshness.isAhead(any(LocationEntity.class), any(), any()))
+                .thenReturn(true);
         strategy = new SpringTideHotTopicStrategy(briefingService, locationRepository,
-                forecastEvaluationRepository);
+                forecastEvaluationRepository, freshness);
     }
 
     @Test
@@ -181,8 +189,8 @@ class SpringTideHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("only one pill emitted even when multiple spring tide days exist")
-    void detect_multipleSpringTideDays_emitsOnlyFirst() {
+    @DisplayName("one pill spanning the full range when multiple spring tide days exist")
+    void detect_multipleSpringTideDays_enumeratesRange() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.SPRING_TIDE, LunarTideType.SPRING_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
@@ -192,6 +200,8 @@ class SpringTideHotTopicStrategyTest {
 
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).date()).isEqualTo(TODAY);
+        // Both spring-tide days are surfaced, not just the earliest.
+        assertThat(topics.get(0).detail()).contains("today and tomorrow");
     }
 
     @Test
@@ -453,8 +463,8 @@ class SpringTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "Spring tide \u2014 3 locations catch sunrise,"
-                        + " 2 catch sunset today");
+                "Spring tide today \u00b7 3 tides aligned with sunrise"
+                        + " \u00b7 1 coastal location");
     }
 
     @Test
@@ -470,8 +480,8 @@ class SpringTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "Spring tide today \u2014 no sunrise or sunset"
-                        + " alignment, but good coastal foreground");
+                "Spring tide today \u00b7 no sunrise or sunset"
+                        + " alignment, but good coastal foreground \u00b7 1 coastal location");
     }
 
     @Test
@@ -483,14 +493,13 @@ class SpringTideHotTopicStrategyTest {
         stubCoastalLocations(TODAY, "Northumberland");
         when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
                 .thenReturn(List.<Object[]>of(
-                        new Object[]{TargetType.SUNRISE, 1L},
-                        new Object[]{TargetType.SUNSET, 3L}));
+                        new Object[]{TargetType.SUNRISE, 1L}));
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "Spring tide \u2014 1 location catches sunrise,"
-                        + " 3 catch sunset today");
+                "Spring tide today \u00b7 1 tide aligned with sunrise"
+                        + " \u00b7 1 coastal location");
     }
 
     @Test
@@ -507,7 +516,7 @@ class SpringTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "Spring tide \u2014 4 locations aligned with sunrise today");
+                "Spring tide today \u00b7 4 tides aligned with sunrise \u00b7 1 coastal location");
     }
 
     @Test
@@ -524,7 +533,7 @@ class SpringTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "Spring tide \u2014 2 locations aligned with sunset today");
+                "Spring tide today \u00b7 2 tides aligned with sunset \u00b7 1 coastal location");
     }
 
     @Test
@@ -543,8 +552,8 @@ class SpringTideHotTopicStrategyTest {
 
         // 2026-04-18 is a Saturday
         assertThat(topics.get(0).detail()).isEqualTo(
-                "Spring tide \u2014 3 locations catch sunrise,"
-                        + " 2 catch sunset Saturday");
+                "Spring tide Saturday \u00b7 3 tides aligned with sunrise"
+                        + " \u00b7 1 coastal location");
     }
 
     // ── Statistical spring tide detection ─────────────────────────────────────

@@ -27,6 +27,9 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -50,12 +53,18 @@ class KingTideHotTopicStrategyTest {
     @Mock
     private ForecastEvaluationRepository forecastEvaluationRepository;
 
+    @Mock
+    private SolarEventFreshness freshness;
+
     private KingTideHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
+        // Default: every solar event is still ahead. Expiry tests override per date.
+        lenient().when(freshness.isAhead(any(LocationEntity.class), any(), any()))
+                .thenReturn(true);
         strategy = new KingTideHotTopicStrategy(briefingService, locationRepository,
-                forecastEvaluationRepository);
+                forecastEvaluationRepository, freshness);
     }
 
     @Test
@@ -1355,6 +1364,56 @@ class KingTideHotTopicStrategyTest {
                 .countTideAlignedByTargetType(TODAY.plusDays(1));
         verify(forecastEvaluationRepository, never())
                 .countTideAlignedByTargetType(TODAY.plusDays(3));
+    }
+
+    // ── non-expired solar-event filtering ──────────────────────────────
+
+    @Test
+    @DisplayName("king tide whose solar events have all passed is suppressed")
+    void detect_allEventsExpired_suppressed() {
+        when(briefingService.getCachedDays())
+                .thenReturn(List.of(buildDay(TODAY, LunarTideType.KING_TIDE)));
+        when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
+        when(freshness.isAhead(any(LocationEntity.class), eq(TODAY), any())).thenReturn(false);
+
+        assertThat(strategy.detect(TODAY, TO_DATE)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("king tide rolls forward to tomorrow when today's events have passed")
+    void detect_todayExpired_rollsToTomorrow() {
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                buildDay(TODAY, LunarTideType.KING_TIDE),
+                buildDay(TODAY.plusDays(1), LunarTideType.KING_TIDE)));
+        when(freshness.isAhead(any(LocationEntity.class), eq(TODAY), any())).thenReturn(false);
+        stubCoastalLocations(TODAY.plusDays(1), "Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).date()).isEqualTo(TODAY.plusDays(1));
+        // Today's passed events are not queried for alignment.
+        verify(forecastEvaluationRepository, never())
+                .countTideAlignedByTargetType(TODAY);
+    }
+
+    @Test
+    @DisplayName("maskExpired keeps only non-expired event types")
+    void maskExpired_dropsExpiredEventTypes() {
+        Map<TargetType, Long> counts = Map.of(TargetType.SUNRISE, 2L, TargetType.SUNSET, 3L);
+
+        Map<TargetType, Long> masked = KingTideHotTopicStrategy.maskExpired(
+                counts, Set.of(TargetType.SUNSET));
+
+        assertThat(masked).containsOnly(Map.entry(TargetType.SUNSET, 3L));
+    }
+
+    private LocationEntity coastal() {
+        RegionEntity region = new RegionEntity();
+        region.setName("Northumberland");
+        return LocationEntity.builder()
+                .id(1L).name("Coastal").lat(55.0).lon(-1.5)
+                .tideType(Set.of(TideType.HIGH)).region(region).enabled(true).build();
     }
 
     // ── isKingTide negative — neither flag matches ──────────────────────

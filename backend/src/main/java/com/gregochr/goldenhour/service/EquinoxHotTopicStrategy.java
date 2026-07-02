@@ -1,18 +1,17 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.util.DayLabels;
 import org.springframework.stereotype.Component;
 
-import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.time.format.TextStyle;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -56,25 +55,29 @@ public class EquinoxHotTopicStrategy implements HotTopicStrategy {
 
     private final SolarService solarService;
     private final LocationRepository locationRepository;
+    private final SolarEventFreshness freshness;
 
     /**
      * Constructs an {@code EquinoxHotTopicStrategy}.
      *
      * @param solarService       solar event / azimuth service
      * @param locationRepository repository for enabled-location lookups
+     * @param freshness          shared filter dropping the aligning event once it has passed
      */
     public EquinoxHotTopicStrategy(SolarService solarService,
-            LocationRepository locationRepository) {
+            LocationRepository locationRepository, SolarEventFreshness freshness) {
         this.solarService = solarService;
         this.locationRepository = locationRepository;
+        this.freshness = freshness;
     }
 
     /**
      * {@inheritDoc}
      *
-     * <p>Scans the window for the earliest near-equinox day whose sunrise/sunset azimuth
-     * aligns with due east/west for at least one enabled location, and emits a single
-     * topic dated to it. Returns empty otherwise.
+     * <p>Scans the window for every near-equinox day whose sunrise (due east) or sunset (due west)
+     * still lies ahead and aligns for at least one enabled location. Emits a single topic dated to
+     * the earliest such day, enumerating them all in the detail and covering all their regions.
+     * Returns empty when none remain after dropping alignments whose event has passed.
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
@@ -83,16 +86,22 @@ public class EquinoxHotTopicStrategy implements HotTopicStrategy {
             return List.of();
         }
 
+        List<LocalDate> alignedDays = new ArrayList<>();
+        Set<String> regions = new LinkedHashSet<>();
         for (LocalDate date = fromDate; !date.isAfter(toDate); date = date.plusDays(1)) {
             if (!isNearEquinox(date)) {
                 continue;
             }
-            List<String> alignedRegions = alignedRegions(enabled, date);
-            if (!alignedRegions.isEmpty()) {
-                return List.of(buildTopic(date, fromDate, alignedRegions));
+            List<String> dayRegions = alignedRegions(enabled, date);
+            if (!dayRegions.isEmpty()) {
+                alignedDays.add(date);
+                regions.addAll(dayRegions);
             }
         }
-        return List.of();
+        if (alignedDays.isEmpty()) {
+            return List.of();
+        }
+        return List.of(buildTopic(alignedDays, fromDate, new ArrayList<>(regions)));
     }
 
     /**
@@ -122,35 +131,28 @@ public class EquinoxHotTopicStrategy implements HotTopicStrategy {
         try {
             int sunrise = solarService.sunriseAzimuthDeg(loc.getLat(), loc.getLon(), date);
             int sunset = solarService.sunsetAzimuthDeg(loc.getLat(), loc.getLon(), date);
-            return Math.abs(sunrise - DUE_EAST_DEG) <= AZIMUTH_TOLERANCE_DEG
-                    || Math.abs(sunset - DUE_WEST_DEG) <= AZIMUTH_TOLERANCE_DEG;
+            boolean sunriseAligned = Math.abs(sunrise - DUE_EAST_DEG) <= AZIMUTH_TOLERANCE_DEG
+                    && freshness.isAhead(loc, date, TargetType.SUNRISE);
+            boolean sunsetAligned = Math.abs(sunset - DUE_WEST_DEG) <= AZIMUTH_TOLERANCE_DEG
+                    && freshness.isAhead(loc, date, TargetType.SUNSET);
+            return sunriseAligned || sunsetAligned;
         } catch (RuntimeException ex) {
             // Graceful — skip locations where the azimuth calculation fails (e.g. polar edge case)
             return false;
         }
     }
 
-    private HotTopic buildTopic(LocalDate date, LocalDate today, List<String> regions) {
+    private HotTopic buildTopic(List<LocalDate> days, LocalDate today, List<String> regions) {
         return new HotTopic(
                 "EQUINOX",
                 "Equinox alignment",
-                "Sun rises due east — aligned-horizon shots " + formatDayLabel(date, today),
-                date,
+                "Sun rises due east / sets due west — aligned-horizon shots "
+                        + DayLabels.joinRelative(days, today),
+                days.get(0),
                 PRIORITY,
                 null,
                 regions,
                 EQUINOX_DESCRIPTION,
                 null);
-    }
-
-    private String formatDayLabel(LocalDate date, LocalDate today) {
-        if (date.equals(today)) {
-            return "today";
-        }
-        if (date.equals(today.plusDays(1))) {
-            return "tomorrow";
-        }
-        DayOfWeek dow = date.getDayOfWeek();
-        return dow.getDisplayName(TextStyle.FULL, Locale.UK);
     }
 }

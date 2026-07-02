@@ -24,11 +24,13 @@ import java.time.LocalDate;
 import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -55,6 +57,7 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
     private final BriefingService briefingService;
     private final LocationRepository locationRepository;
     private final ForecastEvaluationRepository forecastEvaluationRepository;
+    private final SolarEventFreshness freshness;
 
     /**
      * Constructs a {@code KingTideHotTopicStrategy}.
@@ -63,13 +66,16 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
      *                                     to break circular dependency)
      * @param locationRepository           repository for location lookups
      * @param forecastEvaluationRepository repository for tide alignment queries
+     * @param freshness                    shared filter dropping solar events already past
      */
     public KingTideHotTopicStrategy(@Lazy BriefingService briefingService,
             LocationRepository locationRepository,
-            ForecastEvaluationRepository forecastEvaluationRepository) {
+            ForecastEvaluationRepository forecastEvaluationRepository,
+            SolarEventFreshness freshness) {
         this.briefingService = briefingService;
         this.locationRepository = locationRepository;
         this.forecastEvaluationRepository = forecastEvaluationRepository;
+        this.freshness = freshness;
     }
 
     /**
@@ -89,13 +95,26 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
             return List.of();
         }
 
-        List<BriefingDay> candidates = days.stream()
+        List<BriefingDay> kingCandidates = days.stream()
                 .filter(d -> !d.date().isBefore(fromDate)
                         && !d.date().isAfter(toDate))
                 .sorted(Comparator.comparing(BriefingDay::date))
                 .filter(d -> findKingTide(d) != null)
                 .toList();
 
+        if (kingCandidates.isEmpty()) {
+            return List.of();
+        }
+
+        List<LocationEntity> coastalLocations =
+                locationRepository.findCoastalLocations();
+        LocationEntity representative =
+                coastalLocations.isEmpty() ? null : coastalLocations.get(0);
+
+        // Drop days whose sunrise and sunset have both already passed — advance notice only.
+        List<BriefingDay> candidates = kingCandidates.stream()
+                .filter(d -> !nonExpiredEvents(d.date(), representative, freshness).isEmpty())
+                .toList();
         if (candidates.isEmpty()) {
             return List.of();
         }
@@ -110,9 +129,9 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
                 new LinkedHashMap<>();
         for (BriefingDay candidate : candidates) {
             allAlignments.put(candidate.date(),
-                    parseTideAlignmentCounts(
-                            forecastEvaluationRepository,
-                            candidate.date()));
+                    maskExpired(parseTideAlignmentCounts(
+                            forecastEvaluationRepository, candidate.date()),
+                            nonExpiredEvents(candidate.date(), representative, freshness)));
         }
 
         BestAlignment bestAlignment =
@@ -121,8 +140,6 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
                 ? allAlignments.get(bestAlignment.date())
                 : Map.of();
 
-        List<LocationEntity> coastalLocations =
-                locationRepository.findCoastalLocations();
         List<String> coastalRegions =
                 extractRegionNames(coastalLocations);
         String dateRange =
@@ -177,6 +194,54 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
         return tide != null
                 && (tide.isKingTide()
                         || tide.lunarTideType() == LunarTideType.KING_TIDE);
+    }
+
+    /**
+     * Returns the solar event types on this date whose event has not yet passed, judged from a
+     * representative coastal location's sunrise/sunset. Shared by the king-tide and spring-tide
+     * detectors so both surface a tide only on solar events the photographer can still shoot. A
+     * null representative (no coastal locations) cannot be placed, so both events are treated as
+     * ahead rather than suppressing the topic.
+     *
+     * @param date           the date to check
+     * @param representative a coastal location whose horizon times the events, or null
+     * @param freshness      the shared solar-event freshness filter
+     * @return the still-ahead event types (may be empty)
+     */
+    static Set<TargetType> nonExpiredEvents(LocalDate date, LocationEntity representative,
+            SolarEventFreshness freshness) {
+        Set<TargetType> result = EnumSet.noneOf(TargetType.class);
+        if (representative == null) {
+            result.add(TargetType.SUNRISE);
+            result.add(TargetType.SUNSET);
+            return result;
+        }
+        if (freshness.isAhead(representative, date, TargetType.SUNRISE)) {
+            result.add(TargetType.SUNRISE);
+        }
+        if (freshness.isAhead(representative, date, TargetType.SUNSET)) {
+            result.add(TargetType.SUNSET);
+        }
+        return result;
+    }
+
+    /**
+     * Returns a copy of the alignment counts with expired event types removed, so a tide aligned
+     * only with a solar event that has already passed is not counted or advertised.
+     *
+     * @param counts     per-event alignment counts for a day
+     * @param nonExpired the event types still ahead on that day
+     * @return the counts restricted to non-expired event types
+     */
+    static Map<TargetType, Long> maskExpired(Map<TargetType, Long> counts,
+            Set<TargetType> nonExpired) {
+        Map<TargetType, Long> masked = new java.util.EnumMap<>(TargetType.class);
+        for (Map.Entry<TargetType, Long> e : counts.entrySet()) {
+            if (nonExpired.contains(e.getKey())) {
+                masked.put(e.getKey(), e.getValue());
+            }
+        }
+        return masked;
     }
 
     /**

@@ -2,16 +2,14 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.util.DayLabels;
 import org.springframework.stereotype.Component;
 
-import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -68,8 +66,9 @@ public class SnowTopsHotTopicStrategy implements HotTopicStrategy {
     /**
      * {@inheritDoc}
      *
-     * <p>Emits a single topic dated to the earliest white-tops day in the window, with the distinct
-     * regions affected. Returns empty when no row in the window has the freezing level far enough
+     * <p>Emits a single topic dated to the earliest white-tops day, enumerating every white-tops
+     * day in the window (an all-day condition, so no solar-event cutoff applies) and covering all
+     * their regions. Returns empty when no row in the window has the freezing level far enough
      * below summit elevation.
      */
     @Override
@@ -83,7 +82,11 @@ public class SnowTopsHotTopicStrategy implements HotTopicStrategy {
             return List.of();
         }
 
-        LocalDate earliest = white.get(0).date();
+        List<LocalDate> days = white.stream()
+                .map(SurvivorSignals::date)
+                .distinct()
+                .sorted()
+                .toList();
         Set<String> regions = new LinkedHashSet<>();
         for (SurvivorSignals s : white) {
             String region = s.location() != null && s.location().getRegion() != null
@@ -96,23 +99,12 @@ public class SnowTopsHotTopicStrategy implements HotTopicStrategy {
         return List.of(new HotTopic(
                 "SNOW_TOPS",
                 "Snow on the fells",
-                "Tops white above the valleys " + formatDayLabel(earliest, fromDate),
-                earliest,
+                "Tops white above the valleys " + DayLabels.joinRelative(days, fromDate),
+                days.get(0),
                 PRIORITY,
                 null,
                 new ArrayList<>(regions),
                 TOPS_DESCRIPTION,
                 null));
-    }
-
-    private String formatDayLabel(LocalDate date, LocalDate today) {
-        if (date.equals(today)) {
-            return "today";
-        }
-        if (date.equals(today.plusDays(1))) {
-            return "tomorrow";
-        }
-        DayOfWeek dow = date.getDayOfWeek();
-        return dow.getDisplayName(TextStyle.FULL, Locale.UK);
     }
 }
