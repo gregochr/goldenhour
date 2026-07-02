@@ -1,9 +1,7 @@
 package com.gregochr.goldenhour.service;
 
-import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.model.HotTopic;
-import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.model.NlcNightClarity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,80 +17,95 @@ import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link NlcHotTopicStrategy}.
+ *
+ * <p>The strategy no longer fires on the calendar alone — it reads the {@link NlcClarityService}
+ * cache and only surfaces the earliest night with a clear dark-sky viewing chance, suppressing
+ * the topic entirely when no such night exists.
  */
 @ExtendWith(MockitoExtension.class)
 class NlcHotTopicStrategyTest {
 
-    private static final LocalDate IN_SEASON = LocalDate.of(2026, 6, 17);
-    private static final LocalDate BEFORE_SEASON = LocalDate.of(2026, 5, 24);
-    private static final LocalDate AFTER_SEASON = LocalDate.of(2026, 8, 11);
+    private static final LocalDate TODAY = LocalDate.of(2026, 6, 17);
+    private static final LocalDate TO = TODAY.plusDays(3);
 
     @Mock
-    private LocationRepository locationRepository;
+    private NlcClarityService clarityService;
 
     private NlcHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        strategy = new NlcHotTopicStrategy(locationRepository);
+        strategy = new NlcHotTopicStrategy(clarityService);
     }
 
     @Test
-    @DisplayName("in NLC season fires with priority 8 and dark-sky regions")
-    void detect_inSeason_fires() {
-        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
-                .thenReturn(darkSkyLocation());
+    @DisplayName("no cached clarity: suppressed")
+    void detect_nullClarity_suppressed() {
+        when(clarityService.getCached()).thenReturn(null);
 
-        List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
+        assertThat(strategy.detect(TODAY, TO)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("no clear nights: suppressed")
+    void detect_noClearNights_suppressed() {
+        when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of()));
+
+        assertThat(strategy.detect(TODAY, TO)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("clear night tonight: fires with count, regions and priority 8")
+    void detect_clearTonight_fires() {
+        when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
+                new NlcNightClarity.ClearNight(TODAY, 3, List.of("Northumberland")))));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO);
 
         assertThat(topics).hasSize(1);
         HotTopic topic = topics.get(0);
         assertThat(topic.type()).isEqualTo("NLC");
         assertThat(topic.priority()).isEqualTo(8);
-        assertThat(topic.date()).isEqualTo(IN_SEASON);
+        assertThat(topic.date()).isEqualTo(TODAY);
         assertThat(topic.regions()).containsExactly("Northumberland");
+        assertThat(topic.detail())
+                .isEqualTo("Clear northern horizon tonight — 3 dark-sky locations");
     }
 
     @Test
-    @DisplayName("season start boundary: 05-25 fires, 05-24 does not")
-    void detect_seasonStartBoundary() {
-        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
-                .thenReturn(darkSkyLocation());
-        LocalDate seasonStart = LocalDate.of(2026, 5, 25);
+    @DisplayName("single clear location is singular in the detail line")
+    void detect_singleLocation_singularWording() {
+        when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
+                new NlcNightClarity.ClearNight(TODAY.plusDays(1), 1, List.of("The Lake District")))));
 
-        assertThat(strategy.detect(seasonStart, seasonStart)).hasSize(1);
-        assertThat(strategy.detect(BEFORE_SEASON, BEFORE_SEASON)).isEmpty();
+        List<HotTopic> topics = strategy.detect(TODAY, TO);
+
+        assertThat(topics.get(0).detail())
+                .isEqualTo("Clear northern horizon tomorrow night — 1 dark-sky location");
     }
 
     @Test
-    @DisplayName("season end boundary: 08-10 fires, 08-11 does not")
-    void detect_seasonEndBoundary() {
-        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
-                .thenReturn(darkSkyLocation());
-        LocalDate seasonEnd = LocalDate.of(2026, 8, 10);
+    @DisplayName("earliest clear night in the window is chosen; later ones ignored")
+    void detect_multipleClearNights_picksEarliest() {
+        when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
+                new NlcNightClarity.ClearNight(TODAY.plusDays(2), 5, List.of("Northumberland")),
+                new NlcNightClarity.ClearNight(TODAY.plusDays(3), 2, List.of("The Lake District")))));
 
-        assertThat(strategy.detect(seasonEnd, seasonEnd)).hasSize(1);
-        assertThat(strategy.detect(AFTER_SEASON, AFTER_SEASON)).isEmpty();
-    }
-
-    @Test
-    @DisplayName("window edge: fires on earliest in-season day when from is out of season")
-    void detect_windowStraddlesSeasonStart_firesOnFirstInSeasonDay() {
-        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
-                .thenReturn(darkSkyLocation());
-        LocalDate from = LocalDate.of(2026, 5, 23);
-        LocalDate to = LocalDate.of(2026, 5, 26);
-
-        List<HotTopic> topics = strategy.detect(from, to);
+        List<HotTopic> topics = strategy.detect(TODAY, TO);
 
         assertThat(topics).hasSize(1);
-        assertThat(topics.get(0).date()).isEqualTo(LocalDate.of(2026, 5, 25));
+        // 2026-06-19 is a Friday.
+        assertThat(topics.get(0).date()).isEqualTo(TODAY.plusDays(2));
+        assertThat(topics.get(0).detail())
+                .isEqualTo("Clear northern horizon Friday night — 5 dark-sky locations");
     }
 
-    private List<LocationEntity> darkSkyLocation() {
-        RegionEntity region = new RegionEntity();
-        region.setName("Northumberland");
-        return List.of(LocationEntity.builder()
-                .name("Kielder").bortleClass(3).region(region).build());
+    @Test
+    @DisplayName("clear night outside the requested window is filtered out")
+    void detect_clearNightOutsideWindow_suppressed() {
+        when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
+                new NlcNightClarity.ClearNight(TO.plusDays(5), 4, List.of("Northumberland")))));
+
+        assertThat(strategy.detect(TODAY, TO)).isEmpty();
     }
 }

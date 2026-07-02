@@ -12,10 +12,16 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -24,7 +30,8 @@ import static org.mockito.Mockito.when;
  * <p>The detector reads the unified survivor surface ({@link SurvivorSignalReader}), not
  * {@code forecast_evaluation}, and fires only at the STRONG band (score &ge;
  * {@code STRONG_SCORE_INCLUSIVE} = 9). The boundary is tested explicitly: 8 (MODERATE) never fires,
- * 9 does.
+ * 9 does. A today-dated row is only actionable before that location's sunrise; once dawn has
+ * passed the topic rolls forward to the next morning (or disappears).
  */
 @ExtendWith(MockitoExtension.class)
 class InversionHotTopicStrategyTest {
@@ -32,14 +39,30 @@ class InversionHotTopicStrategyTest {
     private static final LocalDate FROM = LocalDate.of(2026, 6, 17);
     private static final LocalDate TO = FROM.plusDays(3);
 
+    /** Sunrise stubbed for every location on FROM. */
+    private static final LocalDateTime SUNRISE = FROM.atTime(4, 42);
+
+    /** A pre-dawn "now" — before FROM's sunrise, so today rows remain actionable. */
+    private static final Clock PRE_DAWN =
+            Clock.fixed(FROM.atTime(2, 0).toInstant(ZoneOffset.UTC), ZoneOffset.UTC);
+
+    /** A post-sunrise "now" — after FROM's sunrise, so today rows are stale. */
+    private static final Clock POST_SUNRISE =
+            Clock.fixed(FROM.atTime(6, 0).toInstant(ZoneOffset.UTC), ZoneOffset.UTC);
+
     @Mock
     private SurvivorSignalReader survivorSignalReader;
+
+    @Mock
+    private SolarService solarService;
 
     private InversionHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        strategy = new InversionHotTopicStrategy(survivorSignalReader);
+        lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), any()))
+                .thenReturn(SUNRISE);
+        strategy = new InversionHotTopicStrategy(survivorSignalReader, solarService, PRE_DAWN);
     }
 
     /** A survivor composite carrying an inversion score and nothing else. */
@@ -127,6 +150,48 @@ class InversionHotTopicStrategyTest {
         // Distinct regions, earliest-day regions first (stable sort by date), no duplicates.
         assertThat(topics.get(0).regions())
                 .containsExactly("The North York Moors", "The Lake District", "Northumberland");
+    }
+
+    @Test
+    @DisplayName("today's inversion is suppressed once its sunrise has passed")
+    void detect_todayPastSunrise_suppressed() {
+        when(survivorSignalReader.read(FROM, TO))
+                .thenReturn(List.of(signal(FROM, "The North York Moors", 9)));
+        InversionHotTopicStrategy pastDawn =
+                new InversionHotTopicStrategy(survivorSignalReader, solarService, POST_SUNRISE);
+
+        assertThat(pastDawn.detect(FROM, TO)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("past today's sunrise, the topic rolls forward to the next strong morning")
+    void detect_todayPastSunrise_rollsForwardToFutureDay() {
+        when(survivorSignalReader.read(FROM, TO))
+                .thenReturn(List.of(
+                        signal(FROM, "Today Region", 9),
+                        signal(FROM.plusDays(1), "Tomorrow Region", 9)));
+        InversionHotTopicStrategy pastDawn =
+                new InversionHotTopicStrategy(survivorSignalReader, solarService, POST_SUNRISE);
+
+        List<HotTopic> topics = pastDawn.detect(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        // Today's stale row is dropped; the topic dates to tomorrow and drops the today region.
+        assertThat(topics.get(0).date()).isEqualTo(FROM.plusDays(1));
+        assertThat(topics.get(0).regions()).containsExactly("Tomorrow Region");
+    }
+
+    @Test
+    @DisplayName("before sunrise, today's inversion still fires (pre-dawn heads-up)")
+    void detect_todayBeforeSunrise_firesToday() {
+        when(survivorSignalReader.read(FROM, TO))
+                .thenReturn(List.of(signal(FROM, "The North York Moors", 9)));
+
+        // setUp's strategy uses the PRE_DAWN clock.
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).date()).isEqualTo(FROM);
     }
 
     @Test
