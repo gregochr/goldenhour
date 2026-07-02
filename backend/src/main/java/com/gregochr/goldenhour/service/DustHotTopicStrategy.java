@@ -2,17 +2,15 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.util.DayLabels;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -48,14 +46,18 @@ public class DustHotTopicStrategy implements HotTopicStrategy {
     static final BigDecimal PM25_THRESHOLD = new BigDecimal("35");
 
     private final SurvivorSignalReader survivorSignalReader;
+    private final SolarEventFreshness freshness;
 
     /**
      * Constructs a {@code DustHotTopicStrategy}.
      *
      * @param survivorSignalReader the unified survivor read model (aerosol readings)
+     * @param freshness            shared filter dropping sunrise/sunset events already past
      */
-    public DustHotTopicStrategy(SurvivorSignalReader survivorSignalReader) {
+    public DustHotTopicStrategy(SurvivorSignalReader survivorSignalReader,
+            SolarEventFreshness freshness) {
         this.survivorSignalReader = survivorSignalReader;
+        this.freshness = freshness;
     }
 
     /**
@@ -80,22 +82,28 @@ public class DustHotTopicStrategy implements HotTopicStrategy {
     /**
      * {@inheritDoc}
      *
-     * <p>Emits a single topic dated to the earliest dust-enhanced day in the window, with
-     * the distinct regions affected. Returns empty when no row in the window meets the
-     * dust proxy.
+     * <p>Emits a single topic dated to the earliest non-expired dust-enhanced day, whose detail
+     * enumerates every such day in the window and whose regions cover all of them. Rows whose
+     * sunrise/sunset has already passed are dropped ({@link SolarEventFreshness}). Returns empty
+     * when no remaining row meets the dust proxy.
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
         List<SurvivorSignals> dusty = survivorSignalReader.read(fromDate, toDate).stream()
                 .filter(s -> isDustEnhanced(s.readings().aerosolOpticalDepth(),
                         s.readings().dust(), s.readings().pm25()))
+                .filter(s -> freshness.isAhead(s.location(), s.date(), s.eventType()))
                 .sorted(Comparator.comparing(SurvivorSignals::date))
                 .toList();
         if (dusty.isEmpty()) {
             return List.of();
         }
 
-        LocalDate earliest = dusty.get(0).date();
+        List<LocalDate> days = dusty.stream()
+                .map(SurvivorSignals::date)
+                .distinct()
+                .sorted()
+                .toList();
         Set<String> regions = new LinkedHashSet<>();
         for (SurvivorSignals s : dusty) {
             String region = s.location() != null && s.location().getRegion() != null
@@ -108,23 +116,13 @@ public class DustHotTopicStrategy implements HotTopicStrategy {
         return List.of(new HotTopic(
                 "DUST",
                 "Saharan dust",
-                "Elevated dust — vivid colour potential at sunset " + formatDayLabel(earliest, fromDate),
-                earliest,
+                "Elevated dust — vivid colour potential at sunrise and sunset "
+                        + DayLabels.joinRelative(days, fromDate),
+                days.get(0),
                 PRIORITY,
                 null,
                 new ArrayList<>(regions),
                 DUST_DESCRIPTION,
                 null));
-    }
-
-    private String formatDayLabel(LocalDate date, LocalDate today) {
-        if (date.equals(today)) {
-            return "today";
-        }
-        if (date.equals(today.plusDays(1))) {
-            return "tomorrow";
-        }
-        DayOfWeek dow = date.getDayOfWeek();
-        return dow.getDisplayName(TextStyle.FULL, Locale.UK);
     }
 }

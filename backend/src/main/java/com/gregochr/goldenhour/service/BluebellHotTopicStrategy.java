@@ -61,17 +61,20 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
 
     private final SurvivorSignalReader survivorSignalReader;
     private final SeasonalWindow bluebellSeason;
+    private final SolarEventFreshness freshness;
 
     /**
      * Constructs a {@code BluebellHotTopicStrategy}.
      *
      * @param survivorSignalReader the unified survivor read model (BLUEBELL component scores)
      * @param bluebellSeason       the configured bluebell season window
+     * @param freshness            shared filter dropping sunrise/sunset events already past
      */
     public BluebellHotTopicStrategy(SurvivorSignalReader survivorSignalReader,
-            SeasonalWindow bluebellSeason) {
+            SeasonalWindow bluebellSeason, SolarEventFreshness freshness) {
         this.survivorSignalReader = survivorSignalReader;
         this.bluebellSeason = bluebellSeason;
+        this.freshness = freshness;
     }
 
     /**
@@ -92,6 +95,7 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
         // to a non-null bluebell score self-selects them (no separate location lookup needed).
         List<SurvivorSignals> bluebellSignals = survivorSignalReader.read(fromDate, toDate).stream()
                 .filter(s -> s.scores().bluebell() != null)
+                .filter(s -> freshness.isAhead(s.location(), s.date(), s.eventType()))
                 .toList();
         if (bluebellSignals.isEmpty()) {
             return List.of();

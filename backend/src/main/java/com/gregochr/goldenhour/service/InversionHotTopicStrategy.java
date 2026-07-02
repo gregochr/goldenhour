@@ -1,20 +1,15 @@
 package com.gregochr.goldenhour.service;
 
-import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.util.DayLabels;
 import org.springframework.stereotype.Component;
 
-import java.time.Clock;
-import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -32,12 +27,11 @@ import java.util.Set;
  * triaged-out rejects, so the legacy {@code inversion_potential} read was inert in production
  * (the evaluated survivors route here). Makes no external API calls.
  *
- * <p><b>Advance notice.</b> An inversion "sea of clouds" is a dawn phenomenon — it is only
- * useful as night-before planning, because once sunrise has passed you can no longer get to the
- * viewpoint in time. This detector therefore drops a strong-inversion row dated to <em>today</em>
- * once the current time is past that location's sunrise, so the topic rolls forward to the next
- * actionable morning (or disappears) rather than pointing at a dawn the operator has already
- * missed. A pre-dawn briefing (before today's sunrise) still surfaces today's inversion.
+ * <p><b>Advance notice, every morning.</b> An inversion "sea of clouds" is a dawn phenomenon —
+ * it is only useful as night-before planning, because once sunrise has passed you can no longer
+ * get to the viewpoint in time. This detector drops any row whose sunrise has already passed
+ * ({@link SolarEventFreshness}) and lists <em>every</em> remaining strong-inversion morning in
+ * the window, so a multi-day setup is surfaced in full rather than collapsed to the earliest day.
  */
 @Component
 public class InversionHotTopicStrategy implements HotTopicStrategy {
@@ -58,46 +52,44 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
     static final int STRONG_SCORE_INCLUSIVE = 9;
 
     private final SurvivorSignalReader survivorSignalReader;
-    private final SolarService solarService;
-    private final Clock clock;
+    private final SolarEventFreshness freshness;
 
     /**
      * Constructs an {@code InversionHotTopicStrategy}.
      *
      * @param survivorSignalReader the unified survivor read model (inversion scores)
-     * @param solarService         solar calculator for per-location sunrise times
-     * @param clock                UTC clock used to decide whether today's dawn has passed
+     * @param freshness            shared filter dropping strong-inversion mornings already past
      */
     public InversionHotTopicStrategy(SurvivorSignalReader survivorSignalReader,
-            SolarService solarService, Clock clock) {
+            SolarEventFreshness freshness) {
         this.survivorSignalReader = survivorSignalReader;
-        this.solarService = solarService;
-        this.clock = clock;
+        this.freshness = freshness;
     }
 
     /**
      * {@inheritDoc}
      *
-     * <p>Emits a single topic dated to the earliest strong-inversion day that is still
-     * <em>actionable</em> — a future morning, or today only while the current time is before
-     * that location's sunrise. Lists the distinct regions where strong inversion is forecast on
-     * actionable days. Returns empty when no such row exists (including when the only strong
-     * rows are for a dawn that has already passed today).
+     * <p>Emits a single topic dated to the earliest non-expired strong-inversion morning, whose
+     * detail enumerates every such morning in the window and whose regions cover all of them.
+     * Returns empty when no strong-inversion row remains after dropping mornings already past.
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        LocalDateTime now = LocalDateTime.now(clock);
         List<SurvivorSignals> strong = survivorSignalReader.read(fromDate, toDate).stream()
                 .filter(s -> s.scores().inversion() != null
                         && s.scores().inversion() >= STRONG_SCORE_INCLUSIVE)
-                .filter(s -> isActionable(s, fromDate, now))
+                .filter(s -> freshness.isAhead(s.location(), s.date(), s.eventType()))
                 .sorted(Comparator.comparing(SurvivorSignals::date))
                 .toList();
         if (strong.isEmpty()) {
             return List.of();
         }
 
-        LocalDate earliest = strong.get(0).date();
+        List<LocalDate> days = strong.stream()
+                .map(SurvivorSignals::date)
+                .distinct()
+                .sorted()
+                .toList();
         Set<String> regions = new LinkedHashSet<>();
         for (SurvivorSignals row : strong) {
             String region = row.location() != null && row.location().getRegion() != null
@@ -110,46 +102,13 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
         return List.of(new HotTopic(
                 "INVERSION",
                 "Cloud inversion",
-                "Strong inversion likely at elevated locations " + formatDayLabel(earliest, fromDate),
-                earliest,
+                "Strong inversion likely at elevated locations "
+                        + DayLabels.joinRelative(days, fromDate),
+                days.get(0),
                 PRIORITY,
                 null,
                 new ArrayList<>(regions),
                 INVERSION_DESCRIPTION,
                 null));
-    }
-
-    /**
-     * Whether a strong-inversion row is still worth acting on. A future morning always is; a
-     * row dated today is only actionable while the current time is before that location's
-     * sunrise (an inversion is a dawn event — once sunrise passes, the shoot cannot be reached).
-     * A row dated before today (not expected from the reader) is treated as stale.
-     */
-    private boolean isActionable(SurvivorSignals row, LocalDate today, LocalDateTime now) {
-        LocalDate date = row.date();
-        if (date.isAfter(today)) {
-            return true;
-        }
-        if (!date.isEqual(today)) {
-            return false;
-        }
-        LocationEntity location = row.location();
-        if (location == null) {
-            return true;
-        }
-        LocalDateTime sunrise = solarService.sunriseUtc(
-                location.getLat(), location.getLon(), today);
-        return now.isBefore(sunrise);
-    }
-
-    private String formatDayLabel(LocalDate date, LocalDate today) {
-        if (date.equals(today)) {
-            return "today";
-        }
-        if (date.equals(today.plusDays(1))) {
-            return "tomorrow";
-        }
-        DayOfWeek dow = date.getDayOfWeek();
-        return dow.getDisplayName(TextStyle.FULL, Locale.UK);
     }
 }

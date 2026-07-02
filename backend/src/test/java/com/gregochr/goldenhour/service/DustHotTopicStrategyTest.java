@@ -17,6 +17,9 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -31,11 +34,17 @@ class DustHotTopicStrategyTest {
     @Mock
     private SurvivorSignalReader survivorSignalReader;
 
+    @Mock
+    private SolarEventFreshness freshness;
+
     private DustHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        strategy = new DustHotTopicStrategy(survivorSignalReader);
+        // Default: every solar event is still ahead. Expiry tests override per date.
+        lenient().when(freshness.isAhead(any(LocationEntity.class), any(), any()))
+                .thenReturn(true);
+        strategy = new DustHotTopicStrategy(survivorSignalReader, freshness);
     }
 
     /** A survivor composite carrying only aerosol readings (the dust proxy inputs). */
@@ -84,6 +93,33 @@ class DustHotTopicStrategyTest {
         when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of());
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a dust row whose solar event has passed is dropped")
+    void detect_expiredEvent_dropped() {
+        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(
+                signal(FROM, "The North Yorkshire Coast", "0.42", "60", "10")));
+        when(freshness.isAhead(any(LocationEntity.class), eq(FROM), any())).thenReturn(false);
+
+        assertThat(strategy.detect(FROM, TO)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("enumerates every non-expired dust day; dates to the earliest")
+    void detect_multipleDays_enumeratesAll() {
+        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(
+                signal(FROM.plusDays(2), "Northumberland", "0.42", "60", "10"),
+                signal(FROM, "The North Yorkshire Coast", "0.42", "60", "10")));
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).date()).isEqualTo(FROM);
+        // 2026-06-17 = today (Wed), +2 = Friday.
+        assertThat(topics.get(0).detail()).endsWith("today and Friday");
+        assertThat(topics.get(0).regions())
+                .containsExactly("The North Yorkshire Coast", "Northumberland");
     }
 
     // ── Dust badge consistency lock: isDustEnhanced mirrors the frontend proxy ──

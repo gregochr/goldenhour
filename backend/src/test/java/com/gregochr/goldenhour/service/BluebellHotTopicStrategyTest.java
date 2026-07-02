@@ -22,6 +22,9 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -45,12 +48,18 @@ class BluebellHotTopicStrategyTest {
     @Mock
     private SurvivorSignalReader survivorSignalReader;
 
+    @Mock
+    private SolarEventFreshness freshness;
+
     private BluebellHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
+        // Default: every solar event is still ahead. Expiry tests override per date.
+        lenient().when(freshness.isAhead(any(LocationEntity.class), any(), any()))
+                .thenReturn(true);
         strategy = new BluebellHotTopicStrategy(survivorSignalReader,
-                new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"));
+                new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"), freshness);
     }
 
     @Test
@@ -70,6 +79,21 @@ class BluebellHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON.plusDays(2));
 
         assertThat(topics).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a bluebell row whose sunrise has passed is dropped")
+    void detect_expiredEvent_dropped() {
+        RegionEntity region = new RegionEntity();
+        region.setName("Lake District");
+        LocationEntity location = LocationEntity.builder()
+                .id(1L).name("Rannerdale Knotts").lat(54.556).lon(-3.292)
+                .locationType(Set.of(LocationType.BLUEBELL)).region(region).enabled(true).build();
+        when(survivorSignalReader.read(IN_SEASON, IN_SEASON))
+                .thenReturn(List.of(bluebellSignal(location, IN_SEASON, 4, "Misty and still")));
+        when(freshness.isAhead(any(LocationEntity.class), eq(IN_SEASON), any())).thenReturn(false);
+
+        assertThat(strategy.detect(IN_SEASON, IN_SEASON)).isEmpty();
     }
 
     @Test

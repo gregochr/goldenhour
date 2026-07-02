@@ -15,12 +15,10 @@ import com.gregochr.goldenhour.repository.LocationRepository;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
-import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.time.format.TextStyle;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -29,13 +27,14 @@ import java.util.Objects;
  *
  * <p>A spring tide occurs around new and full moons when gravitational
  * alignment produces larger-than-normal tidal ranges. Suppressed entirely
- * when any king tide exists in the detection window — they are redundant
- * (a king tide is a stronger spring tide). Per-slot exclusion also filters
- * individual king-tide slots via {@link KingTideHotTopicStrategy}.
+ * when any (non-expired) king tide exists in the detection window — they are
+ * redundant (a king tide is a stronger spring tide).
  *
- * <p>Reads from the briefing cache ({@link BriefingService#getCachedDays()})
- * so that the pill is consistent with what the heatmap grid and Best Bet show.
- * Falls back to empty when no briefing has been generated yet.
+ * <p>Surveys the whole forecast window and reports <em>every</em> spring-tide day that still has
+ * a non-expired solar event, mirroring {@link KingTideHotTopicStrategy}: the pill communicates the
+ * full day range and highlights the best tide/solar alignment, and drops solar events that have
+ * already passed via {@link SolarEventFreshness}. Reads from the briefing cache
+ * ({@link BriefingService#getCachedDays()}) so the pill is consistent with the heatmap grid.
  */
 @Component
 public class SpringTideHotTopicStrategy implements HotTopicStrategy {
@@ -48,6 +47,7 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
     private final BriefingService briefingService;
     private final LocationRepository locationRepository;
     private final ForecastEvaluationRepository forecastEvaluationRepository;
+    private final SolarEventFreshness freshness;
 
     /**
      * Constructs a {@code SpringTideHotTopicStrategy}.
@@ -56,22 +56,26 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
      *                                     to break circular dependency)
      * @param locationRepository           repository for location lookups
      * @param forecastEvaluationRepository repository for tide alignment queries
+     * @param freshness                    shared filter dropping solar events already past
      */
     public SpringTideHotTopicStrategy(@Lazy BriefingService briefingService,
             LocationRepository locationRepository,
-            ForecastEvaluationRepository forecastEvaluationRepository) {
+            ForecastEvaluationRepository forecastEvaluationRepository,
+            SolarEventFreshness freshness) {
         this.briefingService = briefingService;
         this.locationRepository = locationRepository;
         this.forecastEvaluationRepository = forecastEvaluationRepository;
+        this.freshness = freshness;
     }
 
     /**
      * {@inheritDoc}
      *
-     * <p>Returns empty if any king tide exists anywhere in the detection
-     * window — king tide trumps spring tide. Otherwise scans for the
-     * earliest spring-not-king date and emits at most one topic. Returns
-     * empty when no briefing has been cached yet.
+     * <p>Returns empty if a non-expired king tide exists anywhere in the window (king tide trumps
+     * spring). Otherwise collects every spring-not-king day that still has a solar event ahead,
+     * dates the pill to the earliest, communicates the full day range, and highlights the best
+     * non-expired sunrise/sunset alignment. Returns empty when no briefing is cached or no
+     * spring-tide day has a non-expired event.
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
@@ -85,48 +89,73 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
                 .sorted(Comparator.comparing(BriefingDay::date))
                 .toList();
 
+        // King tide trumps spring tide anywhere in the window (a king tide is a stronger spring).
         boolean kingTideInWindow = sorted.stream()
-                .anyMatch(d -> KingTideHotTopicStrategy.findKingTide(d)
-                        != null);
+                .anyMatch(d -> KingTideHotTopicStrategy.findKingTide(d) != null);
         if (kingTideInWindow) {
             return List.of();
         }
 
-        for (BriefingDay day : sorted) {
-            BriefingSlot.TideInfo springTide = findSpringTide(day);
-            if (springTide != null) {
-                LocalDate date = day.date();
-                String dayLabel = formatDayLabel(date, fromDate);
-                List<LocationEntity> coastalLocations =
-                        locationRepository.findCoastalLocations();
-                List<String> coastalRegions = extractRegionNames(coastalLocations);
-                Map<TargetType, Long> alignmentCounts =
-                        KingTideHotTopicStrategy.parseTideAlignmentCounts(
-                                forecastEvaluationRepository, date);
-                int sunriseCount = alignmentCounts
-                        .getOrDefault(TargetType.SUNRISE, 0L).intValue();
-                int sunsetCount = alignmentCounts
-                        .getOrDefault(TargetType.SUNSET, 0L).intValue();
-                ExpandedHotTopicDetail expandedDetail =
-                        KingTideHotTopicStrategy.buildExpandedDetail(
-                                coastalLocations, "Spring tide",
-                                springTide.lunarPhase(), alignmentCounts);
-
-                return List.of(new HotTopic(
-                        "SPRING_TIDE",
-                        "Spring tide",
-                        buildSpringTideDetail(sunriseCount, sunsetCount,
-                                dayLabel),
-                        date,
-                        2,
-                        null,
-                        coastalRegions,
-                        SPRING_TIDE_DESCRIPTION,
-                        expandedDetail));
-            }
+        List<BriefingDay> springCandidates = sorted.stream()
+                .filter(d -> findSpringTide(d) != null)
+                .toList();
+        if (springCandidates.isEmpty()) {
+            return List.of();
         }
 
-        return List.of();
+        List<LocationEntity> coastalLocations = locationRepository.findCoastalLocations();
+        LocationEntity representative =
+                coastalLocations.isEmpty() ? null : coastalLocations.get(0);
+
+        // Drop spring-tide days whose sunrise and sunset have both already passed.
+        List<BriefingDay> springDays = springCandidates.stream()
+                .filter(d -> !KingTideHotTopicStrategy.nonExpiredEvents(
+                        d.date(), representative, freshness).isEmpty())
+                .toList();
+        if (springDays.isEmpty()) {
+            return List.of();
+        }
+
+        List<LocalDate> springDates = springDays.stream().map(BriefingDay::date).toList();
+        LocalDate pillDate = springDates.get(0);
+        BriefingSlot.TideInfo springTide = findSpringTide(springDays.get(0));
+
+        Map<LocalDate, Map<TargetType, Long>> allAlignments = new LinkedHashMap<>();
+        for (BriefingDay day : springDays) {
+            allAlignments.put(day.date(),
+                    KingTideHotTopicStrategy.maskExpired(
+                            KingTideHotTopicStrategy.parseTideAlignmentCounts(
+                                    forecastEvaluationRepository, day.date()),
+                            KingTideHotTopicStrategy.nonExpiredEvents(
+                                    day.date(), representative, freshness)));
+        }
+
+        KingTideHotTopicStrategy.BestAlignment best =
+                KingTideHotTopicStrategy.findBestAlignment(allAlignments);
+        Map<TargetType, Long> bestCounts = best != null
+                ? allAlignments.get(best.date()) : Map.of();
+
+        List<String> coastalRegions = extractRegionNames(coastalLocations);
+        String dateRange = KingTideHotTopicStrategy.formatDateRange(springDates, fromDate);
+        String alignmentInfo = best != null
+                ? KingTideHotTopicStrategy.buildAlignmentInfo(
+                        best, springDates.size() > 1, fromDate)
+                : null;
+        ExpandedHotTopicDetail expandedDetail =
+                KingTideHotTopicStrategy.buildExpandedDetail(
+                        coastalLocations, "Spring tide",
+                        springTide.lunarPhase(), bestCounts);
+
+        return List.of(new HotTopic(
+                "SPRING_TIDE",
+                "Spring tide",
+                buildSpringTideDetail(dateRange, alignmentInfo, coastalLocations.size()),
+                pillDate,
+                2,
+                null,
+                coastalRegions,
+                SPRING_TIDE_DESCRIPTION,
+                expandedDetail));
     }
 
     /**
@@ -175,44 +204,26 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
                 .toList();
     }
 
-    private String formatDayLabel(LocalDate date, LocalDate today) {
-        if (date.equals(today)) {
-            return "today";
-        }
-        if (date.equals(today.plusDays(1))) {
-            return "tomorrow";
-        }
-        DayOfWeek dow = date.getDayOfWeek();
-        return dow.getDisplayName(TextStyle.FULL, Locale.UK);
-    }
-
     /**
-     * Builds the detail line for a spring tide pill based on alignment counts.
+     * Builds the detail line for a spring tide pill, mirroring the king-tide format:
+     * {@code Spring tide [dateRange] · [alignmentInfo] · N coastal locations}.
      *
-     * @param sunriseCount number of coastal locations aligned with sunrise
-     * @param sunsetCount  number of coastal locations aligned with sunset
-     * @param dayLabel     "today", "tomorrow", or day-of-week name
+     * @param dateRange     day range label (e.g. "today", "today through Saturday")
+     * @param alignmentInfo best-alignment segment, or {@code null} when no non-expired alignment
+     * @param coastalCount  total number of coastal locations
      * @return human-readable detail line
      */
-    static String buildSpringTideDetail(int sunriseCount, int sunsetCount,
-            String dayLabel) {
-        if (sunriseCount > 0 && sunsetCount > 0) {
-            return String.format("Spring tide \u2014 %s, %s %s",
-                    KingTideHotTopicStrategy.formatCatch(sunriseCount, "sunrise"),
-                    KingTideHotTopicStrategy.formatCatchShort(sunsetCount, "sunset"),
-                    dayLabel);
+    static String buildSpringTideDetail(String dateRange, String alignmentInfo,
+            int coastalCount) {
+        StringBuilder sb = new StringBuilder("Spring tide ");
+        sb.append(dateRange);
+        if (alignmentInfo != null) {
+            sb.append(" · ").append(alignmentInfo);
+        } else {
+            sb.append(" · no sunrise or sunset alignment, but good coastal foreground");
         }
-        if (sunriseCount > 0) {
-            return String.format("Spring tide \u2014 %s aligned with sunrise %s",
-                    KingTideHotTopicStrategy.formatLocationCount(sunriseCount),
-                    dayLabel);
-        }
-        if (sunsetCount > 0) {
-            return String.format("Spring tide \u2014 %s aligned with sunset %s",
-                    KingTideHotTopicStrategy.formatLocationCount(sunsetCount),
-                    dayLabel);
-        }
-        return String.format("Spring tide %s \u2014 no sunrise or sunset"
-                + " alignment, but good coastal foreground", dayLabel);
+        sb.append(" · ").append(coastalCount)
+                .append(coastalCount == 1 ? " coastal location" : " coastal locations");
+        return sb.toString();
     }
 }

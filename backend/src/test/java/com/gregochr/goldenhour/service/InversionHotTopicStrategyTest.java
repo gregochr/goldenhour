@@ -12,15 +12,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.time.Clock;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
@@ -29,40 +26,30 @@ import static org.mockito.Mockito.when;
  *
  * <p>The detector reads the unified survivor surface ({@link SurvivorSignalReader}), not
  * {@code forecast_evaluation}, and fires only at the STRONG band (score &ge;
- * {@code STRONG_SCORE_INCLUSIVE} = 9). The boundary is tested explicitly: 8 (MODERATE) never fires,
- * 9 does. A today-dated row is only actionable before that location's sunrise; once dawn has
- * passed the topic rolls forward to the next morning (or disappears).
+ * {@code STRONG_SCORE_INCLUSIVE} = 9). Expired mornings are dropped via {@link SolarEventFreshness}
+ * (mocked here), and every remaining strong-inversion morning is enumerated in the pill.
  */
 @ExtendWith(MockitoExtension.class)
 class InversionHotTopicStrategyTest {
 
+    // 2026-06-17 is a Wednesday; +2 = Friday.
     private static final LocalDate FROM = LocalDate.of(2026, 6, 17);
     private static final LocalDate TO = FROM.plusDays(3);
-
-    /** Sunrise stubbed for every location on FROM. */
-    private static final LocalDateTime SUNRISE = FROM.atTime(4, 42);
-
-    /** A pre-dawn "now" — before FROM's sunrise, so today rows remain actionable. */
-    private static final Clock PRE_DAWN =
-            Clock.fixed(FROM.atTime(2, 0).toInstant(ZoneOffset.UTC), ZoneOffset.UTC);
-
-    /** A post-sunrise "now" — after FROM's sunrise, so today rows are stale. */
-    private static final Clock POST_SUNRISE =
-            Clock.fixed(FROM.atTime(6, 0).toInstant(ZoneOffset.UTC), ZoneOffset.UTC);
 
     @Mock
     private SurvivorSignalReader survivorSignalReader;
 
     @Mock
-    private SolarService solarService;
+    private SolarEventFreshness freshness;
 
     private InversionHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), any()))
-                .thenReturn(SUNRISE);
-        strategy = new InversionHotTopicStrategy(survivorSignalReader, solarService, PRE_DAWN);
+        // Default: every morning is still ahead. Expired-day tests override per date.
+        lenient().when(freshness.isAhead(any(LocationEntity.class), any(), any()))
+                .thenReturn(true);
+        strategy = new InversionHotTopicStrategy(survivorSignalReader, freshness);
     }
 
     /** A survivor composite carrying an inversion score and nothing else. */
@@ -91,6 +78,7 @@ class InversionHotTopicStrategyTest {
         assertThat(topic.type()).isEqualTo("INVERSION");
         assertThat(topic.priority()).isEqualTo(2);
         assertThat(topic.date()).isEqualTo(FROM);
+        assertThat(topic.detail()).endsWith("today");
         assertThat(topic.regions()).containsExactly("The North York Moors");
     }
 
@@ -105,51 +93,13 @@ class InversionHotTopicStrategyTest {
     @Test
     @DisplayName("boundary: score 9 fires (STRONG), score 8 does not (MODERATE)")
     void detect_strongBandBoundary() {
-        // A MODERATE day (8) alongside no STRONG row → no topic.
         when(survivorSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signal(FROM, "The Lake District", 8)));
         assertThat(strategy.detect(FROM, TO)).isEmpty();
 
-        // The same location at 9 → fires.
         when(survivorSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signal(FROM, "The Lake District", 9)));
         assertThat(strategy.detect(FROM, TO)).hasSize(1);
-    }
-
-    @Test
-    @DisplayName("MODERATE rows mixed with a STRONG row: only the STRONG one drives the topic")
-    void detect_moderateMixedWithStrong_onlyStrongFires() {
-        when(survivorSignalReader.read(FROM, TO))
-                .thenReturn(List.of(
-                        signal(FROM, "Moderate-only Region", 8),
-                        signal(FROM.plusDays(1), "Strong Region", 10)));
-
-        List<HotTopic> topics = strategy.detect(FROM, TO);
-
-        assertThat(topics).hasSize(1);
-        // Dated to the STRONG day, and only the STRONG region is listed — the MODERATE row is dropped.
-        assertThat(topics.get(0).date()).isEqualTo(FROM.plusDays(1));
-        assertThat(topics.get(0).regions()).containsExactly("Strong Region");
-    }
-
-    @Test
-    @DisplayName("multiple strong rows: dates to the earliest day, collects distinct regions")
-    void detect_multipleRows_earliestDateDistinctRegions() {
-        LocalDate later = FROM.plusDays(2);
-        when(survivorSignalReader.read(FROM, TO))
-                .thenReturn(List.of(
-                        signal(later, "Northumberland", 9),
-                        signal(FROM, "The North York Moors", 9),
-                        signal(FROM, "The Lake District", 10),
-                        signal(FROM, "The North York Moors", 10)));
-
-        List<HotTopic> topics = strategy.detect(FROM, TO);
-
-        assertThat(topics).hasSize(1);
-        assertThat(topics.get(0).date()).isEqualTo(FROM);
-        // Distinct regions, earliest-day regions first (stable sort by date), no duplicates.
-        assertThat(topics.get(0).regions())
-                .containsExactly("The North York Moors", "The Lake District", "Northumberland");
     }
 
     @Test
@@ -157,10 +107,9 @@ class InversionHotTopicStrategyTest {
     void detect_todayPastSunrise_suppressed() {
         when(survivorSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signal(FROM, "The North York Moors", 9)));
-        InversionHotTopicStrategy pastDawn =
-                new InversionHotTopicStrategy(survivorSignalReader, solarService, POST_SUNRISE);
+        when(freshness.isAhead(any(LocationEntity.class), eq(FROM), any())).thenReturn(false);
 
-        assertThat(pastDawn.detect(FROM, TO)).isEmpty();
+        assertThat(strategy.detect(FROM, TO)).isEmpty();
     }
 
     @Test
@@ -170,28 +119,34 @@ class InversionHotTopicStrategyTest {
                 .thenReturn(List.of(
                         signal(FROM, "Today Region", 9),
                         signal(FROM.plusDays(1), "Tomorrow Region", 9)));
-        InversionHotTopicStrategy pastDawn =
-                new InversionHotTopicStrategy(survivorSignalReader, solarService, POST_SUNRISE);
+        when(freshness.isAhead(any(LocationEntity.class), eq(FROM), any())).thenReturn(false);
 
-        List<HotTopic> topics = pastDawn.detect(FROM, TO);
+        List<HotTopic> topics = strategy.detect(FROM, TO);
 
         assertThat(topics).hasSize(1);
-        // Today's stale row is dropped; the topic dates to tomorrow and drops the today region.
         assertThat(topics.get(0).date()).isEqualTo(FROM.plusDays(1));
+        assertThat(topics.get(0).detail()).endsWith("tomorrow");
         assertThat(topics.get(0).regions()).containsExactly("Tomorrow Region");
     }
 
     @Test
-    @DisplayName("before sunrise, today's inversion still fires (pre-dawn heads-up)")
-    void detect_todayBeforeSunrise_firesToday() {
+    @DisplayName("enumerates every non-expired morning; dates to the earliest")
+    void detect_multipleDays_enumeratesAll() {
         when(survivorSignalReader.read(FROM, TO))
-                .thenReturn(List.of(signal(FROM, "The North York Moors", 9)));
+                .thenReturn(List.of(
+                        signal(FROM.plusDays(2), "Northumberland", 9),
+                        signal(FROM, "The North York Moors", 9),
+                        signal(FROM, "The Lake District", 10)));
 
-        // setUp's strategy uses the PRE_DAWN clock.
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
         assertThat(topics).hasSize(1);
-        assertThat(topics.get(0).date()).isEqualTo(FROM);
+        HotTopic topic = topics.get(0);
+        assertThat(topic.date()).isEqualTo(FROM);
+        // Both mornings named (Wed 17th = today, Fri 19th = Friday); all regions collected.
+        assertThat(topic.detail()).endsWith("today and Friday");
+        assertThat(topic.regions())
+                .containsExactly("The North York Moors", "The Lake District", "Northumberland");
     }
 
     @Test

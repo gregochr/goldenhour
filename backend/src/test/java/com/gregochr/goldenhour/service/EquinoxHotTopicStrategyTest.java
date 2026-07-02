@@ -15,6 +15,9 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -34,11 +37,17 @@ class EquinoxHotTopicStrategyTest {
     @Mock
     private LocationRepository locationRepository;
 
+    @Mock
+    private SolarEventFreshness freshness;
+
     private EquinoxHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        strategy = new EquinoxHotTopicStrategy(solarService, locationRepository);
+        // Default: the aligning event is still ahead. Expiry tests override per date.
+        lenient().when(freshness.isAhead(any(LocationEntity.class), any(), any()))
+                .thenReturn(true);
+        strategy = new EquinoxHotTopicStrategy(solarService, locationRepository, freshness);
     }
 
     @Test
@@ -73,6 +82,18 @@ class EquinoxHotTopicStrategyTest {
         when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(enabledLocation());
         when(solarService.sunriseAzimuthDeg(LAT, LON, SPRING_EQUINOX)).thenReturn(94);
         when(solarService.sunsetAzimuthDeg(LAT, LON, SPRING_EQUINOX)).thenReturn(274);
+
+        assertThat(strategy.detect(SPRING_EQUINOX, SPRING_EQUINOX)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("aligned day is suppressed once both aligning events have passed")
+    void detect_alignmentExpired_doesNotFire() {
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(enabledLocation());
+        when(solarService.sunriseAzimuthDeg(LAT, LON, SPRING_EQUINOX)).thenReturn(90);
+        when(solarService.sunsetAzimuthDeg(LAT, LON, SPRING_EQUINOX)).thenReturn(270);
+        when(freshness.isAhead(any(LocationEntity.class), eq(SPRING_EQUINOX), any()))
+                .thenReturn(false);
 
         assertThat(strategy.detect(SPRING_EQUINOX, SPRING_EQUINOX)).isEmpty();
     }

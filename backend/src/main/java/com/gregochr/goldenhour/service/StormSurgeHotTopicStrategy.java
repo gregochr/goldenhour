@@ -2,16 +2,14 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.util.DayLabels;
 import org.springframework.stereotype.Component;
 
-import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -54,8 +52,9 @@ public class StormSurgeHotTopicStrategy implements HotTopicStrategy {
     /**
      * {@inheritDoc}
      *
-     * <p>Emits a single topic dated to the earliest high-surge-risk day in the window, with
-     * the distinct coastal regions affected. Returns empty when no row in the window is
+     * <p>Emits a single topic dated to the earliest high-surge-risk day, enumerating every
+     * high-surge day in the window (a persistent coastal condition, so no solar-event cutoff
+     * applies) and covering all their coastal regions. Returns empty when no row in the window is
      * classified high risk.
      */
     @Override
@@ -68,7 +67,11 @@ public class StormSurgeHotTopicStrategy implements HotTopicStrategy {
             return List.of();
         }
 
-        LocalDate earliest = highRisk.get(0).date();
+        List<LocalDate> days = highRisk.stream()
+                .map(SurvivorSignals::date)
+                .distinct()
+                .sorted()
+                .toList();
         Set<String> regions = new LinkedHashSet<>();
         for (SurvivorSignals s : highRisk) {
             String region = s.location() != null && s.location().getRegion() != null
@@ -81,23 +84,13 @@ public class StormSurgeHotTopicStrategy implements HotTopicStrategy {
         return List.of(new HotTopic(
                 "STORM_SURGE",
                 "Storm surge",
-                "High surge risk — dramatic coastal conditions " + formatDayLabel(earliest, fromDate),
-                earliest,
+                "High surge risk — dramatic coastal conditions "
+                        + DayLabels.joinRelative(days, fromDate),
+                days.get(0),
                 PRIORITY,
                 null,
                 new ArrayList<>(regions),
                 STORM_SURGE_DESCRIPTION,
                 null));
-    }
-
-    private String formatDayLabel(LocalDate date, LocalDate today) {
-        if (date.equals(today)) {
-            return "today";
-        }
-        if (date.equals(today.plusDays(1))) {
-            return "tomorrow";
-        }
-        DayOfWeek dow = date.getDayOfWeek();
-        return dow.getDisplayName(TextStyle.FULL, Locale.UK);
     }
 }

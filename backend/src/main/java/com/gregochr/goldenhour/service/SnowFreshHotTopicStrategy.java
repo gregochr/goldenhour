@@ -2,16 +2,14 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.util.DayLabels;
 import org.springframework.stereotype.Component;
 
-import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -49,14 +47,18 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
     static final double SNOW_DEPTH_THRESHOLD_METRES = 0.02;
 
     private final SurvivorSignalReader survivorSignalReader;
+    private final SolarEventFreshness freshness;
 
     /**
      * Constructs a {@code SnowFreshHotTopicStrategy}.
      *
      * @param survivorSignalReader the unified survivor read model (snow depth + humidity readings)
+     * @param freshness            shared filter dropping sunrise/sunset events already past
      */
-    public SnowFreshHotTopicStrategy(SurvivorSignalReader survivorSignalReader) {
+    public SnowFreshHotTopicStrategy(SurvivorSignalReader survivorSignalReader,
+            SolarEventFreshness freshness) {
         this.survivorSignalReader = survivorSignalReader;
+        this.freshness = freshness;
     }
 
     /**
@@ -93,13 +95,18 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
         List<SurvivorSignals> snowy = survivorSignalReader.read(fromDate, toDate).stream()
                 .filter(s -> isFreshSnow(s.readings().snowDepthMetres()))
+                .filter(s -> freshness.isAhead(s.location(), s.date(), s.eventType()))
                 .sorted(Comparator.comparing(SurvivorSignals::date))
                 .toList();
         if (snowy.isEmpty()) {
             return List.of();
         }
 
-        LocalDate earliest = snowy.get(0).date();
+        List<LocalDate> days = snowy.stream()
+                .map(SurvivorSignals::date)
+                .distinct()
+                .sorted()
+                .toList();
         Set<String> regions = new LinkedHashSet<>();
         boolean misty = false;
         for (SurvivorSignals s : snowy) {
@@ -113,13 +120,13 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
             }
         }
 
-        String dayLabel = formatDayLabel(earliest, fromDate);
+        String dayLabel = DayLabels.joinRelative(days, fromDate);
         if (misty) {
             return List.of(new HotTopic(
                     "SNOW_MIST",
                     "Fresh snow with mist",
                     "Snow lying with mist — exceptional conditions " + dayLabel,
-                    earliest,
+                    days.get(0),
                     PRIORITY_MIST,
                     null,
                     new ArrayList<>(regions),
@@ -130,22 +137,11 @@ public class SnowFreshHotTopicStrategy implements HotTopicStrategy {
                 "SNOW_FRESH",
                 "Fresh snow",
                 "Snow lying — white landscapes " + dayLabel,
-                earliest,
+                days.get(0),
                 PRIORITY_FRESH,
                 null,
                 new ArrayList<>(regions),
                 FRESH_DESCRIPTION,
                 null));
-    }
-
-    private String formatDayLabel(LocalDate date, LocalDate today) {
-        if (date.equals(today)) {
-            return "today";
-        }
-        if (date.equals(today.plusDays(1))) {
-            return "tomorrow";
-        }
-        DayOfWeek dow = date.getDayOfWeek();
-        return dow.getDisplayName(TextStyle.FULL, Locale.UK);
     }
 }
