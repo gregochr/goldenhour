@@ -39,6 +39,9 @@ import java.time.ZonedDateTime;
  *                           simulation endpoint rather than real NOAA data
  * @param detectedAt         when the current alert level was first detected (state machine
  *                           entered ACTIVE or escalated), or {@code null} when IDLE
+ * @param gScale             NOAA geomagnetic storm scale label ({@code "G1"}–{@code "G5"}), or
+ *                           {@code null} below the G1 storm threshold; drives the banner's
+ *                           severity index ({@code Strong · G4})
  */
 public record AuroraStatusResponse(
         AlertLevel level,
@@ -56,5 +59,6 @@ public record AuroraStatusResponse(
         String dataSource,
         ZonedDateTime updatedAt,
         boolean simulated,
-        Instant detectedAt) {
+        Instant detectedAt,
+        String gScale) {
 }

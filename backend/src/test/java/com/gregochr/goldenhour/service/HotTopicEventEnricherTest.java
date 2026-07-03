@@ -1,0 +1,164 @@
+package com.gregochr.goldenhour.service;
+
+import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
+import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.repository.LocationRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.when;
+
+/**
+ * Unit tests for {@link HotTopicEventEnricher}.
+ */
+@ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
+class HotTopicEventEnricherTest {
+
+    private static final LocalDate DATE = LocalDate.of(2026, 7, 4); // summer — BST is UTC+1
+
+    @Mock
+    private SolarService solarService;
+    @Mock
+    private LocationRepository locationRepository;
+
+    private HotTopicEventEnricher enricher;
+
+    @BeforeEach
+    void setUp() {
+        enricher = new HotTopicEventEnricher(solarService, locationRepository);
+        LocationEntity dales = LocationEntity.builder()
+                .id(1L).name("Malham").lat(54.06).lon(-2.15)
+                .region(RegionEntity.builder().id(1L).name("Yorkshire Dales").build())
+                .enabled(true).build();
+        lenient().when(locationRepository.findAllByEnabledTrueOrderByNameAsc())
+                .thenReturn(List.of(dales));
+        // 03:43 UTC → 04:43 London (BST); 20:41 UTC → 21:41 London; 21:47 UTC → 22:47 London.
+        lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), eq(DATE)))
+                .thenReturn(LocalDateTime.of(2026, 7, 4, 3, 43));
+        lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), eq(DATE)))
+                .thenReturn(LocalDateTime.of(2026, 7, 4, 20, 41));
+        lenient().when(solarService.civilDuskUtc(anyDouble(), anyDouble(), eq(DATE)))
+                .thenReturn(LocalDateTime.of(2026, 7, 4, 21, 47));
+    }
+
+    private HotTopic topic(String type, ExpandedHotTopicDetail expanded) {
+        return new HotTopic(type, type, "detail", DATE, 2, null,
+                List.of("Yorkshire Dales"), "desc", expanded);
+    }
+
+    private HotTopic enrichOne(HotTopic input) {
+        return enricher.enrich(List.of(input)).get(0);
+    }
+
+    @Test
+    @DisplayName("INVERSION → SUNRISE with the London-local sunrise time")
+    void inversion_sunrise() {
+        HotTopic result = enrichOne(topic("INVERSION", null));
+        assertThat(result.eventType()).isEqualTo("SUNRISE");
+        assertThat(result.eventTime()).isEqualTo("04:43");
+    }
+
+    @Test
+    @DisplayName("DUST → SUNSET with the London-local sunset time")
+    void dust_sunset() {
+        HotTopic result = enrichOne(topic("DUST", null));
+        assertThat(result.eventType()).isEqualTo("SUNSET");
+        assertThat(result.eventTime()).isEqualTo("21:41");
+    }
+
+    @Test
+    @DisplayName("AURORA → NIGHT with the civil-dusk window start")
+    void aurora_night() {
+        HotTopic result = enrichOne(topic("AURORA", null));
+        assertThat(result.eventType()).isEqualTo("NIGHT");
+        assertThat(result.eventTime()).isEqualTo("22:47");
+    }
+
+    @Test
+    @DisplayName("KING_TIDE follows the tide's sunrise alignment")
+    void kingTide_sunriseAligned() {
+        var tide = new ExpandedHotTopicDetail(null, null,
+                new ExpandedHotTopicDetail.TideMetrics("King", "Full", 3, 1));
+        HotTopic result = enrichOne(topic("KING_TIDE", tide));
+        assertThat(result.eventType()).isEqualTo("SUNRISE");
+        assertThat(result.eventTime()).isEqualTo("04:43");
+    }
+
+    @Test
+    @DisplayName("SPRING_TIDE follows the tide's sunset alignment when sunset dominates")
+    void springTide_sunsetAligned() {
+        var tide = new ExpandedHotTopicDetail(null, null,
+                new ExpandedHotTopicDetail.TideMetrics("Spring", "New", 0, 2));
+        HotTopic result = enrichOne(topic("SPRING_TIDE", tide));
+        assertThat(result.eventType()).isEqualTo("SUNSET");
+    }
+
+    @Test
+    @DisplayName("tide with no alignment gets no event")
+    void tide_noAlignment_noEvent() {
+        var tide = new ExpandedHotTopicDetail(null, null,
+                new ExpandedHotTopicDetail.TideMetrics("Spring", "New", 0, 0));
+        HotTopic result = enrichOne(topic("SPRING_TIDE", tide));
+        assertThat(result.eventType()).isNull();
+        assertThat(result.eventTime()).isNull();
+    }
+
+    @Test
+    @DisplayName("a type with no solar anchor (STORM_SURGE) passes through unchanged")
+    void stormSurge_noEvent() {
+        HotTopic result = enrichOne(topic("STORM_SURGE", null));
+        assertThat(result.eventType()).isNull();
+        assertThat(result.eventTime()).isNull();
+    }
+
+    @Test
+    @DisplayName("a topic with a null date is left untouched")
+    void nullDate_untouched() {
+        HotTopic dateless = new HotTopic("INVERSION", "Cloud inversion", "detail",
+                null, 2, null, List.of("Yorkshire Dales"), "desc", null);
+        HotTopic result = enrichOne(dateless);
+        assertThat(result.eventType()).isNull();
+    }
+
+    @Test
+    @DisplayName("an already-set event is preserved")
+    void existingEvent_preserved() {
+        HotTopic pre = topic("INVERSION", null).withEvent("SUNSET", "20:00");
+        HotTopic result = enrichOne(pre);
+        assertThat(result.eventType()).isEqualTo("SUNSET");
+        assertThat(result.eventTime()).isEqualTo("20:00");
+    }
+
+    @Test
+    @DisplayName("falls back to a UK-centre time when no region location resolves")
+    void noRegionLocation_usesFallback() {
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of());
+        HotTopic result = enrichOne(topic("INVERSION", null));
+        assertThat(result.eventType()).isEqualTo("SUNRISE");
+        assertThat(result.eventTime()).isEqualTo("04:43"); // solar stub is location-agnostic here
+    }
+
+    @Test
+    @DisplayName("empty and null input lists are handled")
+    void emptyAndNull_handled() {
+        assertThat(enricher.enrich(List.of())).isEmpty();
+        assertThat(enricher.enrich(null)).isEmpty();
+    }
+}

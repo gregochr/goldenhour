@@ -69,6 +69,79 @@ function msToMph(ms) {
 }
 
 /**
+ * Glyph + word for each photographic event, keyed by the topic's `eventType`.
+ * ↑ rising sun = sunrise, ↓ setting sun = sunset, ☾ moon = after dark.
+ */
+const EVENT_LEAD = {
+  SUNRISE: { glyph: '↑', word: 'sunrise' },
+  SUNSET: { glyph: '↓', word: 'sunset' },
+  NIGHT: { glyph: '☾', word: 'night' },
+};
+
+/**
+ * Compact day word for the timing lead: "Today" / "Tomorrow", or a short weekday ("Sat")
+ * for anything further out. Mirrors the relative-day logic in `formatDateLabel`.
+ *
+ * @param {string} dateStr ISO date (YYYY-MM-DD)
+ * @param {Date}   [now]   reference "today"
+ * @returns {string} the day word, or '' when the date is missing/invalid
+ */
+function leadDayWord(dateStr, now = new Date()) {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-').map(Number);
+  if (parts.length !== 3 || parts.some(Number.isNaN)) return '';
+  const [year, month, day] = parts;
+  const todayUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const targetUtc = Date.UTC(year, month - 1, day);
+  const diffDays = Math.round((targetUtc - todayUtc) / 86400000);
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Tomorrow';
+  return new Date(targetUtc).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
+}
+
+/**
+ * Normalises the topic's event time to a display "HH:mm". The API sends a bare 24-hour
+ * clock string already; an ISO datetime is tolerated defensively.
+ *
+ * @param {string} eventTime "HH:mm" or ISO datetime
+ * @returns {string|null} the clock time, or null when absent/invalid
+ */
+function formatEventTime(eventTime) {
+  if (!eventTime) return null;
+  if (eventTime.includes('T')) {
+    const d = new Date(eventTime);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+  }
+  return eventTime;
+}
+
+// Relative day vocabulary the backend embeds in `detail` (via DayLabels) — a run of day
+// tokens joined by "and" / commas, optionally trailed by "night" ("tomorrow night").
+const RELATIVE_DAY = '(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)';
+const RELATIVE_PHRASE = new RegExp(
+  `\\s*\\b${RELATIVE_DAY}(?:\\s+night)?(?:(?:,\\s*|\\s+and\\s+)${RELATIVE_DAY}(?:\\s+night)?)*\\b`,
+  'gi',
+);
+
+/**
+ * Strips the now-redundant relative-time phrase from a detail string once the structured
+ * timing lead carries the day. Used for display only — the raw `detail` still drives the
+ * aurora tonight/tomorrow join. Leaves detail untouched when it holds no relative phrase.
+ *
+ * @param {string} detail the topic detail prose
+ * @returns {string} the detail with its relative-day phrase removed and separators tidied
+ */
+function stripRelativePhrase(detail) {
+  if (!detail) return detail;
+  let out = detail.replace(RELATIVE_PHRASE, ' ');
+  out = out.replace(/\s{2,}/g, ' ').trim();
+  // Tidy separators left dangling by the removal (e.g. "horizon  — 64" or a trailing dash).
+  out = out.replace(/\s+—\s*$/, '').replace(/[·,]\s*$/, '').trim();
+  return out;
+}
+
+/**
  * Resolves the aurora summary object for an AURORA topic's date.
  * Matches topic.date against today/tomorrow to select the right object.
  */
@@ -454,12 +527,23 @@ export default function HotTopicStrip({
 
   if (!hotTopics || hotTopics.length === 0) return null;
 
+  // Order chronologically so a reader sees all of one day's topics together
+  // (Saturday, then Sunday, then Monday). Within a day, fall back to the
+  // server-assigned priority, then type, for a stable order.
+  const orderedTopics = [...hotTopics].sort((a, b) => {
+    const dateCmp = String(a.date ?? '').localeCompare(String(b.date ?? ''));
+    if (dateCmp !== 0) return dateCmp;
+    const prioCmp = (a.priority ?? 99) - (b.priority ?? 99);
+    if (prioCmp !== 0) return prioCmp;
+    return String(a.type ?? '').localeCompare(String(b.type ?? ''));
+  });
+
   return (
     <div
       data-testid="hot-topic-strip"
       className="hot-topic-grid"
     >
-      {hotTopics.map((topic) => {
+      {orderedTopics.map((topic) => {
         const style = HOT_TOPIC_STYLES[topic.type] ?? DEFAULT_STYLE;
         const isAurora = topic.type === 'AURORA';
         const pillKey = `${topic.type}-${topic.date}`;
@@ -554,7 +638,9 @@ export default function HotTopicStrip({
                 )}
               </span>
 
-              {/* Detail sentence — single line, ellipsis-truncated */}
+              {/* Detail sentence — single line, ellipsis-truncated. When the topic carries a
+                  structured event, lead with "{glyph} {day} {event} · {time}" in the topic's
+                  accent, then the plain condition (relative-day prose stripped for display). */}
               <span
                 data-testid={`topic-detail-${topic.type}`}
                 style={{
@@ -567,7 +653,32 @@ export default function HotTopicStrip({
                   whiteSpace: 'nowrap',
                 }}
               >
-                {topic.detail}
+                {(() => {
+                  const ev = topic.eventType ? EVENT_LEAD[topic.eventType] : null;
+                  if (!ev) return topic.detail;
+                  const time = formatEventTime(topic.eventTime);
+                  const dayWord = leadDayWord(topic.date);
+                  const detailText = stripRelativePhrase(topic.detail);
+                  return (
+                    <>
+                      <span
+                        data-testid={`topic-timing-lead-${topic.type}`}
+                        style={{
+                          fontFamily: 'var(--font-mono)',
+                          fontWeight: 600,
+                          color: style.color,
+                        }}
+                      >
+                        {ev.glyph} {[dayWord, ev.word].filter(Boolean).join(' ')}
+                        {time ? ` · ${time}` : ''}
+                      </span>
+                      {detailText && (
+                        <span style={{ color: 'var(--color-plex-text-muted)' }}> — </span>
+                      )}
+                      {detailText}
+                    </>
+                  );
+                })()}
               </span>
 
               {/* Region count — just the number, never the inline list */}
@@ -658,6 +769,8 @@ HotTopicStrip.propTypes = {
       regions: PropTypes.arrayOf(PropTypes.string),
       description: PropTypes.string,
       expandedDetail: PropTypes.object,
+      eventType: PropTypes.oneOf(['SUNRISE', 'SUNSET', 'NIGHT']),
+      eventTime: PropTypes.string,
     }),
   ).isRequired,
   isLiteUser: PropTypes.bool,

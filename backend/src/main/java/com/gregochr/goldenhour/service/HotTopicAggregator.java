@@ -23,6 +23,7 @@ public class HotTopicAggregator {
     private final List<HotTopicStrategy> strategies;
     private final HotTopicSimulationService simulationService;
     private final TravelDayService travelDayService;
+    private final HotTopicEventEnricher eventEnricher;
 
     /**
      * Constructs a {@code HotTopicAggregator} with all registered strategies.
@@ -30,13 +31,16 @@ public class HotTopicAggregator {
      * @param strategies        all {@link HotTopicStrategy} beans in the application context
      * @param simulationService admin simulation override service
      * @param travelDayService  suppresses topics dated on a travel day (operator is away)
+     * @param eventEnricher     fills in each topic's photographic event type and time
      */
     public HotTopicAggregator(List<HotTopicStrategy> strategies,
                                HotTopicSimulationService simulationService,
-                               TravelDayService travelDayService) {
+                               TravelDayService travelDayService,
+                               HotTopicEventEnricher eventEnricher) {
         this.strategies = strategies;
         this.simulationService = simulationService;
         this.travelDayService = travelDayService;
+        this.eventEnricher = eventEnricher;
     }
 
     /**
@@ -51,15 +55,18 @@ public class HotTopicAggregator {
      * @return sorted list of hot topics; never null
      */
     public List<HotTopic> getHotTopics(LocalDate fromDate, LocalDate toDate) {
+        List<HotTopic> topics;
         if (simulationService.isEnabled()) {
-            return simulationService.getSimulatedTopics(fromDate, toDate);
+            topics = simulationService.getSimulatedTopics(fromDate, toDate);
+        } else {
+            topics = strategies.stream()
+                    .flatMap(s -> s.detect(fromDate, toDate).stream())
+                    // Suppress topics dated on a travel day — the operator is away and can't act on
+                    // them ("Spring tide today", "Aurora tomorrow night" are noise when in London).
+                    .filter(topic -> topic.date() == null || !travelDayService.isTravelDay(topic.date()))
+                    .sorted()
+                    .toList();
         }
-        return strategies.stream()
-                .flatMap(s -> s.detect(fromDate, toDate).stream())
-                // Suppress topics dated on a travel day — the operator is away and can't act on
-                // them ("Spring tide today", "Aurora tomorrow night" are noise when you're in London).
-                .filter(topic -> topic.date() == null || !travelDayService.isTravelDay(topic.date()))
-                .sorted()
-                .toList();
+        return eventEnricher.enrich(topics);
     }
 }

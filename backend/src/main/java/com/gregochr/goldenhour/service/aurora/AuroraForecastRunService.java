@@ -379,22 +379,7 @@ public class AuroraForecastRunService {
      * @return G-scale string ("G1"–"G5") or null if below the G1 threshold
      */
     String gScaleFromKp(double kp) {
-        if (kp < 5.0) {
-            return null;
-        }
-        if (kp < 6.0) {
-            return "G1";
-        }
-        if (kp < 7.0) {
-            return "G2";
-        }
-        if (kp < 8.0) {
-            return "G3";
-        }
-        if (kp < 9.0) {
-            return "G4";
-        }
-        return "G5";
+        return AlertLevel.gScaleFromKp(kp);
     }
 
     /**

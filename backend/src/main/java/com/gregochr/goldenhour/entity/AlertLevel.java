@@ -84,4 +84,33 @@ public enum AlertLevel {
         }
         return QUIET;
     }
+
+    /**
+     * Maps a NOAA Kp index to its geomagnetic storm G-scale label.
+     *
+     * <p>NOAA mapping: G1 = Kp5, G2 = Kp6, G3 = Kp7, G4 = Kp8, G5 = Kp9. Returns
+     * {@code null} below the G1 storm threshold (Kp &lt; 5) or when {@code kp} is
+     * {@code null}, so the UI shows the level word alone with no empty scale.
+     *
+     * @param kp Kp index (0–9), or {@code null} when unknown
+     * @return uppercase G-scale label {@code "G1"}–{@code "G5"}, or {@code null}
+     */
+    public static String gScaleFromKp(Double kp) {
+        if (kp == null || kp < 5.0) {
+            return null;
+        }
+        if (kp < 6.0) {
+            return "G1";
+        }
+        if (kp < 7.0) {
+            return "G2";
+        }
+        if (kp < 8.0) {
+            return "G3";
+        }
+        if (kp < 9.0) {
+            return "G4";
+        }
+        return "G5";
+    }
 }

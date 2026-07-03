@@ -45,6 +45,29 @@ class AlertLevelTest {
         assertThat(AlertLevel.fromKp(kp)).isEqualTo(expected);
     }
 
+    @ParameterizedTest(name = "gScaleFromKp({0}) = {1}")
+    @CsvSource({
+        "4.9, ",
+        "5.0, G1",
+        "5.9, G1",
+        "6.0, G2",
+        "7.0, G3",
+        "8.0, G4",
+        "8.67, G4",
+        "9.0, G5",
+        "12.0, G5"
+    })
+    @DisplayName("gScaleFromKp maps Kp values to NOAA storm scale, null below G1")
+    void gScaleFromKp_mapping(double kp, String expected) {
+        assertThat(AlertLevel.gScaleFromKp(kp)).isEqualTo(expected);
+    }
+
+    @Test
+    @DisplayName("gScaleFromKp returns null for a null Kp")
+    void gScaleFromKp_null() {
+        assertThat(AlertLevel.gScaleFromKp(null)).isNull();
+    }
+
     @Test
     @DisplayName("hexColour is non-blank for all levels")
     void hexColourNonBlank() {

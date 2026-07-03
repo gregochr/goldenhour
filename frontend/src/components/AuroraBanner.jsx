@@ -86,9 +86,70 @@ const SIM_BORDER_STYLE = `
       rgba(255,255,255,0.08) 6px,
       rgba(255,255,255,0.08) 12px
     );
-    border: 2px dashed rgba(255, 255, 255, 0.6);
+    border-color: rgba(255, 255, 255, 0.35) !important;
+    border-style: dashed !important;
   }
 `;
+
+/**
+ * Direction A styling — a calm dark banner where severity is carried by an
+ * accent rail, an aurora roundel and a labelled pill rather than a flat neon
+ * fill. All colour is derived from the single CSS variable --aurora-accent
+ * (set from the API hexColour) via color-mix, so amber→red escalation and any
+ * future level slot in automatically.
+ */
+const AURORA_A_STYLE = `
+  .aurora-a { position: relative; overflow: hidden; border: 1px solid var(--color-plex-border); }
+  .aurora-a .aurora-rail { position: absolute; top: 0; bottom: 0; left: 0; width: 4px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--aurora-accent) 82%, white 14%), var(--aurora-accent)); }
+  .aurora-a .aurora-glow { position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--aurora-accent) 30%, transparent) 0%, transparent 46%);
+    opacity: 0.55; }
+  .aurora-a .aurora-inner { position: relative; z-index: 1; display: flex; gap: 14px; align-items: flex-start; }
+  .aurora-roundel { width: 42px; height: 42px; border-radius: 11px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(155deg, color-mix(in srgb, var(--aurora-accent) 88%, white 6%), color-mix(in srgb, var(--aurora-accent) 52%, black 36%)); }
+  .aurora-roundel svg { width: 26px; height: 26px; }
+  .aurora-body { flex: 1; min-width: 0; }
+  .aurora-top { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+  .aurora-sev { font-size: 10px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 5px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+    background: color-mix(in srgb, var(--aurora-accent) 16%, transparent);
+    color: color-mix(in srgb, var(--aurora-accent) 42%, white);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--aurora-accent) 42%, transparent); }
+  .aurora-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--aurora-accent);
+    box-shadow: 0 0 7px var(--aurora-accent); }
+  .aurora-when { font-size: 10px; font-weight: 500; letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--color-plex-text-muted); }
+  .aurora-when [data-testid="aurora-banner-detected"] { color: var(--color-plex-text-secondary); }
+  .aurora-title { font-size: 15px; font-weight: 700; line-height: 1.3; margin-top: 7px;
+    color: var(--color-plex-text); text-wrap: pretty; }
+  .aurora-meta { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin-top: 8px;
+    font-size: 12px; color: var(--color-plex-text-secondary); }
+  .aurora-meta .aurora-kp { font-weight: 600; color: var(--color-plex-text); }
+  .aurora-meta .aurora-kp strong.italic { font-weight: 700; font-style: italic; }
+  .aurora-div { width: 1px; height: 12px; background: var(--color-plex-border); display: inline-block; }
+  .aurora-cta { font-weight: 600; color: color-mix(in srgb, var(--aurora-accent) 42%, white); }
+  .aurora-sub { font-size: 12px; color: var(--color-plex-text-secondary); margin-top: 5px; }
+  .aurora-x { color: var(--color-plex-text-secondary); font-size: 17px; line-height: 1; flex-shrink: 0;
+    width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+    border-radius: 6px; background: transparent; border: 0; cursor: pointer; }
+  .aurora-x:hover { background: rgba(255,255,255,0.06); color: var(--color-plex-text); }
+`;
+
+/** Aurora "curtains" glyph used in the roundel. */
+function AuroraGlyph() {
+  return (
+    <svg viewBox="0 0 28 28" fill="none" aria-hidden="true">
+      <g stroke="#fff" strokeWidth="1.5" strokeLinecap="round" opacity="0.92">
+        <path d="M6 23c0-9 2-15 4-15" />
+        <path d="M12 23c0-11 2-17 4-17" />
+        <path d="M18 23c0-9 2-14 4-14" />
+      </g>
+      <circle cx="22" cy="5" r="1.6" fill="#fff" />
+    </svg>
+  );
+}
 
 /**
  * Full-width aurora alert banner displayed when NOAA SWPC reports a moderate or strong alert.
@@ -146,14 +207,18 @@ export default function AuroraBanner() {
   const bzInfo = bz != null ? bzStatus(bz) : null;
   const bzText = bzInfo ? `${bzInfo.emoji} ${bzInfo.label} — ${bzInfo.explanation}` : null;
 
-  const actionHint = isSimulated
-    ? 'Go to Forecast Runs → Aurora to generate scores'
-    : locationText
-      ? `${locationText} · Tap to view on map`
-      : null;
+  const actionCta = isSimulated ? 'Generate scores →' : 'View on map →';
 
   const viewlineSummary = !isSimulated && viewline?.active ? viewline.summary : null;
-  const subtitleParts = [kpText, actionHint].filter(Boolean);
+
+  // Severity presentation. The accent hue comes from the API (amber for
+  // MODERATE, red for STRONG); the level word + optional NOAA G-scale make the
+  // escalation legible in text, not just colour.
+  const accent = status.hexColour || '#F5991F';
+  const levelWord = { MODERATE: 'Moderate', STRONG: 'Strong', SEVERE: 'Severe', EXTREME: 'Extreme' }[status.level]
+    || (status.level ? status.level.charAt(0) + status.level.slice(1).toLowerCase() : 'Alert');
+  const gScale = status.gScale || null;
+  const sevLabel = gScale ? `${levelWord} · ${gScale}` : levelWord;
 
   const isFavourable = !isSimulated && !isForecastTrigger && bz != null && bz < -1;
 
@@ -164,6 +229,7 @@ export default function AuroraBanner() {
 
   return (
     <>
+      <style>{AURORA_A_STYLE}</style>
       {isFavourable && <style>{PULSE_STYLE}</style>}
       {isSimulated && <style>{SIM_BORDER_STYLE}</style>}
       {/* eslint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
@@ -171,10 +237,11 @@ export default function AuroraBanner() {
         role="alert"
         data-testid="aurora-banner"
         style={{
-          backgroundColor: status.hexColour,
+          '--aurora-accent': accent,
+          backgroundColor: 'var(--color-plex-surface)',
           animation: isFavourable ? 'aurora-pulse 3s ease-in-out infinite' : undefined,
         }}
-        className={`px-4 py-2 rounded-lg text-white cursor-pointer select-none${isSimulated ? ' aurora-banner-simulated' : ''}`}
+        className={`aurora-a px-4 py-3 rounded-xl select-none cursor-pointer${isSimulated ? ' aurora-banner-simulated' : ''}`}
         onClick={() => {
           window.location.hash = isSimulated ? 'manage' : 'map';
         }}
@@ -184,50 +251,66 @@ export default function AuroraBanner() {
         tabIndex={0}
       >
       {/* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <span className="text-lg shrink-0" aria-hidden="true">{isSimulated ? '🧪' : '🌌'}</span>
-            <div className="min-w-0">
-              <p className="text-sm font-bold leading-tight">
-                {isSimulated
-                  ? 'SIMULATED — '
-                  : isForecastTrigger
-                    ? 'Aurora Forecast — '
-                    : 'Aurora Active Now — '}
-                {!isSimulated && !isForecastTrigger && detectedLabel && <><span data-testid="aurora-banner-detected">Detected {detectedLabel}</span> — </>}
-                {status.description}
-              </p>
-              {subtitleParts.length > 0 && (
-                <p className="text-xs opacity-90 mt-0.5">
-                  {subtitleParts.map((part, i) => (
-                    <React.Fragment key={i}>
-                      {i > 0 && ' · '}
-                      {part}
-                      {i === 0 && isForecastTrigger && <strong className="italic">tonight</strong>}
-                    </React.Fragment>
-                  ))}
-                </p>
-              )}
-              {allOvercast && (
-                <p data-testid="aurora-banner-overcast" className="text-xs opacity-90 mt-0.5">
-                  All locations overcast — no clear skies forecast <strong className="italic">tonight</strong>
-                </p>
-              )}
-              {!isSimulated && bzText && (
-                <p data-testid="aurora-banner-bz" className="text-xs opacity-90 mt-0.5">{bzText}</p>
-              )}
-              {viewlineSummary && (
-                <p data-testid="aurora-banner-viewline" className="text-xs opacity-90 mt-0.5">
-                  🌌 {viewlineSummary}
-                </p>
-              )}
-            </div>
+        <div className="aurora-rail" />
+        <div className="aurora-glow" />
+        <div className="aurora-inner">
+          <div className="aurora-roundel">
+            {isSimulated ? <span style={{ fontSize: '20px' }} aria-hidden="true">🧪</span> : <AuroraGlyph />}
           </div>
+          <div className="aurora-body">
+            <div className="aurora-top">
+              <span className="aurora-sev">
+                <span className="aurora-dot" />
+                {isSimulated ? `${sevLabel} · simulated` : sevLabel}
+              </span>
+              <span className="aurora-when">
+                {isSimulated
+                  ? 'Simulated'
+                  : isForecastTrigger
+                    ? 'Aurora Forecast'
+                    : 'Aurora Active Now'}
+                {!isSimulated && !isForecastTrigger && detectedLabel && (
+                  <>
+                    {' · '}
+                    <span data-testid="aurora-banner-detected">Detected {detectedLabel}</span>
+                  </>
+                )}
+              </span>
+            </div>
+
+            <p className="aurora-title">{status.description}</p>
+
+            <p className="aurora-meta">
+              {kpText && (
+                <span className="aurora-kp">
+                  {kpText}
+                  {isForecastTrigger && <strong className="italic">tonight</strong>}
+                </span>
+              )}
+              {kpText && locationText && <span className="aurora-div" aria-hidden="true" />}
+              {locationText && <span>{locationText}</span>}
+              {(kpText || locationText) && <span className="aurora-div" aria-hidden="true" />}
+              <span className="aurora-cta">{actionCta}</span>
+            </p>
+
+            {allOvercast && (
+              <p data-testid="aurora-banner-overcast" className="aurora-sub">
+                All locations overcast — no clear skies forecast <strong className="italic">tonight</strong>
+              </p>
+            )}
+            {!isSimulated && bzText && (
+              <p data-testid="aurora-banner-bz" className="aurora-sub">{bzText}</p>
+            )}
+            {viewlineSummary && (
+              <p data-testid="aurora-banner-viewline" className="aurora-sub">🌌 {viewlineSummary}</p>
+            )}
+          </div>
+
           <button
             onClick={handleDismiss}
             aria-label="Dismiss aurora banner"
             data-testid="aurora-banner-dismiss"
-            className="text-white opacity-80 hover:opacity-100 text-lg shrink-0 px-2 -mr-2"
+            className="aurora-x"
           >
             ✕
           </button>
