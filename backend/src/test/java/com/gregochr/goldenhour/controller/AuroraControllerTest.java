@@ -329,7 +329,8 @@ class AuroraControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.kp").value(7.0))
                 .andExpect(jsonPath("$.ovationProbability").value(45.0))
                 .andExpect(jsonPath("$.bzNanoTesla").value(-12.0))
-                .andExpect(jsonPath("$.level").value("STRONG"));
+                .andExpect(jsonPath("$.level").value("STRONG"))
+                .andExpect(jsonPath("$.gScale").value("G3"));
     }
 
     @Test
@@ -341,5 +342,19 @@ class AuroraControllerTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/aurora/status"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.simulated").value(false));
+    }
+
+    @Test
+    @DisplayName("GET /api/aurora/status derives the G-scale from the alert's trigger Kp")
+    @WithMockUser(roles = {"ADMIN"})
+    void getStatus_live_derivesGScaleFromTriggerKp() throws Exception {
+        when(stateCache.isSimulated()).thenReturn(false);
+        when(stateCache.getCurrentLevel()).thenReturn(AlertLevel.STRONG);
+        when(stateCache.getCachedScores()).thenReturn(List.of());
+        when(stateCache.getLastTriggerKp()).thenReturn(8.0);
+
+        mockMvc.perform(get("/api/aurora/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.gScale").value("G4"));
     }
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import HotTopicStrip from '../components/HotTopicStrip.jsx';
 
@@ -2252,5 +2252,103 @@ describe('HotTopicStrip — aurora moon line lives in the expanded card', () => 
     expect(moon.textContent).toContain('96%');
     expect(moon.textContent).toContain('moon above horizon all night');
     expect(moon.className).toContain('text-red-400');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Timing lead — day + event + time (Option B)
+// ---------------------------------------------------------------------------
+
+describe('HotTopicStrip — timing lead', () => {
+  // Pin the clock so the relative day word ("Today" / "Tomorrow" / weekday) is deterministic.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-07-03T12:00:00Z')); // Friday
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const leadTopic = (overrides = {}) => ({
+    type: 'INVERSION',
+    label: 'CLOUD INVERSION',
+    detail: 'Strong inversion likely at elevated locations',
+    date: '2026-07-03',
+    priority: 2,
+    regions: ['Yorkshire Dales'],
+    ...overrides,
+  });
+
+  it('leads a sunrise topic with ↑ glyph, day word, event and time', () => {
+    render(<HotTopicStrip hotTopics={[leadTopic({ eventType: 'SUNRISE', eventTime: '04:43' })]} />);
+    const lead = screen.getByTestId('topic-timing-lead-INVERSION');
+    expect(lead.textContent).toContain('↑');
+    expect(lead.textContent).toContain('Today');
+    expect(lead.textContent).toContain('sunrise');
+    expect(lead.textContent).toContain('· 04:43');
+  });
+
+  it('leads a sunset topic with ↓ glyph and "sunset"', () => {
+    render(<HotTopicStrip hotTopics={[leadTopic({ type: 'DUST', label: 'DUST', eventType: 'SUNSET', eventTime: '21:41' })]} />);
+    const lead = screen.getByTestId('topic-timing-lead-DUST');
+    expect(lead.textContent).toContain('↓');
+    expect(lead.textContent).toContain('sunset');
+    expect(lead.textContent).toContain('· 21:41');
+  });
+
+  it('leads a night topic with ☾ glyph and "night"', () => {
+    render(<HotTopicStrip hotTopics={[leadTopic({ type: 'NLC', label: 'NLC', eventType: 'NIGHT', eventTime: '22:47' })]} />);
+    const lead = screen.getByTestId('topic-timing-lead-NLC');
+    expect(lead.textContent).toContain('☾');
+    expect(lead.textContent).toContain('night');
+    expect(lead.textContent).toContain('· 22:47');
+  });
+
+  it('uses "Tomorrow" for the next day and a short weekday further out', () => {
+    render(<HotTopicStrip hotTopics={[leadTopic({ eventType: 'SUNRISE', eventTime: '04:44', date: '2026-07-04' })]} />);
+    expect(screen.getByTestId('topic-timing-lead-INVERSION').textContent).toContain('Tomorrow');
+
+    render(<HotTopicStrip hotTopics={[leadTopic({ eventType: 'SUNRISE', eventTime: '04:45', date: '2026-07-11' })]} />);
+    // 2026-07-11 is a Saturday, several days out → short weekday
+    expect(screen.getAllByTestId('topic-timing-lead-INVERSION').pop().textContent).toContain('Sat');
+  });
+
+  it('omits the clock time when eventTime is absent', () => {
+    render(<HotTopicStrip hotTopics={[leadTopic({ eventType: 'SUNRISE', eventTime: null })]} />);
+    const lead = screen.getByTestId('topic-timing-lead-INVERSION');
+    expect(lead.textContent).toContain('sunrise');
+    expect(lead.textContent).not.toContain('·');
+  });
+
+  it('renders no lead and leaves detail verbatim when eventType is absent', () => {
+    render(<HotTopicStrip hotTopics={[leadTopic({ detail: 'Strong inversion likely today and tomorrow' })]} />);
+    expect(screen.queryByTestId('topic-timing-lead-INVERSION')).not.toBeInTheDocument();
+    expect(screen.getByTestId('topic-detail-INVERSION').textContent).toContain('today and tomorrow');
+  });
+
+  it('strips the redundant relative-day phrase from detail when a lead is shown', () => {
+    render(<HotTopicStrip hotTopics={[leadTopic({
+      detail: 'Strong inversion likely at elevated locations today and tomorrow',
+      eventType: 'SUNRISE',
+      eventTime: '04:43',
+    })]} />);
+    const detail = screen.getByTestId('topic-detail-INVERSION');
+    expect(detail.textContent).toContain('Strong inversion likely at elevated locations');
+    expect(detail.textContent).not.toContain('today and tomorrow');
+    // The lead still carries the day.
+    expect(screen.getByTestId('topic-timing-lead-INVERSION').textContent).toContain('Today');
+  });
+
+  it('strips an embedded "tomorrow night" phrase and tidies the separator', () => {
+    render(<HotTopicStrip hotTopics={[leadTopic({
+      type: 'NLC',
+      label: 'NLC',
+      detail: 'Clear northern horizon tomorrow night — 64 dark-sky locations',
+      eventType: 'NIGHT',
+      eventTime: '22:47',
+    })]} />);
+    const detail = screen.getByTestId('topic-detail-NLC');
+    expect(detail.textContent).toContain('Clear northern horizon — 64 dark-sky locations');
+    expect(detail.textContent).not.toContain('tomorrow night');
   });
 });

@@ -887,7 +887,7 @@ describe('HeatmapGrid — day header solar times', () => {
     expect(header.textContent).toContain('19:42');
   });
 
-  it('sunrise emoji precedes sunrise time, sunset emoji precedes sunset time — not swapped', () => {
+  it('sunrise glyph precedes sunrise time, sunset glyph precedes sunset time — not swapped', () => {
     // Distinct UTC times so a swap would fail: sunrise 04:58→05:58 BST, sunset 18:42→19:42 BST
     const days = [buildDayWithTimes(DATE_1, `${DATE_1}T04:58:00`, `${DATE_1}T18:42:00`)];
 
@@ -898,16 +898,17 @@ describe('HeatmapGrid — day header solar times', () => {
 
     const header = screen.getByTestId('heatmap-day-solar-times');
     const text = header.textContent;
-    const sunrisePos = text.indexOf('🌅');
-    const sunsetPos = text.indexOf('🌇');
-    // Each emoji should appear exactly once and sunrise should come before sunset
+    // The calendar chip uses clean ↑ / ↓ glyphs rather than 🌅 / 🌇 emoji.
+    const sunrisePos = text.indexOf('↑');
+    const sunsetPos = text.indexOf('↓');
+    // Each glyph should appear exactly once and sunrise should come before sunset
     expect(sunrisePos).toBeGreaterThanOrEqual(0);
     expect(sunsetPos).toBeGreaterThanOrEqual(0);
     expect(sunrisePos).toBeLessThan(sunsetPos);
-    // The sunrise time (05:58) must appear between the two emojis
-    const betweenEmojis = text.slice(sunrisePos, sunsetPos);
-    expect(betweenEmojis).toContain('05:58');
-    // The sunset time (19:42) must appear after the sunset emoji
+    // The sunrise time (05:58) must appear between the two glyphs
+    const betweenGlyphs = text.slice(sunrisePos, sunsetPos);
+    expect(betweenGlyphs).toContain('05:58');
+    // The sunset time (19:42) must appear after the sunset glyph
     expect(text.slice(sunsetPos)).toContain('19:42');
   });
 
@@ -931,9 +932,9 @@ describe('HeatmapGrid — day header solar times', () => {
     });
 
     const header = screen.getByTestId('heatmap-day-solar-times');
-    expect(header.textContent).toContain('🌇');
+    expect(header.textContent).toContain('↓');
     expect(header.textContent).toContain('19:42');
-    expect(header.textContent).not.toContain('🌅');
+    expect(header.textContent).not.toContain('↑');
   });
 
   it('renders no solar-times element when no slot has a solarEventTime', () => {

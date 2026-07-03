@@ -61,6 +61,16 @@ function getDayLabel(dateStr, todayStr, tomorrowStr) {
   return d.toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
 }
 
+// Calendar-tile parts: short weekday ("Sat") and day-of-month number ("4").
+function getCalDow(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00Z');
+  return d.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
+}
+function getCalDayNum(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00Z');
+  return d.toLocaleDateString('en-GB', { day: 'numeric', timeZone: 'UTC' });
+}
+
 /**
  * Returns data for a specific region × date × targetType cell.
  * Returns null if the region/event doesn't exist or all events are past.
@@ -905,37 +915,87 @@ export default function HeatmapGrid({
       </div>
       {dayGroups.map(({ date, count }) => {
         const times = solarTimesPerDate.get(date);
+        const isToday = date === todayStr;
         return (
           <div
             key={date}
             data-testid="heatmap-day-header"
-            className="text-center py-1 px-1"
+            className="flex flex-col items-center py-1 px-1"
             style={{ gridColumn: `span ${count}` }}
           >
-            <div className="font-semibold text-plex-text" style={{ fontSize: '13px' }}>
-              {getDayLabel(date, todayStr, tomorrowStr)}
-            </div>
-            <div className="text-plex-text-secondary" style={{ fontSize: '11px' }}>
-              {getShortDate(date)}
+            {/* Calendar chip: weekday-over-number tile + relative day + solar times */}
+            <div
+              className="inline-flex items-center gap-2 rounded-lg"
+              style={{
+                padding: '5px 10px 5px 5px',
+                border: isToday
+                  ? '1px solid color-mix(in srgb, var(--color-plex-gold) 50%, transparent)'
+                  : '1px solid var(--color-plex-border)',
+                background: isToday
+                  ? 'color-mix(in srgb, var(--color-plex-gold) 8%, transparent)'
+                  : 'var(--color-plex-surface)',
+              }}
+            >
+              <div
+                className="flex flex-col items-center rounded-md"
+                style={{
+                  lineHeight: 1,
+                  padding: '4px 8px',
+                  background: isToday
+                    ? 'color-mix(in srgb, var(--color-plex-gold) 16%, transparent)'
+                    : 'rgba(255,255,255,0.05)',
+                }}
+              >
+                <span
+                  className="font-mono font-semibold uppercase"
+                  style={{ fontSize: '8px', letterSpacing: '0.09em', color: isToday ? 'var(--color-plex-gold)' : 'var(--color-plex-text-muted)' }}
+                >
+                  {getCalDow(date)}
+                </span>
+                <span
+                  className="font-mono font-semibold"
+                  style={{ fontSize: '18px', marginTop: '1px', color: isToday ? 'var(--color-plex-gold)' : 'var(--color-plex-text)' }}
+                >
+                  {getCalDayNum(date)}
+                </span>
+              </div>
+              <div className="flex flex-col items-start" style={{ gap: '2px' }}>
+                <span
+                  className="font-semibold"
+                  style={{ fontSize: '11px', color: isToday ? 'var(--color-plex-gold)' : 'var(--color-plex-text)' }}
+                >
+                  {getDayLabel(date, todayStr, tomorrowStr)}
+                </span>
+                {(times?.sunriseTime || times?.sunsetTime) && (
+                  <span
+                    data-testid="heatmap-day-solar-times"
+                    className="flex text-plex-text-muted"
+                    style={{ fontSize: '10px', gap: '8px', fontVariantNumeric: 'tabular-nums' }}
+                  >
+                    {times.sunriseTime && (
+                      <span>
+                        <span className="font-mono" style={{ color: 'var(--color-plex-text-muted)', marginRight: '1px' }} aria-hidden="true">{'↑'}</span>
+                        {formatTime(times.sunriseTime)}
+                      </span>
+                    )}
+                    {times.sunsetTime && (
+                      <span>
+                        <span className="font-mono" style={{ color: 'var(--color-plex-text-muted)', marginRight: '1px' }} aria-hidden="true">{'↓'}</span>
+                        {formatTime(times.sunsetTime)}
+                      </span>
+                    )}
+                  </span>
+                )}
+              </div>
             </div>
             {travelDayDates.has(date) && (
               <div
                 data-testid="heatmap-travel-day-badge"
                 title="You're away on this day — forecast not executed"
-                className="mt-0.5 inline-block text-plex-text-muted border border-plex-border rounded-full px-1.5"
+                className="mt-1 inline-block text-plex-text-muted border border-plex-border rounded-full px-1.5"
                 style={{ fontSize: '10px' }}
               >
                 ✈️ Away — no forecast
-              </div>
-            )}
-            {(times?.sunriseTime || times?.sunsetTime) && (
-              <div
-                data-testid="heatmap-day-solar-times"
-                className="text-plex-text-muted flex justify-center gap-2 flex-wrap mt-0.5"
-                style={{ fontSize: '10px' }}
-              >
-                {times.sunriseTime && <span>🌅{formatTime(times.sunriseTime)}</span>}
-                {times.sunsetTime && <span>🌇{formatTime(times.sunsetTime)}</span>}
               </div>
             )}
           </div>

@@ -161,7 +161,7 @@ describe('AuroraBanner', () => {
     expect(screen.queryByText(/location/i)).not.toBeInTheDocument();
   });
 
-  it('uses hexColour from API as background style', () => {
+  it('drives the accent colour from the API hexColour', () => {
     renderBanner({
       level: 'STRONG',
       hexColour: '#ff0000',
@@ -170,7 +170,33 @@ describe('AuroraBanner', () => {
       eligibleLocations: 5,
     });
     const banner = screen.getByTestId('aurora-banner');
-    expect(banner.style.backgroundColor).toBe('rgb(255, 0, 0)');
+    // The alert hue now feeds an accent rail/roundel via a CSS variable rather
+    // than filling the whole banner as a flat neon block.
+    expect(banner.style.getPropertyValue('--aurora-accent')).toBe('#ff0000');
+  });
+
+  it('shows the NOAA G-scale beside the level word when gScale is present', () => {
+    renderBanner({
+      level: 'STRONG',
+      hexColour: '#ff0000',
+      description: 'Red alert',
+      active: true,
+      eligibleLocations: 5,
+      gScale: 'G4',
+    });
+    expect(screen.getByText(/Strong · G4/)).toBeInTheDocument();
+  });
+
+  it('shows the level word alone when gScale is absent', () => {
+    renderBanner({
+      level: 'STRONG',
+      hexColour: '#ff0000',
+      description: 'Red alert',
+      active: true,
+      eligibleLocations: 5,
+    });
+    expect(screen.getByText('Strong')).toBeInTheDocument();
+    expect(screen.queryByText(/·\s*G\d/)).not.toBeInTheDocument();
   });
 
   // ---------------------------------------------------------------------------

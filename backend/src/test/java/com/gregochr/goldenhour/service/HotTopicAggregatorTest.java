@@ -12,6 +12,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -28,16 +29,21 @@ class HotTopicAggregatorTest {
 
     private HotTopicSimulationService simulationService;
     private final TravelDayService travelDayService = mock(TravelDayService.class);
+    private final HotTopicEventEnricher eventEnricher = mock(HotTopicEventEnricher.class);
 
     @BeforeEach
     void setUp() {
         simulationService = new HotTopicSimulationService();
+        // Passthrough — the enrichment of event type/time is exercised in its own test; here we
+        // assert the aggregator's collect/filter/sort behaviour on the topics unchanged.
+        when(eventEnricher.enrich(anyList())).thenAnswer(inv -> inv.getArgument(0));
     }
 
     @Test
     @DisplayName("empty detector list returns empty topics")
     void getHotTopics_noDetectors_returnsEmpty() {
-        HotTopicAggregator aggregator = new HotTopicAggregator(List.of(), simulationService, travelDayService);
+        HotTopicAggregator aggregator = new HotTopicAggregator(
+                List.of(), simulationService, travelDayService, eventEnricher);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -56,7 +62,7 @@ class HotTopicAggregatorTest {
         HotTopicStrategy strategy2 = (from, to) -> List.of(topic2);
 
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(strategy1, strategy2), simulationService, travelDayService);
+                List.of(strategy1, strategy2), simulationService, travelDayService, eventEnricher);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -75,7 +81,7 @@ class HotTopicAggregatorTest {
 
         HotTopicStrategy strategy = (from, to) -> List.of(away, workable);
         HotTopicAggregator aggregator =
-                new HotTopicAggregator(List.of(strategy), simulationService, travelDayService);
+                new HotTopicAggregator(List.of(strategy), simulationService, travelDayService, eventEnricher);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -90,7 +96,8 @@ class HotTopicAggregatorTest {
         HotTopic medPriorityLaterDate = new HotTopic("C", "C", "c", FROM.plusDays(1), 2, null, List.of(), null, null);
 
         HotTopicStrategy strategy = (from, to) -> List.of(lowPriority, medPriorityLaterDate, highPriority);
-        HotTopicAggregator aggregator = new HotTopicAggregator(List.of(strategy), simulationService, travelDayService);
+        HotTopicAggregator aggregator = new HotTopicAggregator(
+                List.of(strategy), simulationService, travelDayService, eventEnricher);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -104,7 +111,7 @@ class HotTopicAggregatorTest {
     void getHotTopics_detectorReturnsEmpty_noError() {
         HotTopicStrategy emptyStrategy = (from, to) -> List.of();
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(emptyStrategy), simulationService, travelDayService);
+                List.of(emptyStrategy), simulationService, travelDayService, eventEnricher);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -122,7 +129,7 @@ class HotTopicAggregatorTest {
         };
 
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(neverCalledStrategy), simulationService, travelDayService);
+                List.of(neverCalledStrategy), simulationService, travelDayService, eventEnricher);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -137,7 +144,8 @@ class HotTopicAggregatorTest {
 
         HotTopic realTopic = new HotTopic("SPRING_TIDE", "Spring tide", "real", FROM, 1, null, List.of(), null, null);
         HotTopicStrategy strategy = (from, to) -> List.of(realTopic);
-        HotTopicAggregator aggregator = new HotTopicAggregator(List.of(strategy), simulationService, travelDayService);
+        HotTopicAggregator aggregator = new HotTopicAggregator(
+                List.of(strategy), simulationService, travelDayService, eventEnricher);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -158,7 +166,7 @@ class HotTopicAggregatorTest {
         when(mockStrategy1.detect(FROM, TO)).thenReturn(List.of());
         when(mockStrategy2.detect(FROM, TO)).thenReturn(List.of());
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(mockStrategy1, mockStrategy2), simulationService, travelDayService);
+                List.of(mockStrategy1, mockStrategy2), simulationService, travelDayService, eventEnricher);
 
         aggregator.getHotTopics(FROM, TO);
 
@@ -172,7 +180,7 @@ class HotTopicAggregatorTest {
         simulationService.setEnabled(true);
         simulationService.setTypeActive("BLUEBELL", true);
         HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(mockStrategy1), simulationService, travelDayService);
+                List.of(mockStrategy1), simulationService, travelDayService, eventEnricher);
 
         aggregator.getHotTopics(FROM, TO);
 

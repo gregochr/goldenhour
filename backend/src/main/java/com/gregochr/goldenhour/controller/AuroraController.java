@@ -65,6 +65,7 @@ public class AuroraController {
         Double kp = null;
         Double ovation = null;
         Double bz = null;
+        String gScale = null;
         ZonedDateTime updatedAt = null;
 
         if (stateCache.isSimulated()) {
@@ -73,6 +74,7 @@ public class AuroraController {
             kp = simData.kp();
             ovation = simData.ovationProbability();
             bz = simData.bzNanoTesla();
+            gScale = simData.gScale();
             updatedAt = ZonedDateTime.now(ZoneOffset.UTC);
         } else {
             try {
@@ -99,6 +101,15 @@ public class AuroraController {
         String triggerTypeStr = lastTrigger == null ? null
                 : (lastTrigger == TriggerType.FORECAST_LOOKAHEAD ? "forecast" : "realtime");
 
+        if (!stateCache.isSimulated()) {
+            // Derive the storm scale from the Kp that drove the alert (the forecast trigger Kp
+            // where present, else the latest live Kp), so the banner's severity index tracks
+            // amber-vs-red escalation. Null below the G1 storm threshold.
+            Double severityKp = stateCache.getLastTriggerKp() != null
+                    ? stateCache.getLastTriggerKp() : kp;
+            gScale = AlertLevel.gScaleFromKp(severityKp);
+        }
+
         return ResponseEntity.ok(new AuroraStatusResponse(
                 level,
                 level.hexColour(),
@@ -115,7 +126,8 @@ public class AuroraController {
                 DATA_SOURCE,
                 updatedAt != null ? updatedAt : ZonedDateTime.now(ZoneOffset.UTC),
                 stateCache.isSimulated(),
-                stateCache.getActiveSince()));
+                stateCache.getActiveSince(),
+                gScale));
     }
 
     /**

@@ -250,6 +250,59 @@ class HotTopicJsonTest {
         assertThat(topic.description()).isEqualTo("Bluebell season desc.");
     }
 
+    // ── eventType / eventTime fields ─────────────────────────────────────────
+
+    @Test
+    @DisplayName("eventType / eventTime null are omitted from serialised JSON")
+    void eventFields_null_omittedFromJson() throws Exception {
+        HotTopic topic = new HotTopic(
+                "INVERSION", "Cloud inversion", "Strong inversion likely",
+                LocalDate.of(2026, 7, 4), 2, null,
+                List.of("Yorkshire Dales"), "desc", null);
+
+        String json = mapper.writeValueAsString(topic);
+
+        assertThat(json).doesNotContain("eventType");
+        assertThat(json).doesNotContain("eventTime");
+    }
+
+    @Test
+    @DisplayName("eventType / eventTime round-trip through JSON")
+    void eventFields_roundTrip() throws Exception {
+        HotTopic original = new HotTopic(
+                "INVERSION", "Cloud inversion", "Strong inversion likely",
+                LocalDate.of(2026, 7, 4), 2, null,
+                List.of("Yorkshire Dales"), "desc", null)
+                .withEvent("SUNRISE", "04:43");
+
+        HotTopic restored = mapper.readValue(mapper.writeValueAsString(original), HotTopic.class);
+
+        assertThat(restored.eventType()).isEqualTo("SUNRISE");
+        assertThat(restored.eventTime()).isEqualTo("04:43");
+    }
+
+    @Test
+    @DisplayName("cached JSON without event fields deserialises cleanly — fields are null")
+    void cachedJson_withoutEventFields_deserialisesCleanly() throws Exception {
+        String json = """
+                {
+                  "type": "INVERSION",
+                  "label": "Cloud inversion",
+                  "detail": "Strong inversion likely today",
+                  "date": "2026-07-04",
+                  "priority": 2,
+                  "regions": ["Yorkshire Dales"],
+                  "description": "Inversion desc."
+                }
+                """;
+
+        HotTopic topic = mapper.readValue(json, HotTopic.class);
+
+        assertThat(topic.eventType()).isNull();
+        assertThat(topic.eventTime()).isNull();
+        assertThat(topic.type()).isEqualTo("INVERSION");
+    }
+
     // ── compareTo ordering ──────────────────────────────────────────────────
 
     @Test
