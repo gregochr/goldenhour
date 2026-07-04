@@ -84,4 +84,18 @@ public record DailyBriefingResponse(
                 stale, partialFailure, failedLocationCount, bestBetModel, hotTopics,
                 seasonalFeatures, null);
     }
+
+    /**
+     * Returns a copy of this response with the day hierarchy replaced. All other fields
+     * (headline, best bets, aurora, hot topics, status flags) are preserved. Used by the
+     * serve-time re-enrichment path to swap in regions with freshly re-derived verdicts.
+     *
+     * @param newDays the replacement day hierarchy
+     * @return a copy carrying {@code newDays}
+     */
+    public DailyBriefingResponse withDays(List<BriefingDay> newDays) {
+        return new DailyBriefingResponse(generatedAt, headline, newDays, bestBets,
+                auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
+                bestBetModel, hotTopics, seasonalFeatures, bestBetStatus);
+    }
 }

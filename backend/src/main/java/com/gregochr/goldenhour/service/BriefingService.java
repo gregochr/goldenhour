@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingRefreshedEvent;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
+import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
@@ -259,7 +260,35 @@ public class BriefingService {
      */
     public DailyBriefingResponse getCachedBriefingForApi() {
         return applyBestBetFallback(
-                BriefingHonestyFilter.apply(getCachedBriefing(), minCoverageRatio));
+                BriefingHonestyFilter.apply(
+                        reEnrichVerdicts(getCachedBriefing()), minCoverageRatio));
+    }
+
+    /**
+     * Re-derives each region's Claude-rating rollup (slot scores, {@code displayVerdict},
+     * {@code scoredLocationCount}, gloss validity) from the <em>current</em> evaluation state at
+     * serve time, so the verdict a cell shows never lags behind the rating batch that has since
+     * re-scored it.
+     *
+     * <p>The region {@code displayVerdict} is otherwise frozen when the briefing is built
+     * (every ~8h), while the per-location scores the frontend badges are read live through
+     * {@link EvaluationViewService}. That gap let a stale "Worth it" label sit above a fresh low
+     * rating. Re-running the same enrichment used at build time — sourced from the same
+     * {@link EvaluationViewService} the badge reads — makes the label and the rating coherent by
+     * construction, with no logic pushed into the render layer.
+     *
+     * <p>Scoped to the API read path only, for the same reason as {@link BriefingHonestyFilter}:
+     * internal callers of {@link #getCachedBriefing()} (batch task collector, model-comparison
+     * harness) need the untransformed triage slots to decide what to evaluate.
+     *
+     * @param response the cached briefing (may be {@code null})
+     * @return a copy whose regions carry freshly re-derived verdicts, or {@code null} if input was
+     */
+    private DailyBriefingResponse reEnrichVerdicts(DailyBriefingResponse response) {
+        if (response == null) {
+            return null;
+        }
+        return response.withDays(enrichWithCachedScores(response.days()));
     }
 
     /**
@@ -526,16 +555,26 @@ public class BriefingService {
                                 region.regionName(), day.date(), es.targetType(),
                                 region.verdict());
                     }
+                    DisplayVerdict freshVerdict = BriefingRatingStats
+                            .resolveRegionDisplayVerdict(stats, region.verdict());
+                    // A gloss is Claude prose written against the verdict that held when the
+                    // briefing was built. When read-time re-enrichment moves the verdict —
+                    // a batch re-scored the region after build — that prose can now contradict
+                    // the fresh rating (a glowing gloss on a downgraded cell). Drop it rather
+                    // than show copy that disagrees with the score; regenerating would cost a
+                    // Claude call. At build time the gloss is still null (generated afterwards),
+                    // so this is a no-op on the write path.
+                    boolean verdictChanged = region.displayVerdict() != freshVerdict;
+                    String glossHeadline = verdictChanged ? null : region.glossHeadline();
+                    String glossDetail = verdictChanged ? null : region.glossDetail();
                     enrichedRegions.add(new BriefingRegion(
                             region.regionName(), region.verdict(), region.summary(),
                             region.tideHighlights(), enrichedSlots,
                             region.regionTemperatureCelsius(),
                             region.regionApparentTemperatureCelsius(),
                             region.regionWindSpeedMs(), region.regionWeatherCode(),
-                            region.glossHeadline(), region.glossDetail(),
-                            BriefingRatingStats.resolveRegionDisplayVerdict(
-                                    stats, region.verdict()),
-                            stats.count()));
+                            glossHeadline, glossDetail,
+                            freshVerdict, stats.count()));
                 }
                 enrichedEvents.add(new BriefingEventSummary(
                         es.targetType(), enrichedRegions, es.unregioned()));
