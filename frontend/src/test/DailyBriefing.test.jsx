@@ -18,6 +18,15 @@ vi.mock('../api/settingsApi.js', () => ({
   getDriveTimes: vi.fn(() => Promise.resolve({})),
 }));
 
+/**
+ * The full briefing grid is collapsed by default — open it before asserting grid content.
+ */
+async function openFullGrid() {
+  const expander = await screen.findByTestId('grid-expander');
+  fireEvent.click(expander);
+  await waitFor(() => screen.getByTestId('briefing-heatmap'));
+}
+
 vi.mock('../api/hotTopicSimulationApi.js', () => ({
   getSimulationState: vi.fn(() => Promise.resolve({ enabled: false })),
 }));
@@ -1610,13 +1619,14 @@ describe('DailyBriefing', () => {
       getDailyBriefing.mockResolvedValue(buildBriefing());
       render(<DailyBriefing />);
       await waitFor(() => screen.getByTestId('daily-briefing'));
+      await openFullGrid();
       expect(screen.getByTestId('briefing-heatmap')).toBeInTheDocument();
     });
 
     it('renders day-column headers', async () => {
       getDailyBriefing.mockResolvedValue(buildBriefing());
       render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+      await openFullGrid();
       const headers = screen.getAllByTestId('heatmap-day-header');
       expect(headers.length).toBeGreaterThanOrEqual(1);
       // First header shows "Tomorrow" for the standard fixture
@@ -1641,7 +1651,7 @@ describe('DailyBriefing', () => {
         days: [makeDay(day1), makeDay(day2), makeDay(day3)],
       });
       render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+      await openFullGrid();
       const headers = screen.getAllByTestId('heatmap-day-header');
       expect(headers).toHaveLength(3);
       // Tomorrow label on first
@@ -1666,7 +1676,7 @@ describe('DailyBriefing', () => {
         ],
       });
       render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+      await openFullGrid();
       const headers = screen.getAllByTestId('heatmap-day-header');
       // Only 1 future day column
       expect(headers).toHaveLength(1);
@@ -1675,7 +1685,7 @@ describe('DailyBriefing', () => {
     it('renders heatmap cells for each region × day combination', async () => {
       getDailyBriefing.mockResolvedValue(buildBriefing());
       render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+      await openFullGrid();
       const cells = screen.getAllByTestId('heatmap-cell');
       expect(cells.length).toBeGreaterThanOrEqual(1);
     });
@@ -1683,7 +1693,7 @@ describe('DailyBriefing', () => {
     it('STANDDOWN cells are disabled and not interactive', async () => {
       getDailyBriefing.mockResolvedValue(buildBriefing());
       render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+      await openFullGrid();
       const cells = screen.getAllByTestId('heatmap-cell');
       const disabledCells = cells.filter((c) => c.getAttribute('aria-disabled') === 'true');
       expect(disabledCells.length).toBeGreaterThanOrEqual(1);
@@ -1692,7 +1702,7 @@ describe('DailyBriefing', () => {
     it('clicking a GO heatmap cell opens drill-down panel', async () => {
       getDailyBriefing.mockResolvedValue(buildBriefing());
       render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+      await openFullGrid();
 
       const cells = screen.getAllByTestId('heatmap-cell');
       const enabledCell = cells.find((c) => !c.disabled);
@@ -1721,7 +1731,7 @@ describe('DailyBriefing', () => {
         }],
       });
       render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+      await openFullGrid();
 
       const cells = screen.getAllByTestId('heatmap-cell');
       const enabled = cells.filter((c) => !c.disabled);
@@ -1739,7 +1749,7 @@ describe('DailyBriefing', () => {
     it('drill-down shows event rows for the selected region × day', async () => {
       getDailyBriefing.mockResolvedValue(buildBriefing());
       render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+      await openFullGrid();
 
       const cells = screen.getAllByTestId('heatmap-cell');
       const enabledCell = cells.find((c) => !c.disabled);
@@ -1753,7 +1763,7 @@ describe('DailyBriefing', () => {
     it('clicking a GO event in heatmap drill-down shows location slots', async () => {
       getDailyBriefing.mockResolvedValue(buildBriefing());
       render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+      await openFullGrid();
 
       const cells = screen.getAllByTestId('heatmap-cell');
       // Find the Lake District cell (GO sunset) by clicking the first enabled cell
@@ -1774,7 +1784,7 @@ describe('DailyBriefing', () => {
     it('GO cells in the grid show Worth it sunset label', async () => {
       getDailyBriefing.mockResolvedValue(buildBriefing());
       render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+      await openFullGrid();
       const cells = screen.getAllByTestId('heatmap-cell');
       const enabledCells = cells.filter((c) => !c.disabled);
       expect(enabledCells.length).toBeGreaterThanOrEqual(1);
@@ -1786,7 +1796,7 @@ describe('DailyBriefing', () => {
       localStorage.setItem('plannerQualityTier', JSON.stringify(5));
       getDailyBriefing.mockResolvedValue(buildBriefing());
       render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+      await openFullGrid();
       const cells = screen.getAllByTestId('heatmap-cell');
       const enabledCells = cells.filter((c) => !c.disabled);
       const marginalCell = enabledCells.find((c) => c.textContent.includes('Maybe sunrise'));
@@ -1912,7 +1922,7 @@ describe('DailyBriefing', () => {
         ],
       });
       render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+      await openFullGrid();
 
       // 6 event columns = 6 heatmap cells (1 region)
       const cells = screen.getAllByTestId('heatmap-cell');
@@ -1935,7 +1945,7 @@ describe('DailyBriefing', () => {
         ],
       });
       render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+      await openFullGrid();
 
       const headers = screen.getAllByTestId('heatmap-day-header');
       expect(headers).toHaveLength(2);
@@ -1955,7 +1965,7 @@ describe('DailyBriefing', () => {
         days,
       });
       render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+      await openFullGrid();
 
       const cells = screen.getAllByTestId('heatmap-cell');
       expect(cells).toHaveLength(6);

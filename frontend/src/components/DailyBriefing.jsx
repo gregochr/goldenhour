@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import HeatmapGrid from './HeatmapGrid.jsx';
 import SlotLocationName from './shared/SlotLocationName.jsx';
 import HotTopicStrip from './HotTopicStrip.jsx';
+import BriefingSummaryStrip from './BriefingSummaryStrip.jsx';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
 import { computeCellTier, isCellVisible, resolveRegionDisplay } from '../utils/tierUtils.js';
 import { formatEventTimeUk, formatTideHighlight, isTravelDate } from '../utils/conversions.js';
@@ -231,6 +232,60 @@ function getDayLabel(dateStr, todayStr, tomorrowStr) {
   if (dateStr === tomorrowStr) return 'Tomorrow';
   const d = new Date(dateStr + 'T12:00:00Z');
   return d.toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
+}
+
+/** Calendar-chip parts: short weekday ("Sat") and day-of-month number ("4"). */
+function getCalDow(dateStr) {
+  return new Date(dateStr + 'T12:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
+}
+function getCalDayNum(dateStr) {
+  return new Date(dateStr + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', timeZone: 'UTC' });
+}
+
+/**
+ * The summary strip caps shorter than the grid so it never implies a forecast further out than
+ * the model is confident about — today's + tomorrow's two solar events. Widening the window is
+ * this one constant.
+ */
+const STRIP_MAX_EVENTS = 4;
+
+/**
+ * Builds the summary-strip pill descriptors from the upcoming events — a deterministic roll-up of
+ * the same per-region verdicts the grid shows, so the strip can never disagree with it.
+ *
+ * @param {Array}  upcomingEvents  [{date, targetType}] already ordered
+ * @param {Array}  briefingDays    briefing.days
+ * @param {string} todayStr        today's ISO date
+ * @param {string} tomorrowStr     tomorrow's ISO date
+ * @param {Set}    travelDayDates  dates the operator is away
+ * @returns {Array} pill descriptors for {@link BriefingSummaryStrip}
+ */
+function buildSummaryPills(upcomingEvents, briefingDays, todayStr, tomorrowStr, travelDayDates) {
+  return upcomingEvents.slice(0, STRIP_MAX_EVENTS).map(({ date, targetType }) => {
+    const day = briefingDays.find((d) => d.date === date);
+    const es = (day?.eventSummaries || []).find((e) => e.targetType === targetType);
+    const counts = es ? getVerdictCounts(es) : { GO: 0, MARGINAL: 0, STANDDOWN: 0 };
+    const ratedCount = counts.GO + counts.MARGINAL;
+    const total = counts.GO + counts.MARGINAL + counts.STANDDOWN;
+    const peak = counts.GO > 0 ? 'go' : counts.MARGINAL > 0 ? 'maybe' : 'poor';
+    const peakLabel = peak === 'go' ? '◎ Worth it' : peak === 'maybe' ? 'Maybe' : 'All poor';
+    const countLabel = ratedCount > 0
+      ? `${ratedCount} ${ratedCount === 1 ? 'region' : 'regions'} rated`
+      : `${total} ${total === 1 ? 'region' : 'regions'}`;
+    return {
+      date,
+      targetType,
+      dow: getCalDow(date),
+      dayNum: getCalDayNum(date),
+      dayLabel: getDayLabel(date, todayStr, tomorrowStr),
+      eventTime: es ? formatTime(getEventTime(es)) : '',
+      peak,
+      peakLabel,
+      countLabel,
+      ratedCount,
+      isTravelDay: travelDayDates?.has(date) ?? false,
+    };
+  });
 }
 
 /**
@@ -905,6 +960,8 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
   const [openCardKeys, setOpenCardKeys] = useState(new Set()); // "date-regionName"
   const qualityTier = SHOW_ALL_TIER;
   const [showAllLocations, setShowAllLocations] = useLocalStorageState('showStanddownLocations', false);
+  // The full briefing grid is collapsed by default — the summary strip leads, the grid opens on demand.
+  const [gridExpanded, setGridExpanded] = useState(false);
   const intervalRef = useRef(null);
 
   // Evaluation scores hydrated from the batch-written cached_evaluation cache.
@@ -1107,6 +1164,11 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
     d.setDate(d.getDate() + 1);
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(d);
   })();
+
+  const summaryPills = useMemo(() => {
+    if (!briefing) return [];
+    return buildSummaryPills(upcomingEvents, briefing.days, todayStr, tomorrowStr, travelDayDates);
+  }, [briefing, upcomingEvents, todayStr, tomorrowStr, travelDayDates]);
 
   if (loading) {
     return (
@@ -1370,24 +1432,51 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
         )}
       </div>
 
-      {/* ── Desktop heatmap grid — always visible on sm+ ── */}
-      <HeatmapGrid
-        events={upcomingEvents}
-        sortedRegions={sortedRegions}
-        briefingDays={briefing.days}
-        qualityTier={qualityTier}
-        driveMap={driveMap}
-        typeMap={typeMap}
-        todayStr={todayStr}
-        tomorrowStr={tomorrowStr}
-        onShowOnMap={onShowOnMap}
-        evaluationScores={evaluationScores}
-        isPro={isPro}
-        astroScoresByDate={astroScoresByDate}
-        showAllLocations={showAllLocations}
-        onShowAllLocationsChange={setShowAllLocations}
-        travelDayDates={travelDayDates}
-      />
+      {/* ── Desktop: summary strip leads; the full grid sits behind an expander ── */}
+      <div className="hidden sm:block">
+        <BriefingSummaryStrip pills={summaryPills} onPillClick={onShowOnMap} />
+
+        {/* FULL BRIEFING divider + expander */}
+        <div className="flex items-center gap-3 mt-3 mb-1">
+          <span
+            className="font-mono uppercase text-plex-text-muted whitespace-nowrap"
+            style={{ fontSize: '11px', letterSpacing: '0.08em' }}
+          >
+            Full briefing
+          </span>
+          <span className="flex-1 border-t border-plex-border" />
+          <button
+            type="button"
+            data-testid="grid-expander"
+            aria-expanded={gridExpanded}
+            onClick={() => setGridExpanded((v) => !v)}
+            className="font-mono text-plex-text-secondary hover:text-plex-text border border-plex-border hover:border-plex-border-light rounded transition-colors"
+            style={{ fontSize: '11px', padding: '5px 10px' }}
+          >
+            {gridExpanded ? 'Collapse ▴' : 'Open full table ▾'}
+          </button>
+        </div>
+
+        {gridExpanded && (
+          <HeatmapGrid
+            events={upcomingEvents}
+            sortedRegions={sortedRegions}
+            briefingDays={briefing.days}
+            qualityTier={qualityTier}
+            driveMap={driveMap}
+            typeMap={typeMap}
+            todayStr={todayStr}
+            tomorrowStr={tomorrowStr}
+            onShowOnMap={onShowOnMap}
+            evaluationScores={evaluationScores}
+            isPro={isPro}
+            astroScoresByDate={astroScoresByDate}
+            showAllLocations={showAllLocations}
+            onShowAllLocationsChange={setShowAllLocations}
+            travelDayDates={travelDayDates}
+          />
+        )}
+      </div>
     </div>
   );
 }

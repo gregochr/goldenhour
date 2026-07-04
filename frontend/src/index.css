@@ -243,6 +243,23 @@
   visibility: visible;
 }
 
+/* Briefing summary strip — actionable pills lift on hover */
+.summary-pill-clickable {
+  transition: transform 0.12s ease, border-color 0.14s ease;
+}
+.summary-pill-clickable:hover {
+  transform: translateY(-2px);
+}
+
+/* Map overlay panel — rises in on open */
+@keyframes map-overlay-rise {
+  from { transform: translateY(14px) scale(0.99); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.map-overlay-panel {
+  animation: map-overlay-rise 0.2s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
 /* Bottom sheet slide-up animation */
 @keyframes slide-up {
   from { transform: translateY(100%); }
