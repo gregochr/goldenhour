@@ -100,7 +100,9 @@ describe('buildMapOverlay', () => {
       ctx(locations),
     );
     expect(ov.handoff.locationName).toBe('Buttermere');
-    expect(ov.focus).toBeNull();
+    // The single qualifying spot still restricts the map's markers to just it (names, no points).
+    expect(ov.focus.names).toEqual(['Buttermere']);
+    expect(ov.focus.points).toBeUndefined();
     expect(ov.subLine).toContain('Cloud inversion');
   });
 
@@ -115,8 +117,31 @@ describe('buildMapOverlay', () => {
       ctx(locations),
     );
     expect(ov.focus.points).toHaveLength(2);
+    expect(ov.focus.names).toEqual(['A', 'B']); // markers restricted to just the qualifying spots
     expect(ov.caption).toContain('2 spots');
     expect(ov.title).toBe('The Lake District');
+  });
+
+  it('a typed topic (bluebell) passes its filterAction so the map filters to that type', () => {
+    const locations = [
+      loc('Wood A', 'The Lake District', 3, { lat: 54.0, lon: -3.0, types: ['BLUEBELL'] }),
+      loc('Wood B', 'The Lake District', 3, { lat: 54.5, lon: -3.2, types: ['BLUEBELL'] }),
+    ];
+    const ov = buildMapOverlay(
+      { kind: 'region', region: 'The Lake District', date: DATE, eventType: 'SUNSET', locationNames: ['Wood A', 'Wood B'], label: 'Bluebell conditions', filterAction: 'BLUEBELL' },
+      ctx(locations),
+    );
+    expect(ov.handoff.filterAction).toBe('BLUEBELL');
+    expect(ov.focus.points).toHaveLength(2);
+  });
+
+  it('a topic without a location type carries a null filterAction', () => {
+    const locations = [loc('Buttermere', 'The Lake District', 4)];
+    const ov = buildMapOverlay(
+      { kind: 'region', region: 'The Lake District', date: DATE, eventType: 'SUNSET', locationNames: ['Buttermere'], label: 'Cloud inversion', filterAction: null },
+      ctx(locations),
+    );
+    expect(ov.handoff.filterAction).toBeNull();
   });
 
   it('topic trigger → filters and fits to the matching pins with a caption', () => {

@@ -339,7 +339,7 @@ function BluebellExpandedCard({ expandedDetail, topic, onShowOnMap = null, isLit
               type="button"
               data-testid="bluebell-region-link"
               onClick={canOpenMap ? () => onShowOnMap({
-                region: region.regionName, date: topic.date, label: topic.label, locationNames: topic.locationNames,
+                region: region.regionName, date: topic.date, label: topic.label, locationNames: topic.locationNames, filterAction: topic.filterAction,
               }) : undefined}
               disabled={!canOpenMap}
               className={canOpenMap ? 'hover:underline' : ''}
@@ -468,7 +468,7 @@ function TideExpandedCard({ expandedDetail, topic, onShowOnMap = null, isLiteUse
               type="button"
               data-testid="tide-region-link"
               onClick={canOpenMap ? () => onShowOnMap({
-                region: region.regionName, date: topic.date, label: topic.label, locationNames: topic.locationNames,
+                region: region.regionName, date: topic.date, label: topic.label, locationNames: topic.locationNames, filterAction: topic.filterAction,
               }) : undefined}
               disabled={!canOpenMap}
               className={canOpenMap ? 'hover:underline' : ''}
@@ -829,6 +829,7 @@ export default function HotTopicStrip({
                           date: topic.date,
                           label: topic.label,
                           locationNames: topic.locationNames,
+                          filterAction: topic.filterAction,
                         }) : undefined}
                         disabled={!canOpenMap}
                         className={canOpenMap ? 'hover:underline' : ''}

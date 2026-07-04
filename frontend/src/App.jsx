@@ -191,6 +191,7 @@ function AppInner() {
         eventType: dateOrHandoff.eventType,
         locationNames: dateOrHandoff.locationNames ?? null,
         label: dateOrHandoff.label ?? null,
+        filterAction: dateOrHandoff.filterAction ?? null,
       };
     } else if (locationName) {
       trigger = { kind: 'location', locationName, date: dateOrHandoff, eventType };

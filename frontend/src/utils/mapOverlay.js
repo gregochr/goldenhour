@@ -88,7 +88,7 @@ export function buildMapOverlay(trigger, ctx) {
       caption: matches.length > 0
         ? `◍ ${matches.length} ${matches.length === 1 ? 'location' : 'locations'} — tap a pin to open it`
         : null,
-      focus: points.length > 0 ? { points, nonce } : null,
+      focus: points.length > 0 ? { points, names: matches.map((l) => l.name), nonce } : null,
       handoff: { filterAction: trigger.filterAction, date },
     };
   }
@@ -137,7 +137,12 @@ export function buildMapOverlay(trigger, ctx) {
   const regionsInvolved = new Set(pool.map((r) => r.loc.regionName).filter(Boolean));
   const time = formatClock(pool.length > 0 ? solarTimeFor(pool[0].loc, date, eventType) : null);
 
-  // Hot-topic region with several qualifying spots → fit to them all with a caption.
+  const filterAction = trigger.filterAction ?? null;
+  // For a hot-topic drilldown, the qualifying names let the overlay's MapView render ONLY those
+  // spots (uniform across every topic — coastal, dark-sky, elevated, …), not just fit to them.
+  const qualifyingNames = qualifying ? pool.map((r) => r.loc.name) : null;
+
+  // Hot-topic region with several qualifying spots → show just those, fit to bounds, with a caption.
   if (qualifying && pool.length > 1) {
     const points = pool.map((r) => [r.loc.lat, r.loc.lon]);
     return {
@@ -147,8 +152,8 @@ export function buildMapOverlay(trigger, ctx) {
       narrativeHead: null,
       narrativeTone: 'standdown',
       caption: `◍ ${pool.length} spots — tap a pin to open it`,
-      focus: { points, nonce },
-      handoff: { eventType, date },
+      focus: { points, names: qualifyingNames, nonce },
+      handoff: { eventType, date, filterAction },
     };
   }
 
@@ -181,9 +186,13 @@ export function buildMapOverlay(trigger, ctx) {
     narrativeHead: bs?.summary ? `${label} ${eventWord(eventType)} · ${titleRegion}`.trim() : null,
     narrativeTone: tone,
     caption: null,
-    focus: null,
+    // A single qualifying spot still restricts the map's markers to just it (no points → the
+    // location handoff below does the fly + popup); non-topic single-region drilldowns don't restrict.
+    focus: qualifyingNames ? { names: qualifyingNames, nonce } : null,
     // A top location flies + opens its popup; without one, fall back to fitting the region's pins.
     // (Not both — they'd race the map camera.)
-    handoff: top ? { eventType, locationName: top.loc.name, date } : { eventType, region: titleRegion, date },
+    handoff: top
+      ? { eventType, locationName: top.loc.name, date, filterAction }
+      : { eventType, region: titleRegion, date, filterAction },
   };
 }
