@@ -343,7 +343,7 @@ function getNextEventType(locations, date) {
 
 const ALERT_WORTHY_LEVELS = new Set(['MODERATE', 'STRONG']);
 
-function MapView({ locations, date, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [] }) {
+function MapView({ locations, date, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null }) {
   const { role } = useAuth();
   const isMobile = useIsMobile();
   const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
@@ -480,6 +480,15 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
     // locations intentionally omitted (see the location handoff above).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handoffRegion, handoffNonce]);
+
+  // Map-overlay focus: fit the map to an arbitrary set of pins (a multi-region event or a hot
+  // topic's flagged locations). Re-fits when the focus nonce changes; a no-op on the Map tab.
+  useEffect(() => {
+    if (!focus?.points?.length) return;
+    // Deferred (async) like the region handoff above, so the fit runs after commit.
+    (async () => setFitBoundsTarget({ points: focus.points, key: focus.nonce ?? 0 }))();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.nonce]);
   const [tideClassifications, setTideClassifications] = useState({});
 
   // Inject popup width styles (desktop only)
@@ -1254,6 +1263,10 @@ MapView.propTypes = {
   briefingScores: PropTypes.instanceOf(Map),
   onForecastRun: PropTypes.func,
   seasonalFeatures: PropTypes.arrayOf(PropTypes.string),
+  focus: PropTypes.shape({
+    points: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
+    nonce: PropTypes.number,
+  }),
 };
 
 export default React.memo(MapView);

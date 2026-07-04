@@ -3,6 +3,8 @@ import { computeAutoSelection } from './utils/conversions.js';
 import ViewToggle from './components/ViewToggle.jsx';
 import DateStrip from './components/DateStrip.jsx';
 import MapView from './components/MapView.jsx';
+import MapOverlay from './components/MapOverlay.jsx';
+import { buildMapOverlay } from './utils/mapOverlay.js';
 import ManageView from './components/ManageView.jsx';
 import LoginPage from './components/LoginPage.jsx';
 import RegisterPage from './components/RegisterPage.jsx';
@@ -92,6 +94,8 @@ function AppInner() {
 
   /** Pending handoff from Plan tab to Map tab (event type to pre-select). */
   const [mapHandoff, setMapHandoff] = useState(null);
+  /** Map overlay opened over the Plan tab (null = closed). Reuses the same handoff/date as the Map tab. */
+  const [mapOverlay, setMapOverlay] = useState(null);
   /** Monotonic counter so repeat taps on the same location re-trigger the handoff. */
   const handoffNonce = useRef(0);
 
@@ -121,35 +125,6 @@ function AppInner() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, [isAdmin]);
   const [selectedDate, setSelectedDate] = useState(null);
-
-  /** Called from Plan tab drill-down — switches to Map tab with pre-selected date + event type or filter action. */
-  const handleShowOnMap = (dateOrHandoff, eventType, locationName = null) => {
-    if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.filterAction) {
-      // Hot Topic pill tap: { filterAction, date }
-      if (dateOrHandoff.date) {
-        setSelectedDate(dateOrHandoff.date);
-      }
-      setMapHandoff({ filterAction: dateOrHandoff.filterAction });
-    } else if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.region) {
-      // Best Bet "View on map": { region, date, eventType } — set the matching
-      // date + event and fit-bounds to the region's pins (the macro view).
-      if (dateOrHandoff.date) {
-        setSelectedDate(dateOrHandoff.date);
-      }
-      setMapHandoff({
-        eventType: dateOrHandoff.eventType,
-        region: dateOrHandoff.region,
-        nonce: handoffNonce.current++,
-      });
-    } else {
-      // Best Bet / drill-down: (date, eventType, locationName?).
-      // The nonce lets MapView re-trigger selection when the same location is
-      // tapped twice in a row (e.g. after the popup was dismissed).
-      setSelectedDate(dateOrHandoff);
-      setMapHandoff({ eventType, locationName, nonce: handoffNonce.current++ });
-    }
-    setViewMode('map');
-  };
 
   /** Aurora banner "View on map" — switch to the Map tab with the Aurora event pre-selected. */
   const handleAuroraViewOnMap = () => {
@@ -183,6 +158,11 @@ function AppInner() {
 
   // Default to today (or the nearest future date) when data loads.
   const todayStr = new Date().toISOString().slice(0, 10);
+  const tomorrowStr = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  })();
   const defaultDate = allDates.find((d) => d >= todayStr) ?? allDates[allDates.length - 1] ?? null;
   const autoDate = autoSelection?.date ?? null;
   const effectiveDate = (selectedDate && allDates.includes(selectedDate))
@@ -190,6 +170,40 @@ function AppInner() {
     : (autoDate && allDates.includes(autoDate))
       ? autoDate
       : defaultDate;
+
+  /**
+   * Called from any Plan-tab recommendation (Best Bet, Hot Topic, region row, grid cell, strip
+   * pill). Opens the map as an *overlay* over the Plan tab — focused on what was tapped — instead
+   * of a full tab switch, so the user keeps their place. The same handoff + date feed the Map tab,
+   * so "Open the full Map tab →" lands exactly where the overlay was focused.
+   */
+  const handleShowOnMap = (dateOrHandoff, eventType, locationName = null) => {
+    let trigger;
+    if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.filterAction) {
+      trigger = { kind: 'topic', filterAction: dateOrHandoff.filterAction, label: dateOrHandoff.label, date: dateOrHandoff.date };
+    } else if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.region) {
+      trigger = { kind: 'region', region: dateOrHandoff.region, date: dateOrHandoff.date, eventType: dateOrHandoff.eventType };
+    } else if (locationName) {
+      trigger = { kind: 'location', locationName, date: dateOrHandoff, eventType };
+    } else {
+      trigger = { kind: 'event', date: dateOrHandoff, eventType };
+    }
+
+    const nonce = handoffNonce.current++;
+    const overlay = buildMapOverlay(trigger, {
+      locations: visibleLocations, briefingScores, todayStr, tomorrowStr, nonce,
+    });
+    if (trigger.date) setSelectedDate(trigger.date);
+    // Keep the shared handoff in sync so the "Open the full Map tab →" escape hatch lands focused.
+    setMapHandoff({ ...overlay.handoff, nonce });
+    setMapOverlay({ ...overlay, nonce, date: trigger.date });
+  };
+
+  /** Close the overlay and hand off to the full Map tab, landing where the overlay was focused. */
+  const openFullMapTab = () => {
+    setMapOverlay(null);
+    setViewMode('map');
+  };
 
   // Show banner when a run completes, auto-dismiss after 15 seconds
   useEffect(() => {
@@ -422,6 +436,34 @@ function AppInner() {
           onClose={() => setShowSettings(false)}
           onDriveTimesRefreshed={refresh}
         />
+      )}
+
+      {mapOverlay && (
+        <MapOverlay
+          title={mapOverlay.title}
+          subLine={mapOverlay.subLine}
+          caption={mapOverlay.caption}
+          narrative={mapOverlay.narrative}
+          narrativeHead={mapOverlay.narrativeHead}
+          narrativeTone={mapOverlay.narrativeTone}
+          onClose={() => setMapOverlay(null)}
+          onOpenFullMap={openFullMapTab}
+        >
+          <MapView
+            locations={visibleLocations}
+            date={mapOverlay.date ?? effectiveDate}
+            autoEventType={autoSelection?.eventType ?? null}
+            handoffEventType={mapOverlay.handoff.eventType ?? null}
+            handoffFilterAction={mapOverlay.handoff.filterAction ?? null}
+            handoffLocationName={mapOverlay.handoff.locationName ?? null}
+            handoffRegion={mapOverlay.handoff.region ?? null}
+            handoffNonce={mapOverlay.nonce}
+            focus={mapOverlay.focus}
+            briefingScores={briefingScores}
+            onForecastRun={refresh}
+            seasonalFeatures={seasonalFeatures}
+          />
+        </MapOverlay>
       )}
     </div>
   );
