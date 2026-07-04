@@ -2,15 +2,11 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.SurvivorSignals;
-import com.gregochr.goldenhour.util.DayLabels;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Detects cloud inversion hot topics by reading the survivor surface ({@code forecast_score}).
@@ -69,9 +65,10 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
     /**
      * {@inheritDoc}
      *
-     * <p>Emits a single topic dated to the earliest non-expired strong-inversion morning, whose
-     * detail enumerates every such morning in the window and whose regions cover all of them.
-     * Returns empty when no strong-inversion row remains after dropping mornings already past.
+     * <p>Emits one topic per non-expired strong-inversion morning in the window — each dated to
+     * that morning and carrying only its regions — so a multi-day setup surfaces as an adjacent
+     * run of day cards rather than a single collapsed pill. Returns empty when no strong-inversion
+     * row remains after dropping mornings already past.
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
@@ -85,30 +82,12 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
             return List.of();
         }
 
-        List<LocalDate> days = strong.stream()
-                .map(SurvivorSignals::date)
-                .distinct()
-                .sorted()
-                .toList();
-        Set<String> regions = new LinkedHashSet<>();
-        for (SurvivorSignals row : strong) {
-            String region = row.location() != null && row.location().getRegion() != null
-                    ? row.location().getRegion().getName() : null;
-            if (region != null) {
-                regions.add(region);
-            }
-        }
-
-        return List.of(new HotTopic(
+        return PerDateHotTopicBuilder.perDate(
+                strong,
                 "INVERSION",
                 "Cloud inversion",
-                "Strong inversion likely at elevated locations "
-                        + DayLabels.joinRelative(days, fromDate),
-                days.get(0),
+                "Strong inversion likely at elevated locations",
                 PRIORITY,
-                null,
-                new ArrayList<>(regions),
-                INVERSION_DESCRIPTION,
-                null));
+                INVERSION_DESCRIPTION);
     }
 }

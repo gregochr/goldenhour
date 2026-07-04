@@ -16,11 +16,12 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Detects Spring Tide hot topics from the cached briefing triage data.
@@ -106,56 +107,41 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
         List<LocationEntity> coastalLocations = locationRepository.findCoastalLocations();
         LocationEntity representative =
                 coastalLocations.isEmpty() ? null : coastalLocations.get(0);
-
-        // Drop spring-tide days whose sunrise and sunset have both already passed.
-        List<BriefingDay> springDays = springCandidates.stream()
-                .filter(d -> !KingTideHotTopicStrategy.nonExpiredEvents(
-                        d.date(), representative, freshness).isEmpty())
-                .toList();
-        if (springDays.isEmpty()) {
-            return List.of();
-        }
-
-        List<LocalDate> springDates = springDays.stream().map(BriefingDay::date).toList();
-        LocalDate pillDate = springDates.get(0);
-        BriefingSlot.TideInfo springTide = findSpringTide(springDays.get(0));
-
-        Map<LocalDate, Map<TargetType, Long>> allAlignments = new LinkedHashMap<>();
-        for (BriefingDay day : springDays) {
-            allAlignments.put(day.date(),
-                    KingTideHotTopicStrategy.maskExpired(
-                            KingTideHotTopicStrategy.parseTideAlignmentCounts(
-                                    forecastEvaluationRepository, day.date()),
-                            KingTideHotTopicStrategy.nonExpiredEvents(
-                                    day.date(), representative, freshness)));
-        }
-
-        KingTideHotTopicStrategy.BestAlignment best =
-                KingTideHotTopicStrategy.findBestAlignment(allAlignments);
-        Map<TargetType, Long> bestCounts = best != null
-                ? allAlignments.get(best.date()) : Map.of();
-
         List<String> coastalRegions = extractRegionNames(coastalLocations);
-        String dateRange = KingTideHotTopicStrategy.formatDateRange(springDates, fromDate);
-        String alignmentInfo = best != null
-                ? KingTideHotTopicStrategy.buildAlignmentInfo(
-                        best, springDates.size() > 1, fromDate)
-                : null;
-        ExpandedHotTopicDetail expandedDetail =
-                KingTideHotTopicStrategy.buildExpandedDetail(
-                        coastalLocations, "Spring tide",
-                        springTide.lunarPhase(), bestCounts);
 
-        return List.of(new HotTopic(
-                "SPRING_TIDE",
-                "Spring tide",
-                buildSpringTideDetail(dateRange, alignmentInfo, coastalLocations.size()),
-                pillDate,
-                2,
-                null,
-                coastalRegions,
-                SPRING_TIDE_DESCRIPTION,
-                expandedDetail));
+        List<HotTopic> topics = new ArrayList<>();
+        for (BriefingDay day : springCandidates) {
+            LocalDate date = day.date();
+            // Drop spring-tide days whose sunrise and sunset have both already passed.
+            Set<TargetType> nonExpired =
+                    KingTideHotTopicStrategy.nonExpiredEvents(date, representative, freshness);
+            if (nonExpired.isEmpty()) {
+                continue;
+            }
+            Map<TargetType, Long> counts = KingTideHotTopicStrategy.maskExpired(
+                    KingTideHotTopicStrategy.parseTideAlignmentCounts(
+                            forecastEvaluationRepository, date), nonExpired);
+            KingTideHotTopicStrategy.BestAlignment best =
+                    KingTideHotTopicStrategy.findBestAlignment(Map.of(date, counts));
+            String alignmentInfo = best != null
+                    ? KingTideHotTopicStrategy.buildAlignmentInfo(best) : null;
+            BriefingSlot.TideInfo springTide = findSpringTide(day);
+            ExpandedHotTopicDetail expandedDetail =
+                    KingTideHotTopicStrategy.buildExpandedDetail(
+                            coastalLocations, "Spring tide", springTide.lunarPhase(), counts);
+
+            topics.add(new HotTopic(
+                    "SPRING_TIDE",
+                    "Spring tide",
+                    buildSpringTideDetail(alignmentInfo, coastalLocations.size()),
+                    date,
+                    2,
+                    null,
+                    coastalRegions,
+                    SPRING_TIDE_DESCRIPTION,
+                    expandedDetail));
+        }
+        return topics;
     }
 
     /**
@@ -205,23 +191,18 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
     }
 
     /**
-     * Builds the detail line for a spring tide pill, mirroring the king-tide format:
-     * {@code Spring tide [dateRange] · [alignmentInfo] · N coastal locations}.
+     * Builds the single-day detail line for a spring tide pill, mirroring the king-tide format:
+     * {@code [alignmentInfo] · N coastal locations}. The day is carried by the pill's timing lead.
      *
-     * @param dateRange     day range label (e.g. "today", "today through Saturday")
      * @param alignmentInfo best-alignment segment, or {@code null} when no non-expired alignment
      * @param coastalCount  total number of coastal locations
      * @return human-readable detail line
      */
-    static String buildSpringTideDetail(String dateRange, String alignmentInfo,
-            int coastalCount) {
-        StringBuilder sb = new StringBuilder("Spring tide ");
-        sb.append(dateRange);
-        if (alignmentInfo != null) {
-            sb.append(" · ").append(alignmentInfo);
-        } else {
-            sb.append(" · no sunrise or sunset alignment, but good coastal foreground");
-        }
+    static String buildSpringTideDetail(String alignmentInfo, int coastalCount) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(alignmentInfo != null
+                ? alignmentInfo
+                : "no sunrise or sunset alignment, but good coastal foreground");
         sb.append(" · ").append(coastalCount)
                 .append(coastalCount == 1 ? " coastal location" : " coastal locations");
         return sb.toString();

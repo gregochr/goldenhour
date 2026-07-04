@@ -78,7 +78,7 @@ class InversionHotTopicStrategyTest {
         assertThat(topic.type()).isEqualTo("INVERSION");
         assertThat(topic.priority()).isEqualTo(2);
         assertThat(topic.date()).isEqualTo(FROM);
-        assertThat(topic.detail()).endsWith("today");
+        assertThat(topic.detail()).isEqualTo("Strong inversion likely at elevated locations");
         assertThat(topic.regions()).containsExactly("The North York Moors");
     }
 
@@ -125,13 +125,13 @@ class InversionHotTopicStrategyTest {
 
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).date()).isEqualTo(FROM.plusDays(1));
-        assertThat(topics.get(0).detail()).endsWith("tomorrow");
+        assertThat(topics.get(0).detail()).isEqualTo("Strong inversion likely at elevated locations");
         assertThat(topics.get(0).regions()).containsExactly("Tomorrow Region");
     }
 
     @Test
-    @DisplayName("enumerates every non-expired morning; dates to the earliest")
-    void detect_multipleDays_enumeratesAll() {
+    @DisplayName("emits one card per non-expired morning, each with that day's regions")
+    void detect_multipleDays_onePerDate() {
         when(survivorSignalReader.read(FROM, TO))
                 .thenReturn(List.of(
                         signal(FROM.plusDays(2), "Northumberland", 9),
@@ -140,13 +140,14 @@ class InversionHotTopicStrategyTest {
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
-        assertThat(topics).hasSize(1);
-        HotTopic topic = topics.get(0);
-        assertThat(topic.date()).isEqualTo(FROM);
-        // Both mornings named (Wed 17th = today, Fri 19th = Friday); all regions collected.
-        assertThat(topic.detail()).endsWith("today and Friday");
-        assertThat(topic.regions())
-                .containsExactly("The North York Moors", "The Lake District", "Northumberland");
+        assertThat(topics).hasSize(2);
+        assertThat(topics).extracting(HotTopic::date)
+                .containsExactly(FROM, FROM.plusDays(2));
+        assertThat(topics.get(0).regions())
+                .containsExactly("The North York Moors", "The Lake District");
+        assertThat(topics.get(1).regions()).containsExactly("Northumberland");
+        // No spanning day phrase — the day is carried by each card's own date.
+        assertThat(topics).noneMatch(t -> t.detail().contains("and Friday"));
     }
 
     @Test

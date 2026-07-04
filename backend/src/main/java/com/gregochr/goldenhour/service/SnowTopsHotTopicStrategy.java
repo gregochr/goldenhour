@@ -2,15 +2,11 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.SurvivorSignals;
-import com.gregochr.goldenhour.util.DayLabels;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Detects snow-on-the-tops hot topics by reading persisted forecast evaluations.
@@ -66,10 +62,10 @@ public class SnowTopsHotTopicStrategy implements HotTopicStrategy {
     /**
      * {@inheritDoc}
      *
-     * <p>Emits a single topic dated to the earliest white-tops day, enumerating every white-tops
-     * day in the window (an all-day condition, so no solar-event cutoff applies) and covering all
-     * their regions. Returns empty when no row in the window has the freezing level far enough
-     * below summit elevation.
+     * <p>Emits one topic per white-tops day in the window (an all-day condition, so no solar-event
+     * cutoff applies), each dated to that day and carrying only its regions, so a multi-day cold
+     * snap surfaces as an adjacent run of day cards. Returns empty when no row in the window has the
+     * freezing level far enough below summit elevation.
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
@@ -82,29 +78,12 @@ public class SnowTopsHotTopicStrategy implements HotTopicStrategy {
             return List.of();
         }
 
-        List<LocalDate> days = white.stream()
-                .map(SurvivorSignals::date)
-                .distinct()
-                .sorted()
-                .toList();
-        Set<String> regions = new LinkedHashSet<>();
-        for (SurvivorSignals s : white) {
-            String region = s.location() != null && s.location().getRegion() != null
-                    ? s.location().getRegion().getName() : null;
-            if (region != null) {
-                regions.add(region);
-            }
-        }
-
-        return List.of(new HotTopic(
+        return PerDateHotTopicBuilder.perDate(
+                white,
                 "SNOW_TOPS",
                 "Snow on the fells",
-                "Tops white above the valleys " + DayLabels.joinRelative(days, fromDate),
-                days.get(0),
+                "Tops white above the valleys",
                 PRIORITY,
-                null,
-                new ArrayList<>(regions),
-                TOPS_DESCRIPTION,
-                null));
+                TOPS_DESCRIPTION);
     }
 }

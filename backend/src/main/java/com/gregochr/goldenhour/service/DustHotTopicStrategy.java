@@ -2,16 +2,12 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.SurvivorSignals;
-import com.gregochr.goldenhour.util.DayLabels;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Detects Saharan dust hot topics by reading persisted forecast evaluations.
@@ -82,10 +78,10 @@ public class DustHotTopicStrategy implements HotTopicStrategy {
     /**
      * {@inheritDoc}
      *
-     * <p>Emits a single topic dated to the earliest non-expired dust-enhanced day, whose detail
-     * enumerates every such day in the window and whose regions cover all of them. Rows whose
-     * sunrise/sunset has already passed are dropped ({@link SolarEventFreshness}). Returns empty
-     * when no remaining row meets the dust proxy.
+     * <p>Emits one topic per non-expired dust-enhanced day in the window, each dated to that day
+     * and carrying only its regions, so a multi-day dust episode surfaces as an adjacent run of day
+     * cards. Rows whose sunrise/sunset has already passed are dropped ({@link SolarEventFreshness}).
+     * Returns empty when no remaining row meets the dust proxy.
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
@@ -99,30 +95,12 @@ public class DustHotTopicStrategy implements HotTopicStrategy {
             return List.of();
         }
 
-        List<LocalDate> days = dusty.stream()
-                .map(SurvivorSignals::date)
-                .distinct()
-                .sorted()
-                .toList();
-        Set<String> regions = new LinkedHashSet<>();
-        for (SurvivorSignals s : dusty) {
-            String region = s.location() != null && s.location().getRegion() != null
-                    ? s.location().getRegion().getName() : null;
-            if (region != null) {
-                regions.add(region);
-            }
-        }
-
-        return List.of(new HotTopic(
+        return PerDateHotTopicBuilder.perDate(
+                dusty,
                 "DUST",
                 "Saharan dust",
-                "Elevated dust — vivid colour potential at sunrise and sunset "
-                        + DayLabels.joinRelative(days, fromDate),
-                days.get(0),
+                "Elevated dust — vivid colour potential at sunrise and sunset",
                 PRIORITY,
-                null,
-                new ArrayList<>(regions),
-                DUST_DESCRIPTION,
-                null));
+                DUST_DESCRIPTION);
     }
 }

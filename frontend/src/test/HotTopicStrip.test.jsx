@@ -2339,6 +2339,21 @@ describe('HotTopicStrip — timing lead', () => {
     expect(screen.getByTestId('topic-timing-lead-INVERSION').textContent).toContain('Today');
   });
 
+  it('renders a two-day run of the same type as two ordered pills, each with its own time', () => {
+    const topics = [
+      leadTopic({ eventType: 'SUNRISE', eventTime: '04:44', date: '2026-07-04' }),
+      leadTopic({ eventType: 'SUNRISE', eventTime: '04:43', date: '2026-07-03' }),
+    ];
+    render(<HotTopicStrip hotTopics={topics} />);
+    const leads = screen.getAllByTestId('topic-timing-lead-INVERSION');
+    expect(leads).toHaveLength(2);
+    // Chronological: 2026-07-03 (Today) before 2026-07-04 (Tomorrow), each with its own time.
+    expect(leads[0].textContent).toContain('Today');
+    expect(leads[0].textContent).toContain('· 04:43');
+    expect(leads[1].textContent).toContain('Tomorrow');
+    expect(leads[1].textContent).toContain('· 04:44');
+  });
+
   it('strips an embedded "tomorrow night" phrase and tidies the separator', () => {
     render(<HotTopicStrip hotTopics={[leadTopic({
       type: 'NLC',

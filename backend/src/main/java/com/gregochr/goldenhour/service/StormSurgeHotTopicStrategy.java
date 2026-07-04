@@ -2,15 +2,11 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.SurvivorSignals;
-import com.gregochr.goldenhour.util.DayLabels;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Detects storm surge hot topics by reading persisted forecast evaluations.
@@ -52,10 +48,10 @@ public class StormSurgeHotTopicStrategy implements HotTopicStrategy {
     /**
      * {@inheritDoc}
      *
-     * <p>Emits a single topic dated to the earliest high-surge-risk day, enumerating every
-     * high-surge day in the window (a persistent coastal condition, so no solar-event cutoff
-     * applies) and covering all their coastal regions. Returns empty when no row in the window is
-     * classified high risk.
+     * <p>Emits one topic per high-surge-risk day in the window (a persistent coastal condition, so
+     * no solar-event cutoff applies), each dated to that day and carrying only its coastal regions,
+     * so a multi-day blow surfaces as an adjacent run of day cards. Returns empty when no row in the
+     * window is classified high risk.
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
@@ -67,30 +63,12 @@ public class StormSurgeHotTopicStrategy implements HotTopicStrategy {
             return List.of();
         }
 
-        List<LocalDate> days = highRisk.stream()
-                .map(SurvivorSignals::date)
-                .distinct()
-                .sorted()
-                .toList();
-        Set<String> regions = new LinkedHashSet<>();
-        for (SurvivorSignals s : highRisk) {
-            String region = s.location() != null && s.location().getRegion() != null
-                    ? s.location().getRegion().getName() : null;
-            if (region != null) {
-                regions.add(region);
-            }
-        }
-
-        return List.of(new HotTopic(
+        return PerDateHotTopicBuilder.perDate(
+                highRisk,
                 "STORM_SURGE",
                 "Storm surge",
-                "High surge risk — dramatic coastal conditions "
-                        + DayLabels.joinRelative(days, fromDate),
-                days.get(0),
+                "High surge risk — dramatic coastal conditions",
                 PRIORITY,
-                null,
-                new ArrayList<>(regions),
-                STORM_SURGE_DESCRIPTION,
-                null));
+                STORM_SURGE_DESCRIPTION);
     }
 }

@@ -106,20 +106,20 @@ class DustHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("enumerates every non-expired dust day; dates to the earliest")
-    void detect_multipleDays_enumeratesAll() {
+    @DisplayName("emits one card per non-expired dust day, each with that day's regions")
+    void detect_multipleDays_onePerDate() {
         when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(
                 signal(FROM.plusDays(2), "Northumberland", "0.42", "60", "10"),
                 signal(FROM, "The North Yorkshire Coast", "0.42", "60", "10")));
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
-        assertThat(topics).hasSize(1);
-        assertThat(topics.get(0).date()).isEqualTo(FROM);
-        // 2026-06-17 = today (Wed), +2 = Friday.
-        assertThat(topics.get(0).detail()).endsWith("today and Friday");
-        assertThat(topics.get(0).regions())
-                .containsExactly("The North Yorkshire Coast", "Northumberland");
+        assertThat(topics).hasSize(2);
+        assertThat(topics).extracting(HotTopic::date)
+                .containsExactly(FROM, FROM.plusDays(2));
+        assertThat(topics.get(0).regions()).containsExactly("The North Yorkshire Coast");
+        assertThat(topics.get(1).regions()).containsExactly("Northumberland");
+        assertThat(topics).noneMatch(t -> t.detail().contains("and Friday"));
     }
 
     // ── Dust badge consistency lock: isDustEnhanced mirrors the frontend proxy ──
