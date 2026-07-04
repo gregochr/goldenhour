@@ -31,6 +31,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -699,6 +700,127 @@ class EvaluationViewServiceTest {
             assertThat(r.locationName()).isEqualTo("Sandsend");
             assertThat(r.fierySkyPotential()).isEqualTo(55);
             assertThat(r.goldenHourPotential()).isEqualTo(45);
+        }
+    }
+
+    @Nested
+    @DisplayName("getScoresForEnrichmentBulk — batched Plan re-enrichment")
+    class GetScoresForEnrichmentBulk {
+
+        private static final String KEY = REGION_NAME + "|" + DATE + "|" + SUNSET;
+
+        @Test
+        @DisplayName("cached score keeps its Claude headline (not dropped like the view path)")
+        void cachedHeadlinePreserved() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
+                    .thenReturn(Map.of("Bamburgh", new BriefingEvaluationResult(
+                            "Bamburgh", 4, 75, 65, "Good", null, null, "Fiery skies at dusk")));
+            when(forecastEvaluationRepository
+                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                            eq(1L), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of());
+
+            Map<String, Map<String, BriefingEvaluationResult>> index =
+                    service.getScoresForEnrichmentBulk(DATE, DATE, Set.of(SUNSET));
+
+            BriefingEvaluationResult r = index.get(KEY).get("Bamburgh");
+            assertThat(r.rating()).isEqualTo(4);
+            assertThat(r.headline()).isEqualTo("Fiery skies at dusk");
+        }
+
+        @Test
+        @DisplayName("uncached location falls back to its latest forecast_evaluation row")
+        void forecastFallback() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(sandsend));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
+                    .thenReturn(Map.of());
+            when(forecastEvaluationRepository
+                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                            eq(2L), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
+                            .targetDate(DATE).targetType(SUNSET)
+                            .rating(3).fierySkyPotential(55).goldenHourPotential(45)
+                            .summary("Decent").evaluationModel(EvaluationModel.HAIKU)
+                            .forecastRunAt(LocalDateTime.of(2026, 4, 22, 18, 0))
+                            .build()));
+
+            Map<String, Map<String, BriefingEvaluationResult>> index =
+                    service.getScoresForEnrichmentBulk(DATE, DATE, Set.of(SUNSET));
+
+            assertThat(index.get(KEY).get("Sandsend").rating()).isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("cached score wins over a forecast row for the same location")
+        void cachedWinsOverForecast() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 5, 90, 80, "Stunning")));
+            when(forecastEvaluationRepository
+                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                            eq(1L), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
+                            .targetDate(DATE).targetType(SUNSET).rating(2)
+                            .forecastRunAt(LocalDateTime.of(2026, 4, 22, 18, 0))
+                            .build()));
+
+            Map<String, Map<String, BriefingEvaluationResult>> index =
+                    service.getScoresForEnrichmentBulk(DATE, DATE, Set.of(SUNSET));
+
+            assertThat(index.get(KEY).get("Bamburgh").rating()).isEqualTo(5);
+        }
+
+        @Test
+        @DisplayName("forecast triage row surfaces as a triage result")
+        void triageFallback() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
+                    .thenReturn(Map.of());
+            when(forecastEvaluationRepository
+                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                            eq(1L), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
+                            .targetDate(DATE).targetType(SUNSET)
+                            .triageReason(TriageReason.PRECIPITATION).triageMessage("Rain")
+                            .forecastRunAt(LocalDateTime.of(2026, 4, 22, 18, 0))
+                            .build()));
+
+            Map<String, Map<String, BriefingEvaluationResult>> index =
+                    service.getScoresForEnrichmentBulk(DATE, DATE, Set.of(SUNSET));
+
+            BriefingEvaluationResult r = index.get(KEY).get("Bamburgh");
+            assertThat(r.rating()).isNull();
+            assertThat(r.triageReason()).isEqualTo(TriageReason.PRECIPITATION);
+        }
+
+        @Test
+        @DisplayName("issues one range query per location, never a per-date findTop")
+        void oneRangeQueryPerLocation() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh, sandsend));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
+                    .thenReturn(Map.of());
+            when(forecastEvaluationRepository
+                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                            eq(1L), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of());
+            when(forecastEvaluationRepository
+                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                            eq(2L), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of());
+
+            service.getScoresForEnrichmentBulk(DATE, DATE, Set.of(SUNSET));
+
+            verify(forecastEvaluationRepository)
+                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                            eq(1L), eq(DATE), eq(DATE));
+            verify(forecastEvaluationRepository)
+                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                            eq(2L), eq(DATE), eq(DATE));
+            verify(forecastEvaluationRepository, never())
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            any(), any(), any());
         }
     }
 

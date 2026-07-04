@@ -48,6 +48,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 
@@ -281,14 +282,32 @@ public class BriefingService {
      * internal callers of {@link #getCachedBriefing()} (batch task collector, model-comparison
      * harness) need the untransformed triage slots to decide what to evaluate.
      *
+     * <p>The current scores are pulled with a single {@link EvaluationViewService#getScoresForEnrichmentBulk}
+     * load over the plan window rather than a lookup per region/date/target, so re-enriching on
+     * every request stays to O(locations) queries.
+     *
      * @param response the cached briefing (may be {@code null})
      * @return a copy whose regions carry freshly re-derived verdicts, or {@code null} if input was
      */
     private DailyBriefingResponse reEnrichVerdicts(DailyBriefingResponse response) {
-        if (response == null) {
-            return null;
+        if (response == null || response.days().isEmpty()) {
+            return response;
         }
-        return response.withDays(enrichWithCachedScores(response.days()));
+        LocalDate start = response.days().getFirst().date();
+        LocalDate end = response.days().getLast().date();
+        Set<TargetType> types = response.days().stream()
+                .flatMap(day -> day.eventSummaries().stream())
+                .map(BriefingEventSummary::targetType)
+                .collect(java.util.stream.Collectors.toCollection(
+                        () -> java.util.EnumSet.noneOf(TargetType.class)));
+        if (types.isEmpty()) {
+            return response;
+        }
+        Map<String, Map<String, BriefingEvaluationResult>> index =
+                evaluationViewService.getScoresForEnrichmentBulk(start, end, types);
+        RegionScoreResolver resolver = (regionName, date, targetType) ->
+                index.getOrDefault(regionName + "|" + date + "|" + targetType, Map.of());
+        return response.withDays(enrichWithCachedScores(response.days(), resolver));
     }
 
     /**
@@ -524,10 +543,32 @@ public class BriefingService {
     }
 
     /**
+     * Resolves the cached Claude scores for one region/date/target, keyed by location name.
+     * Lets {@link #enrichWithCachedScores(List, RegionScoreResolver)} run against either a
+     * per-region lookup (build time) or a pre-loaded bulk index (serve time).
+     */
+    @FunctionalInterface
+    private interface RegionScoreResolver {
+        Map<String, BriefingEvaluationResult> resolve(String regionName, LocalDate date,
+                TargetType targetType);
+    }
+
+    /**
      * Walks the day/event/region hierarchy and populates each slot's Claude fields from the
-     * evaluation cache. Returns a rebuilt hierarchy with enriched slots; the original is unchanged.
+     * evaluation cache, resolved one region/date/target at a time. Returns a rebuilt hierarchy
+     * with enriched slots; the original is unchanged.
      */
     private List<BriefingDay> enrichWithCachedScores(List<BriefingDay> days) {
+        return enrichWithCachedScores(days, evaluationViewService::getScoresForEnrichment);
+    }
+
+    /**
+     * Enriches the hierarchy using the supplied {@link RegionScoreResolver}. The build path passes
+     * the per-region {@code getScoresForEnrichment} lookup; the serve path passes a resolver backed
+     * by a single bulk load so it does not fan out into a query per region/date/target.
+     */
+    private List<BriefingDay> enrichWithCachedScores(List<BriefingDay> days,
+            RegionScoreResolver resolver) {
         List<BriefingDay> enrichedDays = new ArrayList<>(days.size());
         for (BriefingDay day : days) {
             List<BriefingEventSummary> enrichedEvents = new ArrayList<>();
@@ -535,8 +576,7 @@ public class BriefingService {
                 List<BriefingRegion> enrichedRegions = new ArrayList<>();
                 for (BriefingRegion region : es.regions()) {
                     Map<String, BriefingEvaluationResult> cached =
-                            evaluationViewService.getScoresForEnrichment(
-                                    region.regionName(), day.date(), es.targetType());
+                            resolver.resolve(region.regionName(), day.date(), es.targetType());
                     List<BriefingSlot> enrichedSlots = region.slots().stream()
                             .map(slot -> enrichSlot(slot, cached))
                             .toList();

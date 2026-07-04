@@ -247,6 +247,87 @@ public class EvaluationViewService {
     }
 
     /**
+     * Bulk equivalent of {@link #getScoresForEnrichment} across a whole date range, keyed by
+     * {@code "regionName|date|targetType"}.
+     *
+     * <p>Same precedence — in-memory cached scores (which carry the Claude {@code headline}) win,
+     * with a {@code forecast_evaluation} fallback for locations the cache does not cover. The
+     * difference is query shape: the fallback issues <em>one</em> range query per location
+     * ({@code targetDate BETWEEN start AND end}) instead of one {@code findTop} per
+     * (location, date, targetType). Serving a briefing re-enriches the full plan window in a
+     * single pass, so this collapses what was O(locations × dates × targets) point lookups into
+     * O(locations) range scans.
+     *
+     * @param start the start date (inclusive)
+     * @param end   the end date (inclusive)
+     * @param types the target types to include
+     * @return map of {@code "regionName|date|targetType"} to a map of locationName → result
+     */
+    public Map<String, Map<String, BriefingEvaluationResult>> getScoresForEnrichmentBulk(
+            LocalDate start, LocalDate end, Set<TargetType> types) {
+        Map<String, Map<String, BriefingEvaluationResult>> byKey = new HashMap<>();
+        List<LocationEntity> locations = locationService.findAllEnabled();
+
+        // 1. In-memory cached scores first — no DB, and they carry the Claude headline.
+        Set<String> regionNames = locations.stream()
+                .filter(loc -> loc.getRegion() != null)
+                .map(loc -> loc.getRegion().getName())
+                .collect(java.util.stream.Collectors.toSet());
+        for (String regionName : regionNames) {
+            for (LocalDate date = start; !date.isAfter(end); date = date.plusDays(1)) {
+                for (TargetType type : types) {
+                    Map<String, BriefingEvaluationResult> cached =
+                            briefingEvaluationService.getCachedScores(regionName, date, type);
+                    if (!cached.isEmpty()) {
+                        byKey.put(regionName + "|" + date + "|" + type, new HashMap<>(cached));
+                    }
+                }
+            }
+        }
+
+        // 2. forecast_evaluation fallback — one range query per location, latest row per (date, type).
+        for (LocationEntity loc : locations) {
+            if (loc.getRegion() == null) {
+                continue;
+            }
+            String regionName = loc.getRegion().getName();
+            Map<String, ForecastEvaluationEntity> latest = new HashMap<>();
+            for (ForecastEvaluationEntity row : forecastEvaluationRepository
+                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                            loc.getId(), start, end)) {
+                if (!types.contains(row.getTargetType())) {
+                    continue;
+                }
+                String fk = row.getTargetDate() + "|" + row.getTargetType();
+                ForecastEvaluationEntity existing = latest.get(fk);
+                if (existing == null
+                        || row.getForecastRunAt().isAfter(existing.getForecastRunAt())) {
+                    latest.put(fk, row);
+                }
+            }
+            for (ForecastEvaluationEntity row : latest.values()) {
+                Map<String, BriefingEvaluationResult> regionMap = byKey.computeIfAbsent(
+                        regionName + "|" + row.getTargetDate() + "|" + row.getTargetType(),
+                        k -> new HashMap<>());
+                if (regionMap.containsKey(loc.getName())) {
+                    continue; // cached score wins
+                }
+                if (row.getRating() != null) {
+                    regionMap.put(loc.getName(), new BriefingEvaluationResult(
+                            loc.getName(), row.getRating(), row.getFierySkyPotential(),
+                            row.getGoldenHourPotential(), row.getSummary()));
+                } else if (row.getTriageReason() != null) {
+                    regionMap.put(loc.getName(), new BriefingEvaluationResult(
+                            loc.getName(), null, null, null, null,
+                            row.getTriageReason(), row.getTriageMessage()));
+                }
+            }
+        }
+
+        return byKey;
+    }
+
+    /**
      * Builds a view for a single location, applying the merge precedence rule.
      */
     private LocationEvaluationView buildView(LocationEntity loc, LocalDate date,
