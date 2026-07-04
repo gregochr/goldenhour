@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — this-morning's cloud inversion no longer lingers into the evening
+- **Why.** A "Cloud inversion — Today sunrise · 04:41" card was still on the board at 21:27, long after that dawn had burned off. The nightly dual-write records an inversion score for whichever event a location was evaluated for — and the augmentor gates only on elevation/overlooks-water, not event type — so an inversion-eligible location also gets a **SUNSET** inversion row. `InversionHotTopicStrategy` judged each row's freshness against its own event, so the today-SUNSET row stayed "fresh" all evening (sunset still ahead), keeping the topic dated today; the frontend then painted it as a sunrise card. A sea of clouds is a dawn phenomenon, so a sunset inversion score is meaningless anyway.
+- **Fix.** The inversion detector now considers **SUNRISE rows only**, dropping the sunset noise so the freshness filter retires each morning the instant its sunrise passes. Tests cover a sunset row being ignored and a mixed sunrise+sunset day resolving to the sunrise card.
+
 ### Changed — Plan summary strip: one pill per day (both events), away days, sticky grid
 - **One pill per day, not per solar event.** The strip now mirrors the grid's day columns — each pill carries *both* solar events (`↑ 04:42 · ↓ 21:49`) and a day-best verdict roll-up (the day's best across sunrise + sunset), capped at 4 days. The earlier per-event version produced two "Tomorrow" pills and read as inconsistent with the grid. A rated pill's "Show on map" click targets the event that drove the day's peak.
 - **Away days.** Travel days (no forecast generated) render as `✈ Away` / `Travel day` / `No forecast` — dimmed, tide-tinted, not interactive — never "All poor" (poor implies we forecast and it's bad; away means we didn't). Away days keep their slot in the horizon.

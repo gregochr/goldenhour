@@ -52,15 +52,21 @@ class InversionHotTopicStrategyTest {
         strategy = new InversionHotTopicStrategy(survivorSignalReader, freshness);
     }
 
-    /** A survivor composite carrying an inversion score and nothing else. */
+    /** A SUNRISE survivor composite carrying an inversion score and nothing else. */
     private static SurvivorSignals signal(LocalDate date, String regionName, int inversion) {
+        return signalAt(date, regionName, inversion, TargetType.SUNRISE);
+    }
+
+    /** A survivor composite for a specific solar event, carrying an inversion score. */
+    private static SurvivorSignals signalAt(LocalDate date, String regionName, int inversion,
+            TargetType eventType) {
         LocationEntity location = new LocationEntity();
         if (regionName != null) {
             RegionEntity region = new RegionEntity();
             region.setName(regionName);
             location.setRegion(region);
         }
-        return new SurvivorSignals(location, date, TargetType.SUNRISE,
+        return new SurvivorSignals(location, date, eventType,
                 new SurvivorSignals.Scores(inversion, null, null),
                 SurvivorSignals.Readings.EMPTY);
     }
@@ -148,6 +154,33 @@ class InversionHotTopicStrategyTest {
         assertThat(topics.get(1).regions()).containsExactly("Northumberland");
         // No spanning day phrase — the day is carried by each card's own date.
         assertThat(topics).noneMatch(t -> t.detail().contains("and Friday"));
+    }
+
+    @Test
+    @DisplayName("sunset inversion rows are ignored — inversion is a dawn-only topic")
+    void detect_sunsetRow_ignored() {
+        // A SUNSET inversion row would pass the (stubbed-ahead) freshness check, but must be
+        // dropped up front: a sea of clouds is a dawn event, so this-morning's inversion must not
+        // linger into the evening on the strength of the still-future sunset.
+        when(survivorSignalReader.read(FROM, TO))
+                .thenReturn(List.of(signalAt(FROM, "The North York Moors", 9, TargetType.SUNSET)));
+
+        assertThat(strategy.detect(FROM, TO)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("mixed sunrise + sunset rows: only the sunrise row drives the card")
+    void detect_mixedRows_onlySunriseCounts() {
+        when(survivorSignalReader.read(FROM, TO))
+                .thenReturn(List.of(
+                        signalAt(FROM, "Sunset Region", 9, TargetType.SUNSET),
+                        signalAt(FROM, "Sunrise Region", 9, TargetType.SUNRISE)));
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).date()).isEqualTo(FROM);
+        assertThat(topics.get(0).regions()).containsExactly("Sunrise Region");
     }
 
     @Test

@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.SurvivorSignals;
 import org.springframework.stereotype.Component;
@@ -28,6 +29,14 @@ import java.util.List;
  * get to the viewpoint in time. This detector drops any row whose sunrise has already passed
  * ({@link SolarEventFreshness}) and lists <em>every</em> remaining strong-inversion morning in
  * the window, so a multi-day setup is surfaced in full rather than collapsed to the earliest day.
+ *
+ * <p><b>Sunrise rows only.</b> The nightly dual-write records an inversion score for whichever
+ * event a location was evaluated for — including SUNSET, since the augmentor gates only on
+ * elevation/overlooks-water, not event type. But a sea of clouds is a dawn event, so a SUNSET
+ * inversion row is physically meaningless <em>and</em> harmful: its freshness is judged against
+ * the (still-future) sunset, so this morning's already-burned-off inversion would linger on the
+ * board all evening labelled "today". Restricting to SUNRISE rows drops that noise and lets the
+ * freshness filter retire a morning the instant its sunrise passes.
  */
 @Component
 public class InversionHotTopicStrategy implements HotTopicStrategy {
@@ -73,6 +82,7 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
         List<SurvivorSignals> strong = survivorSignalReader.read(fromDate, toDate).stream()
+                .filter(s -> s.eventType() == TargetType.SUNRISE)
                 .filter(s -> s.scores().inversion() != null
                         && s.scores().inversion() >= STRONG_SCORE_INCLUSIVE)
                 .filter(s -> freshness.isAhead(s.location(), s.date(), s.eventType()))
