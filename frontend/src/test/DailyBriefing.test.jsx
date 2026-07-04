@@ -1623,6 +1623,21 @@ describe('DailyBriefing', () => {
       expect(screen.getByTestId('briefing-heatmap')).toBeInTheDocument();
     });
 
+    it('is collapsed by default, and once opened persists across a remount (B5)', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      const first = render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      // Collapsed by default — no grid until the expander is used.
+      expect(screen.queryByTestId('briefing-heatmap')).toBeNull();
+      await openFullGrid();
+      // Remount (as happens on a round-trip to the full Map tab and back).
+      first.unmount();
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      // The grid is open again without touching the expander.
+      expect(screen.getByTestId('briefing-heatmap')).toBeInTheDocument();
+    });
+
     it('renders day-column headers', async () => {
       getDailyBriefing.mockResolvedValue(buildBriefing());
       render(<DailyBriefing />);
