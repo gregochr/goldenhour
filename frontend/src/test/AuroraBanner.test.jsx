@@ -200,6 +200,54 @@ describe('AuroraBanner', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // "View on map" activation
+  // ---------------------------------------------------------------------------
+
+  it('activating a live alert calls onViewOnMap instead of a plain hash jump', () => {
+    const onViewOnMap = vi.fn();
+    useAuroraStatus.mockReturnValue({
+      status: { level: 'MODERATE', hexColour: '#ff9900', description: 'Amber alert', active: true, eligibleLocations: 5 },
+      loading: false,
+    });
+    useAuroraViewline.mockReturnValue({ viewline: null });
+    render(<AuroraBanner onViewOnMap={onViewOnMap} />);
+
+    fireEvent.click(screen.getByTestId('aurora-banner'));
+
+    expect(onViewOnMap).toHaveBeenCalledTimes(1);
+    // The callback owns navigation now, so the banner must not touch the hash itself.
+    expect(window.location.hash).toBe('');
+  });
+
+  it('activating via keyboard (Enter) also calls onViewOnMap', () => {
+    const onViewOnMap = vi.fn();
+    useAuroraStatus.mockReturnValue({
+      status: { level: 'STRONG', hexColour: '#ff0000', description: 'Red alert', active: true, eligibleLocations: 5 },
+      loading: false,
+    });
+    useAuroraViewline.mockReturnValue({ viewline: null });
+    render(<AuroraBanner onViewOnMap={onViewOnMap} />);
+
+    fireEvent.keyDown(screen.getByTestId('aurora-banner'), { key: 'Enter' });
+
+    expect(onViewOnMap).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to a hash jump to the map when no onViewOnMap is supplied', () => {
+    renderBanner({
+      level: 'MODERATE',
+      hexColour: '#ff9900',
+      description: 'Amber alert',
+      active: true,
+      eligibleLocations: 5,
+    });
+
+    fireEvent.click(screen.getByTestId('aurora-banner'));
+
+    expect(window.location.hash).toBe('#map');
+  });
+
+  // ---------------------------------------------------------------------------
   // Dismiss behaviour
   // ---------------------------------------------------------------------------
 

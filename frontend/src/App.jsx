@@ -151,6 +151,12 @@ function AppInner() {
     setViewMode('map');
   };
 
+  /** Aurora banner "View on map" — switch to the Map tab with the Aurora event pre-selected. */
+  const handleAuroraViewOnMap = () => {
+    setMapHandoff({ eventType: 'AURORA', nonce: handoffNonce.current++ });
+    setViewMode('map');
+  };
+
   const sortedLocations = useMemo(
     () => [...locations].sort((a, b) => a.name.localeCompare(b.name)),
     [locations],
@@ -244,7 +250,7 @@ function AppInner() {
 
       <SessionExpiryBanner />
       <div className="max-w-4xl mx-auto px-4 mt-4">
-        <AuroraBanner />
+        <AuroraBanner onViewOnMap={handleAuroraViewOnMap} />
       </div>
 
       {showRunBanner && lastCompletedRun && (
