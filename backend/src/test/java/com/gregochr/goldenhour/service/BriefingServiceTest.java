@@ -16,8 +16,10 @@ import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRefreshedEvent;
+import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
+import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.SeasonalWindow;
@@ -2021,6 +2023,159 @@ class BriefingServiceTest {
                     .findFirst()
                     .orElseThrow(() -> new AssertionError(
                             "No slot found for " + regionName + "/" + locationName));
+        }
+    }
+
+    // ── Serve-time verdict re-enrichment ─────────────────────────────────────────
+
+    /**
+     * The region {@code displayVerdict} is frozen when the briefing is built, but the
+     * per-location scores the frontend badges are read live. A batch that re-scores a region
+     * between build and serve used to leave a stale "Worth it" label sitting above a fresh low
+     * rating. {@link BriefingService#getCachedBriefingForApi()} now re-derives the verdict from
+     * the current evaluation state at serve time so the label and the rating agree.
+     */
+    @Nested
+    @DisplayName("Serve-time verdict re-enrichment")
+    class ServeTimeReEnrichment {
+
+        private final java.util.concurrent.atomic.AtomicBoolean servePhase =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        private LocationEntity bamburgh() {
+            return LocationEntity.builder()
+                    .id(1L).name("Bamburgh").lat(55.0).lon(-1.5)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of())
+                    .solarEventType(Set.of(SolarEventType.SUNSET))
+                    .region(RegionEntity.builder().name("North East").build())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+        }
+
+        private void stubFullRefresh(LocationEntity loc) {
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            org.mockito.Mockito.lenient().when(
+                    solarService.sunsetUtc(org.mockito.ArgumentMatchers.anyDouble(),
+                            org.mockito.ArgumentMatchers.anyDouble(), any(LocalDate.class)))
+                    .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
+        }
+
+        /**
+         * Scores return a strong rating at build time and a weak one once {@code servePhase}
+         * flips — modelling a batch that re-scored the region downward after the briefing was
+         * built.
+         */
+        private void stubScoresFlippingLowOnServe(int buildRating, int serveRating) {
+            when(evaluationViewService.getScoresForEnrichment(
+                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
+                    .thenAnswer(inv -> {
+                        int rating = servePhase.get() ? serveRating : buildRating;
+                        return Map.of("Bamburgh", new BriefingEvaluationResult(
+                                "Bamburgh", rating, 50, 50, "Conditions.", null, null));
+                    });
+        }
+
+        /** Makes the gloss service attach a headline+detail to every region, as it would in prod. */
+        private void stubGlossInjecting(String headline, String detail) {
+            when(glossService.generateGlosses(anyList(), any())).thenAnswer(inv -> {
+                List<BriefingDay> days = inv.getArgument(0);
+                return days.stream().map(day -> new BriefingDay(day.date(),
+                        day.eventSummaries().stream().map(es -> new BriefingEventSummary(
+                                es.targetType(),
+                                es.regions().stream().map(r -> new BriefingRegion(
+                                        r.regionName(), r.verdict(), r.summary(),
+                                        r.tideHighlights(), r.slots(),
+                                        r.regionTemperatureCelsius(),
+                                        r.regionApparentTemperatureCelsius(),
+                                        r.regionWindSpeedMs(), r.regionWeatherCode(),
+                                        headline, detail, r.displayVerdict(),
+                                        r.scoredLocationCount())).toList(),
+                                es.unregioned())).toList())).toList();
+            });
+        }
+
+        private BriefingRegion findRegion(DailyBriefingResponse response, String regionName) {
+            return response.days().stream()
+                    .flatMap(d -> d.eventSummaries().stream())
+                    .flatMap(es -> es.regions().stream())
+                    .filter(r -> r.regionName().equals(regionName))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("No region " + regionName));
+        }
+
+        @Test
+        @DisplayName("Stale WORTH_IT is downgraded to STAND_DOWN when fresh scores are low")
+        void staleWorthItDowngradedOnServe() {
+            stubFullRefresh(bamburgh());
+            stubScoresFlippingLowOnServe(5, 1);
+
+            briefingService.refreshBriefing();
+            // Built with rating 5 → region reads WORTH_IT while frozen in the cache.
+            assertThat(findRegion(briefingService.getCachedBriefing(), "North East")
+                    .displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+
+            servePhase.set(true);
+            DailyBriefingResponse api = briefingService.getCachedBriefingForApi();
+
+            BriefingRegion served = findRegion(api, "North East");
+            assertThat(served.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+            assertThat(served.slots().get(0).claudeRating()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("Stale gloss is dropped when the re-enriched verdict changes")
+        void staleGlossClearedWhenVerdictChanges() {
+            stubFullRefresh(bamburgh());
+            stubScoresFlippingLowOnServe(5, 1);
+            stubGlossInjecting("Fiery skies ahead", "Rich colour expected across the region.");
+
+            briefingService.refreshBriefing();
+            assertThat(findRegion(briefingService.getCachedBriefing(), "North East")
+                    .glossHeadline()).isEqualTo("Fiery skies ahead");
+
+            servePhase.set(true);
+            BriefingRegion served =
+                    findRegion(briefingService.getCachedBriefingForApi(), "North East");
+
+            assertThat(served.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+            assertThat(served.glossHeadline()).isNull();
+            assertThat(served.glossDetail()).isNull();
+        }
+
+        @Test
+        @DisplayName("Gloss and verdict are preserved when fresh scores are unchanged")
+        void glossPreservedWhenVerdictUnchanged() {
+            stubFullRefresh(bamburgh());
+            stubScoresFlippingLowOnServe(5, 5); // strong at build and at serve
+            stubGlossInjecting("Fiery skies ahead", "Rich colour expected across the region.");
+
+            briefingService.refreshBriefing();
+
+            servePhase.set(true);
+            BriefingRegion served =
+                    findRegion(briefingService.getCachedBriefingForApi(), "North East");
+
+            assertThat(served.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(served.glossHeadline()).isEqualTo("Fiery skies ahead");
+            assertThat(served.glossDetail())
+                    .isEqualTo("Rich colour expected across the region.");
+        }
+
+        @Test
+        @DisplayName("Internal (untransformed) path keeps the frozen build-time verdict")
+        void internalPathNotReEnriched() {
+            stubFullRefresh(bamburgh());
+            stubScoresFlippingLowOnServe(5, 1);
+
+            briefingService.refreshBriefing();
+            servePhase.set(true);
+
+            // getCachedBriefing() is the raw cache read used by internal batch callers — it must
+            // not be re-enriched, or the batch collector would lose the triage slots it needs.
+            assertThat(findRegion(briefingService.getCachedBriefing(), "North East")
+                    .displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
         }
     }
 }
