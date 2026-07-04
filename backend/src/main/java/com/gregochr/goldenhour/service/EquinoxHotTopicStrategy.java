@@ -4,7 +4,6 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.repository.LocationRepository;
-import com.gregochr.goldenhour.util.DayLabels;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
@@ -75,9 +74,9 @@ public class EquinoxHotTopicStrategy implements HotTopicStrategy {
      * {@inheritDoc}
      *
      * <p>Scans the window for every near-equinox day whose sunrise (due east) or sunset (due west)
-     * still lies ahead and aligns for at least one enabled location. Emits a single topic dated to
-     * the earliest such day, enumerating them all in the detail and covering all their regions.
-     * Returns empty when none remain after dropping alignments whose event has passed.
+     * still lies ahead and aligns for at least one enabled location, emitting one topic per such day
+     * dated to that day and carrying only its regions. Returns empty when none remain after dropping
+     * alignments whose event has passed.
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
@@ -86,22 +85,17 @@ public class EquinoxHotTopicStrategy implements HotTopicStrategy {
             return List.of();
         }
 
-        List<LocalDate> alignedDays = new ArrayList<>();
-        Set<String> regions = new LinkedHashSet<>();
+        List<HotTopic> topics = new ArrayList<>();
         for (LocalDate date = fromDate; !date.isAfter(toDate); date = date.plusDays(1)) {
             if (!isNearEquinox(date)) {
                 continue;
             }
             List<String> dayRegions = alignedRegions(enabled, date);
             if (!dayRegions.isEmpty()) {
-                alignedDays.add(date);
-                regions.addAll(dayRegions);
+                topics.add(buildTopic(date, dayRegions));
             }
         }
-        if (alignedDays.isEmpty()) {
-            return List.of();
-        }
-        return List.of(buildTopic(alignedDays, fromDate, new ArrayList<>(regions)));
+        return topics;
     }
 
     /**
@@ -142,13 +136,12 @@ public class EquinoxHotTopicStrategy implements HotTopicStrategy {
         }
     }
 
-    private HotTopic buildTopic(List<LocalDate> days, LocalDate today, List<String> regions) {
+    private HotTopic buildTopic(LocalDate date, List<String> regions) {
         return new HotTopic(
                 "EQUINOX",
                 "Equinox alignment",
-                "Sun rises due east / sets due west — aligned-horizon shots "
-                        + DayLabels.joinRelative(days, today),
-                days.get(0),
+                "Sun rises due east / sets due west — aligned-horizon shots",
+                date,
                 PRIORITY,
                 null,
                 regions,

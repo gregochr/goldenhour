@@ -84,8 +84,8 @@ class StormSurgeHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("multiple HIGH rows: dates to the earliest day, collects distinct regions")
-    void detect_multipleRows_earliestDateDistinctRegions() {
+    @DisplayName("multiple HIGH rows: one card per day, each with that day's regions")
+    void detect_multipleRows_onePerDate() {
         LocalDate later = FROM.plusDays(1);
         when(survivorSignalReader.read(FROM, TO))
                 .thenReturn(List.of(
@@ -94,9 +94,9 @@ class StormSurgeHotTopicStrategyTest {
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
-        assertThat(topics).hasSize(1);
-        assertThat(topics.get(0).date()).isEqualTo(FROM);
-        assertThat(topics.get(0).regions())
-                .containsExactly("Northumberland", "The North Yorkshire Coast");
+        assertThat(topics).hasSize(2);
+        assertThat(topics).extracting(HotTopic::date).containsExactly(FROM, later);
+        assertThat(topics.get(0).regions()).containsExactly("Northumberland");
+        assertThat(topics.get(1).regions()).containsExactly("The North Yorkshire Coast");
     }
 }

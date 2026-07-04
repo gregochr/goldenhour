@@ -76,6 +76,27 @@ class HotTopicEventEnricherTest {
     }
 
     @Test
+    @DisplayName("a two-day run of the same type gets one distinct event time per date")
+    void twoDayRun_distinctPerDayTimes() {
+        LocalDate d2 = DATE.plusDays(1);
+        // Sunrise shifts a minute later the next morning: 03:43 UTC → 04:43, 03:44 UTC → 04:44.
+        when(solarService.sunriseUtc(anyDouble(), anyDouble(), eq(d2)))
+                .thenReturn(LocalDateTime.of(2026, 7, 5, 3, 44));
+
+        HotTopic day1 = new HotTopic("INVERSION", "Cloud inversion", "detail", DATE, 2, null,
+                List.of("Yorkshire Dales"), "desc", null);
+        HotTopic day2 = new HotTopic("INVERSION", "Cloud inversion", "detail", d2, 2, null,
+                List.of("Yorkshire Dales"), "desc", null);
+
+        List<HotTopic> result = enricher.enrich(List.of(day1, day2));
+
+        assertThat(result).extracting(HotTopic::eventType)
+                .containsExactly("SUNRISE", "SUNRISE");
+        assertThat(result).extracting(HotTopic::eventTime)
+                .containsExactly("04:43", "04:44");
+    }
+
+    @Test
     @DisplayName("DUST → SUNSET with the London-local sunset time")
     void dust_sunset() {
         HotTopic result = enrichOne(topic("DUST", null));

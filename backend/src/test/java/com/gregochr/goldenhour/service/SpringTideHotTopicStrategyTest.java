@@ -65,7 +65,7 @@ class SpringTideHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("spring tide today emits pill with priority 2 and 'today' label")
+    @DisplayName("spring tide today emits pill with priority 2, dated today")
     void detect_springTideToday_emitsPriority2() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
@@ -80,8 +80,8 @@ class SpringTideHotTopicStrategyTest {
         assertThat(topic.label()).isEqualTo("Spring tide");
         assertThat(topic.priority()).isEqualTo(2);
         assertThat(topic.date()).isEqualTo(TODAY);
-        assertThat(topic.detail()).contains("today");
-        assertThat(topic.detail()).contains("Spring tide");
+        assertThat(topic.detail()).doesNotContain("today");
+        assertThat(topic.detail()).contains("coastal location");
         assertThat(topic.regions()).containsExactly("The North Yorkshire Coast");
         assertThat(topic.description()).contains("Spring tides");
         assertThat(topic.filterAction()).isNull();
@@ -159,7 +159,7 @@ class SpringTideHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("spring tide on T+1 emits pill with 'tomorrow' label")
+    @DisplayName("spring tide on T+1 emits pill dated tomorrow, no day word in detail")
     void detect_springTideTomorrow_emitsWithTomorrowLabel() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.REGULAR_TIDE, LunarTideType.SPRING_TIDE,
@@ -169,12 +169,12 @@ class SpringTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics).hasSize(1);
-        assertThat(topics.get(0).detail()).contains("tomorrow");
+        assertThat(topics.get(0).detail()).doesNotContain("tomorrow");
         assertThat(topics.get(0).date()).isEqualTo(TODAY.plusDays(1));
     }
 
     @Test
-    @DisplayName("spring tide on T+2 emits pill with day-of-week label")
+    @DisplayName("spring tide on T+2 emits pill dated that day, no day word in detail")
     void detect_springTideInTwoDays_emitsWithDayName() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE,
@@ -184,13 +184,13 @@ class SpringTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics).hasSize(1);
-        // 2026-04-18 is a Saturday
-        assertThat(topics.get(0).detail()).contains("Saturday");
+        assertThat(topics.get(0).date()).isEqualTo(TODAY.plusDays(2));
+        assertThat(topics.get(0).detail()).doesNotContain("Saturday");
     }
 
     @Test
-    @DisplayName("one pill spanning the full range when multiple spring tide days exist")
-    void detect_multipleSpringTideDays_enumeratesRange() {
+    @DisplayName("one card per day when multiple spring tide days exist")
+    void detect_multipleSpringTideDays_onePerDate() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.SPRING_TIDE, LunarTideType.SPRING_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
@@ -198,10 +198,10 @@ class SpringTideHotTopicStrategyTest {
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
-        assertThat(topics).hasSize(1);
-        assertThat(topics.get(0).date()).isEqualTo(TODAY);
-        // Both spring-tide days are surfaced, not just the earliest.
-        assertThat(topics.get(0).detail()).contains("today and tomorrow");
+        assertThat(topics).hasSize(2);
+        assertThat(topics).extracting(HotTopic::date)
+                .containsExactly(TODAY, TODAY.plusDays(1));
+        assertThat(topics).noneMatch(t -> t.detail().contains("today and tomorrow"));
     }
 
     @Test
@@ -247,7 +247,7 @@ class SpringTideHotTopicStrategyTest {
 
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).date()).isEqualTo(TODAY);
-        assertThat(topics.get(0).detail()).contains("today");
+        assertThat(topics.get(0).detail()).contains("coastal location");
     }
 
     @Test
@@ -463,7 +463,7 @@ class SpringTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "Spring tide today \u00b7 3 tides aligned with sunrise"
+                "3 tides aligned with sunrise"
                         + " \u00b7 1 coastal location");
     }
 
@@ -480,7 +480,7 @@ class SpringTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "Spring tide today \u00b7 no sunrise or sunset"
+                "no sunrise or sunset"
                         + " alignment, but good coastal foreground \u00b7 1 coastal location");
     }
 
@@ -498,7 +498,7 @@ class SpringTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "Spring tide today \u00b7 1 tide aligned with sunrise"
+                "1 tide aligned with sunrise"
                         + " \u00b7 1 coastal location");
     }
 
@@ -516,7 +516,7 @@ class SpringTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "Spring tide today \u00b7 4 tides aligned with sunrise \u00b7 1 coastal location");
+                "4 tides aligned with sunrise \u00b7 1 coastal location");
     }
 
     @Test
@@ -533,11 +533,11 @@ class SpringTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "Spring tide today \u00b7 2 tides aligned with sunset \u00b7 1 coastal location");
+                "2 tides aligned with sunset \u00b7 1 coastal location");
     }
 
     @Test
-    @DisplayName("detail line — alignment with Saturday label ends with day name")
+    @DisplayName("detail line — a T+2 spring tide card names its own alignment")
     void detect_alignedWithSaturdayLabel_detailEndsWithDayName() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE,
@@ -550,10 +550,9 @@ class SpringTideHotTopicStrategyTest {
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
-        // 2026-04-18 is a Saturday
+        assertThat(topics.get(0).date()).isEqualTo(TODAY.plusDays(2));
         assertThat(topics.get(0).detail()).isEqualTo(
-                "Spring tide Saturday \u00b7 3 tides aligned with sunrise"
-                        + " \u00b7 1 coastal location");
+                "3 tides aligned with sunrise \u00b7 1 coastal location");
     }
 
     // ── Statistical spring tide detection ─────────────────────────────────────
