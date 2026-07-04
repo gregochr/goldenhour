@@ -315,10 +315,11 @@ function AuroraExpandedCard({ auroraData }) {
 /**
  * Expanded bluebell detail card rendered below a BLUEBELL pill.
  */
-function BluebellExpandedCard({ expandedDetail }) {
+function BluebellExpandedCard({ expandedDetail, topic, onShowOnMap = null, isLiteUser = false }) {
   if (!expandedDetail?.regionGroups) return null;
 
   const accentColor = HOT_TOPIC_STYLES.BLUEBELL.color;
+  const canOpenMap = !!onShowOnMap && !isLiteUser;
 
   return (
     <div
@@ -334,9 +335,23 @@ function BluebellExpandedCard({ expandedDetail }) {
       {expandedDetail.regionGroups.map((region) => (
         <div key={region.regionName} style={{ marginBottom: '8px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>
+            <button
+              type="button"
+              data-testid="bluebell-region-link"
+              onClick={canOpenMap ? () => onShowOnMap({
+                region: region.regionName, date: topic.date, label: topic.label, locationNames: topic.locationNames, filterAction: topic.filterAction,
+              }) : undefined}
+              disabled={!canOpenMap}
+              className={canOpenMap ? 'hover:underline' : ''}
+              style={{
+                background: 'none', border: 'none', padding: 0, font: 'inherit', textAlign: 'left',
+                fontSize: '12px', fontWeight: 600,
+                color: canOpenMap ? accentColor : 'rgba(255,255,255,0.85)',
+                cursor: canOpenMap ? 'pointer' : 'default',
+              }}
+            >
               {region.regionName}
-            </span>
+            </button>
             {region.glossHeadline && (
               <span
                 data-testid="bluebell-gloss-headline"
@@ -365,9 +380,16 @@ function BluebellExpandedCard({ expandedDetail }) {
                 }}
               >
                 <span style={{ fontSize: '12px' }}>{'\uD83C\uDF3F'}</span>
-                <span style={{ fontSize: '12px', fontWeight: 500, color: 'rgba(255,255,255,0.8)' }}>
-                  {loc.locationName}
-                </span>
+                <LocationMapLink
+                  topic={topic}
+                  locationName={loc.locationName}
+                  onShowOnMap={onShowOnMap}
+                  disabled={isLiteUser}
+                  style={{
+                    fontSize: '12px', fontWeight: 500,
+                    color: canOpenMap ? accentColor : 'rgba(255,255,255,0.8)',
+                  }}
+                />
                 {loc.locationType && (
                   <span
                     data-testid="bluebell-exposure-chip"
@@ -422,10 +444,11 @@ function BluebellExpandedCard({ expandedDetail }) {
 /**
  * Expanded tide detail card rendered below a KING_TIDE or SPRING_TIDE pill.
  */
-function TideExpandedCard({ expandedDetail }) {
+function TideExpandedCard({ expandedDetail, topic, onShowOnMap = null, isLiteUser = false }) {
   if (!expandedDetail?.regionGroups) return null;
 
   const accentColor = HOT_TOPIC_STYLES.KING_TIDE.color;
+  const canOpenMap = !!onShowOnMap && !isLiteUser;
 
   return (
     <div
@@ -441,9 +464,23 @@ function TideExpandedCard({ expandedDetail }) {
       {expandedDetail.regionGroups.map((region) => (
         <div key={region.regionName} style={{ marginBottom: '8px' }}>
           <div style={{ marginBottom: '3px' }}>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>
+            <button
+              type="button"
+              data-testid="tide-region-link"
+              onClick={canOpenMap ? () => onShowOnMap({
+                region: region.regionName, date: topic.date, label: topic.label, locationNames: topic.locationNames, filterAction: topic.filterAction,
+              }) : undefined}
+              disabled={!canOpenMap}
+              className={canOpenMap ? 'hover:underline' : ''}
+              style={{
+                background: 'none', border: 'none', padding: 0, font: 'inherit', textAlign: 'left',
+                fontSize: '12px', fontWeight: 600,
+                color: canOpenMap ? accentColor : 'rgba(255,255,255,0.85)',
+                cursor: canOpenMap ? 'pointer' : 'default',
+              }}
+            >
               {region.regionName}
-            </span>
+            </button>
           </div>
 
           {(region.locations || []).map((loc) => {
@@ -463,9 +500,16 @@ function TideExpandedCard({ expandedDetail }) {
                 }}
               >
                 <span style={{ fontSize: '12px' }}>{'\uD83C\uDF0A'}</span>
-                <span style={{ fontSize: '12px', fontWeight: 500, color: 'rgba(255,255,255,0.8)' }}>
-                  {loc.locationName}
-                </span>
+                <LocationMapLink
+                  topic={topic}
+                  locationName={loc.locationName}
+                  onShowOnMap={onShowOnMap}
+                  disabled={isLiteUser}
+                  style={{
+                    fontSize: '12px', fontWeight: 500,
+                    color: canOpenMap ? accentColor : 'rgba(255,255,255,0.8)',
+                  }}
+                />
                 {tidePreference && (
                   <span
                     data-testid="tide-preference-label"
@@ -491,16 +535,55 @@ function TideExpandedCard({ expandedDetail }) {
 }
 
 /**
+ * A location name that opens the map overlay focused on that spot when the map is available.
+ */
+function LocationMapLink({ topic, locationName, onShowOnMap, disabled, style }) {
+  const canOpen = !!onShowOnMap && !disabled;
+  return (
+    <button
+      type="button"
+      data-testid="expanded-location-link"
+      onClick={canOpen ? () => onShowOnMap(topic.date, topic.eventType, locationName) : undefined}
+      disabled={!canOpen}
+      className={canOpen ? 'hover:underline' : ''}
+      style={{
+        background: 'none', border: 'none', padding: 0, font: 'inherit', textAlign: 'left',
+        cursor: canOpen ? 'pointer' : 'default', ...style,
+      }}
+    >
+      {locationName}
+    </button>
+  );
+}
+
+LocationMapLink.propTypes = {
+  topic: PropTypes.object.isRequired,
+  locationName: PropTypes.string.isRequired,
+  onShowOnMap: PropTypes.func,
+  disabled: PropTypes.bool,
+  style: PropTypes.object,
+};
+
+/**
  * Renders the appropriate expanded card for the given topic type.
  */
-function ExpandedCard({ topic, auroraData }) {
+function ExpandedCard({ topic, auroraData, onShowOnMap, isLiteUser }) {
   if (topic.type === 'AURORA') return <AuroraExpandedCard auroraData={auroraData} />;
-  if (topic.type === 'BLUEBELL') return <BluebellExpandedCard expandedDetail={topic.expandedDetail} />;
+  if (topic.type === 'BLUEBELL') {
+    return <BluebellExpandedCard expandedDetail={topic.expandedDetail} topic={topic} onShowOnMap={onShowOnMap} isLiteUser={isLiteUser} />;
+  }
   if (topic.type === 'KING_TIDE' || topic.type === 'SPRING_TIDE') {
-    return <TideExpandedCard expandedDetail={topic.expandedDetail} />;
+    return <TideExpandedCard expandedDetail={topic.expandedDetail} topic={topic} onShowOnMap={onShowOnMap} isLiteUser={isLiteUser} />;
   }
   return null;
 }
+
+ExpandedCard.propTypes = {
+  topic: PropTypes.object.isRequired,
+  auroraData: PropTypes.object,
+  onShowOnMap: PropTypes.func,
+  isLiteUser: PropTypes.bool,
+};
 
 /**
  * Two-column responsive grid of Hot Topic pills shown between the Best Bet
@@ -513,6 +596,7 @@ function ExpandedCard({ topic, auroraData }) {
  * @param {Array}    props.hotTopics        array of hot topic objects from the API
  * @param {boolean}  props.isLiteUser       true when role === 'LITE_USER'
  * @param {Function} props.onTopicTap       callback(topic) invoked when a non-expandable pill is tapped
+ * @param {Function} props.onShowOnMap      opens the map overlay for a region/topic (optional)
  * @param {Object}   props.auroraTonight    aurora summary for tonight (optional)
  * @param {Object}   props.auroraTomorrow   aurora summary for tomorrow (optional)
  */
@@ -520,6 +604,7 @@ export default function HotTopicStrip({
   hotTopics,
   isLiteUser,
   onTopicTap,
+  onShowOnMap = null,
   auroraTonight = null,
   auroraTomorrow = null,
 }) {
@@ -717,7 +802,7 @@ export default function HotTopicStrip({
             {/* Expanded body — rich card, or the plain region list */}
             {isExpanded && canExpandRich && (
               <div style={{ padding: '0 13px 10px' }}>
-                <ExpandedCard topic={topic} auroraData={auroraData} />
+                <ExpandedCard topic={topic} auroraData={auroraData} onShowOnMap={onShowOnMap} isLiteUser={isLiteUser} />
               </div>
             )}
             {isExpanded && canRevealRegions && (
@@ -731,7 +816,37 @@ export default function HotTopicStrip({
                   lineHeight: 1.5,
                 }}
               >
-                {topic.regions.join(', ')}
+                {topic.regions.map((region, i) => {
+                  const canOpenMap = !!onShowOnMap && !isLiteUser;
+                  return (
+                    <span key={region}>
+                      {i > 0 && ', '}
+                      <button
+                        type="button"
+                        data-testid={`topic-region-link-${topic.type}`}
+                        onClick={canOpenMap ? () => onShowOnMap({
+                          region,
+                          date: topic.date,
+                          label: topic.label,
+                          locationNames: topic.locationNames,
+                          filterAction: topic.filterAction,
+                        }) : undefined}
+                        disabled={!canOpenMap}
+                        className={canOpenMap ? 'hover:underline' : ''}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          font: 'inherit',
+                          color: canOpenMap ? 'var(--color-tide)' : 'inherit',
+                          cursor: canOpenMap ? 'pointer' : 'default',
+                        }}
+                      >
+                        {region}
+                      </button>
+                    </span>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -771,10 +886,12 @@ HotTopicStrip.propTypes = {
       expandedDetail: PropTypes.object,
       eventType: PropTypes.oneOf(['SUNRISE', 'SUNSET', 'NIGHT']),
       eventTime: PropTypes.string,
+      locationNames: PropTypes.arrayOf(PropTypes.string),
     }),
   ).isRequired,
   isLiteUser: PropTypes.bool,
   onTopicTap: PropTypes.func,
+  onShowOnMap: PropTypes.func,
   auroraTonight: PropTypes.object,
   auroraTomorrow: PropTypes.object,
 };

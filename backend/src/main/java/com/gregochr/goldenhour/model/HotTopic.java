@@ -29,6 +29,9 @@ import java.util.List;
  *                       clear solar anchor
  * @param eventTime      local clock time of that event on {@code date}, 24-hour {@code "HH:mm"};
  *                       may be null when genuinely unknown
+ * @param locationNames  the specific locations that made this topic fire (elevated spots for an
+ *                       inversion, coastal spots for a tide, dark-sky spots for aurora/NLC, …), so
+ *                       the map overlay can open to exactly those pins; may be null when unknown
  */
 public record HotTopic(
         String type,
@@ -44,14 +47,16 @@ public record HotTopic(
         @JsonInclude(JsonInclude.Include.NON_NULL)
         String eventType,
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        String eventTime) implements Comparable<HotTopic> {
+        String eventTime,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        List<String> locationNames) implements Comparable<HotTopic> {
 
     /**
      * Explicit canonical constructor with Jackson annotations so that cached briefing
-     * JSON written before the {@code description}, {@code expandedDetail}, {@code eventType}
-     * or {@code eventTime} fields were added deserialises correctly. When a field is absent
-     * from the JSON, Jackson passes {@code null} and this constructor defaults it to
-     * {@code null}.
+     * JSON written before the {@code description}, {@code expandedDetail}, {@code eventType},
+     * {@code eventTime} or {@code locationNames} fields were added deserialises correctly. When a
+     * field is absent from the JSON, Jackson passes {@code null} and this constructor defaults it
+     * to {@code null}.
      */
     @JsonCreator
     public HotTopic(
@@ -65,7 +70,8 @@ public record HotTopic(
             @JsonProperty("description") String description,
             @JsonProperty("expandedDetail") ExpandedHotTopicDetail expandedDetail,
             @JsonProperty("eventType") String eventType,
-            @JsonProperty("eventTime") String eventTime) {
+            @JsonProperty("eventTime") String eventTime,
+            @JsonProperty("locationNames") List<String> locationNames) {
         this.type = type;
         this.label = label;
         this.detail = detail;
@@ -77,6 +83,7 @@ public record HotTopic(
         this.expandedDetail = expandedDetail;
         this.eventType = eventType;
         this.eventTime = eventTime;
+        this.locationNames = locationNames;
     }
 
     /**
@@ -106,11 +113,12 @@ public record HotTopic(
             String description,
             ExpandedHotTopicDetail expandedDetail) {
         this(type, label, detail, date, priority, filterAction, regions, description,
-                expandedDetail, null, null);
+                expandedDetail, null, null, null);
     }
 
     /**
-     * Returns a copy of this topic with the photographic event type and local event time set.
+     * Returns a copy of this topic with the photographic event type and local event time set,
+     * preserving the qualifying locations.
      *
      * @param eventType {@code "SUNRISE"}, {@code "SUNSET"} or {@code "NIGHT"}
      * @param eventTime local {@code "HH:mm"} clock time on {@link #date()}, or null
@@ -118,7 +126,19 @@ public record HotTopic(
      */
     public HotTopic withEvent(String eventType, String eventTime) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
-                description, expandedDetail, eventType, eventTime);
+                description, expandedDetail, eventType, eventTime, locationNames);
+    }
+
+    /**
+     * Returns a copy of this topic carrying the specific locations that made it fire, so the map
+     * overlay can open to exactly those pins.
+     *
+     * @param locationNames the qualifying location names for this topic's date
+     * @return a new {@link HotTopic} with {@code locationNames} set
+     */
+    public HotTopic withLocations(List<String> locationNames) {
+        return new HotTopic(type, label, detail, date, priority, filterAction, regions,
+                description, expandedDetail, eventType, eventTime, locationNames);
     }
 
     /**

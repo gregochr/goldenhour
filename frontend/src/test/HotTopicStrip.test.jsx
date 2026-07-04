@@ -2367,3 +2367,41 @@ describe('HotTopicStrip — timing lead', () => {
     expect(detail.textContent).not.toContain('tomorrow night');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Clickable regions open the map overlay for the topic's qualifying locations
+// ---------------------------------------------------------------------------
+
+describe('HotTopicStrip — clickable regions', () => {
+  const inversionTopic = {
+    type: 'INVERSION',
+    label: 'Cloud inversion',
+    detail: 'Strong inversion likely at elevated locations',
+    date: '2026-07-04',
+    regions: ['The Lake District'],
+    locationNames: ['Buttermere', 'Haystacks'],
+  };
+
+  it('clicking a revealed region opens the map for that region + topic locations', () => {
+    const onShowOnMap = vi.fn();
+    render(<HotTopicStrip hotTopics={[inversionTopic]} onShowOnMap={onShowOnMap} />);
+    // Expand the pill to reveal its regions.
+    fireEvent.click(screen.getByTestId('hot-topic-pill-INVERSION'));
+    const link = screen.getByTestId('topic-region-link-INVERSION');
+    expect(link.textContent).toBe('The Lake District');
+    fireEvent.click(link);
+    expect(onShowOnMap).toHaveBeenCalledWith({
+      region: 'The Lake District',
+      date: '2026-07-04',
+      label: 'Cloud inversion',
+      locationNames: ['Buttermere', 'Haystacks'],
+    });
+  });
+
+  it('regions are inert (plain text) for LITE users', () => {
+    const onShowOnMap = vi.fn();
+    render(<HotTopicStrip hotTopics={[inversionTopic]} onShowOnMap={onShowOnMap} isLiteUser />);
+    // LITE users can't expand (the pill is disabled), so no region link is exposed.
+    expect(screen.queryByTestId('topic-region-link-INVERSION')).not.toBeInTheDocument();
+  });
+});

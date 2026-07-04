@@ -683,10 +683,15 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
       )
     : driveFiltered;
 
-  // Astro mode: only show dark-sky locations (Bortle is not null).
-  const visibleLocations = isAstroMode
-    ? darkSkyFiltered.filter((loc) => loc.bortleClass != null)
-    : darkSkyFiltered;
+  // Map-overlay focus: when a hot-topic drilldown carries its qualifying spots, show ONLY those
+  // markers — exactly the locations that made the topic fire (coastal / dark-sky / elevated / …) —
+  // overriding the map's own type/rating filters so nothing worth showing is hidden.
+  const focusNames = focus?.names?.length ? new Set(focus.names) : null;
+  const visibleLocations = focusNames
+    ? locations.filter((loc) => focusNames.has(loc.name))
+    : isAstroMode
+      ? darkSkyFiltered.filter((loc) => loc.bortleClass != null)
+      : darkSkyFiltered;
 
   // Best aurora location — highest-starred entry from current aurora scores.
   const bestAuroraLocation = useMemo(() => {
@@ -1265,6 +1270,7 @@ MapView.propTypes = {
   seasonalFeatures: PropTypes.arrayOf(PropTypes.string),
   focus: PropTypes.shape({
     points: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
+    names: PropTypes.arrayOf(PropTypes.string),
     nonce: PropTypes.number,
   }),
 };

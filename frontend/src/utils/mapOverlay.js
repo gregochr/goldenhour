@@ -88,7 +88,7 @@ export function buildMapOverlay(trigger, ctx) {
       caption: matches.length > 0
         ? `◍ ${matches.length} ${matches.length === 1 ? 'location' : 'locations'} — tap a pin to open it`
         : null,
-      focus: points.length > 0 ? { points, nonce } : null,
+      focus: points.length > 0 ? { points, names: matches.map((l) => l.name), nonce } : null,
       handoff: { filterAction: trigger.filterAction, date },
     };
   }
@@ -111,7 +111,7 @@ export function buildMapOverlay(trigger, ctx) {
     };
   }
 
-  // ── Region / Event — gather the rated pins, then decide single vs multi ──
+  // ── Region / Event — gather the pins, then decide single vs multi ──
   let candidates;
   let titleRegion = trigger.region || null;
   if (trigger.kind === 'region' && trigger.region) {
@@ -119,12 +119,43 @@ export function buildMapOverlay(trigger, ctx) {
   } else {
     candidates = enabled; // event trigger: every region
   }
+
+  // A hot-topic click carries the exact qualifying spots (elevated / coastal / dark-sky …) —
+  // restrict to those pins when present, so the overlay shows only what made the topic fire.
+  const qualifying = trigger.locationNames && trigger.locationNames.length
+    ? new Set(trigger.locationNames)
+    : null;
+  if (qualifying) {
+    const restricted = candidates.filter((l) => qualifying.has(l.name));
+    if (restricted.length > 0) candidates = restricted;
+  }
+
   const rated = candidates
     .map((l) => ({ loc: l, rating: ratingFor(l, date, eventType, briefingScores) }))
     .filter((r) => r.rating != null);
   const pool = rated.length > 0 ? rated : candidates.map((l) => ({ loc: l, rating: null }));
   const regionsInvolved = new Set(pool.map((r) => r.loc.regionName).filter(Boolean));
   const time = formatClock(pool.length > 0 ? solarTimeFor(pool[0].loc, date, eventType) : null);
+
+  const filterAction = trigger.filterAction ?? null;
+  // For a hot-topic drilldown, the qualifying names let the overlay's MapView render ONLY those
+  // spots (uniform across every topic — coastal, dark-sky, elevated, …), not just fit to them.
+  const qualifyingNames = qualifying ? pool.map((r) => r.loc.name) : null;
+
+  // Hot-topic region with several qualifying spots → show just those, fit to bounds, with a caption.
+  if (qualifying && pool.length > 1) {
+    const points = pool.map((r) => [r.loc.lat, r.loc.lon]);
+    return {
+      title: titleRegion || trigger.label || 'On the map',
+      subLine: [trigger.label, dl].filter(Boolean).join(' · ') || null,
+      narrative: MULTI_PROMPT,
+      narrativeHead: null,
+      narrativeTone: 'standdown',
+      caption: `◍ ${pool.length} spots — tap a pin to open it`,
+      focus: { points, names: qualifyingNames, nonce },
+      handoff: { eventType, date, filterAction },
+    };
+  }
 
   // Multi-region → fit to all rated pins, no auto-open; the user taps a pin.
   if (!titleRegion && regionsInvolved.size > 1) {
@@ -148,14 +179,20 @@ export function buildMapOverlay(trigger, ctx) {
   const { tone, label } = toneFromRating(top?.rating ?? null);
   return {
     title: titleRegion || (top?.loc.name ?? 'On the map'),
-    subLine: [dl, eventWord(eventType), time && `· ${time}`].filter(Boolean).join(' '),
+    subLine: trigger.label
+      ? [trigger.label, dl].filter(Boolean).join(' · ')
+      : [dl, eventWord(eventType), time && `· ${time}`].filter(Boolean).join(' '),
     narrative: bs?.summary ?? null,
     narrativeHead: bs?.summary ? `${label} ${eventWord(eventType)} · ${titleRegion}`.trim() : null,
     narrativeTone: tone,
     caption: null,
-    focus: null,
+    // A single qualifying spot still restricts the map's markers to just it (no points → the
+    // location handoff below does the fly + popup); non-topic single-region drilldowns don't restrict.
+    focus: qualifyingNames ? { names: qualifyingNames, nonce } : null,
     // A top location flies + opens its popup; without one, fall back to fitting the region's pins.
     // (Not both — they'd race the map camera.)
-    handoff: top ? { eventType, locationName: top.loc.name, date } : { eventType, region: titleRegion, date },
+    handoff: top
+      ? { eventType, locationName: top.loc.name, date, filterAction }
+      : { eventType, region: titleRegion, date, filterAction },
   };
 }

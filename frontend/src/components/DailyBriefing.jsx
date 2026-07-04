@@ -1342,6 +1342,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
           hotTopics={briefing.hotTopics}
           isLiteUser={role === 'LITE_USER'}
           onTopicTap={handleHotTopicTap}
+          onShowOnMap={onShowOnMap}
           auroraTonight={briefing.auroraTonight || null}
           auroraTomorrow={briefing.auroraTomorrow || null}
         />
