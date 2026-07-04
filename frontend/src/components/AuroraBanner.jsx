@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import PropTypes from 'prop-types';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
 import { useAuroraViewline } from '../hooks/useAuroraViewline.js';
 
@@ -161,8 +162,13 @@ function AuroraGlyph() {
  * - Subtitle shows Kp and Bz status with plain-English explanation
  * - Pulses gently when Bz < −1 nT (favourable southward field)
  * - Dismissible per session; re-appears if the level escalates
+ *
+ * @param {object} props
+ * @param {function} [props.onViewOnMap] - Called when the banner is activated for a
+ *   live/forecast alert; the parent switches to the Map tab with the Aurora event
+ *   pre-selected. When omitted, falls back to a plain hash navigation to the map.
  */
-export default function AuroraBanner() {
+export default function AuroraBanner({ onViewOnMap = null }) {
   const { status } = useAuroraStatus();
   const viewlineEnabled = status != null && ALERT_WORTHY.has(status.level);
   const { viewline } = useAuroraViewline(viewlineEnabled);
@@ -227,6 +233,19 @@ export default function AuroraBanner() {
     setDismissedLevel(status.level);
   }
 
+  // Simulated alerts jump to the Manage tab; a real alert hands off to the Map tab
+  // with the Aurora event pre-selected (via onViewOnMap), falling back to a plain
+  // hash navigation when no handler is supplied.
+  function handleActivate() {
+    if (isSimulated) {
+      window.location.hash = 'manage';
+    } else if (onViewOnMap) {
+      onViewOnMap();
+    } else {
+      window.location.hash = 'map';
+    }
+  }
+
   return (
     <>
       <style>{AURORA_A_STYLE}</style>
@@ -242,11 +261,9 @@ export default function AuroraBanner() {
           animation: isFavourable ? 'aurora-pulse 3s ease-in-out infinite' : undefined,
         }}
         className={`aurora-a px-4 py-3 rounded-xl select-none cursor-pointer${isSimulated ? ' aurora-banner-simulated' : ''}`}
-        onClick={() => {
-          window.location.hash = isSimulated ? 'manage' : 'map';
-        }}
+        onClick={handleActivate}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') window.location.hash = isSimulated ? 'manage' : 'map';
+          if (e.key === 'Enter' || e.key === ' ') handleActivate();
         }}
         tabIndex={0}
       >
@@ -319,3 +336,7 @@ export default function AuroraBanner() {
     </>
   );
 }
+
+AuroraBanner.propTypes = {
+  onViewOnMap: PropTypes.func,
+};
