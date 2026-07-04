@@ -282,6 +282,31 @@ class HotTopicJsonTest {
     }
 
     @Test
+    @DisplayName("locationNames round-trips through JSON")
+    void locationNames_roundTrip() throws Exception {
+        HotTopic original = new HotTopic(
+                "INVERSION", "Cloud inversion", "Strong inversion likely",
+                LocalDate.of(2026, 7, 4), 2, null,
+                List.of("Yorkshire Dales"), "desc", null)
+                .withLocations(List.of("Malham", "Buttertubs"));
+
+        HotTopic restored = mapper.readValue(mapper.writeValueAsString(original), HotTopic.class);
+
+        assertThat(restored.locationNames()).containsExactly("Malham", "Buttertubs");
+    }
+
+    @Test
+    @DisplayName("null locationNames is omitted from serialised JSON")
+    void locationNames_null_omittedFromJson() throws Exception {
+        HotTopic topic = new HotTopic(
+                "INVERSION", "Cloud inversion", "Strong inversion likely",
+                LocalDate.of(2026, 7, 4), 2, null,
+                List.of("Yorkshire Dales"), "desc", null);
+
+        assertThat(mapper.writeValueAsString(topic)).doesNotContain("locationNames");
+    }
+
+    @Test
     @DisplayName("cached JSON without event fields deserialises cleanly — fields are null")
     void cachedJson_withoutEventFields_deserialisesCleanly() throws Exception {
         String json = """

@@ -44,17 +44,24 @@ final class PerDateHotTopicBuilder {
     static List<HotTopic> perDate(List<SurvivorSignals> rows, String type, String label,
             String detail, int priority, String description) {
         Map<LocalDate, Set<String>> regionsByDate = new TreeMap<>();
+        Map<LocalDate, Set<String>> locationsByDate = new TreeMap<>();
         for (SurvivorSignals row : rows) {
             Set<String> regions = regionsByDate.computeIfAbsent(row.date(), d -> new LinkedHashSet<>());
-            String region = row.location() != null && row.location().getRegion() != null
-                    ? row.location().getRegion().getName() : null;
-            if (region != null) {
-                regions.add(region);
+            Set<String> locations = locationsByDate.computeIfAbsent(row.date(), d -> new LinkedHashSet<>());
+            if (row.location() != null) {
+                if (row.location().getRegion() != null) {
+                    regions.add(row.location().getRegion().getName());
+                }
+                if (row.location().getName() != null) {
+                    // The qualifying spots — the exact locations that made the topic fire that day.
+                    locations.add(row.location().getName());
+                }
             }
         }
         return regionsByDate.entrySet().stream()
                 .map(entry -> new HotTopic(type, label, detail, entry.getKey(), priority, null,
-                        new ArrayList<>(entry.getValue()), description, null))
+                        new ArrayList<>(entry.getValue()), description, null)
+                        .withLocations(new ArrayList<>(locationsByDate.get(entry.getKey()))))
                 .toList();
     }
 }

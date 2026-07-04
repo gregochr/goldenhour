@@ -11,8 +11,10 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Fills in the photographic {@code eventType} and local {@code eventTime} on each hot topic so
@@ -87,20 +89,68 @@ public class HotTopicEventEnricher {
             return topics == null ? List.of() : topics;
         }
         List<LocationEntity> enabled = locationRepository.findAllByEnabledTrueOrderByNameAsc();
-        return topics.stream().map(topic -> enrichOne(topic, enabled)).toList();
+        List<LocationEntity> coastal = locationRepository.findCoastalLocations();
+        List<LocationEntity> darkSky = locationRepository.findByBortleClassIsNotNullAndEnabledTrue();
+        List<LocationEntity> bluebell = locationRepository.findBluebellLocations();
+        return topics.stream()
+                .map(topic -> enrichOne(topic, enabled, coastal, darkSky, bluebell))
+                .toList();
     }
 
-    private HotTopic enrichOne(HotTopic topic, List<LocationEntity> enabled) {
-        if (topic.eventType() != null || topic.date() == null) {
-            return topic;
+    private HotTopic enrichOne(HotTopic topic, List<LocationEntity> enabled,
+            List<LocationEntity> coastal, List<LocationEntity> darkSky, List<LocationEntity> bluebell) {
+        HotTopic result = topic;
+
+        // Photographic event type + time — skip when already set, or the topic has no date/anchor.
+        if (topic.eventType() == null && topic.date() != null) {
+            String eventType = resolveEventType(topic);
+            if (eventType != null) {
+                double[] latLon = resolveLatLon(topic, enabled);
+                result = result.withEvent(eventType,
+                        computeEventTime(eventType, latLon[0], latLon[1], topic.date()));
+            }
         }
-        String eventType = resolveEventType(topic);
-        if (eventType == null) {
-            return topic;
+
+        // Qualifying locations — the exact spots the map overlay opens to. Backfill only when the
+        // detecting strategy didn't already provide them (survivor-based topics carry precise sets).
+        if (result.locationNames() == null) {
+            List<String> names = qualifyingLocations(result, enabled, coastal, darkSky, bluebell);
+            if (!names.isEmpty()) {
+                result = result.withLocations(names);
+            }
         }
-        double[] latLon = resolveLatLon(topic, enabled);
-        String eventTime = computeEventTime(eventType, latLon[0], latLon[1], topic.date());
-        return topic.withEvent(eventType, eventTime);
+        return result;
+    }
+
+    /**
+     * The specific spots to show for a topic on the map: locations of the right kind — coastal for
+     * tides/supermoon, dark-sky for aurora/NLC/meteor, bluebell woodland for bluebell, else any
+     * enabled location — that sit in the topic's regions.
+     *
+     * @param topic    the topic to resolve locations for
+     * @param enabled  all enabled locations
+     * @param coastal  coastal locations
+     * @param darkSky  dark-sky (Bortle-classified) locations
+     * @param bluebell bluebell-woodland locations
+     * @return the qualifying location names in the topic's regions; empty when none/regionless
+     */
+    private List<String> qualifyingLocations(HotTopic topic, List<LocationEntity> enabled,
+            List<LocationEntity> coastal, List<LocationEntity> darkSky, List<LocationEntity> bluebell) {
+        if (topic.regions() == null || topic.regions().isEmpty()) {
+            return List.of();
+        }
+        Set<String> regions = new LinkedHashSet<>(topic.regions());
+        List<LocationEntity> kind = switch (topic.type()) {
+            case "KING_TIDE", "SPRING_TIDE", "SUPERMOON" -> coastal;
+            case "AURORA", "NLC", "METEOR" -> darkSky;
+            case "BLUEBELL" -> bluebell;
+            default -> enabled;
+        };
+        return kind.stream()
+                .filter(l -> l.getRegion() != null && regions.contains(l.getRegion().getName()))
+                .map(LocationEntity::getName)
+                .distinct()
+                .toList();
     }
 
     /**

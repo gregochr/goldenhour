@@ -111,7 +111,7 @@ export function buildMapOverlay(trigger, ctx) {
     };
   }
 
-  // ── Region / Event — gather the rated pins, then decide single vs multi ──
+  // ── Region / Event — gather the pins, then decide single vs multi ──
   let candidates;
   let titleRegion = trigger.region || null;
   if (trigger.kind === 'region' && trigger.region) {
@@ -119,12 +119,38 @@ export function buildMapOverlay(trigger, ctx) {
   } else {
     candidates = enabled; // event trigger: every region
   }
+
+  // A hot-topic click carries the exact qualifying spots (elevated / coastal / dark-sky …) —
+  // restrict to those pins when present, so the overlay shows only what made the topic fire.
+  const qualifying = trigger.locationNames && trigger.locationNames.length
+    ? new Set(trigger.locationNames)
+    : null;
+  if (qualifying) {
+    const restricted = candidates.filter((l) => qualifying.has(l.name));
+    if (restricted.length > 0) candidates = restricted;
+  }
+
   const rated = candidates
     .map((l) => ({ loc: l, rating: ratingFor(l, date, eventType, briefingScores) }))
     .filter((r) => r.rating != null);
   const pool = rated.length > 0 ? rated : candidates.map((l) => ({ loc: l, rating: null }));
   const regionsInvolved = new Set(pool.map((r) => r.loc.regionName).filter(Boolean));
   const time = formatClock(pool.length > 0 ? solarTimeFor(pool[0].loc, date, eventType) : null);
+
+  // Hot-topic region with several qualifying spots → fit to them all with a caption.
+  if (qualifying && pool.length > 1) {
+    const points = pool.map((r) => [r.loc.lat, r.loc.lon]);
+    return {
+      title: titleRegion || trigger.label || 'On the map',
+      subLine: [trigger.label, dl].filter(Boolean).join(' · ') || null,
+      narrative: MULTI_PROMPT,
+      narrativeHead: null,
+      narrativeTone: 'standdown',
+      caption: `◍ ${pool.length} spots — tap a pin to open it`,
+      focus: { points, nonce },
+      handoff: { eventType, date },
+    };
+  }
 
   // Multi-region → fit to all rated pins, no auto-open; the user taps a pin.
   if (!titleRegion && regionsInvolved.size > 1) {
@@ -148,7 +174,9 @@ export function buildMapOverlay(trigger, ctx) {
   const { tone, label } = toneFromRating(top?.rating ?? null);
   return {
     title: titleRegion || (top?.loc.name ?? 'On the map'),
-    subLine: [dl, eventWord(eventType), time && `· ${time}`].filter(Boolean).join(' '),
+    subLine: trigger.label
+      ? [trigger.label, dl].filter(Boolean).join(' · ')
+      : [dl, eventWord(eventType), time && `· ${time}`].filter(Boolean).join(' '),
     narrative: bs?.summary ?? null,
     narrativeHead: bs?.summary ? `${label} ${eventWord(eventType)} · ${titleRegion}`.trim() : null,
     narrativeTone: tone,

@@ -182,4 +182,48 @@ class HotTopicEventEnricherTest {
         assertThat(enricher.enrich(List.of())).isEmpty();
         assertThat(enricher.enrich(null)).isEmpty();
     }
+
+    // ── Qualifying-location backfill ──────────────────────────────────────────
+
+    @Test
+    @DisplayName("survivor-provided locations are preserved, not overwritten by the backfill")
+    void existingLocations_preserved() {
+        HotTopic pre = topic("INVERSION", null).withLocations(List.of("Malham"));
+        HotTopic result = enrichOne(pre);
+        assertThat(result.locationNames()).containsExactly("Malham");
+    }
+
+    @Test
+    @DisplayName("KING_TIDE backfills only the coastal locations in its regions")
+    void kingTide_backfillsCoastalInRegion() {
+        LocationEntity coast = LocationEntity.builder()
+                .id(2L).name("Bamburgh").lat(55.6).lon(-1.7)
+                .region(RegionEntity.builder().id(2L).name("Northumberland").build())
+                .enabled(true).build();
+        LocationEntity elsewhere = LocationEntity.builder()
+                .id(3L).name("Malham").lat(54.06).lon(-2.15)
+                .region(RegionEntity.builder().id(1L).name("Yorkshire Dales").build())
+                .enabled(true).build();
+        when(locationRepository.findCoastalLocations()).thenReturn(List.of(coast, elsewhere));
+
+        HotTopic result = enrichOne(new HotTopic("KING_TIDE", "King tide", "detail", DATE, 1, null,
+                List.of("Northumberland"), "desc", null));
+
+        assertThat(result.locationNames()).containsExactly("Bamburgh");
+    }
+
+    @Test
+    @DisplayName("AURORA backfills the dark-sky locations in its regions")
+    void aurora_backfillsDarkSkyInRegion() {
+        LocationEntity kielder = LocationEntity.builder()
+                .id(4L).name("Kielder").lat(55.2).lon(-2.5)
+                .region(RegionEntity.builder().id(2L).name("Northumberland").build())
+                .enabled(true).build();
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue()).thenReturn(List.of(kielder));
+
+        HotTopic result = enrichOne(new HotTopic("AURORA", "Aurora possible", "detail", DATE, 3, null,
+                List.of("Northumberland"), "desc", null));
+
+        assertThat(result.locationNames()).containsExactly("Kielder");
+    }
 }

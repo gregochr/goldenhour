@@ -182,7 +182,16 @@ function AppInner() {
     if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.filterAction) {
       trigger = { kind: 'topic', filterAction: dateOrHandoff.filterAction, label: dateOrHandoff.label, date: dateOrHandoff.date };
     } else if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.region) {
-      trigger = { kind: 'region', region: dateOrHandoff.region, date: dateOrHandoff.date, eventType: dateOrHandoff.eventType };
+      // A region trigger, optionally carrying a hot topic's qualifying locations + label so the
+      // overlay opens to just those pins (elevated inversion spots, coastal tide spots, …).
+      trigger = {
+        kind: 'region',
+        region: dateOrHandoff.region,
+        date: dateOrHandoff.date,
+        eventType: dateOrHandoff.eventType,
+        locationNames: dateOrHandoff.locationNames ?? null,
+        label: dateOrHandoff.label ?? null,
+      };
     } else if (locationName) {
       trigger = { kind: 'location', locationName, date: dateOrHandoff, eventType };
     } else {
