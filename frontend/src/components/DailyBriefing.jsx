@@ -243,15 +243,17 @@ function getCalDayNum(dateStr) {
 }
 
 /**
- * The summary strip caps shorter than the grid so it never implies a forecast further out than
- * the model is confident about — today's + tomorrow's two solar events. Widening the window is
- * this one constant.
+ * The summary strip mirrors the grid's day columns (one pill per day, both solar events), capped
+ * shorter than the grid so it never implies a forecast further out than the model is confident
+ * about. Widening the window is this one constant.
  */
-const STRIP_MAX_EVENTS = 4;
+const STRIP_MAX_DAYS = 4;
 
 /**
- * Builds the summary-strip pill descriptors from the upcoming events — a deterministic roll-up of
- * the same per-region verdicts the grid shows, so the strip can never disagree with it.
+ * Builds the summary-strip pill descriptors — one per upcoming day, rolling up that day's best
+ * across its solar events. A deterministic roll-up of the same per-region verdicts the grid shows,
+ * so the strip can never disagree with it. Travel days (no forecast generated) render as "Away",
+ * never "All poor".
  *
  * @param {Array}  upcomingEvents  [{date, targetType}] already ordered
  * @param {Array}  briefingDays    briefing.days
@@ -261,29 +263,56 @@ const STRIP_MAX_EVENTS = 4;
  * @returns {Array} pill descriptors for {@link BriefingSummaryStrip}
  */
 function buildSummaryPills(upcomingEvents, briefingDays, todayStr, tomorrowStr, travelDayDates) {
-  return upcomingEvents.slice(0, STRIP_MAX_EVENTS).map(({ date, targetType }) => {
+  // Distinct upcoming dates, in horizon order, capped — away days keep their slot.
+  const dates = [];
+  for (const { date } of upcomingEvents) {
+    if (!dates.includes(date)) dates.push(date);
+    if (dates.length === STRIP_MAX_DAYS) break;
+  }
+
+  return dates.map((date) => {
     const day = briefingDays.find((d) => d.date === date);
-    const es = (day?.eventSummaries || []).find((e) => e.targetType === targetType);
-    const counts = es ? getVerdictCounts(es) : { GO: 0, MARGINAL: 0, STANDDOWN: 0 };
-    const ratedCount = counts.GO + counts.MARGINAL;
-    const total = counts.GO + counts.MARGINAL + counts.STANDDOWN;
-    const peak = counts.GO > 0 ? 'go' : counts.MARGINAL > 0 ? 'maybe' : 'poor';
-    const peakLabel = peak === 'go' ? '◎ Worth it' : peak === 'maybe' ? 'Maybe' : 'All poor';
-    const countLabel = ratedCount > 0
-      ? `${ratedCount} ${ratedCount === 1 ? 'region' : 'regions'} rated`
-      : `${total} ${total === 1 ? 'region' : 'regions'}`;
-    return {
+    const events = day?.eventSummaries || [];
+    const sunriseEs = events.find((e) => e.targetType === 'SUNRISE');
+    const sunsetEs = events.find((e) => e.targetType === 'SUNSET');
+    const base = {
       date,
-      targetType,
       dow: getCalDow(date),
       dayNum: getCalDayNum(date),
       dayLabel: getDayLabel(date, todayStr, tomorrowStr),
-      eventTime: es ? formatTime(getEventTime(es)) : '',
-      peak,
-      peakLabel,
-      countLabel,
-      ratedCount,
-      isTravelDay: travelDayDates?.has(date) ?? false,
+      sunriseTime: sunriseEs ? formatTime(getEventTime(sunriseEs)) : '',
+      sunsetTime: sunsetEs ? formatTime(getEventTime(sunsetEs)) : '',
+    };
+
+    // Away (travel / no forecast) — never "All poor".
+    if (travelDayDates?.has(date)) {
+      return {
+        ...base, isAway: true, peak: 'away', peakLabel: '✈ Away',
+        subLabel: 'Travel day', countLabel: 'No forecast', ratedCount: 0, targetType: null,
+      };
+    }
+
+    // Day-best roll-up across both solar events; the click targets the event that drove it.
+    const ratedRegions = new Set();
+    const allRegions = new Set();
+    let goEvent = null;
+    let marginalEvent = null;
+    for (const es of events) {
+      for (const r of es.regions || []) {
+        allRegions.add(r.regionName);
+        if (r.verdict === 'GO') { ratedRegions.add(r.regionName); if (!goEvent) goEvent = es.targetType; }
+        else if (r.verdict === 'MARGINAL') { ratedRegions.add(r.regionName); if (!marginalEvent) marginalEvent = es.targetType; }
+      }
+    }
+    const peak = goEvent ? 'go' : marginalEvent ? 'maybe' : 'poor';
+    const peakLabel = peak === 'go' ? '◎ Worth it' : peak === 'maybe' ? 'Maybe' : 'All poor';
+    const ratedCount = ratedRegions.size;
+    const countLabel = ratedCount > 0
+      ? `${ratedCount} ${ratedCount === 1 ? 'region' : 'regions'} rated`
+      : `${allRegions.size} ${allRegions.size === 1 ? 'region' : 'regions'}`;
+    return {
+      ...base, isAway: false, peak, peakLabel, subLabel: null, countLabel, ratedCount,
+      targetType: goEvent ?? marginalEvent ?? sunsetEs?.targetType ?? sunriseEs?.targetType ?? null,
     };
   });
 }
@@ -960,8 +989,19 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
   const [openCardKeys, setOpenCardKeys] = useState(new Set()); // "date-regionName"
   const qualityTier = SHOW_ALL_TIER;
   const [showAllLocations, setShowAllLocations] = useLocalStorageState('showStanddownLocations', false);
-  // The full briefing grid is collapsed by default — the summary strip leads, the grid opens on demand.
-  const [gridExpanded, setGridExpanded] = useState(false);
+  // The full briefing grid is collapsed by default — the summary strip leads, the grid opens on
+  // demand. Once opened it persists for the session (sessionStorage), so a round-trip to the full
+  // Map tab and back lands the user on the same open grid rather than re-collapsing (see handoff B5).
+  // A fresh session still starts collapsed.
+  const [gridExpanded, setGridExpanded] = useState(() => {
+    try { return sessionStorage.getItem('planGridExpanded') === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try {
+      if (gridExpanded) sessionStorage.setItem('planGridExpanded', '1');
+      else sessionStorage.removeItem('planGridExpanded');
+    } catch { /* sessionStorage unavailable — persistence is best-effort */ }
+  }, [gridExpanded]);
   const intervalRef = useRef(null);
 
   // Evaluation scores hydrated from the batch-written cached_evaluation cache.

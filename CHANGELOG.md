@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Plan summary strip: one pill per day (both events), away days, sticky grid
+- **One pill per day, not per solar event.** The strip now mirrors the grid's day columns — each pill carries *both* solar events (`↑ 04:42 · ↓ 21:49`) and a day-best verdict roll-up (the day's best across sunrise + sunset), capped at 4 days. The earlier per-event version produced two "Tomorrow" pills and read as inconsistent with the grid. A rated pill's "Show on map" click targets the event that drove the day's peak.
+- **Away days.** Travel days (no forecast generated) render as `✈ Away` / `Travel day` / `No forecast` — dimmed, tide-tinted, not interactive — never "All poor" (poor implies we forecast and it's bad; away means we didn't). Away days keep their slot in the horizon.
+- **Sticky grid across the Map round-trip (handoff B5).** The full grid still defaults collapsed, but once opened it persists for the session (`sessionStorage`), so opening the full Map tab and returning lands the user on the same open grid rather than re-collapsing. A fresh session still starts collapsed. (The handoff's deep-link / scroll-to-cell auto-expand has no entry path in the app today — no grid-cell-targeted navigation exists — so only the realizable "back from Map" case is wired.)
+- Tests updated for the per-day/away pill shape plus the grid-persistence behaviour. 1588 frontend tests pass; ESLint clean.
+
 ### Changed — Plan tab: map opens over the plan, and the highlights lead
 - **Map overlay instead of a tab switch.** Tapping any recommendation (Best Bet, Hot Topic, region row, grid cell, summary pill) now opens the map as a modal *over* the Plan tab — focused on what you tapped — instead of switching to the Map tab and losing your place. Closeable with ✕ / Esc / backdrop; `viewMode` is untouched. A quiet "Open the full Map tab →" performs the old tab switch, landing exactly where the overlay was focused (the same handoff + date feed both).
   - New `MapOverlay` frames the existing `MapView` with a header (region/topic/event + time), the **preserved Claude narrative** as a footer band (verdict-coloured head + the region's gloss from the briefing — no new data), and a foot row. `MapView` gains a small `focus` prop that fits the map to an arbitrary set of pins (a multi-region event or a hot topic); single-region triggers fly to and auto-open the top-rated location's popup via the existing handoff seam.
