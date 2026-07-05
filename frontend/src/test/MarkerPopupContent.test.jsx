@@ -815,13 +815,39 @@ describe('MarkerPopupContent', () => {
       expect(screen.getByText(/Landscape · Northumberland/)).toBeInTheDocument();
     });
 
-    it('shows solar times row with both sunrise and sunset', () => {
+    it('shows only the selected event in the solar times row (sunset tab)', () => {
       renderEmpty();
       const solarRow = screen.getByTestId('solar-times-row');
       expect(solarRow).toBeInTheDocument();
-      // Both sunrise and sunset times should be present
-      expect(solarRow.textContent).toMatch(/🌅/);
+      // Sunset tab: only the sunset time may appear — surfacing the sunrise
+      // time here would contradict the active tab.
       expect(solarRow.textContent).toMatch(/🌇/);
+      expect(solarRow.textContent).toMatch(/18:15/);
+      expect(solarRow.textContent).not.toMatch(/🌅/);
+      expect(solarRow.textContent).not.toMatch(/06:34/);
+    });
+
+    it('shows only the selected event in the solar times row (sunrise tab)', () => {
+      renderEmpty({ eventType: 'SUNRISE' });
+      const solarRow = screen.getByTestId('solar-times-row');
+      expect(solarRow.textContent).toMatch(/🌅/);
+      expect(solarRow.textContent).toMatch(/06:34/);
+      expect(solarRow.textContent).not.toMatch(/🌇/);
+      expect(solarRow.textContent).not.toMatch(/18:15/);
+    });
+
+    it('hides the solar times row when the selected event has no time', () => {
+      // Sunset tab but only a sunrise time exists for the day — the row must
+      // not fall back to showing the sunrise time (the reported bug).
+      renderEmpty({
+        location: {
+          ...EMPTY_LOCATION,
+          forecastsByDate: new Map([
+            ['2026-03-03', { sunrise: { solarEventTime: '2026-03-03T06:34:00' }, sunset: null }],
+          ]),
+        },
+      });
+      expect(screen.queryByTestId('solar-times-row')).not.toBeInTheDocument();
     });
 
     it('shows aurora friendly and light pollution chips when bortleClass is set', () => {
