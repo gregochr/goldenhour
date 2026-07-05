@@ -119,7 +119,18 @@ export default function BriefingSummaryStrip({ pills, onPillClick }) {
                 {pill.subLabel}
               </div>
             )}
-            <div className="font-mono" style={{ fontSize: '10px', color: 'var(--color-plex-text-muted)', marginTop: '4px' }}>
+            <div
+              data-testid="summary-pill-detail"
+              className="font-mono"
+              style={{
+                // The region names are the useful payload, so brighter than a muted count, and it
+                // wraps to two lines when two names are long.
+                fontSize: '11px',
+                color: pill.isAway ? 'var(--color-plex-text-muted)' : 'var(--color-plex-text-secondary)',
+                lineHeight: 1.35,
+                marginTop: '4px',
+              }}
+            >
               {pill.countLabel}
             </div>
             {clickable && (

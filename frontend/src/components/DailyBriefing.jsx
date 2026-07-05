@@ -250,12 +250,43 @@ function getCalDayNum(dateStr) {
 const STRIP_MAX_DAYS = 4;
 
 /**
- * Builds the summary-strip pill descriptors — one per upcoming day, rolling up that day's best
- * across its solar events. A deterministic roll-up of the same per-region verdicts the grid shows,
- * so the strip can never disagree with it. Travel days (no forecast generated) render as "Away",
- * never "All poor".
+ * Abbreviates a region name for the compact strip ("The North Yorkshire Coast" → "N. Yorks Coast",
+ * "Tyne and Wear" → "Tyne & Wear"). Display-only — the full name is still shown on the map/grid.
  *
- * @param {Array}  upcomingEvents  [{date, targetType}] already ordered
+ * @param {string} name full region name
+ * @returns {string} a short display name
+ */
+function shortRegionName(name) {
+  if (!name) return '';
+  return name
+    .replace(/^The\s+/i, '')
+    .replace(/\band\b/gi, '&')
+    .replace(/\bNorth\b/g, 'N.')
+    .replace(/\bSouth\b/g, 'S.')
+    .replace(/\bEast\b/g, 'E.')
+    .replace(/\bWest\b/g, 'W.')
+    .replace(/\bYorkshire\b/g, 'Yorks');
+}
+
+/**
+ * Joins region names, truncating past two to keep the pill readable: "A, B" or "A, B +2".
+ *
+ * @param {string[]} names short region names
+ * @returns {string} the joined list
+ */
+function nameList(names) {
+  if (names.length <= 2) return names.join(', ');
+  return `${names.slice(0, 2).join(', ')} +${names.length - 2}`;
+}
+
+/**
+ * Builds the summary-strip pill descriptors — one per upcoming day. Each pill rolls up **exactly the
+ * grid's day column**: the same `upcomingEvents` (date, targetType) the grid renders, and the same
+ * `resolveRegionDisplay` derivation the grid's cells use (never the raw `region.verdict`, which the
+ * serve-time re-derivation can diverge from). Driving both from one day-indexed source makes strip/
+ * grid disagreement structurally impossible. Travel days render as "Away", never "All poor".
+ *
+ * @param {Array}  upcomingEvents  [{date, targetType}] the grid's columns, already ordered
  * @param {Array}  briefingDays    briefing.days
  * @param {string} todayStr        today's ISO date
  * @param {string} tomorrowStr     tomorrow's ISO date
@@ -263,18 +294,19 @@ const STRIP_MAX_DAYS = 4;
  * @returns {Array} pill descriptors for {@link BriefingSummaryStrip}
  */
 function buildSummaryPills(upcomingEvents, briefingDays, todayStr, tomorrowStr, travelDayDates) {
-  // Distinct upcoming dates, in horizon order, capped — away days keep their slot.
-  const dates = [];
-  for (const { date } of upcomingEvents) {
-    if (!dates.includes(date)) dates.push(date);
-    if (dates.length === STRIP_MAX_DAYS) break;
+  // Group the grid's exact columns by date, preserving order — one pill per day, capped.
+  const targetsByDate = new Map();
+  for (const { date, targetType } of upcomingEvents) {
+    if (!targetsByDate.has(date)) targetsByDate.set(date, []);
+    targetsByDate.get(date).push(targetType);
   }
+  const dates = [...targetsByDate.keys()].slice(0, STRIP_MAX_DAYS);
 
   return dates.map((date) => {
     const day = briefingDays.find((d) => d.date === date);
-    const events = day?.eventSummaries || [];
-    const sunriseEs = events.find((e) => e.targetType === 'SUNRISE');
-    const sunsetEs = events.find((e) => e.targetType === 'SUNSET');
+    const esFor = (tt) => (day?.eventSummaries || []).find((e) => e.targetType === tt);
+    const sunriseEs = esFor('SUNRISE');
+    const sunsetEs = esFor('SUNSET');
     const base = {
       date,
       dow: getCalDow(date),
@@ -292,27 +324,40 @@ function buildSummaryPills(upcomingEvents, briefingDays, todayStr, tomorrowStr, 
       };
     }
 
-    // Day-best roll-up across both solar events; the click targets the event that drove it.
-    const ratedRegions = new Set();
+    // Roll up only the day's grid columns, using the grid's own display derivation.
+    const goRegions = new Set();
+    const maybeRegions = new Set();
     const allRegions = new Set();
-    let goEvent = null;
-    let marginalEvent = null;
-    for (const es of events) {
-      for (const r of es.regions || []) {
-        allRegions.add(r.regionName);
-        if (r.verdict === 'GO') { ratedRegions.add(r.regionName); if (!goEvent) goEvent = es.targetType; }
-        else if (r.verdict === 'MARGINAL') { ratedRegions.add(r.regionName); if (!marginalEvent) marginalEvent = es.targetType; }
+    const ratedEvents = new Set();
+    let goTarget = null;
+    let maybeTarget = null;
+    for (const tt of targetsByDate.get(date)) {
+      const es = esFor(tt);
+      if (!es) continue;
+      const evWord = tt === 'SUNRISE' ? 'sunrise' : 'sunset';
+      for (const region of es.regions || []) {
+        allRegions.add(region.regionName);
+        const dv = resolveRegionDisplay(region);
+        if (dv === 'WORTH_IT') {
+          goRegions.add(region.regionName); ratedEvents.add(evWord); if (!goTarget) goTarget = tt;
+        } else if (dv === 'MAYBE') {
+          maybeRegions.add(region.regionName); ratedEvents.add(evWord); if (!maybeTarget) maybeTarget = tt;
+        }
       }
     }
-    const peak = goEvent ? 'go' : marginalEvent ? 'maybe' : 'poor';
-    const peakLabel = peak === 'go' ? '◎ Worth it' : peak === 'maybe' ? 'Maybe' : 'All poor';
-    const ratedCount = ratedRegions.size;
-    const countLabel = ratedCount > 0
-      ? `${ratedCount} ${ratedCount === 1 ? 'region' : 'regions'} rated`
+
+    const peak = goRegions.size ? 'go' : maybeRegions.size ? 'maybe' : 'poor';
+    const ratedNames = peak === 'go' ? [...goRegions] : peak === 'maybe' ? [...maybeRegions] : [];
+    const evTxt = ratedEvents.size === 1 ? [...ratedEvents][0] : ratedEvents.size > 1 ? 'sunrise/sunset' : '';
+    const peakBase = peak === 'go' ? '◎ Worth it' : peak === 'maybe' ? 'Maybe' : 'All poor';
+    // Peak line names which event is good; detail line names which regions (not a bare count).
+    const peakLabel = peak !== 'poor' && evTxt ? `${peakBase} · ${evTxt}` : peakBase;
+    const countLabel = ratedNames.length
+      ? nameList(ratedNames.map(shortRegionName))
       : `${allRegions.size} ${allRegions.size === 1 ? 'region' : 'regions'}`;
     return {
-      ...base, isAway: false, peak, peakLabel, subLabel: null, countLabel, ratedCount,
-      targetType: goEvent ?? marginalEvent ?? sunsetEs?.targetType ?? sunriseEs?.targetType ?? null,
+      ...base, isAway: false, peak, peakLabel, subLabel: null, countLabel, ratedCount: ratedNames.length,
+      targetType: goTarget ?? maybeTarget ?? sunsetEs?.targetType ?? sunriseEs?.targetType ?? null,
     };
   });
 }
