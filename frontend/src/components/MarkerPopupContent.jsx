@@ -920,6 +920,16 @@ export default function MarkerPopupContent({
         const sunsetDayLabel = emptySunsetRaw
           ? new Date(emptySunsetRaw + 'Z').toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'Europe/London' })
           : null;
+        const selectedDayLabel = isSunrise ? sunriseDayLabel : sunsetDayLabel;
+
+        // Aurora/astro nights are bracketed by both solar events, so show both
+        // as dark-window context. Sunrise/sunset tabs must show only the
+        // selected event — surfacing the other event's time here contradicts
+        // the active tab and reads as a wrong forecast.
+        const showBothSolar = isAuroraMode || isAstroMode;
+        const showSolarRow = showBothSolar
+          ? Boolean(emptySunriseTime || emptySunsetTime)
+          : Boolean(emptyEventTime);
 
         const locTypeLabel = locTypes.map((t) => POPUP_LOC_TYPE_META[t]?.label).filter(Boolean).join(' · ');
         const subParts = [locTypeLabel, location.regionName].filter(Boolean);
@@ -956,21 +966,31 @@ export default function MarkerPopupContent({
               </div>
             )}
 
-            {/* Solar event row */}
-            {(emptySunriseTime || emptySunsetTime) && (
+            {/* Solar event row — sunrise/sunset tabs show only the selected
+                event so the time can never contradict the active tab;
+                aurora/astro show both events as the dark-window bracket. */}
+            {showSolarRow && (
               <div data-testid="solar-times-row" style={{
                 display: 'flex', gap: '12px', padding: '5px 8px', borderRadius: '6px',
                 background: 'rgba(255,255,255,0.04)',
                 marginBottom: '6px', fontSize: '11px',
               }}>
-                {emptySunriseTime && (
-                  <span style={{ color: '#fb923c' }}>
-                    🌅 {emptySunriseTime}{sunriseDayLabel ? ` ${sunriseDayLabel}` : ''}
-                  </span>
-                )}
-                {emptySunsetTime && (
-                  <span style={{ color: '#c084fc' }}>
-                    🌇 {emptySunsetTime}{sunsetDayLabel ? ` ${sunsetDayLabel}` : ''}
+                {showBothSolar ? (
+                  <>
+                    {emptySunriseTime && (
+                      <span style={{ color: '#fb923c' }}>
+                        🌅 {emptySunriseTime}{sunriseDayLabel ? ` ${sunriseDayLabel}` : ''}
+                      </span>
+                    )}
+                    {emptySunsetTime && (
+                      <span style={{ color: '#c084fc' }}>
+                        🌇 {emptySunsetTime}{sunsetDayLabel ? ` ${sunsetDayLabel}` : ''}
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span style={{ color: isSunrise ? '#fb923c' : '#c084fc' }}>
+                    {isSunrise ? '🌅' : '🌇'} {emptyEventTime}{selectedDayLabel ? ` ${selectedDayLabel}` : ''}
                   </span>
                 )}
               </div>

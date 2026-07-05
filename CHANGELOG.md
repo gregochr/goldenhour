@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — empty-state popup never shows a solar time that contradicts the active tab
+- On the map, an unforecast location's popup could show a **sunrise time under the Sunset tab** (and vice-versa): the empty-state "solar times" row always listed *both* events, so when only one event had data (e.g. a sunrise row exists but sunset was never run), it surfaced that mismatched time with a mismatched icon — reading as a wrong forecast even though the medallion correctly showed `–` (unknown).
+- The row now shows **only the selected event** on the Sunrise/Sunset tabs, and **hides entirely** when the selected event has no time available — so a Sunset tab can never display a sunrise time. Aurora/Astro modes still show both events as the dark-window bracket (their event badge is hidden anyway).
+- Frontend-only. Tests: solar row shows only the selected event (sunrise and sunset tabs), and is hidden when the selected event has no time (the reported bug). 132 popup tests + 68 MapView tests pass.
+
 ### Changed — summary-strip region names are hoverable, each showing its own Claude gloss
 - Each rated region in a pill's detail line is now an **individually hoverable chip** (dotted underline). Hovering reveals *that region's own* gloss in a tooltip — verdict-coloured `VERDICT · wx` header (the same `region.summary` + weather the grid cell shows) over the Claude prose in Newsreader italic — so two regions on one pill give two different tooltips. Clicking a name still opens the map for that region (hover reads, click navigates). Every rated region shows as a chip (no more `A, B +N` truncation).
 - The tooltip anchors above the chip and flips to right-aligned for right-half pills so it never spills past the plan card's clipped edge.
