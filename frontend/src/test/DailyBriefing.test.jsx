@@ -2079,3 +2079,89 @@ describe('DailyBriefing — lightly-evaluated framing', () => {
     expect(screen.queryAllByTestId('unscored-pill')).toHaveLength(0);
   });
 });
+
+describe('DailyBriefing — summary strip', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    sessionStorage.clear();
+    useAuth.mockReturnValue({ role: 'ADMIN' });
+  });
+
+  function stripBriefing(date, sunsetRegions, sunriseRegions = []) {
+    return {
+      generatedAt: new Date().toISOString().slice(0, 19),
+      headline: '',
+      days: [{
+        date,
+        eventSummaries: [
+          { targetType: 'SUNRISE', regions: sunriseRegions, unregioned: [] },
+          { targetType: 'SUNSET', regions: sunsetRegions, unregioned: [] },
+        ],
+      }],
+    };
+  }
+
+  const region = (regionName, verdict, extra = {}) => ({
+    regionName,
+    verdict,
+    summary: '',
+    tideHighlights: [],
+    slots: [{ locationName: `${regionName} spot`, solarEventTime: `${extra.date}T21:00:00`, verdict }],
+    ...extra,
+  });
+
+  it('names the rated event and the rated regions (not a bare count)', async () => {
+    const d = futureDateStr(1);
+    getDailyBriefing.mockResolvedValue(stripBriefing(d, [
+      region('The North Yorkshire Coast', 'GO', { date: d }),
+      region('Tyne and Wear', 'GO', { date: d }),
+    ]));
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-summary-strip'));
+    expect(screen.getAllByTestId('summary-pill-peak')[0].textContent).toBe('◎ Worth it · sunset');
+    const detail = screen.getAllByTestId('summary-pill-detail')[0];
+    expect(detail.textContent).toBe('N. Yorks Coast, Tyne & Wear');
+    expect(detail.textContent).not.toContain('regions rated');
+  });
+
+  it('shows "sunrise/sunset" when both events have rated regions', async () => {
+    const d = futureDateStr(1);
+    getDailyBriefing.mockResolvedValue(stripBriefing(
+      d,
+      [region('Tyne and Wear', 'GO', { date: d })],
+      [region('Northumberland', 'GO', { date: d })],
+    ));
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-summary-strip'));
+    expect(screen.getAllByTestId('summary-pill-peak')[0].textContent).toBe('◎ Worth it · sunrise/sunset');
+  });
+
+  it('overflows past two regions as "A, B +N"', async () => {
+    const d = futureDateStr(1);
+    getDailyBriefing.mockResolvedValue(stripBriefing(d, [
+      region('Tyne and Wear', 'GO', { date: d }),
+      region('Teesdale', 'GO', { date: d }),
+      region('Northumberland', 'GO', { date: d }),
+      region('The Lake District', 'GO', { date: d }),
+    ]));
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-summary-strip'));
+    expect(screen.getAllByTestId('summary-pill-detail')[0].textContent).toBe('Tyne & Wear, Teesdale +2');
+  });
+
+  it('rolls up the grid display verdict, not the raw verdict — no strip/grid drift', async () => {
+    const d = futureDateStr(1);
+    // Raw verdict says STANDDOWN, but the serve-time re-derivation lifts the display to WORTH_IT —
+    // the grid cell shows GO, so the strip must too (this is the reported off-by-one bug).
+    getDailyBriefing.mockResolvedValue(stripBriefing(d, [
+      region('The Lake District', 'STANDDOWN', { date: d, displayVerdict: 'WORTH_IT' }),
+    ]));
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-summary-strip'));
+    const peak = screen.getAllByTestId('summary-pill-peak')[0];
+    expect(peak.textContent).toContain('◎ Worth it');
+    expect(peak.textContent).not.toContain('All poor');
+    expect(screen.getAllByTestId('summary-pill-detail')[0].textContent).toBe('Lake District');
+  });
+});
