@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — summary-strip region tooltip no longer clips its right edge
+- On a Plan summary-strip pill, hovering a region name showed that region's gloss in a tooltip, but on the widest line the **last glyph faded/cut off** (e.g. "…all 10 locations" lost the "0"). The tooltip was an absolutely-positioned descendant of the plan card (`overflow: hidden`) — which also gains a `transform` on pill hover — so the card clipped its edge.
+- The tooltip is now **portalled to `document.body`** and positioned against the chip with `getBoundingClientRect()` (`position: fixed`), so no clipping/transform ancestor can eat its edge. It anchors above the chip, flipping left→right when it would overrun the viewport's right edge (replacing the old pill-index heuristic with a real viewport check), and gains extra right padding so no glyph touches the border. `pointer-events: none` keeps it purely informational; hover **and** keyboard focus reveal it.
+- Frontend-only. Tests updated to hover the chip and assert the portalled `role="tooltip"` carries the verdict/weather/gloss; click-to-navigate and strip/grid parity unchanged. 1603 frontend tests pass; ESLint + build clean.
+
 ### Fixed — empty-state popup never shows a solar time that contradicts the active tab
 - On the map, an unforecast location's popup could show a **sunrise time under the Sunset tab** (and vice-versa): the empty-state "solar times" row always listed *both* events, so when only one event had data (e.g. a sunrise row exists but sunset was never run), it surfaced that mismatched time with a mismatched icon — reading as a wrong forecast even though the medallion correctly showed `–` (unknown).
 - The row now shows **only the selected event** on the Sunrise/Sunset tabs, and **hides entirely** when the selected event has no time available — so a Sunset tab can never display a sunrise time. Aurora/Astro modes still show both events as the dark-window bracket (their event badge is hidden anyway).
