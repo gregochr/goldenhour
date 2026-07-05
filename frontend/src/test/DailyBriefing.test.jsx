@@ -2105,13 +2105,16 @@ describe('DailyBriefing — summary strip', () => {
   const region = (regionName, verdict, extra = {}) => ({
     regionName,
     verdict,
-    summary: '',
+    summary: `${regionName} gloss`,
     tideHighlights: [],
+    regionWeatherCode: 3,
+    regionTemperatureCelsius: 18,
+    regionWindSpeedMs: 4.47,
     slots: [{ locationName: `${regionName} spot`, solarEventTime: `${extra.date}T21:00:00`, verdict }],
     ...extra,
   });
 
-  it('names the rated event and the rated regions (not a bare count)', async () => {
+  it('names the rated event and renders a chip per rated region (not a bare count)', async () => {
     const d = futureDateStr(1);
     getDailyBriefing.mockResolvedValue(stripBriefing(d, [
       region('The North Yorkshire Coast', 'GO', { date: d }),
@@ -2119,10 +2122,12 @@ describe('DailyBriefing — summary strip', () => {
     ]));
     render(<DailyBriefing />);
     await waitFor(() => screen.getByTestId('briefing-summary-strip'));
-    expect(screen.getAllByTestId('summary-pill-peak')[0].textContent).toBe('◎ Worth it · sunset');
-    const detail = screen.getAllByTestId('summary-pill-detail')[0];
-    expect(detail.textContent).toBe('N. Yorks Coast, Tyne & Wear');
-    expect(detail.textContent).not.toContain('regions rated');
+    expect(screen.getAllByTestId('summary-pill-peak')[0].textContent).toBe('\u25ce Worth it \u00b7 sunset');
+    const chips = screen.getAllByTestId('summary-region-chip');
+    expect(chips).toHaveLength(2);
+    expect(chips[0].textContent).toContain('N. Yorks Coast');
+    expect(chips[1].textContent).toContain('Tyne & Wear');
+    expect(screen.getAllByTestId('summary-pill-detail')[0].textContent).not.toContain('regions rated');
   });
 
   it('shows "sunrise/sunset" when both events have rated regions', async () => {
@@ -2134,10 +2139,10 @@ describe('DailyBriefing — summary strip', () => {
     ));
     render(<DailyBriefing />);
     await waitFor(() => screen.getByTestId('briefing-summary-strip'));
-    expect(screen.getAllByTestId('summary-pill-peak')[0].textContent).toBe('◎ Worth it · sunrise/sunset');
+    expect(screen.getAllByTestId('summary-pill-peak')[0].textContent).toBe('\u25ce Worth it \u00b7 sunrise/sunset');
   });
 
-  it('overflows past two regions as "A, B +N"', async () => {
+  it('renders every rated region as its own hoverable chip', async () => {
     const d = futureDateStr(1);
     getDailyBriefing.mockResolvedValue(stripBriefing(d, [
       region('Tyne and Wear', 'GO', { date: d }),
@@ -2147,21 +2152,49 @@ describe('DailyBriefing — summary strip', () => {
     ]));
     render(<DailyBriefing />);
     await waitFor(() => screen.getByTestId('briefing-summary-strip'));
-    expect(screen.getAllByTestId('summary-pill-detail')[0].textContent).toBe('Tyne & Wear, Teesdale +2');
+    expect(screen.getAllByTestId('summary-region-chip')).toHaveLength(4);
   });
 
-  it('rolls up the grid display verdict, not the raw verdict — no strip/grid drift', async () => {
+  it("a chip reveals that region's verdict, weather and gloss", async () => {
     const d = futureDateStr(1);
-    // Raw verdict says STANDDOWN, but the serve-time re-derivation lifts the display to WORTH_IT —
-    // the grid cell shows GO, so the strip must too (this is the reported off-by-one bug).
+    getDailyBriefing.mockResolvedValue(stripBriefing(d, [
+      region('Tyne and Wear', 'MARGINAL', { date: d, summary: 'Broken mid-cloud keeps it marginal.' }),
+    ]));
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-summary-strip'));
+    const chip = screen.getByTestId('summary-region-chip');
+    // The tooltip (inside the chip) carries the verdict + wx header and the gloss body.
+    expect(chip.textContent).toContain('Maybe sunset');
+    expect(chip.textContent).toContain('18\u00b0C');
+    expect(chip.textContent).toContain('10mph'); // 4.47 m/s -> 10mph
+    expect(chip.textContent).toContain('Broken mid-cloud keeps it marginal.');
+  });
+
+  it('clicking a region chip opens the map for that region', async () => {
+    const onShowOnMap = vi.fn();
+    const d = futureDateStr(1);
+    getDailyBriefing.mockResolvedValue(stripBriefing(d, [
+      region('Tyne and Wear', 'GO', { date: d }),
+    ]));
+    render(<DailyBriefing onShowOnMap={onShowOnMap} />);
+    await waitFor(() => screen.getByTestId('briefing-summary-strip'));
+    fireEvent.click(screen.getByTestId('summary-region-chip'));
+    expect(onShowOnMap).toHaveBeenCalledWith({ region: 'Tyne and Wear', date: d, eventType: 'SUNSET' });
+  });
+
+  it('rolls up the grid display verdict, not the raw verdict \u2014 no strip/grid drift', async () => {
+    const d = futureDateStr(1);
+    // Raw verdict says STANDDOWN, but the serve-time re-derivation lifts the display to WORTH_IT.
     getDailyBriefing.mockResolvedValue(stripBriefing(d, [
       region('The Lake District', 'STANDDOWN', { date: d, displayVerdict: 'WORTH_IT' }),
     ]));
     render(<DailyBriefing />);
     await waitFor(() => screen.getByTestId('briefing-summary-strip'));
     const peak = screen.getAllByTestId('summary-pill-peak')[0];
-    expect(peak.textContent).toContain('◎ Worth it');
+    expect(peak.textContent).toContain('\u25ce Worth it');
     expect(peak.textContent).not.toContain('All poor');
-    expect(screen.getAllByTestId('summary-pill-detail')[0].textContent).toBe('Lake District');
+    const chips = screen.getAllByTestId('summary-region-chip');
+    expect(chips).toHaveLength(1);
+    expect(chips[0].textContent).toContain('Lake District');
   });
 });

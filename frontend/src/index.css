@@ -251,6 +251,76 @@
   transform: translateY(-2px);
 }
 
+/* Summary-strip region chip — dotted underline, reveals that region's Claude gloss on hover */
+.summary-region-chip {
+  position: relative;
+  cursor: pointer;
+  border-bottom: 1px dotted var(--color-plex-text-muted);
+  transition: color 0.14s ease;
+}
+.summary-region-chip[data-peak="go"]:hover { color: var(--color-verdict-go); }
+.summary-region-chip[data-peak="maybe"]:hover { color: var(--color-verdict-marginal); }
+.summary-region-chip:focus-visible { outline: 1px solid var(--color-plex-border-light); outline-offset: 2px; }
+
+.summary-region-tip {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 9px);
+  z-index: 40;
+  width: 264px;
+  max-width: 72vw;
+  background: var(--color-plex-surface-light);
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 9px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+  padding: 11px 13px;
+  display: none;
+  white-space: normal;
+  text-align: left;
+}
+.summary-region-tip::after {
+  content: '';
+  position: absolute;
+  left: 20px;
+  bottom: -6px;
+  width: 11px;
+  height: 11px;
+  transform: rotate(45deg);
+  background: var(--color-plex-surface-light);
+  border-right: 1px solid var(--color-plex-border-light);
+  border-bottom: 1px solid var(--color-plex-border-light);
+}
+/* Right-half pills: anchor the tooltip to the chip's right so it doesn't spill past the card edge */
+.summary-region-tip--right {
+  left: auto;
+  right: 0;
+}
+.summary-region-tip--right::after {
+  left: auto;
+  right: 20px;
+}
+.summary-region-chip:hover .summary-region-tip,
+.summary-region-chip:focus-visible .summary-region-tip {
+  display: block;
+}
+.summary-region-tip-head {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.summary-region-tip-body {
+  display: block;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-plex-text-secondary);
+}
+
 /* Map overlay panel — rises in on open */
 @keyframes map-overlay-rise {
   from { transform: translateY(14px) scale(0.99); opacity: 0; }
