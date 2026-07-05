@@ -1,4 +1,34 @@
+import { useCallback, useState } from 'react';
+import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
+
+const TIP_WIDTH = 264;
+const TIP_MARGIN = 8;
+const TIP_GAP = 9;
+
+/**
+ * Compute a viewport-anchored (`position: fixed`) style for the region gloss tooltip so it
+ * escapes the plan card's `overflow: hidden` (and the pill's hover `transform`) entirely. The
+ * tooltip sits above the chip; it anchors to the chip's left unless that would overrun the
+ * viewport's right edge, in which case it flips to a right anchor.
+ *
+ * @param {DOMRect} rect chip bounding box
+ * @returns {{style: Object, alignRight: boolean}} inline style + caret-side flag
+ */
+function computeTipPlacement(rect) {
+  const alignRight = rect.left + TIP_WIDTH + TIP_MARGIN > window.innerWidth;
+  const style = {
+    position: 'fixed',
+    bottom: `${window.innerHeight - rect.top + TIP_GAP}px`,
+    width: `${TIP_WIDTH}px`,
+  };
+  if (alignRight) {
+    style.right = `${Math.max(TIP_MARGIN, window.innerWidth - rect.right)}px`;
+  } else {
+    style.left = `${Math.max(TIP_MARGIN, rect.left)}px`;
+  }
+  return { style, alignRight };
+}
 
 /**
  * Compact summary strip shown between the Hot Topics and the full briefing grid on the Plan tab.
@@ -17,6 +47,17 @@ import PropTypes from 'prop-types';
  * @param {Function} props.onPillClick callback(date, targetType) for actionable pills
  */
 export default function BriefingSummaryStrip({ pills, onPillClick, onRegionClick }) {
+  // Active region tooltip, portalled to <body> so no clipping/transform ancestor can eat its edge.
+  const [tip, setTip] = useState(null);
+  const showTip = useCallback((event, region, headColour, dateStr) => {
+    const { style, alignRight } = computeTipPlacement(event.currentTarget.getBoundingClientRect());
+    setTip({ key: `${dateStr}:${region.regionName}`, region, headColour, style, alignRight });
+  }, []);
+  const hideTip = useCallback((region, dateStr) => {
+    const key = `${dateStr}:${region.regionName}`;
+    setTip((current) => (current && current.key === key ? null : current));
+  }, []);
+
   if (!pills || pills.length === 0) return null;
 
   return (
@@ -25,11 +66,8 @@ export default function BriefingSummaryStrip({ pills, onPillClick, onRegionClick
       className="grid mb-1"
       style={{ gridTemplateColumns: `repeat(${pills.length}, minmax(0, 1fr))`, gap: '8px' }}
     >
-      {pills.map((pill, pillIndex) => {
+      {pills.map((pill) => {
         const clickable = pill.ratedCount > 0 && !pill.isAway;
-        // Right-half pills anchor their tooltip to the right so it never spills past the card edge
-        // (the plan card clips overflow); left/centre pills anchor left.
-        const tipAlignRight = pillIndex >= Math.ceil(pills.length / 2);
         const accent = pill.peak === 'go'
           ? 'rgba(138,174,114,0.4)'
           : pill.peak === 'maybe'
@@ -158,23 +196,14 @@ export default function BriefingSummaryStrip({ pills, onPillClick, onRegionClick
                               onRegionClick?.(region.regionName, pill.date, region.targetType);
                             }
                           }}
+                          // The gloss tooltip is portalled to <body> (see below) so it can't be
+                          // clipped by the plan card; hover/focus toggles which region is shown.
+                          onMouseEnter={(e) => showTip(e, region, headColour, pill.date)}
+                          onMouseLeave={() => hideTip(region, pill.date)}
+                          onFocus={(e) => showTip(e, region, headColour, pill.date)}
+                          onBlur={() => hideTip(region, pill.date)}
                         >
                           {region.shortName}
-                          {/* Per-region Claude gloss — revealed on hover, anchored above the chip. */}
-                          <span
-                            className={`summary-region-tip${tipAlignRight ? ' summary-region-tip--right' : ''}`}
-                            role="tooltip"
-                          >
-                            <span
-                              className="summary-region-tip-head"
-                              style={{ color: headColour }}
-                            >
-                              {region.verdictLabel}{region.wx ? ` · ${region.wx}` : ''}
-                            </span>
-                            <span className="summary-region-tip-body">
-                              {region.summary || 'No detail available.'}
-                            </span>
-                          </span>
                         </span>
                       </span>
                     );
@@ -189,6 +218,23 @@ export default function BriefingSummaryStrip({ pills, onPillClick, onRegionClick
           </div>
         );
       })}
+      {tip
+        && createPortal(
+          <div
+            className={`summary-region-tip${tip.alignRight ? ' summary-region-tip--right' : ''}`}
+            role="tooltip"
+            style={tip.style}
+          >
+            <span className="summary-region-tip-head" style={{ color: tip.headColour }}>
+              {tip.region.verdictLabel}
+              {tip.region.wx ? ` · ${tip.region.wx}` : ''}
+            </span>
+            <span className="summary-region-tip-body">
+              {tip.region.summary || 'No detail available.'}
+            </span>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

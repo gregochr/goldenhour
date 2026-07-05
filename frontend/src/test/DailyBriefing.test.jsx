@@ -2163,11 +2163,14 @@ describe('DailyBriefing — summary strip', () => {
     render(<DailyBriefing />);
     await waitFor(() => screen.getByTestId('briefing-summary-strip'));
     const chip = screen.getByTestId('summary-region-chip');
-    // The tooltip (inside the chip) carries the verdict + wx header and the gloss body.
-    expect(chip.textContent).toContain('Maybe sunset');
-    expect(chip.textContent).toContain('18\u00b0C');
-    expect(chip.textContent).toContain('10mph'); // 4.47 m/s -> 10mph
-    expect(chip.textContent).toContain('Broken mid-cloud keeps it marginal.');
+    // Hovering reveals the tooltip, which is portalled to <body> (so the plan card can't clip it);
+    // it carries the verdict + wx header and the gloss body.
+    fireEvent.mouseEnter(chip);
+    const tip = screen.getByRole('tooltip');
+    expect(tip.textContent).toContain('Maybe sunset');
+    expect(tip.textContent).toContain('18\u00b0C');
+    expect(tip.textContent).toContain('10mph'); // 4.47 m/s -> 10mph
+    expect(tip.textContent).toContain('Broken mid-cloud keeps it marginal.');
   });
 
   it('clicking a region chip opens the map for that region', async () => {

@@ -103,7 +103,10 @@ describe('BriefingSummaryStrip', () => {
     const chips = screen.getAllByTestId('summary-region-chip');
     expect(chips).toHaveLength(2);
     expect(chips[0].textContent).toContain('N. Yorks Coast');
-    expect(chips[0].textContent).toContain('A high-cloud canvas.'); // tooltip gloss
+    // Hovering reveals that chip's gloss in a tooltip portalled to <body> (unclippable).
+    fireEvent.mouseEnter(chips[0]);
+    expect(screen.getByRole('tooltip').textContent).toContain('A high-cloud canvas.');
+    fireEvent.mouseLeave(chips[0]);
     // Clicking a chip routes to onRegionClick (not the pill-level onPillClick).
     fireEvent.click(chips[1]);
     expect(onRegionClick).toHaveBeenCalledWith('Tyne and Wear', '2026-07-04', 'SUNSET');
