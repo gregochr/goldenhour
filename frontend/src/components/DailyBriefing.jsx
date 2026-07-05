@@ -269,14 +269,16 @@ function shortRegionName(name) {
 }
 
 /**
- * Joins region names, truncating past two to keep the pill readable: "A, B" or "A, B +2".
+ * Builds the region's compact weather string ("☁18°C 10mph"), matching the grid cell's `wx`.
  *
- * @param {string[]} names short region names
- * @returns {string} the joined list
+ * @param {Object} region briefing region with region-level weather fields
+ * @returns {string} the wx string, or '' when temperature is unavailable
  */
-function nameList(names) {
-  if (names.length <= 2) return names.join(', ');
-  return `${names.slice(0, 2).join(', ')} +${names.length - 2}`;
+function buildRegionWx(region) {
+  if (region?.regionTemperatureCelsius == null) return '';
+  const icon = weatherCodeToIcon(region.regionWeatherCode);
+  const wind = region.regionWindSpeedMs != null ? ` ${msToMph(region.regionWindSpeedMs)}mph` : '';
+  return `${icon}${Math.round(region.regionTemperatureCelsius)}°C${wind}`;
 }
 
 /**
@@ -324,13 +326,10 @@ function buildSummaryPills(upcomingEvents, briefingDays, todayStr, tomorrowStr, 
       };
     }
 
-    // Roll up only the day's grid columns, using the grid's own display derivation.
-    const goRegions = new Set();
-    const maybeRegions = new Set();
+    // Roll up only the day's grid columns, using the grid's own display derivation. Keep each rated
+    // region's own cell (verdict + wx + gloss + event) so the strip can offer a per-region tooltip.
     const allRegions = new Set();
-    const ratedEvents = new Set();
-    let goTarget = null;
-    let maybeTarget = null;
+    const byRegion = new Map(); // regionName -> { rank, display, event, targetType, region }
     for (const tt of targetsByDate.get(date)) {
       const es = esFor(tt);
       if (!es) continue;
@@ -338,26 +337,43 @@ function buildSummaryPills(upcomingEvents, briefingDays, todayStr, tomorrowStr, 
       for (const region of es.regions || []) {
         allRegions.add(region.regionName);
         const dv = resolveRegionDisplay(region);
-        if (dv === 'WORTH_IT') {
-          goRegions.add(region.regionName); ratedEvents.add(evWord); if (!goTarget) goTarget = tt;
-        } else if (dv === 'MAYBE') {
-          maybeRegions.add(region.regionName); ratedEvents.add(evWord); if (!maybeTarget) maybeTarget = tt;
+        if (dv !== 'WORTH_IT' && dv !== 'MAYBE') continue;
+        const rank = dv === 'WORTH_IT' ? 0 : 1; // a WORTH_IT cell wins over a MAYBE one
+        const existing = byRegion.get(region.regionName);
+        if (!existing || rank < existing.rank) {
+          byRegion.set(region.regionName, { rank, display: dv, event: evWord, targetType: tt, region });
         }
       }
     }
 
-    const peak = goRegions.size ? 'go' : maybeRegions.size ? 'maybe' : 'poor';
-    const ratedNames = peak === 'go' ? [...goRegions] : peak === 'maybe' ? [...maybeRegions] : [];
+    const entries = [...byRegion.values()];
+    const anyGo = entries.some((e) => e.display === 'WORTH_IT');
+    const peak = entries.length === 0 ? 'poor' : anyGo ? 'go' : 'maybe';
+    const peakDisplay = peak === 'go' ? 'WORTH_IT' : 'MAYBE';
+    const rated = entries.filter((e) => e.display === peakDisplay);
+    const ratedEvents = new Set(rated.map((e) => e.event));
     const evTxt = ratedEvents.size === 1 ? [...ratedEvents][0] : ratedEvents.size > 1 ? 'sunrise/sunset' : '';
     const peakBase = peak === 'go' ? '◎ Worth it' : peak === 'maybe' ? 'Maybe' : 'All poor';
-    // Peak line names which event is good; detail line names which regions (not a bare count).
-    const peakLabel = peak !== 'poor' && evTxt ? `${peakBase} · ${evTxt}` : peakBase;
-    const countLabel = ratedNames.length
-      ? nameList(ratedNames.map(shortRegionName))
-      : `${allRegions.size} ${allRegions.size === 1 ? 'region' : 'regions'}`;
+    // Peak line names which event is good; each rated region becomes its own hoverable chip.
+    const regions = rated.map((e) => ({
+      regionName: e.region.regionName,
+      shortName: shortRegionName(e.region.regionName),
+      targetType: e.targetType,
+      verdictLabel: `${e.display === 'WORTH_IT' ? 'Worth it' : 'Maybe'} ${e.event}`,
+      wx: buildRegionWx(e.region),
+      summary: e.region.summary || '',
+    }));
     return {
-      ...base, isAway: false, peak, peakLabel, subLabel: null, countLabel, ratedCount: ratedNames.length,
-      targetType: goTarget ?? maybeTarget ?? sunsetEs?.targetType ?? sunriseEs?.targetType ?? null,
+      ...base,
+      isAway: false,
+      peak,
+      peakLabel: peak !== 'poor' && evTxt ? `${peakBase} · ${evTxt}` : peakBase,
+      subLabel: null,
+      regions,
+      // Fallback text when nothing is rated ("N regions"); chips carry the rated case.
+      countLabel: regions.length ? null : `${allRegions.size} ${allRegions.size === 1 ? 'region' : 'regions'}`,
+      ratedCount: regions.length,
+      targetType: rated[0]?.targetType ?? sunsetEs?.targetType ?? sunriseEs?.targetType ?? null,
     };
   });
 }
@@ -1520,7 +1536,11 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
 
       {/* ── Desktop: summary strip leads; the full grid sits behind an expander ── */}
       <div className="hidden sm:block">
-        <BriefingSummaryStrip pills={summaryPills} onPillClick={onShowOnMap} />
+        <BriefingSummaryStrip
+          pills={summaryPills}
+          onPillClick={onShowOnMap}
+          onRegionClick={(regionName, date, targetType) => onShowOnMap?.({ region: regionName, date, eventType: targetType })}
+        />
 
         {/* FULL BRIEFING divider + expander */}
         <div className="flex items-center gap-3 mt-3 mb-1">

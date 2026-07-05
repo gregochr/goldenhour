@@ -85,4 +85,28 @@ describe('BriefingSummaryStrip', () => {
     fireEvent.click(p);
     expect(onPillClick).not.toHaveBeenCalled();
   });
+
+  it('renders a hoverable chip per rated region with its own gloss, and routes clicks', () => {
+    const onRegionClick = vi.fn();
+    const onPillClick = vi.fn();
+    render(<BriefingSummaryStrip
+      pills={[pill({
+        countLabel: null,
+        regions: [
+          { regionName: 'The North Yorkshire Coast', shortName: 'N. Yorks Coast', targetType: 'SUNSET', verdictLabel: 'Worth it sunset', wx: '☁18°C 10mph', summary: 'A high-cloud canvas.' },
+          { regionName: 'Tyne and Wear', shortName: 'Tyne & Wear', targetType: 'SUNSET', verdictLabel: 'Worth it sunset', wx: '☁18°C 14mph', summary: 'Break in the western cloud.' },
+        ],
+      })]}
+      onPillClick={onPillClick}
+      onRegionClick={onRegionClick}
+    />);
+    const chips = screen.getAllByTestId('summary-region-chip');
+    expect(chips).toHaveLength(2);
+    expect(chips[0].textContent).toContain('N. Yorks Coast');
+    expect(chips[0].textContent).toContain('A high-cloud canvas.'); // tooltip gloss
+    // Clicking a chip routes to onRegionClick (not the pill-level onPillClick).
+    fireEvent.click(chips[1]);
+    expect(onRegionClick).toHaveBeenCalledWith('Tyne and Wear', '2026-07-04', 'SUNSET');
+    expect(onPillClick).not.toHaveBeenCalled();
+  });
 });

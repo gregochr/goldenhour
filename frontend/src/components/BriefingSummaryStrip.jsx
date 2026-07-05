@@ -16,7 +16,7 @@ import PropTypes from 'prop-types';
  * @param {Array}    props.pills       pre-computed day-pill descriptors
  * @param {Function} props.onPillClick callback(date, targetType) for actionable pills
  */
-export default function BriefingSummaryStrip({ pills, onPillClick }) {
+export default function BriefingSummaryStrip({ pills, onPillClick, onRegionClick }) {
   if (!pills || pills.length === 0) return null;
 
   return (
@@ -25,8 +25,11 @@ export default function BriefingSummaryStrip({ pills, onPillClick }) {
       className="grid mb-1"
       style={{ gridTemplateColumns: `repeat(${pills.length}, minmax(0, 1fr))`, gap: '8px' }}
     >
-      {pills.map((pill) => {
+      {pills.map((pill, pillIndex) => {
         const clickable = pill.ratedCount > 0 && !pill.isAway;
+        // Right-half pills anchor their tooltip to the right so it never spills past the card edge
+        // (the plan card clips overflow); left/centre pills anchor left.
+        const tipAlignRight = pillIndex >= Math.ceil(pills.length / 2);
         const accent = pill.peak === 'go'
           ? 'rgba(138,174,114,0.4)'
           : pill.peak === 'maybe'
@@ -131,7 +134,52 @@ export default function BriefingSummaryStrip({ pills, onPillClick }) {
                 marginTop: '4px',
               }}
             >
-              {pill.countLabel}
+              {pill.regions?.length
+                ? pill.regions.map((region, i) => {
+                    const headColour = pill.peak === 'go'
+                      ? 'var(--color-verdict-go)'
+                      : pill.peak === 'maybe'
+                        ? 'var(--color-verdict-marginal)'
+                        : 'var(--color-plex-text-secondary)';
+                    return (
+                      <span key={region.regionName}>
+                        {i > 0 && <span style={{ color: 'var(--color-plex-text-muted)' }}>, </span>}
+                        <span
+                          data-testid="summary-region-chip"
+                          data-peak={pill.peak}
+                          className="summary-region-chip"
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => { e.stopPropagation(); onRegionClick?.(region.regionName, pill.date, region.targetType); }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              onRegionClick?.(region.regionName, pill.date, region.targetType);
+                            }
+                          }}
+                        >
+                          {region.shortName}
+                          {/* Per-region Claude gloss — revealed on hover, anchored above the chip. */}
+                          <span
+                            className={`summary-region-tip${tipAlignRight ? ' summary-region-tip--right' : ''}`}
+                            role="tooltip"
+                          >
+                            <span
+                              className="summary-region-tip-head"
+                              style={{ color: headColour }}
+                            >
+                              {region.verdictLabel}{region.wx ? ` · ${region.wx}` : ''}
+                            </span>
+                            <span className="summary-region-tip-body">
+                              {region.summary || 'No detail available.'}
+                            </span>
+                          </span>
+                        </span>
+                      </span>
+                    );
+                  })
+                : pill.countLabel}
             </div>
             {clickable && (
               <div className="font-mono" style={{ fontSize: '10px', color: 'var(--color-tide)', marginTop: '8px' }}>
@@ -158,10 +206,21 @@ BriefingSummaryStrip.propTypes = {
       peak: PropTypes.oneOf(['go', 'maybe', 'poor', 'away']).isRequired,
       peakLabel: PropTypes.string.isRequired,
       subLabel: PropTypes.string,
-      countLabel: PropTypes.string.isRequired,
+      countLabel: PropTypes.string,
+      regions: PropTypes.arrayOf(
+        PropTypes.shape({
+          regionName: PropTypes.string.isRequired,
+          shortName: PropTypes.string.isRequired,
+          targetType: PropTypes.string,
+          verdictLabel: PropTypes.string,
+          wx: PropTypes.string,
+          summary: PropTypes.string,
+        }),
+      ),
       ratedCount: PropTypes.number.isRequired,
       isAway: PropTypes.bool,
     }),
   ).isRequired,
   onPillClick: PropTypes.func,
+  onRegionClick: PropTypes.func,
 };

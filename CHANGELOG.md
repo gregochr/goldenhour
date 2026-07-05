@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — summary-strip region names are hoverable, each showing its own Claude gloss
+- Each rated region in a pill's detail line is now an **individually hoverable chip** (dotted underline). Hovering reveals *that region's own* gloss in a tooltip — verdict-coloured `VERDICT · wx` header (the same `region.summary` + weather the grid cell shows) over the Claude prose in Newsreader italic — so two regions on one pill give two different tooltips. Clicking a name still opens the map for that region (hover reads, click navigates). Every rated region shows as a chip (no more `A, B +N` truncation).
+- The tooltip anchors above the chip and flips to right-aligned for right-half pills so it never spills past the plan card's clipped edge.
+- Frontend-only. Tests: a chip per rated region, its tooltip carries the verdict/weather/gloss, a chip click routes to the region map overlay, and the strip/grid parity still holds. 1601 frontend tests pass; ESLint + build clean.
+
 ### Fixed — summary strip names the event + regions, and can't drift from the grid
 - **Actionable pills.** Each strip pill now says *which* event and *which* regions, not a bare count: the peak line appends the rated event (`◎ Worth it · sunset`, `· sunrise`, or `· sunrise/sunset` when both are rated), and the detail line names the rated regions (short names — "N. Yorks Coast, Tyne & Wear" — overflowing to `A, B +N` past two) instead of "2 regions rated".
 - **Off-by-one fix — strip and grid share one source.** The strip previously rolled up the raw `region.verdict` while the grid displays the serve-time-re-derived `displayVerdict`, so a day could read "All poor" on the strip while the grid showed two GO regions (they appeared to shift to the next day). The strip now derives each pill from **exactly the grid's day column** — the same `upcomingEvents` (date, targetType) columns and the grid's own `resolveRegionDisplay` — so disagreement is structurally impossible.
