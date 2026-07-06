@@ -585,6 +585,67 @@ ExpandedCard.propTypes = {
   isLiteUser: PropTypes.bool,
 };
 
+/** Look-direction glyphs for the NLC twilight windows: ↙ NW after dusk, ↗ NE before dawn. */
+const NLC_WINDOW_DIR = {
+  NW: { arrow: '↙', when: 'after dusk' }, // ↙
+  NE: { arrow: '↗', when: 'before dawn' }, // ↗
+};
+
+/**
+ * The NLC pill's second line: the two twilight visibility windows (sun 6–16° below the horizon).
+ *
+ * This is exact solar geometry — the honest "when to look" signal — never a prediction that NLC
+ * will appear. Renders nothing when neither window is present, so a single-line pill degrades
+ * gracefully (e.g. a deep-summer night with no −16° window, or an older cached topic).
+ *
+ * @param {object} props
+ * @param {object} props.topic       the NLC hot topic, carrying eveningWindow / morningWindow
+ * @param {string} props.accentColor the pill's accent colour for the direction glyph
+ */
+function NlcWindows({ topic, accentColor }) {
+  const windows = [topic.eveningWindow, topic.morningWindow]
+    .filter((w) => w && NLC_WINDOW_DIR[w.azimuth]);
+  if (windows.length === 0) return null;
+
+  return (
+    <div
+      data-testid="nlc-windows"
+      style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: '4px 16px',
+        padding: '0 13px 9px 13px',
+        fontSize: '11px',
+        color: 'var(--color-plex-text-secondary)',
+      }}
+    >
+      {windows.map((w) => {
+        const dir = NLC_WINDOW_DIR[w.azimuth];
+        return (
+          <span key={w.azimuth} data-testid={`nlc-window-${w.azimuth}`} style={{ whiteSpace: 'nowrap' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: accentColor }}>
+              {dir.arrow} {w.azimuth}
+            </span>
+            {` ${dir.when} · `}
+            <b style={{ color: 'var(--color-plex-text)' }}>
+              {formatEventTime(w.start)}–{formatEventTime(w.end)}
+            </b>
+          </span>
+        );
+      })}
+      <span style={{ color: 'var(--color-plex-text-muted)', fontStyle: 'italic' }}>
+        look low on the horizon
+      </span>
+    </div>
+  );
+}
+
+NlcWindows.propTypes = {
+  topic: PropTypes.object.isRequired,
+  accentColor: PropTypes.string.isRequired,
+};
+
 /**
  * Two-column responsive grid of Hot Topic pills shown between the Best Bet
  * cards and the quality slider in the briefing planner.
@@ -798,6 +859,11 @@ export default function HotTopicStrip({
                 </span>
               )}
             </button>
+
+            {/* NLC pill second line — the two twilight visibility windows (NW after dusk,
+                NE before dawn). Persistent, not gated behind expansion; renders nothing for
+                non-NLC pills or when no window geometry is present. */}
+            {topic.type === 'NLC' && <NlcWindows topic={topic} accentColor={style.color} />}
 
             {/* Expanded body — rich card, or the plain region list */}
             {isExpanded && canExpandRich && (

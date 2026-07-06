@@ -32,6 +32,9 @@ import java.util.List;
  * @param locationNames  the specific locations that made this topic fire (elevated spots for an
  *                       inversion, coastal spots for a tide, dark-sky spots for aurora/NLC, …), so
  *                       the map overlay can open to exactly those pins; may be null when unknown
+ * @param eveningWindow  NLC twilight window low in the NW after dusk (sun 6–16° below the horizon);
+ *                       null for non-NLC topics or when the geometry does not exist that night
+ * @param morningWindow  NLC twilight window low in the NE before dawn; null as {@code eveningWindow}
  */
 public record HotTopic(
         String type,
@@ -49,7 +52,11 @@ public record HotTopic(
         @JsonInclude(JsonInclude.Include.NON_NULL)
         String eventTime,
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        List<String> locationNames) implements Comparable<HotTopic> {
+        List<String> locationNames,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        NlcWindow eveningWindow,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        NlcWindow morningWindow) implements Comparable<HotTopic> {
 
     /**
      * Explicit canonical constructor with Jackson annotations so that cached briefing
@@ -71,7 +78,9 @@ public record HotTopic(
             @JsonProperty("expandedDetail") ExpandedHotTopicDetail expandedDetail,
             @JsonProperty("eventType") String eventType,
             @JsonProperty("eventTime") String eventTime,
-            @JsonProperty("locationNames") List<String> locationNames) {
+            @JsonProperty("locationNames") List<String> locationNames,
+            @JsonProperty("eveningWindow") NlcWindow eveningWindow,
+            @JsonProperty("morningWindow") NlcWindow morningWindow) {
         this.type = type;
         this.label = label;
         this.detail = detail;
@@ -84,6 +93,8 @@ public record HotTopic(
         this.eventType = eventType;
         this.eventTime = eventTime;
         this.locationNames = locationNames;
+        this.eveningWindow = eveningWindow;
+        this.morningWindow = morningWindow;
     }
 
     /**
@@ -113,7 +124,7 @@ public record HotTopic(
             String description,
             ExpandedHotTopicDetail expandedDetail) {
         this(type, label, detail, date, priority, filterAction, regions, description,
-                expandedDetail, null, null, null);
+                expandedDetail, null, null, null, null, null);
     }
 
     /**
@@ -126,7 +137,8 @@ public record HotTopic(
      */
     public HotTopic withEvent(String eventType, String eventTime) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
-                description, expandedDetail, eventType, eventTime, locationNames);
+                description, expandedDetail, eventType, eventTime, locationNames,
+                eveningWindow, morningWindow);
     }
 
     /**
@@ -138,7 +150,21 @@ public record HotTopic(
      */
     public HotTopic withLocations(List<String> locationNames) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
-                description, expandedDetail, eventType, eventTime, locationNames);
+                description, expandedDetail, eventType, eventTime, locationNames,
+                eveningWindow, morningWindow);
+    }
+
+    /**
+     * Returns a copy of this topic carrying the two NLC twilight visibility windows.
+     *
+     * @param eveningWindow the after-dusk NW window, or null
+     * @param morningWindow the before-dawn NE window, or null
+     * @return a new {@link HotTopic} with the NLC windows set
+     */
+    public HotTopic withNlcWindows(NlcWindow eveningWindow, NlcWindow morningWindow) {
+        return new HotTopic(type, label, detail, date, priority, filterAction, regions,
+                description, expandedDetail, eventType, eventTime, locationNames,
+                eveningWindow, morningWindow);
     }
 
     /**

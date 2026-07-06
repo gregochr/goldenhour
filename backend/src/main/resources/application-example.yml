@@ -119,6 +119,16 @@ aurora:
     moderate: 4   # max Bortle class for MODERATE alerts
     strong: 5     # max Bortle class for STRONG alerts (relax threshold for bright displays)
 
+nlc:
+  sighting-enabled: true                      # scrape NLCNET and expose GET /api/nlc/sighting
+  sightings-url: https://ed-co.net/nlcnet/    # NLCNET sightings page; point at the live real-time
+                                              # table during season. Only reports fresher than
+                                              # freshness-hours ever surface, so an archive URL is safe.
+  freshness-hours: 6                          # max age of a report for it to count as a live sighting
+  cache-ttl-minutes: 10                       # how long scraped reports are cached between re-scrapes
+  source: NLCNET                              # attribution shown as "… via NLCNET"
+  hex-colour: "#8E86D6"                       # NLC violet driving the banner accent
+
 photocast:
   registration:
     max-users: 3             # early-access cap (excludes admin accounts)

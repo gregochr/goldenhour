@@ -159,7 +159,8 @@ class BriefingServiceTest {
     /** NLC clarity service wired with a real transect sampler over the mocked Open-Meteo client. */
     private NlcClarityService nlc() {
         return new NlcClarityService(
-                new NorthwardTransectSampler(openMeteoClient), locationRepository);
+                new NorthwardTransectSampler(openMeteoClient), locationRepository,
+                new NlcTwilightWindowCalculator(new SolarService()));
     }
 
     @Nested

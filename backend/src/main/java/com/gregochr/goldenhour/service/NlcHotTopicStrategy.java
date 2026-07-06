@@ -28,7 +28,9 @@ public class NlcHotTopicStrategy implements HotTopicStrategy {
     private static final String NLC_DESCRIPTION =
             "Noctilucent clouds are extremely high ice clouds that catch sunlight after"
                     + " sunset, glowing electric blue on the northern horizon."
-                    + " Visible late May to early August, and only under a clear northern sky.";
+                    + " Visible late May to early August, and only under a clear northern sky."
+                    + " No forecast reaches the mesosphere (~80km), so this shows only when the"
+                    + " twilight geometry is right and skies are clear — never that NLC will appear.";
 
     /** Topic priority — calendar heads-up, sorts below the act-on-it topics. */
     private static final int PRIORITY = 8;
@@ -57,8 +59,13 @@ public class NlcHotTopicStrategy implements HotTopicStrategy {
             return List.of();
         }
 
+        // Emit gate (change #3): the earliest in-range clear night that also has real twilight
+        // geometry — at least one window where the sun reaches 6–16° below the horizon. In season
+        // at these latitudes there is always at least a partial window, but it is computed, never
+        // assumed, so a genuine white night (sun never 6° down) correctly suppresses the topic.
         NlcNightClarity.ClearNight night = clarity.clearNights().stream()
                 .filter(n -> !n.date().isBefore(fromDate) && !n.date().isAfter(toDate))
+                .filter(n -> n.eveningWindow() != null || n.morningWindow() != null)
                 .findFirst()
                 .orElse(null);
         if (night == null) {
@@ -74,7 +81,7 @@ public class NlcHotTopicStrategy implements HotTopicStrategy {
                 null,
                 night.regions(),
                 NLC_DESCRIPTION,
-                null));
+                null).withNlcWindows(night.eveningWindow(), night.morningWindow()));
     }
 
     private String buildDetail(NlcNightClarity.ClearNight night, LocalDate today) {
