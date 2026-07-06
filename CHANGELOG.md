@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — best-bet empty state tells the truth when you're away for the whole window
+- When the operator is marked away for every upcoming day, no forecasts are generated — but the PhotoCast Planner's best-bet empty state still read "No standout recommendations right now — conditions are similar across all regions." That's misleading: there are no conditions to compare, the run simply didn't happen.
+- The empty state now detects the all-travel-days case (every upcoming day falls in a travel range) and instead says **"You're away for the whole forecast window, so no forecasts were generated."** The "conditions are similar" copy is reserved for a genuine no-standout run. A `data-variant` (`away` / `similar`) distinguishes the two.
+- Frontend-only. Tests: the empty state switches to the away copy when the whole window is a travel period, and keeps the "conditions similar" copy otherwise.
+
 ### Added — noctilucent cloud (NLC) sighting banner, twilight windows, and honest gating
 Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so PhotoCast only tells a photographer *when the twilight geometry is right and skies are clear* (exact geometry) and *reacts when someone actually reports a sighting* (a community signal) — never a probability.
 

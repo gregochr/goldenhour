@@ -18,6 +18,10 @@ vi.mock('../api/settingsApi.js', () => ({
   getDriveTimes: vi.fn(() => Promise.resolve({})),
 }));
 
+vi.mock('../api/travelDayApi.js', () => ({
+  fetchTravelDayRanges: vi.fn(() => Promise.resolve([])),
+}));
+
 /**
  * The full briefing grid is collapsed by default — open it before asserting grid content.
  */
@@ -34,6 +38,7 @@ vi.mock('../api/hotTopicSimulationApi.js', () => ({
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getDriveTimes } from '../api/settingsApi.js';
+import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { getSimulationState } from '../api/hotTopicSimulationApi.js';
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
@@ -182,6 +187,9 @@ describe('DailyBriefing', () => {
     localStorage.clear();
     sessionStorage.clear();
     useAuth.mockReturnValue({ role: 'ADMIN' });
+    // Default: not away. clearAllMocks leaves implementations intact, so re-assert the
+    // baseline here to keep a per-test travel-range override from leaking.
+    fetchTravelDayRanges.mockResolvedValue([]);
   });
 
   // ────── Rendering ──────
@@ -1189,6 +1197,28 @@ describe('DailyBriefing', () => {
       expect(screen.getByTestId('best-bet-empty')).toBeInTheDocument();
     });
 
+    it('empty state says "away", not "conditions similar", when the whole window is a travel period', async () => {
+      // Every upcoming day is a travel day → no forecasts were generated, so the honest reason
+      // is "you're away", not "conditions are similar across all regions".
+      fetchTravelDayRanges.mockResolvedValue([{ startDate: pastDateStr(), endDate: futureDateStr(7) }]);
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      const empty = await screen.findByTestId('best-bet-empty');
+      await waitFor(() => expect(empty).toHaveAttribute('data-variant', 'away'));
+      expect(empty.textContent).toContain("away for the whole forecast window");
+      expect(empty.textContent).not.toContain('conditions are similar');
+    });
+
+    it('empty state keeps the "conditions similar" copy when the operator is not away', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      const empty = screen.getByTestId('best-bet-empty');
+      expect(empty).toHaveAttribute('data-variant', 'similar');
+      expect(empty.textContent).toContain('conditions are similar');
+    });
+
     it('FAILED status with fallback picks → banner WITH stale chip', async () => {
       useAuth.mockReturnValue({ role: 'PRO_USER' });
       getDailyBriefing.mockResolvedValue({
@@ -2086,6 +2116,9 @@ describe('DailyBriefing — summary strip', () => {
     localStorage.clear();
     sessionStorage.clear();
     useAuth.mockReturnValue({ role: 'ADMIN' });
+    // Default: not away. clearAllMocks leaves implementations intact, so re-assert the
+    // baseline here to keep a per-test travel-range override from leaking.
+    fetchTravelDayRanges.mockResolvedValue([]);
   });
 
   function stripBriefing(date, sunsetRegions, sunriseRegions = []) {
