@@ -28,6 +28,7 @@ import com.gregochr.goldenhour.service.LocationEnrichmentService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.ModelTestService;
+import com.gregochr.goldenhour.service.NlcSightingService;
 import com.gregochr.goldenhour.service.OptimisationStrategyService;
 import com.gregochr.goldenhour.service.OutcomeService;
 import com.gregochr.goldenhour.service.PromptTestService;
@@ -149,6 +150,9 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected ModelTestService modelTestService;
+
+    @MockitoBean
+    protected NlcSightingService nlcSightingService;
 
     @MockitoBean
     protected OptimisationStrategyService optimisationStrategyService;

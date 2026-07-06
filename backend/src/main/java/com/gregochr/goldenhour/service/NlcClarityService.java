@@ -56,6 +56,7 @@ public class NlcClarityService {
 
     private final NorthwardTransectSampler transectSampler;
     private final LocationRepository locationRepository;
+    private final NlcTwilightWindowCalculator windowCalculator;
     private final AtomicReference<NlcNightClarity> cache = new AtomicReference<>();
 
     /**
@@ -63,11 +64,14 @@ public class NlcClarityService {
      *
      * @param transectSampler    shared northward-transect cloud sampler
      * @param locationRepository repository for dark-sky (Bortle) location lookups
+     * @param windowCalculator   computes each clear night's NW/NE twilight visibility windows
      */
     public NlcClarityService(NorthwardTransectSampler transectSampler,
-            LocationRepository locationRepository) {
+            LocationRepository locationRepository,
+            NlcTwilightWindowCalculator windowCalculator) {
         this.transectSampler = transectSampler;
         this.locationRepository = locationRepository;
+        this.windowCalculator = windowCalculator;
     }
 
     /**
@@ -101,10 +105,14 @@ public class NlcClarityService {
         for (int night = 0; night < seasonNights.size(); night++) {
             Set<String> regions = new LinkedHashSet<>();
             int clearCount = 0;
+            LocationEntity representative = null;
             for (LocationEntity loc : darkSky) {
                 int[] hourly = cloud.get(loc);
                 if (hourly != null && hourly[night] < CLEAR_SKY_THRESHOLD) {
                     clearCount++;
+                    if (representative == null) {
+                        representative = loc;
+                    }
                     String region = regionName(loc);
                     if (region != null) {
                         regions.add(region);
@@ -112,8 +120,12 @@ public class NlcClarityService {
                 }
             }
             if (clearCount > 0) {
+                LocalDate date = seasonNights.get(night);
+                NlcTwilightWindowCalculator.NlcWindows windows = windowCalculator.compute(
+                        representative.getLat(), representative.getLon(), date);
                 clearNights.add(new NlcNightClarity.ClearNight(
-                        seasonNights.get(night), clearCount, new ArrayList<>(regions)));
+                        date, clearCount, new ArrayList<>(regions),
+                        windows.evening(), windows.morning()));
             }
         }
 
@@ -130,6 +142,19 @@ public class NlcClarityService {
      */
     public NlcNightClarity getCached() {
         return cache.get();
+    }
+
+    /**
+     * Whether the given date falls in the NLC visibility season (late May to early August).
+     *
+     * <p>Shared with {@link com.gregochr.goldenhour.service.NlcSightingService} so the sighting
+     * banner and the hot-topic pill agree on when NLC are possible at all.
+     *
+     * @param date the date to test
+     * @return {@code true} if {@code date} is in NLC season
+     */
+    public boolean isNlcSeason(LocalDate date) {
+        return NLC_SEASON.isActive(date);
     }
 
     private static String regionName(LocationEntity location) {

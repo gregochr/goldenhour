@@ -11,6 +11,7 @@ import RegisterPage from './components/RegisterPage.jsx';
 import ChangePasswordPage from './components/ChangePasswordPage.jsx';
 import SessionExpiryBanner from './components/SessionExpiryBanner.jsx';
 import AuroraBanner from './components/AuroraBanner.jsx';
+import NlcSightingBanner from './components/NlcSightingBanner.jsx';
 import DailyBriefing from './components/DailyBriefing.jsx';
 import HealthIndicator from './components/HealthIndicator.jsx';
 import UserSettingsModal from './components/UserSettingsModal.jsx';
@@ -275,6 +276,9 @@ function AppInner() {
       <SessionExpiryBanner />
       <div className="max-w-4xl mx-auto px-4 mt-4">
         <AuroraBanner onViewOnMap={handleAuroraViewOnMap} />
+        <div className="mt-2">
+          <NlcSightingBanner />
+        </div>
       </div>
 
       {showRunBanner && lastCompletedRun && (

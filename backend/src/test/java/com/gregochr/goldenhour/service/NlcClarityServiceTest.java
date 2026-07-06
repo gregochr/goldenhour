@@ -46,7 +46,10 @@ class NlcClarityServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new NlcClarityService(transectSampler, locationRepository);
+        // Real solar geometry — a lat-55 in-season night has genuine twilight windows.
+        NlcTwilightWindowCalculator windowCalculator =
+                new NlcTwilightWindowCalculator(new SolarService());
+        service = new NlcClarityService(transectSampler, locationRepository, windowCalculator);
     }
 
     private static LocationEntity darkSky(String name, String regionName, int bortle) {
@@ -79,6 +82,8 @@ class NlcClarityServiceTest {
         assertThat(night.date()).isEqualTo(IN_SEASON);
         assertThat(night.clearLocationCount()).isEqualTo(1);
         assertThat(night.regions()).containsExactly("Northumberland");
+        // A lat-55 mid-June night has real twilight geometry — at least one window is computed.
+        assertThat(night.eveningWindow() != null || night.morningWindow() != null).isTrue();
     }
 
     @Test

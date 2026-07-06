@@ -2405,3 +2405,44 @@ describe('HotTopicStrip — clickable regions', () => {
     expect(screen.queryByTestId('topic-region-link-INVERSION')).not.toBeInTheDocument();
   });
 });
+
+describe('NLC twilight windows', () => {
+  const nlcTopic = (overrides = {}) => buildTopic({
+    type: 'NLC',
+    label: 'Noctilucent cloud season',
+    detail: 'Clear northern horizon — 64 dark-sky sites',
+    date: '2026-06-20',
+    regions: ['Northumberland'],
+    eveningWindow: { start: '22:46', end: '23:52', azimuth: 'NW' },
+    morningWindow: { start: '02:10', end: '03:18', azimuth: 'NE' },
+    ...overrides,
+  });
+
+  it('renders both windows with NW/NE directions and times', () => {
+    render(<HotTopicStrip hotTopics={[nlcTopic()]} />);
+    const windows = screen.getByTestId('nlc-windows');
+    expect(windows).toBeInTheDocument();
+    const evening = screen.getByTestId('nlc-window-NW');
+    const morning = screen.getByTestId('nlc-window-NE');
+    expect(evening.textContent).toMatch(/NW after dusk · 22:46–23:52/);
+    expect(morning.textContent).toMatch(/NE before dawn · 02:10–03:18/);
+    expect(windows.textContent).toMatch(/look low on the horizon/);
+  });
+
+  it('renders only the evening window when the morning window is absent', () => {
+    render(<HotTopicStrip hotTopics={[nlcTopic({ morningWindow: null })]} />);
+    expect(screen.getByTestId('nlc-window-NW')).toBeInTheDocument();
+    expect(screen.queryByTestId('nlc-window-NE')).not.toBeInTheDocument();
+  });
+
+  it('degrades to a single-line pill (no windows row) when both windows are absent', () => {
+    render(<HotTopicStrip hotTopics={[nlcTopic({ eveningWindow: null, morningWindow: null })]} />);
+    expect(screen.getByTestId('hot-topic-pill-NLC')).toBeInTheDocument();
+    expect(screen.queryByTestId('nlc-windows')).not.toBeInTheDocument();
+  });
+
+  it('does not render a windows row for non-NLC pills', () => {
+    render(<HotTopicStrip hotTopics={[buildTopic({ type: 'BLUEBELL' })]} />);
+    expect(screen.queryByTestId('nlc-windows')).not.toBeInTheDocument();
+  });
+});

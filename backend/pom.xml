@@ -293,6 +293,15 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- Jsoup — static-HTML parser for the NLCNET noctilucent-cloud sightings
+             scraper. Best-effort DOM parsing; the client fails open when the page
+             structure changes. -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>1.18.3</version>
+        </dependency>
+
     </dependencies>
 
     <build>
@@ -443,6 +452,11 @@
                                 <!-- @ConfigurationProperties POJO — pure getters/setters, no testable logic -->
                                 <exclude>com/gregochr/goldenhour/config/AuroraProperties.class</exclude>
                                 <exclude>com/gregochr/goldenhour/config/AuroraProperties$BortleThreshold.class</exclude>
+                                <!-- @ConfigurationProperties POJO — pure getters/setters, no testable logic -->
+                                <exclude>com/gregochr/goldenhour/config/NlcProperties.class</exclude>
+                                <!-- Return-tuple record — hasAny() tested via the calculator; auto-generated
+                                     equals/hashCode/toString are not exercised -->
+                                <exclude>com/gregochr/goldenhour/service/NlcTwilightWindowCalculator$NlcWindows.class</exclude>
                                 <!-- SSE progress tracker — async/reactive plumbing, hard to unit test -->
                                 <exclude>com/gregochr/goldenhour/service/RunProgressTracker.class</exclude>
                                 <!-- @ConfigurationProperties POJOs — pure getters/setters, no testable logic -->
