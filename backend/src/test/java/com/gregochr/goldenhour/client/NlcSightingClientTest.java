@@ -7,7 +7,12 @@ import org.junit.jupiter.api.Test;
 
 import org.springframework.web.client.RestClient;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -145,5 +150,80 @@ class NlcSightingClientTest {
 
         assertThat(c.refresh()).isEmpty();
         assertThat(c.getReports()).isEmpty();
+    }
+
+    // ── Live NLCNET season-table layout (real captured snapshot) ────────────────
+
+    /** A trimmed but faithful snapshot of the live 2026-07 real-time sightings table. */
+    private static String liveTableSnapshot() {
+        try (InputStream in = NlcSightingClientTest.class
+                .getResourceAsStream("/nlc/nlcnet-live-table-2026-07.html")) {
+            assertThat(in).as("live-table fixture present").isNotNull();
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    @Test
+    @DisplayName("parses the live season table: joins Location+Country, decodes entities, orders by time")
+    void parse_liveTable_extractsRows() {
+        List<NlcSightingReport> reports = client.parse(liveTableSnapshot());
+
+        // Header row (<th>) is skipped; the four data rows parse.
+        assertThat(reports).hasSize(4);
+
+        // Newest first: the 02–03 night 00:30 UT entry (→ morning of the 3rd) leads.
+        NlcSightingReport newest = reports.get(0);
+        assertThat(newest.observer()).isEqualTo("Tomasz Adam");
+        assertThat(newest.location()).isEqualTo("Kraków, Poland"); // &oacute; decoded by Jsoup
+        assertThat(newest.reportedAt()).isEqualTo(Instant.parse("2026-07-03T00:30:00Z"));
+
+        // A UK row joins the Location and Country columns; a 00:17 start on the 01–02 night
+        // resolves to the morning of the 2nd.
+        assertThat(reports).anySatisfy(r -> {
+            assertThat(r.observer()).isEqualTo("Ken Kennedy");
+            assertThat(r.location()).isEqualTo("Broughty Ferry, Dundee, Scotland, UK");
+            assertThat(r.reportedAt()).isEqualTo(Instant.parse("2026-07-02T00:17:00Z"));
+        });
+    }
+
+    @Test
+    @DisplayName("the live table and gallery captions parse together in one page")
+    void parse_tableAndCaptions_combined() {
+        String mixed = liveTableSnapshot()
+                + page("Late Observer from Kielder on 2026, 07, 04 from 23:40 UT.");
+
+        List<NlcSightingReport> reports = client.parse(mixed);
+
+        // 4 table rows + 1 caption; the caption's 23:40 on the 4th is the newest overall.
+        assertThat(reports).hasSize(5);
+        assertThat(reports.get(0).observer()).isEqualTo("Late Observer");
+    }
+
+    // ── Season-tracking URL resolution ──────────────────────────────────────────
+
+    @Test
+    @DisplayName("resolveUrl substitutes {year}/{month} from the date (auto-tracks the season)")
+    void resolveUrl_substitutesYearAndMonth() {
+        NlcProperties props = new NlcProperties();
+        props.setSightingsUrl("https://ed-co.net/nlcnet/{year}-{month}");
+        NlcSightingClient c = new NlcSightingClient(mock(RestClient.class), props);
+
+        assertThat(c.resolveUrl(LocalDate.of(2026, 7, 6)))
+                .isEqualTo("https://ed-co.net/nlcnet/2026-july");
+        assertThat(c.resolveUrl(LocalDate.of(2026, 5, 25)))
+                .isEqualTo("https://ed-co.net/nlcnet/2026-may");
+    }
+
+    @Test
+    @DisplayName("resolveUrl leaves a placeholder-free URL (archive fallback) unchanged")
+    void resolveUrl_noPlaceholders_unchanged() {
+        NlcProperties props = new NlcProperties();
+        props.setSightingsUrl("https://ed-co.net/nlcnet/");
+        NlcSightingClient c = new NlcSightingClient(mock(RestClient.class), props);
+
+        assertThat(c.resolveUrl(LocalDate.of(2026, 7, 6)))
+                .isEqualTo("https://ed-co.net/nlcnet/");
     }
 }

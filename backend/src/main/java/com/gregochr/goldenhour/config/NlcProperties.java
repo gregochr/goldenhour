@@ -24,14 +24,18 @@ public class NlcProperties {
     private boolean sightingEnabled = true;
 
     /**
-     * URL of the NLCNET real-time sightings page scraped for observer reports.
+     * URL of the NLCNET sightings page scraped for observer reports.
      *
-     * <p>During season this should point at the live real-time sightings table; the
-     * default is the NLCNET gallery, whose caption format the parser targets. Because
-     * only reports fresher than {@link #freshnessHours} ever surface, pointing at an
-     * archive page is safe — stale entries never activate the banner.
+     * <p>Defaults to the <strong>live per-month real-time season table</strong>. The URL may
+     * contain {@code {year}} / {@code {month}} placeholders, which
+     * {@link com.gregochr.goldenhour.client.NlcSightingClient#resolveUrl(java.time.LocalDate)}
+     * substitutes from the current date at scrape time (e.g. {@code …/2026-july}), so the scraper
+     * follows the season across May–August without a config change. Off-season the resolved page
+     * simply 404s and the scrape fails open. To pin a fixed page instead — e.g. the NLCNET gallery
+     * archive {@code https://ed-co.net/nlcnet/} — set a placeholder-free URL; the parser reads both
+     * the table and the older gallery caption layout.
      */
-    private String sightingsUrl = "https://ed-co.net/nlcnet/";
+    private String sightingsUrl = "https://ed-co.net/nlcnet/{year}-{month}";
 
     /**
      * Maximum age (hours) of a report for it to count as a live sighting. Reports older

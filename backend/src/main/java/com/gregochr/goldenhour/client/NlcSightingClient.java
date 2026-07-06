@@ -12,11 +12,14 @@ import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -26,12 +29,25 @@ import java.util.regex.Pattern;
  * <p>This is the realistic NLC data source: <strong>crowdsourced observer reports</strong>, not
  * a model. No public or paid API delivers a mesospheric (~80&nbsp;km) forecast, so PhotoCast can
  * only react to what someone actually saw. The page is fetched as static HTML and parsed with
- * Jsoup; each sighting caption follows the verified NLCNET format:
+ * Jsoup. Two NLCNET layouts are supported:
  *
- * <pre>{@code Alan C Tough from Elgin, Scotland on 2023, 06, 11-12 from 01:15 - 01:45 UT. NLC forms: …}</pre>
+ * <ul>
+ *   <li>the <strong>live real-time season table</strong> (the current source), whose rows carry
+ *       {@code <td title="Observer">}, {@code title="Location"}, {@code title="Country"},
+ *       {@code title="yy|mm|dd"} and {@code title="UT-Start"} cells — selected by their
+ *       {@code title} attribute so column reordering does not break the parse; and</li>
+ *   <li>the older <strong>gallery caption</strong> format,
+ *       {@code Alan C Tough from Elgin, Scotland on 2023, 06, 11-12 from 01:15 UT …}, kept as a
+ *       cheap fallback so an archive URL still parses.</li>
+ * </ul>
+ *
+ * <p>Because the live sightings live on a per-month page ({@code …/2026-july}), the configured URL
+ * may contain {@code {year}} / {@code {month}} placeholders, resolved from the current date at
+ * scrape time (see {@link #resolveUrl(LocalDate)}), so the scraper follows the season across
+ * May–August without a config change.
  *
  * <p><strong>Best-effort and fail-open.</strong> Web scraping is inherently fragile — if the page
- * is unreachable, restructured, or a caption does not match, that report (or the whole scrape) is
+ * is unreachable, restructured, or a row does not match, that report (or the whole scrape) is
  * skipped and the previous cached list is retained. Callers therefore never see an exception; the
  * banner simply stays dark. Results are cached for {@link NlcProperties#getCacheTtlMinutes()} so
  * the scheduled scrape (not user requests) drives the fetch cadence.
@@ -51,8 +67,17 @@ public class NlcSightingClient {
             "^(.+?)\\s+from\\s+(.+?)\\s+on\\s+(\\d{4}),\\s*(\\d{1,2}),\\s*(\\d{1,2})"
                     + "(?:\\s*-\\s*\\d{1,2})?\\s+from\\s+(\\d{1,2}):?(\\d{2})");
 
+    /** Matches a UT time cell — {@code 00:17} or colon-less {@code 0017}. */
+    private static final Pattern TIME = Pattern.compile("(\\d{1,2}):?(\\d{2})");
+
+    /** Matches the first day number in a {@code dd} cell — {@code 01} or a range {@code 01-02}. */
+    private static final Pattern FIRST_DAY = Pattern.compile("(\\d{1,2})");
+
     /** Hour-of-day below which a reported time is treated as the following morning. */
     private static final int MORNING_HOUR_CUTOFF = 12;
+
+    /** UK local zone — the season page URL is resolved against the local date. */
+    private static final ZoneId LONDON = ZoneId.of("Europe/London");
 
     private final RestClient restClient;
     private final NlcProperties properties;
@@ -96,29 +121,53 @@ public class NlcSightingClient {
      */
     public List<NlcSightingReport> refresh() {
         CachedReports current = cache;
+        String url = resolveUrl(LocalDate.now(LONDON));
         try {
             String html = restClient.get()
-                    .uri(properties.getSightingsUrl())
+                    .uri(url)
                     .retrieve()
                     .body(String.class);
             List<NlcSightingReport> reports = parse(html);
             cache = new CachedReports(reports, ZonedDateTime.now(ZoneOffset.UTC));
-            LOG.debug("NLC sighting scrape parsed {} report(s) from {}",
-                    reports.size(), properties.getSightingsUrl());
+            LOG.debug("NLC sighting scrape parsed {} report(s) from {}", reports.size(), url);
             return reports;
         } catch (Exception e) {
-            LOG.warn("NLC sighting scrape failed (retaining cached): {}", e.getMessage());
+            LOG.warn("NLC sighting scrape failed for {} (retaining cached): {}", url, e.getMessage());
             return current != null ? current.reports() : List.of();
         }
     }
 
     /**
-     * Parses NLCNET sighting captions from a page's HTML into reports, newest first.
+     * Resolves the configured sightings URL for a given date, substituting {@code {year}} and
+     * {@code {month}} placeholders (the current-season page lives at {@code …/2026-july}). A URL
+     * with no placeholders — e.g. a fixed archive page — is returned unchanged.
      *
-     * <p>Package-private so the parser can be unit-tested against captured HTML without network.
+     * <p>Package-private so the season-tracking substitution can be unit-tested without network.
+     *
+     * @param today the date whose year and month name drive the substitution
+     * @return the resolved URL
+     */
+    String resolveUrl(LocalDate today) {
+        String url = properties.getSightingsUrl();
+        if (url == null || (!url.contains("{year}") && !url.contains("{month}"))) {
+            return url;
+        }
+        String month = today.getMonth().getDisplayName(TextStyle.FULL, Locale.ENGLISH)
+                .toLowerCase(Locale.ENGLISH);
+        return url.replace("{year}", Integer.toString(today.getYear())).replace("{month}", month);
+    }
+
+    /**
+     * Parses NLCNET sighting reports from a page's HTML, newest first.
+     *
+     * <p>Reads both supported layouts — the live real-time season {@code <table>} (rows keyed by
+     * cell {@code title} attribute) and the older {@code div.caption} gallery format — so the same
+     * client handles the current source and an archive fallback. Rows/captions that do not match
+     * are skipped rather than throwing. Package-private so the parser can be unit-tested against
+     * captured HTML without network.
      *
      * @param html the NLCNET page HTML
-     * @return parsed reports ordered newest first; captions that do not match are skipped
+     * @return parsed reports ordered newest first; unmatched rows are skipped
      */
     List<NlcSightingReport> parse(String html) {
         if (html == null || html.isBlank()) {
@@ -126,6 +175,12 @@ public class NlcSightingClient {
         }
         Document doc = Jsoup.parse(html);
         List<NlcSightingReport> reports = new ArrayList<>();
+        for (Element row : doc.select("table tr")) {
+            NlcSightingReport report = parseTableRow(row);
+            if (report != null) {
+                reports.add(report);
+            }
+        }
         for (Element caption : doc.select("div.caption")) {
             NlcSightingReport report = parseCaption(caption.text());
             if (report != null) {
@@ -134,6 +189,69 @@ public class NlcSightingClient {
         }
         reports.sort(Comparator.comparing(NlcSightingReport::reportedAt).reversed());
         return List.copyOf(reports);
+    }
+
+    /**
+     * Parses a live-table row into a report, or null when the row is the header or is malformed.
+     * Cells are located by their {@code title} attribute, so the header row (which uses {@code th})
+     * and any incomplete row are skipped naturally.
+     */
+    private static NlcSightingReport parseTableRow(Element row) {
+        String location = cellText(row, "Location");
+        String yy = cellText(row, "yy");
+        String mm = cellText(row, "mm");
+        String dd = cellText(row, "dd");
+        String utStart = cellText(row, "UT-Start");
+        if (location == null || location.isEmpty()
+                || yy == null || mm == null || dd == null || utStart == null) {
+            return null;
+        }
+        Integer year = parseIntOrNull(yy);
+        Integer month = parseIntOrNull(mm);
+        Integer day = firstMatch(FIRST_DAY, dd);
+        int[] time = parseTime(utStart);
+        if (year == null || month == null || day == null || time == null) {
+            return null;
+        }
+        Instant reportedAt = toInstant(year, month, day, time[0], time[1]);
+        if (reportedAt == null) {
+            return null;
+        }
+        String observer = orEmpty(cellText(row, "Observer"));
+        String country = cellText(row, "Country");
+        String fullLocation = (country != null && !country.isEmpty())
+                ? location + ", " + country
+                : location;
+        return new NlcSightingReport(observer, fullLocation, reportedAt);
+    }
+
+    /** Returns the trimmed text of the {@code td} in {@code row} named by {@code title}, or null. */
+    private static String cellText(Element row, String title) {
+        Element cell = row.selectFirst("td[title=\"" + title + "\"]");
+        return cell != null ? cell.text().trim() : null;
+    }
+
+    /** Parses a {@code HH:MM} / {@code HHMM} time cell into {@code [hour, minute]}, or null. */
+    private static int[] parseTime(String text) {
+        Matcher m = TIME.matcher(text);
+        return m.find() ? new int[] {Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2))} : null;
+    }
+
+    private static Integer firstMatch(Pattern pattern, String text) {
+        Matcher m = pattern.matcher(text);
+        return m.find() ? Integer.parseInt(m.group(1)) : null;
+    }
+
+    private static Integer parseIntOrNull(String text) {
+        try {
+            return Integer.parseInt(text.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static String orEmpty(String value) {
+        return value != null ? value : "";
     }
 
     private static NlcSightingReport parseCaption(String text) {

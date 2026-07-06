@@ -12,7 +12,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.web.client.RestClient;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -20,7 +25,10 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
@@ -197,5 +205,58 @@ class NlcSightingServiceTest {
         org.mockito.Mockito.verify(schedulerService)
                 .registerJobTarget(org.mockito.ArgumentMatchers.eq(NlcSightingService.SCRAPE_JOB_KEY),
                         org.mockito.ArgumentMatchers.any(Runnable.class));
+    }
+
+    // ── End-to-end over the real live NLCNET table snapshot ─────────────────────
+
+    /** Newest entry in the live 2026-07 fixture: Tomasz Adam, Kraków, 2026-07-03T00:30Z. */
+    private static final Instant LIVE_NEWEST = Instant.parse("2026-07-03T00:30:00Z");
+
+    private static String liveTableSnapshot() {
+        try (InputStream in = NlcSightingServiceTest.class
+                .getResourceAsStream("/nlc/nlcnet-live-table-2026-07.html")) {
+            assertThat(in).as("live-table fixture present").isNotNull();
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    @Test
+    @DisplayName("end-to-end: a fresh live-table entry under clear skies activates the signal")
+    void currentSighting_liveTableFreshEntry_active() {
+        // Clock 3.5h after the newest live entry — inside the 6h freshness window.
+        Clock clock = Clock.fixed(LIVE_NEWEST.plusSeconds(3600 * 3 + 1800), ZoneOffset.UTC);
+        LocalDate today = LocalDate.of(2026, 7, 3);
+        RestClient rest = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        when(rest.get().uri(anyString()).retrieve().body(String.class)).thenReturn(liveTableSnapshot());
+        NlcSightingClient realClient = new NlcSightingClient(rest, new NlcProperties());
+        when(clarityService.isNlcSeason(today)).thenReturn(true);
+        when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
+                new NlcNightClarity.ClearNight(today, 12, List.of("Poland"), EVENING, MORNING))));
+        NlcSightingService liveService = new NlcSightingService(
+                realClient, clarityService, new NlcProperties(), schedulerService, clock);
+
+        NlcSightingResponse response = liveService.currentSighting();
+
+        assertThat(response.active()).isTrue();
+        assertThat(response.reportedAt()).isEqualTo(LIVE_NEWEST);
+        assertThat(response.observerLocation()).isEqualTo("Kraków");
+        assertThat(response.region()).isEqualTo("Poland");
+    }
+
+    @Test
+    @DisplayName("end-to-end: the same live entry a week later is stale and stays dark")
+    void currentSighting_liveTableStale_inactive() {
+        Clock clock = Clock.fixed(Instant.parse("2026-07-10T04:00:00Z"), ZoneOffset.UTC);
+        LocalDate today = LocalDate.of(2026, 7, 10);
+        RestClient rest = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        when(rest.get().uri(anyString()).retrieve().body(String.class)).thenReturn(liveTableSnapshot());
+        NlcSightingClient realClient = new NlcSightingClient(rest, new NlcProperties());
+        when(clarityService.isNlcSeason(today)).thenReturn(true);
+        NlcSightingService liveService = new NlcSightingService(
+                realClient, clarityService, new NlcProperties(), schedulerService, clock);
+
+        assertThat(liveService.currentSighting().active()).isFalse();
     }
 }

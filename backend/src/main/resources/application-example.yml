@@ -120,10 +120,14 @@ aurora:
     strong: 5     # max Bortle class for STRONG alerts (relax threshold for bright displays)
 
 nlc:
-  sighting-enabled: true                      # scrape NLCNET and expose GET /api/nlc/sighting
-  sightings-url: https://ed-co.net/nlcnet/    # NLCNET sightings page; point at the live real-time
-                                              # table during season. Only reports fresher than
-                                              # freshness-hours ever surface, so an archive URL is safe.
+  sighting-enabled: true                                  # scrape NLCNET and expose GET /api/nlc/sighting
+  sightings-url: "https://ed-co.net/nlcnet/{year}-{month}"  # live per-month real-time season table.
+                                              # {year}/{month} are resolved from the current date at
+                                              # scrape time (e.g. .../2026-july), so it follows the
+                                              # May–August season automatically. Off-season the page
+                                              # 404s and the scrape fails open. For a fixed page, set a
+                                              # placeholder-free URL — e.g. the archive https://ed-co.net/nlcnet/
+                                              # (the parser reads both the table and the gallery caption layout).
   freshness-hours: 6                          # max age of a report for it to count as a live sighting
   cache-ttl-minutes: 10                       # how long scraped reports are cached between re-scrapes
   source: NLCNET                              # attribution shown as "… via NLCNET"
