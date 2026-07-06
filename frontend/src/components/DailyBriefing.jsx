@@ -1252,6 +1252,16 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
     [dayDates, travelRanges],
   );
 
+  /**
+   * Whole window is a travel period: every upcoming day is a travel day, so no forecasts were
+   * generated. The best-bet empty state must say *that*, not "conditions are similar" — there are
+   * no conditions to compare.
+   */
+  const allDaysAway = useMemo(
+    () => dayDates.length > 0 && dayDates.every((d) => travelDayDates.has(d)),
+    [dayDates, travelDayDates],
+  );
+
 
   const sortedRegions = useMemo(() => {
     if (!briefing) return [];
@@ -1384,6 +1394,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
       ) : isPro && !loading ? (
         <div
           data-testid="best-bet-empty"
+          data-variant={allDaysAway ? 'away' : 'similar'}
           className="mb-3 text-center rounded-lg"
           style={{
             padding: '16px 20px',
@@ -1393,7 +1404,9 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
             fontSize: '14px',
           }}
         >
-          No standout recommendations right now — conditions are similar across all regions.
+          {allDaysAway
+            ? "You're away for the whole forecast window, so no forecasts were generated."
+            : 'No standout recommendations right now — conditions are similar across all regions.'}
         </div>
       ) : null}
 
