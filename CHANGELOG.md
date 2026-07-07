@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Dependabot auto-merge workflow
+- New `.github/workflows/dependabot-auto-merge.yml` auto-approves Dependabot PRs and enables GitHub's native auto-merge for **minor and patch** bumps, so they merge automatically once the CI Backend and Frontend checks pass. Major-version bumps are left for manual review.
+- Uses the official `dependabot/fetch-metadata@v2` action to classify the update type; runs only for the `dependabot[bot]` actor with a scoped `contents: write` / `pull-requests: write` token.
+- Requires "Allow auto-merge" enabled in repo settings and branch protection on `main` with the CI checks marked as required.
+
 ### Fixed — summary-strip region hover now shows the verbose gloss, not the terse "X of Y locations"
 - Hovering a rated region chip in the Plan tab's summary strip showed only the one-line roll-up (e.g. "Clear at 38 of 53 locations"), while the full-briefing grid's region cell already surfaced the richer Claude-generated gloss paragraph ("78% high cloud creates an excellent canvas for sunset colour across the region…") from the *same* underlying region object.
 - The summary strip now carries `glossDetail`/`glossHeadline` through to its tooltip and prefers them over `summary` (matching the heatmap grid's `glossDetail || glossHeadline || summary` precedence), falling back to the terse summary when no gloss exists.
