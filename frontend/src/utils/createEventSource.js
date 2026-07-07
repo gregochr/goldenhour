@@ -12,12 +12,24 @@ const TOKEN_KEY = 'goldenhour_token';
  * @param {Function} [options.onError] - Called on connection error (when readyState !== CLOSED)
  * @param {string} [options.closeOn] - Event name that triggers source.close() after handler fires
  * @param {Function} [options.getToken] - Custom token getter (default: localStorage)
+ * @param {boolean} [options.reconnectOnVisible] - Reconnect immediately when the tab becomes
+ *   visible/focused if the connection has died. Background tabs have their timers throttled, so
+ *   the delayed retry below may not fire while hidden; this recovers on return without a reload.
  * @returns {Function} Cleanup function that closes the connection
  */
 export default function createEventSource(path, params = {}, eventHandlers = {}, options = {}) {
   const RECONNECT_DELAY = 5000;
   let closed = false;
   let source;
+  let retryTimer = null;
+
+  function scheduleReconnect(delay) {
+    if (retryTimer) return;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      if (!closed) connect();
+    }, delay);
+  }
 
   function connect() {
     const token = options.getToken ? options.getToken() : localStorage.getItem(TOKEN_KEY);
@@ -44,17 +56,41 @@ export default function createEventSource(path, params = {}, eventHandlers = {},
       // EventSource with readyState CLOSED won't auto-reconnect (e.g. non-200
       // response from server). Manually retry after a delay.
       if (!closed && source.readyState === EventSource.CLOSED) {
-        setTimeout(() => {
-          if (!closed) connect();
-        }, RECONNECT_DELAY);
+        scheduleReconnect(RECONNECT_DELAY);
       }
     };
   }
 
+  // When the tab wakes from being backgrounded, its throttled retry timer may not
+  // have fired. If the connection is dead, reconnect right now instead of waiting.
+  function handleVisible() {
+    if (closed || document.visibilityState !== 'visible') return;
+    if (!source || source.readyState === EventSource.CLOSED) {
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+      connect();
+    }
+  }
+
   connect();
+
+  if (options.reconnectOnVisible) {
+    document.addEventListener('visibilitychange', handleVisible);
+    window.addEventListener('focus', handleVisible);
+  }
 
   return () => {
     closed = true;
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+    if (options.reconnectOnVisible) {
+      document.removeEventListener('visibilitychange', handleVisible);
+      window.removeEventListener('focus', handleVisible);
+    }
     source.close();
   };
 }

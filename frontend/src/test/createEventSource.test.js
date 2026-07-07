@@ -3,6 +3,7 @@ import createEventSource from '../utils/createEventSource.js';
 
 class MockEventSource {
   static CLOSED = 2;
+  static OPEN = 1;
 
   constructor(url) {
     this.url = url;
@@ -147,5 +148,72 @@ describe('createEventSource', () => {
     expect(MockEventSource.instances).toHaveLength(1);
 
     vi.useRealTimers();
+  });
+
+  describe('reconnectOnVisible', () => {
+    it('reconnects immediately when the tab becomes visible and the source is CLOSED', () => {
+      createEventSource('/api/test', {}, {}, { reconnectOnVisible: true });
+      const source = MockEventSource.instances[0];
+      source.readyState = MockEventSource.CLOSED;
+
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(MockEventSource.instances).toHaveLength(2);
+    });
+
+    it('reconnects on window focus when the source is CLOSED', () => {
+      createEventSource('/api/test', {}, {}, { reconnectOnVisible: true });
+      MockEventSource.instances[0].readyState = MockEventSource.CLOSED;
+
+      window.dispatchEvent(new Event('focus'));
+
+      expect(MockEventSource.instances).toHaveLength(2);
+    });
+
+    it('does not reconnect on visibility change while the source is still OPEN', () => {
+      createEventSource('/api/test', {}, {}, { reconnectOnVisible: true });
+      MockEventSource.instances[0].readyState = MockEventSource.OPEN;
+
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(MockEventSource.instances).toHaveLength(1);
+    });
+
+    it('cancels the pending throttled retry and reconnects at once on visibility', () => {
+      vi.useFakeTimers();
+      createEventSource('/api/test', {}, {}, { reconnectOnVisible: true });
+      const source = MockEventSource.instances[0];
+      source.readyState = MockEventSource.CLOSED;
+      source.onerror(); // schedules the 5s retry
+
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(MockEventSource.instances).toHaveLength(2);
+
+      // The previously scheduled retry must not fire a second reconnect.
+      vi.advanceTimersByTime(5000);
+      expect(MockEventSource.instances).toHaveLength(2);
+
+      vi.useRealTimers();
+    });
+
+    it('removes visibility/focus listeners on cleanup', () => {
+      const cleanup = createEventSource('/api/test', {}, {}, { reconnectOnVisible: true });
+      cleanup();
+      MockEventSource.instances[0].readyState = MockEventSource.CLOSED;
+
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('focus'));
+
+      expect(MockEventSource.instances).toHaveLength(1);
+    });
+
+    it('does not register visibility listeners when the option is off', () => {
+      createEventSource('/api/test');
+      MockEventSource.instances[0].readyState = MockEventSource.CLOSED;
+
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(MockEventSource.instances).toHaveLength(1);
+    });
   });
 });

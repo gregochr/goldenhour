@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — health status recovers on its own when a backgrounded tab wakes up
+- Leaving the app open (e.g. in a background Chrome tab, or across a Mac sleep/wake) reliably left the header showing a red **DOWN** badge and the "Service is temporarily unavailable. Data shown may be stale." banner until the page was manually reloaded — even though the backend was never actually down.
+- Root cause was in the health-status SSE (`/api/status/stream`), not the backend. When the tab idled, the browser dropped the connection; `useHealthStatus` flipped to `DOWN` on the first error, and the only reconnect path was a `setTimeout`, which browsers throttle (or freeze) in background tabs — so the retry never fired, and nothing re-checked when the tab became visible again.
+- `createEventSource` now takes an opt-in `reconnectOnVisible` flag: on `visibilitychange`/`focus`, if the connection is dead it cancels the throttled retry and reconnects immediately. `useHealthStatus` opts in **and** debounces the DOWN state behind a 6s grace window, so a transient drop that reconnects quickly no longer flashes the banner. Other SSE consumers (run progress, briefing) are unaffected.
+- Frontend-only. Tests: 6 new `createEventSource` cases cover reconnect-on-visible, reconnect-on-focus, the no-op-while-OPEN guard, cancelling the pending retry, listener cleanup, and the option being off by default.
+
 ### Fixed — best-bet empty state tells the truth when you're away for the whole window
 - When the operator is marked away for every upcoming day, no forecasts are generated — but the PhotoCast Planner's best-bet empty state still read "No standout recommendations right now — conditions are similar across all regions." That's misleading: there are no conditions to compare, the run simply didn't happen.
 - The empty state now detects the all-travel-days case (every upcoming day falls in a travel range) and instead says **"You're away for the whole forecast window, so no forecasts were generated."** The "conditions are similar" copy is reserved for a genuine no-standout run. A `data-variant` (`away` / `similar`) distinguishes the two.
