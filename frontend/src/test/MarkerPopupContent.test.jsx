@@ -165,6 +165,17 @@ describe('MarkerPopupContent', () => {
       expect(screen.getByText(/by Sonnet/)).toBeInTheDocument();
     });
 
+    it('hides the footer when forecastRunAt is null (no fabricated time)', () => {
+      renderPopup({ role: 'ADMIN', forecast: { ...BASE_FORECAST, forecastRunAt: null } });
+      expect(screen.queryByText(/Forecast generated/)).not.toBeInTheDocument();
+    });
+
+    it('hides the footer for non-admins when forecastRunAt is null', () => {
+      renderPopup({ role: 'PRO_USER', forecast: { ...BASE_FORECAST, forecastRunAt: null } });
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
+      expect(screen.queryByText(/Forecast generated/)).not.toBeInTheDocument();
+    });
+
     it('shows tide fetched-at for ADMIN when available', () => {
       renderPopup({ role: 'ADMIN', tideFetchedAt: '2026-03-02T02:00:00Z' });
       expect(screen.getByText(/Tide data fetched/)).toBeInTheDocument();

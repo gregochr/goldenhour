@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -137,8 +138,7 @@ public class EvaluationViewService {
     public List<LocationEvaluationView> forDateRange(LocalDate start, LocalDate end,
             Set<TargetType> types) {
         // 1. Load all cached evaluation entries from DB for the date range
-        Map<String, Map<String, BriefingEvaluationResult>> cachedByKey =
-                loadCachedEvaluations(start, end);
+        Map<String, CachedEntry> cachedByKey = loadCachedEvaluations(start, end);
 
         // 2. Load all forecast_evaluation rows for enabled locations in date range
         List<LocationEntity> locations = locationService.findAllEnabled();
@@ -171,12 +171,13 @@ public class EvaluationViewService {
                 for (TargetType type : types) {
                     // Check cached evaluation
                     BriefingEvaluationResult cachedResult = null;
+                    Instant cachedEvaluatedAt = null;
                     if (regionName != null) {
                         String cacheKey = regionName + "|" + date + "|" + type;
-                        Map<String, BriefingEvaluationResult> regionResults =
-                                cachedByKey.get(cacheKey);
-                        if (regionResults != null) {
-                            cachedResult = regionResults.get(loc.getName());
+                        CachedEntry regionEntry = cachedByKey.get(cacheKey);
+                        if (regionEntry != null) {
+                            cachedResult = regionEntry.results().get(loc.getName());
+                            cachedEvaluatedAt = regionEntry.evaluatedAt();
                         }
                     }
 
@@ -187,7 +188,7 @@ public class EvaluationViewService {
                     // Apply merge rule
                     LocationEvaluationView view = mergeToView(
                             loc.getId(), loc.getName(), regionId, regionName,
-                            date, type, cachedResult, forecastRow);
+                            date, type, cachedResult, cachedEvaluatedAt, forecastRow);
 
                     if (view.source() != Source.NONE) {
                         views.add(view);
@@ -340,8 +341,12 @@ public class EvaluationViewService {
 
         Long regionId = loc.getRegion() != null ? loc.getRegion().getId() : null;
         String regionName = loc.getRegion() != null ? loc.getRegion().getName() : null;
+        Instant cachedEvaluatedAt = (regionName != null && cachedResult != null)
+                ? briefingEvaluationService.getCachedEvaluatedAt(regionName, date, targetType)
+                        .orElse(null)
+                : null;
         return mergeToView(loc.getId(), loc.getName(), regionId, regionName, date, targetType,
-                cachedResult, forecastRow);
+                cachedResult, cachedEvaluatedAt, forecastRow);
     }
 
     /**
@@ -357,7 +362,8 @@ public class EvaluationViewService {
      */
     private LocationEvaluationView mergeToView(Long locationId, String locationName,
             Long regionId, String regionName, LocalDate date, TargetType targetType,
-            BriefingEvaluationResult cachedResult, ForecastEvaluationEntity forecastRow) {
+            BriefingEvaluationResult cachedResult, Instant cachedEvaluatedAt,
+            ForecastEvaluationEntity forecastRow) {
 
         // 1. Cached evaluation wins (both scored and triaged entries)
         if (cachedResult != null) {
@@ -370,7 +376,7 @@ public class EvaluationViewService {
                     cachedResult.rating(), cachedResult.summary(),
                     cachedResult.fierySkyPotential(), cachedResult.goldenHourPotential(),
                     cachedResult.triageReason(), cachedResult.triageMessage(),
-                    null, null,
+                    null, cachedEvaluatedAt,
                     displayVerdict);
         }
 
@@ -421,13 +427,22 @@ public class EvaluationViewService {
     }
 
     /**
+     * A cached evaluation entry for one "regionName|date|targetType" key: the per-location results
+     * plus the instant the evaluation was produced (nullable when unknown).
+     *
+     * @param results     locationName → evaluation result
+     * @param evaluatedAt when the cache entry was produced, or {@code null} if unknown
+     */
+    private record CachedEntry(Map<String, BriefingEvaluationResult> results, Instant evaluatedAt) {
+    }
+
+    /**
      * Loads all cached evaluation entries for the date range from the in-memory cache first,
      * falling back to the database. Returns a map keyed by "regionName|date|targetType"
-     * to a map of locationName → result.
+     * to a {@link CachedEntry} carrying both the per-location results and the evaluation instant.
      */
-    private Map<String, Map<String, BriefingEvaluationResult>> loadCachedEvaluations(
-            LocalDate start, LocalDate end) {
-        Map<String, Map<String, BriefingEvaluationResult>> result = new HashMap<>();
+    private Map<String, CachedEntry> loadCachedEvaluations(LocalDate start, LocalDate end) {
+        Map<String, CachedEntry> result = new HashMap<>();
 
         // Try in-memory cache first (it's the primary read source)
         List<LocationEntity> locations = locationService.findAllEnabled();
@@ -445,7 +460,10 @@ public class EvaluationViewService {
                     Map<String, BriefingEvaluationResult> cached =
                             briefingEvaluationService.getCachedScores(regionName, date, type);
                     if (!cached.isEmpty()) {
-                        result.put(regionName + "|" + date + "|" + type, cached);
+                        Instant evaluatedAt = briefingEvaluationService
+                                .getCachedEvaluatedAt(regionName, date, type).orElse(null);
+                        result.put(regionName + "|" + date + "|" + type,
+                                new CachedEntry(cached, evaluatedAt));
                     }
                 }
             }
@@ -467,7 +485,7 @@ public class EvaluationViewService {
                         entity.getResultsJson(), RESULT_LIST_TYPE);
                 Map<String, BriefingEvaluationResult> map = new HashMap<>();
                 results.forEach(r -> map.put(r.locationName(), r));
-                result.put(key, map);
+                result.put(key, new CachedEntry(map, entity.getEvaluatedAt()));
             } catch (Exception e) {
                 LOG.warn("Failed to parse cached evaluation {}: {}",
                         key, e.getMessage());

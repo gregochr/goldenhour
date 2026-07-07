@@ -454,8 +454,8 @@ class ForecastDtoMapperTest {
     }
 
     @Test
-    @DisplayName("toSparseDto() falls back to LocalDateTime.now when view has no evaluatedAt")
-    void toSparseDto_nullEvaluatedAt_fallsBackToNow() {
+    @DisplayName("toSparseDto() leaves forecastRunAt null when the view has no evaluatedAt")
+    void toSparseDto_nullEvaluatedAt_leavesRunTimeNull() {
         LocalDate date = LocalDate.of(2026, 3, 8);
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any())).thenReturn(LocalDateTime.of(2026, 3, 8, 17, 45));
         when(solarService.sunsetAzimuthDeg(anyDouble(), anyDouble(), any())).thenReturn(255);
@@ -467,7 +467,9 @@ class ForecastDtoMapperTest {
 
         ForecastEvaluationDto dto = mapper.toSparseDto(view, LOCATION, false);
 
-        assertThat(dto.forecastRunAt()).isNotNull();
+        // A missing evaluation instant must not be fabricated as the request time — the frontend
+        // hides the "Forecast generated" footer for a null run time rather than showing "now".
+        assertThat(dto.forecastRunAt()).isNull();
     }
 
     @Test

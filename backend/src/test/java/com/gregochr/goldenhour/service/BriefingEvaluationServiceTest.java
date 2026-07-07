@@ -28,6 +28,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -130,6 +131,27 @@ class BriefingEvaluationServiceTest {
         assertThat(scores.get("Durham").rating()).isEqualTo(4);
         assertThat(scores.get("Durham").fierySkyPotential()).isEqualTo(72);
         assertThat(scores.get("Sunderland").rating()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("getCachedEvaluatedAt returns empty when no cache entry exists")
+    void getCachedEvaluatedAt_emptyWhenAbsent() {
+        assertThat(service.getCachedEvaluatedAt(REGION, DATE, TargetType.SUNSET)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("getCachedEvaluatedAt returns the write instant after writeFromBatch")
+    void getCachedEvaluatedAt_presentAfterWrite() {
+        LocalDate date = LocalDate.of(2026, 4, 7);
+        Instant before = Instant.now();
+        service.writeFromBatch("North East|2026-04-07|SUNRISE", List.of(
+                new BriefingEvaluationResult("Durham", 4, 72, 65, "Good conditions")));
+
+        Optional<Instant> evaluatedAt =
+                service.getCachedEvaluatedAt("North East", date, TargetType.SUNRISE);
+        assertThat(evaluatedAt).isPresent();
+        // The stamp is the moment the batch results were written, not a downstream request time.
+        assertThat(evaluatedAt.get()).isAfterOrEqualTo(before);
     }
 
     // ── writeFromBatch — replace semantics ─────────────────────────────────────

@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.entity.CachedEvaluationEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
@@ -137,6 +138,29 @@ class EvaluationViewServiceTest {
             assertThat(v.regionName()).isEqualTo(REGION_NAME);
             assertThat(v.date()).isEqualTo(DATE);
             assertThat(v.targetType()).isEqualTo(SUNRISE);
+        }
+
+        @Test
+        @DisplayName("1c. Cache hit carries the cache evaluatedAt as the view's evaluatedAt")
+        void cacheHitCarriesEvaluatedAt() {
+            Instant evaluatedAt = Instant.parse("2026-04-22T05:00:00Z");
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Optional.of(evaluatedAt));
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, SUNRISE))
+                    .thenReturn(Optional.empty());
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.CACHED_EVALUATION);
+            // The batch/SSE run time must survive onto the view so it can be shown as the honest
+            // "forecast generated" timestamp — never fabricated downstream as the request time.
+            assertThat(v.evaluatedAt()).isEqualTo(evaluatedAt);
         }
 
         @Test
@@ -974,6 +998,68 @@ class EvaluationViewServiceTest {
                     .findFirst().orElseThrow();
             assertThat(sandsendSunset.source()).isEqualTo(Source.FORECAST_EVALUATION_TRIAGE);
             assertThat(sandsendSunset.triageReason()).isEqualTo(TriageReason.HIGH_CLOUD);
+        }
+
+        @Test
+        @DisplayName("in-memory cache hit carries its evaluatedAt onto the view")
+        void inMemoryCacheCarriesEvaluatedAt() {
+            Instant evaluatedAt = Instant.parse("2026-04-23T04:30:00Z");
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 70, 60, "Great")));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
+                    .thenReturn(Map.of());
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Optional.of(evaluatedAt));
+            when(forecastEvaluationRepository
+                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                            eq(1L), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of());
+            when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(DATE))
+                    .thenReturn(List.of());
+
+            LocationEvaluationView v = service.forDateRange(DATE, DATE, Set.of(SUNRISE, SUNSET))
+                    .stream()
+                    .filter(view -> view.targetType() == SUNRISE)
+                    .findFirst().orElseThrow();
+
+            assertThat(v.source()).isEqualTo(Source.CACHED_EVALUATION);
+            assertThat(v.evaluatedAt()).isEqualTo(evaluatedAt);
+        }
+
+        @Test
+        @DisplayName("DB-fallback cache entry carries its evaluated_at onto the view")
+        void dbFallbackCacheCarriesEvaluatedAt() throws Exception {
+            Instant evaluatedAt = Instant.parse("2026-04-23T04:30:00Z");
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            // Not in the in-memory cache — forces the DB-fallback branch.
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of());
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
+                    .thenReturn(Map.of());
+            when(forecastEvaluationRepository
+                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                            eq(1L), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of());
+
+            CachedEvaluationEntity dbEntry = new CachedEvaluationEntity();
+            dbEntry.setCacheKey(REGION_NAME + "|" + DATE + "|SUNRISE");
+            dbEntry.setEvaluationDate(DATE);
+            dbEntry.setTargetType("SUNRISE");
+            dbEntry.setResultsJson(new ObjectMapper().writeValueAsString(List.of(
+                    new BriefingEvaluationResult("Bamburgh", 4, 70, 60, "Great"))));
+            dbEntry.setEvaluatedAt(evaluatedAt);
+            when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(DATE))
+                    .thenReturn(List.of(dbEntry));
+
+            LocationEvaluationView v = service.forDateRange(DATE, DATE, Set.of(SUNRISE, SUNSET))
+                    .stream()
+                    .filter(view -> view.targetType() == SUNRISE)
+                    .findFirst().orElseThrow();
+
+            assertThat(v.source()).isEqualTo(Source.CACHED_EVALUATION);
+            assertThat(v.evaluatedAt()).isEqualTo(evaluatedAt);
         }
     }
 }
