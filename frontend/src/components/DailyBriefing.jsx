@@ -362,6 +362,8 @@ function buildSummaryPills(upcomingEvents, briefingDays, todayStr, tomorrowStr, 
       verdictLabel: `${e.display === 'WORTH_IT' ? 'Worth it' : 'Maybe'} ${e.event}`,
       wx: buildRegionWx(e.region),
       summary: e.region.summary || '',
+      glossHeadline: e.region.glossHeadline || '',
+      glossDetail: e.region.glossDetail || '',
     }));
     return {
       ...base,
