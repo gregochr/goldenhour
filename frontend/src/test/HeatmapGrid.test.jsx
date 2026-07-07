@@ -267,6 +267,7 @@ describe('HeatmapGrid — region gloss in hover tip', () => {
       briefingDays: days,
     });
 
+    fireEvent.mouseEnter(screen.getByTestId('heatmap-cell'));
     const tip = screen.getByTestId('cell-hover-tip');
     expect(tip.textContent).toContain('High cirrus canvas');
   });
@@ -292,6 +293,7 @@ describe('HeatmapGrid — region gloss in hover tip', () => {
       briefingDays: days,
     });
 
+    fireEvent.mouseEnter(screen.getByTestId('heatmap-cell'));
     const tip = screen.getByTestId('cell-hover-tip');
     expect(tip.textContent).toContain('Thin high cloud at 40% provides colour canvas.');
     expect(tip.textContent).not.toContain('High cirrus canvas');
@@ -320,6 +322,7 @@ describe('HeatmapGrid — region gloss in hover tip', () => {
       briefingDays: days,
     });
 
+    fireEvent.mouseEnter(screen.getByTestId('heatmap-cell'));
     const tip = screen.getByTestId('cell-hover-tip');
     expect(tip.textContent).toContain('Clear skies all evening');
   });
@@ -344,6 +347,7 @@ describe('HeatmapGrid — region gloss in hover tip', () => {
       briefingDays: days,
     });
 
+    fireEvent.mouseEnter(screen.getByTestId('heatmap-cell'));
     const tip = screen.getByTestId('cell-hover-tip');
     const glossDiv = tip.querySelector('.italic');
     expect(glossDiv).toBeTruthy();
@@ -502,6 +506,7 @@ describe('HeatmapGrid — glossDetail in cell hover tip', () => {
       briefingDays: days,
     });
 
+    fireEvent.mouseEnter(screen.getByTestId('heatmap-cell'));
     const tip = screen.getByTestId('cell-hover-tip');
     expect(tip.textContent).toContain('High cloud at 40% provides excellent colour canvas.');
   });
@@ -527,6 +532,7 @@ describe('HeatmapGrid — glossDetail in cell hover tip', () => {
       briefingDays: days,
     });
 
+    fireEvent.mouseEnter(screen.getByTestId('heatmap-cell'));
     const tip = screen.getByTestId('cell-hover-tip');
     expect(tip.textContent).toContain('High cirrus canvas');
   });

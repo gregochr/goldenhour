@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — full-briefing grid cell tooltip no longer clips on the rightmost column
+- Hovering a region cell in the Plan tab's full-briefing grid revealed a tooltip (verdict + Claude gloss + weather), but on the **rightmost day column** its right edge was cut off — the last words of the gloss faded/truncated ("…an excellent canvas for sunset colour across t[he region]").
+- Root cause matched the summary-strip fix (#206): the tooltip was an absolutely-positioned, centre-anchored descendant of the daily-briefing card, which has `overflow: hidden` — so the card clipped any tip that overran its right edge, regardless of anchoring.
+- The tooltip is now portalled to `document.body` and positioned with `getBoundingClientRect()` (`position: fixed`), escaping every clipping ancestor. It anchors above the cell and flips its horizontal anchor (and caret) left→right only when it would overrun the viewport's right edge. `pointer-events: none` keeps it purely informational; hover **and** keyboard focus both reveal it.
+- Frontend-only; the tooltip is now hover/focus-triggered React state rather than a CSS `:hover` descendant. Tests updated to hover the cell before asserting the portalled `role="tooltip"` carries the verdict/gloss/weather.
+
 ### Added — Dependabot auto-merge workflow
 - New `.github/workflows/dependabot-auto-merge.yml` auto-approves Dependabot PRs and enables GitHub's native auto-merge for **minor and patch** bumps, so they merge automatically once the CI Backend and Frontend checks pass. Major-version bumps are left for manual review.
 - Uses the official `dependabot/fetch-metadata@v2` action to classify the update type; runs only for the `dependabot[bot]` actor with a scoped `contents: write` / `pull-requests: write` token.

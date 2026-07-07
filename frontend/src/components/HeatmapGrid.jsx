@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
 import { computeCellTier, isCellVisible, resolveRegionDisplay } from '../utils/tierUtils.js';
 import { formatEventTimeUk, formatTideHighlight } from '../utils/conversions.js';
@@ -605,7 +606,38 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
 
 // ── Sub-column cell ───────────────────────────────────────────────────────────
 
+const CELL_TIP_WIDTH = 220;
+const CELL_TIP_MARGIN = 8;
+const CELL_TIP_GAP = 8;
+
+/**
+ * Compute a viewport-anchored (`position: fixed`) style for a heatmap cell's hover tooltip so it
+ * escapes the daily-briefing card's `overflow: hidden` (which clips the rightmost column's tip no
+ * matter how it's anchored inside the grid). The tip sits above the cell, anchored to the cell's
+ * left edge unless that would overrun the viewport's right edge, in which case it flips to a right
+ * anchor. Mirrors the summary-strip region tooltip (see BriefingSummaryStrip).
+ *
+ * @param {DOMRect} rect the cell's bounding box
+ * @returns {{style: Object, alignRight: boolean}} inline style + caret-side flag
+ */
+function computeCellTipPlacement(rect) {
+  const alignRight = rect.left + CELL_TIP_WIDTH + CELL_TIP_MARGIN > window.innerWidth;
+  const style = { bottom: `${window.innerHeight - rect.top + CELL_TIP_GAP}px` };
+  if (alignRight) {
+    style.right = `${Math.max(CELL_TIP_MARGIN, window.innerWidth - rect.right)}px`;
+  } else {
+    style.left = `${Math.max(CELL_TIP_MARGIN, rect.left)}px`;
+  }
+  return { style, alignRight };
+}
+
 function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map(), showAllLocations = false, travelDayDates = new Set() }) {  const cellData = getSubCellData(date, regionName, targetType, briefingDays);
+
+  // Hover tooltip placement, portalled to <body> so the plan card's overflow:hidden can't clip
+  // the rightmost column's tip. Declared before any early return to satisfy the rules of hooks.
+  const [tip, setTip] = useState(null);
+  const showTip = (e) => setTip(computeCellTipPlacement(e.currentTarget.getBoundingClientRect()));
+  const hideTip = () => setTip(null);
 
   // Empty cell — region doesn't appear in this event type. Minimal: a muted
   // dash, no hover, no interaction; sized to align with the tidy ~52px band.
@@ -735,6 +767,10 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
       style={{ minHeight: '52px', ...cellBg, pointerEvents: cellClickable ? undefined : 'none' }}
       onClick={cellClickable ? () => onToggle(date, regionName, targetType) : undefined}
       onKeyDown={cellClickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(date, regionName, targetType); } } : undefined}
+      onMouseEnter={showTip}
+      onMouseLeave={hideTip}
+      onFocus={showTip}
+      onBlur={hideTip}
     >
       <div className="font-medium" style={{ fontSize: '11px', color: verdictColour }}>
         {verdictLabel}
@@ -765,9 +801,16 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
         </div>
       )}
 
-      {/* Hover tooltip — verdict + gloss (Newsreader italic) + weather */}
-      {(glossSentence || weatherLine) && (
-        <div className="heatmap-cell-tip" data-testid="cell-hover-tip">
+      {/* Hover tooltip — verdict + gloss (Newsreader italic) + weather. Portalled to <body> and
+          positioned via JS (position: fixed) so the plan card's overflow:hidden can't clip the
+          rightmost column's tip; it flips left↔right at the viewport edge. */}
+      {tip && (glossSentence || weatherLine) && createPortal(
+        <div
+          className={`heatmap-cell-tip${tip.alignRight ? ' heatmap-cell-tip--right' : ''}`}
+          role="tooltip"
+          data-testid="cell-hover-tip"
+          style={tip.style}
+        >
           <div className="font-semibold" style={{ fontSize: '11px', color: verdictColour, marginBottom: '4px' }}>
             {verdictLabel}
           </div>
@@ -784,7 +827,8 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
               {weatherLine}
             </div>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
