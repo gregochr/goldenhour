@@ -296,9 +296,12 @@ public class ForecastDtoMapper {
                 ? (int) ChronoUnit.DAYS.between(LocalDate.now(ZoneOffset.UTC), date)
                 : null;
 
+        // The evaluation instant is the honest "forecast generated" time (when the batch/SSE job
+        // scored this slot). Leave it null when unknown rather than stamping now() — the frontend
+        // hides the footer for a null run time, which is preferable to reporting the request time.
         LocalDateTime forecastRunAt = view.evaluatedAt() != null
                 ? LocalDateTime.ofInstant(view.evaluatedAt(), ZoneOffset.UTC)
-                : LocalDateTime.now(ZoneOffset.UTC);
+                : null;
 
         // Bluebell exposure — only surfaced during season for bluebell sites
         String bluebellExposure = null;

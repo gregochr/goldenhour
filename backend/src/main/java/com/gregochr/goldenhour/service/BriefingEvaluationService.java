@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -132,6 +133,28 @@ public class BriefingEvaluationService {
         String cacheKey = CacheKeyFactory.build(regionName, date, targetType);
         CachedEvaluation cached = cache.get(cacheKey);
         return cached != null ? Collections.unmodifiableMap(cached.results()) : Map.of();
+    }
+
+    /**
+     * Returns the instant at which the cached evaluation for the given region/date/targetType
+     * was produced, if a cache entry exists.
+     *
+     * <p>This is the honest "forecast generated" timestamp for batch/SSE-scored slots: the moment
+     * the results were written into the cache (or, for entries rehydrated after a restart, the
+     * persisted evaluation instant). Callers surface it instead of fabricating a run time, so a
+     * cached-only forecast reports when the scheduled job actually scored it rather than when the
+     * request was served.
+     *
+     * @param regionName the region name
+     * @param date       the forecast date
+     * @param targetType SUNRISE or SUNSET
+     * @return the evaluation instant, or empty if there is no cache entry for the key
+     */
+    public Optional<Instant> getCachedEvaluatedAt(String regionName,
+            LocalDate date, TargetType targetType) {
+        String cacheKey = CacheKeyFactory.build(regionName, date, targetType);
+        CachedEvaluation cached = cache.get(cacheKey);
+        return cached != null ? Optional.of(cached.evaluatedAt()) : Optional.empty();
     }
 
     /**
