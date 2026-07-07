@@ -112,4 +112,53 @@ describe('BriefingSummaryStrip', () => {
     expect(onRegionClick).toHaveBeenCalledWith('Tyne and Wear', '2026-07-04', 'SUNSET');
     expect(onPillClick).not.toHaveBeenCalled();
   });
+
+  it('prefers the verbose gloss detail over the terse summary in the hover tooltip', () => {
+    render(<BriefingSummaryStrip
+      pills={[pill({
+        countLabel: null,
+        regions: [
+          {
+            regionName: 'The North Yorkshire Coast',
+            shortName: 'N. Yorks Coast',
+            targetType: 'SUNSET',
+            verdictLabel: 'Worth it sunset',
+            wx: '☁18°C 10mph',
+            summary: 'Clear at 30 of 36 locations.',
+            glossHeadline: 'High cloud creates excellent canvas',
+            glossDetail: '78% high cloud creates an excellent canvas for sunset colour across the region.',
+          },
+        ],
+      })]}
+      onPillClick={vi.fn()}
+      onRegionClick={vi.fn()}
+    />);
+    const chip = screen.getByTestId('summary-region-chip');
+    fireEvent.mouseEnter(chip);
+    const tooltip = screen.getByRole('tooltip').textContent;
+    expect(tooltip).toContain('78% high cloud creates an excellent canvas');
+    expect(tooltip).not.toContain('Clear at 30 of 36 locations.');
+  });
+
+  it('falls back to the terse summary when no gloss is available', () => {
+    render(<BriefingSummaryStrip
+      pills={[pill({
+        countLabel: null,
+        regions: [
+          {
+            regionName: 'Teesdale',
+            shortName: 'Teesdale',
+            targetType: 'SUNSET',
+            verdictLabel: 'Worth it sunset',
+            wx: '☁18°C 5mph',
+            summary: 'Clear at 3 of 4 locations.',
+          },
+        ],
+      })]}
+      onPillClick={vi.fn()}
+      onRegionClick={vi.fn()}
+    />);
+    fireEvent.mouseEnter(screen.getByTestId('summary-region-chip'));
+    expect(screen.getByRole('tooltip').textContent).toContain('Clear at 3 of 4 locations.');
+  });
 });

@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — summary-strip region hover now shows the verbose gloss, not the terse "X of Y locations"
+- Hovering a rated region chip in the Plan tab's summary strip showed only the one-line roll-up (e.g. "Clear at 38 of 53 locations"), while the full-briefing grid's region cell already surfaced the richer Claude-generated gloss paragraph ("78% high cloud creates an excellent canvas for sunset colour across the region…") from the *same* underlying region object.
+- The summary strip now carries `glossDetail`/`glossHeadline` through to its tooltip and prefers them over `summary` (matching the heatmap grid's `glossDetail || glossHeadline || summary` precedence), falling back to the terse summary when no gloss exists.
+- Frontend-only, no backend change — the gloss fields were already present on the region object. Tests: two new `BriefingSummaryStrip` cases cover the gloss-preferred and summary-fallback tooltip paths.
+
 ### Fixed — health status recovers on its own when a backgrounded tab wakes up
 - Leaving the app open (e.g. in a background Chrome tab, or across a Mac sleep/wake) reliably left the header showing a red **DOWN** badge and the "Service is temporarily unavailable. Data shown may be stale." banner until the page was manually reloaded — even though the backend was never actually down.
 - Root cause was in the health-status SSE (`/api/status/stream`), not the backend. When the tab idled, the browser dropped the connection; `useHealthStatus` flipped to `DOWN` on the first error, and the only reconnect path was a `setTimeout`, which browsers throttle (or freeze) in background tabs — so the retry never fired, and nothing re-checked when the tab became visible again.

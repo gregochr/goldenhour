@@ -230,7 +230,7 @@ export default function BriefingSummaryStrip({ pills, onPillClick, onRegionClick
               {tip.region.wx ? ` · ${tip.region.wx}` : ''}
             </span>
             <span className="summary-region-tip-body">
-              {tip.region.summary || 'No detail available.'}
+              {tip.region.glossDetail || tip.region.glossHeadline || tip.region.summary || 'No detail available.'}
             </span>
           </div>,
           document.body,
@@ -261,6 +261,8 @@ BriefingSummaryStrip.propTypes = {
           verdictLabel: PropTypes.string,
           wx: PropTypes.string,
           summary: PropTypes.string,
+          glossHeadline: PropTypes.string,
+          glossDetail: PropTypes.string,
         }),
       ),
       ratedCount: PropTypes.number.isRequired,
