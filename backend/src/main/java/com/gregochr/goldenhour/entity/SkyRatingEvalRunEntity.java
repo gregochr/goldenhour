@@ -96,6 +96,14 @@ public class SkyRatingEvalRunEntity {
     @Column(name = "status", nullable = false, length = 20)
     private SkyRatingEvalStatus status;
 
+    /**
+     * The Anthropic message-batch id this run's requests were submitted under, or {@code null} for
+     * synchronously-scored runs. Persisted so the batch reconciler can reload a RUNNING run after a
+     * restart and finalise it once its batch has ended.
+     */
+    @Column(name = "batch_id", length = 255)
+    private String batchId;
+
     @Column(name = "error_message", columnDefinition = "TEXT")
     private String errorMessage;
 

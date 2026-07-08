@@ -18,6 +18,7 @@ import com.gregochr.goldenhour.repository.SkyRatingEvalRunRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -109,6 +110,40 @@ public class SkyRatingEvalService {
                 .gitBranch(gitInfoService.getBranch())
                 .build();
         return runRepository.save(run);
+    }
+
+    /**
+     * All runs currently in {@code RUNNING} — the batch reconciler's per-tick work list.
+     *
+     * @return the RUNNING runs (empty when nothing is in flight, the common case)
+     */
+    public List<SkyRatingEvalRunEntity> findRunning() {
+        return runRepository.findByStatus(SkyRatingEvalStatus.RUNNING);
+    }
+
+    /**
+     * Records the Anthropic batch id a run's requests were submitted under, so a restart-surviving
+     * reconciler can later match the batch's results back to this run.
+     *
+     * @param run     the just-submitted run
+     * @param batchId the Anthropic message-batch id
+     */
+    public void attachBatchId(SkyRatingEvalRunEntity run, String batchId) {
+        run.setBatchId(batchId);
+        runRepository.save(run);
+    }
+
+    /**
+     * Removes any already-persisted results for a run. Called before the reconciler re-persists a
+     * batch's results, so a reconcile that crashed part-way (rows written, run not yet finalised)
+     * cannot leave duplicate child rows on the retry. Its own transaction, since the reconciler
+     * deliberately runs outside one.
+     *
+     * @param runId the run whose results to clear
+     */
+    @Transactional
+    public void deleteResultsForRun(Long runId) {
+        resultRepository.deleteByRunId(runId);
     }
 
     /**
