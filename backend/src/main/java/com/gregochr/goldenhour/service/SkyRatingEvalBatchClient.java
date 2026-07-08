@@ -14,21 +14,21 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Thin, testable wrapper over the three Anthropic Batch API calls the sky-rating eval needs:
- * submit, await completion, and collect results. It exists so {@link SkyRatingEvalBatchService}
+ * submit, check completion, and collect results. It exists so {@link SkyRatingEvalBatchService}
  * can orchestrate against plain records ({@link ClaudeBatchOutcome}) and a boolean, mocking this
  * seam rather than the deep SDK batch types.
  *
- * <p>Deliberately separate from the forecast pipeline's {@code BatchSubmissionService} /
+ * <p>Deliberately lighter than the forecast pipeline's {@code BatchSubmissionService} /
  * {@code BatchPollingService} / {@code BatchResultProcessor}: those are coupled to
  * {@code ForecastBatchEntity} persistence, dispositions, and pipeline runs. The eval is a small,
- * self-contained weekly job (fixtures × runs × models = a few hundred requests) that completes in
- * minutes, so it polls inline rather than threading its batches through the forecast machinery.
+ * self-contained weekly job (fixtures × runs × models = a few hundred requests). Like the forecast
+ * poller, its batch id is persisted on the run and reconciled by a scheduled job (see
+ * {@link SkyRatingEvalBatchService}), so the completion check here is a single non-blocking call.
  */
 @Service
 public class SkyRatingEvalBatchClient {
@@ -61,40 +61,21 @@ public class SkyRatingEvalBatchClient {
     }
 
     /**
-     * Polls the batch until its processing status is {@code ENDED} or the timeout elapses.
+     * Checks — in a single, non-blocking status call — whether the batch has finished processing.
      *
-     * <p>Checks the status before each sleep, so a batch that is already ended returns immediately
-     * without waiting. Anthropic always drives a batch to {@code ENDED} once processing finishes
-     * (even if every request errored), so polling for that single terminal state is sufficient.
+     * <p>Anthropic always drives a batch to {@code ENDED} once processing finishes (even if every
+     * request errored), so this one terminal state is sufficient to decide the batch is ready to
+     * collect. The scheduled reconciler ({@code SkyRatingEvalBatchService}) calls this once per tick
+     * instead of blocking a thread on an await loop, so a restart cannot lose an in-flight batch.
      *
-     * @param batchId      the Anthropic batch id
-     * @param timeout      give up after this long
-     * @param pollInterval wait this long between status checks
-     * @return {@code true} if the batch ended within the timeout, {@code false} otherwise
+     * @param batchId the Anthropic batch id
+     * @return {@code true} if the batch's processing status is {@code ENDED}
      */
-    public boolean awaitEnded(String batchId, Duration timeout, Duration pollInterval) {
-        long deadline = System.currentTimeMillis() + timeout.toMillis();
-        while (true) {
-            MessageBatch.ProcessingStatus status =
-                    anthropicClient.messages().batches().retrieve(batchId).processingStatus();
-            if (status.equals(MessageBatch.ProcessingStatus.ENDED)) {
-                LOG.info("Sky-rating eval batch {} ENDED", batchId);
-                return true;
-            }
-            if (System.currentTimeMillis() + pollInterval.toMillis() > deadline) {
-                LOG.warn("Sky-rating eval batch {} did not end within {} (last status {})",
-                        batchId, timeout, status);
-                return false;
-            }
-            LOG.debug("Sky-rating eval batch {} status {}, waiting {}", batchId, status, pollInterval);
-            try {
-                Thread.sleep(pollInterval.toMillis());
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                LOG.warn("Sky-rating eval batch {} polling interrupted", batchId);
-                return false;
-            }
-        }
+    public boolean isEnded(String batchId) {
+        MessageBatch.ProcessingStatus status =
+                anthropicClient.messages().batches().retrieve(batchId).processingStatus();
+        LOG.debug("Sky-rating eval batch {} processing status {}", batchId, status);
+        return status.equals(MessageBatch.ProcessingStatus.ENDED);
     }
 
     /**

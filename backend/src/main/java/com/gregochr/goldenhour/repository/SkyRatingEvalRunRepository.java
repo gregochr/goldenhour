@@ -25,4 +25,12 @@ public interface SkyRatingEvalRunRepository extends JpaRepository<SkyRatingEvalR
      * @return matching runs, oldest first
      */
     List<SkyRatingEvalRunEntity> findByStatusOrderByRunTimestampAsc(SkyRatingEvalStatus status);
+
+    /**
+     * Runs with the given status — for the batch reconciler to reload in-flight runs each tick.
+     *
+     * @param status the lifecycle status to filter on
+     * @return matching runs
+     */
+    List<SkyRatingEvalRunEntity> findByStatus(SkyRatingEvalStatus status);
 }

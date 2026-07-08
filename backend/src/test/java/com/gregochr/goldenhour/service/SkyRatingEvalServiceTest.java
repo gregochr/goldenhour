@@ -88,6 +88,33 @@ class SkyRatingEvalServiceTest {
     }
 
     @Test
+    void findRunningDelegatesToRepositoryByStatus() {
+        SkyRatingEvalRunEntity run = SkyRatingEvalRunEntity.builder()
+                .id(1L).status(SkyRatingEvalStatus.RUNNING).build();
+        when(runRepository.findByStatus(SkyRatingEvalStatus.RUNNING)).thenReturn(List.of(run));
+
+        assertThat(service().findRunning()).containsExactly(run);
+    }
+
+    @Test
+    void attachBatchIdSetsIdAndSaves() {
+        SkyRatingEvalRunEntity run = SkyRatingEvalRunEntity.builder().id(1L).build();
+        when(runRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service().attachBatchId(run, "msgbatch_42");
+
+        assertThat(run.getBatchId()).isEqualTo("msgbatch_42");
+        verify(runRepository).save(run);
+    }
+
+    @Test
+    void deleteResultsForRunDelegatesToRepository() {
+        service().deleteResultsForRun(99L);
+
+        verify(resultRepository).deleteByRunId(99L);
+    }
+
+    @Test
     void executeRunScoresEveryFixtureNTimesAndBucketsAgainstEachBand() {
         int rating = 3;
         stubScorer(rating);

@@ -18,7 +18,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -30,9 +29,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link SkyRatingEvalBatchClient} — the thin Anthropic Batch API wrapper. The SDK
- * client is mocked; the tests verify submit returns the batch id, awaitEnded resolves the ENDED
- * status without sleeping past the timeout, and collectResults drains success/failure rows into
- * {@link ClaudeBatchOutcome}s.
+ * client is mocked; the tests verify submit returns the batch id, isEnded reflects the ENDED
+ * processing status, and collectResults drains success/failure rows into {@link ClaudeBatchOutcome}s.
  */
 class SkyRatingEvalBatchClientTest {
 
@@ -66,31 +64,23 @@ class SkyRatingEvalBatchClientTest {
     }
 
     @Test
-    @DisplayName("awaitEnded returns true immediately when the batch is already ENDED")
-    void awaitEndedReturnsTrueWhenEnded() {
+    @DisplayName("isEnded returns true when the batch processing status is ENDED")
+    void isEndedTrueWhenEnded() {
         MessageBatch status = mock(MessageBatch.class);
         when(status.processingStatus()).thenReturn(MessageBatch.ProcessingStatus.ENDED);
         when(batchService.retrieve("msgbatch_done")).thenReturn(status);
 
-        boolean ended = client.awaitEnded(
-                "msgbatch_done", Duration.ofSeconds(30), Duration.ofSeconds(1));
-
-        assertThat(ended).isTrue();
+        assertThat(client.isEnded("msgbatch_done")).isTrue();
     }
 
     @Test
-    @DisplayName("awaitEnded returns false when the timeout would elapse before the next poll")
-    void awaitEndedReturnsFalseOnTimeout() {
+    @DisplayName("isEnded returns false while the batch is still in progress")
+    void isEndedFalseWhenInProgress() {
         MessageBatch status = mock(MessageBatch.class);
         when(status.processingStatus()).thenReturn(MessageBatch.ProcessingStatus.IN_PROGRESS);
         when(batchService.retrieve("msgbatch_slow")).thenReturn(status);
 
-        // pollInterval (1s) exceeds the remaining timeout (1ms), so the loop bails after the
-        // first status check without sleeping.
-        boolean ended = client.awaitEnded(
-                "msgbatch_slow", Duration.ofMillis(1), Duration.ofSeconds(1));
-
-        assertThat(ended).isFalse();
+        assertThat(client.isEnded("msgbatch_slow")).isFalse();
     }
 
     @Test

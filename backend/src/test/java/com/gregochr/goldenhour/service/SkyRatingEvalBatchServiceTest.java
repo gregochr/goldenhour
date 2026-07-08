@@ -17,13 +17,17 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -36,10 +40,14 @@ import static org.mockito.Mockito.when;
 /**
  * Unit tests for {@link SkyRatingEvalBatchService} — the Batch API orchestration around the eval.
  * The batch client, request factory, and persistence service are mocked, so the tests verify
- * custom-id round-tripping, result→origin mapping, batch-discount persistence, run finalisation, and
- * the submission-failure path — without any real Claude calls or threads.
+ * custom-id round-tripping, batch-id persistence on submit, the restart-safe reconciler's branches
+ * (ended → finalise COMPLETED, in-flight → leave, past-deadline → FAIL, orphan-without-batch → FAIL),
+ * result→origin mapping, batch-discount persistence, and the submission-failure path — without any
+ * real Claude calls or threads.
  */
 class SkyRatingEvalBatchServiceTest {
+
+    private static final long POLL_TIMEOUT_SECONDS = 60;
 
     private SkyRatingEvalService evalService;
     private SkyRatingEvalBatchClient batchClient;
@@ -59,14 +67,16 @@ class SkyRatingEvalBatchServiceTest {
         objectMapper = mock(ObjectMapper.class);
         Map<EvaluationModel, EvaluationStrategy> strategies = Map.of(EvaluationModel.HAIKU, parser);
         service = new SkyRatingEvalBatchService(evalService, batchClient, batchRequestFactory,
-                dynamicSchedulerService, strategies, objectMapper, true, 60, 1);
+                dynamicSchedulerService, strategies, objectMapper, true, POLL_TIMEOUT_SECONDS);
     }
 
     @Test
-    @DisplayName("registerJob registers the weekly job target with the scheduler")
-    void registerJobRegistersTarget() {
+    @DisplayName("registerJob registers both the weekly job and the reconciler targets")
+    void registerJobRegistersBothTargets() {
         service.registerJob();
         verify(dynamicSchedulerService).registerJobTarget(eq(SkyRatingEvalService.JOB_KEY), any());
+        verify(dynamicSchedulerService).registerJobTarget(
+                eq(SkyRatingEvalBatchService.POLL_JOB_KEY), any());
     }
 
     @Test
@@ -76,7 +86,7 @@ class SkyRatingEvalBatchServiceTest {
                 Map.of(EvaluationModel.HAIKU, mock(EvaluationStrategy.class));
         org.assertj.core.api.Assertions.assertThatThrownBy(() ->
                 new SkyRatingEvalBatchService(evalService, batchClient, batchRequestFactory,
-                        dynamicSchedulerService, bad, objectMapper, true, 60, 1))
+                        dynamicSchedulerService, bad, objectMapper, true, POLL_TIMEOUT_SECONDS))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -98,49 +108,25 @@ class SkyRatingEvalBatchServiceTest {
     }
 
     @Test
-    @DisplayName("processBatch persists each success (batch cost) and finalises the run COMPLETED")
-    void processBatchPersistsSuccessesAndFinalises() {
-        SkyRatingEvalRunEntity run = runEntity(10L, EvaluationModel.SONNET);
-        SkyRatingEvalBatchService.RunContext ctx =
-                new SkyRatingEvalBatchService.RunContext(run, EvaluationModel.SONNET);
-        Map<Long, SkyRatingEvalBatchService.RunContext> byRunId = Map.of(10L, ctx);
+    @DisplayName("runScheduledBatched submits once, persists the batch id on every run, and does not block")
+    void runScheduledBatchedPersistsBatchIdWithoutBlocking() {
+        AtomicLong ids = new AtomicLong(100);
+        when(evalService.startRun(any(), eq(SkyRatingEvalTrigger.SCHEDULED), anyInt()))
+                .thenAnswer(inv -> runEntity(ids.getAndIncrement(), inv.getArgument(0)));
+        when(batchRequestFactory.buildForecastRequest(any(), any(), any(), anyInt()))
+                .thenReturn(mock(BatchCreateParams.Request.class));
+        when(batchClient.submit(any())).thenReturn("batchX");
 
-        TokenUsage usage = new TokenUsage(3_800, 180, 0, 0);
-        when(batchClient.awaitEnded(any(), any(), any())).thenReturn(true);
-        when(batchClient.collectResults("batch1")).thenReturn(List.of(
-                ClaudeBatchOutcome.success("e_10_0_1", "{\"rating\":3}", usage, null),
-                ClaudeBatchOutcome.success("e_10_0_2", "{\"rating\":3}", usage, null),
-                ClaudeBatchOutcome.failure("e_10_1_1", "ERRORED", "batch_error", "nope"),
-                ClaudeBatchOutcome.failure("junk", "ERRORED", "batch_error", "nope")));
-        SunsetEvaluation eval = new SunsetEvaluation(3, 55, 60, "summary");
-        when(parser.parseEvaluation(any(), any())).thenReturn(eval);
+        List<SkyRatingEvalRunEntity> runs = service.runScheduledBatched();
 
-        service.processBatch("batch1", byRunId, 1_000L);
-
-        // Two successful rows persisted with isBatch=true (50% cost) and no per-call duration.
-        verify(evalService).persistResult(eq(run), eq(SkyRatingEvalFixtures.ALL.get(0)), eq(1),
-                eq(eval), eq(usage), isNull(), eq(true), eq(ctx.agg()));
-        verify(evalService).persistResult(eq(run), eq(SkyRatingEvalFixtures.ALL.get(0)), eq(2),
-                eq(eval), eq(usage), isNull(), eq(true), eq(ctx.agg()));
-        verify(evalService, times(2)).persistResult(any(), any(), anyInt(), any(), any(),
-                isNull(), eq(true), any());
-        verify(evalService).finalise(run, ctx.agg(), SkyRatingEvalStatus.COMPLETED, null, 1_000L);
-    }
-
-    @Test
-    @DisplayName("processBatch finalises FAILED when the batch never ends")
-    void processBatchTimesOutToFailed() {
-        SkyRatingEvalRunEntity run = runEntity(11L, EvaluationModel.HAIKU);
-        SkyRatingEvalBatchService.RunContext ctx =
-                new SkyRatingEvalBatchService.RunContext(run, EvaluationModel.HAIKU);
-        when(batchClient.awaitEnded(any(), any(), any())).thenReturn(false);
-
-        service.processBatch("batch2", Map.of(11L, ctx), 2_000L);
-
-        verify(evalService).finalise(eq(run), eq(ctx.agg()), eq(SkyRatingEvalStatus.FAILED),
-                contains("did not end"), eq(2_000L));
-        verify(evalService, never()).persistResult(any(), any(), anyInt(), any(), any(),
-                any(), org.mockito.ArgumentMatchers.anyBoolean(), any());
+        assertThat(runs).hasSize(SkyRatingEvalService.SCHEDULED_MODELS.size());
+        verify(batchClient).submit(any());
+        verify(evalService, times(SkyRatingEvalService.SCHEDULED_MODELS.size()))
+                .attachBatchId(any(), eq("batchX"));
+        // No synchronous await/collect — the reconciler owns completion.
+        verify(batchClient, never()).isEnded(any());
+        verify(batchClient, never()).collectResults(any());
+        verify(evalService, never()).finalise(any(), any(), any(), any(), anyLong());
     }
 
     @Test
@@ -158,8 +144,157 @@ class SkyRatingEvalBatchServiceTest {
         assertThat(runs).hasSize(SkyRatingEvalService.SCHEDULED_MODELS.size());
         verify(evalService, times(SkyRatingEvalService.SCHEDULED_MODELS.size()))
                 .finalise(any(), any(), eq(SkyRatingEvalStatus.FAILED), contains("submit boom"),
-                        org.mockito.ArgumentMatchers.anyLong());
-        verify(batchClient, never()).awaitEnded(any(), any(), any());
+                        anyLong());
+        verify(evalService, never()).attachBatchId(any(), any());
+        verify(batchClient, never()).isEnded(any());
+    }
+
+    @Test
+    @DisplayName("processResults clears prior rows, persists each success (batch cost), finalises COMPLETED")
+    void processResultsPersistsSuccessesAndFinalises() {
+        SkyRatingEvalRunEntity run = runningRun(10L, EvaluationModel.SONNET, "batch1", recentStart());
+
+        TokenUsage usage = new TokenUsage(3_800, 180, 0, 0);
+        when(batchClient.collectResults("batch1")).thenReturn(List.of(
+                ClaudeBatchOutcome.success("e_10_0_1", "{\"rating\":3}", usage, null),
+                ClaudeBatchOutcome.success("e_10_0_2", "{\"rating\":3}", usage, null),
+                ClaudeBatchOutcome.failure("e_10_1_1", "ERRORED", "batch_error", "nope"),
+                ClaudeBatchOutcome.failure("junk", "ERRORED", "batch_error", "nope")));
+        SunsetEvaluation eval = new SunsetEvaluation(3, 55, 60, "summary");
+        when(parser.parseEvaluation(any(), any())).thenReturn(eval);
+
+        service.processResults("batch1", List.of(run));
+
+        // Prior rows cleared for idempotency, then two successes persisted with isBatch=true and no
+        // per-call duration; the two failures and the unparseable id are skipped.
+        verify(evalService).deleteResultsForRun(10L);
+        verify(evalService).persistResult(eq(run), eq(SkyRatingEvalFixtures.ALL.get(0)), eq(1),
+                eq(eval), eq(usage), isNull(), eq(true), any());
+        verify(evalService).persistResult(eq(run), eq(SkyRatingEvalFixtures.ALL.get(0)), eq(2),
+                eq(eval), eq(usage), isNull(), eq(true), any());
+        verify(evalService, times(2)).persistResult(any(), any(), anyInt(), any(), any(),
+                isNull(), eq(true), any());
+        verify(evalService).finalise(eq(run), any(), eq(SkyRatingEvalStatus.COMPLETED), isNull(),
+                anyLong());
+    }
+
+    @Test
+    @DisplayName("reconcile finalises an ENDED batch's run COMPLETED via processResults")
+    void reconcileProcessesEndedBatch() {
+        SkyRatingEvalRunEntity run = runningRun(20L, EvaluationModel.HAIKU, "b-ended", recentStart());
+        when(evalService.findRunning()).thenReturn(List.of(run));
+        when(batchClient.isEnded("b-ended")).thenReturn(true);
+        when(batchClient.collectResults("b-ended")).thenReturn(List.of(
+                ClaudeBatchOutcome.success("e_20_0_1", "{\"rating\":4}",
+                        new TokenUsage(3_800, 180, 0, 0), null)));
+        when(parser.parseEvaluation(any(), any())).thenReturn(new SunsetEvaluation(4, 55, 60, "s"));
+
+        service.reconcilePendingBatches();
+
+        verify(batchClient).collectResults("b-ended");
+        verify(evalService).persistResult(eq(run), any(), eq(1), any(), any(), isNull(), eq(true),
+                any());
+        verify(evalService).finalise(eq(run), any(), eq(SkyRatingEvalStatus.COMPLETED), isNull(),
+                anyLong());
+    }
+
+    @Test
+    @DisplayName("reconcile leaves an in-flight batch RUNNING when it has not ended within the deadline")
+    void reconcileLeavesInFlightBatchRunning() {
+        SkyRatingEvalRunEntity run = runningRun(30L, EvaluationModel.OPUS, "b-slow", recentStart());
+        when(evalService.findRunning()).thenReturn(List.of(run));
+        when(batchClient.isEnded("b-slow")).thenReturn(false);
+
+        service.reconcilePendingBatches();
+
+        verify(batchClient, never()).collectResults(any());
+        verify(evalService, never()).finalise(any(), any(), any(), any(), anyLong());
+    }
+
+    @Test
+    @DisplayName("reconcile fails a batch that has not ended once its runs are past the deadline")
+    void reconcileFailsBatchPastDeadline() {
+        SkyRatingEvalRunEntity run = runningRun(40L, EvaluationModel.SONNET, "b-stuck", staleStart());
+        when(evalService.findRunning()).thenReturn(List.of(run));
+        when(batchClient.isEnded("b-stuck")).thenReturn(false);
+
+        service.reconcilePendingBatches();
+
+        verify(evalService).finalise(eq(run), any(), eq(SkyRatingEvalStatus.FAILED),
+                contains("did not end"), anyLong());
+        verify(batchClient, never()).collectResults(any());
+    }
+
+    @Test
+    @DisplayName("reconcile reclaims a past-deadline RUNNING run that never recorded a batch id")
+    void reconcileReclaimsOrphanWithoutBatchId() {
+        SkyRatingEvalRunEntity orphan = runningRun(50L, EvaluationModel.HAIKU, null, staleStart());
+        when(evalService.findRunning()).thenReturn(List.of(orphan));
+
+        service.reconcilePendingBatches();
+
+        verify(evalService).finalise(eq(orphan), any(), eq(SkyRatingEvalStatus.FAILED),
+                contains("no batch id"), anyLong());
+        verify(batchClient, never()).isEnded(any());
+    }
+
+    @Test
+    @DisplayName("reconcile leaves a fresh RUNNING run without a batch id alone (id lands momentarily)")
+    void reconcileLeavesFreshOrphanWithoutBatchId() {
+        SkyRatingEvalRunEntity fresh = runningRun(60L, EvaluationModel.HAIKU, null, recentStart());
+        when(evalService.findRunning()).thenReturn(List.of(fresh));
+
+        service.reconcilePendingBatches();
+
+        verify(evalService, never()).finalise(any(), any(), any(), any(), anyLong());
+        verify(batchClient, never()).isEnded(any());
+    }
+
+    @Test
+    @DisplayName("reconcile swallows a status-check error and retries (no finalise) while within deadline")
+    void reconcileSwallowsStatusCheckErrorWithinDeadline() {
+        SkyRatingEvalRunEntity run = runningRun(70L, EvaluationModel.OPUS, "b-err", recentStart());
+        when(evalService.findRunning()).thenReturn(List.of(run));
+        when(batchClient.isEnded("b-err")).thenThrow(new RuntimeException("api down"));
+
+        service.reconcilePendingBatches();
+
+        verify(evalService, never()).finalise(any(), any(), any(), any(), anyLong());
+    }
+
+    @Test
+    @DisplayName("reconcile fails a batch whose status check keeps erroring past the deadline")
+    void reconcileFailsBatchWhenStatusCheckErrorsPastDeadline() {
+        SkyRatingEvalRunEntity run = runningRun(80L, EvaluationModel.OPUS, "b-err", staleStart());
+        when(evalService.findRunning()).thenReturn(List.of(run));
+        when(batchClient.isEnded("b-err")).thenThrow(new RuntimeException("api down"));
+
+        service.reconcilePendingBatches();
+
+        verify(evalService).finalise(eq(run), any(), eq(SkyRatingEvalStatus.FAILED),
+                contains("status check failed"), anyLong());
+    }
+
+    @Test
+    @DisplayName("reconcile is a no-op when nothing is RUNNING")
+    void reconcileNoOpWhenNothingRunning() {
+        when(evalService.findRunning()).thenReturn(List.of());
+
+        service.reconcilePendingBatches();
+
+        verify(batchClient, never()).isEnded(any());
+        verify(evalService, never()).finalise(any(), any(), any(), any(), anyLong());
+        verify(evalService, never()).persistResult(any(), any(), anyInt(), any(), any(), any(),
+                anyBoolean(), any());
+    }
+
+    private static LocalDateTime recentStart() {
+        return LocalDateTime.now(ZoneOffset.UTC);
+    }
+
+    /** A start well beyond the {@value #POLL_TIMEOUT_SECONDS}s test deadline. */
+    private static LocalDateTime staleStart() {
+        return LocalDateTime.now(ZoneOffset.UTC).minusSeconds(POLL_TIMEOUT_SECONDS * 4);
     }
 
     private static SkyRatingEvalRunEntity runEntity(long id, EvaluationModel model) {
@@ -168,6 +303,18 @@ class SkyRatingEvalBatchServiceTest {
                 .model(model)
                 .runsPerFixture(SkyRatingEvalService.DEFAULT_RUNS_PER_FIXTURE)
                 .status(SkyRatingEvalStatus.RUNNING)
+                .build();
+    }
+
+    private static SkyRatingEvalRunEntity runningRun(long id, EvaluationModel model, String batchId,
+            LocalDateTime startedAt) {
+        return SkyRatingEvalRunEntity.builder()
+                .id(id)
+                .model(model)
+                .runsPerFixture(SkyRatingEvalService.DEFAULT_RUNS_PER_FIXTURE)
+                .status(SkyRatingEvalStatus.RUNNING)
+                .batchId(batchId)
+                .startedAt(startedAt)
                 .build();
     }
 }

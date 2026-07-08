@@ -26,4 +26,13 @@ public interface SkyRatingEvalResultRepository extends JpaRepository<SkyRatingEv
      * @return matching results
      */
     List<SkyRatingEvalResultEntity> findByRunIdIn(Collection<Long> runIds);
+
+    /**
+     * Deletes every result for one run — called before the batch reconciler re-persists a run's
+     * results, so a reconcile that crashed after writing some rows but before finalising cannot
+     * leave duplicate child rows on the retry.
+     *
+     * @param runId the parent run id
+     */
+    void deleteByRunId(Long runId);
 }
