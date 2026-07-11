@@ -86,6 +86,7 @@ public class BriefingService {
     private final SeasonalWindow bluebellSeason;
     private final NlcClarityService nlcClarityService;
     private final java.time.Clock clock;
+    private final MarineWaveRefreshService marineWaveRefreshService;
 
     /** UK civil-date zone for "today" derivation. */
     private static final ZoneId LONDON = ZoneId.of("Europe/London");
@@ -138,6 +139,7 @@ public class BriefingService {
      * @param bluebellSeason             the configured bluebell season window
      * @param nlcClarityService          caches which nights have a clear dark-sky NLC chance
      * @param clock                      UTC clock supplying "now" and (via London) "today"
+     * @param marineWaveRefreshService   fetches + persists coastal sea-state each briefing cycle
      */
     public BriefingService(LocationService locationService,
             OpenMeteoClient openMeteoClient,
@@ -157,7 +159,8 @@ public class BriefingService {
             com.gregochr.goldenhour.service.pipeline.BestBetFallbackService bestBetFallbackService,
             SeasonalWindow bluebellSeason,
             NlcClarityService nlcClarityService,
-            java.time.Clock clock) {
+            java.time.Clock clock,
+            MarineWaveRefreshService marineWaveRefreshService) {
         this.locationService = locationService;
         this.openMeteoClient = openMeteoClient;
         this.jobRunService = jobRunService;
@@ -179,6 +182,7 @@ public class BriefingService {
         this.bluebellSeason = bluebellSeason;
         this.nlcClarityService = nlcClarityService;
         this.clock = clock;
+        this.marineWaveRefreshService = marineWaveRefreshService;
     }
 
     /**
@@ -388,6 +392,15 @@ public class BriefingService {
 
         // Fetch horizon cloud data (one batch call for all unique horizon grid cells)
         HorizonCloudData horizonData = fetchHorizonCloud(colourLocations, jobRun);
+
+        // Fetch + persist coastal sea-state (waves) for the enriched king/spring/surge pills.
+        // Isolated like the NLC refresh below — an optional enrichment source must never abort the
+        // briefing cycle (a transient DB or solar error would otherwise leave the job run dangling).
+        try {
+            marineWaveRefreshService.refresh(colourLocations, dates, jobRun.getId());
+        } catch (Exception e) {
+            LOG.warn("Marine wave refresh failed — sea-state facts may be absent: {}", e.getMessage());
+        }
 
         // Build slots for each location × date × event type (filtered by solar event preference)
         List<BriefingSlot> allSlots = new ArrayList<>();

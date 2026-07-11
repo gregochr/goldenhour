@@ -111,4 +111,37 @@ describe('InfoTip', () => {
     fireEvent.click(screen.getByTestId('infotip-trigger'));
     expect(screen.getByTestId('infotip-popover')).toHaveAttribute('role', 'presentation');
   });
+
+  describe('accent card variant', () => {
+    it('renders an accent-coloured mono heading and a serif italic body', () => {
+      render(<InfoTip text="Dust scatters blue light." heading="The science" accentColor="#f97316" />);
+      fireEvent.click(screen.getByTestId('infotip-trigger'));
+
+      expect(screen.getByText('The science')).toHaveStyle({ color: 'rgb(249, 115, 22)' });
+      expect(screen.getByText('Dust scatters blue light.')).toHaveStyle({ fontStyle: 'italic' });
+    });
+
+    it('draws the accent left border on the card', () => {
+      render(<InfoTip text="body" heading="The science" accentColor="#f97316" />);
+      fireEvent.click(screen.getByTestId('infotip-trigger'));
+
+      const popover = screen.getByTestId('infotip-popover');
+      expect(popover.style.borderLeft).toContain('3px solid');
+      expect(popover.className).not.toContain('bg-plex-surface');
+    });
+
+    it('tints the trigger with the accent colour', () => {
+      render(<InfoTip text="body" heading="The science" accentColor="#f97316" />);
+      expect(screen.getByTestId('infotip-trigger')).toHaveStyle({ color: 'rgb(249, 115, 22)' });
+    });
+
+    it('falls back to the plain popover when no heading is given', () => {
+      render(<InfoTip text="plain body" accentColor="#f97316" />);
+      fireEvent.click(screen.getByTestId('infotip-trigger'));
+
+      const popover = screen.getByTestId('infotip-popover');
+      expect(popover.className).toContain('bg-plex-surface');
+      expect(popover.style.borderLeft).toBe('');
+    });
+  });
 });

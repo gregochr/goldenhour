@@ -58,7 +58,7 @@ class DustHotTopicStrategyTest {
                 aod == null ? null : new BigDecimal(aod),
                 dust == null ? null : new BigDecimal(dust),
                 pm25 == null ? null : new BigDecimal(pm25),
-                null, null, null, null);
+                null, null, null, null, null, null, null);
         return new SurvivorSignals(location, date, TargetType.SUNSET,
                 SurvivorSignals.Scores.EMPTY, readings);
     }

@@ -8,8 +8,10 @@ import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.LunarTideType;
+import com.gregochr.goldenhour.entity.MarineWaveEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
+import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.service.LunarPhaseService;
 import com.gregochr.goldenhour.service.SolarService;
 import com.gregochr.goldenhour.service.SolarService.SolarWindow;
@@ -51,6 +53,9 @@ class ForecastDtoMapperTest {
     @Mock
     private com.gregochr.goldenhour.repository.ForecastScoreRepository forecastScoreRepository;
 
+    @Mock
+    private com.gregochr.goldenhour.repository.MarineWaveRepository marineWaveRepository;
+
     private ForecastDtoMapper mapper;
 
     @BeforeEach
@@ -59,7 +64,7 @@ class ForecastDtoMapperTest {
                 .thenReturn(new SolarWindow(null, null, null, null));
         mapper = new ForecastDtoMapper(new LunarPhaseService(), solarService,
                 new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"),
-                forecastScoreRepository);
+                forecastScoreRepository, marineWaveRepository);
     }
 
     private static final LocationEntity LOCATION = LocationEntity.builder()
@@ -136,6 +141,44 @@ class ForecastDtoMapperTest {
         assertThat(dto.bluebellScore()).isEqualTo(4);
         assertThat(dto.bluebellSummary()).isEqualTo("Bright still light if they are in flower.");
         assertThat(dto.bluebellExposure()).isEqualTo("WOODLAND");
+    }
+
+    @Test
+    @DisplayName("toDto() resolves the coastal sea-state (Hs + band) from marine_wave")
+    void toDto_coastalRow_resolvesSeaState() {
+        LocalDate date = LocalDate.of(2026, 6, 17);
+        LocationEntity coastal = LocationEntity.builder()
+                .id(7L).name("Bamburgh").lat(55.6).lon(-1.7)
+                .tideType(Set.of(TideType.HIGH))
+                .build();
+        ForecastEvaluationEntity entity = new ForecastEvaluationEntity();
+        entity.setLocation(coastal);
+        entity.setTargetDate(date);
+        entity.setTargetType(TargetType.SUNSET);
+
+        MarineWaveEntity wave = new MarineWaveEntity();
+        wave.setSignificantWaveHeightMetres(4.2);
+        when(marineWaveRepository.findByLocation_IdAndEvaluationDateAndEventType(
+                eq(7L), eq(date), eq(TargetType.SUNSET))).thenReturn(Optional.of(wave));
+
+        ForecastEvaluationDto dto = mapper.toDto(entity, false);
+
+        assertThat(dto.significantWaveHeightMetres()).isEqualTo(4.2);
+        assertThat(dto.seaState()).isEqualTo("very rough");
+    }
+
+    @Test
+    @DisplayName("toDto() leaves sea-state null for an inland (non-coastal) location")
+    void toDto_inlandRow_leavesSeaStateNull() {
+        ForecastEvaluationEntity entity = new ForecastEvaluationEntity();
+        entity.setLocation(LOCATION);
+        entity.setTargetDate(LocalDate.of(2026, 6, 17));
+        entity.setTargetType(TargetType.SUNSET);
+
+        ForecastEvaluationDto dto = mapper.toDto(entity, false);
+
+        assertThat(dto.seaState()).isNull();
+        assertThat(dto.significantWaveHeightMetres()).isNull();
     }
 
     @Test

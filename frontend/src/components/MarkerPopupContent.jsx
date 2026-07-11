@@ -541,6 +541,33 @@ export default function MarkerPopupContent({
               </span>
             </div>
           )}
+          {forecast?.seaState && (
+            <div style={{ marginBottom: '6px' }} data-testid="sea-state-badge">
+              <span style={{
+                ...POPUP_PILL,
+                background: 'rgba(111, 168, 176, 0.15)',
+                color: '#8fc3cc',
+                border: '1px solid rgba(111, 168, 176, 0.4)',
+                fontFamily: "'IBM Plex Mono', monospace",
+              }}>
+                🌊 Seas {Number(forecast.significantWaveHeightMetres).toFixed(1)} m · {forecast.seaState}
+              </span>
+            </div>
+          )}
+          {forecast?.surgeTotalMetres != null
+            && (forecast.surgeRiskLevel === 'HIGH' || forecast.surgeRiskLevel === 'MODERATE') && (
+            <div style={{ marginBottom: '6px' }} data-testid="surge-badge">
+              <span style={{
+                ...POPUP_PILL,
+                background: 'rgba(245, 158, 11, 0.15)',
+                color: '#fbbf24',
+                border: '1px solid rgba(245, 158, 11, 0.4)',
+                fontFamily: "'IBM Plex Mono', monospace",
+              }}>
+                ⚡ Surge {Number(forecast.surgeTotalMetres).toFixed(1)} m above normal
+              </span>
+            </div>
+          )}
           {driveMinutes != null && driveMinutes > 0 && (
             <div style={{ marginBottom: '6px' }} data-testid="drive-time-badge">
               <span style={{ ...POPUP_PILL, background: 'rgba(255,255,255,0.05)', color: 'var(--color-plex-text-secondary)', border: '1px solid var(--color-plex-border-light)' }}>

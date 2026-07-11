@@ -1326,4 +1326,34 @@ describe('MarkerPopupContent', () => {
       expect(screen.queryByTestId('standdown-popup')).not.toBeInTheDocument();
     });
   });
+
+  describe('coastal sea-state and surge badges', () => {
+    it('shows the sea-state pill when the forecast carries a sea state', () => {
+      renderPopup({
+        forecast: { ...BASE_FORECAST, seaState: 'very rough', significantWaveHeightMetres: 4.2 },
+      });
+      const badge = screen.getByTestId('sea-state-badge');
+      expect(badge).toHaveTextContent('Seas 4.2 m');
+      expect(badge).toHaveTextContent('very rough');
+    });
+
+    it('omits the sea-state pill when no sea state is present', () => {
+      renderPopup({ forecast: BASE_FORECAST });
+      expect(screen.queryByTestId('sea-state-badge')).not.toBeInTheDocument();
+    });
+
+    it('shows the surge pill for HIGH surge risk', () => {
+      renderPopup({
+        forecast: { ...BASE_FORECAST, surgeTotalMetres: 0.6, surgeRiskLevel: 'HIGH' },
+      });
+      expect(screen.getByTestId('surge-badge')).toHaveTextContent('Surge 0.6 m above normal');
+    });
+
+    it('omits the surge pill for a negligible (LOW) surge risk', () => {
+      renderPopup({
+        forecast: { ...BASE_FORECAST, surgeTotalMetres: 0.05, surgeRiskLevel: 'LOW' },
+      });
+      expect(screen.queryByTestId('surge-badge')).not.toBeInTheDocument();
+    });
+  });
 });

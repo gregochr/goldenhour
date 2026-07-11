@@ -95,7 +95,17 @@ public class SurvivorAtmosphereWriter {
             row.setDust(data.aerosol().dustUgm3());
             row.setPm25(data.aerosol().pm25());
         }
-        row.setSurgeRiskLevel(data.surge() != null ? data.surge().riskLevel().name() : null);
+        if (data.surge() != null) {
+            row.setSurgeRiskLevel(data.surge().riskLevel().name());
+            row.setSurgeTotalMetres(data.surge().totalSurgeMetres());
+            row.setSurgeWindSpeedMs(data.surge().windSpeedMs());
+            row.setSurgeWindDirectionDegrees(data.surge().windDirectionDegrees());
+        } else {
+            row.setSurgeRiskLevel(null);
+            row.setSurgeTotalMetres(null);
+            row.setSurgeWindSpeedMs(null);
+            row.setSurgeWindDirectionDegrees(null);
+        }
         if (data.weather() != null) {
             row.setSnowDepthMetres(data.weather().snowDepthMetres());
             row.setFreezingLevelMetres(data.weather().freezingLevelMetres());

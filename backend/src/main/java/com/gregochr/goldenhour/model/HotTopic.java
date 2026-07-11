@@ -35,6 +35,8 @@ import java.util.List;
  * @param eveningWindow  NLC twilight window low in the NW after dusk (sun 6–16° below the horizon);
  *                       null for non-NLC topics or when the geometry does not exist that night
  * @param morningWindow  NLC twilight window low in the NE before dawn; null as {@code eveningWindow}
+ * @param facts          enriched "science showing" fact chips for the pill's second line; may be null
+ * @param note           the italic "where to look" cue rendered after the fact chips; may be null
  */
 public record HotTopic(
         String type,
@@ -56,14 +58,18 @@ public record HotTopic(
         @JsonInclude(JsonInclude.Include.NON_NULL)
         NlcWindow eveningWindow,
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        NlcWindow morningWindow) implements Comparable<HotTopic> {
+        NlcWindow morningWindow,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        List<HotTopicFact> facts,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        String note) implements Comparable<HotTopic> {
 
     /**
      * Explicit canonical constructor with Jackson annotations so that cached briefing
      * JSON written before the {@code description}, {@code expandedDetail}, {@code eventType},
-     * {@code eventTime} or {@code locationNames} fields were added deserialises correctly. When a
-     * field is absent from the JSON, Jackson passes {@code null} and this constructor defaults it
-     * to {@code null}.
+     * {@code eventTime}, {@code locationNames}, {@code facts} or {@code note} fields were added
+     * deserialises correctly. When a field is absent from the JSON, Jackson passes {@code null} and
+     * this constructor defaults it to {@code null}.
      */
     @JsonCreator
     public HotTopic(
@@ -80,7 +86,9 @@ public record HotTopic(
             @JsonProperty("eventTime") String eventTime,
             @JsonProperty("locationNames") List<String> locationNames,
             @JsonProperty("eveningWindow") NlcWindow eveningWindow,
-            @JsonProperty("morningWindow") NlcWindow morningWindow) {
+            @JsonProperty("morningWindow") NlcWindow morningWindow,
+            @JsonProperty("facts") List<HotTopicFact> facts,
+            @JsonProperty("note") String note) {
         this.type = type;
         this.label = label;
         this.detail = detail;
@@ -95,6 +103,8 @@ public record HotTopic(
         this.locationNames = locationNames;
         this.eveningWindow = eveningWindow;
         this.morningWindow = morningWindow;
+        this.facts = facts;
+        this.note = note;
     }
 
     /**
@@ -124,7 +134,7 @@ public record HotTopic(
             String description,
             ExpandedHotTopicDetail expandedDetail) {
         this(type, label, detail, date, priority, filterAction, regions, description,
-                expandedDetail, null, null, null, null, null);
+                expandedDetail, null, null, null, null, null, null, null);
     }
 
     /**
@@ -138,7 +148,7 @@ public record HotTopic(
     public HotTopic withEvent(String eventType, String eventTime) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow);
+                eveningWindow, morningWindow, facts, note);
     }
 
     /**
@@ -151,7 +161,7 @@ public record HotTopic(
     public HotTopic withLocations(List<String> locationNames) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow);
+                eveningWindow, morningWindow, facts, note);
     }
 
     /**
@@ -164,7 +174,36 @@ public record HotTopic(
     public HotTopic withNlcWindows(NlcWindow eveningWindow, NlcWindow morningWindow) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow);
+                eveningWindow, morningWindow, facts, note);
+    }
+
+    /**
+     * Returns a copy of this topic carrying the enriched "science showing" facts and the italic
+     * "where to look" note rendered on the pill's second line.
+     *
+     * @param facts the enriched fact chips, or null
+     * @param note  the "where to look" cue, or null
+     * @return a new {@link HotTopic} with the facts and note set
+     */
+    public HotTopic withScience(List<HotTopicFact> facts, String note) {
+        return new HotTopic(type, label, detail, date, priority, filterAction, regions,
+                description, expandedDetail, eventType, eventTime, locationNames,
+                eveningWindow, morningWindow, facts, note);
+    }
+
+    /**
+     * Returns a copy of this topic with the expandable detail replaced, preserving every other field
+     * (including the enriched facts and event lead). Use this instead of the back-compat constructor
+     * when re-building a topic to attach expanded detail, so the event, location and science fields
+     * are not silently dropped.
+     *
+     * @param expandedDetail the structured expandable data, or null
+     * @return a new {@link HotTopic} with {@code expandedDetail} set
+     */
+    public HotTopic withExpandedDetail(ExpandedHotTopicDetail expandedDetail) {
+        return new HotTopic(type, label, detail, date, priority, filterAction, regions,
+                description, expandedDetail, eventType, eventTime, locationNames,
+                eveningWindow, morningWindow, facts, note);
     }
 
     /**

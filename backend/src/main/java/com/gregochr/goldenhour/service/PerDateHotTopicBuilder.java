@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.BiFunction;
 
 /**
  * Shared mechanics for expanding a favourable multi-day run into one {@link HotTopic} per date.
@@ -43,25 +44,52 @@ final class PerDateHotTopicBuilder {
      */
     static List<HotTopic> perDate(List<SurvivorSignals> rows, String type, String label,
             String detail, int priority, String description) {
-        Map<LocalDate, Set<String>> regionsByDate = new TreeMap<>();
-        Map<LocalDate, Set<String>> locationsByDate = new TreeMap<>();
+        return perDate(rows, type, label, detail, priority, description, (topic, dayRows) -> topic);
+    }
+
+    /**
+     * As {@link #perDate(List, String, String, String, int, String)}, but passes each date's own
+     * rows to an {@code enricher} that may attach an enriched "science showing" fact line (or any
+     * other per-date detail) to that day's topic. The enricher returns the topic to add — typically
+     * {@code topic.withScience(...)} — so a detector that can build facts from its survivor readings
+     * (e.g. storm surge) does so per date without leaving the shared per-date grouping.
+     *
+     * @param rows        the already-filtered rows for the phenomenon (each with a date + location)
+     * @param type        the {@link HotTopic} type identifier, e.g. {@code "STORM_SURGE"}
+     * @param label       the pill label
+     * @param detail      the single-day condition detail (no spanning day phrase)
+     * @param priority    the topic priority
+     * @param description the phenomenon explanation
+     * @param enricher    given a day's base topic and that day's rows, returns the topic to add
+     * @return one (possibly enriched) topic per date, ordered earliest first
+     */
+    static List<HotTopic> perDate(List<SurvivorSignals> rows, String type, String label,
+            String detail, int priority, String description,
+            BiFunction<HotTopic, List<SurvivorSignals>, HotTopic> enricher) {
+        Map<LocalDate, List<SurvivorSignals>> rowsByDate = new TreeMap<>();
         for (SurvivorSignals row : rows) {
-            Set<String> regions = regionsByDate.computeIfAbsent(row.date(), d -> new LinkedHashSet<>());
-            Set<String> locations = locationsByDate.computeIfAbsent(row.date(), d -> new LinkedHashSet<>());
-            if (row.location() != null) {
-                if (row.location().getRegion() != null) {
-                    regions.add(row.location().getRegion().getName());
-                }
-                if (row.location().getName() != null) {
-                    // The qualifying spots — the exact locations that made the topic fire that day.
-                    locations.add(row.location().getName());
+            rowsByDate.computeIfAbsent(row.date(), d -> new ArrayList<>()).add(row);
+        }
+        List<HotTopic> topics = new ArrayList<>();
+        for (Map.Entry<LocalDate, List<SurvivorSignals>> entry : rowsByDate.entrySet()) {
+            Set<String> regions = new LinkedHashSet<>();
+            Set<String> locations = new LinkedHashSet<>();
+            for (SurvivorSignals row : entry.getValue()) {
+                if (row.location() != null) {
+                    if (row.location().getRegion() != null) {
+                        regions.add(row.location().getRegion().getName());
+                    }
+                    if (row.location().getName() != null) {
+                        // The qualifying spots — the exact locations that made the topic fire that day.
+                        locations.add(row.location().getName());
+                    }
                 }
             }
+            HotTopic topic = new HotTopic(type, label, detail, entry.getKey(), priority, null,
+                    new ArrayList<>(regions), description, null)
+                    .withLocations(new ArrayList<>(locations));
+            topics.add(enricher.apply(topic, entry.getValue()));
         }
-        return regionsByDate.entrySet().stream()
-                .map(entry -> new HotTopic(type, label, detail, entry.getKey(), priority, null,
-                        new ArrayList<>(entry.getValue()), description, null)
-                        .withLocations(new ArrayList<>(locationsByDate.get(entry.getKey()))))
-                .toList();
+        return topics;
     }
 }

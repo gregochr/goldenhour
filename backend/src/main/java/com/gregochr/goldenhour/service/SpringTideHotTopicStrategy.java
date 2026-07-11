@@ -49,6 +49,7 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
     private final LocationRepository locationRepository;
     private final ForecastEvaluationRepository forecastEvaluationRepository;
     private final SolarEventFreshness freshness;
+    private final CoastalTideFactsBuilder coastalTideFactsBuilder;
 
     /**
      * Constructs a {@code SpringTideHotTopicStrategy}.
@@ -58,15 +59,18 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
      * @param locationRepository           repository for location lookups
      * @param forecastEvaluationRepository repository for tide alignment queries
      * @param freshness                    shared filter dropping solar events already past
+     * @param coastalTideFactsBuilder      builds the enriched tide + sea-state fact line
      */
     public SpringTideHotTopicStrategy(@Lazy BriefingService briefingService,
             LocationRepository locationRepository,
             ForecastEvaluationRepository forecastEvaluationRepository,
-            SolarEventFreshness freshness) {
+            SolarEventFreshness freshness,
+            CoastalTideFactsBuilder coastalTideFactsBuilder) {
         this.briefingService = briefingService;
         this.locationRepository = locationRepository;
         this.forecastEvaluationRepository = forecastEvaluationRepository;
         this.freshness = freshness;
+        this.coastalTideFactsBuilder = coastalTideFactsBuilder;
     }
 
     /**
@@ -130,7 +134,7 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
                     KingTideHotTopicStrategy.buildExpandedDetail(
                             coastalLocations, "Spring tide", springTide.lunarPhase(), counts);
 
-            topics.add(new HotTopic(
+            HotTopic topic = new HotTopic(
                     "SPRING_TIDE",
                     "Spring tide",
                     buildSpringTideDetail(alignmentInfo, coastalLocations.size()),
@@ -139,7 +143,13 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
                     null,
                     coastalRegions,
                     SPRING_TIDE_DESCRIPTION,
-                    expandedDetail));
+                    expandedDetail);
+            CoastalTideFactsBuilder.CoastalScience science =
+                    coastalTideFactsBuilder.buildSpring(day, coastalLocations);
+            if (science != null) {
+                topic = topic.withScience(science.facts(), science.note());
+            }
+            topics.add(topic);
         }
         return topics;
     }

@@ -55,7 +55,7 @@ class SnowFreshHotTopicStrategyTest {
         LocationEntity location = new LocationEntity();
         location.setRegion(region);
         SurvivorSignals.Readings readings = new SurvivorSignals.Readings(
-                null, null, null, null, snowDepthMetres, null, humidity);
+                null, null, null, null, snowDepthMetres, null, humidity, null, null, null);
         return new SurvivorSignals(location, date, TargetType.SUNRISE,
                 SurvivorSignals.Scores.EMPTY, readings);
     }

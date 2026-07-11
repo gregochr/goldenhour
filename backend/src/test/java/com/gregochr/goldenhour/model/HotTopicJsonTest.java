@@ -372,4 +372,48 @@ class HotTopicJsonTest {
 
         assertThat(lowPriorityLateDate.compareTo(highPriorityEarlyDate)).isNegative();
     }
+
+    // ── Enriched facts / note round-trip + back-compat ───────────────────────
+
+    @Test
+    @DisplayName("facts + note attached via withScience survive a JSON round-trip")
+    void serialize_factsAndNote_roundTrip() throws Exception {
+        HotTopic topic = new HotTopic("KING_TIDE", "King tide", "detail",
+                LocalDate.of(2026, 6, 17), 1, null, List.of(), "desc", null)
+                .withScience(List.of(
+                        HotTopicFact.metric("high water", "5.8 m"),
+                        HotTopicFact.context("+0.7 m over spring"),
+                        HotTopicFact.metric("seas", "4.2 m · very rough").asOptional()),
+                        "causeways submerged");
+
+        HotTopic restored = mapper.readValue(mapper.writeValueAsString(topic), HotTopic.class);
+
+        assertThat(restored.note()).isEqualTo("causeways submerged");
+        assertThat(restored.facts()).hasSize(3);
+        assertThat(restored.facts().get(0).key()).isEqualTo("high water");
+        assertThat(restored.facts().get(0).value()).isEqualTo("5.8 m");
+        assertThat(restored.facts().get(0).emphasis()).isTrue();
+        assertThat(restored.facts().get(2).optional()).isTrue();
+    }
+
+    @Test
+    @DisplayName("legacy JSON without facts/note deserialises with both null (cache back-compat)")
+    void deserialize_legacyJsonWithoutFacts_nullFactsAndNote() throws Exception {
+        String json = """
+                {
+                  "type": "KING_TIDE",
+                  "label": "King tide",
+                  "detail": "Highest water of the year",
+                  "date": "2026-06-17",
+                  "priority": 1,
+                  "regions": ["Northumberland"],
+                  "description": "desc"
+                }
+                """;
+
+        HotTopic topic = mapper.readValue(json, HotTopic.class);
+
+        assertThat(topic.facts()).isNull();
+        assertThat(topic.note()).isNull();
+    }
 }

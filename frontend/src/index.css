@@ -202,6 +202,14 @@
   padding: 8px 0;
 }
 
+/* Enriched hot-topic fact line: on narrow viewports drop the least-critical (`.opt`) chips so
+   the line stays to the headline metric plus the "where to look" note. */
+@media (max-width: 639px) {
+  .hot-topic-facts .opt {
+    display: none;
+  }
+}
+
 /* Heatmap cell visibility transitions */
 .heatmap-cell-visible {
   opacity: 1;

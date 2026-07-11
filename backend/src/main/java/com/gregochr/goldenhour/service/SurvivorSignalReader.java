@@ -115,7 +115,8 @@ public class SurvivorSignalReader {
                             readings.getAerosolOpticalDepth(), readings.getDust(),
                             readings.getPm25(), readings.getSurgeRiskLevel(),
                             readings.getSnowDepthMetres(), readings.getFreezingLevelMetres(),
-                            readings.getHumidity());
+                            readings.getHumidity(), readings.getSurgeTotalMetres(),
+                            readings.getSurgeWindSpeedMs(), readings.getSurgeWindDirectionDegrees());
             return new SurvivorSignals(location, date, eventType, scores, r);
         }
     }

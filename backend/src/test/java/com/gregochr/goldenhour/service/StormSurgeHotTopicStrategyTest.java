@@ -16,6 +16,8 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -31,11 +33,16 @@ class StormSurgeHotTopicStrategyTest {
     @Mock
     private SurvivorSignalReader survivorSignalReader;
 
+    @Mock
+    private StormSurgeFactsBuilder stormSurgeFactsBuilder;
+
     private StormSurgeHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        strategy = new StormSurgeHotTopicStrategy(survivorSignalReader);
+        lenient().when(stormSurgeFactsBuilder.attach(any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        strategy = new StormSurgeHotTopicStrategy(survivorSignalReader, stormSurgeFactsBuilder);
     }
 
     /** A survivor composite carrying only a surge risk-level reading. */
@@ -45,7 +52,7 @@ class StormSurgeHotTopicStrategyTest {
         LocationEntity location = new LocationEntity();
         location.setRegion(region);
         SurvivorSignals.Readings readings = new SurvivorSignals.Readings(
-                null, null, null, riskLevel, null, null, null);
+                null, null, null, riskLevel, null, null, null, null, null, null);
         return new SurvivorSignals(location, date, TargetType.SUNSET,
                 SurvivorSignals.Scores.EMPTY, readings);
     }

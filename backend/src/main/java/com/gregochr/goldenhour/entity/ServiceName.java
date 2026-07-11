@@ -17,5 +17,8 @@ public enum ServiceName {
     ANTHROPIC,
 
     /** lightpollutionmap.info QueryRaster API (free tier). */
-    LIGHT_POLLUTION
+    LIGHT_POLLUTION,
+
+    /** Open-Meteo marine (sea-state / wave) API. */
+    OPEN_METEO_MARINE
 }

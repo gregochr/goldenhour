@@ -647,6 +647,104 @@ NlcWindows.propTypes = {
 };
 
 /**
+ * Compass point → look-direction arrow glyph, for a fact's accent `dir`. Non-compass directions
+ * (imperatives like "get above it") get no arrow.
+ */
+const COMPASS_ARROW = {
+  N: '↑', NNE: '↗', NE: '↗', ENE: '↗', E: '→', ESE: '↘', SE: '↘', SSE: '↘',
+  S: '↓', SSW: '↙', SW: '↙', WSW: '↙', W: '←', WNW: '↖', NW: '↖', NNW: '↖',
+};
+
+/**
+ * The generalized enriched "science showing" second line: a wrapping row of monospace fact chips
+ * plus one italic muted "where to look" note. Driven by the backend-supplied `topic.facts`
+ * (`[{ key, value, dir?, emphasis?, optional? }]`) and `topic.note`, so every topic type renders
+ * through the same view (the NLC pill keeps its bespoke {@link NlcWindows} line). Renders nothing
+ * when the topic carries no facts.
+ *
+ * <p>For Lite users the values are blurred — a paywall tease that shows the shape of the science
+ * without the readable numbers. On narrow viewports, chips marked `optional` are hidden via the
+ * `.opt` class so the line stays to the headline metric plus the note.
+ *
+ * @param {object}  props
+ * @param {object}  props.topic       the hot topic, carrying facts + note
+ * @param {string}  props.accentColor the pill accent colour for directional chips
+ * @param {boolean} props.isLiteUser  blur the values when true
+ */
+function TopicFacts({ topic, accentColor, isLiteUser = false }) {
+  if (!topic.facts || topic.facts.length === 0) return null;
+
+  return (
+    <div
+      data-testid={`topic-facts-${topic.type}`}
+      className="hot-topic-facts"
+      style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: '6px 15px',
+        padding: '0 13px 11px 38px',
+        ...(isLiteUser ? { filter: 'blur(3.5px)', userSelect: 'none', pointerEvents: 'none' } : {}),
+      }}
+    >
+      {topic.facts.map((fact, i) => {
+        const arrow = fact.dir ? (COMPASS_ARROW[String(fact.dir).toUpperCase()] ?? '') : '';
+        return (
+          <span
+            key={`${fact.key ?? ''}-${fact.value}-${i}`}
+            data-testid="topic-fact"
+            className={fact.optional ? 'opt' : undefined}
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: '11px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {fact.key && <span style={{ color: 'var(--color-plex-text-muted)' }}>{fact.key}</span>}
+            <span
+              style={{
+                color: fact.emphasis ? 'var(--color-plex-text)' : 'var(--color-plex-text-secondary)',
+                fontWeight: fact.emphasis ? 600 : 400,
+              }}
+            >
+              {fact.value}
+            </span>
+            {fact.dir && (
+              <span style={{ color: accentColor, fontWeight: 600, letterSpacing: '0.02em' }}>
+                {arrow ? `${arrow} ` : ''}
+                {fact.dir}
+              </span>
+            )}
+          </span>
+        );
+      })}
+      {topic.note && (
+        <span
+          data-testid="topic-fact-note"
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: '10px',
+            color: 'var(--color-plex-text-muted)',
+            fontStyle: 'italic',
+          }}
+        >
+          {topic.note}
+        </span>
+      )}
+    </div>
+  );
+}
+
+TopicFacts.propTypes = {
+  topic: PropTypes.object.isRequired,
+  accentColor: PropTypes.string.isRequired,
+  isLiteUser: PropTypes.bool,
+};
+
+/**
  * Two-column responsive grid of Hot Topic pills shown between the Best Bet
  * cards and the quality slider in the briefing planner.
  *
@@ -779,7 +877,12 @@ export default function HotTopicStrip({
                 </span>
                 {topic.description && (
                   <span style={{ color: 'var(--color-plex-text-muted)' }}>
-                    <InfoTip text={topic.description} position="above" />
+                    <InfoTip
+                      text={topic.description}
+                      position="above"
+                      heading="The science"
+                      accentColor={style.color}
+                    />
                   </span>
                 )}
               </span>
@@ -864,6 +967,12 @@ export default function HotTopicStrip({
                 NE before dawn). Persistent, not gated behind expansion; renders nothing for
                 non-NLC pills or when no window geometry is present. */}
             {topic.type === 'NLC' && <NlcWindows topic={topic} accentColor={style.color} />}
+
+            {/* Generalized enriched second line — the "science showing" fact chips + note,
+                driven by backend-supplied topic.facts. Persistent, like the NLC line. */}
+            {topic.facts?.length > 0 && (
+              <TopicFacts topic={topic} accentColor={style.color} isLiteUser={isLiteUser} />
+            )}
 
             {/* Expanded body — rich card, or the plain region list */}
             {isExpanded && canExpandRich && (
@@ -953,6 +1062,14 @@ HotTopicStrip.propTypes = {
       eventType: PropTypes.oneOf(['SUNRISE', 'SUNSET', 'NIGHT']),
       eventTime: PropTypes.string,
       locationNames: PropTypes.arrayOf(PropTypes.string),
+      facts: PropTypes.arrayOf(PropTypes.shape({
+        key: PropTypes.string,
+        value: PropTypes.string,
+        dir: PropTypes.string,
+        emphasis: PropTypes.bool,
+        optional: PropTypes.bool,
+      })),
+      note: PropTypes.string,
     }),
   ).isRequired,
   isLiteUser: PropTypes.bool,

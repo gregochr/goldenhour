@@ -54,9 +54,12 @@ public record SurvivorSignals(
      * @param dust                surface dust µg/m³, or null
      * @param pm25                PM2.5 µg/m³, or null
      * @param surgeRiskLevel      storm surge risk classification name, or null
-     * @param snowDepthMetres     lying snow depth in metres, or null
-     * @param freezingLevelMetres 0 °C isotherm altitude in metres, or null
-     * @param humidity            relative humidity percent, or null
+     * @param snowDepthMetres           lying snow depth in metres, or null
+     * @param freezingLevelMetres       0 °C isotherm altitude in metres, or null
+     * @param humidity                  relative humidity percent, or null
+     * @param surgeTotalMetres          total storm surge (pressure + wind) in metres, or null
+     * @param surgeWindSpeedMs          surge-time 10 m wind speed in m/s, or null
+     * @param surgeWindDirectionDegrees surge-time wind direction (degrees FROM), or null
      */
     public record Readings(
             BigDecimal aerosolOpticalDepth,
@@ -65,10 +68,13 @@ public record SurvivorSignals(
             String surgeRiskLevel,
             Double snowDepthMetres,
             Double freezingLevelMetres,
-            Integer humidity) {
+            Integer humidity,
+            Double surgeTotalMetres,
+            Double surgeWindSpeedMs,
+            Double surgeWindDirectionDegrees) {
 
         /** The all-absent readings, used for a key that has only scores. */
         public static final Readings EMPTY =
-                new Readings(null, null, null, null, null, null, null);
+                new Readings(null, null, null, null, null, null, null, null, null, null);
     }
 }
