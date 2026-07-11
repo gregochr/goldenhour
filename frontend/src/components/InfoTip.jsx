@@ -1,6 +1,34 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
 
+/** Card-variant styles for the accent-bordered mechanism tooltip (mono heading + serif body). */
+const CARD_STYLE = {
+  width: 'min(272px, calc(100vw - 2rem))',
+  background: 'var(--color-plex-surface-light)',
+  border: '1px solid var(--color-plex-border-light)',
+  borderRadius: '9px',
+  boxShadow: '0 16px 40px rgba(0,0,0,0.6)',
+  padding: '11px 13px',
+};
+const CARD_HEADING_STYLE = {
+  display: 'block',
+  fontFamily: 'var(--font-mono)',
+  fontSize: '10px',
+  fontWeight: 600,
+  letterSpacing: '0.04em',
+  textTransform: 'uppercase',
+  marginBottom: '6px',
+};
+const CARD_BODY_STYLE = {
+  display: 'block',
+  fontFamily: 'var(--font-serif)',
+  fontSize: '12.5px',
+  fontStyle: 'italic',
+  lineHeight: 1.52,
+  color: 'var(--color-plex-text-secondary)',
+  whiteSpace: 'normal',
+};
+
 /**
  * Tap/click-to-reveal info popover. Replaces hover-only title attributes
  * so the help text is accessible on touch devices.
@@ -12,8 +40,13 @@ import PropTypes from 'prop-types';
  * @param {string} props.text - The help text to display.
  * @param {string} [props.className] - Optional extra classes on the wrapper.
  * @param {'above'|'below'} [props.position='above'] - Preferred placement.
+ * @param {string} [props.heading] - Optional card heading; when set, renders the accent-card variant
+ *   (mono uppercase heading + serif italic body) instead of the plain popover.
+ * @param {string} [props.accentColor] - Accent colour for the card heading, left border, and trigger.
  */
-export default function InfoTip({ text, className = '', position = 'above' }) {
+export default function InfoTip({
+  text, className = '', position = 'above', heading = null, accentColor = null,
+}) {
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState({ top: 0, left: 0 });
   const triggerRef = useRef(null);
@@ -75,13 +108,33 @@ export default function InfoTip({ text, className = '', position = 'above' }) {
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); setOpen((prev) => !prev); }}
-        className="relative inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] leading-none font-bold border border-current opacity-50 hover:opacity-80 transition-opacity cursor-pointer before:content-[''] before:absolute before:-inset-1"
+        style={accentColor ? { color: accentColor } : undefined}
+        className={`relative inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] leading-none font-bold border border-current transition-opacity cursor-pointer before:content-[''] before:absolute before:-inset-1 ${accentColor ? 'opacity-80 hover:opacity-100' : 'opacity-50 hover:opacity-80'}`}
         aria-label="More info"
         data-testid="infotip-trigger"
       >
         i
       </button>
-      {open && (
+      {open && heading && (
+        <span
+          ref={popoverRef}
+          role="presentation"
+          style={{
+            ...popoverStyle,
+            ...CARD_STYLE,
+            borderLeft: `3px solid ${accentColor || 'var(--color-plex-border-light)'}`,
+          }}
+          data-testid="infotip-popover"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
+          <span style={{ ...CARD_HEADING_STYLE, color: accentColor || 'var(--color-plex-text)' }}>
+            {heading}
+          </span>
+          <span style={CARD_BODY_STYLE}>{text}</span>
+        </span>
+      )}
+      {open && !heading && (
         <span
           ref={popoverRef}
           role="presentation"
@@ -102,4 +155,6 @@ InfoTip.propTypes = {
   text: PropTypes.string.isRequired,
   className: PropTypes.string,
   position: PropTypes.oneOf(['above', 'below']),
+  heading: PropTypes.string,
+  accentColor: PropTypes.string,
 };

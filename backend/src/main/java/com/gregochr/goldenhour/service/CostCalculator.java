@@ -65,7 +65,8 @@ public class CostCalculator {
     public long calculateFlatCostMicroDollars(ServiceName service) {
         return switch (service) {
             case WORLD_TIDES -> costProperties.getWorldTidesMicroDollars();
-            case OPEN_METEO_FORECAST, OPEN_METEO_AIR_QUALITY -> costProperties.getOpenMeteoMicroDollars();
+            case OPEN_METEO_FORECAST, OPEN_METEO_AIR_QUALITY, OPEN_METEO_MARINE ->
+                    costProperties.getOpenMeteoMicroDollars();
             case ANTHROPIC -> 0;
             case LIGHT_POLLUTION -> 0L;
         };
@@ -97,7 +98,8 @@ public class CostCalculator {
                     };
             }
             case WORLD_TIDES -> costProperties.getWorldTidesPence();
-            case OPEN_METEO_FORECAST, OPEN_METEO_AIR_QUALITY -> costProperties.getOpenMeteoPence();
+            case OPEN_METEO_FORECAST, OPEN_METEO_AIR_QUALITY, OPEN_METEO_MARINE ->
+                    costProperties.getOpenMeteoPence();
             case LIGHT_POLLUTION -> 0;
         };
     }

@@ -55,6 +55,7 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
     private final LocationRepository locationRepository;
     private final ForecastEvaluationRepository forecastEvaluationRepository;
     private final SolarEventFreshness freshness;
+    private final CoastalTideFactsBuilder coastalTideFactsBuilder;
 
     /**
      * Constructs a {@code KingTideHotTopicStrategy}.
@@ -64,15 +65,18 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
      * @param locationRepository           repository for location lookups
      * @param forecastEvaluationRepository repository for tide alignment queries
      * @param freshness                    shared filter dropping solar events already past
+     * @param coastalTideFactsBuilder      builds the enriched tide + sea-state fact line
      */
     public KingTideHotTopicStrategy(@Lazy BriefingService briefingService,
             LocationRepository locationRepository,
             ForecastEvaluationRepository forecastEvaluationRepository,
-            SolarEventFreshness freshness) {
+            SolarEventFreshness freshness,
+            CoastalTideFactsBuilder coastalTideFactsBuilder) {
         this.briefingService = briefingService;
         this.locationRepository = locationRepository;
         this.forecastEvaluationRepository = forecastEvaluationRepository;
         this.freshness = freshness;
+        this.coastalTideFactsBuilder = coastalTideFactsBuilder;
     }
 
     /**
@@ -126,7 +130,7 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
             ExpandedHotTopicDetail expandedDetail = buildExpandedDetail(
                     coastalLocations, "King tide", kingTide.lunarPhase(), counts);
 
-            topics.add(new HotTopic(
+            HotTopic topic = new HotTopic(
                     "KING_TIDE",
                     "King tide",
                     buildKingTideDetail(alignmentInfo, coastalLocations.size()),
@@ -135,7 +139,13 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
                     null,
                     coastalRegions,
                     KING_TIDE_DESCRIPTION,
-                    expandedDetail));
+                    expandedDetail);
+            CoastalTideFactsBuilder.CoastalScience science =
+                    coastalTideFactsBuilder.buildKing(candidate, coastalLocations);
+            if (science != null) {
+                topic = topic.withScience(science.facts(), science.note());
+            }
+            topics.add(topic);
         }
         return topics;
     }

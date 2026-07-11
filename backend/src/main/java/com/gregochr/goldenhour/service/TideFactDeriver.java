@@ -106,11 +106,15 @@ public class TideFactDeriver {
         // independent raw booleans so neither consumer's reconstruction is lossy.
         boolean heightAboveP95 = false;
         boolean heightAboveSpringThreshold = false;
+        BigDecimal springTideThresholdMetres = null;
+        BigDecimal avgRangeMetres = null;
         BigDecimal highTideHeight = tideData.nextHighTideHeightMetres();
         if (highTideHeight != null) {
             Optional<TideStats> statsMaybe = tideService.getTideStats(locationId);
             if (statsMaybe.isPresent()) {
                 TideStats stats = statsMaybe.get();
+                springTideThresholdMetres = stats.springTideThreshold();
+                avgRangeMetres = stats.avgRangeMetres();
                 heightAboveP95 = stats.p95HighMetres() != null
                         && highTideHeight.compareTo(stats.p95HighMetres()) > 0;
                 heightAboveSpringThreshold = stats.springTideThreshold() != null
@@ -132,7 +136,9 @@ public class TideFactDeriver {
                 lunarPhase,
                 moonAtPerigee,
                 heightAboveP95,
-                heightAboveSpringThreshold));
+                heightAboveSpringThreshold,
+                springTideThresholdMetres,
+                avgRangeMetres));
     }
 
     /**

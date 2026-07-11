@@ -6,8 +6,10 @@ import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.LunarTideType;
+import com.gregochr.goldenhour.entity.MarineWaveEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
+import com.gregochr.goldenhour.repository.MarineWaveRepository;
 import com.gregochr.goldenhour.service.LunarPhaseService;
 import com.gregochr.goldenhour.service.SolarService;
 import org.springframework.stereotype.Component;
@@ -34,6 +36,7 @@ public class ForecastDtoMapper {
     private final SolarService solarService;
     private final SeasonalWindow bluebellSeason;
     private final ForecastScoreRepository forecastScoreRepository;
+    private final MarineWaveRepository marineWaveRepository;
 
     /**
      * Constructs a {@code ForecastDtoMapper}.
@@ -42,13 +45,50 @@ public class ForecastDtoMapper {
      * @param solarService            service for solar window calculations
      * @param bluebellSeason          the configured bluebell season window
      * @param forecastScoreRepository source of the Claude BLUEBELL rating (1–5) for the DTO
+     * @param marineWaveRepository    source of coastal sea-state (Hs) for the DTO
      */
     public ForecastDtoMapper(LunarPhaseService lunarPhaseService, SolarService solarService,
-            SeasonalWindow bluebellSeason, ForecastScoreRepository forecastScoreRepository) {
+            SeasonalWindow bluebellSeason, ForecastScoreRepository forecastScoreRepository,
+            MarineWaveRepository marineWaveRepository) {
         this.lunarPhaseService = lunarPhaseService;
         this.solarService = solarService;
         this.bluebellSeason = bluebellSeason;
         this.forecastScoreRepository = forecastScoreRepository;
+        this.marineWaveRepository = marineWaveRepository;
+    }
+
+    /**
+     * The coastal sea-state (significant wave height + WMO band) for a forecast row, or empty.
+     *
+     * @param waveHeightMetres significant wave height Hs in metres, or null
+     * @param seaState         the WMO band label, or null
+     */
+    private record WaveInfo(Double waveHeightMetres, String seaState) {
+        static final WaveInfo NONE = new WaveInfo(null, null);
+    }
+
+    /**
+     * Resolves the coastal sea-state for a location/date/event from the shared {@code marine_wave}
+     * carrier. Returns {@link WaveInfo#NONE} for inland locations (no tide preference), non-solar
+     * events, or when no wave sample was persisted for that key. Mirrors the per-row bluebell lookup.
+     *
+     * @param location the forecast location (coastal check via tide preference)
+     * @param date     the target date
+     * @param type     the target event type
+     * @return the sea-state info, or {@link WaveInfo#NONE}
+     */
+    private WaveInfo resolveWave(LocationEntity location, LocalDate date, TargetType type) {
+        if (location == null || location.getId() == null || date == null
+                || type == null || type == TargetType.HOURLY
+                || location.getTideType() == null || location.getTideType().isEmpty()) {
+            return WaveInfo.NONE;
+        }
+        return marineWaveRepository
+                .findByLocation_IdAndEvaluationDateAndEventType(location.getId(), date, type)
+                .map(MarineWaveEntity::getSignificantWaveHeightMetres)
+                .filter(hs -> hs != null)
+                .map(hs -> new WaveInfo(hs, SeaState.fromHs(hs).label()))
+                .orElse(WaveInfo.NONE);
     }
 
     /**
@@ -147,6 +187,8 @@ public class ForecastDtoMapper {
             }
         }
 
+        WaveInfo wave = resolveWave(loc, entity.getTargetDate(), entity.getTargetType());
+
         return new ForecastEvaluationDto(
                 entity.getId(),
                 entity.getLocationName(),
@@ -218,7 +260,9 @@ public class ForecastDtoMapper {
                 bluebellExposure,
                 entity.getTriageReason(),
                 entity.getTriageMessage(),
-                entity.getHeadline());
+                entity.getHeadline(),
+                wave.waveHeightMetres(),
+                wave.seaState());
     }
 
     /**
@@ -313,6 +357,8 @@ public class ForecastDtoMapper {
             bluebellExposure = location.getBluebellExposure().name();
         }
 
+        WaveInfo wave = resolveWave(location, date, type);
+
         return new ForecastEvaluationDto(
                 null,
                 location.getName(),
@@ -344,6 +390,6 @@ public class ForecastDtoMapper {
                 goldenHourStart, goldenHourEnd, blueHourStart, blueHourEnd,
                 null, null, bluebellExposure,
                 view.triageReason(), view.triageMessage(),
-                null);
+                null, wave.waveHeightMetres(), wave.seaState());
     }
 }

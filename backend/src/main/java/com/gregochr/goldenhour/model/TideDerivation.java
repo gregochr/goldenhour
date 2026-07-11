@@ -47,6 +47,12 @@ import java.time.LocalDateTime;
  *                                   (the king-tide statistical signal)
  * @param heightAboveSpringThreshold true if the next high tide exceeds the spring-tide threshold
  *                                   (the spring-tide statistical signal)
+ * @param springTideThresholdMetres  the location's spring-tide height threshold (125% of avg high),
+ *                                   or {@code null} when historical stats are unavailable; the
+ *                                   baseline for the king-tide "+X m over spring" anomaly fact
+ * @param avgRangeMetres             the location's average tidal range (avgHigh - avgLow), or
+ *                                   {@code null} when stats are unavailable; the baseline for the
+ *                                   spring-tide range anomaly fact
  */
 public record TideDerivation(
         TideState tideState,
@@ -62,7 +68,9 @@ public record TideDerivation(
         String lunarPhase,
         Boolean moonAtPerigee,
         boolean heightAboveP95,
-        boolean heightAboveSpringThreshold) {
+        boolean heightAboveSpringThreshold,
+        BigDecimal springTideThresholdMetres,
+        BigDecimal avgRangeMetres) {
 
     /**
      * Collapses the two independent statistical booleans into the scoring path's

@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.gregochr.goldenhour.client.OpenMeteoAirQualityApi;
 import com.gregochr.goldenhour.client.OpenMeteoForecastApi;
+import com.gregochr.goldenhour.client.OpenMeteoMarineApi;
 import com.gregochr.solarutils.LunarCalculator;
 import com.gregochr.solarutils.SolarCalculator;
 import org.springframework.cache.annotation.EnableCaching;
@@ -190,6 +191,21 @@ public class AppConfig {
                 .build();
         return HttpServiceProxyFactory.builderFor(RestClientAdapter.create(client))
                 .build().createClient(OpenMeteoAirQualityApi.class);
+    }
+
+    /**
+     * Proxy for the Open-Meteo Marine Weather API backed by {@link RestClient}.
+     *
+     * @return a typed proxy implementing {@link OpenMeteoMarineApi}
+     */
+    @Bean
+    OpenMeteoMarineApi openMeteoMarineApi() {
+        RestClient client = RestClient.builder()
+                .baseUrl("https://marine-api.open-meteo.com")
+                .requestFactory(openMeteoRequestFactory())
+                .build();
+        return HttpServiceProxyFactory.builderFor(RestClientAdapter.create(client))
+                .build().createClient(OpenMeteoMarineApi.class);
     }
 
     /**

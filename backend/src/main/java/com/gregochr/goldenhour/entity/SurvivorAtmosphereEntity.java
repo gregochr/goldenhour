@@ -95,6 +95,18 @@ public class SurvivorAtmosphereEntity {
     @Column(name = "humidity")
     private Integer humidity;
 
+    /** Total storm surge in metres (pressure + wind), or null. Feeds the STORM_SURGE facts line. */
+    @Column(name = "surge_total_m")
+    private Double surgeTotalMetres;
+
+    /** 10 m wind speed used in the surge calc, in m/s, or null. Feeds the STORM_SURGE facts line. */
+    @Column(name = "surge_wind_speed_ms")
+    private Double surgeWindSpeedMs;
+
+    /** Wind direction (meteorological, degrees FROM) at surge time, or null. STORM_SURGE facts. */
+    @Column(name = "surge_wind_direction_deg")
+    private Double surgeWindDirectionDegrees;
+
     /** When the submission that produced this snapshot ran. */
     @Column(name = "evaluated_at", nullable = false)
     private Instant evaluatedAt;

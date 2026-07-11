@@ -35,14 +35,18 @@ public class StormSurgeHotTopicStrategy implements HotTopicStrategy {
     private static final String HIGH_RISK = "HIGH";
 
     private final SurvivorSignalReader survivorSignalReader;
+    private final StormSurgeFactsBuilder stormSurgeFactsBuilder;
 
     /**
      * Constructs a {@code StormSurgeHotTopicStrategy}.
      *
-     * @param survivorSignalReader the unified survivor read model (surge risk readings)
+     * @param survivorSignalReader   the unified survivor read model (surge risk + numeric readings)
+     * @param stormSurgeFactsBuilder builds the enriched surge + wave fact line
      */
-    public StormSurgeHotTopicStrategy(SurvivorSignalReader survivorSignalReader) {
+    public StormSurgeHotTopicStrategy(SurvivorSignalReader survivorSignalReader,
+            StormSurgeFactsBuilder stormSurgeFactsBuilder) {
         this.survivorSignalReader = survivorSignalReader;
+        this.stormSurgeFactsBuilder = stormSurgeFactsBuilder;
     }
 
     /**
@@ -69,6 +73,7 @@ public class StormSurgeHotTopicStrategy implements HotTopicStrategy {
                 "Storm surge",
                 "High surge risk — dramatic coastal conditions",
                 PRIORITY,
-                STORM_SURGE_DESCRIPTION);
+                STORM_SURGE_DESCRIPTION,
+                stormSurgeFactsBuilder::attach);
     }
 }
