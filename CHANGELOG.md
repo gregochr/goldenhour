@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Bluebell "science showing" enrichment (the last hot-topic group)
+- Adds the generic facts line to the **BLUEBELL** pill, completing the "science showing" roll-out across all hot-topic groups. Two honest, data-backed chips plus a technique note:
+  - `conditions 5/5 · excellent` — the best Claude **conditions** rating (1–5) with its quality label. Framed as *conditions*, never flower state.
+  - `2 sites scoring 4+/5` — how widespread the good morning is, counting distinct sites at the high-priority tier. Shown only when **≥2** such sites exist (otherwise the rating chip stands alone).
+  - Note: "still, misty mornings diffuse the low sun — before wind and harsh light".
+- **Deliberately carries no bloom percentage or "peak" claim.** The mockup wanted `bloom 82% · peak this week`, but phenology — whether the flowers are actually out, and how open — is **modelled nowhere** in the system (`BluebellPromptBuilder` scores conditions *assuming* bloom and is explicitly instructed never to assert it; `SeasonalWindow` is just a calendar gate with no peak date). Any bloom figure would be fabricated, so it's dropped — the same honest-facts discipline applied to the dropped inversion-top altitude.
+- The facts line renders **alongside** BLUEBELL's existing expandable per-region card (`TopicFacts` is persistent, not gated behind expansion) — BLUEBELL is the first topic to carry both. No frontend change: the topic already has a style and the generic `TopicFacts` line.
+- Tests add fact-line coverage (rating chip, the ≥2-site breadth-chip gate, and an explicit assertion that no `bloom`/`peak`/`%` figure is ever emitted) and bring `BluebellHotTopicStrategyTest` in line with the test standards (the `lenient()` shared-default removed; a `stubAhead(day…)` helper pins the freshness stub's date + SUNRISE event with `eq()`).
+
 ### Added — Snow & frost "science showing" enrichment: snow-on-the-fells, fresh snow, hoar frost & inversion facts
 - Extends the "science showing" fact line to the **snow & frost** hot topics, all read off the survivor surface with no new API calls. Facts stay **anomaly-first + honest** — a figure appears only where real data backs it.
   - **Snow on the fells** (`SNOW_TOPS`): `snow line ~620 m · 300 m below the tops`. The snow line is the freezing-level altitude; the margin below the summit — the anomaly that confirms the tops are white, not merely at the freezing altitude — comes from the most confidently-capped location that day. Note: "shoot from low ground looking up, before cloud builds".

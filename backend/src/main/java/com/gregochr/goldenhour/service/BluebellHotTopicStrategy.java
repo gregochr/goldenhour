@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.BluebellMetrics;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.LocationEntry;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.RegionGroup;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.model.SurvivorSignals;
 import org.springframework.stereotype.Component;
@@ -58,6 +59,18 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
 
     /** Maximum number of region names to include in the detail string. */
     private static final int MAX_REGIONS = 2;
+
+    /** Minimum number of top-rated sites before the breadth fact is worth showing. */
+    private static final int MIN_SITES_FOR_BREADTH_FACT = 2;
+
+    private static final String BLUEBELL_DESCRIPTION =
+            "Bluebell season runs mid-April to mid-May. We score mist, wind, light and"
+                    + " recent rain to find the best mornings for woodland and"
+                    + " open-fell bluebell photography — assuming the flowers are in bloom.";
+
+    /** The italic "how to shoot it" cue on the enriched fact line. */
+    private static final String BLUEBELL_NOTE =
+            "still, misty mornings diffuse the low sun — before wind and harsh light";
 
     private final SurvivorSignalReader survivorSignalReader;
     private final SeasonalWindow bluebellSeason;
@@ -148,7 +161,7 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
 
             ExpandedHotTopicDetail expandedDetail = buildExpandedDetail(dayScores, bestScore);
 
-            topics.add(new HotTopic(
+            HotTopic topic = new HotTopic(
                     "BLUEBELL",
                     "Bluebell conditions",
                     detail,
@@ -156,13 +169,42 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
                     priority,
                     "BLUEBELL",
                     topRegions,
-                    "Bluebell season runs mid-April to mid-May. We score mist, wind, light and"
-                            + " recent rain to find the best mornings for woodland and"
-                            + " open-fell bluebell photography — assuming the flowers are in bloom.",
-                    expandedDetail));
+                    BLUEBELL_DESCRIPTION,
+                    expandedDetail);
+            topics.add(topic.withScience(buildFacts(dayScores, bestScore), BLUEBELL_NOTE));
         }
 
         return topics;
+    }
+
+    /**
+     * Builds the enriched "science showing" fact line for the bluebell pill. Two honest, backed
+     * chips: the best <em>conditions</em> rating (1–5 with its quality label) and, when the good
+     * morning is widespread, how many distinct sites reach the high-priority tier. Deliberately
+     * carries <b>no bloom percentage or "peak" claim</b> — phenology (whether the flowers are
+     * actually out, and how open) is modelled nowhere in the system, so any bloom figure would be
+     * fabricated; the pill scores conditions "assuming the flowers are in bloom", never asserts them.
+     *
+     * @param dayScores all bluebell-scored survivor composites for the day
+     * @param bestScore the highest rating across all composites (already ≥ threshold)
+     * @return the bluebell fact chips
+     */
+    private List<HotTopicFact> buildFacts(List<SurvivorSignals> dayScores, int bestScore) {
+        List<HotTopicFact> facts = new ArrayList<>();
+        facts.add(HotTopicFact.metric("conditions",
+                bestScore + "/5 · " + deriveQualityLabel(bestScore).toLowerCase(Locale.UK)));
+
+        long topSites = dayScores.stream()
+                .filter(s -> s.scores().bluebell() != null
+                        && s.scores().bluebell() >= HIGH_PRIORITY_THRESHOLD)
+                .map(s -> s.location() != null ? s.location().getName() : null)
+                .filter(Objects::nonNull)
+                .distinct()
+                .count();
+        if (topSites >= MIN_SITES_FOR_BREADTH_FACT) {
+            facts.add(new HotTopicFact(null, topSites + " sites scoring 4+/5", null, false, true));
+        }
+        return facts;
     }
 
     /**
