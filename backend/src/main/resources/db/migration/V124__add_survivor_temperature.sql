@@ -1,0 +1,13 @@
+-- V124: snow & frost hot-topic enrichment — carry the 2 m air temperature onto the
+-- survivor surface.
+--
+-- The nightly pipeline already fetches 2 m temperature from Open-Meteo (it lives on
+-- AtmosphericData.comfort() and is persisted on forecast_evaluation), but it was never
+-- carried onto survivor_atmosphere, the read surface the SNOW_FRESH / SNOW_MIST detector
+-- samples. Without it the mist variant fires on humidity alone and cannot honestly tell
+-- freezing fog / hoar frost (sub-zero mist over lying snow) from ordinary mist.
+--
+-- Additive and fully nullable, mirroring how the humidity column was added for the same
+-- detector. Summer rows simply have a temperature well above zero; it only changes the
+-- fact copy, never what fires.
+ALTER TABLE survivor_atmosphere ADD COLUMN temperature_celsius DOUBLE PRECISION;

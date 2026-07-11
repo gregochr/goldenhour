@@ -60,6 +60,8 @@ public record SurvivorSignals(
      * @param surgeTotalMetres          total storm surge (pressure + wind) in metres, or null
      * @param surgeWindSpeedMs          surge-time 10 m wind speed in m/s, or null
      * @param surgeWindDirectionDegrees surge-time wind direction (degrees FROM), or null
+     * @param temperatureCelsius        2 m air temperature in °C, or null; gates the SNOW_MIST
+     *                                  freezing-fog / hoar-frost facts
      */
     public record Readings(
             BigDecimal aerosolOpticalDepth,
@@ -71,10 +73,11 @@ public record SurvivorSignals(
             Integer humidity,
             Double surgeTotalMetres,
             Double surgeWindSpeedMs,
-            Double surgeWindDirectionDegrees) {
+            Double surgeWindDirectionDegrees,
+            Double temperatureCelsius) {
 
         /** The all-absent readings, used for a key that has only scores. */
         public static final Readings EMPTY =
-                new Readings(null, null, null, null, null, null, null, null, null, null);
+                new Readings(null, null, null, null, null, null, null, null, null, null, null);
     }
 }

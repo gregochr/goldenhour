@@ -95,6 +95,10 @@ public class SurvivorAtmosphereEntity {
     @Column(name = "humidity")
     private Integer humidity;
 
+    /** 2 m air temperature in °C, or null. Gates the freezing-fog / hoar-frost SNOW_MIST facts. */
+    @Column(name = "temperature_celsius")
+    private Double temperatureCelsius;
+
     /** Total storm surge in metres (pressure + wind), or null. Feeds the STORM_SURGE facts line. */
     @Column(name = "surge_total_m")
     private Double surgeTotalMetres;

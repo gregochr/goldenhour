@@ -52,7 +52,7 @@ class StormSurgeHotTopicStrategyTest {
         LocationEntity location = new LocationEntity();
         location.setRegion(region);
         SurvivorSignals.Readings readings = new SurvivorSignals.Readings(
-                null, null, null, riskLevel, null, null, null, null, null, null);
+                null, null, null, riskLevel, null, null, null, null, null, null, null);
         return new SurvivorSignals(location, date, TargetType.SUNSET,
                 SurvivorSignals.Scores.EMPTY, readings);
     }

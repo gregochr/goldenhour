@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.SurvivorSignals;
 import org.springframework.stereotype.Component;
 
@@ -33,6 +34,9 @@ public class SnowTopsHotTopicStrategy implements HotTopicStrategy {
 
     /** Metres the freezing level must sit below summit elevation to call the tops white. */
     static final int FREEZING_LEVEL_MARGIN_METRES = 100;
+
+    /** The italic "where to shoot" cue on the enriched fact line. */
+    private static final String TOPS_NOTE = "shoot from low ground looking up, before cloud builds";
 
     private final SurvivorSignalReader survivorSignalReader;
 
@@ -84,6 +88,39 @@ public class SnowTopsHotTopicStrategy implements HotTopicStrategy {
                 "Snow on the fells",
                 "Tops white above the valleys",
                 PRIORITY,
-                TOPS_DESCRIPTION);
+                TOPS_DESCRIPTION,
+                this::attachFacts);
+    }
+
+    /**
+     * Attaches the snow-on-the-fells fact line for a day's topic — the snow line (freezing-level
+     * altitude) and, anomaly-first, how far it sits below the summit (the margin that confirms the
+     * tops are white, not merely at the theoretical freezing altitude). The representative is the
+     * row with the greatest margin — the location most confidently capped. Every row here passed
+     * {@link #isTopsWhite}, so both figures are present; the guard is defensive.
+     *
+     * @param topic   the day's base topic
+     * @param dayRows that day's white-tops rows
+     * @return the topic enriched with the snow-line facts (unchanged if no row carries both figures)
+     */
+    private HotTopic attachFacts(HotTopic topic, List<SurvivorSignals> dayRows) {
+        SurvivorSignals rep = dayRows.stream()
+                .filter(s -> s.readings().freezingLevelMetres() != null
+                        && s.location() != null && s.location().getElevationMetres() != null)
+                .max(Comparator.comparingDouble(SnowTopsHotTopicStrategy::marginMetres))
+                .orElse(null);
+        if (rep == null) {
+            return topic;
+        }
+        long snowLine = Math.round(rep.readings().freezingLevelMetres());
+        long marginMetres = Math.round(marginMetres(rep));
+        List<HotTopicFact> facts = List.of(
+                HotTopicFact.metric("snow line", "~" + snowLine + " m"),
+                new HotTopicFact(null, marginMetres + " m below the tops", null, false, true));
+        return topic.withScience(facts, TOPS_NOTE);
+    }
+
+    private static double marginMetres(SurvivorSignals s) {
+        return s.location().getElevationMetres() - s.readings().freezingLevelMetres();
     }
 }

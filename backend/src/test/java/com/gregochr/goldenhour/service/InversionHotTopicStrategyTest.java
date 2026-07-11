@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.SurvivorSignals;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -18,7 +19,6 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -46,10 +46,21 @@ class InversionHotTopicStrategyTest {
 
     @BeforeEach
     void setUp() {
-        // Default: every morning is still ahead. Expired-day tests override per date.
-        lenient().when(freshness.isAhead(any(LocationEntity.class), any(), any()))
-                .thenReturn(true);
         strategy = new InversionHotTopicStrategy(survivorSignalReader, freshness);
+    }
+
+    /** Keeps each given morning ahead of the freshness cutoff. Stubbed per-test (only the tests that
+     * reach the freshness filter need it) rather than leniently; the date + SUNRISE event are pinned,
+     * the location varies per row and is not the discriminator (the filter is per-morning). */
+    private void stubAhead(LocalDate... mornings) {
+        for (LocalDate morning : mornings) {
+            when(freshness.isAhead(any(LocationEntity.class), eq(morning), eq(TargetType.SUNRISE)))
+                    .thenReturn(true);
+        }
+    }
+
+    private static HotTopicFact factWithKey(HotTopic topic, String key) {
+        return topic.facts().stream().filter(f -> key.equals(f.key())).findFirst().orElseThrow();
     }
 
     /** A SUNRISE survivor composite carrying an inversion score and nothing else. */
@@ -76,6 +87,7 @@ class InversionHotTopicStrategyTest {
     void detect_strongInversion_fires() {
         when(survivorSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signal(FROM, "The North York Moors", 9)));
+        stubAhead(FROM);
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
@@ -86,6 +98,34 @@ class InversionHotTopicStrategyTest {
         assertThat(topic.date()).isEqualTo(FROM);
         assertThat(topic.detail()).isEqualTo("Strong inversion likely at elevated locations");
         assertThat(topic.regions()).containsExactly("The North York Moors");
+    }
+
+    @Test
+    @DisplayName("fact line shows the strength band; no fabricated inversion-top altitude")
+    void detect_strongInversion_factLine() {
+        when(survivorSignalReader.read(FROM, TO))
+                .thenReturn(List.of(signal(FROM, "The North York Moors", 9)));
+        stubAhead(FROM);
+
+        HotTopic topic = strategy.detect(FROM, TO).get(0);
+
+        assertThat(factWithKey(topic, "inversion").value()).isEqualTo("9/10 · strong");
+        assertThat(topic.facts()).noneMatch(f -> f.value() != null && f.value().contains(" m"));
+        assertThat(topic.note())
+                .isEqualTo("climb above it — the valleys fill with cloud, burning off after sunrise");
+    }
+
+    @Test
+    @DisplayName("the strongest of a day's rows drives the score fact")
+    void detect_representative_highestScore() {
+        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(
+                signal(FROM, "The Lake District", 9),
+                signal(FROM, "The Lake District", 10)));
+        stubAhead(FROM);
+
+        HotTopic topic = strategy.detect(FROM, TO).get(0);
+
+        assertThat(factWithKey(topic, "inversion").value()).isEqualTo("10/10 · strong");
     }
 
     @Test
@@ -105,6 +145,7 @@ class InversionHotTopicStrategyTest {
 
         when(survivorSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signal(FROM, "The Lake District", 9)));
+        stubAhead(FROM);
         assertThat(strategy.detect(FROM, TO)).hasSize(1);
     }
 
@@ -113,7 +154,8 @@ class InversionHotTopicStrategyTest {
     void detect_todayPastSunrise_suppressed() {
         when(survivorSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signal(FROM, "The North York Moors", 9)));
-        when(freshness.isAhead(any(LocationEntity.class), eq(FROM), any())).thenReturn(false);
+        when(freshness.isAhead(any(LocationEntity.class), eq(FROM), eq(TargetType.SUNRISE)))
+                .thenReturn(false);
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
     }
@@ -125,7 +167,9 @@ class InversionHotTopicStrategyTest {
                 .thenReturn(List.of(
                         signal(FROM, "Today Region", 9),
                         signal(FROM.plusDays(1), "Tomorrow Region", 9)));
-        when(freshness.isAhead(any(LocationEntity.class), eq(FROM), any())).thenReturn(false);
+        when(freshness.isAhead(any(LocationEntity.class), eq(FROM), eq(TargetType.SUNRISE)))
+                .thenReturn(false);
+        stubAhead(FROM.plusDays(1));
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
@@ -143,6 +187,7 @@ class InversionHotTopicStrategyTest {
                         signal(FROM.plusDays(2), "Northumberland", 9),
                         signal(FROM, "The North York Moors", 9),
                         signal(FROM, "The Lake District", 10)));
+        stubAhead(FROM, FROM.plusDays(2));
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
@@ -175,6 +220,7 @@ class InversionHotTopicStrategyTest {
                 .thenReturn(List.of(
                         signalAt(FROM, "Sunset Region", 9, TargetType.SUNSET),
                         signalAt(FROM, "Sunrise Region", 9, TargetType.SUNRISE)));
+        stubAhead(FROM);
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
@@ -190,6 +236,7 @@ class InversionHotTopicStrategyTest {
                 .thenReturn(List.of(
                         signal(FROM, null, 9),
                         signal(FROM, "The North York Moors", 9)));
+        stubAhead(FROM);
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 

@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.SurvivorSignals;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -47,9 +48,13 @@ class SnowTopsHotTopicStrategyTest {
         location.setRegion(region);
         location.setElevationMetres(elevationMetres);
         SurvivorSignals.Readings readings = new SurvivorSignals.Readings(
-                null, null, null, null, null, freezingLevelMetres, null, null, null, null);
+                null, null, null, null, null, freezingLevelMetres, null, null, null, null, null);
         return new SurvivorSignals(location, date, TargetType.SUNRISE,
                 SurvivorSignals.Scores.EMPTY, readings);
+    }
+
+    private static HotTopicFact factWithKey(HotTopic topic, String key) {
+        return topic.facts().stream().filter(f -> key.equals(f.key())).findFirst().orElseThrow();
     }
 
     @Test
@@ -66,6 +71,34 @@ class SnowTopsHotTopicStrategyTest {
         assertThat(topic.type()).isEqualTo("SNOW_TOPS");
         assertThat(topic.priority()).isEqualTo(3);
         assertThat(topic.regions()).containsExactly("The Lake District");
+    }
+
+    @Test
+    @DisplayName("fact line shows the snow line (freezing level) and its margin below the summit")
+    void detect_whiteTops_factLine() {
+        when(survivorSignalReader.read(FROM, TO))
+                .thenReturn(List.of(signal(FROM, "The Lake District", 351.0, 451)));
+
+        HotTopic topic = strategy.detect(FROM, TO).get(0);
+
+        assertThat(factWithKey(topic, "snow line").value()).isEqualTo("~351 m");
+        assertThat(topic.facts()).anyMatch(f -> "100 m below the tops".equals(f.value()));
+        assertThat(topic.note())
+                .isEqualTo("shoot from low ground looking up, before cloud builds");
+    }
+
+    @Test
+    @DisplayName("representative is the row with the greatest margin below the summit")
+    void detect_representative_greatestMargin() {
+        // Cat Bells 451 m summit, freezing 351 → margin 100; a higher fell 978 m, freezing 400 → 578.
+        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(
+                signal(FROM, "The Lake District", 351.0, 451),
+                signal(FROM, "The Lake District", 400.0, 978)));
+
+        HotTopic topic = strategy.detect(FROM, TO).get(0);
+
+        assertThat(factWithKey(topic, "snow line").value()).isEqualTo("~400 m");
+        assertThat(topic.facts()).anyMatch(f -> "578 m below the tops".equals(f.value()));
     }
 
     @Test

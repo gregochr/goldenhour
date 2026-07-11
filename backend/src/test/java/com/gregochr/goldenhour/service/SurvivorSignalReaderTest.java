@@ -69,6 +69,7 @@ class SurvivorSignalReaderTest {
         a.setEvaluationDate(FROM);
         a.setEventType(SUNSET);
         a.setDust(new BigDecimal(dust));
+        a.setTemperatureCelsius(-1.5);
         return a;
     }
 
@@ -103,6 +104,7 @@ class SurvivorSignalReaderTest {
         assertThat(s.eventType()).isEqualTo(SUNSET);
         assertThat(s.scores().inversion()).isEqualTo(9);
         assertThat(s.readings().dust()).isEqualByComparingTo("60.00");
+        assertThat(s.readings().temperatureCelsius()).isEqualTo(-1.5);
     }
 
     @Test
