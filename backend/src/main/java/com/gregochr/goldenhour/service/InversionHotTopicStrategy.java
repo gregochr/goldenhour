@@ -2,12 +2,14 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.SurvivorSignals;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Detects cloud inversion hot topics by reading the survivor surface ({@code forecast_score}).
@@ -56,6 +58,10 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
      */
     static final int STRONG_SCORE_INCLUSIVE = 9;
 
+    /** The italic "how to use it" cue on the enriched fact line. */
+    private static final String INVERSION_NOTE =
+            "climb above it — the valleys fill with cloud, burning off after sunrise";
+
     private final SurvivorSignalReader survivorSignalReader;
     private final SolarEventFreshness freshness;
 
@@ -98,6 +104,31 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
                 "Cloud inversion",
                 "Strong inversion likely at elevated locations",
                 PRIORITY,
-                INVERSION_DESCRIPTION);
+                INVERSION_DESCRIPTION,
+                this::attachFacts);
+    }
+
+    /**
+     * Attaches the inversion fact line — the strong-band likelihood score (the strongest of the
+     * day's qualifying rows). The inversion-layer <em>altitude</em> is deliberately omitted: the
+     * pipeline scores inversion likelihood (0–10) but never computes a layer height, so a metres
+     * figure would be fabricated. The score band is the honest headline.
+     *
+     * @param topic   the day's base topic
+     * @param dayRows that day's strong-inversion rows
+     * @return the topic enriched with the strength fact (unchanged if no row carries a score)
+     */
+    private HotTopic attachFacts(HotTopic topic, List<SurvivorSignals> dayRows) {
+        Integer topScore = dayRows.stream()
+                .map(s -> s.scores().inversion())
+                .filter(Objects::nonNull)
+                .max(Integer::compareTo)
+                .orElse(null);
+        if (topScore == null) {
+            return topic;
+        }
+        List<HotTopicFact> facts = List.of(
+                HotTopicFact.metric("inversion", topScore + "/10 · strong"));
+        return topic.withScience(facts, INVERSION_NOTE);
     }
 }

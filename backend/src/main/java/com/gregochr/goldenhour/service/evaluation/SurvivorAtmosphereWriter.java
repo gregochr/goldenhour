@@ -111,6 +111,11 @@ public class SurvivorAtmosphereWriter {
             row.setFreezingLevelMetres(data.weather().freezingLevelMetres());
             row.setHumidity(data.weather().humidityPercent());
         }
+        if (data.comfort() != null) {
+            // 2 m air temperature lives on comfort, not weather; gates the freezing-fog / hoar-frost
+            // SNOW_MIST facts (sub-zero mist over lying snow).
+            row.setTemperatureCelsius(data.comfort().temperatureCelsius());
+        }
         row.setEvaluatedAt(Instant.now(clock));
         repository.save(row);
     }

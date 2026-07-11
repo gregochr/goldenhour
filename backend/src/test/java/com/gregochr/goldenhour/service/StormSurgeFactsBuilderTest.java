@@ -50,7 +50,7 @@ class StormSurgeFactsBuilderTest {
     private static SurvivorSignals surgeRow(long locationId, Double surgeM, Double windMs,
             Double windDir) {
         SurvivorSignals.Readings readings = new SurvivorSignals.Readings(
-                null, null, null, "HIGH", null, null, null, surgeM, windMs, windDir);
+                null, null, null, "HIGH", null, null, null, surgeM, windMs, windDir, null);
         return new SurvivorSignals(location(locationId), DATE, TargetType.SUNSET,
                 SurvivorSignals.Scores.EMPTY, readings);
     }

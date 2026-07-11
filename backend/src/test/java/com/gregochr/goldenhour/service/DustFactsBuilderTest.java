@@ -45,7 +45,7 @@ class DustFactsBuilderTest {
         LocationEntity location = LocationEntity.builder().name("Coast").lat(LAT).lon(LON).build();
         SurvivorSignals.Readings readings = new SurvivorSignals.Readings(
                 aod == null ? null : new BigDecimal(aod),
-                null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null);
         return new SurvivorSignals(location, DATE, TargetType.SUNSET,
                 SurvivorSignals.Scores.EMPTY, readings);
     }

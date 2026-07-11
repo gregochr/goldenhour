@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.SurvivorAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.ComfortData;
 import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 import com.gregochr.goldenhour.model.TideRiskLevel;
 import com.gregochr.goldenhour.model.WeatherData;
@@ -75,6 +76,13 @@ class SurvivorAtmosphereWriterTest {
                 null, weather(), aerosol(), null, null, null, null, null);
     }
 
+    /** Sub-zero comfort snapshot — the temperature that gates the SNOW_MIST hoar-frost facts. */
+    private static AtmosphericData inlandDataWithComfort() {
+        ComfortData comfort = new ComfortData(-2.0, -5.0, 10);
+        return new AtmosphericData("Cat Bells", DATE.atTime(20, 30), SUNSET,
+                null, weather(), aerosol(), comfort, null, null, null, null);
+    }
+
     @Test
     @DisplayName("flag off → writes nothing (additive-table rollback path)")
     void flagOff_writesNothing() {
@@ -116,6 +124,17 @@ class SurvivorAtmosphereWriterTest {
         assertThat(saved.getHumidity()).isEqualTo(88);
         assertThat(saved.getSurgeRiskLevel()).isNull();
         assertThat(saved.getEvaluatedAt()).isEqualTo(FIXED);
+    }
+
+    @Test
+    @DisplayName("captures the 2 m temperature from comfort (gates the hoar-frost facts)")
+    void capturesTemperatureFromComfort() {
+        when(repository.findByLocationIdAndEvaluationDateAndEventType(LOCATION_ID, DATE, SUNSET))
+                .thenReturn(Optional.empty());
+
+        writer(true).write(location(), DATE, SUNSET, inlandDataWithComfort());
+
+        assertThat(captureSave().getTemperatureCelsius()).isEqualTo(-2.0);
     }
 
     @Test
