@@ -682,6 +682,20 @@ public class NoaaSwpcClient {
     }
 
     /**
+     * Returns the southernmost latitude (°N) to which aurora glow realistically reaches for the
+     * given Kp, per the Kp-to-latitude visibility cap table. A public accessor over the
+     * package-private {@link #getKpLatitudeCap(double)} so a service-layer caller (the aurora hot
+     * topic) can label the glow extent without crossing the client package boundary, keeping the
+     * cap table itself encapsulated.
+     *
+     * @param kp the Kp index
+     * @return glow latitude cap in degrees north (0 for Kp &ge; 10 = effectively no cap)
+     */
+    public double getGlowLatitudeCap(double kp) {
+        return getKpLatitudeCap(kp);
+    }
+
+    /**
      * Applies the Kp-to-latitude hard cap to a raw OVATION viewline response.
      *
      * <p>OVATION can pull the line north of the cap (real-time data overrides the

@@ -726,6 +726,14 @@ class NoaaSwpcClientTest {
     // -------------------------------------------------------------------------
 
     @Test
+    @DisplayName("getGlowLatitudeCap exposes the Kp→latitude table (Kp6→54, Kp<4→60, Kp≥10→0)")
+    void getGlowLatitudeCap_returnsCapTable() {
+        assertThat(client.getGlowLatitudeCap(6.0)).isEqualTo(54.0);
+        assertThat(client.getGlowLatitudeCap(3.0)).isEqualTo(60.0);
+        assertThat(client.getGlowLatitudeCap(10.0)).isEqualTo(0.0);
+    }
+
+    @Test
     @DisplayName("Kp 6 + OVATION 49°N → capped to 54°N (northern England)")
     void applyKpCap_kp6_ovation49_cappedTo54() {
         AuroraViewlineResponse raw = viewlineAt(49.0);

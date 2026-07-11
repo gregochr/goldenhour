@@ -1,12 +1,15 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.NlcNightClarity;
+import com.gregochr.goldenhour.model.NlcWindow;
 import org.springframework.stereotype.Component;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.TextStyle;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -34,6 +37,9 @@ public class NlcHotTopicStrategy implements HotTopicStrategy {
 
     /** Topic priority — calendar heads-up, sorts below the act-on-it topics. */
     private static final int PRIORITY = 8;
+
+    /** The italic "where to look" cue on the enriched fact line. */
+    private static final String NLC_NOTE = "look low on the horizon";
 
     private final NlcClarityService clarityService;
 
@@ -81,7 +87,36 @@ public class NlcHotTopicStrategy implements HotTopicStrategy {
                 null,
                 night.regions(),
                 NLC_DESCRIPTION,
-                null).withNlcWindows(night.eveningWindow(), night.morningWindow()));
+                null)
+                // Keep the typed windows on the model for daily_briefing_cache back-compat, and
+                // also emit the generic facts the strip now renders for every topic type.
+                .withNlcWindows(night.eveningWindow(), night.morningWindow())
+                .withScience(buildFacts(night), NLC_NOTE));
+    }
+
+    /**
+     * Builds the two twilight-window fact chips from the clear night's geometry — the NW after-dusk
+     * window and the NE before-dawn window, each carrying its look direction (which the strip
+     * renders with a compass arrow). At least one window is guaranteed present by the emit gate.
+     *
+     * @param night the chosen clear night
+     * @return the enriched fact chips (one or two)
+     */
+    private List<HotTopicFact> buildFacts(NlcNightClarity.ClearNight night) {
+        List<HotTopicFact> facts = new ArrayList<>();
+        NlcWindow evening = night.eveningWindow();
+        if (evening != null) {
+            facts.add(new HotTopicFact(null,
+                    "after dusk · " + evening.start() + "–" + evening.end(),
+                    evening.azimuth(), false, false));
+        }
+        NlcWindow morning = night.morningWindow();
+        if (morning != null) {
+            facts.add(new HotTopicFact(null,
+                    "before dawn · " + morning.start() + "–" + morning.end(),
+                    morning.azimuth(), false, false));
+        }
+        return facts;
     }
 
     private String buildDetail(NlcNightClarity.ClearNight night, LocalDate today) {

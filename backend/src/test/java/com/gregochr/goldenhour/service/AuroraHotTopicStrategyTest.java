@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.model.AuroraTonightSummary;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -159,6 +160,64 @@ class AuroraHotTopicStrategyTest {
                 .filter(t -> t.date().equals(TODAY))
                 .findFirst().orElseThrow();
         assertThat(tonight.detail()).doesNotContain("dark-sky");
+    }
+
+    @Test
+    @DisplayName("tonight pill emits the Kp+glow headline (real cap) and the optional moon chip")
+    void detect_tonightPill_emitsKpGlowAndMoonFacts() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(6.0);
+        when(noaaSwpcClient.getGlowLatitudeCap(6.0)).thenReturn(54.0);
+        when(auroraSummaryBuilder.buildAuroraTonightCached()).thenReturn(
+                new AuroraTonightSummary(AlertLevel.MODERATE, 6.0, 8, List.of(),
+                        null, null, 18.0, null, null, null, null));
+        stubDarkSkyLocations("Northumberland");
+
+        HotTopic tonight = strategy.detect(TODAY, TO_DATE).stream()
+                .filter(t -> t.date().equals(TODAY)).findFirst().orElseThrow();
+
+        assertThat(tonight.facts())
+                .anyMatch(f -> "Kp 6 · glow reaches ~54°N and north".equals(f.value()));
+        HotTopicFact moon = tonight.facts().stream()
+                .filter(f -> f.value() != null && f.value().startsWith("moon"))
+                .findFirst().orElseThrow();
+        assertThat(moon.value()).isEqualTo("moon 18%");
+        assertThat(moon.optional()).isTrue();
+        assertThat(tonight.note()).isEqualTo("look due N, low");
+    }
+
+    @Test
+    @DisplayName("extreme Kp (glow cap 0) reads 'glow across the whole UK', not a latitude")
+    void detect_glowCapZero_saysWholeUk() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.STRONG);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(10.0);
+        when(noaaSwpcClient.getGlowLatitudeCap(10.0)).thenReturn(0.0);
+        stubDarkSkyLocations("Northumberland");
+
+        HotTopic tonight = strategy.detect(TODAY, TO_DATE).stream()
+                .filter(t -> t.date().equals(TODAY)).findFirst().orElseThrow();
+
+        assertThat(tonight.facts())
+                .anyMatch(f -> "Kp 10 · glow across the whole UK".equals(f.value()));
+        assertThat(tonight.facts()).noneMatch(f -> f.value() != null && f.value().contains("°N"));
+    }
+
+    @Test
+    @DisplayName("unknown moon illumination omits the moon chip (no fabricated figure)")
+    void detect_moonUnknown_omitsMoonChip() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(6.0);
+        when(noaaSwpcClient.getGlowLatitudeCap(6.0)).thenReturn(54.0);
+        when(auroraSummaryBuilder.buildAuroraTonightCached()).thenReturn(
+                new AuroraTonightSummary(AlertLevel.MODERATE, 6.0, 8, List.of(),
+                        null, null, null, null, null, null, null));
+        stubDarkSkyLocations("Northumberland");
+
+        HotTopic tonight = strategy.detect(TODAY, TO_DATE).stream()
+                .filter(t -> t.date().equals(TODAY)).findFirst().orElseThrow();
+
+        assertThat(tonight.facts()).anyMatch(f -> f.value() != null && f.value().startsWith("Kp 6"));
+        assertThat(tonight.facts()).noneMatch(f -> f.value() != null && f.value().startsWith("moon"));
     }
 
     // ── Tomorrow detection ───────────────────────────────────────────────────

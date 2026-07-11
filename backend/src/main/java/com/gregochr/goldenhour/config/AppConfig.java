@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.client.OpenMeteoAirQualityApi;
 import com.gregochr.goldenhour.client.OpenMeteoForecastApi;
 import com.gregochr.goldenhour.client.OpenMeteoMarineApi;
 import com.gregochr.solarutils.LunarCalculator;
+import com.gregochr.solarutils.MoonriseMoonsetCalculator;
 import com.gregochr.solarutils.SolarCalculator;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
@@ -161,6 +162,17 @@ public class AppConfig {
     @Bean
     public LunarCalculator lunarCalculator() {
         return new LunarCalculator();
+    }
+
+    /**
+     * Stateless moonrise/moonset calculator from solar-utils, used for the supermoon hot topic's
+     * moonrise time + azimuth.
+     *
+     * @return a shared {@link MoonriseMoonsetCalculator}
+     */
+    @Bean
+    public MoonriseMoonsetCalculator moonriseMoonsetCalculator() {
+        return new MoonriseMoonsetCalculator();
     }
 
     /**

@@ -19,7 +19,6 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -37,14 +36,27 @@ class DustHotTopicStrategyTest {
     @Mock
     private SolarEventFreshness freshness;
 
+    @Mock
+    private DustFactsBuilder dustFactsBuilder;
+
     private DustHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        // Default: every solar event is still ahead. Expiry tests override per date.
-        lenient().when(freshness.isAhead(any(LocationEntity.class), any(), any()))
-                .thenReturn(true);
-        strategy = new DustHotTopicStrategy(survivorSignalReader, freshness);
+        strategy = new DustHotTopicStrategy(survivorSignalReader, freshness, dustFactsBuilder);
+    }
+
+    /** Keeps each given survivor row past the freshness filter (matching its exact location/date/event,
+     * not {@code any()}), and stubs the pass-through facts builder (whose own logic is covered by
+     * {@link DustFactsBuilderTest}). Only the tests that emit a topic need these, so they are stubbed
+     * per-test rather than leniently. The {@code attach} args are the {@link HotTopic} and row list
+     * built inside {@code PerDateHotTopicBuilder} — not knowable here — so a pass-through is the seam. */
+    private void stubEmitPath(SurvivorSignals... keptRows) {
+        for (SurvivorSignals row : keptRows) {
+            when(freshness.isAhead(eq(row.location()), eq(row.date()), eq(row.eventType())))
+                    .thenReturn(true);
+        }
+        when(dustFactsBuilder.attach(any(), any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
     /** A survivor composite carrying only aerosol readings (the dust proxy inputs). */
@@ -66,8 +78,9 @@ class DustHotTopicStrategyTest {
     @Test
     @DisplayName("dust-enhanced survivor fires with priority 3 off the survivor surface")
     void detect_dustEnhanced_fires() {
-        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(
-                signal(FROM, "The North Yorkshire Coast", "0.42", "60", "10")));
+        SurvivorSignals row = signal(FROM, "The North Yorkshire Coast", "0.42", "60", "10");
+        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(row));
+        stubEmitPath(row);
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
@@ -98,9 +111,10 @@ class DustHotTopicStrategyTest {
     @Test
     @DisplayName("a dust row whose solar event has passed is dropped")
     void detect_expiredEvent_dropped() {
-        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(
-                signal(FROM, "The North Yorkshire Coast", "0.42", "60", "10")));
-        when(freshness.isAhead(any(LocationEntity.class), eq(FROM), any())).thenReturn(false);
+        SurvivorSignals row = signal(FROM, "The North Yorkshire Coast", "0.42", "60", "10");
+        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(row));
+        when(freshness.isAhead(eq(row.location()), eq(FROM), eq(TargetType.SUNSET)))
+                .thenReturn(false);
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
     }
@@ -108,9 +122,10 @@ class DustHotTopicStrategyTest {
     @Test
     @DisplayName("emits one card per non-expired dust day, each with that day's regions")
     void detect_multipleDays_onePerDate() {
-        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(
-                signal(FROM.plusDays(2), "Northumberland", "0.42", "60", "10"),
-                signal(FROM, "The North Yorkshire Coast", "0.42", "60", "10")));
+        SurvivorSignals day2 = signal(FROM.plusDays(2), "Northumberland", "0.42", "60", "10");
+        SurvivorSignals day0 = signal(FROM, "The North Yorkshire Coast", "0.42", "60", "10");
+        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(day2, day0));
+        stubEmitPath(day2, day0);
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
 
