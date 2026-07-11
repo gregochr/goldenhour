@@ -4,8 +4,10 @@ import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.model.AuroraTomorrowSummary;
 import com.gregochr.goldenhour.model.AuroraTonightSummary;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -31,6 +33,9 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
             "The aurora borealis is occasionally visible from northern England when"
                     + " solar activity is high. Best seen from dark-sky locations with"
                     + " a clear northern horizon.";
+
+    /** The italic "where to look" cue on the enriched aurora fact line. */
+    private static final String AURORA_NOTE = "look due N, low";
 
     /** Minimum Kp forecast to emit a tomorrow-night topic. */
     private static final double TOMORROW_KP_THRESHOLD = 4.0;
@@ -90,13 +95,26 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
         }
 
         Double kp = auroraStateCache.getLastTriggerKp();
-        Integer clearCount = resolveClearCount();
+        // Fetch the cached tonight summary once — it supplies both the clear-location count (fresh
+        // Open-Meteo triage) and the moon illumination the fact line reads.
+        AuroraTonightSummary tonight = auroraSummaryBuilder.buildAuroraTonightCached();
+        // Read count + moon from the summary when present, else fall back to the state cache's
+        // count (an if/else, not a mixed int/Integer ternary, which would unbox a null count → NPE).
+        Integer clearCount;
+        Double moonPct;
+        if (tonight != null) {
+            clearCount = tonight.clearLocationCount();
+            moonPct = tonight.moonIlluminationPct();
+        } else {
+            clearCount = auroraStateCache.getClearLocationCount();
+            moonPct = null;
+        }
 
         int priority = (level == AlertLevel.STRONG || level == AlertLevel.MODERATE) ? 1 : 2;
         String detail = buildTonightDetail(kp, clearCount);
         List<String> regions = findAuroraRegions();
 
-        topics.add(new HotTopic(
+        HotTopic topic = new HotTopic(
                 "AURORA",
                 "Aurora possible",
                 detail,
@@ -105,7 +123,12 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
                 null,
                 regions,
                 AURORA_DESCRIPTION,
-                null));
+                null);
+        List<HotTopicFact> facts = buildAuroraFacts(kp, moonPct);
+        if (!facts.isEmpty()) {
+            topic = topic.withScience(facts, AURORA_NOTE);
+        }
+        topics.add(topic);
     }
 
     private void detectTomorrow(LocalDate fromDate, List<HotTopic> topics) {
@@ -114,7 +137,10 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
             return;
         }
 
-        topics.add(new HotTopic(
+        AuroraTomorrowSummary tomorrow = auroraSummaryBuilder.buildAuroraTomorrowCached();
+        Double moonPct = tomorrow != null ? tomorrow.moonIlluminationPct() : null;
+
+        HotTopic topic = new HotTopic(
                 "AURORA",
                 "Aurora possible",
                 String.format("Kp %.0f forecast tomorrow night — worth watching",
@@ -124,23 +150,37 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
                 null,
                 findAuroraRegions(),
                 AURORA_DESCRIPTION,
-                null));
+                null);
+        List<HotTopicFact> facts = buildAuroraFacts(tomorrowPeakKp, moonPct);
+        if (!facts.isEmpty()) {
+            topic = topic.withScience(facts, AURORA_NOTE);
+        }
+        topics.add(topic);
     }
 
     /**
-     * Resolves the cloud-triaged clear location count, preferring the briefing summary's
-     * fresh weather data over the aurora state cache's potentially stale count.
+     * Builds the enriched aurora fact chips — the Kp + glow-latitude headline (only when a trigger
+     * Kp is known, so the latitude is data-backed) and the optional moon-illumination chip. The
+     * magnetic-midnight peak window is not computed anywhere and is deliberately omitted rather than
+     * fabricated. Returns an empty list when neither figure is available (nothing rendered).
      *
-     * <p>During a briefing run, {@link BriefingAuroraSummaryBuilder#buildAuroraTonight()} is
-     * called before hot topics are detected, so the cached summary uses fresh Open-Meteo data.
-     * This ensures the hot topic detail line matches the subtitle count in the briefing response.
+     * @param kp      the Kp index, or null
+     * @param moonPct lunar illumination percent (0–100), or null
+     * @return the aurora fact chips (possibly empty)
      */
-    private Integer resolveClearCount() {
-        AuroraTonightSummary tonight = auroraSummaryBuilder.buildAuroraTonightCached();
-        if (tonight != null) {
-            return tonight.clearLocationCount();
+    private List<HotTopicFact> buildAuroraFacts(Double kp, Double moonPct) {
+        List<HotTopicFact> facts = new ArrayList<>();
+        if (kp != null) {
+            double cap = noaaSwpcClient.getGlowLatitudeCap(kp);
+            String value = cap > 0
+                    ? String.format("Kp %.0f · glow reaches ~%.0f°N and north", kp, cap)
+                    : String.format("Kp %.0f · glow across the whole UK", kp);
+            facts.add(HotTopicFact.metric(null, value));
         }
-        return auroraStateCache.getClearLocationCount();
+        if (moonPct != null) {
+            facts.add(HotTopicFact.context("moon " + Math.round(moonPct) + "%").asOptional());
+        }
+        return facts;
     }
 
     private String buildTonightDetail(Double kp, Integer clearCount) {

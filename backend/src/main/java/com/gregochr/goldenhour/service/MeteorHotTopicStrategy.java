@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.springframework.stereotype.Component;
 
@@ -37,21 +38,27 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
     /** Maximum lunar illumination (fraction) at peak for the topic to fire. */
     private static final double MAX_ILLUMINATION = 0.5;
 
-    /**
-     * A meteor shower and its approximate annual peak date.
-     *
-     * @param name short shower name shown in the pill detail
-     * @param peak the approximate calendar day of maximum activity
-     */
-    record Shower(String name, MonthDay peak) { }
+    /** Lunar illumination percent below which the sky is genuinely dark for meteors. */
+    private static final int MOON_DARK_PCT = 25;
 
-    /** Major showers worth flagging, with standard peak dates. */
+    /**
+     * A meteor shower and the stable astronomical constants that describe its peak.
+     *
+     * @param name           short shower name shown in the pill detail
+     * @param peak           the approximate calendar day of maximum activity
+     * @param zhrPeak        zenithal hourly rate at peak under ideal dark skies (IMO catalogue)
+     * @param radiantCompass compass point the radiant sits toward (drives the look direction)
+     * @param bestHours      the local hours the radiant is highest and the shower is best watched
+     */
+    record Shower(String name, MonthDay peak, int zhrPeak, String radiantCompass, String bestHours) { }
+
+    /** Major showers worth flagging, with standard peak dates and catalogue constants. */
     static final List<Shower> SHOWERS = List.of(
-            new Shower("Quadrantids", MonthDay.of(1, 3)),
-            new Shower("Lyrids", MonthDay.of(4, 22)),
-            new Shower("Perseids", MonthDay.of(8, 12)),
-            new Shower("Orionids", MonthDay.of(10, 21)),
-            new Shower("Geminids", MonthDay.of(12, 14)));
+            new Shower("Quadrantids", MonthDay.of(1, 3), 120, "NE", "04:00–dawn"),
+            new Shower("Lyrids", MonthDay.of(4, 22), 18, "NE", "02:00–04:00"),
+            new Shower("Perseids", MonthDay.of(8, 12), 100, "NE", "01:00–04:00"),
+            new Shower("Orionids", MonthDay.of(10, 21), 20, "SE", "02:00–05:00"),
+            new Shower("Geminids", MonthDay.of(12, 14), 150, "E", "22:00–02:00"));
 
     private final LunarPhaseService lunarPhaseService;
     private final LocationRepository locationRepository;
@@ -115,15 +122,29 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
                         .distinct()
                         .toList();
 
+        int moonPct = (int) Math.round(lunarPhaseService.getIlluminationFraction(peak) * 100);
+        boolean darkEnough = moonPct < MOON_DARK_PCT;
+        // The headline claim must track the same illumination band as the moon chip: the fire gate
+        // admits up to MAX_ILLUMINATION (50%), so a half-lit peak still qualifies and must not be
+        // sold as a "dark moon" beside a chip that reads "some moonlight".
+        String moonQuality = darkEnough ? "dark enough" : "some moonlight";
+        String viewingCue = darkEnough ? "dark moon, good viewing" : "some moonlight, still worth a look";
+        List<HotTopicFact> facts = List.of(
+                HotTopicFact.metric("ZHR", "~" + shower.zhrPeak() + " at peak"),
+                HotTopicFact.directional("radiant", "best " + shower.bestHours(),
+                        shower.radiantCompass(), false),
+                new HotTopicFact("moon", moonPct + "% · " + moonQuality, null, false, true));
+
         return new HotTopic(
                 "METEOR",
                 "Meteor shower",
-                shower.name() + " peak — dark moon, good viewing",
+                shower.name() + " peak — " + viewingCue,
                 peak,
                 PRIORITY,
                 null,
                 darkSkyRegions,
                 METEOR_DESCRIPTION,
-                null);
+                null)
+                .withScience(facts, null);
     }
 }

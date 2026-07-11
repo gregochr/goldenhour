@@ -585,67 +585,6 @@ ExpandedCard.propTypes = {
   isLiteUser: PropTypes.bool,
 };
 
-/** Look-direction glyphs for the NLC twilight windows: ↙ NW after dusk, ↗ NE before dawn. */
-const NLC_WINDOW_DIR = {
-  NW: { arrow: '↙', when: 'after dusk' }, // ↙
-  NE: { arrow: '↗', when: 'before dawn' }, // ↗
-};
-
-/**
- * The NLC pill's second line: the two twilight visibility windows (sun 6–16° below the horizon).
- *
- * This is exact solar geometry — the honest "when to look" signal — never a prediction that NLC
- * will appear. Renders nothing when neither window is present, so a single-line pill degrades
- * gracefully (e.g. a deep-summer night with no −16° window, or an older cached topic).
- *
- * @param {object} props
- * @param {object} props.topic       the NLC hot topic, carrying eveningWindow / morningWindow
- * @param {string} props.accentColor the pill's accent colour for the direction glyph
- */
-function NlcWindows({ topic, accentColor }) {
-  const windows = [topic.eveningWindow, topic.morningWindow]
-    .filter((w) => w && NLC_WINDOW_DIR[w.azimuth]);
-  if (windows.length === 0) return null;
-
-  return (
-    <div
-      data-testid="nlc-windows"
-      style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        alignItems: 'center',
-        gap: '4px 16px',
-        padding: '0 13px 9px 13px',
-        fontSize: '11px',
-        color: 'var(--color-plex-text-secondary)',
-      }}
-    >
-      {windows.map((w) => {
-        const dir = NLC_WINDOW_DIR[w.azimuth];
-        return (
-          <span key={w.azimuth} data-testid={`nlc-window-${w.azimuth}`} style={{ whiteSpace: 'nowrap' }}>
-            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: accentColor }}>
-              {dir.arrow} {w.azimuth}
-            </span>
-            {` ${dir.when} · `}
-            <b style={{ color: 'var(--color-plex-text)' }}>
-              {formatEventTime(w.start)}–{formatEventTime(w.end)}
-            </b>
-          </span>
-        );
-      })}
-      <span style={{ color: 'var(--color-plex-text-muted)', fontStyle: 'italic' }}>
-        look low on the horizon
-      </span>
-    </div>
-  );
-}
-
-NlcWindows.propTypes = {
-  topic: PropTypes.object.isRequired,
-  accentColor: PropTypes.string.isRequired,
-};
-
 /**
  * Compass point → look-direction arrow glyph, for a fact's accent `dir`. Non-compass directions
  * (imperatives like "get above it") get no arrow.
@@ -658,9 +597,8 @@ const COMPASS_ARROW = {
 /**
  * The generalized enriched "science showing" second line: a wrapping row of monospace fact chips
  * plus one italic muted "where to look" note. Driven by the backend-supplied `topic.facts`
- * (`[{ key, value, dir?, emphasis?, optional? }]`) and `topic.note`, so every topic type renders
- * through the same view (the NLC pill keeps its bespoke {@link NlcWindows} line). Renders nothing
- * when the topic carries no facts.
+ * (`[{ key, value, dir?, emphasis?, optional? }]`) and `topic.note`, so every topic type — including
+ * NLC — renders through the same view. Renders nothing when the topic carries no facts.
  *
  * <p>For Lite users the values are blurred — a paywall tease that shows the shape of the science
  * without the readable numbers. On narrow viewports, chips marked `optional` are hidden via the
@@ -963,13 +901,9 @@ export default function HotTopicStrip({
               )}
             </button>
 
-            {/* NLC pill second line — the two twilight visibility windows (NW after dusk,
-                NE before dawn). Persistent, not gated behind expansion; renders nothing for
-                non-NLC pills or when no window geometry is present. */}
-            {topic.type === 'NLC' && <NlcWindows topic={topic} accentColor={style.color} />}
-
             {/* Generalized enriched second line — the "science showing" fact chips + note,
-                driven by backend-supplied topic.facts. Persistent, like the NLC line. */}
+                driven by backend-supplied topic.facts. Persistent, not gated behind expansion.
+                Every topic type (NLC included) renders through this one component. */}
             {topic.facts?.length > 0 && (
               <TopicFacts topic={topic} accentColor={style.color} isLiteUser={isLiteUser} />
             )}

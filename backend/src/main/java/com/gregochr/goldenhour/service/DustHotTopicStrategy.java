@@ -43,17 +43,20 @@ public class DustHotTopicStrategy implements HotTopicStrategy {
 
     private final SurvivorSignalReader survivorSignalReader;
     private final SolarEventFreshness freshness;
+    private final DustFactsBuilder dustFactsBuilder;
 
     /**
      * Constructs a {@code DustHotTopicStrategy}.
      *
      * @param survivorSignalReader the unified survivor read model (aerosol readings)
      * @param freshness            shared filter dropping sunrise/sunset events already past
+     * @param dustFactsBuilder     builds the enriched AOD + afterglow fact line
      */
     public DustHotTopicStrategy(SurvivorSignalReader survivorSignalReader,
-            SolarEventFreshness freshness) {
+            SolarEventFreshness freshness, DustFactsBuilder dustFactsBuilder) {
         this.survivorSignalReader = survivorSignalReader;
         this.freshness = freshness;
+        this.dustFactsBuilder = dustFactsBuilder;
     }
 
     /**
@@ -101,6 +104,7 @@ public class DustHotTopicStrategy implements HotTopicStrategy {
                 "Saharan dust",
                 "Elevated dust — vivid colour potential at sunrise and sunset",
                 PRIORITY,
-                DUST_DESCRIPTION);
+                DUST_DESCRIPTION,
+                dustFactsBuilder::attach);
     }
 }

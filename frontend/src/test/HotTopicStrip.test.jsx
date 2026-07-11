@@ -2406,43 +2406,44 @@ describe('HotTopicStrip — clickable regions', () => {
   });
 });
 
-describe('NLC twilight windows', () => {
+describe('NLC enriched facts', () => {
   const nlcTopic = (overrides = {}) => buildTopic({
     type: 'NLC',
     label: 'Noctilucent cloud season',
     detail: 'Clear northern horizon — 64 dark-sky sites',
     date: '2026-06-20',
     regions: ['Northumberland'],
-    eveningWindow: { start: '22:46', end: '23:52', azimuth: 'NW' },
-    morningWindow: { start: '02:10', end: '03:18', azimuth: 'NE' },
+    facts: [
+      { value: 'after dusk · 22:46–23:52', dir: 'NW', emphasis: false },
+      { value: 'before dawn · 02:10–03:18', dir: 'NE', emphasis: false },
+    ],
+    note: 'look low on the horizon',
     ...overrides,
   });
 
-  it('renders both windows with NW/NE directions and times', () => {
+  it('renders both twilight-window facts with NW/NE arrows, times and the look-note', () => {
     render(<HotTopicStrip hotTopics={[nlcTopic()]} />);
-    const windows = screen.getByTestId('nlc-windows');
-    expect(windows).toBeInTheDocument();
-    const evening = screen.getByTestId('nlc-window-NW');
-    const morning = screen.getByTestId('nlc-window-NE');
-    expect(evening.textContent).toMatch(/NW after dusk · 22:46–23:52/);
-    expect(morning.textContent).toMatch(/NE before dawn · 02:10–03:18/);
-    expect(windows.textContent).toMatch(/look low on the horizon/);
+    const facts = screen.getByTestId('topic-facts-NLC');
+    expect(facts).toBeInTheDocument();
+    expect(screen.getAllByTestId('topic-fact')).toHaveLength(2);
+    expect(facts.textContent).toMatch(/after dusk · 22:46–23:52/);
+    expect(facts.textContent).toMatch(/↖\s*NW/);
+    expect(facts.textContent).toMatch(/before dawn · 02:10–03:18/);
+    expect(facts.textContent).toMatch(/↗\s*NE/);
+    expect(screen.getByTestId('topic-fact-note')).toHaveTextContent('look low on the horizon');
   });
 
   it('renders only the evening window when the morning window is absent', () => {
-    render(<HotTopicStrip hotTopics={[nlcTopic({ morningWindow: null })]} />);
-    expect(screen.getByTestId('nlc-window-NW')).toBeInTheDocument();
-    expect(screen.queryByTestId('nlc-window-NE')).not.toBeInTheDocument();
+    render(<HotTopicStrip hotTopics={[nlcTopic({
+      facts: [{ value: 'after dusk · 22:46–23:52', dir: 'NW', emphasis: false }],
+    })]} />);
+    expect(screen.getAllByTestId('topic-fact')).toHaveLength(1);
+    expect(screen.queryByText(/before dawn/)).not.toBeInTheDocument();
   });
 
-  it('degrades to a single-line pill (no windows row) when both windows are absent', () => {
-    render(<HotTopicStrip hotTopics={[nlcTopic({ eveningWindow: null, morningWindow: null })]} />);
+  it('degrades to a single-line pill (no facts row) when the topic carries no facts', () => {
+    render(<HotTopicStrip hotTopics={[nlcTopic({ facts: undefined, note: undefined })]} />);
     expect(screen.getByTestId('hot-topic-pill-NLC')).toBeInTheDocument();
-    expect(screen.queryByTestId('nlc-windows')).not.toBeInTheDocument();
-  });
-
-  it('does not render a windows row for non-NLC pills', () => {
-    render(<HotTopicStrip hotTopics={[buildTopic({ type: 'BLUEBELL' })]} />);
-    expect(screen.queryByTestId('nlc-windows')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('topic-facts-NLC')).not.toBeInTheDocument();
   });
 });

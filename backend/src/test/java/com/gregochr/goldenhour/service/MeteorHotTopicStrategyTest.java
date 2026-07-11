@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -53,6 +54,55 @@ class MeteorHotTopicStrategyTest {
         assertThat(topic.priority()).isEqualTo(7);
         assertThat(topic.date()).isEqualTo(PERSEIDS_PEAK);
         assertThat(topic.detail()).contains("Perseids");
+
+        // Perseids catalogue constants: ZHR ~100, radiant NE, best 01:00–04:00; moon 20% is dark.
+        assertThat(factWithKey(topic, "ZHR").value()).isEqualTo("~100 at peak");
+        HotTopicFact radiant = factWithKey(topic, "radiant");
+        assertThat(radiant.value()).isEqualTo("best 01:00–04:00");
+        assertThat(radiant.dir()).isEqualTo("NE");
+        HotTopicFact moon = factWithKey(topic, "moon");
+        assertThat(moon.value()).isEqualTo("20% · dark enough");
+        assertThat(moon.optional()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a half-lit peak still under the gate reads 'some moonlight' in both headline and chip")
+    void detect_someMoonlightPeak_headlineAndChipAgree() {
+        when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.40);
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(darkSkyLocation());
+
+        HotTopic topic = strategy.detect(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 13)).get(0);
+
+        // The headline must not claim "dark moon" while the chip reports the sky is 40% lit.
+        assertThat(topic.detail()).isEqualTo("Perseids peak — some moonlight, still worth a look");
+        assertThat(factWithKey(topic, "moon").value()).isEqualTo("40% · some moonlight");
+    }
+
+    @Test
+    @DisplayName("moon exactly at the 25% dark band boundary reads 'some moonlight'")
+    void detect_moonAtDarkBandBoundary_someMoonlight() {
+        when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.25);
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(darkSkyLocation());
+
+        HotTopic topic = strategy.detect(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 13)).get(0);
+
+        assertThat(topic.detail()).isEqualTo("Perseids peak — some moonlight, still worth a look");
+        assertThat(factWithKey(topic, "moon").value()).isEqualTo("25% · some moonlight");
+    }
+
+    @Test
+    @DisplayName("moon just below the 25% boundary reads 'dark moon' / 'dark enough'")
+    void detect_moonJustBelowDarkBandBoundary_darkMoon() {
+        when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.24);
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(darkSkyLocation());
+
+        HotTopic topic = strategy.detect(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 13)).get(0);
+
+        assertThat(topic.detail()).isEqualTo("Perseids peak — dark moon, good viewing");
+        assertThat(factWithKey(topic, "moon").value()).isEqualTo("24% · dark enough");
     }
 
     @Test
@@ -100,6 +150,10 @@ class MeteorHotTopicStrategyTest {
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).date()).isEqualTo(quadrantids);
         assertThat(topics.get(0).detail()).contains("Quadrantids");
+    }
+
+    private static HotTopicFact factWithKey(HotTopic topic, String key) {
+        return topic.facts().stream().filter(f -> key.equals(f.key())).findFirst().orElseThrow();
     }
 
     private List<LocationEntity> darkSkyLocation() {

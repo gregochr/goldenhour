@@ -3,12 +3,25 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.service.evaluation.PromptUtils;
+import com.gregochr.solarutils.LunarCalculator;
+import com.gregochr.solarutils.LunarPosition;
+import com.gregochr.solarutils.MoonriseMoonset;
+import com.gregochr.solarutils.MoonriseMoonsetCalculator;
 import org.springframework.stereotype.Component;
 
 import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -37,19 +50,43 @@ public class SupermoonHotTopicStrategy implements HotTopicStrategy {
     /** Maximum days from perigee for a full moon to count as a supermoon. */
     private static final double PERIGEE_WINDOW_DAYS = 3.0;
 
+    /** Mean Earth–Moon distance (km) — the baseline for the "larger than an average full moon". */
+    private static final double MEAN_DISTANCE_KM = 384400.0;
+
+    /** Fallback reference point (UK centre) when no coastal location is configured. */
+    private static final double UK_CENTRE_LAT = 54.5;
+    private static final double UK_CENTRE_LON = -2.5;
+
+    /** Minutes after sunset within which moonrise reads as "just after sunset". */
+    private static final long JUST_AFTER_SUNSET_MINUTES = 90;
+
+    private static final ZoneId LONDON = ZoneId.of("Europe/London");
+    private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");
+    private static final String SUPERMOON_NOTE = "catch it low behind a landmark";
+
     private final LunarPhaseService lunarPhaseService;
     private final LocationRepository locationRepository;
+    private final LunarCalculator lunarCalculator;
+    private final MoonriseMoonsetCalculator moonriseMoonsetCalculator;
+    private final SolarService solarService;
 
     /**
      * Constructs a {@code SupermoonHotTopicStrategy}.
      *
-     * @param lunarPhaseService  deterministic lunar phase / perigee service
-     * @param locationRepository repository for coastal-region lookups
+     * @param lunarPhaseService         deterministic lunar phase / perigee service
+     * @param locationRepository        coastal-region lookups + the reference location for moonrise
+     * @param lunarCalculator           lunar position (distance, azimuth, illumination) calculator
+     * @param moonriseMoonsetCalculator moonrise/moonset time calculator
+     * @param solarService              sunset time for the "just after sunset" relation
      */
     public SupermoonHotTopicStrategy(LunarPhaseService lunarPhaseService,
-            LocationRepository locationRepository) {
+            LocationRepository locationRepository, LunarCalculator lunarCalculator,
+            MoonriseMoonsetCalculator moonriseMoonsetCalculator, SolarService solarService) {
         this.lunarPhaseService = lunarPhaseService;
         this.locationRepository = locationRepository;
+        this.lunarCalculator = lunarCalculator;
+        this.moonriseMoonsetCalculator = moonriseMoonsetCalculator;
+        this.solarService = solarService;
     }
 
     /**
@@ -70,14 +107,18 @@ public class SupermoonHotTopicStrategy implements HotTopicStrategy {
     }
 
     private HotTopic buildTopic(LocalDate date, LocalDate today) {
-        List<String> coastalRegions = locationRepository.findCoastalLocations().stream()
+        List<LocationEntity> coastal = locationRepository.findCoastalLocations();
+        List<String> coastalRegions = coastal.stream()
                 .map(LocationEntity::getRegion)
                 .filter(Objects::nonNull)
                 .map(RegionEntity::getName)
                 .distinct()
                 .toList();
 
-        return new HotTopic(
+        double lat = coastal.isEmpty() ? UK_CENTRE_LAT : coastal.get(0).getLat();
+        double lon = coastal.isEmpty() ? UK_CENTRE_LON : coastal.get(0).getLon();
+
+        HotTopic topic = new HotTopic(
                 "SUPERMOON",
                 "Supermoon",
                 "Full moon at perigee — moonrise over the coast " + formatDayLabel(date, today),
@@ -87,6 +128,55 @@ public class SupermoonHotTopicStrategy implements HotTopicStrategy {
                 coastalRegions,
                 SUPERMOON_DESCRIPTION,
                 null);
+        List<HotTopicFact> facts = buildFacts(date, lat, lon);
+        return facts.isEmpty() ? topic : topic.withScience(facts, SUPERMOON_NOTE);
+    }
+
+    /**
+     * Builds the supermoon fact chips from the lunar ephemeris at moonrise (or sunset when the Moon
+     * does not rise): how much larger than an average full moon it appears — mean-distance based,
+     * the honest "vs a normal full moon" figure — with its illumination, and the moonrise time,
+     * compass bearing and relation to sunset.
+     *
+     * @param date the supermoon date
+     * @param lat  reference latitude
+     * @param lon  reference longitude
+     * @return the supermoon fact chips (empty only in the degenerate no-moonrise, no-sunset case)
+     */
+    private List<HotTopicFact> buildFacts(LocalDate date, double lat, double lon) {
+        List<HotTopicFact> facts = new ArrayList<>();
+        MoonriseMoonset moonriseMoonset = moonriseMoonsetCalculator.calculate(date, lat, lon, LONDON);
+        LocalDateTime sunsetLocal = solarService.sunsetUtc(lat, lon, date);
+        ZonedDateTime sunset = sunsetLocal == null ? null : sunsetLocal.atZone(ZoneOffset.UTC);
+        ZonedDateTime sampleAt = moonriseMoonset.moonrise().orElse(sunset);
+        if (sampleAt == null) {
+            return facts;
+        }
+
+        LunarPosition moon = lunarCalculator.calculate(sampleAt, lat, lon);
+        long litPct = Math.round(moon.illuminationPercent());
+        long pctLarger = Math.round((MEAN_DISTANCE_KM / moon.distanceKm() - 1) * 100);
+        facts.add(HotTopicFact.metric("perigee", "+" + pctLarger + "% larger · " + litPct + "% lit"));
+
+        moonriseMoonset.moonrise().ifPresent(rise -> {
+            String cardinal = PromptUtils.toCardinal((int) Math.round(moon.azimuth()));
+            String time = rise.withZoneSameInstant(LONDON).toLocalTime().format(HH_MM);
+            facts.add(HotTopicFact.directional("rises",
+                    time + ", " + sunsetRelation(sunset, rise), cardinal, false));
+        });
+
+        return facts;
+    }
+
+    private static String sunsetRelation(ZonedDateTime sunset, ZonedDateTime moonrise) {
+        if (sunset == null) {
+            return "after dark";
+        }
+        long minutes = Duration.between(sunset, moonrise).toMinutes();
+        if (minutes < 0) {
+            return "before sunset";
+        }
+        return minutes <= JUST_AFTER_SUNSET_MINUTES ? "just after sunset" : "after dark";
     }
 
     private String formatDayLabel(LocalDate date, LocalDate today) {

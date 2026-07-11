@@ -88,6 +88,34 @@ class NlcHotTopicStrategyTest {
     }
 
     @Test
+    @DisplayName("clear night emits generic facts (NW dusk + NE dawn windows) and the look-note")
+    void detect_clearNight_emitsGenericFacts() {
+        when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
+                new NlcNightClarity.ClearNight(TODAY, 3, List.of("Northumberland"), EVENING, MORNING))));
+
+        HotTopic topic = strategy.detect(TODAY, TO).get(0);
+
+        assertThat(topic.facts()).hasSize(2);
+        assertThat(topic.facts().get(0).value()).isEqualTo("after dusk · 22:46–23:52");
+        assertThat(topic.facts().get(0).dir()).isEqualTo("NW");
+        assertThat(topic.facts().get(1).value()).isEqualTo("before dawn · 02:10–03:18");
+        assertThat(topic.facts().get(1).dir()).isEqualTo("NE");
+        assertThat(topic.note()).isEqualTo("look low on the horizon");
+    }
+
+    @Test
+    @DisplayName("a partial (evening-only) night emits a single generic fact")
+    void detect_partialWindow_emitsSingleFact() {
+        when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
+                new NlcNightClarity.ClearNight(TODAY, 2, List.of("Northumberland"), EVENING, null))));
+
+        HotTopic topic = strategy.detect(TODAY, TO).get(0);
+
+        assertThat(topic.facts()).hasSize(1);
+        assertThat(topic.facts().get(0).dir()).isEqualTo("NW");
+    }
+
+    @Test
     @DisplayName("clear night with no twilight geometry (both windows null) is suppressed")
     void detect_noGeometry_suppressed() {
         when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
