@@ -155,7 +155,7 @@ class BriefingServiceTest {
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                BLUEBELL_WINDOW, nlc(), CLOCK, marineWaveRefreshService);
+                BLUEBELL_WINDOW, nlc(), meteor(), CLOCK, marineWaveRefreshService);
     }
 
     /** NLC clarity service wired with a real transect sampler over the mocked Open-Meteo client. */
@@ -163,6 +163,12 @@ class BriefingServiceTest {
         return new NlcClarityService(
                 new NorthwardTransectSampler(openMeteoClient), locationRepository,
                 new NlcTwilightWindowCalculator(new SolarService()));
+    }
+
+    /** Meteor clarity service wired with a real overhead sampler over the mocked Open-Meteo client. */
+    private MeteorClarityService meteor() {
+        return new MeteorClarityService(
+                new OverheadCloudSampler(openMeteoClient), locationRepository);
     }
 
     @Nested
@@ -540,7 +546,7 @@ class BriefingServiceTest {
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                BLUEBELL_WINDOW, nlc(), CLOCK, marineWaveRefreshService);
+                BLUEBELL_WINDOW, nlc(), meteor(), CLOCK, marineWaveRefreshService);
         freshService.loadPersistedBriefing();
 
         DailyBriefingResponse cached = freshService.getCachedBriefing();
@@ -572,7 +578,7 @@ class BriefingServiceTest {
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                BLUEBELL_WINDOW, nlc(), CLOCK, marineWaveRefreshService);
+                BLUEBELL_WINDOW, nlc(), meteor(), CLOCK, marineWaveRefreshService);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -597,7 +603,7 @@ class BriefingServiceTest {
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                BLUEBELL_WINDOW, nlc(), CLOCK, marineWaveRefreshService);
+                BLUEBELL_WINDOW, nlc(), meteor(), CLOCK, marineWaveRefreshService);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -1136,7 +1142,7 @@ class BriefingServiceTest {
                     new BriefingHierarchyBuilder(verdictEvaluator),
                     slotBuilder, eventPublisher, hotTopicAggregator,
                     briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                    BLUEBELL_WINDOW, nlc(), CLOCK, marineWaveRefreshService);
+                    BLUEBELL_WINDOW, nlc(), meteor(), CLOCK, marineWaveRefreshService);
             freshService.loadPersistedBriefing();
 
             // Trigger below-threshold refresh: 1 location, batch throws → succeeded=0, failed=1

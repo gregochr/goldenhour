@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
+import com.gregochr.goldenhour.model.MeteorClarity;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -14,6 +15,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
@@ -32,11 +34,26 @@ class MeteorHotTopicStrategyTest {
     @Mock
     private LocationRepository locationRepository;
 
+    @Mock
+    private MeteorClarityService meteorClarityService;
+
     private MeteorHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        strategy = new MeteorHotTopicStrategy(lunarPhaseService, locationRepository);
+        strategy = new MeteorHotTopicStrategy(
+                lunarPhaseService, locationRepository, meteorClarityService);
+    }
+
+    /** Stubs the clarity cache as empty — the topic fires, but carries no clear-sky fact. */
+    private void stubNoClarity() {
+        when(meteorClarityService.getCached()).thenReturn(MeteorClarity.EMPTY);
+    }
+
+    /** Stubs the clarity cache with a clear/total count for one peak night. */
+    private void stubClarity(LocalDate peak, int clear, int total) {
+        when(meteorClarityService.getCached()).thenReturn(
+                new MeteorClarity(Map.of(peak, new MeteorClarity.NightClarity(clear, total))));
     }
 
     @Test
@@ -45,6 +62,7 @@ class MeteorHotTopicStrategyTest {
         when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.2);
         when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
                 .thenReturn(darkSkyLocation());
+        stubNoClarity();
 
         List<HotTopic> topics = strategy.detect(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 13));
 
@@ -65,12 +83,59 @@ class MeteorHotTopicStrategyTest {
         assertThat(moon.optional()).isTrue();
     }
 
+    // ── Clear-sky fact (overhead dark-sky clarity for the peak night) ────────────
+
+    @Test
+    @DisplayName("clear-sky fact shows clear-of-total dark-sky locations for the peak night")
+    void detect_clearSkyFact_present() {
+        when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.2);
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(darkSkyLocation());
+        stubClarity(PERSEIDS_PEAK, 12, 30);
+
+        HotTopic topic = strategy.detect(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 13)).get(0);
+
+        assertThat(topic.facts())
+                .anyMatch(f -> "clear at 12 of 30 dark-sky locations".equals(f.value()));
+    }
+
+    @Test
+    @DisplayName("no clear-sky fact when the clarity scan did not cover the peak night")
+    void detect_noClarityForPeak_omitsClearFact() {
+        when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.2);
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(darkSkyLocation());
+        stubNoClarity();
+
+        HotTopic topic = strategy.detect(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 13)).get(0);
+
+        assertThat(topic.facts())
+                .noneMatch(f -> f.value() != null && f.value().startsWith("clear at"));
+    }
+
+    @Test
+    @DisplayName("clear-sky fact omitted when the scanned total is zero (no fabricated fraction)")
+    void detect_zeroTotal_omitsClearFact() {
+        when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.2);
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(darkSkyLocation());
+        stubClarity(PERSEIDS_PEAK, 0, 0);
+
+        HotTopic topic = strategy.detect(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 13)).get(0);
+
+        assertThat(topic.facts())
+                .noneMatch(f -> f.value() != null && f.value().startsWith("clear at"));
+    }
+
+    // ── Moon band + fire gate ───────────────────────────────────────────────────
+
     @Test
     @DisplayName("a half-lit peak still under the gate reads 'some moonlight' in both headline and chip")
     void detect_someMoonlightPeak_headlineAndChipAgree() {
         when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.40);
         when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
                 .thenReturn(darkSkyLocation());
+        stubNoClarity();
 
         HotTopic topic = strategy.detect(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 13)).get(0);
 
@@ -85,6 +150,7 @@ class MeteorHotTopicStrategyTest {
         when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.25);
         when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
                 .thenReturn(darkSkyLocation());
+        stubNoClarity();
 
         HotTopic topic = strategy.detect(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 13)).get(0);
 
@@ -98,6 +164,7 @@ class MeteorHotTopicStrategyTest {
         when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.24);
         when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
                 .thenReturn(darkSkyLocation());
+        stubNoClarity();
 
         HotTopic topic = strategy.detect(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 13)).get(0);
 
@@ -111,6 +178,7 @@ class MeteorHotTopicStrategyTest {
         when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.49);
         when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
                 .thenReturn(darkSkyLocation());
+        stubNoClarity();
 
         assertThat(strategy.detect(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 13))).hasSize(1);
     }
@@ -144,12 +212,34 @@ class MeteorHotTopicStrategyTest {
         when(lunarPhaseService.getIlluminationFraction(quadrantids)).thenReturn(0.1);
         when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
                 .thenReturn(darkSkyLocation());
+        stubNoClarity();
 
         List<HotTopic> topics = strategy.detect(LocalDate.of(2026, 12, 31), LocalDate.of(2027, 1, 3));
 
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).date()).isEqualTo(quadrantids);
         assertThat(topics.get(0).detail()).contains("Quadrantids");
+    }
+
+    // ── peakDatesWithin (shared with MeteorClarityService) ───────────────────────
+
+    @Test
+    @DisplayName("peakDatesWithin returns only the nights that fall on a shower peak")
+    void peakDatesWithin_returnsShowerPeakNightsOnly() {
+        List<LocalDate> nights = List.of(
+                LocalDate.of(2026, 8, 10), PERSEIDS_PEAK, LocalDate.of(2026, 8, 13));
+
+        assertThat(MeteorHotTopicStrategy.peakDatesWithin(nights))
+                .containsExactly(PERSEIDS_PEAK);
+    }
+
+    @Test
+    @DisplayName("peakDatesWithin returns empty when no night is a shower peak")
+    void peakDatesWithin_noPeaks_empty() {
+        List<LocalDate> nights = List.of(
+                LocalDate.of(2026, 6, 17), LocalDate.of(2026, 6, 18), LocalDate.of(2026, 6, 19));
+
+        assertThat(MeteorHotTopicStrategy.peakDatesWithin(nights)).isEmpty();
     }
 
     private static HotTopicFact factWithKey(HotTopic topic, String key) {
