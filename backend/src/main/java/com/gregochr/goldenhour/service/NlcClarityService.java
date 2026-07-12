@@ -124,7 +124,7 @@ public class NlcClarityService {
                 NlcTwilightWindowCalculator.NlcWindows windows = windowCalculator.compute(
                         representative.getLat(), representative.getLon(), date);
                 clearNights.add(new NlcNightClarity.ClearNight(
-                        date, clearCount, new ArrayList<>(regions),
+                        date, clearCount, darkSky.size(), new ArrayList<>(regions),
                         windows.evening(), windows.morning()));
             }
         }

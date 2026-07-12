@@ -30,6 +30,8 @@ class NlcHotTopicStrategyTest {
     private static final LocalDate TO = TODAY.plusDays(3);
     private static final NlcWindow EVENING = new NlcWindow("22:46", "23:52", "NW");
     private static final NlcWindow MORNING = new NlcWindow("02:10", "03:18", "NE");
+    /** Dark-sky total scanned — the denominator in the "clear at X of Y" detail line. */
+    private static final int TOTAL_DARK_SKY = 20;
 
     @Mock
     private NlcClarityService clarityService;
@@ -61,7 +63,8 @@ class NlcHotTopicStrategyTest {
     @DisplayName("clear night tonight: fires with count, regions and priority 8")
     void detect_clearTonight_fires() {
         when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
-                new NlcNightClarity.ClearNight(TODAY, 3, List.of("Northumberland"), EVENING, MORNING))));
+                new NlcNightClarity.ClearNight(
+                        TODAY, 3, TOTAL_DARK_SKY, List.of("Northumberland"), EVENING, MORNING))));
 
         List<HotTopic> topics = strategy.detect(TODAY, TO);
 
@@ -72,14 +75,15 @@ class NlcHotTopicStrategyTest {
         assertThat(topic.date()).isEqualTo(TODAY);
         assertThat(topic.regions()).containsExactly("Northumberland");
         assertThat(topic.detail())
-                .isEqualTo("Clear northern horizon tonight — 3 dark-sky locations");
+                .isEqualTo("Clear northern horizon tonight — clear at 3 of 20 dark-sky locations");
     }
 
     @Test
     @DisplayName("clear night carries both twilight windows onto the topic")
     void detect_clearNight_attachesWindows() {
         when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
-                new NlcNightClarity.ClearNight(TODAY, 3, List.of("Northumberland"), EVENING, MORNING))));
+                new NlcNightClarity.ClearNight(
+                        TODAY, 3, TOTAL_DARK_SKY, List.of("Northumberland"), EVENING, MORNING))));
 
         HotTopic topic = strategy.detect(TODAY, TO).get(0);
 
@@ -91,7 +95,8 @@ class NlcHotTopicStrategyTest {
     @DisplayName("clear night emits generic facts (NW dusk + NE dawn windows) and the look-note")
     void detect_clearNight_emitsGenericFacts() {
         when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
-                new NlcNightClarity.ClearNight(TODAY, 3, List.of("Northumberland"), EVENING, MORNING))));
+                new NlcNightClarity.ClearNight(
+                        TODAY, 3, TOTAL_DARK_SKY, List.of("Northumberland"), EVENING, MORNING))));
 
         HotTopic topic = strategy.detect(TODAY, TO).get(0);
 
@@ -107,7 +112,8 @@ class NlcHotTopicStrategyTest {
     @DisplayName("a partial (evening-only) night emits a single generic fact")
     void detect_partialWindow_emitsSingleFact() {
         when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
-                new NlcNightClarity.ClearNight(TODAY, 2, List.of("Northumberland"), EVENING, null))));
+                new NlcNightClarity.ClearNight(
+                        TODAY, 2, TOTAL_DARK_SKY, List.of("Northumberland"), EVENING, null))));
 
         HotTopic topic = strategy.detect(TODAY, TO).get(0);
 
@@ -119,7 +125,8 @@ class NlcHotTopicStrategyTest {
     @DisplayName("clear night with no twilight geometry (both windows null) is suppressed")
     void detect_noGeometry_suppressed() {
         when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
-                new NlcNightClarity.ClearNight(TODAY, 3, List.of("Northumberland"), null, null))));
+                new NlcNightClarity.ClearNight(
+                        TODAY, 3, TOTAL_DARK_SKY, List.of("Northumberland"), null, null))));
 
         assertThat(strategy.detect(TODAY, TO)).isEmpty();
     }
@@ -128,7 +135,8 @@ class NlcHotTopicStrategyTest {
     @DisplayName("a partial window (evening only) still qualifies")
     void detect_partialWindow_fires() {
         when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
-                new NlcNightClarity.ClearNight(TODAY, 2, List.of("Northumberland"), EVENING, null))));
+                new NlcNightClarity.ClearNight(
+                        TODAY, 2, TOTAL_DARK_SKY, List.of("Northumberland"), EVENING, null))));
 
         List<HotTopic> topics = strategy.detect(TODAY, TO);
 
@@ -138,26 +146,26 @@ class NlcHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("single clear location is singular in the detail line")
-    void detect_singleLocation_singularWording() {
+    @DisplayName("a single clear location reads 'clear at 1 of N' in the detail line")
+    void detect_singleLocation_readsClearAtOneOfTotal() {
         when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
-                new NlcNightClarity.ClearNight(TODAY.plusDays(1), 1, List.of("The Lake District"),
-                        EVENING, MORNING))));
+                new NlcNightClarity.ClearNight(TODAY.plusDays(1), 1, TOTAL_DARK_SKY,
+                        List.of("The Lake District"), EVENING, MORNING))));
 
         List<HotTopic> topics = strategy.detect(TODAY, TO);
 
         assertThat(topics.get(0).detail())
-                .isEqualTo("Clear northern horizon tomorrow night — 1 dark-sky location");
+                .isEqualTo("Clear northern horizon tomorrow night — clear at 1 of 20 dark-sky locations");
     }
 
     @Test
     @DisplayName("earliest clear night in the window is chosen; later ones ignored")
     void detect_multipleClearNights_picksEarliest() {
         when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
-                new NlcNightClarity.ClearNight(TODAY.plusDays(2), 5, List.of("Northumberland"),
-                        EVENING, MORNING),
-                new NlcNightClarity.ClearNight(TODAY.plusDays(3), 2, List.of("The Lake District"),
-                        EVENING, MORNING))));
+                new NlcNightClarity.ClearNight(TODAY.plusDays(2), 5, TOTAL_DARK_SKY,
+                        List.of("Northumberland"), EVENING, MORNING),
+                new NlcNightClarity.ClearNight(TODAY.plusDays(3), 2, TOTAL_DARK_SKY,
+                        List.of("The Lake District"), EVENING, MORNING))));
 
         List<HotTopic> topics = strategy.detect(TODAY, TO);
 
@@ -165,15 +173,15 @@ class NlcHotTopicStrategyTest {
         // 2026-06-19 is a Friday.
         assertThat(topics.get(0).date()).isEqualTo(TODAY.plusDays(2));
         assertThat(topics.get(0).detail())
-                .isEqualTo("Clear northern horizon Friday night — 5 dark-sky locations");
+                .isEqualTo("Clear northern horizon Friday night — clear at 5 of 20 dark-sky locations");
     }
 
     @Test
     @DisplayName("clear night outside the requested window is filtered out")
     void detect_clearNightOutsideWindow_suppressed() {
         when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
-                new NlcNightClarity.ClearNight(TO.plusDays(5), 4, List.of("Northumberland"),
-                        EVENING, MORNING))));
+                new NlcNightClarity.ClearNight(TO.plusDays(5), 4, TOTAL_DARK_SKY,
+                        List.of("Northumberland"), EVENING, MORNING))));
 
         assertThat(strategy.detect(TODAY, TO)).isEmpty();
     }

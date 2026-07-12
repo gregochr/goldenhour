@@ -87,6 +87,23 @@ class NlcClarityServiceTest {
     }
 
     @Test
+    @DisplayName("clear-night record carries the dark-sky total — the 'of Y' denominator")
+    void refresh_clearNight_carriesDarkSkyTotal() {
+        LocationEntity clear = darkSky("Clear", "Northumberland", 3);
+        LocationEntity cloudy = darkSky("Cloudy", "Cumbria", 3);
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(List.of(clear, cloudy));
+        when(transectSampler.sample(any(), any(), any()))
+                .thenReturn(Map.of(clear, new int[]{20}, cloudy, new int[]{90}));
+
+        service.refresh(List.of(IN_SEASON));
+
+        NlcNightClarity.ClearNight night = service.getCached().clearNights().get(0);
+        assertThat(night.clearLocationCount()).isEqualTo(1);   // only the clear location counts
+        assertThat(night.totalDarkSkyCount()).isEqualTo(2);    // both scanned — the "of 2" denominator
+    }
+
+    @Test
     @DisplayName("overcast northern transect yields no clear night")
     void refresh_overcastTransect_noClearNight() {
         LocationEntity loc = darkSky("Kielder", "Northumberland", 3);
