@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Aurora pill adopts the same "clear at X of Y dark-sky locations" idiom
+- Following the NLC change, the aurora tonight pill's detail read "Kp 6 forecast tonight — 8 dark-sky locations with clear skies". The 8 was the clear count, but with no denominator it lost the "how widespread" colour that the same triage already knows.
+- It now reads **"Kp 6 forecast tonight — clear at 8 of 30 dark-sky locations"**, matching the NLC pill and the Plan briefing strip. The dark-sky total is summed from the aurora region summaries (each `AuroraRegionSummary` already carries `totalDarkSkyLocations`) onto `AuroraTonightSummary.totalDarkSkyCount`, or read from `AuroraStateCache.getDarkSkyLocationCount()` on the state-cache fallback path — both denominators match their clear count exactly, so the fraction is honest. Falls back to the old "N with clear skies" wording only if the total is unknown or inconsistent.
+- The other night topics don't carry a clear count to reframe: **meteor** fires on the shower calendar + moon (no per-location clarity scan), and **supermoon** is sky-wide. Left unchanged.
+- Tests: `AuroraHotTopicStrategyTest` covers both the briefing-summary and state-cache paths at the new wording; `BriefingAuroraSummaryBuilderTest` locks that the total sums the region dark-sky counts.
+
 ### Changed — NLC pill now reads "clear at X of Y dark-sky locations", not a bare count
 - The Noctilucent cloud topic's detail showed e.g. "Clear northern horizon tonight — 241 dark-sky locations". The 241 was already the *clear* count (correctly computed), but with no denominator it read like the total dark-sky inventory, losing the "how many are clear" colour.
 - It now reads **"clear at 241 of 312 dark-sky locations"**, matching the Plan briefing strip's *"Clear at X of Y"* idiom — so the number reads as how widespread the clear northern horizon is, and the total is visible for context (a quiet high-pressure night lights up nearly all of them). The total (`darkSky.size()`, already computed by the clarity scan) is now carried onto `NlcNightClarity.ClearNight` as `totalDarkSkyCount`; the in-memory clarity cache is not persisted, so no migration.

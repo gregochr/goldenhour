@@ -63,7 +63,7 @@ class AuroraHotTopicStrategyTest {
         when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
         when(auroraStateCache.getLastTriggerKp()).thenReturn(5.2);
         when(auroraSummaryBuilder.buildAuroraTonightCached()).thenReturn(
-                new AuroraTonightSummary(AlertLevel.MODERATE, 5.2, 8,
+                new AuroraTonightSummary(AlertLevel.MODERATE, 5.2, 8, 30,
                         List.of(), null, null, null, null, null, null, null));
         stubDarkSkyLocations("Northumberland");
 
@@ -76,7 +76,7 @@ class AuroraHotTopicStrategyTest {
         assertThat(tonight.label()).isEqualTo("Aurora possible");
         assertThat(tonight.priority()).isEqualTo(1);
         assertThat(tonight.detail()).contains("Kp 5");
-        assertThat(tonight.detail()).contains("8 dark-sky locations");
+        assertThat(tonight.detail()).contains("clear at 8 of 30 dark-sky locations");
         assertThat(tonight.regions()).containsExactly("Northumberland");
         assertThat(tonight.description()).contains("aurora borealis");
     }
@@ -169,7 +169,7 @@ class AuroraHotTopicStrategyTest {
         when(auroraStateCache.getLastTriggerKp()).thenReturn(6.0);
         when(noaaSwpcClient.getGlowLatitudeCap(6.0)).thenReturn(54.0);
         when(auroraSummaryBuilder.buildAuroraTonightCached()).thenReturn(
-                new AuroraTonightSummary(AlertLevel.MODERATE, 6.0, 8, List.of(),
+                new AuroraTonightSummary(AlertLevel.MODERATE, 6.0, 8, 30, List.of(),
                         null, null, 18.0, null, null, null, null));
         stubDarkSkyLocations("Northumberland");
 
@@ -209,7 +209,7 @@ class AuroraHotTopicStrategyTest {
         when(auroraStateCache.getLastTriggerKp()).thenReturn(6.0);
         when(noaaSwpcClient.getGlowLatitudeCap(6.0)).thenReturn(54.0);
         when(auroraSummaryBuilder.buildAuroraTonightCached()).thenReturn(
-                new AuroraTonightSummary(AlertLevel.MODERATE, 6.0, 8, List.of(),
+                new AuroraTonightSummary(AlertLevel.MODERATE, 6.0, 8, 30, List.of(),
                         null, null, null, null, null, null, null));
         stubDarkSkyLocations("Northumberland");
 
@@ -587,7 +587,7 @@ class AuroraHotTopicStrategyTest {
         when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
         when(auroraStateCache.getLastTriggerKp()).thenReturn(6.0);
         when(auroraSummaryBuilder.buildAuroraTonightCached()).thenReturn(
-                new AuroraTonightSummary(AlertLevel.MODERATE, 6.0, 72,
+                new AuroraTonightSummary(AlertLevel.MODERATE, 6.0, 72, 90,
                         List.of(), null, null, null, null, null, null, null));
         stubDarkSkyLocations("Northumberland");
 
@@ -596,7 +596,7 @@ class AuroraHotTopicStrategyTest {
         HotTopic tonight = topics.stream()
                 .filter(t -> t.date().equals(TODAY))
                 .findFirst().orElseThrow();
-        assertThat(tonight.detail()).contains("72 dark-sky locations");
+        assertThat(tonight.detail()).contains("clear at 72 of 90 dark-sky locations");
         assertThat(tonight.detail()).doesNotContain("214");
     }
 
@@ -606,6 +606,7 @@ class AuroraHotTopicStrategyTest {
         when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
         when(auroraStateCache.getLastTriggerKp()).thenReturn(6.0);
         when(auroraStateCache.getClearLocationCount()).thenReturn(42);
+        when(auroraStateCache.getDarkSkyLocationCount()).thenReturn(60);
         when(auroraSummaryBuilder.buildAuroraTonightCached()).thenReturn(null);
         stubDarkSkyLocations("Northumberland");
 
@@ -614,7 +615,7 @@ class AuroraHotTopicStrategyTest {
         HotTopic tonight = topics.stream()
                 .filter(t -> t.date().equals(TODAY))
                 .findFirst().orElseThrow();
-        assertThat(tonight.detail()).contains("42 dark-sky locations");
+        assertThat(tonight.detail()).contains("clear at 42 of 60 dark-sky locations");
     }
 
     // ── Interaction verification ─────────────────────────────────────────────
