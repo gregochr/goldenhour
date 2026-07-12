@@ -85,6 +85,7 @@ public class BriefingService {
     private final com.gregochr.goldenhour.service.pipeline.BestBetFallbackService bestBetFallbackService;
     private final SeasonalWindow bluebellSeason;
     private final NlcClarityService nlcClarityService;
+    private final MeteorClarityService meteorClarityService;
     private final java.time.Clock clock;
     private final MarineWaveRefreshService marineWaveRefreshService;
 
@@ -138,6 +139,7 @@ public class BriefingService {
      * @param bestBetFallbackService     serves the fail-safe stale best-bet fallback on FAILED
      * @param bluebellSeason             the configured bluebell season window
      * @param nlcClarityService          caches which nights have a clear dark-sky NLC chance
+     * @param meteorClarityService       caches overhead dark-sky clarity for shower-peak nights
      * @param clock                      UTC clock supplying "now" and (via London) "today"
      * @param marineWaveRefreshService   fetches + persists coastal sea-state each briefing cycle
      */
@@ -159,6 +161,7 @@ public class BriefingService {
             com.gregochr.goldenhour.service.pipeline.BestBetFallbackService bestBetFallbackService,
             SeasonalWindow bluebellSeason,
             NlcClarityService nlcClarityService,
+            MeteorClarityService meteorClarityService,
             java.time.Clock clock,
             MarineWaveRefreshService marineWaveRefreshService) {
         this.locationService = locationService;
@@ -181,6 +184,7 @@ public class BriefingService {
         this.bestBetFallbackService = bestBetFallbackService;
         this.bluebellSeason = bluebellSeason;
         this.nlcClarityService = nlcClarityService;
+        this.meteorClarityService = meteorClarityService;
         this.clock = clock;
         this.marineWaveRefreshService = marineWaveRefreshService;
     }
@@ -464,6 +468,16 @@ public class BriefingService {
             nlcClarityService.refresh(dates);
         } catch (Exception e) {
             LOG.warn("NLC clarity refresh failed — NLC topic may be suppressed: {}", e.getMessage());
+        }
+
+        // Refresh the meteor overhead-clarity cache — samples total cloud above each dark-sky site,
+        // but only on shower-peak nights, so the meteor topic can show "clear at X of Y dark-sky
+        // locations". Failure only drops that fact, never the topic.
+        try {
+            meteorClarityService.refresh(dates);
+        } catch (Exception e) {
+            LOG.warn("Meteor clarity refresh failed — clear-sky fact may be omitted: {}",
+                    e.getMessage());
         }
 
         List<HotTopic> hotTopics = hotTopicAggregator.getHotTopics(today, today.plusDays(3));

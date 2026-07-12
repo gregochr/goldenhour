@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.time.MonthDay;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -62,17 +63,42 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
 
     private final LunarPhaseService lunarPhaseService;
     private final LocationRepository locationRepository;
+    private final MeteorClarityService meteorClarityService;
 
     /**
      * Constructs a {@code MeteorHotTopicStrategy}.
      *
-     * @param lunarPhaseService  lunar illumination service for the dark-moon gate
-     * @param locationRepository repository for dark-sky region lookups
+     * @param lunarPhaseService    lunar illumination service for the dark-moon gate
+     * @param locationRepository   repository for dark-sky region lookups
+     * @param meteorClarityService cache of how many dark-sky locations are clear overhead on the peak
      */
     public MeteorHotTopicStrategy(LunarPhaseService lunarPhaseService,
-            LocationRepository locationRepository) {
+            LocationRepository locationRepository, MeteorClarityService meteorClarityService) {
         this.lunarPhaseService = lunarPhaseService;
         this.locationRepository = locationRepository;
+        this.meteorClarityService = meteorClarityService;
+    }
+
+    /**
+     * Returns the dates within {@code nights} that coincide with a catalogued shower peak — the nights
+     * the overhead-clarity scan needs to sample (usually none, occasionally one). Shared with
+     * {@link MeteorClarityService} so the scan fetches only on shower nights, never idly.
+     *
+     * @param nights the forecast-window nights to test
+     * @return the subset falling on a shower peak, in input order
+     */
+    static List<LocalDate> peakDatesWithin(List<LocalDate> nights) {
+        List<LocalDate> peaks = new ArrayList<>();
+        for (LocalDate night : nights) {
+            MonthDay monthDay = MonthDay.from(night);
+            for (Shower shower : SHOWERS) {
+                if (shower.peak().equals(monthDay)) {
+                    peaks.add(night);
+                    break;
+                }
+            }
+        }
+        return peaks;
     }
 
     /**
@@ -129,11 +155,12 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
         // sold as a "dark moon" beside a chip that reads "some moonlight".
         String moonQuality = darkEnough ? "dark enough" : "some moonlight";
         String viewingCue = darkEnough ? "dark moon, good viewing" : "some moonlight, still worth a look";
-        List<HotTopicFact> facts = List.of(
+        List<HotTopicFact> facts = new ArrayList<>(List.of(
                 HotTopicFact.metric("ZHR", "~" + shower.zhrPeak() + " at peak"),
                 HotTopicFact.directional("radiant", "best " + shower.bestHours(),
                         shower.radiantCompass(), false),
-                new HotTopicFact("moon", moonPct + "% · " + moonQuality, null, false, true));
+                new HotTopicFact("moon", moonPct + "% · " + moonQuality, null, false, true)));
+        addClearSkyFact(facts, peak);
 
         return new HotTopic(
                 "METEOR",
@@ -146,5 +173,26 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
                 METEOR_DESCRIPTION,
                 null)
                 .withScience(facts, null);
+    }
+
+    /**
+     * Appends the "clear at X of Y dark-sky locations" fact when the overhead-clarity scan covered
+     * this peak night — how many dark-sky locations are forecast clear overhead, the honest whole-sky
+     * signal for meteors (not the northern-horizon transect aurora/NLC use). Omitted (no fabricated
+     * figure) when the scan did not run or returned an inconsistent count.
+     *
+     * @param facts the fact list to append to
+     * @param peak  the shower peak night
+     */
+    private void addClearSkyFact(List<HotTopicFact> facts, LocalDate peak) {
+        meteorClarityService.getCached().forNight(peak).ifPresent(clarity -> {
+            if (clarity.totalDarkSkyCount() > 0
+                    && clarity.clearLocationCount() <= clarity.totalDarkSkyCount()) {
+                facts.add(new HotTopicFact(null,
+                        "clear at " + clarity.clearLocationCount() + " of "
+                                + clarity.totalDarkSkyCount() + " dark-sky locations",
+                        null, false, false));
+            }
+        });
     }
 }
