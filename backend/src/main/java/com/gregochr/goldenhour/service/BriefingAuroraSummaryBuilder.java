@@ -141,6 +141,10 @@ public class BriefingAuroraSummaryBuilder {
             int clearCount = regions.stream()
                     .mapToInt(AuroraRegionSummary::clearLocationCount)
                     .sum();
+            // ...and the dark-sky total across the same regions — the "clear at X of Y" denominator.
+            int totalDarkSkyCount = regions.stream()
+                    .mapToInt(AuroraRegionSummary::totalDarkSkyLocations)
+                    .sum();
 
             // Solar wind speed from NOAA cache
             Double solarWindSpeed = extractLatestSolarWindSpeed();
@@ -163,7 +167,7 @@ public class BriefingAuroraSummaryBuilder {
                 }
             }
 
-            return new AuroraTonightSummary(alertLevel, kp, clearCount, regions,
+            return new AuroraTonightSummary(alertLevel, kp, clearCount, totalDarkSkyCount, regions,
                     solarWindSpeed,
                     moon != null ? moon.phase().name() : null,
                     moon != null ? moon.illuminationPct() : null,

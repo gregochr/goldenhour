@@ -101,17 +101,20 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
         // Read count + moon from the summary when present, else fall back to the state cache's
         // count (an if/else, not a mixed int/Integer ternary, which would unbox a null count → NPE).
         Integer clearCount;
+        Integer totalCount;
         Double moonPct;
         if (tonight != null) {
             clearCount = tonight.clearLocationCount();
+            totalCount = tonight.totalDarkSkyCount();
             moonPct = tonight.moonIlluminationPct();
         } else {
             clearCount = auroraStateCache.getClearLocationCount();
+            totalCount = auroraStateCache.getDarkSkyLocationCount();
             moonPct = null;
         }
 
         int priority = (level == AlertLevel.STRONG || level == AlertLevel.MODERATE) ? 1 : 2;
-        String detail = buildTonightDetail(kp, clearCount);
+        String detail = buildTonightDetail(kp, clearCount, totalCount);
         List<String> regions = findAuroraRegions();
 
         HotTopic topic = new HotTopic(
@@ -183,7 +186,7 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
         return facts;
     }
 
-    private String buildTonightDetail(Double kp, Integer clearCount) {
+    private String buildTonightDetail(Double kp, Integer clearCount, Integer totalCount) {
         StringBuilder sb = new StringBuilder();
         if (kp != null) {
             sb.append(String.format("Kp %.0f forecast tonight", kp));
@@ -191,7 +194,14 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
             sb.append("Elevated activity tonight");
         }
         if (clearCount != null && clearCount > 0) {
-            sb.append(String.format(" — %d dark-sky locations with clear skies", clearCount));
+            // "clear at X of Y" when the dark-sky total is known and consistent, so the number reads
+            // as how widespread the clear sky is; fall back to the bare clear count otherwise.
+            if (totalCount != null && totalCount >= clearCount) {
+                sb.append(String.format(
+                        " — clear at %d of %d dark-sky locations", clearCount, totalCount));
+            } else {
+                sb.append(String.format(" — %d dark-sky locations with clear skies", clearCount));
+            }
         }
         return sb.toString();
     }

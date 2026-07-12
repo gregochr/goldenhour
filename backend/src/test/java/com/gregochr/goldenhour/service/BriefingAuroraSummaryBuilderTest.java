@@ -114,6 +114,8 @@ class BriefingAuroraSummaryBuilderTest {
         assertThat(summary.regions()).hasSize(1);
 
         AuroraRegionSummary region = summary.regions().get(0);
+        // The "of Y" denominator sums the region dark-sky totals (one region here).
+        assertThat(summary.totalDarkSkyCount()).isEqualTo(region.totalDarkSkyLocations());
         assertThat(region.regionTemperatureCelsius()).isEqualTo(3.5);
         assertThat(region.regionWindSpeedMs()).isEqualTo(4.2);
         assertThat(region.regionWeatherCode()).isEqualTo(2);

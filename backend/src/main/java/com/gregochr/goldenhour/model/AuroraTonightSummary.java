@@ -10,7 +10,8 @@ import java.util.List;
  *
  * @param alertLevel              current alert level (MINOR / MODERATE / STRONG)
  * @param kp                      Kp index that triggered the current alert, or {@code null}
- * @param clearLocationCount      number of locations that passed cloud triage
+ * @param clearLocationCount      number of dark-sky locations that passed cloud triage
+ * @param totalDarkSkyCount       total dark-sky locations triaged (the "of Y" denominator)
  * @param regions                 aurora-eligible locations grouped by geographic region
  * @param solarWindSpeedKmPerSec  latest NOAA solar wind speed in km/s, or {@code null}
  * @param moonPhase               lunar phase name (e.g. {@code "WAXING_GIBBOUS"}), or {@code null}
@@ -24,6 +25,7 @@ public record AuroraTonightSummary(
         AlertLevel alertLevel,
         Double kp,
         int clearLocationCount,
+        int totalDarkSkyCount,
         List<AuroraRegionSummary> regions,
         Double solarWindSpeedKmPerSec,
         String moonPhase,
