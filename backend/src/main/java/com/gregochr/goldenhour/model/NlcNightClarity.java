@@ -36,13 +36,15 @@ public record NlcNightClarity(List<ClearNight> clearNights) {
      * @param date               the evening's date (the night runs from this evening into the
      *                           following morning)
      * @param clearLocationCount number of dark-sky locations forecast clear that night
+     * @param totalDarkSkyCount  total dark-sky locations scanned that night (the denominator for
+     *                           "clear at X of Y" — how widespread the clear northern horizon is)
      * @param regions            distinct regions containing a clear dark-sky location; never null
      * @param eveningWindow      NLC twilight window low in the NW after dusk for a representative
      *                           clear location; may be null when that geometry does not exist
      * @param morningWindow      NLC twilight window low in the NE before dawn; may be null
      */
-    public record ClearNight(LocalDate date, int clearLocationCount, List<String> regions,
-            NlcWindow eveningWindow, NlcWindow morningWindow) {
+    public record ClearNight(LocalDate date, int clearLocationCount, int totalDarkSkyCount,
+            List<String> regions, NlcWindow eveningWindow, NlcWindow morningWindow) {
 
         /** Defensive compact constructor. */
         public ClearNight {

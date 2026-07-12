@@ -47,6 +47,8 @@ class NlcSightingServiceTest {
 
     private static final NlcWindow EVENING = new NlcWindow("22:46", "23:52", "NW");
     private static final NlcWindow MORNING = new NlcWindow("02:10", "03:18", "NE");
+    /** Dark-sky total scanned — irrelevant to sighting logic, just satisfies the ClearNight record. */
+    private static final int TOTAL_DARK_SKY = 100;
 
     @Mock
     private NlcSightingClient client;
@@ -74,8 +76,8 @@ class NlcSightingServiceTest {
 
     private void clearTonight(int locations) {
         when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
-                new NlcNightClarity.ClearNight(TONIGHT, locations, List.of("Scotland"),
-                        EVENING, MORNING))));
+                new NlcNightClarity.ClearNight(TONIGHT, locations, TOTAL_DARK_SKY,
+                        List.of("Scotland"), EVENING, MORNING))));
     }
 
     @Test
@@ -143,8 +145,8 @@ class NlcSightingServiceTest {
         when(client.getReports()).thenReturn(List.of(freshReport()));
         // Clarity has a clear night, but for a different date — tonight is not confirmed clear.
         when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
-                new NlcNightClarity.ClearNight(TONIGHT.plusDays(1), 5, List.of("Scotland"),
-                        EVENING, MORNING))));
+                new NlcNightClarity.ClearNight(TONIGHT.plusDays(1), 5, TOTAL_DARK_SKY,
+                        List.of("Scotland"), EVENING, MORNING))));
 
         assertThat(service.currentSighting().active()).isFalse();
     }
@@ -233,7 +235,8 @@ class NlcSightingServiceTest {
         NlcSightingClient realClient = new NlcSightingClient(rest, new NlcProperties());
         when(clarityService.isNlcSeason(today)).thenReturn(true);
         when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
-                new NlcNightClarity.ClearNight(today, 12, List.of("Poland"), EVENING, MORNING))));
+                new NlcNightClarity.ClearNight(
+                        today, 12, TOTAL_DARK_SKY, List.of("Poland"), EVENING, MORNING))));
         NlcSightingService liveService = new NlcSightingService(
                 realClient, clarityService, new NlcProperties(), schedulerService, clock);
 

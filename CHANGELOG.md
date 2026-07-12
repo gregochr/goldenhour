@@ -5,7 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Added — Bluebell "science showing" enrichment (the last hot-topic group)
+### Changed — NLC pill now reads "clear at X of Y dark-sky locations", not a bare count
+- The Noctilucent cloud topic's detail showed e.g. "Clear northern horizon tonight — 241 dark-sky locations". The 241 was already the *clear* count (correctly computed), but with no denominator it read like the total dark-sky inventory, losing the "how many are clear" colour.
+- It now reads **"clear at 241 of 312 dark-sky locations"**, matching the Plan briefing strip's *"Clear at X of Y"* idiom — so the number reads as how widespread the clear northern horizon is, and the total is visible for context (a quiet high-pressure night lights up nearly all of them). The total (`darkSky.size()`, already computed by the clarity scan) is now carried onto `NlcNightClarity.ClearNight` as `totalDarkSkyCount`; the in-memory clarity cache is not persisted, so no migration.
+- Tests: `NlcClarityServiceTest` locks the denominator (clear 1, total 2 → "of 2"); the NLC detail assertions and `ClearNight` fixtures across the three NLC test classes updated for the new field/wording.
 - Adds the generic facts line to the **BLUEBELL** pill, completing the "science showing" roll-out across all hot-topic groups. Two honest, data-backed chips plus a technique note:
   - `conditions 5/5 · excellent` — the best Claude **conditions** rating (1–5) with its quality label. Framed as *conditions*, never flower state.
   - `2 sites scoring 4+/5` — how widespread the good morning is, counting distinct sites at the high-priority tier. Shown only when **≥2** such sites exist (otherwise the rating chip stands alone).

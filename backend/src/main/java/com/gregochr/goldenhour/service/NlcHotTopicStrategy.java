@@ -120,11 +120,11 @@ public class NlcHotTopicStrategy implements HotTopicStrategy {
     }
 
     private String buildDetail(NlcNightClarity.ClearNight night, LocalDate today) {
-        String locations = night.clearLocationCount() == 1
-                ? "1 dark-sky location"
-                : night.clearLocationCount() + " dark-sky locations";
-        return String.format("Clear northern horizon %s — %s",
-                formatNightLabel(night.date(), today), locations);
+        // "clear at X of Y" — the clear count against the dark-sky total, so the number reads as
+        // how widespread the clear northern horizon is tonight, not as the whole location inventory.
+        return String.format("Clear northern horizon %s — clear at %d of %d dark-sky locations",
+                formatNightLabel(night.date(), today),
+                night.clearLocationCount(), night.totalDarkSkyCount());
     }
 
     private String formatNightLabel(LocalDate date, LocalDate today) {
