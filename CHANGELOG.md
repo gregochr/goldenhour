@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Decomposed `BriefingBestBetAdvisor`, phase 1 (SRP; 1888 → 1241 lines)
+- `BriefingBestBetAdvisor` had grown to 1888 lines running the whole best-bet pipeline (Anthropic orchestration, rollup-JSON assembly, aurora selection, Claude-response parsing, pick validation, coverage-aware ranking, display enrichment, and a ~260-line system prompt). Phase 1 extracts the four **pure, low-risk** seams into focused stateless collaborators; the advisor keeps every method as a thin delegator, so its public API and constructor are unchanged and the ~130-test suite needed no assertion edits.
+- **`BestBetPromptText`** (new) — holds the ~260-line `SYSTEM_PROMPT` text block (≈14% of the old file); `currentSystemPrompt()` still returns it for the replay harness.
+- **`BestBetResponseParser`** (new) — parses raw Claude text into a `BestBetResult`, classifies the outcome, and salvages complete leading picks from a truncated response (`ObjectMapper` passed as a parameter).
+- **`BestBetPickValidator`** (new) — filters parsed picks against the rollup's valid event/region/day-name sets.
+- **`BestBetRanker`** (new) — coverage-aware headline gating, colour-exempt handling, and inter-pick relationship/`differsBy` derivation.
+- Promoted the `CandidateCoverage` record from a package-private nested type to a top-level `model` record (shared between the ranker and the still-in-place rollup builder). `BestBetPromptText` is added to the JaCoCo per-class exclude list (a compile-time-constant holder, never loaded — matching the repo's convention for no-logic classes).
+- Behaviour-preserving: no production logic changed, only relocated — verified by the full suite (4412 tests, 0 failures) and a 4-agent byte-exact review (zero findings). Phase 2 (follow-up) will extract the dependency-heavy seams (`AuroraRegionSelector`, the 460-line `BriefingRollupBuilder`, `BestBetEnricher`). Second of three planned oversized-service decompositions.
+
 ### Changed — Decomposed `OpenMeteoService` (SRP; 1169 → 851 lines)
 - `OpenMeteoService` had grown to 1169 lines mixing seven concerns (HTTP orchestration, telemetry, response parsing, trend derivation, sampling geometry, cache re-extraction, URL/coord-key formatting). Extracted the three pure, cohesive seams into focused stateless collaborators, leaving the service as an orchestration facade that delegates to them. **Public API unchanged** — all seven callers (`ForecastService`, `ForecastCommandExecutor`, `ForecastDataAugmentor`, `ModelTestService`, `PromptTestService`, `AstroConditionsService`, `ForecastTaskCollector`) are untouched.
 - **`DirectionalSamplingGeometry`** (new) — the solar-cone / antisolar / far-solar / upwind lat-lon sampling math (`computeDirectionalCloudPoints`, `computeSolarHorizonPoint`, `computeUpwindPoint`) plus its distance/cone constants. Pure functions over `GeoUtils`, matching the existing `GeoUtils`/`TimeSlotUtils` utility pattern.

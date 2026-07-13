@@ -21,12 +21,10 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BestBetResult;
 import com.gregochr.goldenhour.model.BestBetStatus;
-import com.gregochr.goldenhour.model.DiffersBy;
+import com.gregochr.goldenhour.model.CandidateCoverage;
 import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.model.BriefingDay;
-import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
-import com.gregochr.goldenhour.model.Relationship;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
@@ -98,31 +96,6 @@ public class BriefingBestBetAdvisor {
     /** Maximum number of solar events to include in the rollup (matches frontend grid). */
     private static final int MAX_VISIBLE_EVENTS = 6;
 
-    /**
-     * Minimum number of Claude-evaluated locations a region must have to hold the
-     * headline (rank 1) best bet when a better-covered alternative is available.
-     *
-     * <p>This is the coverage floor that prevents the "crowned on cheap thresholds"
-     * inversion: a region with many triage GO verdicts but only a couple of actual
-     * Claude evaluations cannot outrank a nearer, better-evaluated region purely on
-     * GO count + peak rating. Calibrated against the observed Northumberland case
-     * (2 Claude-rated, demote) versus the North Yorkshire Coast alternative
-     * (5 Claude-rated, keep): the floor sits between those two so the well-evidenced
-     * pick wins the headline.
-     *
-     * <p>The gate is comparative — it only demotes a thin-coverage headline when a
-     * pick meeting this floor exists to crown instead. When no covered alternative
-     * is available the picks are left as Claude ranked them (thin coverage is then
-     * the best evidence we have; the {@code targeted force-evaluation} path in
-     * {@code ForecastTaskCollector} is what guarantees headline contenders actually
-     * reach this floor).
-     */
-    static final int MIN_HEADLINE_CLAUDE_COVERAGE = 3;
-
-    /** All English day names, used for narrative date validation. */
-    private static final List<String> ALL_DAY_NAMES = List.of(
-            "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday");
-
     /** Cloud-cover percent below which a scored aurora location counts as "clear" for ranking. */
     private static final int AURORA_CLEAR_CLOUD_PERCENT = 50;
 
@@ -140,270 +113,6 @@ public class BriefingBestBetAdvisor {
                             .comparingDouble(AuroraRegionSummary::averageStars).reversed())
                     .thenComparingInt(AuroraRegionSummary::darknessRank)
                     .thenComparing(AuroraRegionSummary::name);
-
-    private static final String SYSTEM_PROMPT = """
-            You are a photography forecast advisor for PhotoCast, helping landscape photographers
-            decide when and where to go for the best light.
-
-            Given triage data for the next 6 upcoming solar events and aurora conditions across
-            regions, identify the two best photographic opportunities.
-
-            **How to pick the two recommendations:**
-
-            Pick 1 — THE BEST OVERALL. The single best opportunity across all regions and
-            events. This is "if you could go anywhere."
-
-            Pick 2 — ALSO GOOD. Selected using the tiered rule below.
-
-            **Label them clearly:**
-            - Pick 1 headline should reflect it's the best overall
-            - Pick 2 headline should highlight what makes it a distinct alternative
-
-            The structured fields (day, event type, time, region, drive distance) are displayed
-            separately by the frontend — do not repeat them in the headline or detail.
-            Your headline should focus on WHY this is the pick — the conditions, the special
-            features, what makes it stand out. Not "Region X sunrise Saturday" — the frontend
-            already shows that.
-            Good headline: "Best overall light and tide conditions"
-            Good headline: "Rare king tide combo with clear skies"
-            Bad headline: "North Yorkshire Coast sunset Wednesday — best overall light and tide"
-            Bad headline: "Tyne and Wear sunset tonight — moderate aurora alert"
-
-            **When evaluating quality, consider:**
-            - GO regions with the most clear locations are generally best
-            - Tide alignment is a strong differentiator. A GO region with tide-aligned
-              coastal locations ranks above an equally clear inland-only region.
-              Matching tides add foreground drama — mention the tide when it's a factor.
-            - Tide classifications: Tides now have BOTH a lunar type (King/Spring/Regular)
-              AND a statistical size (Extra Extra High / Extra High / regular).
-              These are independent dimensions.
-            - King Tide (lunar) = New/Full Moon + Moon at perigee. Rare (~5-10 per year).
-              When also Extra Extra High statistically, it's exceptional.
-              When combined with storm surge (low pressure + onshore wind),
-              these can produce exceptional foreground drama — mention this when
-              "hasSurgeBoost" is true for a region.
-            - Spring Tide (lunar) = New/Full Moon (without perigee requirement). Happens
-              ~24 times per year. When also Extra High or Extra Extra High statistically,
-              it's a strong day for coastal photography.
-              Spring + significant surge is also worth highlighting.
-            - Regular Tide (lunar) = any other lunar phase. Can still be Extra Extra High
-              if weather or other factors push the range up (storm surge).
-            - Consider the COMBINATION: King Tide + Extra Extra High is rare and dramatic.
-              Spring Tide + Extra High is more common but still excellent.
-              Extra Extra High alone (on a Regular Tide) suggests weather-driven effects.
-            - Tide alignment matters: matched tides add foreground drama and composition
-              opportunities. Always mention when tide is aligned with the event.
-            - Aurora events appear as columns in the grid alongside sunrise and sunset, using
-              date-based event IDs like "2026-04-01_aurora". The aurora data includes both
-              darkSkyLocationCount (total eligible) and clearLocationCount (actually clear skies).
-              When clearLocationCount is high relative to darkSkyLocationCount, this is a top-tier
-              opportunity — rank alongside king tides. But when clearLocationCount is very low
-              (e.g. under 10% of darkSkyLocationCount), the aurora is effectively a washout —
-              do NOT recommend it as a pick. Cloud cover blocks aurora viewing.
-              An aurora pick should reference the specific night and alert level.
-              When the aurora event includes a "region" field, that is the best dark-sky region
-              for the display tonight — use it as the pick's region and name it. When no region
-              field is present, leave the pick's region null and use region-agnostic phrasing
-              (e.g. "dark-sky sites across the region are well placed"). Never invent a region.
-            - When mentioning aurora in a pick for a different event, always state the night
-              explicitly — write "tonight's aurora" or "aurora forecast for tomorrow night",
-              never just "aurora alert" or "moderate aurora chance". The reader sees each pick
-              as a self-contained card and needs to know whether the aurora coincides with the
-              recommended outing or is a separate opportunity on a different night.
-            - AURORA LANGUAGE RULES: When aurora conditions contribute to a pick (either as
-              the primary reason or as supporting context), always use preparatory language —
-              never imperative or urgent action language.
-              Good: "Tonight's aurora forecast is exceptional — worth heading out after dark
-              if skies stay clear"
-              Good: "Conditions are lining up well for aurora tonight — charge your batteries
-              and keep an eye on the banner"
-              Good: "A strong aurora forecast alongside clear skies makes tonight worth watching"
-              Good: "Good aurora potential tonight — the darkest-sky sites are well placed"
-              Never write: "Get out now", "Head out immediately", "Don't miss this",
-              "Go tonight" (as a command), or any language implying the user must act at
-              the moment of reading.
-              Rationale: The best bet card is generated hours in advance and may be stale by
-              the time the user reads it. The aurora banner handles real-time action prompts —
-              the best bet card handles planning and preparation.
-            **PHOTOCAST EVALUATION SCORES**
-
-            Some regions may include pre-computed PhotoCast evaluation scores from the \
-            per-location drill-down. When present, these are MORE RELIABLE than the triage \
-            verdict counts (goCount, marginalCount) because they reflect full atmospheric \
-            analysis, not just threshold heuristics.
-
-            - claudeRatedCount: how many locations were fully evaluated
-            - claudeHighRatedCount: how many scored 4-5 stars (strong prospects)
-            - claudeMediumRatedCount: how many scored exactly 3 stars (decent but not special)
-            - claudeAverageRating: mean star rating across rated locations (1.0-5.0)
-
-            When PhotoCast scores are present:
-            - Prefer regions with high claudeAverageRating (>3.5 is promising, >4.0 is excellent)
-            - claudeHighRatedCount > 0 is a strong positive signal — real photographic potential
-            - A region with goCount=5 but claudeAverageRating=2.0 is weaker than it looks
-            - A MARGINAL region with claudeAverageRating=4.0 is better than the verdict suggests
-
-            **COVERAGE MATTERS FOR THE HEADLINE (Pick 1)**
-            A high goCount is NOT evidence on its own — GO is a cheap threshold verdict, not a
-            full evaluation. Only claudeRatedCount tells you how many locations were actually
-            assessed. Do NOT crown a region as Pick 1 on a large goCount when only a couple of
-            its locations were fully evaluated (low claudeRatedCount) — especially a further-out
-            day. Prefer a nearer, better-evaluated region (higher claudeRatedCount) for the
-            headline even if its peak rating is slightly lower. A strong-looking but thinly
-            evaluated further-out region belongs in Pick 2 framed as a "firming up / worth
-            watching" forward look, not as the confident headline.
-
-            When PhotoCast scores are absent, fall back to the triage verdicts as before.
-
-            - Lower wind speeds are better for long exposures and reflections
-            - Comfort matters — extreme cold or high wind reduces the appeal
-            - If multiple events are close in quality, prefer the sooner one
-            **Tide data in the rollup now includes:**
-              - lunarKingTideCount: how many locations have a lunar King Tide this event
-              - lunarSpringTideCount: how many locations have a lunar Spring Tide this event
-              - extraExtraHighCount: how many locations are statistically extreme (top 5%)
-              - extraHighCount: how many locations are statistically large (>125% avg)
-              - tideAlignedCount: how many locations have tide aligned with photographer preference
-
-            Use these fields to identify COMBINATIONS:
-              - If lunarKingTideCount > 0 AND extraExtraHighCount > 0: rare, dramatic — Pick 1
-              - If lunarSpringTideCount > 0 AND extraHighCount > 0: strong combo — competitive
-              - If extraExtraHighCount > 0 but lunarKingTideCount = 0: weather-driven, mention caution
-
-            **SCARCITY — PERISHABLE OPPORTUNITIES**
-            Some regions carry a "scarcity" field flagging a perishable opportunity:
-            KING_TIDE (rare — only a handful per year) or SPRING_TIDE (perishable — the window
-            passes within a day or two). When two candidates are comparable in quality — within
-            about half a star of each other AND both clearing the usual quality bar (>= 3.5
-            PhotoCast rating where scores are present) — PREFER the scarcer one: a passing king
-            or spring tide is worth catching while it is here.
-            Scarcity is a tiebreak among GOOD options, NEVER a substitute for quality. A scarce
-            candidate that scores below the bar does NOT beat a solid ordinary one, and scarcity
-            never overrides the coverage rules for the headline (Pick 1). When a scarce window is
-            strong but not the single best light, the "Also Good" pick (Pick 2) is its natural
-            home — frame it as a don't-miss-this-window alternative.
-
-            - If everything is STANDDOWN, say so honestly. Don't oversell marginal conditions.
-              Be human — tell the photographer to stay home, charge their batteries,
-              maybe edit last weekend's shots. A bit of humour is fine.
-
-            **ALSO GOOD SELECTION RULE**
-
-            After selecting Pick 1 (Best Bet), select Pick 2 (Also Good) using this \
-            tiered rule:
-
-            TIER 1 — SAME-SLOT ALTERNATIVE
-            If another region on the SAME date and SAME event as Pick 1 has a \
-            claudeAverageRating that is:
-              - within 0.5 of Pick 1's rating, AND
-              - at least 3.5 absolute,
-            emit that region as Pick 2. Set relationship = "SAME_SLOT".
-            Use case: the user can't reach Pick 1's region and wants a backup \
-            for the same outing.
-
-            TIER 2 — DIFFERENT SLOT
-            If no same-slot region clears the Tier 1 threshold, look across ALL \
-            OTHER slots in the window (different date, different event, or both). \
-            Choose the single best opportunity from those slots. It must have:
-              - claudeAverageRating >= 3.5, AND
-              - meaningful differentiation from Pick 1 (not just a second-best \
-                region on a near-identical slot).
-            Emit it as Pick 2 with relationship = "DIFFERENT_SLOT" and differsBy \
-            listing which dimensions differ from Pick 1 (DATE, EVENT, REGION — \
-            any combination). \
-            Use case: Pick 1 is the headline, but there's another strong outing \
-            on a different day or a different part of the day worth knowing about.
-
-            In the Tier 2 headline/detail text, make the temporal distinction \
-            obvious. Phrase it so the reader knows immediately this is a different \
-            opportunity, not a backup for the same outing. Examples:
-              - "A second strong window later in the week"
-              - "Separate opportunity if skies hold"
-
-            NO PICK 2
-            If neither tier produces a candidate at or above the thresholds, do \
-            NOT emit a Pick 2. Return picks as a single-element array. An honest \
-            silence is better than a padded recommendation.
-
-            Respond with a JSON object:
-            {
-              "picks": [
-                {
-                  "rank": 1,
-                  "headline": "One sentence, 15 words max, punchy — what to do",
-                  "detail": "2 sentences max, 40 words max. Key conditions and what makes it special.",
-                  "event": "<value from validEvents, e.g. 2026-03-30_sunset>",
-                  "region": "<value from validRegions, e.g. Northumberland>",
-                  "confidence": "high|medium|low"
-                },
-                {
-                  "rank": 2,
-                  "headline": "One sentence, 15 words max — what makes this a distinct alternative",
-                  "detail": "2 sentences max, 40 words max. Key conditions and what makes it special.",
-                  "event": "<value from validEvents>",
-                  "region": "<value from validRegions>",
-                  "confidence": "high|medium|low",
-                  "relationship": "SAME_SLOT|DIFFERENT_SLOT",
-                  "differsBy": ["DATE", "EVENT", "REGION"]
-                }
-              ]
-            }
-
-            Pick 2 rules:
-            - relationship is required on Pick 2. SAME_SLOT = Tier 1, DIFFERENT_SLOT = Tier 2.
-            - differsBy lists which dimensions differ from Pick 1. Always present when \
-              relationship = DIFFERENT_SLOT. Subset of ["DATE", "EVENT", "REGION"]. \
-              Empty array or omitted when relationship = SAME_SLOT.
-            - Do NOT include relationship or differsBy on Pick 1.
-            - If neither tier produces a strong candidate, return a single-element array.
-            If everything is STANDDOWN, return a single pick with event and region as null —
-            this stay-home pick is MANDATORY on a flat week. Do NOT return an empty "picks"
-            array to signal a barren forecast; the stay-home pick IS the recommendation, not
-            an absence of one.
-            Reason concisely, then output ONLY the JSON object. Keep any deliberation to a
-            few short lines — do NOT write extended "key observations", repeated same-slot
-            analysis, or back-and-forth "actually, wait..." paragraphs. That verbosity has
-            consumed the response budget and truncated the JSON before it could finish.
-            Emit no code fences and no markdown, and write nothing after the closing brace.
-
-            CRITICAL CONSTRAINTS — violating any of these makes your response invalid:
-            - Only recommend events present in the "validEvents" array. Never invent,
-              extrapolate, or reference events not in the input.
-            - Use the "dayName" field provided in each event — never calculate day of week.
-            - Your "event" field in each pick MUST exactly match one of the "validEvents" values.
-            - Your "region" field MUST exactly match one of the "validRegions" values.
-            - Do not reference any date outside the "forecastWindow".
-
-            **FORECAST RELIABILITY**
-
-            Each region may include a stability field:
-
-            SETTLED — Conditions locked in. Recommend with confidence.
-
-            TRANSITIONAL — Front timing uncertain. When recommending a TRANSITIONAL region, \
-            qualify the recommendation:
-            - "...conditions may change — check the forecast before leaving"
-            - "...front arriving later in the evening — the sunset window looks clear but \
-            monitor closely"
-            A TRANSITIONAL region with exceptional conditions (king tide, rare alignment) \
-            may still be the best bet — just flag the uncertainty.
-
-            UNSETTLED — Active frontal weather. Avoid recommending UNSETTLED regions unless \
-            every other region is also poor. If forced to recommend an UNSETTLED region, \
-            be honest about it.
-
-            Never include raw data field names, codes, or technical identifiers in your response.
-            Translate all data into natural language:
-            - weatherCode values → "clear skies", "partly cloudy", "overcast", "light rain", "fog" etc.
-            - windSpeedMs → describe as "calm", "light wind", "breezy", or convert to mph (multiply by 2.24)
-            - Do not write "weatherCode 0" or "windSpeedMs 3.5" — write "clear skies" or "8mph wind"
-
-            BRANDING: Never name the evaluation engine "Claude" or "Anthropic" in the headline
-            or detail. The product is "PhotoCast". Where you would credit the evaluation, write
-            "PhotoCast-rated", "PhotoCast-evaluated", or simply "rated"/"evaluated".
-            Good: "All ten locations rated excellent", "PhotoCast-evaluated locations all score top marks"
-            Bad: "All ten locations Claude-rated excellent", "all eight Claude-evaluated locations"
-            """;
 
     private final AnthropicApiClient anthropicApiClient;
     private final ObjectMapper objectMapper;
@@ -481,7 +190,7 @@ public class BriefingBestBetAdvisor {
      * @return the current {@code SYSTEM_PROMPT}
      */
     public String currentSystemPrompt() {
-        return SYSTEM_PROMPT;
+        return BestBetPromptText.systemPrompt();
     }
 
     /**
@@ -497,29 +206,6 @@ public class BriefingBestBetAdvisor {
     record RollupResult(String json, Set<String> validEvents,
             Set<String> validRegions, Set<String> validDayNames,
             Map<String, CandidateCoverage> coverageByKey) {
-    }
-
-    /**
-     * Per-(event, region) Claude-evaluation coverage extracted while building the
-     * rollup, used by {@link #applyCoverageAwareRanking} to enforce the headline
-     * coverage floor without re-querying the cache.
-     *
-     * @param claudeRatedCount     number of locations in this region/event with a Claude rating
-     * @param daysAhead            forecast horizon of the event (T+0 = 0)
-     * @param claudeAverageRating  mean Claude star rating (0.0 when none rated)
-     */
-    record CandidateCoverage(int claudeRatedCount, int daysAhead, double claudeAverageRating) {
-    }
-
-    /**
-     * Builds the {@code event|region} key used to look up {@link CandidateCoverage}.
-     *
-     * @param event  event identifier (e.g. {@code "2026-03-30_sunset"})
-     * @param region region name
-     * @return the composite lookup key
-     */
-    private static String coverageKey(String event, String region) {
-        return event + "|" + region;
     }
 
     /**
@@ -554,7 +240,7 @@ public class BriefingBestBetAdvisor {
                     .model(model.getModelId())
                     .maxTokens(useExtendedThinking ? MAX_TOKENS_THINKING : maxTokens)
                     .systemOfTextBlockParams(List.of(
-                            TextBlockParam.builder().text(SYSTEM_PROMPT).build()))
+                            TextBlockParam.builder().text(BestBetPromptText.systemPrompt()).build()))
                     .addUserMessage(rollup.json());
             if (useExtendedThinking) {
                 paramsBuilder.thinking(ThinkingConfigAdaptive.builder().build());
@@ -753,65 +439,8 @@ public class BriefingBestBetAdvisor {
      */
     List<BestBet> validateAndFilterPicks(List<BestBet> picks,
             Set<String> validEvents, Set<String> validRegions, Set<String> validDayNames) {
-        List<BestBet> valid = new ArrayList<>();
-        for (BestBet pick : picks) {
-            if (isPickValid(pick, validEvents, validRegions, validDayNames)) {
-                valid.add(pick);
-            } else {
-                LOG.warn("Best bet pick #{} failed validation — discarding", pick.rank());
-            }
-        }
-        List<BestBet> reranked = new ArrayList<>();
-        for (int i = 0; i < valid.size(); i++) {
-            BestBet p = valid.get(i);
-            reranked.add(new BestBet(i + 1, p.headline(), p.detail(),
-                    p.event(), p.region(), p.confidence(), p.nearestDriveMinutes(),
-                    p.dayName(), p.eventType(), p.eventTime(),
-                    p.relationship(), p.differsBy()));
-        }
-        if (valid.size() < picks.size()) {
-            LOG.warn("Best bet validation: {}/{} picks passed", valid.size(), picks.size());
-        }
-        return List.copyOf(reranked);
-    }
-
-    private boolean isPickValid(BestBet pick, Set<String> validEvents,
-            Set<String> validRegions, Set<String> validDayNames) {
-        // Stay-home pick (both null) is always valid
-        if (pick.event() == null && pick.region() == null) {
-            return true;
-        }
-        if (pick.event() != null && !validEvents.contains(pick.event())) {
-            LOG.warn("Best bet pick rejected: event '{}' not in validEvents", pick.event());
-            return false;
-        }
-        // Every non-null region — including an aurora pick's — must be a known region.
-        // Aurora events now carry a data-derived region (added to validRegions when present),
-        // so an improvised region (e.g. a hallucinated dark-sky region) is rejected. A null
-        // region remains valid: the region-agnostic aurora case.
-        if (pick.region() != null && !validRegions.contains(pick.region())) {
-            LOG.warn("Best bet pick rejected: region '{}' not in validRegions", pick.region());
-            return false;
-        }
-        String narrative = (pick.headline() == null ? "" : pick.headline())
-                + " " + (pick.detail() == null ? "" : pick.detail());
-        if (narrativeReferencesInvalidDayName(narrative, validDayNames)) {
-            LOG.warn("Best bet pick #{} narrative references day outside forecast window", pick.rank());
-            return false;
-        }
-        return true;
-    }
-
-    private boolean narrativeReferencesInvalidDayName(String text, Set<String> validDayNames) {
-        if (validDayNames.isEmpty()) {
-            return false;
-        }
-        for (String day : ALL_DAY_NAMES) {
-            if (text.contains(day) && !validDayNames.contains(day)) {
-                return true;
-            }
-        }
-        return false;
+        return BestBetPickValidator.validateAndFilterPicks(
+                picks, validEvents, validRegions, validDayNames);
     }
 
     /**
@@ -822,7 +451,7 @@ public class BriefingBestBetAdvisor {
      * <p>Extends the principle behind {@code BriefingHonestyFilter} (which rewrites
      * regions with <em>zero</em> Claude scores on the read path) to the
      * <em>insufficient</em>-coverage case at the crowning decision: the headline
-     * must clear {@link #MIN_HEADLINE_CLAUDE_COVERAGE} when a pick that does clear
+     * must clear {@link BestBetRanker#MIN_HEADLINE_CLAUDE_COVERAGE} when a pick that does clear
      * it exists. The gate is deliberately comparative — it demotes a thin headline
      * only by promoting a genuinely better-evidenced pick. When no pick clears the
      * floor the order is left untouched (thin coverage is then the best evidence
@@ -842,66 +471,14 @@ public class BriefingBestBetAdvisor {
      */
     List<BestBet> applyCoverageAwareRanking(List<BestBet> picks,
             Map<String, CandidateCoverage> coverage) {
-        if (picks.size() < 2) {
-            return picks;
-        }
-        BestBet head = picks.get(0);
-        if (isHeadlineEligible(head, coverage)) {
-            return picks;
-        }
-        // Only a genuinely better-EVIDENCED pick (clears the coverage floor) may
-        // demote a thin headline. An exempt aurora/stay-home pick is allowed to
-        // hold the headline if Claude crowned it, but is never used to displace
-        // another pick — it carries no per-region Claude coverage of its own.
-        BestBet replacement = null;
-        for (BestBet p : picks) {
-            if (p != head && ratedCount(p, coverage) >= MIN_HEADLINE_CLAUDE_COVERAGE) {
-                replacement = p;
-                break;
-            }
-        }
-        if (replacement == null) {
-            return picks;
-        }
-        LOG.info("Best-bet coverage gate: demoting thin-coverage headline '{}' (rated={}) "
-                        + "in favour of better-evaluated '{}' (rated={})",
-                head.region(), ratedCount(head, coverage),
-                replacement.region(), ratedCount(replacement, coverage));
-        List<BestBet> reordered = new ArrayList<>();
-        reordered.add(replacement);
-        for (BestBet p : picks) {
-            if (p != replacement) {
-                reordered.add(p);
-            }
-        }
-        return rerankWithRecomputedRelationships(reordered);
-    }
-
-    /**
-     * Returns {@code true} if a pick may hold the headline: stay-home and aurora
-     * picks are exempt; every other pick must clear {@link #MIN_HEADLINE_CLAUDE_COVERAGE}.
-     */
-    private boolean isHeadlineEligible(BestBet pick, Map<String, CandidateCoverage> coverage) {
-        return isColourExempt(pick) || ratedCount(pick, coverage) >= MIN_HEADLINE_CLAUDE_COVERAGE;
-    }
-
-    /**
-     * Whether a pick is exempt from the colour-evidence requirement. Stay-home picks crown nothing,
-     * and aurora picks claim aurora visibility (with their own clear-sky gate in the prompt), not
-     * sky colour — so neither needs a Claude colour rating behind it. Every other pick does.
-     */
-    private boolean isColourExempt(BestBet pick) {
-        if (pick.event() == null && pick.region() == null) {
-            return true;
-        }
-        return pick.event() != null && pick.event().endsWith("_aurora");
+        return BestBetRanker.applyCoverageAwareRanking(picks, coverage);
     }
 
     /**
      * Drops picks with zero Claude colour coverage. A best bet's entire premise is Claude's colour
      * evaluation; a region/event with no colour rating at all — only a weather GO count — is not
      * evidence of a good sky, so recommending it (even hedged) is dishonest. Stay-home and aurora
-     * picks are {@link #isColourExempt exempt}. Survivors are renumbered so the highest remaining
+     * picks are exempt. Survivors are renumbered so the highest remaining
      * pick holds rank 1; an empty result signals "no colour-backed recommendation available", which
      * the caller maps to {@code SUCCESS_NO_PICKS} (an honest decline), never {@code FAILED}.
      *
@@ -911,101 +488,7 @@ public class BriefingBestBetAdvisor {
      */
     List<BestBet> dropUnevaluatedPicks(List<BestBet> picks,
             Map<String, CandidateCoverage> coverage) {
-        List<BestBet> kept = new ArrayList<>();
-        for (BestBet p : picks) {
-            if (isColourExempt(p) || ratedCount(p, coverage) > 0) {
-                kept.add(p);
-            } else {
-                LOG.info("Best-bet: dropped zero-coverage pick region='{}' event='{}' — no colour "
-                        + "evaluation behind it", p.region(), p.event());
-            }
-        }
-        if (kept.isEmpty() || kept.size() == picks.size()) {
-            return kept;
-        }
-        return rerankWithRecomputedRelationships(kept);
-    }
-
-    private int ratedCount(BestBet pick, Map<String, CandidateCoverage> coverage) {
-        if (pick.event() == null || pick.region() == null) {
-            return 0;
-        }
-        CandidateCoverage c = coverage.get(coverageKey(pick.event(), pick.region()));
-        return c == null ? 0 : c.claudeRatedCount();
-    }
-
-    /**
-     * Re-ranks an already-ordered pick list, assigning rank 1..n. The head pick has
-     * its relationship/differsBy cleared; trailing picks have those recomputed
-     * relative to the head so a promotion does not leave stale relationships behind.
-     */
-    private List<BestBet> rerankWithRecomputedRelationships(List<BestBet> ordered) {
-        List<BestBet> result = new ArrayList<>();
-        BestBet head = ordered.get(0);
-        result.add(new BestBet(1, head.headline(), head.detail(), head.event(),
-                head.region(), head.confidence(), head.nearestDriveMinutes(),
-                head.dayName(), head.eventType(), head.eventTime(), null, List.of()));
-        for (int i = 1; i < ordered.size(); i++) {
-            BestBet p = ordered.get(i);
-            Relationship rel = deriveRelationship(head, p);
-            List<DiffersBy> diffs = rel == Relationship.DIFFERENT_SLOT
-                    ? deriveDiffersBy(head, p) : List.of();
-            result.add(new BestBet(i + 1, p.headline(), p.detail(), p.event(), p.region(),
-                    p.confidence(), p.nearestDriveMinutes(), p.dayName(), p.eventType(),
-                    p.eventTime(), rel, diffs));
-        }
-        return List.copyOf(result);
-    }
-
-    /**
-     * Derives the relationship of a trailing pick to the headline: SAME_SLOT when
-     * the date and event type match, DIFFERENT_SLOT otherwise (the default for
-     * aurora/stay-home or unparseable events).
-     */
-    private Relationship deriveRelationship(BestBet head, BestBet other) {
-        String[] h = splitEvent(head.event());
-        String[] o = splitEvent(other.event());
-        if (h == null || o == null) {
-            return Relationship.DIFFERENT_SLOT;
-        }
-        return h[0].equals(o[0]) && h[1].equals(o[1])
-                ? Relationship.SAME_SLOT : Relationship.DIFFERENT_SLOT;
-    }
-
-    /**
-     * Derives which dimensions a DIFFERENT_SLOT pick differs from the headline by.
-     */
-    private List<DiffersBy> deriveDiffersBy(BestBet head, BestBet other) {
-        List<DiffersBy> diffs = new ArrayList<>();
-        String[] h = splitEvent(head.event());
-        String[] o = splitEvent(other.event());
-        if (h != null && o != null) {
-            if (!h[0].equals(o[0])) {
-                diffs.add(DiffersBy.DATE);
-            }
-            if (!h[1].equals(o[1])) {
-                diffs.add(DiffersBy.EVENT);
-            }
-        }
-        if (head.region() != null && !head.region().equals(other.region())) {
-            diffs.add(DiffersBy.REGION);
-        }
-        return List.copyOf(diffs);
-    }
-
-    /**
-     * Splits an event id {@code "YYYY-MM-DD_type"} into {@code [date, type]}, or
-     * {@code null} when the id is null or not in that form (e.g. aurora/stay-home).
-     */
-    private static String[] splitEvent(String event) {
-        if (event == null) {
-            return null;
-        }
-        int idx = event.lastIndexOf('_');
-        if (idx <= 0 || idx == event.length() - 1) {
-            return null;
-        }
-        return new String[]{event.substring(0, idx), event.substring(idx + 1)};
+        return BestBetRanker.dropUnevaluatedPicks(picks, coverage);
     }
 
     /**
@@ -1071,7 +554,7 @@ public class BriefingBestBetAdvisor {
                     CandidateCoverage coverage = appendRegionNode(
                             regionsNode, region, day.date(), es.targetType(), daysAhead);
                     validRegions.add(region.regionName());
-                    coverageByKey.put(coverageKey(eventId, region.regionName()), coverage);
+                    coverageByKey.put(BestBetRanker.coverageKey(eventId, region.regionName()), coverage);
                 }
             }
             if (eventCount >= MAX_VISIBLE_EVENTS) {
@@ -1543,7 +1026,7 @@ public class BriefingBestBetAdvisor {
                     .model(model.getModelId())
                     .maxTokens(extendedThinking ? MAX_TOKENS_THINKING : maxTokens)
                     .systemOfTextBlockParams(List.of(
-                            TextBlockParam.builder().text(SYSTEM_PROMPT).build()))
+                            TextBlockParam.builder().text(BestBetPromptText.systemPrompt()).build()))
                     .addUserMessage(rollup.json());
 
             if (extendedThinking) {
@@ -1633,7 +1116,7 @@ public class BriefingBestBetAdvisor {
      * objects and changes neither selection nor ranking.
      *
      * @param rollupJson   the exact user-message rollup JSON (as captured in api_call_log)
-     * @param systemPrompt the system prompt to evaluate with (pass {@link #SYSTEM_PROMPT} for
+     * @param systemPrompt the system prompt to evaluate with (pass {@link BestBetPromptText#systemPrompt()} for
      *                     the baseline before-state)
      * @param model        the model to call
      * @return the classified outcome (status + validated, ranked picks)
@@ -1714,7 +1197,7 @@ public class BriefingBestBetAdvisor {
                     }
                     int ratedCount = region.path("claudeRatedCount").asInt(0);
                     double avgRating = region.path("claudeAverageRating").asDouble(0.0);
-                    coverageByKey.put(coverageKey(eventId, name),
+                    coverageByKey.put(BestBetRanker.coverageKey(eventId, name),
                             new CandidateCoverage(ratedCount, 0, avgRating));
                 }
             }
@@ -1734,7 +1217,7 @@ public class BriefingBestBetAdvisor {
      * @return parsed picks, or empty list if parsing fails
      */
     List<BestBet> parseBestBets(String raw) {
-        return classifyAndParse(raw).picks();
+        return BestBetResponseParser.parseBestBets(raw, objectMapper);
     }
 
     /**
@@ -1753,135 +1236,6 @@ public class BriefingBestBetAdvisor {
      * @return the parse outcome (status + picks)
      */
     BestBetResult classifyAndParse(String raw) {
-        if (raw == null || raw.isBlank()) {
-            LOG.warn("Best-bet response was blank — FAILED");
-            return BestBetResult.failed();
-        }
-        String cleaned = PromptUtils.stripCodeFences(raw);
-        try {
-            String extracted = PromptUtils.extractJsonObject(cleaned);
-            JsonNode root = objectMapper.readTree(extracted);
-            JsonNode picksNode = root.get("picks");
-            if (picksNode == null || !picksNode.isArray()) {
-                LOG.warn("Best-bet response missing 'picks' array — FAILED");
-                return BestBetResult.failed();
-            }
-            if (picksNode.isEmpty()) {
-                LOG.info("Best-bet response contained an empty 'picks' array (honest decline)");
-                return BestBetResult.noPicks();
-            }
-            List<BestBet> picks = new ArrayList<>();
-            for (JsonNode pick : picksNode) {
-                picks.add(parsePickNode(pick));
-            }
-            LOG.info("Best-bet advisor returned {} pick(s)", picks.size());
-            return BestBetResult.withPicks(picks);
-        } catch (Exception e) {
-            // Atomic parse failed — the response is structurally invalid, the classic
-            // signature being a response truncated mid-pick when the model hit max_tokens.
-            // Salvage any complete leading picks rather than discarding a valid rank-1
-            // because a later pick was cut off (a single malformed pick must not zero out
-            // a valid one). Salvaged picks are still subject to validateAndFilterPicks.
-            List<BestBet> salvaged = salvagePicks(cleaned);
-            if (!salvaged.isEmpty()) {
-                LOG.warn("Best-bet response was not valid JSON (likely truncated mid-pick) — "
-                        + "salvaged {} complete pick(s) from the partial response", salvaged.size());
-                return BestBetResult.withPicks(salvaged);
-            }
-            String preview = raw.length() > 4000
-                    ? raw.substring(0, 4000) + "...<truncated>"
-                    : raw;
-            LOG.warn("Failed to parse best-bet response and no picks could be salvaged — "
-                    + "FAILED. Raw response was:\n{}", preview, e);
-            return BestBetResult.failed();
-        }
-    }
-
-    /**
-     * Parses a single {@code pick} JSON node into a {@link BestBet}. Shared by the atomic
-     * parse path and the {@link #salvagePicks} recovery path so both extract fields
-     * identically. Missing fields degrade to nulls/defaults; the resulting pick is still
-     * subject to downstream validation in {@link #validateAndFilterPicks}.
-     *
-     * @param pick a single pick object node
-     * @return the parsed pick (display fields left null — they are enriched later)
-     */
-    private BestBet parsePickNode(JsonNode pick) {
-        int rank = pick.path("rank").asInt(1);
-        String headline = PromptUtils.sanitizeBrand(pick.path("headline").asText(null));
-        String detail = PromptUtils.sanitizeBrand(pick.path("detail").asText(null));
-        String event = pick.path("event").isNull()
-                ? null : pick.path("event").asText(null);
-        String region = pick.path("region").isNull()
-                ? null : pick.path("region").asText(null);
-        Confidence confidence = Confidence.fromString(
-                pick.path("confidence").asText("medium"));
-        Relationship relationship = Relationship.fromString(
-                pick.path("relationship").asText(null));
-        List<DiffersBy> differsBy = new ArrayList<>();
-        JsonNode differsByNode = pick.get("differsBy");
-        if (differsByNode != null && differsByNode.isArray()) {
-            for (JsonNode d : differsByNode) {
-                DiffersBy dim = DiffersBy.fromString(d.asText(null));
-                if (dim != null) {
-                    differsBy.add(dim);
-                }
-            }
-        }
-        return new BestBet(rank, headline, detail, event, region, confidence,
-                null, null, null, null, relationship, differsBy);
-    }
-
-    /**
-     * Recovers the complete leading pick objects from a structurally invalid best-bet
-     * response (typically one truncated mid-pick when the model hit its token ceiling).
-     *
-     * <p>Locates the {@code "picks"} array and walks it element by element, extracting each
-     * balanced {@code {...}} object and parsing it. Recovery stops at the first object that
-     * is truncated (never closes) or fails to parse, so only the structurally-valid prefix is
-     * returned. This restores the common case where rank 1 is complete but rank 2 was cut.
-     *
-     * <p>This is a pure mechanism: it recovers picks the model already emitted. It does not
-     * relax validation — the survivors still pass through {@link #validateAndFilterPicks}.
-     *
-     * @param cleaned the code-fence-stripped raw response
-     * @return the complete leading picks (possibly empty)
-     */
-    private List<BestBet> salvagePicks(String cleaned) {
-        if (cleaned == null) {
-            return List.of();
-        }
-        int picksKeyIdx = cleaned.indexOf("\"picks\"");
-        if (picksKeyIdx < 0) {
-            return List.of();
-        }
-        int arrayStart = cleaned.indexOf('[', picksKeyIdx);
-        if (arrayStart < 0) {
-            return List.of();
-        }
-        List<BestBet> picks = new ArrayList<>();
-        int i = arrayStart + 1;
-        while (i < cleaned.length()) {
-            while (i < cleaned.length()
-                    && (Character.isWhitespace(cleaned.charAt(i)) || cleaned.charAt(i) == ',')) {
-                i++;
-            }
-            if (i >= cleaned.length() || cleaned.charAt(i) != '{') {
-                // End of array (']'), or a truncated/garbled element — stop salvaging.
-                break;
-            }
-            String objStr = PromptUtils.balancedObjectAt(cleaned, i);
-            if (objStr == null) {
-                // Trailing object never closes (truncated) — keep what we have.
-                break;
-            }
-            try {
-                picks.add(parsePickNode(objectMapper.readTree(objStr)));
-            } catch (Exception e) {
-                break;
-            }
-            i += objStr.length();
-        }
-        return List.copyOf(picks);
+        return BestBetResponseParser.classifyAndParse(raw, objectMapper);
     }
 }
