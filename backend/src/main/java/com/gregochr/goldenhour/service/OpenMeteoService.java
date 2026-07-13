@@ -3,12 +3,9 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.JobRunEntity;
-import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
-import com.gregochr.goldenhour.model.CloudData;
 import com.gregochr.goldenhour.model.CloudPointCache;
-import com.gregochr.goldenhour.model.ComfortData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.MistTrend;
@@ -17,7 +14,6 @@ import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.PressureTrend;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.UpwindCloudSample;
-import com.gregochr.goldenhour.model.WeatherData;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.util.GeoUtils;
 import com.gregochr.goldenhour.util.TimeSlotUtils;
@@ -27,8 +23,6 @@ import org.springframework.web.client.RestClientResponseException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -48,50 +42,6 @@ import java.util.Map;
 public class OpenMeteoService {
 
     private static final Logger LOG = LoggerFactory.getLogger(OpenMeteoService.class);
-
-    /**
-     * Distance in metres to sample directional horizon cloud data.
-     * Derived from sqrt(2Rh) for cloud at 1 km altitude: sqrt(2 × 6371 km × 1 km) ≈ 113 km.
-     * This is the geometric horizon distance for low cloud.
-     */
-    static final double DIRECTIONAL_OFFSET_METRES = 113_000.0;
-
-    /**
-     * Far-field distance for horizon cloud structure detection (2 × horizon distance = 226 km).
-     * Comparing low cloud at this distance to {@link #DIRECTIONAL_OFFSET_METRES} reveals whether
-     * high solar horizon low cloud is a thin strip (drops sharply) or an extensive blanket.
-     */
-    static final double FAR_SOLAR_OFFSET_METRES = 226_000.0;
-
-    /** Minimum upwind distance in metres below which the upwind sample is skipped. */
-    private static final double MIN_UPWIND_DISTANCE_M = 5_000.0;
-
-    /** Maximum upwind distance in metres (cap at 200 km). */
-    private static final double MAX_UPWIND_DISTANCE_M = 200_000.0;
-
-    /** Number of hours before the event to sample for the solar trend. */
-    private static final int TREND_HOURS_BACK = 3;
-
-    /** Number of hours before the event to include in the mist/visibility trend. */
-    private static final int MIST_TREND_HOURS_BACK = 3;
-
-    /** Number of hours after the event to include in the mist/visibility trend. */
-    private static final int MIST_TREND_HOURS_FORWARD = 2;
-
-    /** Number of hours before and after the event to sample for pressure tendency. */
-    private static final int PRESSURE_TREND_HOURS = 3;
-
-    /**
-     * Half-angle of the sampling cone for the solar horizon direction (degrees).
-     * Three points are sampled at azimuth-CONE, azimuth, azimuth+CONE and averaged,
-     * smoothing out Open-Meteo grid-cell boundary effects (~11 km resolution).
-     */
-    static final int SOLAR_CONE_HALF_ANGLE_DEG = 15;
-
-    private static final int WIND_SPEED_SCALE = 2;
-    private static final int PRECIP_SCALE = 2;
-    private static final int RADIATION_SCALE = 2;
-    private static final int AOD_SCALE = 3;
 
     private final OpenMeteoClient openMeteoClient;
     private final JobRunService jobRunService;
@@ -365,19 +315,7 @@ public class OpenMeteoService {
      */
     public List<double[]> computeDirectionalCloudPoints(double lat, double lon,
             int solarAzimuthDeg) {
-        List<double[]> points = new ArrayList<>();
-        int[] solarBearings = {
-            solarAzimuthDeg - SOLAR_CONE_HALF_ANGLE_DEG,
-            solarAzimuthDeg,
-            solarAzimuthDeg + SOLAR_CONE_HALF_ANGLE_DEG
-        };
-        for (int bearing : solarBearings) {
-            points.add(GeoUtils.offsetPoint(lat, lon, bearing, DIRECTIONAL_OFFSET_METRES));
-        }
-        points.add(GeoUtils.offsetPoint(lat, lon,
-                GeoUtils.antisolarBearing(solarAzimuthDeg), DIRECTIONAL_OFFSET_METRES));
-        points.add(GeoUtils.offsetPoint(lat, lon, solarAzimuthDeg, FAR_SOLAR_OFFSET_METRES));
-        return points;
+        return DirectionalSamplingGeometry.computeDirectionalCloudPoints(lat, lon, solarAzimuthDeg);
     }
 
     /**
@@ -389,7 +327,7 @@ public class OpenMeteoService {
      * @return [lat, lon] pair at 113 km along the solar bearing
      */
     public double[] computeSolarHorizonPoint(double lat, double lon, int solarAzimuthDeg) {
-        return GeoUtils.offsetPoint(lat, lon, solarAzimuthDeg, DIRECTIONAL_OFFSET_METRES);
+        return DirectionalSamplingGeometry.computeSolarHorizonPoint(lat, lon, solarAzimuthDeg);
     }
 
     /**
@@ -405,15 +343,8 @@ public class OpenMeteoService {
      */
     public double[] computeUpwindPoint(double lat, double lon, int windFromDeg,
             double windSpeedMs, LocalDateTime currentTime, LocalDateTime eventTime) {
-        long secondsToEvent = Duration.between(currentTime, eventTime).getSeconds();
-        if (secondsToEvent <= 0 || windSpeedMs <= 0) {
-            return null;
-        }
-        double dist = Math.min(windSpeedMs * secondsToEvent, MAX_UPWIND_DISTANCE_M);
-        if (dist < MIN_UPWIND_DISTANCE_M) {
-            return null;
-        }
-        return GeoUtils.offsetPoint(lat, lon, windFromDeg, dist);
+        return DirectionalSamplingGeometry.computeUpwindPoint(lat, lon, windFromDeg, windSpeedMs,
+                currentTime, eventTime);
     }
 
     /**
@@ -500,59 +431,8 @@ public class OpenMeteoService {
     public DirectionalCloudData fetchDirectionalCloudDataFromCache(double lat, double lon,
             int solarAzimuthDeg, LocalDateTime solarEventTime, TargetType targetType,
             CloudPointCache cloudCache) {
-        List<double[]> points = computeDirectionalCloudPoints(lat, lon, solarAzimuthDeg);
-
-        try {
-            int[] solarBearings = {
-                solarAzimuthDeg - SOLAR_CONE_HALF_ANGLE_DEG,
-                solarAzimuthDeg,
-                solarAzimuthDeg + SOLAR_CONE_HALF_ANGLE_DEG
-            };
-
-            int solarLowSum = 0;
-            int solarMidSum = 0;
-            int solarHighSum = 0;
-            for (int i = 0; i < solarBearings.length; i++) {
-                OpenMeteoForecastResponse f = cloudCache.get(points.get(i)[0], points.get(i)[1]);
-                if (f == null) {
-                    return null;
-                }
-                int idx = findBestIndex(f.getHourly().getTime(), solarEventTime, targetType);
-                OpenMeteoForecastResponse.Hourly h = f.getHourly();
-                solarLowSum += h.getCloudCoverLow().get(idx);
-                solarMidSum += h.getCloudCoverMid().get(idx);
-                solarHighSum += h.getCloudCoverHigh().get(idx);
-            }
-
-            // Antisolar (index 3)
-            OpenMeteoForecastResponse antisolarF = cloudCache.get(points.get(3)[0], points.get(3)[1]);
-            if (antisolarF == null) {
-                return null;
-            }
-            int antisolarIdx = findBestIndex(antisolarF.getHourly().getTime(),
-                    solarEventTime, targetType);
-            OpenMeteoForecastResponse.Hourly ah = antisolarF.getHourly();
-
-            // Far solar (index 4)
-            Integer farSolarLow = null;
-            OpenMeteoForecastResponse farF = cloudCache.get(points.get(4)[0], points.get(4)[1]);
-            if (farF != null) {
-                int farIdx = findBestIndex(farF.getHourly().getTime(), solarEventTime, targetType);
-                farSolarLow = farF.getHourly().getCloudCoverLow().get(farIdx);
-            }
-
-            return new DirectionalCloudData(
-                    solarLowSum / solarBearings.length,
-                    solarMidSum / solarBearings.length,
-                    solarHighSum / solarBearings.length,
-                    ah.getCloudCoverLow().get(antisolarIdx),
-                    ah.getCloudCoverMid().get(antisolarIdx),
-                    ah.getCloudCoverHigh().get(antisolarIdx),
-                    farSolarLow);
-        } catch (Exception e) {
-            LOG.warn("Directional cloud extraction from cache failed: {}", e.getMessage());
-            return null;
-        }
+        return CloudPointCacheReader.fetchDirectionalCloudDataFromCache(lat, lon, solarAzimuthDeg,
+                solarEventTime, targetType, cloudCache);
     }
 
     /**
@@ -573,35 +453,8 @@ public class OpenMeteoService {
             int solarAzimuthDeg, LocalDateTime solarEventTime, LocalDateTime currentTime,
             TargetType targetType, int windFromDeg, double windSpeedMs,
             CloudPointCache cloudCache) {
-        try {
-            double[] solarPoint = computeSolarHorizonPoint(lat, lon, solarAzimuthDeg);
-            OpenMeteoForecastResponse solarF = cloudCache.get(solarPoint[0], solarPoint[1]);
-            if (solarF == null) {
-                return null;
-            }
-
-            SolarCloudTrend trend = extractSolarTrend(solarF, solarEventTime, targetType);
-
-            UpwindCloudSample upwind = null;
-            double[] upwindPoint = computeUpwindPoint(lat, lon, windFromDeg, windSpeedMs,
-                    currentTime, solarEventTime);
-            if (upwindPoint != null) {
-                OpenMeteoForecastResponse upwindF = cloudCache.get(
-                        upwindPoint[0], upwindPoint[1]);
-                if (upwindF != null) {
-                    long secondsToEvent = Duration.between(currentTime, solarEventTime)
-                            .getSeconds();
-                    double dist = Math.min(windSpeedMs * secondsToEvent, MAX_UPWIND_DISTANCE_M);
-                    upwind = extractUpwindSample(upwindF, solarEventTime, currentTime,
-                            targetType, (int) (dist / 1000), windFromDeg);
-                }
-            }
-
-            return new CloudApproachData(trend, upwind);
-        } catch (Exception e) {
-            LOG.warn("Cloud approach extraction from cache failed: {}", e.getMessage());
-            return null;
-        }
+        return CloudPointCacheReader.fetchCloudApproachDataFromCache(lat, lon, solarAzimuthDeg,
+                solarEventTime, currentTime, targetType, windFromDeg, windSpeedMs, cloudCache);
     }
 
     /**
@@ -718,59 +571,8 @@ public class OpenMeteoService {
     AtmosphericData extractAtmosphericData(OpenMeteoForecastResponse forecast,
             OpenMeteoAirQualityResponse airQuality, String locationName,
             LocalDateTime solarEventTime, TargetType targetType) {
-        List<String> times = forecast.getHourly().getTime();
-        int idx = findBestIndex(times, solarEventTime, targetType);
-
-        OpenMeteoForecastResponse.Hourly h = forecast.getHourly();
-        OpenMeteoAirQualityResponse.Hourly aq = airQuality.getHourly();
-
-        Double pm25Raw = getAirQualityValue(aq.getPm25(), idx);
-        Double dustRaw = getAirQualityValue(aq.getDust(), idx);
-        Double aodRaw = getAirQualityValue(aq.getAerosolOpticalDepth(), idx);
-
-        CloudData cloud = new CloudData(
-                h.getCloudCoverLow().get(idx),
-                h.getCloudCoverMid().get(idx),
-                h.getCloudCoverHigh().get(idx));
-
-        WeatherData weather = new WeatherData(
-                h.getVisibility().get(idx).intValue(),
-                BigDecimal.valueOf(h.getWindSpeed10m().get(idx))
-                        .setScale(WIND_SPEED_SCALE, RoundingMode.HALF_UP),
-                h.getWindDirection10m().get(idx),
-                BigDecimal.valueOf(h.getPrecipitation().get(idx))
-                        .setScale(PRECIP_SCALE, RoundingMode.HALF_UP),
-                h.getRelativeHumidity2m().get(idx),
-                h.getWeatherCode().get(idx),
-                BigDecimal.valueOf(h.getShortwaveRadiation().get(idx))
-                        .setScale(RADIATION_SCALE, RoundingMode.HALF_UP),
-                getDoubleValue(h.getDewPoint2m(), idx),
-                getDoubleValue(h.getSurfacePressure(), idx),
-                getDoubleValue(h.getSnowfall(), idx),
-                getDoubleValue(h.getSnowDepth(), idx),
-                getDoubleValue(h.getFreezingLevelHeight(), idx));
-
-        AerosolData aerosol = new AerosolData(
-                toDecimal(pm25Raw, PRECIP_SCALE),
-                toDecimal(dustRaw, PRECIP_SCALE),
-                toDecimal(aodRaw, AOD_SCALE),
-                h.getBoundaryLayerHeight().get(idx).intValue());
-
-        ComfortData comfort = new ComfortData(
-                getDoubleValue(h.getTemperature2m(), idx),
-                getDoubleValue(h.getApparentTemperature(), idx),
-                getIntegerValue(h.getPrecipitationProbability(), idx));
-
-        MistTrend mistTrend = extractMistTrend(h, idx);
-        PressureTrend pressureTrend = extractPressureTrend(h, idx);
-
-        return new AtmosphericData(
-                locationName, solarEventTime, targetType,
-                cloud, weather, aerosol, comfort,
-                null,  // directionalCloud — populated later for colour locations
-                null,  // tide — populated later for coastal locations
-                null,  // cloudApproach — populated later if directional data available
-                mistTrend, pressureTrend);
+        return OpenMeteoResponseParser.extractAtmosphericData(forecast, airQuality, locationName,
+                solarEventTime, targetType);
     }
 
     /**
@@ -795,26 +597,26 @@ public class OpenMeteoService {
             JobRunEntity jobRun) {
         // Compute all 5 sampling points upfront
         int[] solarBearings = {
-            solarAzimuthDeg - SOLAR_CONE_HALF_ANGLE_DEG,
+            solarAzimuthDeg - DirectionalSamplingGeometry.SOLAR_CONE_HALF_ANGLE_DEG,
             solarAzimuthDeg,
-            solarAzimuthDeg + SOLAR_CONE_HALF_ANGLE_DEG
+            solarAzimuthDeg + DirectionalSamplingGeometry.SOLAR_CONE_HALF_ANGLE_DEG
         };
         double antisolarBearing = GeoUtils.antisolarBearing(solarAzimuthDeg);
         double[] antisolarPoint = GeoUtils.offsetPoint(lat, lon, antisolarBearing,
-                DIRECTIONAL_OFFSET_METRES);
+                DirectionalSamplingGeometry.DIRECTIONAL_OFFSET_METRES);
         double[] farSolarPoint = GeoUtils.offsetPoint(lat, lon, solarAzimuthDeg,
-                FAR_SOLAR_OFFSET_METRES);
+                DirectionalSamplingGeometry.FAR_SOLAR_OFFSET_METRES);
 
         // Build batch: [cone0, cone1, cone2, antisolar, far-solar]
         List<double[]> coords = new ArrayList<>();
         for (int bearing : solarBearings) {
-            coords.add(GeoUtils.offsetPoint(lat, lon, bearing, DIRECTIONAL_OFFSET_METRES));
+            coords.add(GeoUtils.offsetPoint(lat, lon, bearing, DirectionalSamplingGeometry.DIRECTIONAL_OFFSET_METRES));
         }
         coords.add(antisolarPoint);
         coords.add(farSolarPoint);
 
         LOG.info("Directional cloud batch fetch: 5 points (solar cone {}±{}deg, antisolar, far-solar)",
-                solarAzimuthDeg, SOLAR_CONE_HALF_ANGLE_DEG);
+                solarAzimuthDeg, DirectionalSamplingGeometry.SOLAR_CONE_HALF_ANGLE_DEG);
 
         long startMs = System.currentTimeMillis();
         try {
@@ -889,34 +691,6 @@ public class OpenMeteoService {
         }
     }
 
-    private Double getAirQualityValue(List<Double> values, int idx) {
-        if (values == null || idx >= values.size()) {
-            return null;
-        }
-        return values.get(idx);
-    }
-
-    private Double getDoubleValue(List<Double> values, int idx) {
-        if (values == null || idx >= values.size()) {
-            return null;
-        }
-        return values.get(idx);
-    }
-
-    private Integer getIntegerValue(List<Integer> values, int idx) {
-        if (values == null || idx >= values.size()) {
-            return null;
-        }
-        return values.get(idx);
-    }
-
-    private BigDecimal toDecimal(Double value, int scale) {
-        if (value == null) {
-            return BigDecimal.ZERO;
-        }
-        return BigDecimal.valueOf(value).setScale(scale, RoundingMode.HALF_UP);
-    }
-
     /**
      * Finds the best hourly slot index for a solar event, respecting event direction.
      *
@@ -952,15 +726,16 @@ public class OpenMeteoService {
             TargetType targetType, int windFromDeg, double windSpeedMs, JobRunEntity jobRun) {
         try {
             double[] solarPoint = GeoUtils.offsetPoint(lat, lon, solarAzimuthDeg,
-                    DIRECTIONAL_OFFSET_METRES);
+                    DirectionalSamplingGeometry.DIRECTIONAL_OFFSET_METRES);
 
             // Determine if we need an upwind sample
             double[] upwindPoint = null;
             double upwindDistanceM = 0;
             long secondsToEvent = Duration.between(currentTime, solarEventTime).getSeconds();
             if (secondsToEvent > 0 && windSpeedMs > 0) {
-                upwindDistanceM = Math.min(windSpeedMs * secondsToEvent, MAX_UPWIND_DISTANCE_M);
-                if (upwindDistanceM >= MIN_UPWIND_DISTANCE_M) {
+                upwindDistanceM = Math.min(windSpeedMs * secondsToEvent,
+                        DirectionalSamplingGeometry.MAX_UPWIND_DISTANCE_M);
+                if (upwindDistanceM >= DirectionalSamplingGeometry.MIN_UPWIND_DISTANCE_M) {
                     upwindPoint = GeoUtils.offsetPoint(lat, lon, windFromDeg, upwindDistanceM);
                 }
             }
@@ -1014,31 +789,7 @@ public class OpenMeteoService {
      * @return the trend, or {@code null} if data is insufficient
      */
     MistTrend extractMistTrend(OpenMeteoForecastResponse.Hourly h, int eventIdx) {
-        List<Double> vis = h.getVisibility();
-        List<Double> dew = h.getDewPoint2m();
-        List<Double> temp = h.getTemperature2m();
-
-        if (vis == null || dew == null || temp == null) {
-            return null;
-        }
-
-        List<MistTrend.MistSlot> slots = new ArrayList<>();
-        for (int offset = -MIST_TREND_HOURS_BACK; offset <= MIST_TREND_HOURS_FORWARD; offset++) {
-            int idx = eventIdx + offset;
-            if (idx >= 0 && idx < vis.size() && idx < dew.size() && idx < temp.size()) {
-                Double dewVal = dew.get(idx);
-                Double tempVal = temp.get(idx);
-                if (dewVal != null && tempVal != null) {
-                    slots.add(new MistTrend.MistSlot(
-                            offset,
-                            vis.get(idx).intValue(),
-                            dewVal,
-                            tempVal));
-                }
-            }
-        }
-
-        return slots.isEmpty() ? null : new MistTrend(slots);
+        return OpenMeteoResponseParser.extractMistTrend(h, eventIdx);
     }
 
     /**
@@ -1054,27 +805,7 @@ public class OpenMeteoService {
      * @return the trend, or {@code null} if pressure data is unavailable
      */
     PressureTrend extractPressureTrend(OpenMeteoForecastResponse.Hourly h, int eventIdx) {
-        List<Double> pressureMsl = h.getPressureMsl();
-        if (pressureMsl == null || pressureMsl.isEmpty()) {
-            return null;
-        }
-
-        List<Double> values = new ArrayList<>();
-        for (int offset = -PRESSURE_TREND_HOURS; offset <= PRESSURE_TREND_HOURS; offset++) {
-            int idx = Math.max(0, Math.min(eventIdx + offset, pressureMsl.size() - 1));
-            Double val = pressureMsl.get(idx);
-            if (val != null) {
-                values.add(val);
-            }
-        }
-
-        if (values.isEmpty()) {
-            return null;
-        }
-
-        double tendencyHpa6h = values.getLast() - values.getFirst();
-        String label = PressureTrend.labelFromTendency(tendencyHpa6h);
-        return new PressureTrend(values, tendencyHpa6h, label);
+        return OpenMeteoResponseParser.extractPressureTrend(h, eventIdx);
     }
 
     /**
@@ -1095,25 +826,7 @@ public class OpenMeteoService {
      */
     SolarCloudTrend extractSolarTrend(OpenMeteoForecastResponse forecast,
             LocalDateTime eventTime, TargetType targetType) {
-        List<String> times = forecast.getHourly().getTime();
-        int eventIdx = findBestIndex(times, eventTime, targetType);
-
-        List<SolarCloudTrend.SolarCloudSlot> slots = new ArrayList<>();
-        List<Integer> lowCloud = forecast.getHourly().getCloudCoverLow();
-        List<Integer> midCloud = forecast.getHourly().getCloudCoverMid();
-        List<Integer> highCloud = forecast.getHourly().getCloudCoverHigh();
-
-        for (int h = TREND_HOURS_BACK; h >= 0; h--) {
-            int idx = eventIdx - h;
-            if (idx >= 0 && idx < lowCloud.size()) {
-                Integer mid = midCloud != null && idx < midCloud.size() ? midCloud.get(idx) : null;
-                Integer high = highCloud != null && idx < highCloud.size()
-                        ? highCloud.get(idx) : null;
-                slots.add(new SolarCloudTrend.SolarCloudSlot(h, lowCloud.get(idx), mid, high));
-            }
-        }
-
-        return slots.isEmpty() ? null : new SolarCloudTrend(slots);
+        return OpenMeteoResponseParser.extractSolarTrend(forecast, eventTime, targetType);
     }
 
     /**
@@ -1132,38 +845,7 @@ public class OpenMeteoService {
     UpwindCloudSample extractUpwindSample(OpenMeteoForecastResponse forecast,
             LocalDateTime eventTime, LocalDateTime currentTime, TargetType targetType,
             int distanceKm, int windFromBearing) {
-        List<String> times = forecast.getHourly().getTime();
-        List<Integer> lowCloud = forecast.getHourly().getCloudCoverLow();
-
-        int eventIdx = findBestIndex(times, eventTime, targetType);
-        int currentIdx = findNearestIndex(times, currentTime);
-
-        int eventLowCloud = lowCloud.get(eventIdx);
-        int currentLowCloud = lowCloud.get(currentIdx);
-
-        return new UpwindCloudSample(distanceKm, windFromBearing,
-                currentLowCloud, eventLowCloud);
-    }
-
-    /**
-     * Finds the index of the time slot nearest to the target time (absolute nearest, no
-     * direction preference).
-     *
-     * @param times      list of ISO-8601 time strings
-     * @param targetTime the target time
-     * @return the index of the nearest slot
-     */
-    private int findNearestIndex(List<String> times, LocalDateTime targetTime) {
-        int bestIdx = 0;
-        long minDiff = Long.MAX_VALUE;
-        for (int i = 0; i < times.size(); i++) {
-            long diff = Math.abs(ChronoUnit.SECONDS.between(
-                    LocalDateTime.parse(times.get(i)), targetTime));
-            if (diff < minDiff) {
-                minDiff = diff;
-                bestIdx = i;
-            }
-        }
-        return bestIdx;
+        return OpenMeteoResponseParser.extractUpwindSample(forecast, eventTime, currentTime,
+                targetType, distanceKm, windFromBearing);
     }
 }
