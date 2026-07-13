@@ -117,7 +117,6 @@ public class PromptTestService {
                 .locationsCount(0)
                 .succeeded(0)
                 .failed(0)
-                .totalCostPence(0)
                 .exchangeRateGbpPerUsd(exchangeRate)
                 .gitCommitHash(gitInfoService.getCommitHash())
                 .gitCommitDate(gitInfoService.getCommitDate())
@@ -153,7 +152,6 @@ public class PromptTestService {
 
             int succeeded = 0;
             int failed = 0;
-            int totalCostPence = 0;
             long totalCostMicroDollars = 0;
             int totalSlots = 0;
 
@@ -186,18 +184,14 @@ public class PromptTestService {
                                     atmosphericData, model, null);
                             TokenUsage tokenUsage = detail.tokenUsage() != null
                                     ? detail.tokenUsage() : TokenUsage.EMPTY;
-                            int costPence = costCalculator.calculateCost(
-                                    com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC,
-                                    model);
                             long costMicroDollars =
                                     costCalculator.calculateCostMicroDollars(
                                             model, tokenUsage);
-                            totalCostPence += costPence;
                             totalCostMicroDollars += costMicroDollars;
                             succeeded++;
 
                             PromptTestResultEntity result = buildSuccessResult(testRun,
-                                    location, date, targetType, model, detail, costPence,
+                                    location, date, targetType, model, detail,
                                     costMicroDollars, tokenUsage);
                             populateAtmosphericData(result, atmosphericData);
                             testResultRepository.save(result);
@@ -215,7 +209,7 @@ public class PromptTestService {
             }
 
             completeRun(testRun, testRun.getStartedAt(), totalSlots, succeeded, failed,
-                    totalCostPence, totalCostMicroDollars);
+                    totalCostMicroDollars);
         } catch (NoSuchElementException | IllegalArgumentException e) {
             LOG.error("Prompt test run #{} failed: {}", runId, e.getMessage(), e);
         }
@@ -275,7 +269,6 @@ public class PromptTestService {
                 .locationsCount(0)
                 .succeeded(0)
                 .failed(0)
-                .totalCostPence(0)
                 .exchangeRateGbpPerUsd(exchangeRate)
                 .parentRunId(parentRunId)
                 .gitCommitHash(gitInfoService.getCommitHash())
@@ -316,7 +309,6 @@ public class PromptTestService {
 
             int succeeded = 0;
             int failed = 0;
-            int totalCostPence = 0;
             long totalCostMicroDollars = 0;
             int locationsProcessed = 0;
 
@@ -343,11 +335,8 @@ public class PromptTestService {
                             atmosphericData, model, null);
                     TokenUsage tokenUsage = detail.tokenUsage() != null
                             ? detail.tokenUsage() : TokenUsage.EMPTY;
-                    int costPence = costCalculator.calculateCost(
-                            com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC, model);
                     long costMicroDollars = costCalculator.calculateCostMicroDollars(
                             model, tokenUsage);
-                    totalCostPence += costPence;
                     totalCostMicroDollars += costMicroDollars;
                     succeeded++;
 
@@ -365,7 +354,6 @@ public class PromptTestService {
                             .promptSent(detail.promptSent())
                             .responseJson(detail.rawResponse())
                             .durationMs(detail.durationMs())
-                            .costPence(costPence)
                             .inputTokens(tokenUsage.inputTokens())
                             .outputTokens(tokenUsage.outputTokens())
                             .cacheCreationInputTokens(tokenUsage.cacheCreationInputTokens())
@@ -387,7 +375,7 @@ public class PromptTestService {
             }
 
             completeRun(testRun, testRun.getStartedAt(), locationsProcessed, succeeded,
-                    failed, totalCostPence, totalCostMicroDollars);
+                    failed, totalCostMicroDollars);
         } catch (NoSuchElementException | IllegalStateException e) {
             LOG.error("Prompt test replay #{} failed: {}", runId, e.getMessage(), e);
         }
@@ -525,7 +513,7 @@ public class PromptTestService {
     }
 
     private PromptTestRunEntity completeRun(PromptTestRunEntity testRun, LocalDateTime startedAt,
-            int locationsProcessed, int succeeded, int failed, int totalCostPence,
+            int locationsProcessed, int succeeded, int failed,
             long totalCostMicroDollars) {
         LocalDateTime completedAt = LocalDateTime.now(ZoneOffset.UTC);
         testRun.setCompletedAt(completedAt);
@@ -533,7 +521,6 @@ public class PromptTestService {
         testRun.setLocationsCount(locationsProcessed);
         testRun.setSucceeded(succeeded);
         testRun.setFailed(failed);
-        testRun.setTotalCostPence(totalCostPence);
         testRun.setTotalCostMicroDollars(totalCostMicroDollars);
         testRun = testRunRepository.save(testRun);
 
@@ -589,7 +576,7 @@ public class PromptTestService {
 
     private PromptTestResultEntity buildSuccessResult(PromptTestRunEntity testRun,
             LocationEntity location, LocalDate targetDate, TargetType targetType,
-            EvaluationModel model, EvaluationDetail detail, int costPence,
+            EvaluationModel model, EvaluationDetail detail,
             long costMicroDollars, TokenUsage tokenUsage) {
         return PromptTestResultEntity.builder()
                 .testRunId(testRun.getId())
@@ -605,7 +592,6 @@ public class PromptTestService {
                 .promptSent(detail.promptSent())
                 .responseJson(detail.rawResponse())
                 .durationMs(detail.durationMs())
-                .costPence(costPence)
                 .inputTokens(tokenUsage.inputTokens())
                 .outputTokens(tokenUsage.outputTokens())
                 .cacheCreationInputTokens(tokenUsage.cacheCreationInputTokens())
@@ -627,7 +613,6 @@ public class PromptTestService {
                 .targetType(targetType)
                 .evaluationModel(model)
                 .durationMs(0L)
-                .costPence(0)
                 .succeeded(false)
                 .errorMessage(errorMessage != null && errorMessage.length() > 500
                         ? errorMessage.substring(0, 500) : errorMessage)
@@ -645,7 +630,6 @@ public class PromptTestService {
                 .targetType(ref.getTargetType())
                 .evaluationModel(model)
                 .durationMs(0L)
-                .costPence(0)
                 .succeeded(false)
                 .errorMessage(errorMessage != null && errorMessage.length() > 500
                         ? errorMessage.substring(0, 500) : errorMessage)

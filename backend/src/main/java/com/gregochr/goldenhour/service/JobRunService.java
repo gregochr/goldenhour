@@ -108,7 +108,6 @@ public class JobRunService {
                 .locationsProcessed(0)
                 .succeeded(0)
                 .failed(0)
-                .totalCostPence(0)
                 .triggeredManually(triggeredManually)
                 .exchangeRateGbpPerUsd(exchangeRate)
                 .activeStrategies(activeStrategies)
@@ -139,7 +138,6 @@ public class JobRunService {
             TokenUsage tokenUsage, boolean isBatch,
             LocalDate targetDate, TargetType targetType) {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-        int costPence = costCalculator.calculateCost(ServiceName.ANTHROPIC, model);
         long costMicroDollars = costCalculator.calculateCostMicroDollars(model, tokenUsage, isBatch);
 
         ApiCallLogEntity log = ApiCallLogEntity.builder()
@@ -154,7 +152,6 @@ public class JobRunService {
                 .responseBody(responseBody)
                 .succeeded(succeeded)
                 .errorMessage(truncate(errorMessage, 500))
-                .costPence(costPence)
                 .createdAt(now)
                 .evaluationModel(model)
                 .targetDate(targetDate)
@@ -283,14 +280,12 @@ public class JobRunService {
      * @param targetType     target type (SUNRISE/SUNSET) for forecast evaluations, or null
      * @return the newly created API call log entity
      */
-    @SuppressWarnings("deprecation")
     public ApiCallLogEntity logApiCall(Long jobRunId, ServiceName service,
             String requestMethod, String requestUrl, String requestBody,
             long durationMs, Integer statusCode, String responseBody,
             boolean succeeded, String errorMessage, EvaluationModel model,
             LocalDate targetDate, TargetType targetType) {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-        int costPence = costCalculator.calculateCost(service, model);
         long costMicroDollars = (service == ServiceName.ANTHROPIC)
                 ? 0 : costCalculator.calculateFlatCostMicroDollars(service);
 
@@ -307,7 +302,6 @@ public class JobRunService {
                 .responseBody(responseBody)
                 .succeeded(succeeded)
                 .errorMessage(truncate(errorMessage, 500))
-                .costPence(costPence)
                 .createdAt(now)
                 .evaluationModel(model)
                 .targetDate(targetDate)
@@ -367,7 +361,7 @@ public class JobRunService {
     /**
      * Completes a job run with success and failure counts.
      *
-     * <p>Aggregates both legacy cost (pence) and new token-based cost (micro-dollars).
+     * <p>Aggregates the token-based cost (micro-dollars) across all API calls in the run.
      *
      * @param jobRun   the job run to complete
      * @param succeeded number of successful evaluations
@@ -380,10 +374,6 @@ public class JobRunService {
 
         // Calculate total cost from all API calls
         List<ApiCallLogEntity> apiCalls = apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(jobRun.getId());
-        int totalCostPence = apiCalls.stream()
-                .map(ApiCallLogEntity::getCostPence)
-                .filter(c -> c != null)
-                .reduce(0, Integer::sum);
         long totalCostMicroDollars = apiCalls.stream()
                 .map(ApiCallLogEntity::getCostMicroDollars)
                 .filter(c -> c != null)
@@ -401,7 +391,6 @@ public class JobRunService {
         jobRun.setDurationMs(durationMs);
         jobRun.setSucceeded(succeeded);
         jobRun.setFailed(failed);
-        jobRun.setTotalCostPence(totalCostPence);
         jobRun.setTotalCostMicroDollars(totalCostMicroDollars);
         jobRunRepository.save(jobRun);
     }
@@ -442,7 +431,6 @@ public class JobRunService {
                 .locationsProcessed(requestCount)
                 .succeeded(0)
                 .failed(0)
-                .totalCostPence(0)
                 .triggeredManually(false)
                 .exchangeRateGbpPerUsd(exchangeRate)
                 .notes("Anthropic batch: " + batchId)
@@ -488,7 +476,6 @@ public class JobRunService {
                 .locationsProcessed(candidateCount)
                 .succeeded(0)
                 .failed(0)
-                .totalCostPence(0)
                 .totalCostMicroDollars(0L)
                 .triggeredManually(false)
                 .exchangeRateGbpPerUsd(exchangeRate)

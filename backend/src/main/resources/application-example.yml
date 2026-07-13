@@ -54,12 +54,6 @@ cost:
   # Non-Anthropic flat costs (micro-dollars)
   world-tides-micro-dollars: 3000   # ~$0.003 per call
   open-meteo-micro-dollars: 0       # free
-  # Legacy flat-rate fields (deprecated, kept for backward compatibility)
-  anthropic-haiku-pence: 5
-  anthropic-sonnet-pence: 13
-  anthropic-opus-pence: 75
-  world-tides-pence: 2
-  open-meteo-pence: 0
 
 forecast:
   locations:

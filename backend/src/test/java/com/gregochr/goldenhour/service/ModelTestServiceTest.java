@@ -11,7 +11,6 @@ import com.gregochr.goldenhour.entity.ModelTestResultEntity;
 import com.gregochr.goldenhour.entity.ModelTestRunEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RerunType;
-import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
@@ -176,8 +175,6 @@ class ModelTestServiceTest {
                 any(), any(), any(), any(), anyDouble(), anyDouble(), any())).thenReturn(data);
         when(evaluationService.evaluateWithDetails(any(), any(), any()))
                 .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
-        when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any(EvaluationModel.class)))
-                .thenReturn(50);
         when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
                 .thenReturn(5400L);
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
@@ -188,7 +185,6 @@ class ModelTestServiceTest {
         assertThat(result.getRegionsCount()).isEqualTo(1);
         assertThat(result.getSucceeded()).isEqualTo(6);
         assertThat(result.getFailed()).isEqualTo(0);
-        assertThat(result.getTotalCostPence()).isEqualTo(300);
         assertThat(result.getTotalCostMicroDollars()).isEqualTo(32400L);
         assertThat(result.getExchangeRateGbpPerUsd()).isEqualTo(0.79);
 
@@ -252,8 +248,6 @@ class ModelTestServiceTest {
                 .thenThrow(new RuntimeException("Sonnet overloaded"));
         when(evaluationService.evaluateWithDetails(any(), eq(EvaluationModel.OPUS), any()))
                 .thenReturn(sampleDetail(EvaluationModel.OPUS));
-        when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any()))
-                .thenReturn(50);
         when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
                 .thenReturn(5400L);
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
@@ -411,8 +405,6 @@ class ModelTestServiceTest {
                 any(), any(), any(), any(), anyDouble(), anyDouble(), any())).thenReturn(data);
         when(evaluationService.evaluateWithDetails(any(), any(), any()))
                 .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
-        when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any(EvaluationModel.class)))
-                .thenReturn(50);
         when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
                 .thenReturn(5400L);
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
@@ -423,7 +415,6 @@ class ModelTestServiceTest {
         assertThat(result.getRegionsCount()).isEqualTo(1);
         assertThat(result.getSucceeded()).isEqualTo(6);
         assertThat(result.getFailed()).isEqualTo(0);
-        assertThat(result.getTotalCostPence()).isEqualTo(300);
         assertThat(result.getTotalCostMicroDollars()).isEqualTo(32400L);
         verify(testResultRepository, times(6)).save(any(ModelTestResultEntity.class));
     }
@@ -551,8 +542,6 @@ class ModelTestServiceTest {
                 any(), any(), any(), any(), anyDouble(), anyDouble(), any())).thenReturn(data);
         when(evaluationService.evaluateWithDetails(any(), any(), any()))
                 .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
-        when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any(EvaluationModel.class)))
-                .thenReturn(50);
         when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
                 .thenReturn(5400L);
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
@@ -621,8 +610,6 @@ class ModelTestServiceTest {
         });
         when(evaluationService.evaluateWithDetails(any(), any(), any()))
                 .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
-        when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any(EvaluationModel.class)))
-                .thenReturn(50);
         when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
                 .thenReturn(5400L);
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
@@ -672,7 +659,6 @@ class ModelTestServiceTest {
         });
         when(evaluationService.evaluateWithDetails(any(), any(), any()))
                 .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
-        when(costCalculator.calculateCost(any(), any())).thenReturn(50);
         when(costCalculator.calculateCostMicroDollars(any(), any())).thenReturn(5400L);
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -741,8 +727,6 @@ class ModelTestServiceTest {
                 any(), any(), any(), any(), anyDouble(), anyDouble(), any())).thenReturn(data);
         when(evaluationService.evaluateWithDetails(any(), any(), any()))
                 .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
-        when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any(EvaluationModel.class)))
-                .thenReturn(50);
         when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
                 .thenReturn(5400L);
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);

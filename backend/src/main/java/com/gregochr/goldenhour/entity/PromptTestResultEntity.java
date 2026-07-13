@@ -75,10 +75,6 @@ public class PromptTestResultEntity {
     @Column(name = "duration_ms")
     private Long durationMs;
 
-    @Column(name = "cost_pence", nullable = false)
-    @Builder.Default
-    private Integer costPence = 0;
-
     @Column(name = "cost_micro_dollars")
     private Long costMicroDollars;
 

@@ -68,10 +68,6 @@ public class PromptTestRunEntity {
     @Builder.Default
     private Integer failed = 0;
 
-    @Column(name = "total_cost_pence", nullable = false)
-    @Builder.Default
-    private Integer totalCostPence = 0;
-
     @Column(name = "total_cost_micro_dollars")
     private Long totalCostMicroDollars;
 

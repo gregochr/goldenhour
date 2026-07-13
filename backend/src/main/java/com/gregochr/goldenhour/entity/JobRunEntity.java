@@ -75,10 +75,6 @@ public class JobRunEntity {
     @Column(name = "failed")
     private Integer failed;
 
-    /** Total cost of all API calls in this run, in pence. */
-    @Column(name = "total_cost_pence")
-    private Integer totalCostPence;
-
     /** Whether this run was triggered manually (via API) or by the scheduler. */
     @Column(name = "triggered_manually", nullable = false)
     private Boolean triggeredManually;

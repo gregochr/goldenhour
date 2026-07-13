@@ -46,7 +46,6 @@ class PromptTestControllerTest extends AbstractControllerTest {
                 .locationsCount(0)
                 .succeeded(0)
                 .failed(0)
-                .totalCostPence(0)
                 .gitCommitHash("abc1234")
                 .gitBranch("main")
                 .build();

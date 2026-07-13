@@ -169,7 +169,6 @@ class JobRunServiceTest {
             JobRunEntity saved = captor.getValue();
             assertThat(saved.getSucceeded()).isEqualTo(0);
             assertThat(saved.getFailed()).isEqualTo(0);
-            assertThat(saved.getTotalCostPence()).isEqualTo(0);
         }
 
         @Test
@@ -194,7 +193,6 @@ class JobRunServiceTest {
         void logAnthropicApiCall_recordsTokensAndCost() {
             ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
             when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
-            when(costCalculator.calculateCost(ServiceName.ANTHROPIC, EvaluationModel.SONNET)).thenReturn(13);
             when(costCalculator.calculateCostMicroDollars(eq(EvaluationModel.SONNET),
                     any(TokenUsage.class), eq(false))).thenReturn(5400L);
 
@@ -210,7 +208,6 @@ class JobRunServiceTest {
             assertThat(logged.getService()).isEqualTo(ServiceName.ANTHROPIC);
             assertThat(logged.getDurationMs()).isEqualTo(250L);
             assertThat(logged.getSucceeded()).isTrue();
-            assertThat(logged.getCostPence()).isEqualTo(13);
             assertThat(logged.getCostMicroDollars()).isEqualTo(5400L);
             assertThat(logged.getInputTokens()).isEqualTo(400L);
             assertThat(logged.getOutputTokens()).isEqualTo(80L);
@@ -225,8 +222,8 @@ class JobRunServiceTest {
     class CompleteRunTests {
 
         @Test
-        @DisplayName("aggregates both legacy pence and micro-dollar costs")
-        void completeRun_aggregatesBothCostTypes() {
+        @DisplayName("aggregates micro-dollar costs across the run's api call logs")
+        void completeRun_aggregatesMicroDollarCost() {
             LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minus(1, ChronoUnit.SECONDS);
             JobRunEntity jobRun = JobRunEntity.builder()
                     .id(1L)
@@ -236,8 +233,8 @@ class JobRunServiceTest {
             ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
             when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
             when(apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(1L)).thenReturn(List.of(
-                    ApiCallLogEntity.builder().costPence(13).costMicroDollars(5400L).build(),
-                    ApiCallLogEntity.builder().costPence(13).costMicroDollars(5400L).build()
+                    ApiCallLogEntity.builder().costMicroDollars(5400L).build(),
+                    ApiCallLogEntity.builder().costMicroDollars(5400L).build()
             ));
 
             jobRunService.completeRun(jobRun, 5, 2);
@@ -248,7 +245,6 @@ class JobRunServiceTest {
             assertThat(completed.getDurationMs()).isGreaterThan(0L);
             assertThat(completed.getSucceeded()).isEqualTo(5);
             assertThat(completed.getFailed()).isEqualTo(2);
-            assertThat(completed.getTotalCostPence()).isEqualTo(26);
             assertThat(completed.getTotalCostMicroDollars()).isEqualTo(10800L);
         }
 
@@ -364,7 +360,6 @@ class JobRunServiceTest {
         void logApiCall_nonAnthropic_usesFlatCost() {
             ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
             when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
-            when(costCalculator.calculateCost(ServiceName.WORLD_TIDES, null)).thenReturn(2);
             when(costCalculator.calculateFlatCostMicroDollars(ServiceName.WORLD_TIDES)).thenReturn(3000L);
 
             jobRunService.logApiCall(1L, ServiceName.WORLD_TIDES, "GET",
@@ -372,7 +367,6 @@ class JobRunServiceTest {
                     100L, 200, null, true, null);
 
             ApiCallLogEntity logged = captor.getValue();
-            assertThat(logged.getCostPence()).isEqualTo(2);
             assertThat(logged.getCostMicroDollars()).isEqualTo(3000L);
             assertThat(logged.getInputTokens()).isNull();
         }
@@ -382,7 +376,6 @@ class JobRunServiceTest {
         void logApiCall_recordsAllFields() {
             ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
             when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
-            when(costCalculator.calculateCost(ServiceName.OPEN_METEO_FORECAST, null)).thenReturn(0);
             when(costCalculator.calculateFlatCostMicroDollars(ServiceName.OPEN_METEO_FORECAST)).thenReturn(0L);
 
             jobRunService.logApiCall(7L, ServiceName.OPEN_METEO_FORECAST,
@@ -404,7 +397,6 @@ class JobRunServiceTest {
         void logApiCall_longErrorMessage_isTruncatedTo500Chars() {
             ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
             when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
-            when(costCalculator.calculateCost(ServiceName.WORLD_TIDES, null)).thenReturn(0);
             when(costCalculator.calculateFlatCostMicroDollars(ServiceName.WORLD_TIDES)).thenReturn(0L);
             String longError = "e".repeat(600);
 
@@ -419,7 +411,6 @@ class JobRunServiceTest {
         void logApiCall_errorMessageExactly500Chars_isNotTruncated() {
             ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
             when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
-            when(costCalculator.calculateCost(ServiceName.WORLD_TIDES, null)).thenReturn(0);
             when(costCalculator.calculateFlatCostMicroDollars(ServiceName.WORLD_TIDES)).thenReturn(0L);
             String exactError = "x".repeat(500);
 
@@ -434,7 +425,6 @@ class JobRunServiceTest {
         void logApiCall_nullErrorMessage_isStoredAsNull() {
             ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
             when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
-            when(costCalculator.calculateCost(ServiceName.OPEN_METEO_FORECAST, null)).thenReturn(0);
             when(costCalculator.calculateFlatCostMicroDollars(ServiceName.OPEN_METEO_FORECAST)).thenReturn(0L);
 
             jobRunService.logApiCall(1L, ServiceName.OPEN_METEO_FORECAST, "GET",
