@@ -1553,6 +1553,49 @@ class OpenMeteoServiceTest {
         assertThat(result).isNull();
     }
 
+    @Test
+    @DisplayName("fetchDirectionalCloudDataFromCache() returns null when the antisolar point is missing")
+    void fetchDirectionalCloudDataFromCache_antisolarMissing_returnsNull() {
+        List<String> times = List.of("2026-06-21T20:00", "2026-06-21T21:00");
+        List<double[]> points = openMeteoService.computeDirectionalCloudPoints(54.77, -1.58, 270);
+        var map = new java.util.LinkedHashMap<String, OpenMeteoForecastResponse>();
+        // Populate the 3 solar cone points (0,1,2) and far-solar (4) but NOT the antisolar (3)
+        for (int i : new int[]{0, 1, 2, 4}) {
+            map.put(com.gregochr.goldenhour.model.CloudPointCache.gridKey(
+                            points.get(i)[0], points.get(i)[1]),
+                    buildCloudOnlyResponse(times, List.of(30, 30), List.of(10, 10), List.of(5, 5)));
+        }
+        var cloudCache = new com.gregochr.goldenhour.model.CloudPointCache(map);
+
+        var result = openMeteoService.fetchDirectionalCloudDataFromCache(
+                54.77, -1.58, 270, LocalDateTime.of(2026, 6, 21, 20, 47),
+                TargetType.SUNSET, cloudCache);
+
+        assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("fetchDirectionalCloudDataFromCache() leaves farSolar null when the far-solar point is missing")
+    void fetchDirectionalCloudDataFromCache_farSolarMissing_leavesFarSolarNull() {
+        List<String> times = List.of("2026-06-21T20:00", "2026-06-21T21:00");
+        List<double[]> points = openMeteoService.computeDirectionalCloudPoints(54.77, -1.58, 270);
+        var map = new java.util.LinkedHashMap<String, OpenMeteoForecastResponse>();
+        // Populate cone (0,1,2) + antisolar (3) but NOT far-solar (4)
+        for (int i : new int[]{0, 1, 2, 3}) {
+            map.put(com.gregochr.goldenhour.model.CloudPointCache.gridKey(
+                            points.get(i)[0], points.get(i)[1]),
+                    buildCloudOnlyResponse(times, List.of(30, 30), List.of(10, 10), List.of(5, 5)));
+        }
+        var cloudCache = new com.gregochr.goldenhour.model.CloudPointCache(map);
+
+        var result = openMeteoService.fetchDirectionalCloudDataFromCache(
+                54.77, -1.58, 270, LocalDateTime.of(2026, 6, 21, 20, 47),
+                TargetType.SUNSET, cloudCache);
+
+        assertThat(result).isNotNull();
+        assertThat(result.farSolarLowCloudPercent()).isNull();
+    }
+
     // --- API call logging tests ---
 
     /**
@@ -2056,6 +2099,54 @@ class OpenMeteoServiceTest {
                 TargetType.SUNSET, 270, 0.0, cloudCache);
 
         assertThat(result).isNotNull();
+    }
+
+    @Test
+    @DisplayName("fetchCloudApproachDataFromCache includes an upwind sample when wind is blowing toward the event")
+    void fetchCloudApproachDataFromCache_withWind_includesUpwindSample() {
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 0);
+        LocalDateTime currentTime = LocalDateTime.of(2026, 6, 21, 19, 0);
+        int windFromDeg = 270;
+        double windSpeedMs = 5.0;
+
+        double[] solarPoint = openMeteoService.computeSolarHorizonPoint(55.0, -1.5, 270);
+        double[] upwindPoint = openMeteoService.computeUpwindPoint(
+                55.0, -1.5, windFromDeg, windSpeedMs, currentTime, eventTime);
+        assertThat(upwindPoint).isNotNull();
+
+        List<String> times = List.of("2026-06-21T19:00", "2026-06-21T20:00");
+        var cacheMap = new java.util.LinkedHashMap<String, OpenMeteoForecastResponse>();
+        cacheMap.put(com.gregochr.goldenhour.model.CloudPointCache.gridKey(
+                        solarPoint[0], solarPoint[1]),
+                buildCloudOnlyResponse(times, List.of(10, 15), List.of(5, 5), List.of(5, 5)));
+        cacheMap.put(com.gregochr.goldenhour.model.CloudPointCache.gridKey(
+                        upwindPoint[0], upwindPoint[1]),
+                buildCloudOnlyResponse(times, List.of(80, 70), List.of(5, 5), List.of(5, 5)));
+        var cloudCache = new com.gregochr.goldenhour.model.CloudPointCache(cacheMap);
+
+        var result = openMeteoService.fetchCloudApproachDataFromCache(
+                55.0, -1.5, 270, eventTime, currentTime,
+                TargetType.SUNSET, windFromDeg, windSpeedMs, cloudCache);
+
+        assertThat(result).isNotNull();
+        assertThat(result.upwindSample()).isNotNull();
+        // Upwind response low cloud is [80 @19:00, 70 @20:00]: current=80 (now), event=70 (at event)
+        assertThat(result.upwindSample().currentLowCloudPercent()).isEqualTo(80);
+        assertThat(result.upwindSample().eventLowCloudPercent()).isEqualTo(70);
+    }
+
+    @Test
+    @DisplayName("fetchCloudApproachDataFromCache returns null when the solar point is not cached")
+    void fetchCloudApproachDataFromCache_solarPointMissing_returnsNull() {
+        var cloudCache = new com.gregochr.goldenhour.model.CloudPointCache(java.util.Map.of());
+
+        var result = openMeteoService.fetchCloudApproachDataFromCache(
+                55.0, -1.5, 270,
+                LocalDateTime.of(2026, 6, 21, 20, 0),
+                LocalDateTime.of(2026, 6, 21, 19, 0),
+                TargetType.SUNSET, 270, 5.0, cloudCache);
+
+        assertThat(result).isNull();
     }
 
     // --- utility boundary tests ---
