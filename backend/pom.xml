@@ -459,6 +459,8 @@
                                 <exclude>com/gregochr/goldenhour/service/NlcTwilightWindowCalculator$NlcWindows.class</exclude>
                                 <!-- SSE progress tracker — async/reactive plumbing, hard to unit test -->
                                 <exclude>com/gregochr/goldenhour/service/RunProgressTracker.class</exclude>
+                                <!-- Compile-time constant holder (SYSTEM_PROMPT text block) — never loaded, no testable logic -->
+                                <exclude>com/gregochr/goldenhour/service/evaluation/BestBetPromptText.class</exclude>
                                 <!-- @ConfigurationProperties POJOs — pure getters/setters, no testable logic -->
                                 <exclude>com/gregochr/goldenhour/config/OrsProperties.class</exclude>
                                 <!-- Pure request/response records — no business logic -->

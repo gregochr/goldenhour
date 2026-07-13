@@ -21,6 +21,7 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BestBetResult;
 import com.gregochr.goldenhour.model.BestBetStatus;
+import com.gregochr.goldenhour.model.CandidateCoverage;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.DiffersBy;
@@ -916,8 +917,8 @@ class BriefingBestBetAdvisorTest {
                     rel == null ? List.of() : List.of(DiffersBy.DATE));
         }
 
-        private BriefingBestBetAdvisor.CandidateCoverage cov(int rated, int daysAhead) {
-            return new BriefingBestBetAdvisor.CandidateCoverage(rated, daysAhead, 4.0);
+        private CandidateCoverage cov(int rated, int daysAhead) {
+            return new CandidateCoverage(rated, daysAhead, 4.0);
         }
 
         @Test
@@ -927,7 +928,7 @@ class BriefingBestBetAdvisorTest {
             // T+1 well-covered (5 rated). The well-evaluated nearer pick must win.
             BestBet thinFar = pick(1, FAR_EVENT, NORTHUMBERLAND, null);
             BestBet coveredNear = pick(2, NEAR_EVENT, NORTH_YORKS, Relationship.DIFFERENT_SLOT);
-            Map<String, BriefingBestBetAdvisor.CandidateCoverage> coverage = Map.of(
+            Map<String, CandidateCoverage> coverage = Map.of(
                     FAR_EVENT + "|" + NORTHUMBERLAND, cov(2, 2),
                     NEAR_EVENT + "|" + NORTH_YORKS, cov(5, 1));
 
@@ -954,9 +955,9 @@ class BriefingBestBetAdvisorTest {
             // claudeRatedCount == MIN_HEADLINE_CLAUDE_COVERAGE (3) clears the floor.
             BestBet head = pick(1, FAR_EVENT, NORTHUMBERLAND, null);
             BestBet alt = pick(2, NEAR_EVENT, NORTH_YORKS, Relationship.DIFFERENT_SLOT);
-            Map<String, BriefingBestBetAdvisor.CandidateCoverage> coverage = Map.of(
+            Map<String, CandidateCoverage> coverage = Map.of(
                     FAR_EVENT + "|" + NORTHUMBERLAND,
-                    cov(BriefingBestBetAdvisor.MIN_HEADLINE_CLAUDE_COVERAGE, 2),
+                    cov(BestBetRanker.MIN_HEADLINE_CLAUDE_COVERAGE, 2),
                     NEAR_EVENT + "|" + NORTH_YORKS, cov(5, 1));
 
             List<BestBet> result = advisor.applyCoverageAwareRanking(List.of(head, alt), coverage);
@@ -969,11 +970,11 @@ class BriefingBestBetAdvisorTest {
         void boundaryBelowFloorDemoted() {
             BestBet head = pick(1, FAR_EVENT, NORTHUMBERLAND, null);
             BestBet alt = pick(2, NEAR_EVENT, NORTH_YORKS, Relationship.DIFFERENT_SLOT);
-            Map<String, BriefingBestBetAdvisor.CandidateCoverage> coverage = Map.of(
+            Map<String, CandidateCoverage> coverage = Map.of(
                     FAR_EVENT + "|" + NORTHUMBERLAND,
-                    cov(BriefingBestBetAdvisor.MIN_HEADLINE_CLAUDE_COVERAGE - 1, 2),
+                    cov(BestBetRanker.MIN_HEADLINE_CLAUDE_COVERAGE - 1, 2),
                     NEAR_EVENT + "|" + NORTH_YORKS,
-                    cov(BriefingBestBetAdvisor.MIN_HEADLINE_CLAUDE_COVERAGE, 1));
+                    cov(BestBetRanker.MIN_HEADLINE_CLAUDE_COVERAGE, 1));
 
             List<BestBet> result = advisor.applyCoverageAwareRanking(List.of(head, alt), coverage);
 
@@ -987,7 +988,7 @@ class BriefingBestBetAdvisorTest {
             // (force-eval gives it coverage) stays crownable over a nearer pick.
             BestBet coveredFar = pick(1, FAR_EVENT, NORTHUMBERLAND, null);
             BestBet near = pick(2, NEAR_EVENT, NORTH_YORKS, Relationship.DIFFERENT_SLOT);
-            Map<String, BriefingBestBetAdvisor.CandidateCoverage> coverage = Map.of(
+            Map<String, CandidateCoverage> coverage = Map.of(
                     FAR_EVENT + "|" + NORTHUMBERLAND, cov(6, 2),
                     NEAR_EVENT + "|" + NORTH_YORKS, cov(5, 1));
 
@@ -1007,7 +1008,7 @@ class BriefingBestBetAdvisorTest {
             // is what raises a contender above the floor; the advisor never invents one.)
             BestBet thinHead = pick(1, FAR_EVENT, NORTHUMBERLAND, null);
             BestBet thinAlt = pick(2, NEAR_EVENT, NORTH_YORKS, Relationship.DIFFERENT_SLOT);
-            Map<String, BriefingBestBetAdvisor.CandidateCoverage> coverage = Map.of(
+            Map<String, CandidateCoverage> coverage = Map.of(
                     FAR_EVENT + "|" + NORTHUMBERLAND, cov(2, 2),
                     NEAR_EVENT + "|" + NORTH_YORKS, cov(1, 1));
 
@@ -1022,7 +1023,7 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Single pick is never reordered")
         void singlePickUnchanged() {
             BestBet only = pick(1, FAR_EVENT, NORTHUMBERLAND, null);
-            Map<String, BriefingBestBetAdvisor.CandidateCoverage> coverage =
+            Map<String, CandidateCoverage> coverage =
                     Map.of(FAR_EVENT + "|" + NORTHUMBERLAND, cov(1, 2));
 
             List<BestBet> result = advisor.applyCoverageAwareRanking(List.of(only), coverage);
@@ -1035,7 +1036,7 @@ class BriefingBestBetAdvisorTest {
         void auroraHeadlineExempt() {
             BestBet aurora = pick(1, "2026-03-29_aurora", NORTHUMBERLAND, null);
             BestBet covered = pick(2, NEAR_EVENT, NORTH_YORKS, Relationship.DIFFERENT_SLOT);
-            Map<String, BriefingBestBetAdvisor.CandidateCoverage> coverage =
+            Map<String, CandidateCoverage> coverage =
                     Map.of(NEAR_EVENT + "|" + NORTH_YORKS, cov(5, 1));
 
             List<BestBet> result = advisor.applyCoverageAwareRanking(
@@ -1049,7 +1050,7 @@ class BriefingBestBetAdvisorTest {
         void stayHomeHeadlineExempt() {
             BestBet stayHome = pick(1, null, null, null);
             BestBet covered = pick(2, NEAR_EVENT, NORTH_YORKS, Relationship.DIFFERENT_SLOT);
-            Map<String, BriefingBestBetAdvisor.CandidateCoverage> coverage =
+            Map<String, CandidateCoverage> coverage =
                     Map.of(NEAR_EVENT + "|" + NORTH_YORKS, cov(5, 1));
 
             List<BestBet> result = advisor.applyCoverageAwareRanking(
@@ -1118,7 +1119,7 @@ class BriefingBestBetAdvisorTest {
         void sameSlotRecomputedOnPromotion() {
             BestBet thin = pick(1, NEAR_EVENT, NORTHUMBERLAND, null);
             BestBet covered = pick(2, NEAR_EVENT, NORTH_YORKS, Relationship.DIFFERENT_SLOT);
-            Map<String, BriefingBestBetAdvisor.CandidateCoverage> coverage = Map.of(
+            Map<String, CandidateCoverage> coverage = Map.of(
                     NEAR_EVENT + "|" + NORTHUMBERLAND, cov(1, 1),
                     NEAR_EVENT + "|" + NORTH_YORKS, cov(5, 1));
 

@@ -76,7 +76,7 @@ class BestBetAuroraPromptRegressionTest {
         objectMapper = new ObjectMapper().findAndRegisterModules();
 
         // Extract the private SYSTEM_PROMPT constant via reflection
-        Field promptField = BriefingBestBetAdvisor.class.getDeclaredField("SYSTEM_PROMPT");
+        Field promptField = BestBetPromptText.class.getDeclaredField("SYSTEM_PROMPT");
         promptField.setAccessible(true);
         systemPrompt = (String) promptField.get(null);
     }
