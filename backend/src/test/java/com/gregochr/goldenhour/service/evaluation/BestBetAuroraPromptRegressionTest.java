@@ -17,6 +17,7 @@ import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.RollupResult;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
@@ -112,7 +113,7 @@ class BestBetAuroraPromptRegressionTest {
                 mock(StabilitySnapshotProvider.class),
                 mock(BriefingEvaluationService.class), mock(TravelDayService.class), 4096, java.time.Clock.systemUTC());
 
-        BriefingBestBetAdvisor.RollupResult rollup =
+        RollupResult rollup =
                 advisor.buildRollupJson(List.of(day), now);
 
         String raw = callHaiku(rollup.json());
@@ -176,7 +177,7 @@ class BestBetAuroraPromptRegressionTest {
                 mock(StabilitySnapshotProvider.class),
                 mock(BriefingEvaluationService.class), mock(TravelDayService.class), 4096, java.time.Clock.systemUTC());
 
-        BriefingBestBetAdvisor.RollupResult rollup =
+        RollupResult rollup =
                 advisor.buildRollupJson(List.of(day), now);
 
         String raw = callHaiku(rollup.json());
@@ -220,7 +221,7 @@ class BestBetAuroraPromptRegressionTest {
                 mock(StabilitySnapshotProvider.class),
                 mock(BriefingEvaluationService.class), mock(TravelDayService.class), 4096, java.time.Clock.systemUTC());
 
-        BriefingBestBetAdvisor.RollupResult rollup =
+        RollupResult rollup =
                 advisor.buildRollupJson(List.of(day), now);
 
         String raw = callHaiku(rollup.json());
