@@ -190,7 +190,7 @@ public class BriefingBestBetAdvisor {
      * @return the current {@code SYSTEM_PROMPT}
      */
     public String currentSystemPrompt() {
-        return BestBetPromptText.SYSTEM_PROMPT;
+        return BestBetPromptText.systemPrompt();
     }
 
     /**
@@ -240,7 +240,7 @@ public class BriefingBestBetAdvisor {
                     .model(model.getModelId())
                     .maxTokens(useExtendedThinking ? MAX_TOKENS_THINKING : maxTokens)
                     .systemOfTextBlockParams(List.of(
-                            TextBlockParam.builder().text(BestBetPromptText.SYSTEM_PROMPT).build()))
+                            TextBlockParam.builder().text(BestBetPromptText.systemPrompt()).build()))
                     .addUserMessage(rollup.json());
             if (useExtendedThinking) {
                 paramsBuilder.thinking(ThinkingConfigAdaptive.builder().build());
@@ -1026,7 +1026,7 @@ public class BriefingBestBetAdvisor {
                     .model(model.getModelId())
                     .maxTokens(extendedThinking ? MAX_TOKENS_THINKING : maxTokens)
                     .systemOfTextBlockParams(List.of(
-                            TextBlockParam.builder().text(BestBetPromptText.SYSTEM_PROMPT).build()))
+                            TextBlockParam.builder().text(BestBetPromptText.systemPrompt()).build()))
                     .addUserMessage(rollup.json());
 
             if (extendedThinking) {
@@ -1116,7 +1116,7 @@ public class BriefingBestBetAdvisor {
      * objects and changes neither selection nor ranking.
      *
      * @param rollupJson   the exact user-message rollup JSON (as captured in api_call_log)
-     * @param systemPrompt the system prompt to evaluate with (pass {@link BestBetPromptText#SYSTEM_PROMPT} for
+     * @param systemPrompt the system prompt to evaluate with (pass {@link BestBetPromptText#systemPrompt()} for
      *                     the baseline before-state)
      * @param model        the model to call
      * @return the classified outcome (status + validated, ranked picks)

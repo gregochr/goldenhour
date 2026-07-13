@@ -13,11 +13,24 @@ public final class BestBetPromptText {
     }
 
     /**
-     * The advisor's system prompt: the full instruction set sent to Claude as the system message
-     * for every best-bet call. Read by {@code BriefingBestBetAdvisor#currentSystemPrompt()} so the
-     * replay harness and prompt-regression test can run a rollup through the production prompt.
+     * Returns the advisor's system prompt.
+     *
+     * <p>Exposed as a method rather than a public constant so callers reference it at runtime
+     * instead of the compiler inlining a copy of the 14 KB literal into every referencing class
+     * (which SpotBugs flags as a huge shared string constant).
+     *
+     * @return the full system prompt sent to Claude for every best-bet call
      */
-    public static final String SYSTEM_PROMPT = """
+    public static String systemPrompt() {
+        return SYSTEM_PROMPT;
+    }
+
+    /**
+     * The advisor's system prompt: the full instruction set sent to Claude as the system message
+     * for every best-bet call. Read via {@link #systemPrompt()} (and by reflection in the
+     * prompt-regression test) so the replay harness can run a rollup through the production prompt.
+     */
+    private static final String SYSTEM_PROMPT = """
             You are a photography forecast advisor for PhotoCast, helping landscape photographers
             decide when and where to go for the best light.
 
