@@ -4,23 +4,14 @@ import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastStability;
-import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
-import com.gregochr.goldenhour.entity.TargetType;
-import com.gregochr.goldenhour.model.BriefingDay;
-import com.gregochr.goldenhour.model.BriefingEventSummary;
-import com.gregochr.goldenhour.model.BriefingRegion;
-import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.GridCellStabilityResult;
-import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
-import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
-import com.gregochr.goldenhour.service.BriefingGatingPolicy;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
@@ -33,29 +24,19 @@ import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
 import com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter;
-import com.gregochr.goldenhour.util.TimeSlotUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Collects forecast evaluation tasks from the cached daily briefing and applies
@@ -81,6 +62,13 @@ import java.util.stream.Collectors;
  *       degradation — preserving legacy admin-trigger behaviour).</li>
  * </ul>
  *
+ * <p>Assembly concerns are delegated to four instance-scoped collaborators
+ * constructed from this collector's own dependencies:
+ * {@link BatchWeatherPrefetcher} (weather + cloud pre-fetch),
+ * {@link ForceEvalHeadlineSelector} (capped force-eval key selection),
+ * {@link BriefingCandidateCollector} (first briefing pass), and
+ * {@link GridCellStabilityService} (grid-cell classification + snapshot publish).
+ *
  * <p>The collector is stateless and Spring-singleton; concurrent invocation is
  * safe and the caller is responsible for serialising entry via the
  * {@code forecastBatchRunning} guard in {@link ScheduledBatchEvaluationService}.
@@ -101,19 +89,6 @@ public class ForecastTaskCollector {
      * far-term batch (subject to stability gating).
      */
     static final int NEAR_TERM_MAX_DAYS = 1;
-
-    /**
-     * Lowest horizon at which force-evaluation applies. T+0/T+1 are always
-     * eligible under Gate 4 so never need forcing; force-eval only rescues
-     * stability-gated far-out cells.
-     */
-    static final int FORCE_EVAL_MIN_DAYS_AHEAD = 2;
-
-    /**
-     * Highest horizon at which force-evaluation applies. Beyond T+3 there is no
-     * batch model tier and the forecast is too volatile to back a headline.
-     */
-    static final int FORCE_EVAL_MAX_DAYS_AHEAD = 3;
 
     private final LocationService locationService;
     private final BriefingService briefingService;
@@ -142,8 +117,10 @@ public class ForecastTaskCollector {
 
     private final java.time.Clock clock;
 
-    /** UK civil-date zone for "today" derivation. */
-    private static final ZoneId LONDON = ZoneId.of("Europe/London");
+    private final BatchWeatherPrefetcher batchWeatherPrefetcher;
+    private final ForceEvalHeadlineSelector forceEvalHeadlineSelector;
+    private final BriefingCandidateCollector briefingCandidateCollector;
+    private final GridCellStabilityService gridCellStabilityService;
 
     /**
      * Constructs the collector.
@@ -196,6 +173,19 @@ public class ForecastTaskCollector {
         this.minPrefetchSuccessRatio = minPrefetchSuccessRatio;
         this.forceEvalCap = forceEvalCap;
         this.clock = clock;
+
+        // Instance-scoped assembly seams, wired from this collector's own dependency
+        // fields so they share the exact collaborator instances (important for the
+        // interaction-based tests that verify on the injected mocks).
+        this.batchWeatherPrefetcher =
+                new BatchWeatherPrefetcher(openMeteoService, solarService, clock);
+        this.forceEvalHeadlineSelector =
+                new ForceEvalHeadlineSelector(forceEvalCap, clock);
+        this.briefingCandidateCollector = new BriefingCandidateCollector(
+                travelDayService, locationService, briefingEvaluationService,
+                freshnessResolver, stabilitySnapshotProvider, clock);
+        this.gridCellStabilityService = new GridCellStabilityService(
+                stabilityClassifier, stabilitySnapshotProvider);
     }
 
     /**
@@ -299,9 +289,9 @@ public class ForecastTaskCollector {
         LOG.info("Forecast batch: {} candidate task(s) — bulk pre-fetching weather",
                 candidates.size());
 
-        int uniqueLocationCount = countUniqueLocations(candidates);
+        int uniqueLocationCount = batchWeatherPrefetcher.countUniqueLocations(candidates);
         Map<String, WeatherExtractionResult> prefetchedWeather =
-                prefetchBatchWeather(candidates);
+                batchWeatherPrefetcher.prefetchBatchWeather(candidates);
         double successRatio = uniqueLocationCount > 0
                 ? (double) prefetchedWeather.size() / uniqueLocationCount : 0.0;
         if (prefetchedWeather.isEmpty()) {
@@ -327,7 +317,8 @@ public class ForecastTaskCollector {
 
         CloudPointCache cloudCache;
         try {
-            cloudCache = prefetchBatchCloudPoints(candidates, prefetchedWeather);
+            cloudCache = batchWeatherPrefetcher.prefetchBatchCloudPoints(
+                    candidates, prefetchedWeather);
         } catch (Exception e) {
             LOG.warn("Forecast batch: cloud pre-fetch failed — continuing without cloud cache: {}",
                     e.getMessage());
@@ -335,7 +326,8 @@ public class ForecastTaskCollector {
         }
 
         Map<String, GridCellStabilityResult> stabilityByCell =
-                classifyGridCellsAndPublishSnapshot(candidates, prefetchedWeather, ephemeral);
+                gridCellStabilityService.classifyGridCellsAndPublishSnapshot(
+                        candidates, prefetchedWeather, ephemeral);
 
         List<EvaluationTask.Forecast> nearInland = new ArrayList<>();
         List<EvaluationTask.Forecast> nearCoastal = new ArrayList<>();
@@ -355,7 +347,7 @@ public class ForecastTaskCollector {
         // Best-bet headline contenders that would otherwise be stability-gated.
         // Capped so the extra spend stays tiny; forced evals flow through the
         // same far-term bucket as everything else (one path, not a fork).
-        Set<String> forceEvalKeys = selectForceEvalKeys(briefing);
+        Set<String> forceEvalKeys = forceEvalHeadlineSelector.selectForceEvalKeys(briefing);
         int forcedCount = 0;
 
         LOG.warn("[BATCH DIAG] Starting triage loop — {} candidate tasks "
@@ -363,7 +355,8 @@ public class ForecastTaskCollector {
                 candidates.size(), forceEvalKeys.size(), forceEvalCap);
 
         for (ForecastCandidate candidate : candidates) {
-            int candidateDaysAhead = daysAheadFor(candidate.date());
+            int candidateDaysAhead =
+                    BriefingCandidateCollector.daysAheadFor(candidate.date(), clock);
             try {
                 ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
                         candidate.location(), candidate.date(), candidate.targetType(),
@@ -393,13 +386,14 @@ public class ForecastTaskCollector {
                     continue;
                 }
                 int daysAhead = preEval.daysAhead();
-                ForecastStability stability = stabilityFor(
+                ForecastStability stability = gridCellStabilityService.stabilityFor(
                         candidate.location(), preEval, stabilityByCell);
                 EligibilityDecision decision = eligibilityPolicy.resolve(
                         daysAhead, stability, nearTermModel, farTermModel);
                 boolean forced = false;
                 if (!decision.eligible()) {
-                    String forceKey = forceEvalKey(candidate.location().getName(),
+                    String forceKey = ForceEvalHeadlineSelector.forceEvalKey(
+                            candidate.location().getName(),
                             candidate.date(), candidate.targetType());
                     if (forcedCount < forceEvalCap && forceEvalKeys.contains(forceKey)) {
                         // Headline contender the stability gate would drop — evaluate
@@ -536,89 +530,19 @@ public class ForecastTaskCollector {
     }
 
     /**
-     * Days from today (Europe/London) to the given date. Negative for past
-     * dates. Matches the {@code today} computation used in
-     * {@link #collectForecastCandidates}.
+     * Thin delegator over {@link BriefingCandidateCollector#collectForecastCandidates}:
+     * runs the pure first-pass producer and merges its dispositions into the
+     * caller-supplied list, returning the surviving candidates. Retained on the
+     * collector (with its legacy {@code dispositions}-append contract) so both
+     * collect flows and the reflection-based cache-gate test call the same seam.
      */
-    private int daysAheadFor(LocalDate date) {
-        LocalDate today = LocalDate.now(clock.withZone(LONDON));
-        return (int) ChronoUnit.DAYS.between(today, date);
-    }
-
-    /**
-     * Selects the capped set of far-out headline contenders to force-evaluate
-     * this cycle, identified by {@code locationName|date|targetType} key.
-     *
-     * <p>Scans the briefing for far-out ({@value #FORCE_EVAL_MIN_DAYS_AHEAD}..{@value
-     * #FORCE_EVAL_MAX_DAYS_AHEAD}) region/event cells with at least one
-     * evaluation-eligible GO slot, ranks them by GO count then tide-aligned count
-     * then horizon (sooner first), and accumulates the eligible GO slots of the
-     * top cells until {@link #forceEvalCap} keys are gathered. These are the cells
-     * most likely to win the best-bet headline; forcing them guarantees the
-     * crowned region has real Claude coverage rather than cheap-threshold survivors.
-     *
-     * <p>Returns an empty set when the cap is zero (feature disabled) or no far-out
-     * GO cells exist. The cap bounds the set size, so the per-cycle force-eval cost
-     * is bounded regardless of how many GO candidates the briefing contains.
-     *
-     * @param briefing the cached briefing being collected
-     * @return capped set of force-eval keys (possibly empty)
-     */
-    private Set<String> selectForceEvalKeys(DailyBriefingResponse briefing) {
-        if (forceEvalCap <= 0 || briefing.days() == null) {
-            return Set.of();
-        }
-        LocalDate today = LocalDate.now(clock.withZone(LONDON));
-        List<ForceEvalCell> cells = new ArrayList<>();
-        for (BriefingDay day : briefing.days()) {
-            int daysAhead = (int) ChronoUnit.DAYS.between(today, day.date());
-            if (daysAhead < FORCE_EVAL_MIN_DAYS_AHEAD || daysAhead > FORCE_EVAL_MAX_DAYS_AHEAD) {
-                continue;
-            }
-            for (BriefingEventSummary es : day.eventSummaries()) {
-                for (BriefingRegion region : es.regions()) {
-                    if (region.slots() == null) {
-                        continue;
-                    }
-                    List<String> goNames = new ArrayList<>();
-                    long tideAligned = 0;
-                    for (BriefingSlot slot : region.slots()) {
-                        if (slot.verdict() == com.gregochr.goldenhour.model.Verdict.GO
-                                && BriefingGatingPolicy.isEligibleForEvaluation(slot)) {
-                            goNames.add(slot.locationName());
-                            if (slot.tide() != null && slot.tide().tideAligned()) {
-                                tideAligned++;
-                            }
-                        }
-                    }
-                    if (!goNames.isEmpty()) {
-                        cells.add(new ForceEvalCell(day.date(), es.targetType(),
-                                goNames.size(), tideAligned, daysAhead, goNames));
-                    }
-                }
-            }
-        }
-        cells.sort(Comparator
-                .comparingInt(ForceEvalCell::goCount).reversed()
-                .thenComparing(Comparator.comparingLong(ForceEvalCell::tideAligned).reversed())
-                .thenComparingInt(ForceEvalCell::daysAhead)
-                .thenComparing(ForceEvalCell::date));
-        Set<String> keys = new LinkedHashSet<>();
-        for (ForceEvalCell cell : cells) {
-            for (String name : cell.goLocationNames()) {
-                if (keys.size() >= forceEvalCap) {
-                    return keys;
-                }
-                keys.add(forceEvalKey(name, cell.date(), cell.targetType()));
-            }
-        }
-        return keys;
-    }
-
-    /** Builds the {@code locationName|date|targetType} key used for force-eval matching. */
-    private static String forceEvalKey(String locationName, LocalDate date,
-            TargetType targetType) {
-        return locationName + "|" + date + "|" + targetType.name();
+    private List<ForecastCandidate> collectForecastCandidates(DailyBriefingResponse briefing,
+            List<CandidateDisposition> dispositions,
+            CandidateCollectionStrategy candidateStrategy) {
+        BriefingCandidateCollector.Result result =
+                briefingCandidateCollector.collectForecastCandidates(briefing, candidateStrategy);
+        dispositions.addAll(result.dispositions());
+        return result.candidates();
     }
 
     /**
@@ -643,20 +567,6 @@ public class ForecastTaskCollector {
                 candidate.date(), candidate.targetType(), daysAhead,
                 forced ? DispositionCategory.FORCE_EVALUATED : DispositionCategory.EVALUATED,
                 forced ? "Force-evaluated best-bet headline candidate" : null);
-    }
-
-    /**
-     * A far-out briefing region/event cell ranked as a best-bet headline contender.
-     *
-     * @param date            the event date
-     * @param targetType      SUNRISE or SUNSET
-     * @param goCount         number of evaluation-eligible GO slots
-     * @param tideAligned     number of tide-aligned slots (headline differentiator)
-     * @param daysAhead       forecast horizon
-     * @param goLocationNames eligible GO slot location names, in briefing order
-     */
-    private record ForceEvalCell(LocalDate date, TargetType targetType, int goCount,
-            long tideAligned, int daysAhead, List<String> goLocationNames) {
     }
 
     /**
@@ -695,27 +605,6 @@ public class ForecastTaskCollector {
         // EligibilityPolicy)} instead of calling this helper.
         return NightlyEligibilityPolicy.INSTANCE.resolve(
                 daysAhead, stability, nearTermModel, farTermModel);
-    }
-
-    /**
-     * Resolves the stability classification for a candidate, with a
-     * TRANSITIONAL fallback for tasks that lack a grid cell or a forecast
-     * response (matches the pre-Gate-4 behaviour of allowing T+0/T+1 for
-     * unclassified locations; under the new policy, TRANSITIONAL adds T+2
-     * as well, which is acceptable for the rare unclassified case).
-     */
-    private ForecastStability stabilityFor(LocationEntity location,
-            ForecastPreEvalResult preEval,
-            Map<String, GridCellStabilityResult> stabilityByCell) {
-        if (!location.hasGridCell() || preEval.forecastResponse() == null) {
-            return ForecastStability.TRANSITIONAL;
-        }
-        String key = location.gridCellKey();
-        GridCellStabilityResult stability = stabilityByCell.computeIfAbsent(key, k ->
-                stabilityClassifier.classify(
-                        key, location.getGridLat(), location.getGridLng(),
-                        preEval.forecastResponse().getHourly()));
-        return stability != null ? stability.stability() : ForecastStability.TRANSITIONAL;
     }
 
     /**
@@ -763,7 +652,7 @@ public class ForecastTaskCollector {
         }
 
         Map<String, WeatherExtractionResult> prefetchedWeather =
-                prefetchBatchWeather(candidates);
+                batchWeatherPrefetcher.prefetchBatchWeather(candidates);
         if (prefetchedWeather.isEmpty()) {
             LOG.error("[BATCH] Weather pre-fetch returned zero results — aborting");
             return RegionFilteredBatchTasks.empty();
@@ -771,7 +660,8 @@ public class ForecastTaskCollector {
 
         CloudPointCache cloudCache;
         try {
-            cloudCache = prefetchBatchCloudPoints(candidates, prefetchedWeather);
+            cloudCache = batchWeatherPrefetcher.prefetchBatchCloudPoints(
+                    candidates, prefetchedWeather);
         } catch (Exception e) {
             LOG.warn("[BATCH] Cloud pre-fetch failed — continuing without: {}", e.getMessage());
             cloudCache = null;
@@ -791,7 +681,7 @@ public class ForecastTaskCollector {
                     continue;
                 }
                 int daysAhead = preEval.daysAhead();
-                ForecastStability stability = stabilityFor(
+                ForecastStability stability = gridCellStabilityService.stabilityFor(
                         candidate.location(), preEval, stabilityByCell);
                 // Region-filtered admin batches only ever use the near-term model
                 // (legacy contract). Pass `model` as both tiers so the policy's
@@ -817,428 +707,6 @@ public class ForecastTaskCollector {
         }
 
         return new RegionFilteredBatchTasks(inland, coastal);
-    }
-
-    /**
-     * First pass over the briefing: collects all GO/MARGINAL slots that are not
-     * already cached. No API calls are made here.
-     *
-     * <p>Appends a {@link CandidateDisposition} to {@code dispositions} for
-     * every slot the briefing considered, both inclusions (passed to the
-     * triage loop) and skips (PAST_DATE, CACHED, HARD_CONSTRAINT,
-     * UNKNOWN_LOCATION). Skips are recorded with {@code location_id = null}
-     * since the verdict/cache/past-date paths never look the location up. The
-     * inclusion entries are NOT written here; the triage loop assigns the
-     * final disposition (EVALUATED / SKIPPED_TRIAGED / SKIPPED_STABILITY /
-     * SKIPPED_ERROR) once weather + stability data is available.
-     */
-    private List<ForecastCandidate> collectForecastCandidates(DailyBriefingResponse briefing,
-            List<CandidateDisposition> dispositions,
-            CandidateCollectionStrategy candidateStrategy) {
-        List<ForecastCandidate> candidates = new ArrayList<>();
-        int skippedCache = 0;
-        int skippedVerdict = 0;
-        int skippedUnknown = 0;
-        int skippedPastDate = 0;
-        int skippedTravelDay = 0;
-        int totalSlots = 0;
-        Map<ForecastStability, int[]> cachedByStability = new HashMap<>();
-        Map<ForecastStability, int[]> eligibleByStability = new HashMap<>();
-        for (ForecastStability s : ForecastStability.values()) {
-            cachedByStability.put(s, new int[]{0});
-            eligibleByStability.put(s, new int[]{0});
-        }
-
-        Map<String, ForecastStability> stabilityByLocation = buildStabilityLookup();
-
-        // Use Europe/London because solar events are for UK locations — a sunrise
-        // in Northumberland on April 19th BST is what matters, not the UTC date.
-        LocalDate today = LocalDate.now(clock.withZone(LONDON));
-
-        for (BriefingDay day : briefing.days()) {
-            LocalDate date = day.date();
-            int daysAhead = (int) ChronoUnit.DAYS.between(today, date);
-            if (date.isBefore(today)) {
-                int daySlots = 0;
-                for (BriefingEventSummary eventSummary : day.eventSummaries()) {
-                    TargetType targetType = eventSummary.targetType();
-                    for (BriefingRegion region : eventSummary.regions()) {
-                        if (region.slots() == null) {
-                            continue;
-                        }
-                        for (BriefingSlot slot : region.slots()) {
-                            dispositions.add(new CandidateDisposition(
-                                    null, slot.locationName(), date, targetType, daysAhead,
-                                    DispositionCategory.SKIPPED_PAST_DATE, "Date in past"));
-                            daySlots++;
-                        }
-                    }
-                }
-                skippedPastDate += daySlots;
-                totalSlots += daySlots;
-                LOG.warn("[BATCH DIAG] SKIP date {} | reason=PAST_DATE ({} slots skipped)",
-                        date, daySlots);
-                continue;
-            }
-            // Travel-day gate (per target date): the operator is away on this date
-            // and cannot shoot, so every slot's forecast is unactionable spend. Skip
-            // the whole day's slots with a SKIPPED_TRAVEL_DAY disposition. An empty
-            // travel_day table makes this a no-op.
-            if (travelDayService.isTravelDay(date)) {
-                int daySlots = 0;
-                for (BriefingEventSummary eventSummary : day.eventSummaries()) {
-                    TargetType targetType = eventSummary.targetType();
-                    for (BriefingRegion region : eventSummary.regions()) {
-                        if (region.slots() == null) {
-                            continue;
-                        }
-                        for (BriefingSlot slot : region.slots()) {
-                            dispositions.add(new CandidateDisposition(
-                                    null, slot.locationName(), date, targetType, daysAhead,
-                                    DispositionCategory.SKIPPED_TRAVEL_DAY, "Travel day — away"));
-                            daySlots++;
-                        }
-                    }
-                }
-                skippedTravelDay += daySlots;
-                totalSlots += daySlots;
-                LOG.warn("[BATCH DIAG] SKIP date {} | reason=TRAVEL_DAY ({} slots skipped)",
-                        date, daySlots);
-                continue;
-            }
-            for (BriefingEventSummary eventSummary : day.eventSummaries()) {
-                TargetType targetType = eventSummary.targetType();
-                // Cycle-specific window filter. Slots outside the cycle's window
-                // are silently skipped — they are not "decided against", they
-                // simply aren't this cycle's responsibility. Nightly's strategy
-                // accepts everything; the intraday refresh will use this to
-                // restrict to its decision window.
-                if (!candidateStrategy.includes(date, targetType)) {
-                    continue;
-                }
-                for (BriefingRegion region : eventSummary.regions()) {
-                    String cacheKey = com.gregochr.goldenhour.service.evaluation.CacheKeyFactory
-                            .build(region.regionName(), date, targetType);
-                    ForecastStability regionStability = mostVolatileStability(
-                            region, stabilityByLocation);
-                    Duration freshness = freshnessResolver.maxAgeFor(regionStability);
-                    int regionSlots = region.slots() != null ? region.slots().size() : 0;
-                    eligibleByStability.get(regionStability)[0] += regionSlots;
-                    if (briefingEvaluationService.hasFreshEvaluation(cacheKey, freshness)) {
-                        LOG.warn("[BATCH DIAG] SKIP region {} | reason=CACHED "
-                                        + "(stability={}, threshold={}h, {} slots skipped)",
-                                cacheKey, regionStability,
-                                freshness.toHours(), regionSlots);
-                        String cachedDetail = String.format(
-                                "Fresh cached evaluation within %dh (%s)",
-                                freshness.toHours(), regionStability);
-                        if (region.slots() != null) {
-                            for (BriefingSlot slot : region.slots()) {
-                                dispositions.add(new CandidateDisposition(
-                                        null, slot.locationName(), date, targetType, daysAhead,
-                                        DispositionCategory.SKIPPED_CACHED, cachedDetail));
-                            }
-                        }
-                        cachedByStability.get(regionStability)[0] += regionSlots;
-                        skippedCache += regionSlots;
-                        totalSlots += regionSlots;
-                        continue;
-                    }
-                    for (BriefingSlot slot : region.slots()) {
-                        totalSlots++;
-                        if (!BriefingGatingPolicy.isEligibleForEvaluation(slot)) {
-                            String reasonLabel = BriefingGatingPolicy.isHardConstraintSkip(slot)
-                                    ? "HARD_CONSTRAINT"
-                                    : "VERDICT_" + slot.verdict();
-                            LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | "
-                                            + "reason={} ({})",
-                                    slot.locationName(), date, targetType,
-                                    reasonLabel, slot.standdownReason());
-                            // Both hard-constraint tide skips and the (now rare,
-                            // Gate-2-redesigned) VERDICT_* skips are hard physical
-                            // gates — fold them into SKIPPED_HARD_CONSTRAINT with the
-                            // standdown reason as detail.
-                            dispositions.add(new CandidateDisposition(
-                                    null, slot.locationName(), date, targetType, daysAhead,
-                                    DispositionCategory.SKIPPED_HARD_CONSTRAINT,
-                                    slot.standdownReason() != null ? slot.standdownReason()
-                                            : reasonLabel));
-                            skippedVerdict++;
-                            continue;
-                        }
-                        LocationEntity location = findLocation(slot.locationName());
-                        if (location == null) {
-                            LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | "
-                                            + "reason=UNKNOWN_LOCATION",
-                                    slot.locationName(), date, targetType);
-                            dispositions.add(new CandidateDisposition(
-                                    null, slot.locationName(), date, targetType, daysAhead,
-                                    DispositionCategory.SKIPPED_UNKNOWN_LOCATION,
-                                    "Location not found in enabled set"));
-                            skippedUnknown++;
-                            continue;
-                        }
-                        candidates.add(new ForecastCandidate(location, date, targetType));
-                    }
-                }
-            }
-        }
-
-        LOG.warn("[BATCH DIAG] Task collection complete — {} tasks from {} total slots "
-                        + "(pastDate={}, travelDay={}, cached={}, verdict={}, unknownLoc={})",
-                candidates.size(), totalSlots, skippedPastDate, skippedTravelDay, skippedCache,
-                skippedVerdict, skippedUnknown);
-        logStabilityBreakdown(eligibleByStability, cachedByStability);
-        return candidates;
-    }
-
-    private int countUniqueLocations(List<ForecastCandidate> candidates) {
-        Set<String> seen = new HashSet<>();
-        for (ForecastCandidate c : candidates) {
-            seen.add(OpenMeteoService.coordKey(c.location().getLat(),
-                    c.location().getLon()));
-        }
-        return seen.size();
-    }
-
-    private Map<String, WeatherExtractionResult> prefetchBatchWeather(
-            List<ForecastCandidate> candidates) {
-        Map<String, double[]> uniqueCoords = new LinkedHashMap<>();
-        for (ForecastCandidate c : candidates) {
-            String key = OpenMeteoService.coordKey(c.location().getLat(),
-                    c.location().getLon());
-            uniqueCoords.putIfAbsent(key,
-                    new double[]{c.location().getLat(), c.location().getLon()});
-        }
-        LOG.info("Forecast batch: weather pre-fetch for {} unique location(s) (from {} tasks)",
-                uniqueCoords.size(), candidates.size());
-        Map<String, WeatherExtractionResult> result =
-                openMeteoService.prefetchWeatherBatchResilient(
-                        new ArrayList<>(uniqueCoords.values()));
-        return result != null ? result : Map.of();
-    }
-
-    private CloudPointCache prefetchBatchCloudPoints(List<ForecastCandidate> candidates,
-            Map<String, WeatherExtractionResult> prefetchedWeather) {
-        LocalDateTime now = LocalDateTime.now(clock);
-        List<double[]> allPoints = new ArrayList<>();
-
-        for (ForecastCandidate c : candidates) {
-            double lat = c.location().getLat();
-            double lon = c.location().getLon();
-            LocalDate date = c.date();
-            TargetType targetType = c.targetType();
-
-            int azimuth = targetType == TargetType.SUNRISE
-                    ? solarService.sunriseAzimuthDeg(lat, lon, date)
-                    : solarService.sunsetAzimuthDeg(lat, lon, date);
-
-            allPoints.addAll(openMeteoService.computeDirectionalCloudPoints(lat, lon, azimuth));
-
-            if (prefetchedWeather != null) {
-                String coordKey = OpenMeteoService.coordKey(lat, lon);
-                WeatherExtractionResult cached = prefetchedWeather.get(coordKey);
-                if (cached != null && cached.forecastResponse() != null
-                        && cached.forecastResponse().getHourly() != null) {
-                    LocalDateTime eventTime = targetType == TargetType.SUNRISE
-                            ? solarService.sunriseUtc(lat, lon, date)
-                            : solarService.sunsetUtc(lat, lon, date);
-                    OpenMeteoForecastResponse.Hourly h = cached.forecastResponse().getHourly();
-                    List<String> times = h.getTime();
-                    if (times != null && h.getWindDirection10m() != null
-                            && h.getWindSpeed10m() != null) {
-                        int idx = TimeSlotUtils.findNearestIndex(times, eventTime);
-                        if (idx < h.getWindDirection10m().size()
-                                && idx < h.getWindSpeed10m().size()) {
-                            Integer windDir = h.getWindDirection10m().get(idx);
-                            Double windSpeed = h.getWindSpeed10m().get(idx);
-                            if (windDir != null && windSpeed != null) {
-                                double[] upwind = openMeteoService.computeUpwindPoint(
-                                        lat, lon, windDir, windSpeed, now, eventTime);
-                                if (upwind != null) {
-                                    allPoints.add(upwind);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        LOG.info("Forecast batch: cloud point pre-fetch — {} raw points from {} tasks",
-                allPoints.size(), candidates.size());
-        return openMeteoService.prefetchCloudBatch(allPoints, null);
-    }
-
-    /**
-     * Classifies every unique grid cell touched by the candidate set, publishes the
-     * resulting snapshot via {@link StabilitySnapshotProvider#update}, and returns the
-     * classification map for reuse during the per-task triage loop.
-     *
-     * <p>This is the canonical producer of {@code stability_snapshot} rows for the
-     * overnight scheduled flow — previously written by
-     * {@code ForecastCommandExecutor.applyStabilityFilter} but stranded when that
-     * path's {@code @Scheduled} trigger was commented out during the v2.12
-     * consolidation. Without this write the reader at
-     * {@link #buildStabilityLookup()} sees nothing in memory or in the database and
-     * defaults every region to UNSETTLED, collapsing the stability gate.
-     *
-     * <p>Cells whose locations lack a grid assignment are skipped (the existing
-     * triage-loop helper handles those by returning a 1-day window). If no cells
-     * survive classification, no snapshot is published — the previously persisted
-     * snapshot remains authoritative.
-     *
-     * <p>The persist itself is best-effort: see the failure semantics in
-     * {@link StabilitySnapshotProvider}.
-     *
-     * @param candidates        surviving briefing candidates
-     * @param prefetchedWeather coord-key → prefetched forecast/air-quality result
-     * @param ephemeral         when {@code true}, the classification is computed and
-     *                          returned but the snapshot is NOT published — used by
-     *                          the intraday refresh so its in-memory cost-gate does
-     *                          not overwrite the morning's authoritative snapshot
-     * @return classification keyed by grid-cell key (empty if no cells classified)
-     */
-    private Map<String, GridCellStabilityResult> classifyGridCellsAndPublishSnapshot(
-            List<ForecastCandidate> candidates,
-            Map<String, WeatherExtractionResult> prefetchedWeather,
-            boolean ephemeral) {
-        Map<String, GridCellStabilityResult> stabilityByCell = new LinkedHashMap<>();
-        Map<String, Set<String>> locationsByCell = new LinkedHashMap<>();
-
-        for (ForecastCandidate candidate : candidates) {
-            LocationEntity loc = candidate.location();
-            if (!loc.hasGridCell()) {
-                continue;
-            }
-            String key = loc.gridCellKey();
-            stabilityByCell.computeIfAbsent(key, k -> {
-                String coordKey = OpenMeteoService.coordKey(loc.getLat(), loc.getLon());
-                WeatherExtractionResult weather = prefetchedWeather.get(coordKey);
-                OpenMeteoForecastResponse resp =
-                        weather != null ? weather.forecastResponse() : null;
-                return stabilityClassifier.classify(
-                        key, loc.getGridLat(), loc.getGridLng(),
-                        resp != null ? resp.getHourly() : null);
-            });
-            locationsByCell
-                    .computeIfAbsent(key, k -> new LinkedHashSet<>())
-                    .add(loc.getName());
-        }
-
-        if (stabilityByCell.isEmpty()) {
-            LOG.warn("[STABILITY] No grid cells classified in this batch run "
-                    + "— snapshot not written");
-            return stabilityByCell;
-        }
-
-        Map<ForecastStability, Long> countsByStability = stabilityByCell.values().stream()
-                .collect(Collectors.groupingBy(
-                        GridCellStabilityResult::stability, Collectors.counting()));
-
-        List<StabilitySummaryResponse.GridCellDetail> cellDetails =
-                stabilityByCell.values().stream()
-                        .map(r -> new StabilitySummaryResponse.GridCellDetail(
-                                r.gridCellKey(), r.gridLat(), r.gridLng(),
-                                r.stability(), r.reason(), r.evaluationWindowDays(),
-                                List.copyOf(locationsByCell.getOrDefault(
-                                        r.gridCellKey(), Set.of()))))
-                        .sorted(Comparator.comparing(
-                                StabilitySummaryResponse.GridCellDetail::gridCellKey))
-                        .toList();
-
-        StabilitySummaryResponse summary = new StabilitySummaryResponse(
-                Instant.now(), stabilityByCell.size(), countsByStability, cellDetails);
-
-        if (ephemeral) {
-            LOG.info("[STABILITY] Ephemeral re-classification of {} grid cells "
-                    + "(counts: {}) — snapshot NOT published (morning snapshot preserved)",
-                    stabilityByCell.size(), countsByStability);
-        } else {
-            LOG.info("[STABILITY] Built snapshot for {} grid cells (counts: {})",
-                    stabilityByCell.size(), countsByStability);
-            stabilitySnapshotProvider.update(summary);
-        }
-
-        return stabilityByCell;
-    }
-
-    private LocationEntity findLocation(String name) {
-        return locationService.findAllEnabled().stream()
-                .filter(loc -> loc.getName().equals(name))
-                .findFirst()
-                .orElse(null);
-    }
-
-    private void logStabilityBreakdown(Map<ForecastStability, int[]> eligible,
-            Map<ForecastStability, int[]> cached) {
-        StringBuilder sb = new StringBuilder("[BATCH DIAG] Candidate breakdown by stability:");
-        for (ForecastStability level : ForecastStability.values()) {
-            int elig = eligible.get(level)[0];
-            int cach = cached.get(level)[0];
-            if (elig == 0) {
-                continue;
-            }
-            int refreshed = elig - cach;
-            double pct = elig > 0 ? (refreshed * 100.0 / elig) : 0;
-            Duration threshold = freshnessResolver.maxAgeFor(level);
-            sb.append(String.format(" %s: %d of %d (%.1f%% refreshed, threshold %dh) |",
-                    level, refreshed, elig, pct, threshold.toHours()));
-        }
-        if (sb.charAt(sb.length() - 1) == '|') {
-            sb.setLength(sb.length() - 1);
-        }
-        LOG.warn("{}", sb);
-    }
-
-    private Map<String, ForecastStability> buildStabilityLookup() {
-        StabilitySummaryResponse snapshot = stabilitySnapshotProvider.getLatestStabilitySummary();
-        if (snapshot == null || snapshot.cells() == null) {
-            LOG.warn("[BATCH DIAG] Stability snapshot unavailable — no snapshot in memory or DB, "
-                    + "all regions treated as UNSETTLED ({}h threshold)",
-                    freshnessResolver.maxAgeFor(ForecastStability.UNSETTLED).toHours());
-            return Map.of();
-        }
-        long ageHours = java.time.temporal.ChronoUnit.HOURS.between(
-                snapshot.generatedAt(), java.time.Instant.now());
-        String source = ageHours > 12 ? "DB (recovered after restart)" : "in-memory";
-        LOG.info("[BATCH DIAG] Stability snapshot loaded from {}: age={}h, {} grid cells",
-                source, ageHours, snapshot.cells().size());
-        Map<String, ForecastStability> lookup = new HashMap<>();
-        for (StabilitySummaryResponse.GridCellDetail cell : snapshot.cells()) {
-            for (String locName : cell.locationNames()) {
-                lookup.put(locName, cell.stability());
-            }
-        }
-        return lookup;
-    }
-
-    private ForecastStability mostVolatileStability(BriefingRegion region,
-            Map<String, ForecastStability> stabilityByLocation) {
-        if (region.slots() == null || region.slots().isEmpty()
-                || stabilityByLocation.isEmpty()) {
-            return ForecastStability.UNSETTLED;
-        }
-        ForecastStability most = ForecastStability.SETTLED;
-        for (BriefingSlot slot : region.slots()) {
-            ForecastStability slotStability = stabilityByLocation.getOrDefault(
-                    slot.locationName(), ForecastStability.UNSETTLED);
-            if (slotStability == ForecastStability.UNSETTLED) {
-                return ForecastStability.UNSETTLED;
-            }
-            if (slotStability == ForecastStability.TRANSITIONAL) {
-                most = ForecastStability.TRANSITIONAL;
-            }
-        }
-        return most;
-    }
-
-    /**
-     * Lightweight (location, date, targetType) triple emitted by the first
-     * briefing pass before weather pre-fetch and triage are applied.
-     */
-    private record ForecastCandidate(LocationEntity location, LocalDate date,
-            TargetType targetType) {
     }
 
     /**
