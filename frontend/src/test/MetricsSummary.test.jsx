@@ -17,7 +17,6 @@ const MOCK_RUNS = [
     succeeded: 100,
     failed: 5,
     totalCostMicroDollars: 50000,
-    totalCostPence: 0,
     exchangeRateGbpPerUsd: 0.79,
   },
   {
@@ -29,7 +28,6 @@ const MOCK_RUNS = [
     succeeded: 200,
     failed: 10,
     totalCostMicroDollars: 80000,
-    totalCostPence: 0,
     exchangeRateGbpPerUsd: 0.79,
   },
   {
@@ -41,7 +39,6 @@ const MOCK_RUNS = [
     succeeded: 50,
     failed: 0,
     totalCostMicroDollars: 20000,
-    totalCostPence: 0,
     exchangeRateGbpPerUsd: 0.79,
   },
 ];
@@ -107,27 +104,28 @@ describe('MetricsSummary', () => {
     expect(screen.getByText(/£/)).toBeInTheDocument();
   });
 
-  it('combines micro-dollar and legacy pence costs', () => {
+  it('ignores legacy pence-only runs; total reflects only micro-dollar costs', () => {
     const mixedRuns = [
       {
         id: 1, runType: 'SHORT_TERM',
         startedAt: `${todayStr}T06:00:00Z`, durationMs: 5000,
         succeeded: 100, failed: 0,
-        totalCostMicroDollars: 100000, totalCostPence: 0,
+        totalCostMicroDollars: 100000,
         exchangeRateGbpPerUsd: 0.80,
       },
       {
+        // Legacy run with no micro-dollar cost — contributes nothing to the total.
         id: 2, runType: 'SHORT_TERM',
         startedAt: `${yesterdayStr}T18:00:00Z`, durationMs: 3000,
         succeeded: 50, failed: 0,
-        totalCostMicroDollars: 0, totalCostPence: 5000,
+        totalCostMicroDollars: 0,
         exchangeRateGbpPerUsd: null,
       },
     ];
     render(<MetricsSummary runs={mixedRuns} apiCalls={[]} range="7d" onRangeChange={noop} />);
-    expect(screen.getByText('£5.08')).toBeInTheDocument();
-    expect(screen.getByText(/Token-based \+ legacy/)).toBeInTheDocument();
-    expect(screen.getByText(/token-based only/)).toBeInTheDocument();
+    // Only run 1 counts: 100000 µ$ = $0.10 × 0.80 = £0.08.
+    expect(screen.getByText('£0.08')).toBeInTheDocument();
+    expect(screen.getByText(/Token-based pricing \(actual usage\)/)).toBeInTheDocument();
   });
 
   it('calls onRangeChange when clicking Today', () => {
@@ -150,14 +148,14 @@ describe('MetricsSummary', () => {
         id: 1, runType: 'SHORT_TERM',
         startedAt: `${todayStr}T06:00:00Z`, durationMs: 5000,
         succeeded: 50, failed: 0,
-        totalCostMicroDollars: 100000, totalCostPence: 0,
+        totalCostMicroDollars: 100000,
         exchangeRateGbpPerUsd: 0.80,
       },
       {
         id: 2, runType: 'SCHEDULED_BATCH',
         startedAt: `${todayStr}T07:00:00Z`, durationMs: 60000,
         succeeded: 80, failed: 2,
-        totalCostMicroDollars: 200000, totalCostPence: 0,
+        totalCostMicroDollars: 200000,
         exchangeRateGbpPerUsd: 0.80,
       },
     ];

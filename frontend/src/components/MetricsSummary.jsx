@@ -60,22 +60,15 @@ const MetricsSummary = ({ runs, apiCalls, range, onRangeChange }) => {
   const latestRunWithRate = filteredRuns.find((r) => r.exchangeRateGbpPerUsd);
   const exchangeRate = latestRunWithRate?.exchangeRateGbpPerUsd;
 
-  // Aggregate costs — per run, prefer micro-dollars (token-based) when available,
-  // fall back to legacy pence for older runs, then combine into a single GBP total
+  // Aggregate token-based costs into a single GBP total
   const totalCostMicroDollars = filteredRuns.reduce(
     (sum, run) => sum + (run.totalCostMicroDollars || 0), 0);
-  const legacyOnlyPence = filteredRuns.reduce((sum, run) => {
-    if ((run.totalCostMicroDollars || 0) > 0) return sum;
-    return sum + (run.totalCostPence || 0);
-  }, 0);
   const combinedCostGbp =
-    (totalCostMicroDollars > 0 && exchangeRate
+    totalCostMicroDollars > 0 && exchangeRate
       ? (totalCostMicroDollars / 1_000_000) * exchangeRate
-      : 0)
-    + legacyOnlyPence / 1000;
+      : 0;
 
   const hasCost = combinedCostGbp > 0;
-  const hasMixedPricing = totalCostMicroDollars > 0 && legacyOnlyPence > 0;
 
   // Count runs by job type
   const runsByType = filteredRuns.reduce((acc, run) => {
@@ -192,11 +185,7 @@ const MetricsSummary = ({ runs, apiCalls, range, onRangeChange }) => {
             <div className="card">
               <div className="text-sm font-medium text-plex-text-secondary">Total Cost</div>
               <p className="text-xs text-plex-text-muted mt-1">
-                {hasMixedPricing
-                  ? 'Token-based + legacy flat-rate pricing'
-                  : totalCostMicroDollars > 0
-                    ? 'Token-based pricing (actual usage)'
-                    : 'Estimated flat-rate pricing'}
+                Token-based pricing (actual usage)
               </p>
               <div className="mt-3 text-3xl font-bold text-plex-gold">
                 {combinedCostGbp < 0.01
@@ -206,7 +195,6 @@ const MetricsSummary = ({ runs, apiCalls, range, onRangeChange }) => {
               {totalCostMicroDollars > 0 && (
                 <div className="mt-1 text-sm text-plex-text-muted">
                   {formatCostUsd(totalCostMicroDollars)}
-                  {hasMixedPricing && ' (token-based only)'}
                 </div>
               )}
               {(() => {
@@ -248,7 +236,6 @@ MetricsSummary.propTypes = {
       durationMs: PropTypes.number,
       succeeded: PropTypes.number,
       failed: PropTypes.number,
-      totalCostPence: PropTypes.number,
       totalCostMicroDollars: PropTypes.number,
       exchangeRateGbpPerUsd: PropTypes.number,
     })

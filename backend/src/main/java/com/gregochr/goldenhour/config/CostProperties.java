@@ -11,9 +11,6 @@ import org.springframework.stereotype.Component;
  * <p>Token-based pricing: rates are in USD per million tokens, matching Anthropic's published
  * pricing. Costs are calculated in micro-dollars (1 dollar = 1,000,000 micro-dollars) for
  * precision.
- *
- * <p>Legacy flat-rate fields ({@code anthropicHaikuPence} etc.) are retained for backward
- * compatibility but deprecated.
  */
 @Component
 @ConfigurationProperties(prefix = "cost")
@@ -66,26 +63,4 @@ public class CostProperties {
 
     /** Open-Meteo API call cost in micro-dollars (free). */
     private long openMeteoMicroDollars = 0;
-
-    // --- Legacy flat-rate fields (deprecated, kept for backward compatibility) ---
-
-    /** @deprecated Use token-based pricing instead. */
-    @Deprecated
-    private Integer anthropicHaikuPence = 5;
-
-    /** @deprecated Use token-based pricing instead. */
-    @Deprecated
-    private Integer anthropicSonnetPence = 13;
-
-    /** @deprecated Use token-based pricing instead. */
-    @Deprecated
-    private Integer anthropicOpusPence = 75;
-
-    /** @deprecated Use token-based pricing instead. */
-    @Deprecated
-    private Integer worldTidesPence = 2;
-
-    /** @deprecated Use token-based pricing instead. */
-    @Deprecated
-    private Integer openMeteoPence = 0;
 }

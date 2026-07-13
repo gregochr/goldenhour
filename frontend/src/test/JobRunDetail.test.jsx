@@ -25,7 +25,6 @@ const ANTHROPIC_CALL = {
   service: 'ANTHROPIC',
   durationMs: 2000,
   costMicroDollars: 500_000,
-  costPence: 0,
   inputTokens: 100,
   outputTokens: 50,
   cacheCreationInputTokens: 0,
@@ -42,7 +41,6 @@ const OPEN_METEO_CALL = {
   service: 'OPEN_METEO',
   durationMs: 300,
   costMicroDollars: 0,
-  costPence: 0,
   inputTokens: 0,
   outputTokens: 0,
   cacheCreationInputTokens: 0,
@@ -537,7 +535,7 @@ describe('JobRunDetail — Total Cost section', () => {
 
   it('hides Total Cost when all costs are zero', async () => {
     getApiCalls.mockResolvedValue({ data: [{
-      ...OPEN_METEO_CALL, costMicroDollars: 0, costPence: 0,
+      ...OPEN_METEO_CALL, costMicroDollars: 0,
     }] });
     render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
     await waitFor(() => {
@@ -546,14 +544,18 @@ describe('JobRunDetail — Total Cost section', () => {
     expect(screen.queryByText('Total Cost')).not.toBeInTheDocument();
   });
 
-  it('hides USD amount when totalCostMicroDollars is 0 (legacy pence only)', async () => {
+  it('hides Total Cost (and USD) for a legacy record with no micro-dollar cost', async () => {
+    // A legacy api_call_log row carries no micro-dollar cost at all; the reducer's
+    // `costMicroDollars || 0` fallback yields a zero grand total, so the whole
+    // Total Cost block — GBP and USD — stays hidden.
     getApiCalls.mockResolvedValue({ data: [{
-      ...OPEN_METEO_CALL, costMicroDollars: 0, costPence: 1000,
+      ...OPEN_METEO_CALL, costMicroDollars: undefined,
     }] });
     render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
     await waitFor(() => {
-      expect(screen.getByText('Total Cost')).toBeInTheDocument();
+      expect(screen.getByText('OPEN_METEO')).toBeInTheDocument();
     });
+    expect(screen.queryByText('Total Cost')).not.toBeInTheDocument();
     expect(screen.queryByText(/\$/)).not.toBeInTheDocument();
   });
 });

@@ -125,13 +125,11 @@ public class ModelTestService {
                 .regionsCount(0)
                 .succeeded(0)
                 .failed(0)
-                .totalCostPence(0)
                 .exchangeRateGbpPerUsd(exchangeRate)
                 .build());
 
         int succeeded = 0;
         int failed = 0;
-        int totalCostPence = 0;
         long totalCostMicroDollars = 0;
         int regionsProcessed = 0;
 
@@ -173,11 +171,8 @@ public class ModelTestService {
                                 atmosphericData, model, null);
                         TokenUsage tokenUsage = detail.tokenUsage() != null
                                 ? detail.tokenUsage() : TokenUsage.EMPTY;
-                        int costPence = costCalculator.calculateCost(
-                                com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC, model);
                         long costMicroDollars = costCalculator.calculateCostMicroDollars(
                                 model, tokenUsage);
-                        totalCostPence += costPence;
                         totalCostMicroDollars += costMicroDollars;
                         succeeded++;
 
@@ -197,7 +192,6 @@ public class ModelTestService {
                                 .promptSent(detail.promptSent())
                                 .responseJson(detail.rawResponse())
                                 .durationMs(detail.durationMs())
-                                .costPence(costPence)
                                 .inputTokens(tokenUsage.inputTokens())
                                 .outputTokens(tokenUsage.outputTokens())
                                 .cacheCreationInputTokens(tokenUsage.cacheCreationInputTokens())
@@ -222,7 +216,7 @@ public class ModelTestService {
         }
 
         return completeRun(testRun, now, regionsProcessed, succeeded, failed,
-                totalCostPence, totalCostMicroDollars);
+                totalCostMicroDollars);
     }
 
     /**
@@ -274,13 +268,11 @@ public class ModelTestService {
                 .regionsCount(0)
                 .succeeded(0)
                 .failed(0)
-                .totalCostPence(0)
                 .exchangeRateGbpPerUsd(exchangeRate)
                 .build());
 
         int succeeded = 0;
         int failed = 0;
-        int totalCostPence = 0;
         long totalCostMicroDollars = 0;
 
         for (TargetType targetType : targetTypes) {
@@ -311,11 +303,8 @@ public class ModelTestService {
                             atmosphericData, model, null);
                     TokenUsage tokenUsage = detail.tokenUsage() != null
                             ? detail.tokenUsage() : TokenUsage.EMPTY;
-                    int costPence = costCalculator.calculateCost(
-                            com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC, model);
                     long costMicroDollars = costCalculator.calculateCostMicroDollars(
                             model, tokenUsage);
-                    totalCostPence += costPence;
                     totalCostMicroDollars += costMicroDollars;
                     succeeded++;
 
@@ -335,7 +324,6 @@ public class ModelTestService {
                             .promptSent(detail.promptSent())
                             .responseJson(detail.rawResponse())
                             .durationMs(detail.durationMs())
-                            .costPence(costPence)
                             .inputTokens(tokenUsage.inputTokens())
                             .outputTokens(tokenUsage.outputTokens())
                             .cacheCreationInputTokens(tokenUsage.cacheCreationInputTokens())
@@ -358,7 +346,7 @@ public class ModelTestService {
         }
 
         return completeRun(testRun, now, 1, succeeded, failed,
-                totalCostPence, totalCostMicroDollars);
+                totalCostMicroDollars);
     }
 
     /**
@@ -404,7 +392,6 @@ public class ModelTestService {
                 .regionsCount(0)
                 .succeeded(0)
                 .failed(0)
-                .totalCostPence(0)
                 .exchangeRateGbpPerUsd(exchangeRate)
                 .parentRunId(previousRunId)
                 .rerunType(RerunType.FRESH_DATA)
@@ -412,7 +399,6 @@ public class ModelTestService {
 
         int succeeded = 0;
         int failed = 0;
-        int totalCostPence = 0;
         long totalCostMicroDollars = 0;
         int locationsProcessed = 0;
 
@@ -458,11 +444,8 @@ public class ModelTestService {
                                 atmosphericData, model, null);
                         TokenUsage tokenUsage = detail.tokenUsage() != null
                                 ? detail.tokenUsage() : TokenUsage.EMPTY;
-                        int costPence = costCalculator.calculateCost(
-                                com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC, model);
                         long costMicroDollars = costCalculator.calculateCostMicroDollars(
                                 model, tokenUsage);
-                        totalCostPence += costPence;
                         totalCostMicroDollars += costMicroDollars;
                         succeeded++;
 
@@ -482,7 +465,6 @@ public class ModelTestService {
                                 .promptSent(detail.promptSent())
                                 .responseJson(detail.rawResponse())
                                 .durationMs(detail.durationMs())
-                                .costPence(costPence)
                                 .inputTokens(tokenUsage.inputTokens())
                                 .outputTokens(tokenUsage.outputTokens())
                                 .cacheCreationInputTokens(tokenUsage.cacheCreationInputTokens())
@@ -506,7 +488,7 @@ public class ModelTestService {
         }
 
         return completeRun(testRun, now, locationsProcessed, succeeded, failed,
-                totalCostPence, totalCostMicroDollars);
+                totalCostMicroDollars);
     }
 
     /**
@@ -559,7 +541,6 @@ public class ModelTestService {
                 .regionsCount(0)
                 .succeeded(0)
                 .failed(0)
-                .totalCostPence(0)
                 .exchangeRateGbpPerUsd(exchangeRate)
                 .parentRunId(previousRunId)
                 .rerunType(RerunType.SAME_DATA)
@@ -567,7 +548,6 @@ public class ModelTestService {
 
         int succeeded = 0;
         int failed = 0;
-        int totalCostPence = 0;
         long totalCostMicroDollars = 0;
         int locationsProcessed = 0;
 
@@ -595,11 +575,8 @@ public class ModelTestService {
                             atmosphericData, model, null);
                     TokenUsage tokenUsage = detail.tokenUsage() != null
                             ? detail.tokenUsage() : TokenUsage.EMPTY;
-                    int costPence = costCalculator.calculateCost(
-                            com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC, model);
                     long costMicroDollars = costCalculator.calculateCostMicroDollars(
                             model, tokenUsage);
-                    totalCostPence += costPence;
                     totalCostMicroDollars += costMicroDollars;
                     succeeded++;
 
@@ -619,7 +596,6 @@ public class ModelTestService {
                             .promptSent(detail.promptSent())
                             .responseJson(detail.rawResponse())
                             .durationMs(detail.durationMs())
-                            .costPence(costPence)
                             .inputTokens(tokenUsage.inputTokens())
                             .outputTokens(tokenUsage.outputTokens())
                             .cacheCreationInputTokens(tokenUsage.cacheCreationInputTokens())
@@ -642,7 +618,7 @@ public class ModelTestService {
         }
 
         return completeRun(testRun, now, locationsProcessed, succeeded, failed,
-                totalCostPence, totalCostMicroDollars);
+                totalCostMicroDollars);
     }
 
     /**
@@ -748,7 +724,7 @@ public class ModelTestService {
     }
 
     private ModelTestRunEntity completeRun(ModelTestRunEntity testRun, LocalDateTime startedAt,
-            int regionsProcessed, int succeeded, int failed, int totalCostPence,
+            int regionsProcessed, int succeeded, int failed,
             long totalCostMicroDollars) {
         LocalDateTime completedAt = LocalDateTime.now(ZoneOffset.UTC);
         testRun.setCompletedAt(completedAt);
@@ -756,7 +732,6 @@ public class ModelTestService {
         testRun.setRegionsCount(regionsProcessed);
         testRun.setSucceeded(succeeded);
         testRun.setFailed(failed);
-        testRun.setTotalCostPence(totalCostPence);
         testRun.setTotalCostMicroDollars(totalCostMicroDollars);
         testRun = testRunRepository.save(testRun);
 
@@ -811,7 +786,6 @@ public class ModelTestService {
                 .targetType(targetType)
                 .evaluationModel(model)
                 .durationMs(durationMs)
-                .costPence(0)
                 .succeeded(false)
                 .errorMessage(errorMessage != null && errorMessage.length() > 500
                         ? errorMessage.substring(0, 500) : errorMessage)
@@ -831,7 +805,6 @@ public class ModelTestService {
                 .targetType(ref.getTargetType())
                 .evaluationModel(model)
                 .durationMs(0L)
-                .costPence(0)
                 .succeeded(false)
                 .errorMessage(errorMessage != null && errorMessage.length() > 500
                         ? errorMessage.substring(0, 500) : errorMessage)

@@ -51,7 +51,7 @@ class ModelTestControllerTest extends AbstractControllerTest {
                 .regionsCount(2)
                 .succeeded(6)
                 .failed(0)
-                .totalCostPence(300)
+                .totalCostMicroDollars(300000L)
                 .build();
         when(modelTestService.runTest()).thenReturn(run);
 
@@ -60,7 +60,7 @@ class ModelTestControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.regionsCount").value(2))
                 .andExpect(jsonPath("$.succeeded").value(6))
-                .andExpect(jsonPath("$.totalCostPence").value(300));
+                .andExpect(jsonPath("$.totalCostMicroDollars").value(300000));
     }
 
     @Test
@@ -145,7 +145,7 @@ class ModelTestControllerTest extends AbstractControllerTest {
                 .regionsCount(1)
                 .succeeded(3)
                 .failed(0)
-                .totalCostPence(150)
+                .totalCostMicroDollars(150000L)
                 .build();
         when(modelTestService.runTestForLocation(1L)).thenReturn(run);
 
@@ -154,7 +154,7 @@ class ModelTestControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.regionsCount").value(1))
                 .andExpect(jsonPath("$.succeeded").value(3))
-                .andExpect(jsonPath("$.totalCostPence").value(150));
+                .andExpect(jsonPath("$.totalCostMicroDollars").value(150000));
     }
 
     @Test
@@ -189,7 +189,7 @@ class ModelTestControllerTest extends AbstractControllerTest {
                 .regionsCount(1)
                 .succeeded(3)
                 .failed(0)
-                .totalCostPence(150)
+                .totalCostMicroDollars(150000L)
                 .build();
         when(modelTestService.rerunTest(1L)).thenReturn(run);
 
@@ -232,7 +232,7 @@ class ModelTestControllerTest extends AbstractControllerTest {
                 .regionsCount(1)
                 .succeeded(3)
                 .failed(0)
-                .totalCostPence(150)
+                .totalCostMicroDollars(150000L)
                 .parentRunId(1L)
                 .rerunType(RerunType.SAME_DATA)
                 .build();

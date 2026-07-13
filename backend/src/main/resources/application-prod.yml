@@ -137,13 +137,6 @@ notifications:
   macos-toast:
     enabled: false
 
-cost:
-  # API call costs in units of 1/10th pence (e.g., 0.5p = 5, 1.3p = 13)
-  anthropic-haiku-pence: 5        # 0.5p per call
-  anthropic-sonnet-pence: 13      # 1.3p per call
-  world-tides-pence: 2            # 0.2p per call
-  open-meteo-pence: 0             # free (included in subscription)
-
 jwt:
   secret: ${JWT_SECRET}
   access-token-expiry-hours: 24

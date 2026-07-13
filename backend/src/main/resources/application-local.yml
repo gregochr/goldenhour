@@ -46,15 +46,6 @@ notifications:
   macos-toast:
     enabled: false
 
-cost:
-  # Token-based pricing defaults are in CostProperties — no override needed locally
-  # Legacy flat-rate fields kept for backward compatibility
-  anthropic-haiku-pence: 5
-  anthropic-sonnet-pence: 13
-  anthropic-opus-pence: 75
-  world-tides-pence: 2
-  open-meteo-pence: 0
-
 logging:
   level:
     com.gregochr.goldenhour.config.RequestLoggingInterceptor: INFO

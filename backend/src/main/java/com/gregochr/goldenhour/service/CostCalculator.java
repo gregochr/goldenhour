@@ -9,8 +9,8 @@ import org.springframework.stereotype.Service;
 /**
  * Calculates operational costs for external API calls.
  *
- * <p>Token-based calculations return costs in micro-dollars (1 dollar = 1,000,000 µ$).
- * Legacy flat-rate methods are retained for backward compatibility.
+ * <p>All calculations return costs in micro-dollars (1 dollar = 1,000,000 µ$), derived from
+ * actual token usage for Anthropic calls and flat per-call rates for other services.
  */
 @Service
 public class CostCalculator {
@@ -70,50 +70,6 @@ public class CostCalculator {
             case ANTHROPIC -> 0;
             case LIGHT_POLLUTION -> 0L;
         };
-    }
-
-    // --- Legacy flat-rate methods (deprecated) ---
-
-    /**
-     * Calculates the cost of a single API call in pence (legacy flat rate).
-     *
-     * @param service the external service
-     * @param model   the evaluation model for Anthropic calls, or null
-     * @return cost in pence
-     * @deprecated Use {@link #calculateCostMicroDollars(EvaluationModel, TokenUsage)} for Anthropic
-     *             or {@link #calculateFlatCostMicroDollars(ServiceName)} for other services.
-     */
-    @Deprecated
-    @SuppressWarnings("deprecation")
-    public int calculateCost(ServiceName service, EvaluationModel model) {
-        return switch (service) {
-            case ANTHROPIC -> {
-                if (model == null) {
-                    yield costProperties.getAnthropicSonnetPence();
-                }
-                yield switch (model) {
-                        case HAIKU -> costProperties.getAnthropicHaikuPence();
-                        case OPUS, OPUS_ET -> costProperties.getAnthropicOpusPence();
-                        default -> costProperties.getAnthropicSonnetPence();
-                    };
-            }
-            case WORLD_TIDES -> costProperties.getWorldTidesPence();
-            case OPEN_METEO_FORECAST, OPEN_METEO_AIR_QUALITY, OPEN_METEO_MARINE ->
-                    costProperties.getOpenMeteoPence();
-            case LIGHT_POLLUTION -> 0;
-        };
-    }
-
-    /**
-     * Calculates the cost of a single API call without an evaluation model (non-Anthropic).
-     *
-     * @param service the external service
-     * @return cost in pence
-     * @deprecated Use {@link #calculateFlatCostMicroDollars(ServiceName)} instead.
-     */
-    @Deprecated
-    public int calculateCost(ServiceName service) {
-        return calculateCost(service, null);
     }
 
     private long microDollarsForTokens(long tokens, double usdPerMTok) {

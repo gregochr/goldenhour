@@ -9,7 +9,6 @@ import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.PromptTestResultEntity;
 import com.gregochr.goldenhour.entity.PromptTestRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
-import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
@@ -206,8 +205,6 @@ class PromptTestServiceTest {
                 any(), any(), any(), any(), anyDouble(), anyDouble(), any())).thenReturn(data);
         when(evaluationService.evaluateWithDetails(any(), eq(EvaluationModel.HAIKU), any()))
                 .thenReturn(sampleDetail());
-        when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any(EvaluationModel.class)))
-                .thenReturn(50);
         when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
                 .thenReturn(5400L);
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
@@ -220,7 +217,6 @@ class PromptTestServiceTest {
         assertThat(result.getLocationsCount()).isEqualTo(6);
         assertThat(result.getSucceeded()).isEqualTo(6);
         assertThat(result.getFailed()).isEqualTo(0);
-        assertThat(result.getTotalCostPence()).isEqualTo(300);
         assertThat(result.getTotalCostMicroDollars()).isEqualTo(32400L);
         assertThat(result.getGitCommitHash()).isEqualTo("abc1234");
         assertThat(result.getGitBranch()).isEqualTo("main");
@@ -248,8 +244,6 @@ class PromptTestServiceTest {
                 any(), any(), any(), any(), anyDouble(), anyDouble(), any())).thenReturn(data);
         when(evaluationService.evaluateWithDetails(any(), eq(EvaluationModel.HAIKU), any()))
                 .thenReturn(sampleDetail());
-        when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any(EvaluationModel.class)))
-                .thenReturn(50);
         when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
                 .thenReturn(5400L);
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
@@ -309,8 +303,6 @@ class PromptTestServiceTest {
         when(evaluationService.evaluateWithDetails(any(), eq(EvaluationModel.HAIKU), any()))
                 .thenThrow(new RuntimeException("API error"))
                 .thenReturn(sampleDetail());
-        lenient().when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any()))
-                .thenReturn(50);
         lenient().when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
                 .thenReturn(5400L);
         lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
@@ -366,7 +358,6 @@ class PromptTestServiceTest {
         when(augmentor.augmentWithTideData(
                 any(), any(), any(), any(), anyDouble(), anyDouble(), any())).thenReturn(data);
         when(evaluationService.evaluateWithDetails(any(), any(), any())).thenReturn(sampleDetail());
-        when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any())).thenReturn(50);
         when(costCalculator.calculateCostMicroDollars(any(), any())).thenReturn(5400L);
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         stubGitInfo();
@@ -407,7 +398,6 @@ class PromptTestServiceTest {
                 .thenReturn(List.of(parentResult));
         when(evaluationService.evaluateWithDetails(any(), eq(EvaluationModel.SONNET), any()))
                 .thenReturn(sampleDetail());
-        when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any())).thenReturn(50);
         when(costCalculator.calculateCostMicroDollars(any(), any())).thenReturn(5400L);
         lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -450,7 +440,6 @@ class PromptTestServiceTest {
         when(testResultRepository.findByTestRunIdOrderByLocationNameAsc(10L))
                 .thenReturn(List.of(parentResult));
         when(evaluationService.evaluateWithDetails(any(), any(), any())).thenReturn(sampleDetail());
-        lenient().when(costCalculator.calculateCost(any(), any())).thenReturn(50);
         lenient().when(costCalculator.calculateCostMicroDollars(any(), any())).thenReturn(5400L);
         lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));

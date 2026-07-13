@@ -143,7 +143,7 @@ describe('PromptTestView', () => {
           succeeded: 12,
           failed: 0,
           durationMs: 15000,
-          totalCostPence: 600,
+          totalCostMicroDollars: 600000,
           gitCommitHash: 'abc1234567890',
           gitBranch: 'main',
           gitDirty: false,

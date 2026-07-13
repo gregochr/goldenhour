@@ -321,14 +321,14 @@ const ModelTestView = () => {
   };
 
   const formatRunCost = (run) => {
-    const gbp = formatCostGbp(run.totalCostMicroDollars, run.exchangeRateGbpPerUsd, run.totalCostPence);
+    const gbp = formatCostGbp(run.totalCostMicroDollars, run.exchangeRateGbpPerUsd);
     const usd = formatCostUsd(run.totalCostMicroDollars);
     return usd !== '\u2014' ? `${gbp} (${usd})` : gbp;
   };
 
   const formatResultCost = (result, run) => {
     const exchangeRate = run ? run.exchangeRateGbpPerUsd : null;
-    const gbp = formatCostGbp(result.costMicroDollars, exchangeRate, result.costPence);
+    const gbp = formatCostGbp(result.costMicroDollars, exchangeRate);
     const usd = formatCostUsd(result.costMicroDollars);
     return usd !== '\u2014' ? `${gbp} (${usd})` : gbp;
   };

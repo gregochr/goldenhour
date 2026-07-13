@@ -85,7 +85,6 @@ const JobRunDetail = ({ jobRun }) => {
       acc[call.service] = {
         calls: [],
         totalDuration: 0,
-        totalCostPence: 0,
         totalCostMicroDollars: 0,
         totalInputTokens: 0,
         totalOutputTokens: 0,
@@ -98,7 +97,6 @@ const JobRunDetail = ({ jobRun }) => {
     const s = acc[call.service];
     s.calls.push(call);
     s.totalDuration += call.durationMs || 0;
-    s.totalCostPence += call.costPence || 0;
     s.totalCostMicroDollars += call.costMicroDollars || 0;
     s.totalInputTokens += call.inputTokens || 0;
     s.totalOutputTokens += call.outputTokens || 0;
@@ -114,8 +112,6 @@ const JobRunDetail = ({ jobRun }) => {
   // Calculate grand total cost
   const totalCostMicroDollars = batchSummary?.estimatedCostMicroDollars
     || Object.values(serviceStats).reduce((sum, stats) => sum + stats.totalCostMicroDollars, 0);
-  const totalCostPence = Object.values(serviceStats)
-    .reduce((sum, stats) => sum + stats.totalCostPence, 0);
 
   // Calculate evaluation summary
   const locationsProcessed = jobRun.locationsProcessed || 0;
@@ -173,7 +169,7 @@ const JobRunDetail = ({ jobRun }) => {
                 {batchSummary.requestCount} requests: {batchSummary.succeededCount ?? 0} succeeded, {batchSummary.erroredCount ?? 0} errored
               </div>
               <div className="text-xs text-plex-gold mt-1 font-semibold">
-                Cost: {formatCostGbp(batchSummary.estimatedCostMicroDollars, exchangeRate, 0)}
+                Cost: {formatCostGbp(batchSummary.estimatedCostMicroDollars, exchangeRate)}
                 {batchSummary.estimatedCostMicroDollars > 0 && (
                   <span className="text-plex-text-muted font-normal ml-2">
                     ({formatCostUsd(batchSummary.estimatedCostMicroDollars)})
@@ -226,7 +222,7 @@ const JobRunDetail = ({ jobRun }) => {
                     {stats.count} calls, avg {Math.round(stats.totalDuration / stats.count)}ms
                   </div>
                   <div className="text-xs text-plex-gold mt-1 font-semibold">
-                    Cost: {formatCostGbp(stats.totalCostMicroDollars, exchangeRate, stats.totalCostPence)}
+                    Cost: {formatCostGbp(stats.totalCostMicroDollars, exchangeRate)}
                     {stats.totalCostMicroDollars > 0 && (
                       <span className="text-plex-text-muted font-normal ml-2">
                         ({formatCostUsd(stats.totalCostMicroDollars)})
@@ -404,13 +400,13 @@ const JobRunDetail = ({ jobRun }) => {
       )}
 
       {/* Total cost */}
-      {(totalCostMicroDollars > 0 || totalCostPence > 0) && (
+      {totalCostMicroDollars > 0 && (
         <div className="mt-3 pt-3 border-t border-plex-border">
           <div className="flex justify-between items-center">
             <span className="font-medium text-plex-text text-sm">Total Cost</span>
             <div className="text-right">
               <span className="text-lg font-bold text-plex-gold">
-                {formatCostGbp(totalCostMicroDollars, exchangeRate, totalCostPence)}
+                {formatCostGbp(totalCostMicroDollars, exchangeRate)}
               </span>
               {totalCostMicroDollars > 0 && (
                 <div className="text-xs text-plex-text-muted">

@@ -115,54 +115,10 @@ class CostCalculatorTest {
         assertThat(calculator().calculateFlatCostMicroDollars(ServiceName.OPEN_METEO_AIR_QUALITY)).isZero();
     }
 
-    // --- Legacy flat-rate tests (backward compatibility) ---
-
-    @Test
-    @DisplayName("calculateCost() legacy: returns Haiku cost for HAIKU model")
-    @SuppressWarnings("deprecation")
-    void calculateCost_legacy_haiku() {
-        assertThat(calculator().calculateCost(ServiceName.ANTHROPIC, EvaluationModel.HAIKU)).isEqualTo(5);
-    }
-
-    @Test
-    @DisplayName("calculateCost() legacy: returns Sonnet cost for SONNET model")
-    @SuppressWarnings("deprecation")
-    void calculateCost_legacy_sonnet() {
-        assertThat(calculator().calculateCost(ServiceName.ANTHROPIC, EvaluationModel.SONNET)).isEqualTo(13);
-    }
-
-    @Test
-    @DisplayName("calculateCost() legacy: returns Opus cost for OPUS model")
-    @SuppressWarnings("deprecation")
-    void calculateCost_legacy_opus() {
-        assertThat(calculator().calculateCost(ServiceName.ANTHROPIC, EvaluationModel.OPUS)).isEqualTo(75);
-    }
-
-    @Test
-    @DisplayName("calculateCost() legacy: returns WorldTides cost")
-    @SuppressWarnings("deprecation")
-    void calculateCost_legacy_worldTides() {
-        assertThat(calculator().calculateCost(ServiceName.WORLD_TIDES)).isEqualTo(2);
-    }
-
-    @Test
-    @DisplayName("calculateCost() legacy: returns zero for OpenMeteo")
-    @SuppressWarnings("deprecation")
-    void calculateCost_legacy_openMeteo() {
-        assertThat(calculator().calculateCost(ServiceName.OPEN_METEO_FORECAST)).isZero();
-    }
-
     @Test
     @DisplayName("calculateFlatCostMicroDollars() for LIGHT_POLLUTION returns 0 (free API)")
     void calculateFlatCostMicroDollars_lightPollution_returnsZero() {
         assertThat(calculator().calculateFlatCostMicroDollars(ServiceName.LIGHT_POLLUTION)).isZero();
-    }
-
-    @Test
-    @DisplayName("calculateCost() legacy: returns zero for LIGHT_POLLUTION (free API)")
-    @SuppressWarnings("deprecation")
-    void calculateCost_legacy_lightPollution_returnsZero() {
-        assertThat(calculator().calculateCost(ServiceName.LIGHT_POLLUTION)).isZero();
     }
 
     // --- Extended thinking variant cost tests ---

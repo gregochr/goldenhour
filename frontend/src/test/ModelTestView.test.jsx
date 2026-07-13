@@ -64,7 +64,8 @@ describe('ModelTestView', () => {
           succeeded: 6,
           failed: 0,
           durationMs: 15000,
-          totalCostPence: 300,
+          totalCostMicroDollars: 300000,
+          exchangeRateGbpPerUsd: 0.79,
         },
       ],
     });

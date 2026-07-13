@@ -75,11 +75,6 @@ public class ModelTestRunEntity {
     @Builder.Default
     private Integer failed = 0;
 
-    /** Total estimated cost of all API calls in pence. */
-    @Column(name = "total_cost_pence", nullable = false)
-    @Builder.Default
-    private Integer totalCostPence = 0;
-
     /** Total cost of all evaluations in micro-dollars (1 dollar = 1,000,000 micro-dollars). */
     @Column(name = "total_cost_micro_dollars")
     private Long totalCostMicroDollars;

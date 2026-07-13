@@ -156,9 +156,9 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore = false, loading = false }) => 
                           {run.notes}
                         </div>
                       )}
-                      {(run.totalCostMicroDollars > 0 || run.totalCostPence > 0) && (
+                      {run.totalCostMicroDollars > 0 && (
                         <div className="text-xs text-plex-gold mt-1 font-semibold">
-                          Cost: {formatCostGbp(run.totalCostMicroDollars, run.exchangeRateGbpPerUsd, run.totalCostPence)}
+                          Cost: {formatCostGbp(run.totalCostMicroDollars, run.exchangeRateGbpPerUsd)}
                           {run.totalCostMicroDollars > 0 && (
                             <span className="text-plex-text-muted font-normal"> ({formatCostUsd(run.totalCostMicroDollars)})</span>
                           )}

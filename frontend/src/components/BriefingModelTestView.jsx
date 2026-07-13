@@ -128,14 +128,14 @@ export default function BriefingModelTestView() {
   };
 
   const formatRunCost = (run) => {
-    const gbp = formatCostGbp(run.totalCostMicroDollars, run.exchangeRateGbpPerUsd, null);
+    const gbp = formatCostGbp(run.totalCostMicroDollars, run.exchangeRateGbpPerUsd);
     const usd = formatCostUsd(run.totalCostMicroDollars);
     return `${gbp} (${usd})`;
   };
 
   const formatResultCost = (result) => {
     if (!selectedRun) return '\u2014';
-    const gbp = formatCostGbp(result.costMicroDollars, selectedRun.exchangeRateGbpPerUsd, null);
+    const gbp = formatCostGbp(result.costMicroDollars, selectedRun.exchangeRateGbpPerUsd);
     const usd = formatCostUsd(result.costMicroDollars);
     return `${gbp} (${usd})`;
   };

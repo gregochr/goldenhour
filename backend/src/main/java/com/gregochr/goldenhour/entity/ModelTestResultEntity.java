@@ -102,11 +102,6 @@ public class ModelTestResultEntity {
     @Column(name = "duration_ms")
     private Long durationMs;
 
-    /** Estimated cost of this API call in pence. */
-    @Column(name = "cost_pence", nullable = false)
-    @Builder.Default
-    private Integer costPence = 0;
-
     /** Whether the evaluation succeeded. */
     @Column(name = "succeeded", nullable = false)
     @Builder.Default
