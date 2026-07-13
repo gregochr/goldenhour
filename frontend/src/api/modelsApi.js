@@ -1,4 +1,4 @@
-import axios from 'axios';
+import apiClient from './axiosClient.js';
 
 /**
  * Fetch available evaluation models, active model per run type, and optimisation strategies.
@@ -8,7 +8,7 @@ import axios from 'axios';
  */
 export async function getAvailableModels() {
   try {
-    const response = await axios.get('/api/models');
+    const response = await apiClient.get('/api/models');
     return response.data;
   } catch (error) {
     console.error('Failed to fetch available models:', error);
@@ -25,7 +25,7 @@ export async function getAvailableModels() {
  */
 export async function setActiveModel(runType, model) {
   try {
-    const response = await axios.put('/api/models/active', { runType, model });
+    const response = await apiClient.put('/api/models/active', { runType, model });
     return response.data;
   } catch (error) {
     console.error('Failed to set active model:', error);
@@ -42,7 +42,7 @@ export async function setActiveModel(runType, model) {
  */
 export async function setExtendedThinking(runType, enabled) {
   try {
-    const response = await axios.put('/api/models/extended-thinking', { runType, enabled });
+    const response = await apiClient.put('/api/models/extended-thinking', { runType, enabled });
     return response.data;
   } catch (error) {
     console.error('Failed to set extended thinking:', error);
@@ -61,7 +61,7 @@ export async function setExtendedThinking(runType, enabled) {
  */
 export async function updateOptimisationStrategy(runType, strategyType, enabled, paramValue = null) {
   try {
-    const response = await axios.put('/api/models/optimisation', {
+    const response = await apiClient.put('/api/models/optimisation', {
       runType,
       strategyType,
       enabled,

@@ -1,4 +1,4 @@
-import axios from 'axios';
+import apiClient from './axiosClient.js';
 
 const BASE_URL = '/api/aurora';
 
@@ -11,7 +11,7 @@ const BASE_URL = '/api/aurora';
  */
 export async function getAuroraStatus() {
   try {
-    const response = await axios.get(`${BASE_URL}/status`);
+    const response = await apiClient.get(`${BASE_URL}/status`);
     return response.data;
   } catch (err) {
     if (err.response?.status === 403 || err.response?.status === 401) {
@@ -28,7 +28,7 @@ export async function getAuroraStatus() {
  * @returns {Promise<object>} { status, runType, jobRunId }
  */
 export async function enrichBortle() {
-  const response = await axios.post(`${BASE_URL}/admin/enrich-bortle`);
+  const response = await apiClient.post(`${BASE_URL}/admin/enrich-bortle`);
   return response.data;
 }
 
@@ -39,7 +39,7 @@ export async function enrichBortle() {
  * @returns {Promise<object>} { status, action }
  */
 export async function triggerAuroraRun() {
-  const response = await axios.post(`${BASE_URL}/admin/run`);
+  const response = await apiClient.post(`${BASE_URL}/admin/run`);
   return response.data;
 }
 
@@ -50,7 +50,7 @@ export async function triggerAuroraRun() {
  * @returns {Promise<object>} { status }
  */
 export async function resetAuroraState() {
-  const response = await axios.post(`${BASE_URL}/admin/reset`);
+  const response = await apiClient.post(`${BASE_URL}/admin/reset`);
   return response.data;
 }
 
@@ -67,7 +67,7 @@ export async function resetAuroraState() {
  * @returns {Promise<{level: string, message: string, eligibleLocations: number}>}
  */
 export async function simulateAurora(request) {
-  const response = await axios.post(`${BASE_URL}/admin/simulate`, request);
+  const response = await apiClient.post(`${BASE_URL}/admin/simulate`, request);
   return response.data;
 }
 
@@ -78,7 +78,7 @@ export async function simulateAurora(request) {
  * @returns {Promise<object>} { status }
  */
 export async function clearSimulation() {
-  const response = await axios.post(`${BASE_URL}/admin/simulate/clear`);
+  const response = await apiClient.post(`${BASE_URL}/admin/simulate/clear`);
   return response.data;
 }
 
@@ -91,7 +91,7 @@ export async function clearSimulation() {
  * @returns {Promise<Array>} list of scored locations
  */
 export async function getAuroraLocations({ maxBortle = 4, minStars = 1 } = {}) {
-  const response = await axios.get(`${BASE_URL}/locations`, {
+  const response = await apiClient.get(`${BASE_URL}/locations`, {
     params: { maxBortle, minStars },
   });
   return response.data;
@@ -104,7 +104,7 @@ export async function getAuroraLocations({ maxBortle = 4, minStars = 1 } = {}) {
  * @returns {Promise<{nights: Array}>} preview with per-night Kp data
  */
 export async function getAuroraForecastPreview() {
-  const response = await axios.get(`${BASE_URL}/forecast/preview`);
+  const response = await apiClient.get(`${BASE_URL}/forecast/preview`);
   return response.data;
 }
 
@@ -116,7 +116,7 @@ export async function getAuroraForecastPreview() {
  * @returns {Promise<{nights: Array, totalClaudeCalls: number, estimatedCost: string}>}
  */
 export async function runAuroraForecast(nights) {
-  const response = await axios.post(`${BASE_URL}/forecast/run`, { nights });
+  const response = await apiClient.post(`${BASE_URL}/forecast/run`, { nights });
   return response.data;
 }
 
@@ -127,7 +127,7 @@ export async function runAuroraForecast(nights) {
  * @returns {Promise<Array>} list of location results with stars, summary, and factor breakdown
  */
 export async function getAuroraForecastResults(date) {
-  const response = await axios.get(`${BASE_URL}/forecast/results`, { params: { date } });
+  const response = await apiClient.get(`${BASE_URL}/forecast/results`, { params: { date } });
   return response.data;
 }
 
@@ -139,7 +139,7 @@ export async function getAuroraForecastResults(date) {
  */
 export async function getAuroraForecastAvailableDates() {
   try {
-    const response = await axios.get(`${BASE_URL}/forecast/results/available-dates`);
+    const response = await apiClient.get(`${BASE_URL}/forecast/results/available-dates`);
     return response.data;
   } catch (err) {
     if (err.response?.status === 403 || err.response?.status === 401) {
@@ -157,7 +157,7 @@ export async function getAuroraForecastAvailableDates() {
  */
 export async function getAuroraForecastViewline() {
   try {
-    const response = await axios.get(`${BASE_URL}/viewline/forecast`);
+    const response = await apiClient.get(`${BASE_URL}/viewline/forecast`);
     return response.data;
   } catch (err) {
     if (err.response?.status === 403 || err.response?.status === 401) {
@@ -175,7 +175,7 @@ export async function getAuroraForecastViewline() {
  */
 export async function getAuroraViewline() {
   try {
-    const response = await axios.get(`${BASE_URL}/viewline`);
+    const response = await apiClient.get(`${BASE_URL}/viewline`);
     return response.data;
   } catch (err) {
     if (err.response?.status === 403 || err.response?.status === 401) {

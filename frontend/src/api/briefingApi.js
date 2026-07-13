@@ -1,4 +1,4 @@
-import axios from 'axios';
+import apiClient from './axiosClient.js';
 
 const BASE_URL = '/api/briefing';
 
@@ -10,7 +10,7 @@ const BASE_URL = '/api/briefing';
  * @returns {Promise<object|null>} the briefing response or null
  */
 export async function getDailyBriefing() {
-  const response = await axios.get(BASE_URL);
+  const response = await apiClient.get(BASE_URL);
   if (response.status === 204) {
     return null;
   }
@@ -23,6 +23,6 @@ export async function getDailyBriefing() {
  * @returns {Promise<{status: string}>} Status message.
  */
 export async function runBriefing() {
-  const response = await axios.post(`${BASE_URL}/run`);
+  const response = await apiClient.post(`${BASE_URL}/run`);
   return response.data;
 }

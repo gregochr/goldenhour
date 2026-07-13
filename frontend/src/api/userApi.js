@@ -1,4 +1,4 @@
-import axios from 'axios';
+import apiClient from './axiosClient.js';
 
 /**
  * Resets the password for a user, generating a temporary password server-side.
@@ -9,7 +9,7 @@ import axios from 'axios';
  * @returns {Promise<{temporaryPassword: string}>} The generated temporary password.
  */
 export async function resetUserPassword(userId) {
-  const response = await axios.put(`/api/users/${userId}/reset-password`);
+  const response = await apiClient.put(`/api/users/${userId}/reset-password`);
   return response.data;
 }
 
@@ -21,7 +21,7 @@ export async function resetUserPassword(userId) {
  * @returns {Promise<{message: string}>} Confirmation message.
  */
 export async function updateUserEmail(userId, email) {
-  const response = await axios.put(`/api/users/${userId}/email`, { email });
+  const response = await apiClient.put(`/api/users/${userId}/email`, { email });
   return response.data;
 }
 
@@ -33,7 +33,7 @@ export async function updateUserEmail(userId, email) {
  * @returns {Promise<{message: string}>} Confirmation message.
  */
 export async function updateUserRole(userId, role) {
-  const response = await axios.put(`/api/users/${userId}/role`, { role });
+  const response = await apiClient.put(`/api/users/${userId}/role`, { role });
   return response.data;
 }
 
@@ -45,7 +45,7 @@ export async function updateUserRole(userId, role) {
  * @returns {Promise<{message: string}>} Confirmation message.
  */
 export async function updateUserEnabled(userId, enabled) {
-  const response = await axios.put(`/api/users/${userId}/enabled`, { enabled });
+  const response = await apiClient.put(`/api/users/${userId}/enabled`, { enabled });
   return response.data;
 }
 
@@ -56,7 +56,7 @@ export async function updateUserEnabled(userId, enabled) {
  * @returns {Promise<{message: string}>} Confirmation message.
  */
 export async function deleteUser(userId) {
-  const response = await axios.delete(`/api/users/${userId}`);
+  const response = await apiClient.delete(`/api/users/${userId}`);
   return response.data;
 }
 
@@ -67,6 +67,6 @@ export async function deleteUser(userId) {
  * @returns {Promise<{message: string}>} Confirmation message.
  */
 export async function resendVerification(userId) {
-  const response = await axios.post(`/api/users/${userId}/resend-verification`);
+  const response = await apiClient.post(`/api/users/${userId}/resend-verification`);
   return response.data;
 }

@@ -1,4 +1,4 @@
-import axios from 'axios';
+import apiClient from './axiosClient.js';
 
 const BASE_URL = '/api/admin/travel-days';
 
@@ -8,7 +8,7 @@ const BASE_URL = '/api/admin/travel-days';
  * @returns {Promise<Array>} list of { id, startDate, endDate, note }
  */
 export async function fetchTravelDays() {
-  const response = await axios.get(BASE_URL);
+  const response = await apiClient.get(BASE_URL);
   return response.data;
 }
 
@@ -20,7 +20,7 @@ export async function fetchTravelDays() {
  * @returns {Promise<Array>} list of { id, startDate, endDate, note }
  */
 export async function fetchTravelDayRanges() {
-  const response = await axios.get('/api/travel-days');
+  const response = await apiClient.get('/api/travel-days');
   return response.data;
 }
 
@@ -31,7 +31,7 @@ export async function fetchTravelDayRanges() {
  * @returns {Promise<object>} the created range
  */
 export async function addTravelDay(range) {
-  const response = await axios.post(BASE_URL, range);
+  const response = await apiClient.post(BASE_URL, range);
   return response.data;
 }
 
@@ -42,5 +42,5 @@ export async function addTravelDay(range) {
  * @returns {Promise<void>}
  */
 export async function deleteTravelDay(id) {
-  await axios.delete(`${BASE_URL}/${id}`);
+  await apiClient.delete(`${BASE_URL}/${id}`);
 }

@@ -1,4 +1,4 @@
-import axios from 'axios';
+import apiClient from './axiosClient.js';
 
 const BASE_URL = '/api/user/settings';
 
@@ -7,7 +7,7 @@ const BASE_URL = '/api/user/settings';
  * @returns {Promise<Object>} UserSettingsResponse
  */
 export async function getSettings() {
-  const response = await axios.get(BASE_URL);
+  const response = await apiClient.get(BASE_URL);
   return response.data;
 }
 
@@ -17,7 +17,7 @@ export async function getSettings() {
  * @returns {Promise<Object>} PostcodeLookupResult
  */
 export async function lookupPostcode(postcode) {
-  const response = await axios.post(`${BASE_URL}/home/lookup`, { postcode });
+  const response = await apiClient.post(`${BASE_URL}/home/lookup`, { postcode });
   return response.data;
 }
 
@@ -29,7 +29,7 @@ export async function lookupPostcode(postcode) {
  * @returns {Promise<Object>} UserSettingsResponse
  */
 export async function saveHome(postcode, latitude, longitude) {
-  const response = await axios.put(`${BASE_URL}/home`, { postcode, latitude, longitude });
+  const response = await apiClient.put(`${BASE_URL}/home`, { postcode, latitude, longitude });
   return response.data;
 }
 
@@ -38,7 +38,7 @@ export async function saveHome(postcode, latitude, longitude) {
  * @returns {Promise<Object>} DriveTimeRefreshResponse
  */
 export async function refreshDriveTimes() {
-  const response = await axios.post(`${BASE_URL}/drive-times/refresh`);
+  const response = await apiClient.post(`${BASE_URL}/drive-times/refresh`);
   return response.data;
 }
 
@@ -47,6 +47,6 @@ export async function refreshDriveTimes() {
  * @returns {Promise<Object>} Map of locationId → minutes
  */
 export async function getDriveTimes() {
-  const response = await axios.get(`${BASE_URL}/drive-times`);
+  const response = await apiClient.get(`${BASE_URL}/drive-times`);
   return response.data;
 }

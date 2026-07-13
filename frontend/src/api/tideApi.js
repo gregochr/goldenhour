@@ -1,4 +1,4 @@
-import axios from 'axios';
+import apiClient from './axiosClient.js';
 
 /**
  * Fetches tide height statistics for all coastal locations.
@@ -6,7 +6,7 @@ import axios from 'axios';
  * @returns {Promise<Object>} Map of location name to TideStats object.
  */
 export async function fetchAllTideStats() {
-  const res = await axios.get('/api/tides/stats/all');
+  const res = await apiClient.get('/api/tides/stats/all');
   return res.data;
 }
 
@@ -18,7 +18,7 @@ export async function fetchAllTideStats() {
  * @returns {Promise<Array>} Array of tide extreme objects.
  */
 export async function fetchTidesForDate(locationName, date) {
-  const res = await axios.get('/api/tides', { params: { locationName, date } });
+  const res = await apiClient.get('/api/tides', { params: { locationName, date } });
   return res.data;
 }
 
@@ -29,6 +29,6 @@ export async function fetchTidesForDate(locationName, date) {
  * @returns {Promise<Object|null>} TideStats object or null if no data.
  */
 export async function fetchTideStats(locationName) {
-  const res = await axios.get('/api/tides/stats', { params: { locationName } });
+  const res = await apiClient.get('/api/tides/stats', { params: { locationName } });
   return res.status === 204 ? null : res.data;
 }

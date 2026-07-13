@@ -1,64 +1,6 @@
-import axios from 'axios';
-import { refreshAccessToken } from './authApi.js';
+import apiClient from './axiosClient.js';
 
 const BASE_URL = '/api';
-
-const TOKEN_KEY = 'goldenhour_token';
-const REFRESH_KEY = 'goldenhour_refresh';
-
-// Attach the JWT access token to every outgoing request.
-axios.interceptors.request.use((config) => {
-  const token = localStorage.getItem(TOKEN_KEY);
-  if (token) {
-    config.headers = config.headers ?? {};
-    config.headers['Authorization'] = `Bearer ${token}`;
-  }
-  return config;
-});
-
-// On 401, attempt a single token refresh and queue concurrent requests.
-let refreshPromise = null;
-
-axios.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const original = error.config;
-    const storedRefresh = localStorage.getItem(REFRESH_KEY);
-
-    if (error.response?.status !== 401 || original._retried || !storedRefresh) {
-      return Promise.reject(error);
-    }
-
-    original._retried = true;
-
-    // If a refresh is already in flight, wait for it then retry with the new token.
-    if (refreshPromise) {
-      await refreshPromise;
-      original.headers['Authorization'] = `Bearer ${localStorage.getItem(TOKEN_KEY)}`;
-      return axios(original);
-    }
-
-    // First 401 triggers the refresh; concurrent 401s await the same promise.
-    refreshPromise = refreshAccessToken(storedRefresh)
-      .then((data) => {
-        localStorage.setItem(TOKEN_KEY, data.accessToken);
-        if (data.refreshToken) localStorage.setItem(REFRESH_KEY, data.refreshToken);
-      })
-      .catch(() => {
-        localStorage.removeItem(TOKEN_KEY);
-        localStorage.removeItem(REFRESH_KEY);
-        localStorage.removeItem('goldenhour_role');
-        window.dispatchEvent(new Event('goldenhour:session-expired'));
-      })
-      .finally(() => {
-        refreshPromise = null;
-      });
-
-    await refreshPromise;
-    original.headers['Authorization'] = `Bearer ${localStorage.getItem(TOKEN_KEY)}`;
-    return axios(original);
-  }
-);
 
 /**
  * Fetches the T through T+5 forecast week for all configured locations.
@@ -66,7 +8,7 @@ axios.interceptors.response.use(
  * @returns {Promise<Array<object>>} Array of forecast evaluations.
  */
 export async function fetchForecasts() {
-  const response = await axios.get(`${BASE_URL}/forecast`);
+  const response = await apiClient.get(`${BASE_URL}/forecast`);
   return response.data;
 }
 
@@ -80,7 +22,7 @@ export async function fetchForecasts() {
  * @returns {Promise<Array<object>>} Array of actual outcome records.
  */
 export async function fetchOutcomes(lat, lon, from, to) {
-  const response = await axios.get(`${BASE_URL}/outcome`, {
+  const response = await apiClient.get(`${BASE_URL}/outcome`, {
     params: { lat, lon, from, to },
   });
   return response.data;
@@ -95,7 +37,7 @@ export async function fetchOutcomes(lat, lon, from, to) {
  * @returns {Promise<{status: string, runType: string, jobRunId: number}>} Accepted status message.
  */
 export async function runForecast(date, location, targetType) {
-  const response = await axios.post(`${BASE_URL}/forecast/run`, { dates: [date], location, targetType });
+  const response = await apiClient.post(`${BASE_URL}/forecast/run`, { dates: [date], location, targetType });
   return response.data;
 }
 
@@ -113,7 +55,7 @@ export async function runVeryShortTermForecast(excludedSlots = [], excludedLocat
   const body = hasSlots || hasLocations
     ? { ...(hasSlots && { excludedSlots }), ...(hasLocations && { excludedLocations }) }
     : undefined;
-  const response = await axios.post(`${BASE_URL}/forecast/run/very-short-term`, body);
+  const response = await apiClient.post(`${BASE_URL}/forecast/run/very-short-term`, body);
   return response.data;
 }
 
@@ -131,7 +73,7 @@ export async function runShortTermForecast(excludedSlots = [], excludedLocations
   const body = hasSlots || hasLocations
     ? { ...(hasSlots && { excludedSlots }), ...(hasLocations && { excludedLocations }) }
     : undefined;
-  const response = await axios.post(`${BASE_URL}/forecast/run/short-term`, body);
+  const response = await apiClient.post(`${BASE_URL}/forecast/run/short-term`, body);
   return response.data;
 }
 
@@ -142,7 +84,7 @@ export async function runShortTermForecast(excludedSlots = [], excludedLocations
  * @returns {Promise<{status: string, runType: string, jobRunId: number}>} Accepted status message.
  */
 export async function runLongTermForecast() {
-  const response = await axios.post(`${BASE_URL}/forecast/run/long-term`);
+  const response = await apiClient.post(`${BASE_URL}/forecast/run/long-term`);
   return response.data;
 }
 
@@ -152,7 +94,7 @@ export async function runLongTermForecast() {
  * @returns {Promise<{status: string}>} Status message.
  */
 export async function refreshTideData() {
-  const response = await axios.post(`${BASE_URL}/forecast/run/tide`);
+  const response = await apiClient.post(`${BASE_URL}/forecast/run/tide`);
   return response.data;
 }
 
@@ -163,7 +105,7 @@ export async function refreshTideData() {
  * @returns {Promise<{status: string}>} Status message.
  */
 export async function backfillTideData() {
-  const response = await axios.post(`${BASE_URL}/forecast/run/tide/backfill`);
+  const response = await apiClient.post(`${BASE_URL}/forecast/run/tide/backfill`);
   return response.data;
 }
 
@@ -173,7 +115,7 @@ export async function backfillTideData() {
  * @returns {Promise<Array<{id: number, name: string, lat: number, lon: number}>>} Location list.
  */
 export async function fetchLocations() {
-  const response = await axios.get(`${BASE_URL}/locations`);
+  const response = await apiClient.get(`${BASE_URL}/locations`);
   return response.data;
 }
 
@@ -190,7 +132,7 @@ export async function fetchLocations() {
  * @returns {Promise<object>} The saved location entity.
  */
 export async function addLocation(data) {
-  const response = await axios.post(`${BASE_URL}/locations`, data);
+  const response = await apiClient.post(`${BASE_URL}/locations`, data);
   return response.data;
 }
 
@@ -202,7 +144,7 @@ export async function addLocation(data) {
  * @returns {Promise<object>} The updated location entity.
  */
 export async function updateLocation(id, data) {
-  const response = await axios.put(`${BASE_URL}/locations/${id}`, data);
+  const response = await apiClient.put(`${BASE_URL}/locations/${id}`, data);
   return response.data;
 }
 
@@ -214,7 +156,7 @@ export async function updateLocation(id, data) {
  * @returns {Promise<object>} The updated location entity.
  */
 export async function setLocationEnabled(id, enabled) {
-  const response = await axios.put(`${BASE_URL}/locations/${id}/enabled`, { enabled });
+  const response = await apiClient.put(`${BASE_URL}/locations/${id}/enabled`, { enabled });
   return response.data;
 }
 
@@ -227,7 +169,7 @@ export async function setLocationEnabled(id, enabled) {
  * @returns {Promise<{[locationName: string]: number|null}>} Map of location name to minutes (null = unreachable).
  */
 export async function refreshDriveTimes(lat, lon) {
-  const response = await axios.post(`${BASE_URL}/locations/drive-times`, { lat, lon });
+  const response = await apiClient.post(`${BASE_URL}/locations/drive-times`, { lat, lon });
   return response.data;
 }
 
@@ -239,7 +181,7 @@ export async function refreshDriveTimes(lat, lon) {
  * @returns {Promise<{bortleClass: number|null, skyBrightnessSqm: number|null, elevationMetres: number|null, gridLat: number|null, gridLng: number|null}>}
  */
 export async function enrichLocation(lat, lon) {
-  const response = await axios.get(`${BASE_URL}/locations/enrich`, { params: { lat, lon } });
+  const response = await apiClient.get(`${BASE_URL}/locations/enrich`, { params: { lat, lon } });
   return response.data;
 }
 
@@ -278,7 +220,7 @@ export async function geocodePlace(placeName) {
  * @returns {Promise<Array<{id: number, type: string, eventTime: string, heightMetres: string}>>}
  */
 export async function fetchTidesForDate(locationName, date) {
-  const response = await axios.get(`${BASE_URL}/tides`, {
+  const response = await apiClient.get(`${BASE_URL}/tides`, {
     params: { locationName, date },
   });
   return response.data;
@@ -291,7 +233,7 @@ export async function fetchTidesForDate(locationName, date) {
  * @returns {Promise<{avgHighMetres: number, maxHighMetres: number, avgLowMetres: number, minLowMetres: number, dataPoints: number}|null>}
  */
 export async function fetchTideStats(locationName) {
-  const response = await axios.get(`${BASE_URL}/tides/stats`, {
+  const response = await apiClient.get(`${BASE_URL}/tides/stats`, {
     params: { locationName },
   });
   return response.status === 204 ? null : response.data;
@@ -312,6 +254,6 @@ export async function fetchTideStats(locationName) {
  * @returns {Promise<object>} Created outcome record.
  */
 export async function recordOutcome(outcome) {
-  const response = await axios.post(`${BASE_URL}/outcome`, outcome);
+  const response = await apiClient.post(`${BASE_URL}/outcome`, outcome);
   return response.data;
 }

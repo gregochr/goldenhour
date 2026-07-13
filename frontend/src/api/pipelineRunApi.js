@@ -1,4 +1,4 @@
-import axios from 'axios';
+import apiClient from './axiosClient.js';
 
 const BASE_URL = '/api/admin/pipeline-runs';
 
@@ -9,7 +9,7 @@ const BASE_URL = '/api/admin/pipeline-runs';
  * @returns {Promise<Array>} most recent runs (up to 50) — newest first
  */
 export async function fetchPipelineRuns() {
-  const response = await axios.get(BASE_URL);
+  const response = await apiClient.get(BASE_URL);
   return response.data;
 }
 
@@ -23,6 +23,6 @@ export async function fetchPipelineRuns() {
  * @returns {Promise<object>} { run, phases, batches }
  */
 export async function fetchPipelineRunDetail(id) {
-  const response = await axios.get(`${BASE_URL}/${id}`);
+  const response = await apiClient.get(`${BASE_URL}/${id}`);
   return response.data;
 }

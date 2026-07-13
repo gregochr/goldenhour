@@ -1,4 +1,4 @@
-import axios from 'axios';
+import apiClient from './axiosClient.js';
 
 /** Components whose failure is a soft warning (amber), not a hard failure (red). */
 const SOFT_COMPONENTS = new Set(['mail']);
@@ -12,7 +12,7 @@ const SOFT_COMPONENTS = new Set(['mail']);
  */
 export async function getHealth() {
   try {
-    const response = await axios.get('/actuator/health', { timeout: 5000 });
+    const response = await apiClient.get('/actuator/health', { timeout: 5000 });
     const data = response.data;
     const components = data.components || {};
 

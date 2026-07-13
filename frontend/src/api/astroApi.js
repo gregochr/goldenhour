@@ -1,4 +1,4 @@
-import axios from 'axios';
+import apiClient from './axiosClient.js';
 
 const BASE_URL = '/api/astro';
 
@@ -9,7 +9,7 @@ const BASE_URL = '/api/astro';
  * @returns {Promise<Array>} list of condition scores, one per location
  */
 export async function getAstroConditions(date) {
-  const response = await axios.get(`${BASE_URL}/conditions`, { params: { date } });
+  const response = await apiClient.get(`${BASE_URL}/conditions`, { params: { date } });
   return response.data;
 }
 
@@ -19,6 +19,6 @@ export async function getAstroConditions(date) {
  * @returns {Promise<string[]>} distinct forecast dates in ascending order
  */
 export async function getAstroAvailableDates() {
-  const response = await axios.get(`${BASE_URL}/conditions/available-dates`);
+  const response = await apiClient.get(`${BASE_URL}/conditions/available-dates`);
   return response.data;
 }

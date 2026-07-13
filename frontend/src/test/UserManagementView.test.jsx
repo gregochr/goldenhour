@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import axios from 'axios';
+import apiClient from '../api/axiosClient.js';
 import UserManagementView from '../components/UserManagementView.jsx';
 
-vi.mock('axios');
+vi.mock('../api/axiosClient.js', () => ({
+  default: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
+}));
 
 vi.mock('../api/userApi', () => ({
   resetUserPassword: vi.fn(),
@@ -36,7 +38,7 @@ describe('UserManagementView', () => {
   });
 
   it('renders user list', async () => {
-    axios.get.mockResolvedValue({ data: makeMockUsers(3) });
+    apiClient.get.mockResolvedValue({ data: makeMockUsers(3) });
 
     render(<UserManagementView />);
 
@@ -49,7 +51,7 @@ describe('UserManagementView', () => {
   });
 
   it('paginates users when more than page size', async () => {
-    axios.get.mockResolvedValue({ data: makeMockUsers(15) });
+    apiClient.get.mockResolvedValue({ data: makeMockUsers(15) });
 
     render(<UserManagementView />);
 
@@ -76,7 +78,7 @@ describe('UserManagementView', () => {
   });
 
   it('hides pagination when all users fit on one page', async () => {
-    axios.get.mockResolvedValue({ data: makeMockUsers(5) });
+    apiClient.get.mockResolvedValue({ data: makeMockUsers(5) });
 
     render(<UserManagementView />);
 
@@ -101,7 +103,7 @@ describe('UserManagementView', () => {
       homePostcode: 'NE1 7RU',
       marketingEmailOptIn: true,
     }];
-    axios.get.mockResolvedValue({ data: users });
+    apiClient.get.mockResolvedValue({ data: users });
 
     render(<UserManagementView />);
 
@@ -140,7 +142,7 @@ describe('UserManagementView', () => {
       homePostcode: null,
       marketingEmailOptIn: false,
     }];
-    axios.get.mockResolvedValue({ data: users });
+    apiClient.get.mockResolvedValue({ data: users });
 
     render(<UserManagementView />);
 
@@ -171,7 +173,7 @@ describe('UserManagementView', () => {
         homePostcode: null, marketingEmailOptIn: false,
       },
     ];
-    axios.get.mockResolvedValue({ data: users });
+    apiClient.get.mockResolvedValue({ data: users });
 
     render(<UserManagementView />);
 
@@ -190,7 +192,7 @@ describe('UserManagementView', () => {
   });
 
   it('chevron shows correct indicator for expanded and collapsed states', async () => {
-    axios.get.mockResolvedValue({ data: makeMockUsers(2) });
+    apiClient.get.mockResolvedValue({ data: makeMockUsers(2) });
 
     render(<UserManagementView />);
 
@@ -217,7 +219,7 @@ describe('UserManagementView', () => {
   });
 
   it('chevron has correct aria-label for accessibility', async () => {
-    axios.get.mockResolvedValue({ data: makeMockUsers(1) });
+    apiClient.get.mockResolvedValue({ data: makeMockUsers(1) });
 
     render(<UserManagementView />);
 
@@ -242,7 +244,7 @@ describe('UserManagementView', () => {
       termsAcceptedAt: '2026-04-01T00:00:00Z', termsVersion: 'April 2026',
       homePostcode: 'EH1 1YZ', marketingEmailOptIn: false,
     }];
-    axios.get.mockResolvedValue({ data: users });
+    apiClient.get.mockResolvedValue({ data: users });
 
     render(<UserManagementView />);
 
@@ -259,7 +261,7 @@ describe('UserManagementView', () => {
   });
 
   it('shows Add New User form when button clicked', async () => {
-    axios.get.mockResolvedValue({ data: makeMockUsers(1) });
+    apiClient.get.mockResolvedValue({ data: makeMockUsers(1) });
 
     render(<UserManagementView />);
 
