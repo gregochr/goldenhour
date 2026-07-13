@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Decomposed `BriefingBestBetAdvisor`, phase 2 (SRP; 1241 → 594 lines)
+- Completes the `BriefingBestBetAdvisor` decomposition begun in phase 1 by extracting the three **dependency-heavy** seams. Because these need injected collaborators, they are instance classes constructed inside the advisor's constructor from its existing dependency fields — so the advisor's public constructor is unchanged and the ~140-test suite still needs no edits.
+- **`BriefingRollupBuilder`** (new) — assembles the compact region-level rollup JSON (events, regions, tide/stability/Claude-score fields, the aurora block) and derives the `RollupResult` validation sets. The largest seam (~460 lines, 7 deps); it composes `AuroraRegionSelector` for the aurora block.
+- **`AuroraRegionSelector`** (new) — derives the best dark-sky region for tonight's aurora from cached scores (rank by clear count, mean stars, darkness).
+- **`BestBetEnricher`** (new) — adds display-only structured fields (dayName / eventType / eventTime, incl. Today/Tomorrow labelling) to picks from the triage data.
+- Promoted the `RollupResult` record to a top-level `model` record (the contract between the rollup builder and all three call paths). Across both phases **`BriefingBestBetAdvisor` shrank 1888 → 594 lines (−69%)**; the advisor is now a thin orchestration layer delegating to seven focused collaborators.
+- Behaviour-preserving: no production logic changed, only relocated — verified by the full suite (4412 tests, 0 failures; SpotBugs 0) and a 4-agent byte-exact review of the JSON assembly, aurora ranking, enrichment, and constructor wiring (zero findings). New classes clear the 80% per-class coverage gate (rollup builder 99%, aurora selector 100%, enricher 88%).
+
 ### Changed — Decomposed `BriefingBestBetAdvisor`, phase 1 (SRP; 1888 → 1241 lines)
 - `BriefingBestBetAdvisor` had grown to 1888 lines running the whole best-bet pipeline (Anthropic orchestration, rollup-JSON assembly, aurora selection, Claude-response parsing, pick validation, coverage-aware ranking, display enrichment, and a ~260-line system prompt). Phase 1 extracts the four **pure, low-risk** seams into focused stateless collaborators; the advisor keeps every method as a thin delegator, so its public API and constructor are unchanged and the ~130-test suite needed no assertion edits.
 - **`BestBetPromptText`** (new) — holds the ~260-line `SYSTEM_PROMPT` text block (≈14% of the old file); `currentSystemPrompt()` still returns it for the replay harness.
