@@ -1,6 +1,6 @@
 import React, { useEffect, useOptimistic, useState, useTransition, useMemo } from 'react';
 import PropTypes from 'prop-types';
-import axios from 'axios';
+import apiClient from '../api/axiosClient.js';
 import { resetUserPassword, updateUserEmail, updateUserRole, updateUserEnabled, deleteUser, resendVerification } from '../api/userApi.js';
 import Pagination from './Pagination.jsx';
 import usePagination from '../hooks/usePagination.js';
@@ -196,7 +196,7 @@ export default function UserManagementView() {
 
   async function fetchUsers() {
     try {
-      const res = await axios.get('/api/users');
+      const res = await apiClient.get('/api/users');
       setUsers(res.data);
     } catch {
       // Keep existing list on failure
@@ -204,7 +204,7 @@ export default function UserManagementView() {
   }
 
   useEffect(() => {
-    axios.get('/api/users')
+    apiClient.get('/api/users')
       .then((res) => setUsers(res.data))
       .finally(() => setUsersLoading(false));
   }, []);
@@ -261,7 +261,7 @@ export default function UserManagementView() {
     setAddUserError('');
     setAddUserSaving(true);
     try {
-      await axios.post('/api/users', {
+      await apiClient.post('/api/users', {
         username: trimmedUsername,
         password: newPassword,
         email: trimmedEmail,

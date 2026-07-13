@@ -1,4 +1,4 @@
-import axios from 'axios';
+import apiClient from './axiosClient.js';
 
 /**
  * Batch admin API client — region listing and batch submission.
@@ -9,7 +9,7 @@ import axios from 'axios';
  *
  * @returns {Promise<Array<{id: number, name: string, locationCount: number}>>}
  */
-export const getRegions = () => axios.get('/api/admin/batches/regions').then((r) => r.data);
+export const getRegions = () => apiClient.get('/api/admin/batches/regions').then((r) => r.data);
 
 /**
  * Submit a scheduled batch (same triage gates as overnight job).
@@ -18,7 +18,7 @@ export const getRegions = () => axios.get('/api/admin/batches/regions').then((r)
  * @returns {Promise<{batchId: string, requestCount: number}>}
  */
 export const submitScheduledBatch = (regionIds) =>
-  axios.post('/api/admin/batches/submit-scheduled', { regionIds }).then((r) => r.data);
+  apiClient.post('/api/admin/batches/submit-scheduled', { regionIds }).then((r) => r.data);
 
 /**
  * Submit a JFDI batch (no triage, all dates T+0 to T+3, both events).
@@ -27,4 +27,4 @@ export const submitScheduledBatch = (regionIds) =>
  * @returns {Promise<{batchId: string, requestCount: number}>}
  */
 export const submitJfdiBatch = (regionIds) =>
-  axios.post('/api/admin/batches/submit-jfdi', { regionIds }).then((r) => r.data);
+  apiClient.post('/api/admin/batches/submit-jfdi', { regionIds }).then((r) => r.data);

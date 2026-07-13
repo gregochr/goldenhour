@@ -1,16 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import axios from 'axios';
 import * as AuthApi from '../api/authApi.js';
-
-// Import forecastApi to register its interceptors
-import '../api/forecastApi.js';
+import apiClient from '../api/axiosClient.js';
 
 vi.mock('../api/authApi.js');
 
 const TOKEN_KEY = 'goldenhour_token';
 const REFRESH_KEY = 'goldenhour_refresh';
 
-describe('forecastApi axios interceptors', () => {
+describe('axiosClient interceptors', () => {
   let dispatchSpy;
 
   beforeEach(() => {
@@ -29,7 +26,7 @@ describe('forecastApi axios interceptors', () => {
       localStorage.setItem(TOKEN_KEY, 'my-jwt');
       const adapter = vi.fn().mockResolvedValue({ status: 200, data: {} });
 
-      await axios.get('/api/test', { adapter });
+      await apiClient.get('/api/test', { adapter });
 
       const config = adapter.mock.calls[0][0];
       expect(config.headers['Authorization']).toBe('Bearer my-jwt');
@@ -38,7 +35,7 @@ describe('forecastApi axios interceptors', () => {
     it('does not attach Authorization header when no token', async () => {
       const adapter = vi.fn().mockResolvedValue({ status: 200, data: {} });
 
-      await axios.get('/api/test', { adapter });
+      await apiClient.get('/api/test', { adapter });
 
       const config = adapter.mock.calls[0][0];
       expect(config.headers['Authorization']).toBeUndefined();
@@ -58,7 +55,7 @@ describe('forecastApi axios interceptors', () => {
       });
 
       try {
-        await axios.get('/api/test', { adapter });
+        await apiClient.get('/api/test', { adapter });
       } catch {
         // Expected to throw
       }
@@ -83,7 +80,7 @@ describe('forecastApi axios interceptors', () => {
       });
 
       try {
-        await axios.get('/api/test', { adapter });
+        await apiClient.get('/api/test', { adapter });
       } catch {
         // Expected to throw
       }

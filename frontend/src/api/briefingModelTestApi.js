@@ -1,8 +1,8 @@
-import axios from 'axios';
+import apiClient from './axiosClient.js';
 
 /**
  * Briefing Model Test API client — compares Haiku/Sonnet/Opus on briefing picks.
- * Uses axios with JWT interceptors (configured in forecastApi.js)
+ * Uses the shared apiClient with JWT interceptors (configured in axiosClient.js)
  */
 
 /**
@@ -11,7 +11,7 @@ import axios from 'axios';
  * @returns {Promise} Response with the completed test run
  */
 export const runBriefingModelTest = () => {
-  return axios.post('/api/briefing/compare-models');
+  return apiClient.post('/api/briefing/compare-models');
 };
 
 /**
@@ -20,7 +20,7 @@ export const runBriefingModelTest = () => {
  * @returns {Promise} Response with list of test runs
  */
 export const getBriefingModelTestRuns = () => {
-  return axios.get('/api/briefing/compare-models/runs');
+  return apiClient.get('/api/briefing/compare-models/runs');
 };
 
 /**
@@ -30,5 +30,5 @@ export const getBriefingModelTestRuns = () => {
  * @returns {Promise} Response with list of test results
  */
 export const getBriefingModelTestResults = (runId) => {
-  return axios.get(`/api/briefing/compare-models/results?runId=${runId}`);
+  return apiClient.get(`/api/briefing/compare-models/results?runId=${runId}`);
 };

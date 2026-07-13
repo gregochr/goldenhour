@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import axios from 'axios';
+import apiClient from '../api/axiosClient.js';
 import WaitlistManagementView from '../components/WaitlistManagementView.jsx';
 
-vi.mock('axios');
+vi.mock('../api/axiosClient.js', () => ({
+  default: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
+}));
 
 describe('WaitlistManagementView', () => {
   beforeEach(() => {
@@ -15,7 +17,7 @@ describe('WaitlistManagementView', () => {
       { id: 1, email: 'alice@example.com', submittedAt: '2026-04-05T10:00:00' },
       { id: 2, email: 'bob@example.com', submittedAt: '2026-04-07T14:30:00' },
     ];
-    axios.get.mockResolvedValue({ data: entries });
+    apiClient.get.mockResolvedValue({ data: entries });
     const onCountChange = vi.fn();
 
     render(<WaitlistManagementView onCountChange={onCountChange} />);
@@ -35,7 +37,7 @@ describe('WaitlistManagementView', () => {
       { id: 20, email: 'second@example.com', submittedAt: '2026-04-02T09:00:00' },
       { id: 30, email: 'third@example.com', submittedAt: '2026-04-03T10:00:00' },
     ];
-    axios.get.mockResolvedValue({ data: entries });
+    apiClient.get.mockResolvedValue({ data: entries });
 
     render(<WaitlistManagementView onCountChange={vi.fn()} />);
 
@@ -53,7 +55,7 @@ describe('WaitlistManagementView', () => {
     const entries = [
       { id: 1, email: 'alice@example.com', submittedAt: '2026-04-08T14:32:00' },
     ];
-    axios.get.mockResolvedValue({ data: entries });
+    apiClient.get.mockResolvedValue({ data: entries });
 
     render(<WaitlistManagementView onCountChange={vi.fn()} />);
 
@@ -68,7 +70,7 @@ describe('WaitlistManagementView', () => {
   });
 
   it('shows empty state message when no entries exist', async () => {
-    axios.get.mockResolvedValue({ data: [] });
+    apiClient.get.mockResolvedValue({ data: [] });
     const onCountChange = vi.fn();
 
     render(<WaitlistManagementView onCountChange={onCountChange} />);
@@ -88,7 +90,7 @@ describe('WaitlistManagementView', () => {
       { id: 2, email: 'c@d.com', submittedAt: '2026-04-02T00:00:00' },
       { id: 3, email: 'e@f.com', submittedAt: '2026-04-03T00:00:00' },
     ];
-    axios.get.mockResolvedValue({ data: entries });
+    apiClient.get.mockResolvedValue({ data: entries });
     const onCountChange = vi.fn();
 
     render(<WaitlistManagementView onCountChange={onCountChange} />);
@@ -99,17 +101,17 @@ describe('WaitlistManagementView', () => {
   });
 
   it('fetches from the correct admin endpoint', async () => {
-    axios.get.mockResolvedValue({ data: [] });
+    apiClient.get.mockResolvedValue({ data: [] });
 
     render(<WaitlistManagementView onCountChange={vi.fn()} />);
 
     await waitFor(() => {
-      expect(axios.get).toHaveBeenCalledWith('/api/admin/waitlist');
+      expect(apiClient.get).toHaveBeenCalledWith('/api/admin/waitlist');
     });
   });
 
   it('shows loading state initially', () => {
-    axios.get.mockReturnValue(new Promise(() => {})); // Never resolves
+    apiClient.get.mockReturnValue(new Promise(() => {})); // Never resolves
 
     render(<WaitlistManagementView onCountChange={vi.fn()} />);
 
@@ -123,7 +125,7 @@ describe('WaitlistManagementView', () => {
       { id: 99, email: 'second@example.com', submittedAt: '2026-04-02T09:00:00' },
       { id: 7, email: 'third@example.com', submittedAt: '2026-04-03T10:00:00' },
     ];
-    axios.get.mockResolvedValue({ data: entries });
+    apiClient.get.mockResolvedValue({ data: entries });
 
     render(<WaitlistManagementView onCountChange={vi.fn()} />);
 
@@ -139,7 +141,7 @@ describe('WaitlistManagementView', () => {
   });
 
   it('renders table with correct column headers', async () => {
-    axios.get.mockResolvedValue({ data: [
+    apiClient.get.mockResolvedValue({ data: [
       { id: 1, email: 'a@b.com', submittedAt: '2026-04-01T00:00:00' },
     ] });
 
@@ -157,7 +159,7 @@ describe('WaitlistManagementView', () => {
   });
 
   it('handles API failure gracefully without crashing', async () => {
-    axios.get.mockRejectedValue(new Error('Network error'));
+    apiClient.get.mockRejectedValue(new Error('Network error'));
     const onCountChange = vi.fn();
 
     render(<WaitlistManagementView onCountChange={onCountChange} />);
@@ -172,7 +174,7 @@ describe('WaitlistManagementView', () => {
   });
 
   it('does not show table when no entries exist', async () => {
-    axios.get.mockResolvedValue({ data: [] });
+    apiClient.get.mockResolvedValue({ data: [] });
 
     render(<WaitlistManagementView onCountChange={vi.fn()} />);
 

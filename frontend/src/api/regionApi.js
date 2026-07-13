@@ -1,4 +1,4 @@
-import axios from 'axios';
+import apiClient from './axiosClient.js';
 
 const BASE_URL = '/api';
 
@@ -8,7 +8,7 @@ const BASE_URL = '/api';
  * @returns {Promise<Array<{id: number, name: string, enabled: boolean, createdAt: string}>>}
  */
 export async function fetchRegions() {
-  const response = await axios.get(`${BASE_URL}/regions`);
+  const response = await apiClient.get(`${BASE_URL}/regions`);
   return response.data;
 }
 
@@ -20,7 +20,7 @@ export async function fetchRegions() {
  * @returns {Promise<object>} The saved region entity.
  */
 export async function addRegion(data) {
-  const response = await axios.post(`${BASE_URL}/regions`, data);
+  const response = await apiClient.post(`${BASE_URL}/regions`, data);
   return response.data;
 }
 
@@ -32,7 +32,7 @@ export async function addRegion(data) {
  * @returns {Promise<object>} The updated region entity.
  */
 export async function updateRegion(id, data) {
-  const response = await axios.put(`${BASE_URL}/regions/${id}`, data);
+  const response = await apiClient.put(`${BASE_URL}/regions/${id}`, data);
   return response.data;
 }
 
@@ -44,6 +44,6 @@ export async function updateRegion(id, data) {
  * @returns {Promise<object>} The updated region entity.
  */
 export async function setRegionEnabled(id, enabled) {
-  const response = await axios.put(`${BASE_URL}/regions/${id}/enabled`, { enabled });
+  const response = await apiClient.put(`${BASE_URL}/regions/${id}/enabled`, { enabled });
   return response.data;
 }

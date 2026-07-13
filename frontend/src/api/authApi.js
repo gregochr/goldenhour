@@ -1,4 +1,4 @@
-import axios from 'axios';
+import apiClient from './axiosClient.js';
 
 const BASE_URL = '/api/auth';
 
@@ -11,7 +11,7 @@ const BASE_URL = '/api/auth';
  * @returns {Promise<{accessToken: string, refreshToken: string, role: string, expiresAt: string}>}
  */
 export async function login(username, password, turnstileToken) {
-  const response = await axios.post(`${BASE_URL}/login`, { username, password, turnstileToken });
+  const response = await apiClient.post(`${BASE_URL}/login`, { username, password, turnstileToken });
   return response.data;
 }
 
@@ -22,7 +22,7 @@ export async function login(username, password, turnstileToken) {
  * @returns {Promise<{accessToken: string, expiresAt: string}>}
  */
 export async function refreshAccessToken(refreshToken) {
-  const response = await axios.post(`${BASE_URL}/refresh`, { refreshToken });
+  const response = await apiClient.post(`${BASE_URL}/refresh`, { refreshToken });
   return response.data;
 }
 
@@ -33,19 +33,19 @@ export async function refreshAccessToken(refreshToken) {
  * @returns {Promise<void>}
  */
 export async function logout(refreshToken) {
-  await axios.post(`${BASE_URL}/logout`, { refreshToken });
+  await apiClient.post(`${BASE_URL}/logout`, { refreshToken });
 }
 
 /**
  * Changes the authenticated user's password and clears the first-login flag.
- * Requires a valid access token (attached automatically by the global axios interceptor).
+ * Requires a valid access token (attached automatically by the apiClient interceptor).
  *
  * @param {string} newPassword - The new plain-text password.
  * @param {string} turnstileToken - Cloudflare Turnstile verification token.
  * @returns {Promise<{message: string}>}
  */
 export async function changePassword(newPassword, turnstileToken) {
-  const response = await axios.post(`${BASE_URL}/change-password`, { newPassword, turnstileToken });
+  const response = await apiClient.post(`${BASE_URL}/change-password`, { newPassword, turnstileToken });
   return response.data;
 }
 
@@ -60,7 +60,7 @@ export async function changePassword(newPassword, turnstileToken) {
  * @returns {Promise<{message: string, email: string}>}
  */
 export async function register(username, email, turnstileToken, marketingEmailOptIn, termsAccepted) {
-  const response = await axios.post(`${BASE_URL}/register`, {
+  const response = await apiClient.post(`${BASE_URL}/register`, {
     username, email, turnstileToken, marketingEmailOptIn: String(marketingEmailOptIn),
     termsAccepted: String(termsAccepted),
   });
@@ -74,7 +74,7 @@ export async function register(username, email, turnstileToken, marketingEmailOp
  * @returns {Promise<{marketingEmailOptIn: boolean}>}
  */
 export async function updateMarketingEmailOptIn(optIn) {
-  const response = await axios.put(`${BASE_URL}/marketing-emails`, { optIn });
+  const response = await apiClient.put(`${BASE_URL}/marketing-emails`, { optIn });
   return response.data;
 }
 
@@ -85,7 +85,7 @@ export async function updateMarketingEmailOptIn(optIn) {
  * @returns {Promise<{message: string}>}
  */
 export async function resendVerification(email) {
-  const response = await axios.post(`${BASE_URL}/resend-verification`, { email });
+  const response = await apiClient.post(`${BASE_URL}/resend-verification`, { email });
   return response.data;
 }
 
@@ -96,7 +96,7 @@ export async function resendVerification(email) {
  * @returns {Promise<{userId: number, verified: boolean}>}
  */
 export async function verifyEmail(token) {
-  const response = await axios.post(`${BASE_URL}/verify-email`, { token });
+  const response = await apiClient.post(`${BASE_URL}/verify-email`, { token });
   return response.data;
 }
 
@@ -109,7 +109,7 @@ export async function verifyEmail(token) {
  * @returns {Promise<{accessToken: string, refreshToken: string, role: string, expiresAt: string}>}
  */
 export async function setPasswordForNewUser(userId, password, turnstileToken) {
-  const response = await axios.post(`${BASE_URL}/set-password`, { userId, password, turnstileToken });
+  const response = await apiClient.post(`${BASE_URL}/set-password`, { userId, password, turnstileToken });
   return response.data;
 }
 
@@ -120,6 +120,6 @@ export async function setPasswordForNewUser(userId, password, turnstileToken) {
  * @returns {Promise<{message: string}>}
  */
 export async function submitWaitlist(email) {
-  const response = await axios.post('/api/waitlist', { email });
+  const response = await apiClient.post('/api/waitlist', { email });
   return response.data;
 }

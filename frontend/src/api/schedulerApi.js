@@ -1,4 +1,4 @@
-import axios from 'axios';
+import apiClient from './axiosClient.js';
 
 const BASE_URL = '/api/admin/scheduler';
 
@@ -9,7 +9,7 @@ const BASE_URL = '/api/admin/scheduler';
  * @returns {Promise<Array>} list of job config objects
  */
 export async function fetchSchedulerJobs() {
-  const response = await axios.get(`${BASE_URL}/jobs`);
+  const response = await apiClient.get(`${BASE_URL}/jobs`);
   return response.data;
 }
 
@@ -22,7 +22,7 @@ export async function fetchSchedulerJobs() {
  * @returns {Promise<object>} the updated job config
  */
 export async function updateJobSchedule(jobKey, schedule) {
-  const response = await axios.put(`${BASE_URL}/jobs/${jobKey}/schedule`, schedule);
+  const response = await apiClient.put(`${BASE_URL}/jobs/${jobKey}/schedule`, schedule);
   return response.data;
 }
 
@@ -34,7 +34,7 @@ export async function updateJobSchedule(jobKey, schedule) {
  * @returns {Promise<object>} the updated job config
  */
 export async function pauseJob(jobKey) {
-  const response = await axios.post(`${BASE_URL}/jobs/${jobKey}/pause`);
+  const response = await apiClient.post(`${BASE_URL}/jobs/${jobKey}/pause`);
   return response.data;
 }
 
@@ -46,7 +46,7 @@ export async function pauseJob(jobKey) {
  * @returns {Promise<object>} the updated job config
  */
 export async function resumeJob(jobKey) {
-  const response = await axios.post(`${BASE_URL}/jobs/${jobKey}/resume`);
+  const response = await apiClient.post(`${BASE_URL}/jobs/${jobKey}/resume`);
   return response.data;
 }
 
@@ -58,6 +58,6 @@ export async function resumeJob(jobKey) {
  * @returns {Promise<object>} { status, jobKey }
  */
 export async function triggerJob(jobKey) {
-  const response = await axios.post(`${BASE_URL}/jobs/${jobKey}/trigger`);
+  const response = await apiClient.post(`${BASE_URL}/jobs/${jobKey}/trigger`);
   return response.data;
 }

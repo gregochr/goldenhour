@@ -1,4 +1,4 @@
-import axios from 'axios';
+import apiClient from './axiosClient.js';
 
 const BASE_URL = '/api/nlc';
 
@@ -18,7 +18,7 @@ const BASE_URL = '/api/nlc';
  */
 export async function getNlcSighting() {
   try {
-    const response = await axios.get(`${BASE_URL}/sighting`);
+    const response = await apiClient.get(`${BASE_URL}/sighting`);
     return response.data;
   } catch (err) {
     if (err.response?.status === 403 || err.response?.status === 401) {

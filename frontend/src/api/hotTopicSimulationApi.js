@@ -1,4 +1,4 @@
-import axios from 'axios';
+import apiClient from './axiosClient.js';
 
 const BASE_URL = '/api/admin/hot-topics/simulation';
 
@@ -9,7 +9,7 @@ const BASE_URL = '/api/admin/hot-topics/simulation';
  * @returns {Promise<{enabled: boolean, types: Array}>}
  */
 export async function getSimulationState() {
-  const response = await axios.get(BASE_URL);
+  const response = await apiClient.get(BASE_URL);
   return response.data;
 }
 
@@ -19,7 +19,7 @@ export async function getSimulationState() {
  * @returns {Promise<{enabled: boolean, types: Array}>} updated state
  */
 export async function toggleSimulation() {
-  const response = await axios.post(`${BASE_URL}/toggle`);
+  const response = await apiClient.post(`${BASE_URL}/toggle`);
   return response.data;
 }
 
@@ -30,6 +30,6 @@ export async function toggleSimulation() {
  * @returns {Promise<{enabled: boolean, types: Array}>} updated state
  */
 export async function toggleTopicType(type) {
-  const response = await axios.post(`${BASE_URL}/type/${type}/toggle`);
+  const response = await apiClient.post(`${BASE_URL}/type/${type}/toggle`);
   return response.data;
 }

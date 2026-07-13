@@ -1,8 +1,8 @@
-import axios from 'axios';
+import apiClient from './axiosClient.js';
 
 /**
  * Metrics API client — job run tracking and API call logging.
- * Uses axios with JWT interceptors (configured in forecastApi.js)
+ * Uses the shared apiClient with JWT interceptors (configured in axiosClient.js)
  */
 
 /**
@@ -18,7 +18,7 @@ export const getJobRuns = (runType = undefined, page = 0, size = 20) => {
   if (runType) params.append('runType', runType);
   params.append('page', page);
   params.append('size', size);
-  return axios.get(`/api/metrics/job-runs?${params.toString()}`);
+  return apiClient.get(`/api/metrics/job-runs?${params.toString()}`);
 };
 
 /**
@@ -28,7 +28,7 @@ export const getJobRuns = (runType = undefined, page = 0, size = 20) => {
  * @returns {Promise} List of API call logs
  */
 export const getApiCalls = (jobRunId) => {
-  return axios.get(`/api/metrics/api-calls?jobRunId=${jobRunId}`);
+  return apiClient.get(`/api/metrics/api-calls?jobRunId=${jobRunId}`);
 };
 
 /**
@@ -38,7 +38,7 @@ export const getApiCalls = (jobRunId) => {
  * @returns {Promise} Batch summary with token counts, cost, and status
  */
 export const getBatchSummary = (jobRunId) => {
-  return axios.get(`/api/metrics/batch-summary?jobRunId=${jobRunId}`);
+  return apiClient.get(`/api/metrics/batch-summary?jobRunId=${jobRunId}`);
 };
 
 /**
@@ -47,7 +47,7 @@ export const getBatchSummary = (jobRunId) => {
  * @returns {Promise<{version: string, deployedAt: string}>} version and ISO deploy timestamp
  */
 export const getBuildInfo = () => {
-  return axios.get('/api/admin/build-info');
+  return apiClient.get('/api/admin/build-info');
 };
 
 /**
@@ -63,5 +63,5 @@ export const getBuildInfo = () => {
  * @returns {Promise} Breakdown response with totalCount, countsByDisposition, entries
  */
 export const getDispositionBreakdown = (jobRunId) => {
-  return axios.get(`/api/metrics/disposition-breakdown?jobRunId=${jobRunId}`);
+  return apiClient.get(`/api/metrics/disposition-breakdown?jobRunId=${jobRunId}`);
 };
