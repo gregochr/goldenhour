@@ -3,33 +3,50 @@ package com.gregochr.goldenhour.service.notification;
 import com.gregochr.goldenhour.config.NotificationProperties;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import java.time.LocalDate;
-import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.hamcrest.Matchers.containsString;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 /**
  * Unit tests for {@link PushoverNotificationService}.
+ *
+ * <p>Uses {@link MockRestServiceServer} bound to the injected {@link RestClient} so the outbound
+ * request URL, method, and JSON body are asserted at the HTTP boundary.
  */
-@ExtendWith(MockitoExtension.class)
 class PushoverNotificationServiceTest {
 
-    @Mock
+    private static final String PUSHOVER_URL = "https://api.pushover.net/1/messages.json";
+
     private RestClient restClient;
+    private MockRestServiceServer server;
+
+    @BeforeEach
+    void setUp() {
+        RestClient.Builder builder = RestClient.builder();
+        server = MockRestServiceServer.bindTo(builder).build();
+        restClient = builder.build();
+    }
+
+    private NotificationProperties enabledProperties(String appToken, String userKey) {
+        NotificationProperties properties = new NotificationProperties();
+        properties.getPushover().setEnabled(true);
+        properties.getPushover().setAppToken(appToken);
+        properties.getPushover().setUserKey(userKey);
+        return properties;
+    }
 
     @Test
     @DisplayName("notify() does nothing when Pushover notifications are disabled")
@@ -42,117 +59,81 @@ class PushoverNotificationServiceTest {
         pushoverService.notify(new SunsetEvaluation(null, 30, 40, "Moderate."),
                 "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20));
 
-        verify(restClient, never()).post();
+        // No request expected; MockRestServiceServer fails if any call is made.
+        server.verify();
     }
 
     @Test
     @DisplayName("notify() posts Sonnet dual-score message to the Pushover API when enabled")
     void notify_sonnetEvaluation_whenEnabled_makesHttpPost() {
-        NotificationProperties properties = new NotificationProperties();
-        properties.getPushover().setEnabled(true);
-        properties.getPushover().setAppToken("app-token");
-        properties.getPushover().setUserKey("user-key");
-
-        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
-        when(mockClient.post().uri(anyString()).contentType(any()).body(any(Object.class))
-                .retrieve().toBodilessEntity())
-                .thenReturn(null);
+        server.expect(requestTo(PUSHOVER_URL))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess());
 
         PushoverNotificationService pushoverService =
-                new PushoverNotificationService(properties, mockClient);
+                new PushoverNotificationService(enabledProperties("app-token", "user-key"), restClient);
 
         pushoverService.notify(new SunsetEvaluation(null, 70, 75, "Good conditions."),
                 "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20));
 
-        // Success: service completed without throwing; the HTTP call was made
+        server.verify();
     }
 
     @Test
     @DisplayName("notify() posts Haiku rating message to the Pushover API when enabled")
     void notify_haikuEvaluation_whenEnabled_makesHttpPost() {
-        NotificationProperties properties = new NotificationProperties();
-        properties.getPushover().setEnabled(true);
-        properties.getPushover().setAppToken("app-token");
-        properties.getPushover().setUserKey("user-key");
-
-        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
-        when(mockClient.post().uri(anyString()).contentType(any()).body(any(Object.class))
-                .retrieve().toBodilessEntity())
-                .thenReturn(null);
+        server.expect(requestTo(PUSHOVER_URL))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess());
 
         PushoverNotificationService pushoverService =
-                new PushoverNotificationService(properties, mockClient);
+                new PushoverNotificationService(enabledProperties("app-token", "user-key"), restClient);
 
         pushoverService.notify(new SunsetEvaluation(4, null, null, "Good conditions."),
                 "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20));
 
-        // Success: service completed without throwing
+        server.verify();
     }
 
     @Test
     @DisplayName("notify() includes app token and user key in request body")
-    @SuppressWarnings("unchecked")
     void notify_includesTokenAndUserInBody() {
-        NotificationProperties properties = new NotificationProperties();
-        properties.getPushover().setEnabled(true);
-        properties.getPushover().setAppToken("my-app-token");
-        properties.getPushover().setUserKey("my-user-key");
-
-        RestClient.RequestBodyUriSpec uriSpec = mock(RestClient.RequestBodyUriSpec.class, RETURNS_DEEP_STUBS);
-        RestClient mockClient = mock(RestClient.class);
-        when(mockClient.post()).thenReturn(uriSpec);
-        when(uriSpec.uri(anyString())).thenReturn(uriSpec);
-        when(uriSpec.contentType(any())).thenReturn(uriSpec);
-
-        org.mockito.ArgumentCaptor<Map<String, String>> bodyCaptor =
-                org.mockito.ArgumentCaptor.forClass(Map.class);
-        when(uriSpec.body(bodyCaptor.capture())).thenReturn(uriSpec);
-        when(uriSpec.retrieve().toBodilessEntity()).thenReturn(null);
+        server.expect(requestTo(PUSHOVER_URL))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.token").value("my-app-token"))
+                .andExpect(jsonPath("$.user").value("my-user-key"))
+                .andExpect(jsonPath("$.title", containsString("Bamburgh")))
+                .andExpect(jsonPath("$.title", containsString("sunset")))
+                .andExpect(jsonPath("$.message", containsString("72/100")))
+                .andExpect(jsonPath("$.message", containsString("80/100")))
+                .andRespond(withSuccess());
 
         PushoverNotificationService pushoverService =
-                new PushoverNotificationService(properties, mockClient);
+                new PushoverNotificationService(enabledProperties("my-app-token", "my-user-key"), restClient);
 
         pushoverService.notify(new SunsetEvaluation(null, 72, 80, "Good."),
                 "Bamburgh", TargetType.SUNSET, LocalDate.of(2026, 3, 1));
 
-        Map<String, String> body = bodyCaptor.getValue();
-        assertThat(body.get("token")).isEqualTo("my-app-token");
-        assertThat(body.get("user")).isEqualTo("my-user-key");
-        assertThat(body.get("title")).contains("Bamburgh");
-        assertThat(body.get("title")).contains("sunset");
-        assertThat(body.get("message")).contains("72/100");
-        assertThat(body.get("message")).contains("80/100");
+        server.verify();
     }
 
     @Test
     @DisplayName("notify() Haiku message includes rating in body")
-    @SuppressWarnings("unchecked")
     void notify_haikuMessage_includesRating() {
-        NotificationProperties properties = new NotificationProperties();
-        properties.getPushover().setEnabled(true);
-        properties.getPushover().setAppToken("token");
-        properties.getPushover().setUserKey("user");
-
-        RestClient.RequestBodyUriSpec uriSpec = mock(RestClient.RequestBodyUriSpec.class, RETURNS_DEEP_STUBS);
-        RestClient mockClient = mock(RestClient.class);
-        when(mockClient.post()).thenReturn(uriSpec);
-        when(uriSpec.uri(anyString())).thenReturn(uriSpec);
-        when(uriSpec.contentType(any())).thenReturn(uriSpec);
-
-        org.mockito.ArgumentCaptor<Map<String, String>> bodyCaptor =
-                org.mockito.ArgumentCaptor.forClass(Map.class);
-        when(uriSpec.body(bodyCaptor.capture())).thenReturn(uriSpec);
-        when(uriSpec.retrieve().toBodilessEntity()).thenReturn(null);
+        server.expect(requestTo(PUSHOVER_URL))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(jsonPath("$.title", containsString("sunrise")))
+                .andExpect(jsonPath("$.message", containsString("Rating 5/5")))
+                .andExpect(jsonPath("$.message", containsString("Stunning sky.")))
+                .andRespond(withSuccess());
 
         PushoverNotificationService pushoverService =
-                new PushoverNotificationService(properties, mockClient);
+                new PushoverNotificationService(enabledProperties("token", "user"), restClient);
 
         pushoverService.notify(new SunsetEvaluation(5, null, null, "Stunning sky."),
                 "Bamburgh", TargetType.SUNRISE, LocalDate.of(2026, 3, 1));
 
-        Map<String, String> body = bodyCaptor.getValue();
-        assertThat(body.get("title")).contains("sunrise");
-        assertThat(body.get("message")).contains("Rating 5/5");
-        assertThat(body.get("message")).contains("Stunning sky.");
+        server.verify();
     }
 }

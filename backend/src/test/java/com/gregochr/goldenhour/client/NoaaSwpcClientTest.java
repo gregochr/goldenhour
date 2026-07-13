@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.model.OvationReading;
 import com.gregochr.goldenhour.model.SpaceWeatherAlert;
 import com.gregochr.goldenhour.model.SolarWindReading;
+import com.gregochr.goldenhour.util.RestClientMocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,8 +24,6 @@ import java.time.ZonedDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link NoaaSwpcClient} JSON parsing logic.
@@ -34,17 +33,6 @@ class NoaaSwpcClientTest {
 
     @Mock
     private RestClient restClient;
-
-    @SuppressWarnings("rawtypes")
-    @Mock
-    private RestClient.RequestHeadersUriSpec uriSpec;
-
-    @SuppressWarnings("rawtypes")
-    @Mock
-    private RestClient.RequestHeadersSpec headersSpec;
-
-    @Mock
-    private RestClient.ResponseSpec responseSpec;
 
     private NoaaSwpcClient client;
 
@@ -362,7 +350,6 @@ class NoaaSwpcClientTest {
 
     @Test
     @DisplayName("fetchKp fetches and parses Kp readings via RestClient")
-    @SuppressWarnings("unchecked")
     void fetchKp_fetchesAndParses() {
         String json = """
                 [
@@ -370,7 +357,7 @@ class NoaaSwpcClientTest {
                   ["2025-08-01 00:00:00","3.33","3.333","3"]
                 ]
                 """;
-        stubRestClientBody(json);
+        RestClientMocks.stubGet(restClient, String.class, json);
 
         List<KpReading> readings = client.fetchKp();
 
@@ -380,19 +367,14 @@ class NoaaSwpcClientTest {
 
     @Test
     @DisplayName("fetchKp returns empty list when RestClient throws")
-    @SuppressWarnings("unchecked")
     void fetchKp_exceptionFallback_returnsEmpty() {
-        when(restClient.get()).thenReturn(uriSpec);
-        when(uriSpec.uri(anyString())).thenReturn(headersSpec);
-        when(headersSpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.body(String.class)).thenThrow(new RestClientException("timeout"));
+        RestClientMocks.stubGetThrows(restClient, String.class, new RestClientException("timeout"));
 
         assertThat(client.fetchKp()).isEmpty();
     }
 
     @Test
     @DisplayName("fetchAlerts fetches and parses alert objects via RestClient")
-    @SuppressWarnings("unchecked")
     void fetchAlerts_fetchesAndParses() {
         String json = """
                 [
@@ -404,7 +386,7 @@ class NoaaSwpcClientTest {
                   }
                 ]
                 """;
-        stubRestClientBody(json);
+        RestClientMocks.stubGet(restClient, String.class, json);
 
         List<SpaceWeatherAlert> alerts = client.fetchAlerts();
 
@@ -414,7 +396,6 @@ class NoaaSwpcClientTest {
 
     @Test
     @DisplayName("fetchAll returns a SpaceWeatherData with all fields")
-    @SuppressWarnings("unchecked")
     void fetchAll_returnsSpaceWeatherData() {
         // Stub all 5 HTTP calls with appropriate JSON payloads
         String kpJson = "[[\"time_tag\",\"Kp\",\"Kp_fraction\",\"Kp_int\"],"
@@ -428,16 +409,8 @@ class NoaaSwpcClientTest {
                 + "[\"2025-08-01 00:00:00.000\",\"5.0\",\"400.0\",\"50000\"]]";
         String alertsJson = "[]";
 
-        when(restClient.get()).thenReturn(uriSpec);
-        when(uriSpec.uri(anyString())).thenReturn(headersSpec);
-        when(headersSpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.body(String.class))
-                .thenReturn(kpJson)
-                .thenReturn(forecastJson)
-                .thenReturn(ovationJson)
-                .thenReturn(magJson)
-                .thenReturn(plasmaJson)
-                .thenReturn(alertsJson);
+        RestClientMocks.stubGetSequence(
+                restClient, String.class, kpJson, forecastJson, ovationJson, magJson, plasmaJson, alertsJson);
 
         var data = client.fetchAll();
 
@@ -915,17 +888,5 @@ class NoaaSwpcClientTest {
         return new AuroraViewlineResponse(
                 points, client.viewlineSummary(southernmostLat),
                 southernmostLat, ZonedDateTime.now(ZoneOffset.UTC), true, false);
-    }
-
-    // -------------------------------------------------------------------------
-    // Helper
-    // -------------------------------------------------------------------------
-
-    @SuppressWarnings("unchecked")
-    private void stubRestClientBody(String body) {
-        when(restClient.get()).thenReturn(uriSpec);
-        when(uriSpec.uri(anyString())).thenReturn(headersSpec);
-        when(headersSpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.body(String.class)).thenReturn(body);
     }
 }

@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.config;
 
+import com.gregochr.goldenhour.util.RestClientMocks;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -11,10 +12,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link OpenMeteoHealthIndicator}.
@@ -25,9 +23,8 @@ class OpenMeteoHealthIndicatorTest {
     @Test
     @DisplayName("Reports UP with latencyMs when probe succeeds")
     void upWhenProbeSucceeds() {
-        RestClient restClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
-        when(restClient.get().uri(anyString()).retrieve().toBodilessEntity())
-                .thenReturn(ResponseEntity.ok().build());
+        RestClient restClient = mock(RestClient.class);
+        RestClientMocks.stubGetBodilessEntity(restClient, ResponseEntity.ok().build());
 
         OpenMeteoHealthIndicator indicator = new OpenMeteoHealthIndicator(restClient);
         Health health = indicator.health();
@@ -40,9 +37,8 @@ class OpenMeteoHealthIndicatorTest {
     @Test
     @DisplayName("Reports DOWN with error detail when probe fails")
     void downWhenProbeFails() {
-        RestClient restClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
-        when(restClient.get().uri(anyString()).retrieve().toBodilessEntity())
-                .thenThrow(new ResourceAccessException("Connection refused"));
+        RestClient restClient = mock(RestClient.class);
+        RestClientMocks.stubGetBodilessEntityThrows(restClient, new ResourceAccessException("Connection refused"));
 
         OpenMeteoHealthIndicator indicator = new OpenMeteoHealthIndicator(restClient);
         Health health = indicator.health();

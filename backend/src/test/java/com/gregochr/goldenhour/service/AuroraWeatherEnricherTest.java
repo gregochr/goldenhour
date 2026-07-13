@@ -2,17 +2,19 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
+import com.gregochr.goldenhour.util.RestClientMocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpMethod;
+import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import java.lang.reflect.Constructor;
-import java.net.URI;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -23,11 +25,14 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.when;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 
 /**
  * Unit tests for {@link AuroraWeatherEnricher}.
@@ -37,17 +42,6 @@ class AuroraWeatherEnricherTest {
 
     @Mock
     private RestClient restClient;
-
-    @SuppressWarnings("rawtypes")
-    @Mock
-    private RestClient.RequestHeadersUriSpec uriSpec;
-
-    @SuppressWarnings("rawtypes")
-    @Mock
-    private RestClient.RequestHeadersSpec headersSpec;
-
-    @Mock
-    private RestClient.ResponseSpec responseSpec;
 
     private AuroraWeatherEnricher enricher;
 
@@ -185,56 +179,41 @@ class AuroraWeatherEnricherTest {
 
     @Test
     @DisplayName("Open-Meteo request includes wind_speed_unit=ms (singular — not wind_speed_units)")
-    @SuppressWarnings("unchecked")
-    void requestIncludesWindSpeedUnitMs() throws Exception {
+    void requestIncludesWindSpeedUnitMs() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        AuroraWeatherEnricher realEnricher = new AuroraWeatherEnricher(builder.build());
+
+        // Assert both the singular spelling is present AND the plural typo is absent (the whole
+        // point of this test), mirroring the original contains/doesNotContain pair.
+        server.expect(requestTo(containsString("api.open-meteo.com")))
+                .andExpect(requestTo(not(containsString("wind_speed_units"))))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(queryParam("wind_speed_unit", "ms"))
+                .andRespond(withSuccess());
+
         ZonedDateTime target = ZonedDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.HOURS);
-        Object response = buildWeatherResponse(target, 40, 3.5, 4.2, 2);
+        realEnricher.fetchWeather(List.of(location(1L, "Kielder", 55.2, -2.6)), target);
 
-        // Capture the URI built by the lambda
-        List<URI> capturedUris = new ArrayList<>();
-        when(restClient.get()).thenReturn(uriSpec);
-        when(uriSpec.uri(any(Function.class))).thenAnswer(invocation -> {
-            Function<org.springframework.web.util.UriBuilder, URI> fn = invocation.getArgument(0);
-            URI uri = fn.apply(org.springframework.web.util.UriComponentsBuilder.newInstance());
-            capturedUris.add(uri);
-            return headersSpec;
-        });
-        when(headersSpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.body(any(Class.class))).thenReturn(response);
-
-        LocationEntity loc = location(1L, "Kielder", 55.2, -2.6);
-        enricher.fetchWeather(List.of(loc), target);
-
-        assertThat(capturedUris).isNotEmpty();
-        String query = capturedUris.get(0).getQuery();
-        assertThat(query).contains("wind_speed_unit=ms");
-        assertThat(query).doesNotContain("wind_speed_units=ms");
+        server.verify();
     }
 
     @Test
     @DisplayName("Open-Meteo request uses forecast_days=3 for tomorrow midnight coverage")
-    @SuppressWarnings("unchecked")
-    void requestUsesForecastDays3() throws Exception {
+    void requestUsesForecastDays3() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        AuroraWeatherEnricher realEnricher = new AuroraWeatherEnricher(builder.build());
+
+        server.expect(requestTo(containsString("api.open-meteo.com")))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(queryParam("forecast_days", "3"))
+                .andRespond(withSuccess());
+
         ZonedDateTime target = ZonedDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.HOURS);
-        Object response = buildWeatherResponse(target, 40, 3.5, 4.2, 2);
+        realEnricher.fetchWeather(List.of(location(1L, "Kielder", 55.2, -2.6)), target);
 
-        List<URI> capturedUris = new ArrayList<>();
-        when(restClient.get()).thenReturn(uriSpec);
-        when(uriSpec.uri(any(Function.class))).thenAnswer(invocation -> {
-            Function<org.springframework.web.util.UriBuilder, URI> fn = invocation.getArgument(0);
-            URI uri = fn.apply(org.springframework.web.util.UriComponentsBuilder.newInstance());
-            capturedUris.add(uri);
-            return headersSpec;
-        });
-        when(headersSpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.body(any(Class.class))).thenReturn(response);
-
-        LocationEntity loc = location(1L, "Kielder", 55.2, -2.6);
-        enricher.fetchWeather(List.of(loc), target);
-
-        assertThat(capturedUris).isNotEmpty();
-        String query = capturedUris.get(0).getQuery();
-        assertThat(query).contains("forecast_days=3");
+        server.verify();
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -250,30 +229,14 @@ class AuroraWeatherEnricherTest {
                 .build();
     }
 
-    @SuppressWarnings("unchecked")
     private void stubRestClientThrows(RuntimeException ex) {
-        when(restClient.get()).thenReturn(uriSpec);
-        when(uriSpec.uri(any(Function.class))).thenAnswer(invocation -> {
-            Function<org.springframework.web.util.UriBuilder, java.net.URI> fn =
-                    invocation.getArgument(0);
-            fn.apply(org.springframework.web.util.UriComponentsBuilder.newInstance());
-            return headersSpec;
-        });
-        when(headersSpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.body(any(Class.class))).thenThrow(ex);
+        RestClientMocks.stubGetThrows(restClient, findInnerClass("WeatherResponse"), ex);
     }
 
     @SuppressWarnings("unchecked")
     private void stubRestClientReturns(Object returnValue) {
-        when(restClient.get()).thenReturn(uriSpec);
-        when(uriSpec.uri(any(Function.class))).thenAnswer(invocation -> {
-            Function<org.springframework.web.util.UriBuilder, java.net.URI> fn =
-                    invocation.getArgument(0);
-            fn.apply(org.springframework.web.util.UriComponentsBuilder.newInstance());
-            return headersSpec;
-        });
-        when(headersSpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.body(any(Class.class))).thenReturn(returnValue);
+        RestClientMocks.stubGet(restClient,
+                (Class<Object>) findInnerClass("WeatherResponse"), returnValue);
     }
 
     /**

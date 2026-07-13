@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.client.OpenMeteoAirQualityApi;
 import com.gregochr.goldenhour.client.OpenMeteoForecastApi;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.util.RestClientMocks;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -117,15 +118,13 @@ class OpenMeteoClientTest {
     @Test
     @DisplayName("parseArrayResponse handles single-object JSON (1 location)")
     void batchParsing_singleObject_returnsSingleElement() {
-        RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        RestClient mockForecastClient = mock(RestClient.class);
         OpenMeteoClient client = new OpenMeteoClient(
                 forecastApi, airQualityApi, new ObjectMapper(),
                 mockForecastClient, null);
 
         String singleJson = "{\"latitude\":55.0,\"longitude\":-1.5}";
-        when(mockForecastClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
-                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
-                .retrieve().body(String.class)).thenReturn(singleJson);
+        RestClientMocks.stubGet(mockForecastClient, String.class, singleJson);
 
         List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(
                 List.of(new double[]{55.0, -1.5}));
@@ -137,16 +136,14 @@ class OpenMeteoClientTest {
     @Test
     @DisplayName("parseArrayResponse handles JSON array (2+ locations)")
     void batchParsing_array_returnsMultipleElements() {
-        RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        RestClient mockForecastClient = mock(RestClient.class);
         OpenMeteoClient client = new OpenMeteoClient(
                 forecastApi, airQualityApi, new ObjectMapper(),
                 mockForecastClient, null);
 
         String arrayJson = "[{\"latitude\":55.0,\"longitude\":-1.5},"
                 + "{\"latitude\":54.0,\"longitude\":-2.0}]";
-        when(mockForecastClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
-                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
-                .retrieve().body(String.class)).thenReturn(arrayJson);
+        RestClientMocks.stubGet(mockForecastClient, String.class, arrayJson);
 
         List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(
                 List.of(new double[]{55.0, -1.5}, new double[]{54.0, -2.0}));
@@ -161,7 +158,7 @@ class OpenMeteoClientTest {
     @Test
     @DisplayName("fetchForecastBatch with 25 coords combines results from two chunks (20 + 5)")
     void fetchForecastBatch_oversizeInput_combinesTwoChunks() {
-        RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        RestClient mockForecastClient = mock(RestClient.class);
         OpenMeteoClient client = new OpenMeteoClient(
                 forecastApi, airQualityApi, new ObjectMapper(),
                 mockForecastClient, null);
@@ -171,10 +168,8 @@ class OpenMeteoClientTest {
         // If chunking is absent, only 20 results are returned (the first return value).
         // If chunking works, both return values are consumed and 25 results combined.
         List<double[]> coords = buildCoords(25);
-        when(mockForecastClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
-                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
-                .retrieve().body(String.class))
-                .thenReturn(buildJsonArray(20, 50.0), buildJsonArray(5, 51.0));
+        RestClientMocks.stubGetSequence(mockForecastClient, String.class,
+                buildJsonArray(20, 50.0), buildJsonArray(5, 51.0));
 
         List<OpenMeteoForecastResponse> results = client.fetchForecastBatch(coords);
 
@@ -186,17 +181,15 @@ class OpenMeteoClientTest {
     @Test
     @DisplayName("fetchAirQualityBatch with 25 coords combines results from two chunks (20 + 5)")
     void fetchAirQualityBatch_oversizeInput_combinesTwoChunks() {
-        RestClient mockAirQualityClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        RestClient mockAirQualityClient = mock(RestClient.class);
         OpenMeteoClient client = new OpenMeteoClient(
                 forecastApi, airQualityApi, new ObjectMapper(),
                 null, mockAirQualityClient);
         client.interChunkDelayMs = 0;
 
         List<double[]> coords = buildCoords(25);
-        when(mockAirQualityClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
-                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
-                .retrieve().body(String.class))
-                .thenReturn(buildAirQualityJsonArray(20), buildAirQualityJsonArray(5));
+        RestClientMocks.stubGetSequence(mockAirQualityClient, String.class,
+                buildAirQualityJsonArray(20), buildAirQualityJsonArray(5));
 
         List<OpenMeteoAirQualityResponse> results = client.fetchAirQualityBatch(coords);
 
@@ -206,16 +199,14 @@ class OpenMeteoClientTest {
     @Test
     @DisplayName("fetchForecastBatch with exactly BATCH_COORD_LIMIT coords returns all in one call")
     void fetchForecastBatch_exactLimit_returnsAll() {
-        RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        RestClient mockForecastClient = mock(RestClient.class);
         OpenMeteoClient client = new OpenMeteoClient(
                 forecastApi, airQualityApi, new ObjectMapper(),
                 mockForecastClient, null);
 
         List<double[]> coords = buildCoords(OpenMeteoClient.BATCH_COORD_LIMIT);
-        when(mockForecastClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
-                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
-                .retrieve().body(String.class))
-                .thenReturn(buildJsonArray(OpenMeteoClient.BATCH_COORD_LIMIT, 50.0));
+        RestClientMocks.stubGet(mockForecastClient, String.class,
+                buildJsonArray(OpenMeteoClient.BATCH_COORD_LIMIT, 50.0));
 
         List<OpenMeteoForecastResponse> results = client.fetchForecastBatch(coords);
 
@@ -254,7 +245,7 @@ class OpenMeteoClientTest {
     @Test
     @DisplayName("fetchForecastBriefingBatch: all chunks fail, returns all-null list without throwing")
     void fetchForecastBriefingBatch_allChunksFail_returnsAllNullsWithoutThrowing() {
-        RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        RestClient mockForecastClient = mock(RestClient.class);
         OpenMeteoClient client = new OpenMeteoClient(
                 forecastApi, airQualityApi, new ObjectMapper(),
                 mockForecastClient, null);
@@ -263,10 +254,8 @@ class OpenMeteoClientTest {
 
         // 25 coords → 2 chunks; both throw
         List<double[]> coords = buildCoords(25);
-        when(mockForecastClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
-                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
-                .retrieve().body(String.class))
-                .thenThrow(new RuntimeException("service unavailable"));
+        RestClientMocks.stubGetThrows(mockForecastClient, String.class,
+                new RuntimeException("service unavailable"));
 
         List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(coords);
 
@@ -277,7 +266,7 @@ class OpenMeteoClientTest {
     @Test
     @DisplayName("fetchForecastBriefingBatch: all chunks succeed, returns full list with no null entries")
     void fetchForecastBriefingBatch_allChunksSucceed_noNullEntries() {
-        RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        RestClient mockForecastClient = mock(RestClient.class);
         OpenMeteoClient client = new OpenMeteoClient(
                 forecastApi, airQualityApi, new ObjectMapper(),
                 mockForecastClient, null);
@@ -285,10 +274,8 @@ class OpenMeteoClientTest {
 
         // 25 coords → 2 chunks: [0–19] lat≥50.0, [20–24] lat≥51.0
         List<double[]> coords = buildCoords(25);
-        when(mockForecastClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
-                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
-                .retrieve().body(String.class))
-                .thenReturn(buildJsonArray(20, 50.0), buildJsonArray(5, 51.0));
+        RestClientMocks.stubGetSequence(mockForecastClient, String.class,
+                buildJsonArray(20, 50.0), buildJsonArray(5, 51.0));
 
         List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(coords);
 
@@ -467,14 +454,12 @@ class OpenMeteoClientTest {
     @Test
     @DisplayName("parseArrayResponse throws RuntimeException on malformed JSON")
     void batchParsing_malformedJson_throwsRuntimeException() {
-        RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        RestClient mockForecastClient = mock(RestClient.class);
         OpenMeteoClient client = new OpenMeteoClient(
                 forecastApi, airQualityApi, new ObjectMapper(),
                 mockForecastClient, null);
 
-        when(mockForecastClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
-                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
-                .retrieve().body(String.class)).thenReturn("not json at all");
+        RestClientMocks.stubGet(mockForecastClient, String.class, "not json at all");
 
         assertThatThrownBy(() -> client.fetchForecastBriefingBatch(
                 List.of(new double[]{55.0, -1.5})))

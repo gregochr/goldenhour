@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.client;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.config.AuroraProperties;
+import com.gregochr.goldenhour.util.RestClientMocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,9 +13,6 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link LightPollutionClient#querySkyBrightness(double, double, String)}.
@@ -39,7 +37,7 @@ class LightPollutionClientHttpTest {
     @Test
     @DisplayName("querySkyBrightness returns result when API returns a brightness value")
     void querySkyBrightness_success_returnsResult() {
-        setupGetChain("0.05");
+        RestClientMocks.stubGet(restClient, String.class, "0.05");
 
         LightPollutionClient.SkyBrightnessResult result =
                 client.querySkyBrightness(54.77, -1.57, "test-key");
@@ -52,7 +50,7 @@ class LightPollutionClientHttpTest {
     @Test
     @DisplayName("querySkyBrightness returns null when API response body is null")
     void querySkyBrightness_nullResponseBody_returnsNull() {
-        setupGetChain(null);
+        RestClientMocks.stubGet(restClient, String.class, null);
 
         LightPollutionClient.SkyBrightnessResult result =
                 client.querySkyBrightness(54.77, -1.57, "test-key");
@@ -63,7 +61,7 @@ class LightPollutionClientHttpTest {
     @Test
     @DisplayName("querySkyBrightness returns null when API response body is blank")
     void querySkyBrightness_blankResponseBody_returnsNull() {
-        setupGetChain("  ");
+        RestClientMocks.stubGet(restClient, String.class, "  ");
 
         LightPollutionClient.SkyBrightnessResult result =
                 client.querySkyBrightness(54.77, -1.57, "test-key");
@@ -74,7 +72,7 @@ class LightPollutionClientHttpTest {
     @Test
     @DisplayName("querySkyBrightness returns null when JSON object has null result field")
     void querySkyBrightness_nullResultField_returnsNull() {
-        setupGetChain("{\"result\": null}");
+        RestClientMocks.stubGet(restClient, String.class, "{\"result\": null}");
 
         LightPollutionClient.SkyBrightnessResult result =
                 client.querySkyBrightness(54.77, -1.57, "test-key");
@@ -85,7 +83,7 @@ class LightPollutionClientHttpTest {
     @Test
     @DisplayName("querySkyBrightness parses JSON object format as well as bare number")
     void querySkyBrightness_jsonObjectFormat_returnsResult() {
-        setupGetChain("{\"result\": 0.05}");
+        RestClientMocks.stubGet(restClient, String.class, "{\"result\": 0.05}");
 
         LightPollutionClient.SkyBrightnessResult result =
                 client.querySkyBrightness(54.77, -1.57, "test-key");
@@ -97,11 +95,7 @@ class LightPollutionClientHttpTest {
     @Test
     @DisplayName("querySkyBrightness returns null on RestClientException (network error)")
     void querySkyBrightness_networkError_returnsNull() {
-        @SuppressWarnings("unchecked")
-        RestClient.RequestHeadersUriSpec<?> uriSpec = mock(RestClient.RequestHeadersUriSpec.class);
-        when(restClient.get()).thenReturn((RestClient.RequestHeadersUriSpec) uriSpec);
-        when(uriSpec.uri(any(java.net.URI.class)))
-                .thenThrow(new RestClientException("Connection refused"));
+        RestClientMocks.stubGetThrows(restClient, String.class, new RestClientException("Connection refused"));
 
         LightPollutionClient.SkyBrightnessResult result =
                 client.querySkyBrightness(54.77, -1.57, "test-key");
@@ -112,7 +106,7 @@ class LightPollutionClientHttpTest {
     @Test
     @DisplayName("querySkyBrightness returns null on malformed JSON")
     void querySkyBrightness_malformedJson_returnsNull() {
-        setupGetChain("not valid json");
+        RestClientMocks.stubGet(restClient, String.class, "not valid json");
 
         LightPollutionClient.SkyBrightnessResult result =
                 client.querySkyBrightness(54.77, -1.57, "test-key");
@@ -123,7 +117,7 @@ class LightPollutionClientHttpTest {
     @Test
     @DisplayName("querySkyBrightness maps bright urban sky to Bortle 8")
     void querySkyBrightness_brightUrbanSky_returnsBortle8() {
-        setupGetChain("20.0");
+        RestClientMocks.stubGet(restClient, String.class, "20.0");
 
         LightPollutionClient.SkyBrightnessResult result =
                 client.querySkyBrightness(51.5, -0.1, "key");
@@ -135,28 +129,12 @@ class LightPollutionClientHttpTest {
     @Test
     @DisplayName("querySkyBrightness maps very dark remote sky to Bortle 1")
     void querySkyBrightness_darkRemoteSky_returnsBortle1() {
-        setupGetChain("0.001");
+        RestClientMocks.stubGet(restClient, String.class, "0.001");
 
         LightPollutionClient.SkyBrightnessResult result =
                 client.querySkyBrightness(57.0, -5.0, "key");
 
         assertThat(result).isNotNull();
         assertThat(result.bortle()).isEqualTo(1);
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    private void setupGetChain(String responseBody) {
-        RestClient.RequestHeadersUriSpec<?> uriSpec = mock(RestClient.RequestHeadersUriSpec.class);
-        RestClient.RequestHeadersSpec<?> headersSpec = mock(RestClient.RequestHeadersSpec.class);
-        RestClient.ResponseSpec responseSpec = mock(RestClient.ResponseSpec.class);
-
-        when(restClient.get()).thenReturn((RestClient.RequestHeadersUriSpec) uriSpec);
-        when(uriSpec.uri(any(java.net.URI.class))).thenReturn((RestClient.RequestHeadersSpec) headersSpec);
-        when(headersSpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.body(String.class)).thenReturn(responseBody);
     }
 }

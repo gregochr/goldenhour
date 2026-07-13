@@ -1,22 +1,18 @@
 package com.gregochr.goldenhour.client;
 
 import com.gregochr.goldenhour.config.OrsProperties;
+import com.gregochr.goldenhour.util.RestClientMocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -71,7 +67,7 @@ class OpenRouteServiceClientTest {
     void fetchDurations_nullResponseBody_returnsEmptyList() {
         when(properties.isConfigured()).thenReturn(true);
         when(properties.getApiKey()).thenReturn("test-key");
-        setupPostChain(null);
+        RestClientMocks.stubPost(restClient, OpenRouteServiceClient.OrsMatrixResponse.class, null);
 
         List<Double> result = client.fetchDurations(54.77, -1.60,
                 List.of(new double[]{54.78, -1.58}));
@@ -89,7 +85,7 @@ class OpenRouteServiceClientTest {
         OpenRouteServiceClient.OrsMatrixResponse response =
                 new OpenRouteServiceClient.OrsMatrixResponse(
                         List.of(List.of(0.0, 2700.0, 3600.0)));
-        setupPostChain(response);
+        RestClientMocks.stubPost(restClient, OpenRouteServiceClient.OrsMatrixResponse.class, response);
 
         List<double[]> destinations = List.of(
                 new double[]{54.78, -1.58},
@@ -110,30 +106,11 @@ class OpenRouteServiceClientTest {
         // Only source→source, no destination entries
         OpenRouteServiceClient.OrsMatrixResponse response =
                 new OpenRouteServiceClient.OrsMatrixResponse(List.of(List.of(0.0)));
-        setupPostChain(response);
+        RestClientMocks.stubPost(restClient, OpenRouteServiceClient.OrsMatrixResponse.class, response);
 
         List<Double> result = client.fetchDurations(54.77, -1.60,
                 List.of(new double[]{54.78, -1.58}));
 
         assertThat(result).isEmpty();
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    private void setupPostChain(Object responseBody) {
-        RestClient.RequestBodyUriSpec uriSpec = mock(RestClient.RequestBodyUriSpec.class);
-        RestClient.RequestBodySpec bodySpec = mock(RestClient.RequestBodySpec.class);
-        RestClient.ResponseSpec responseSpec = mock(RestClient.ResponseSpec.class);
-
-        when(restClient.post()).thenReturn(uriSpec);
-        when(uriSpec.uri(anyString())).thenReturn(bodySpec);
-        when(bodySpec.header(anyString(), anyString())).thenReturn(bodySpec);
-        when(bodySpec.contentType(any(MediaType.class))).thenReturn(bodySpec);
-        when(bodySpec.body(any(Map.class))).thenReturn(bodySpec);
-        when(bodySpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.body(any(Class.class))).thenReturn(responseBody);
     }
 }

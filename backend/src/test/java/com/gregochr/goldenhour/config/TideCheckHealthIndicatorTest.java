@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.config;
 
+import com.gregochr.goldenhour.util.RestClientMocks;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -11,10 +12,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link TideCheckHealthIndicator}.
@@ -25,9 +23,8 @@ class TideCheckHealthIndicatorTest {
     @Test
     @DisplayName("Reports UP with latencyMs when probe succeeds")
     void upWhenProbeSucceeds() {
-        RestClient restClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
-        when(restClient.get().uri(anyString()).retrieve().toBodilessEntity())
-                .thenReturn(ResponseEntity.ok().build());
+        RestClient restClient = mock(RestClient.class);
+        RestClientMocks.stubGetBodilessEntity(restClient, ResponseEntity.ok().build());
 
         TideCheckHealthIndicator indicator = new TideCheckHealthIndicator(restClient, "test-key");
         Health health = indicator.health();
@@ -39,9 +36,8 @@ class TideCheckHealthIndicatorTest {
     @Test
     @DisplayName("Reports DOWN when probe fails")
     void downWhenProbeFails() {
-        RestClient restClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
-        when(restClient.get().uri(anyString()).retrieve().toBodilessEntity())
-                .thenThrow(new ResourceAccessException("Timeout"));
+        RestClient restClient = mock(RestClient.class);
+        RestClientMocks.stubGetBodilessEntityThrows(restClient, new ResourceAccessException("Timeout"));
 
         TideCheckHealthIndicator indicator = new TideCheckHealthIndicator(restClient, "test-key");
         Health health = indicator.health();
@@ -53,7 +49,7 @@ class TideCheckHealthIndicatorTest {
     @Test
     @DisplayName("Reports UNKNOWN when no API key configured")
     void unknownWhenNoApiKey() {
-        RestClient restClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        RestClient restClient = mock(RestClient.class);
 
         TideCheckHealthIndicator indicator = new TideCheckHealthIndicator(restClient, "");
         Health health = indicator.health();
@@ -65,7 +61,7 @@ class TideCheckHealthIndicatorTest {
     @Test
     @DisplayName("Reports UNKNOWN when API key is null")
     void unknownWhenNullApiKey() {
-        RestClient restClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        RestClient restClient = mock(RestClient.class);
 
         TideCheckHealthIndicator indicator = new TideCheckHealthIndicator(restClient, null);
         Health health = indicator.health();

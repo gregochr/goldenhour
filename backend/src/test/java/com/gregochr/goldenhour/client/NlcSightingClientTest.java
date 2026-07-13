@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.client;
 
 import com.gregochr.goldenhour.config.NlcProperties;
 import com.gregochr.goldenhour.model.NlcSightingReport;
+import com.gregochr.goldenhour.util.RestClientMocks;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -16,10 +17,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link NlcSightingClient} parsing.
@@ -117,8 +115,8 @@ class NlcSightingClientTest {
             "<div class=\"caption\">Alan C Tough from Elgin, Scotland on 2026, 06, 20 from 23:01 UT.</div>";
 
     private static NlcSightingClient clientReturning(String html) {
-        RestClient rest = mock(RestClient.class, RETURNS_DEEP_STUBS);
-        when(rest.get().uri(anyString()).retrieve().body(String.class)).thenReturn(html);
+        RestClient rest = mock(RestClient.class);
+        RestClientMocks.stubGet(rest, String.class, html);
         return new NlcSightingClient(rest, new NlcProperties());
     }
 
@@ -143,9 +141,8 @@ class NlcSightingClientTest {
     @Test
     @DisplayName("a fetch failure fails open — refresh returns an empty list, never throws")
     void refresh_httpError_failsOpen() {
-        RestClient rest = mock(RestClient.class, RETURNS_DEEP_STUBS);
-        when(rest.get().uri(anyString()).retrieve().body(String.class))
-                .thenThrow(new RuntimeException("network down"));
+        RestClient rest = mock(RestClient.class);
+        RestClientMocks.stubGetThrows(rest, String.class, new RuntimeException("network down"));
         NlcSightingClient c = new NlcSightingClient(rest, new NlcProperties());
 
         assertThat(c.refresh()).isEmpty();
