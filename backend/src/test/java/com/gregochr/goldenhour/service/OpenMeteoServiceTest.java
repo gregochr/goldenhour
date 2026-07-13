@@ -1194,6 +1194,76 @@ class OpenMeteoServiceTest {
     }
 
     @Test
+    @DisplayName("prefetchWeatherBatchResilient() returns empty map for empty coords without calling APIs")
+    void prefetchWeatherBatchResilient_emptyCoords_returnsEmpty() {
+        var cache = openMeteoService.prefetchWeatherBatchResilient(List.of());
+
+        assertThat(cache).isEmpty();
+        verify(openMeteoClient, never()).fetchForecastBriefingBatch(anyList());
+    }
+
+    @Test
+    @DisplayName("prefetchWeatherBatchResilient() returns empty map when the forecast call fails entirely")
+    void prefetchWeatherBatchResilient_forecastFailsEntirely_returnsEmpty() {
+        when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                .thenThrow(new RuntimeException("all chunks timed out"));
+
+        var cache = openMeteoService.prefetchWeatherBatchResilient(
+                List.of(new double[]{55.0, -1.5}));
+
+        assertThat(cache).isEmpty();
+        // A total forecast failure short-circuits — the AQ call must not be attempted
+        verify(openMeteoClient, never()).fetchAirQualityBatchResilient(anyList());
+    }
+
+    @Test
+    @DisplayName("prefetchWeatherBatchResilient() skips locations whose forecast chunk returned null")
+    void prefetchWeatherBatchResilient_partialForecast_skipsNullLocations() {
+        OpenMeteoForecastResponse f1 = buildForecastResponse(
+                List.of("2026-06-21T06:00"), List.of(10), List.of(20), List.of(30),
+                List.of(10000.0), List.of(5.0), List.of(180), List.of(0.0), List.of(3),
+                List.of(80), List.of(200.0), List.of(500.0));
+        OpenMeteoAirQualityResponse aq1 = buildAirQualityResponse(
+                List.of("2026-06-21T06:00"), List.of(5.0), List.of(10.0), List.of(0.1));
+        OpenMeteoAirQualityResponse aq2 = buildAirQualityResponse(
+                List.of("2026-06-21T06:00"), List.of(8.0), List.of(15.0), List.of(0.2));
+
+        List<double[]> coords = List.of(new double[]{55.0, -1.5}, new double[]{54.0, -2.0});
+        // Second forecast chunk failed and came back null — that location must be dropped
+        when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                .thenReturn(java.util.Arrays.asList(f1, null));
+        when(openMeteoClient.fetchAirQualityBatchResilient(anyList()))
+                .thenReturn(List.of(aq1, aq2));
+
+        var cache = openMeteoService.prefetchWeatherBatchResilient(coords);
+
+        assertThat(cache).hasSize(1);
+        assertThat(cache).containsKey("55.0,-1.5");
+        assertThat(cache).doesNotContainKey("54.0,-2.0");
+        assertThat(cache.get("55.0,-1.5").forecastResponse()).isSameAs(f1);
+    }
+
+    @Test
+    @DisplayName("prefetchWeatherBatchResilient() falls back to null air quality when the AQ call fails")
+    void prefetchWeatherBatchResilient_airQualityFails_cachesForecastWithNullAq() {
+        OpenMeteoForecastResponse f1 = buildForecastResponse(
+                List.of("2026-06-21T06:00"), List.of(10), List.of(20), List.of(30),
+                List.of(10000.0), List.of(5.0), List.of(180), List.of(0.0), List.of(3),
+                List.of(80), List.of(200.0), List.of(500.0));
+
+        List<double[]> coords = List.of(new double[]{55.0, -1.5});
+        when(openMeteoClient.fetchForecastBriefingBatch(anyList())).thenReturn(List.of(f1));
+        when(openMeteoClient.fetchAirQualityBatchResilient(anyList()))
+                .thenThrow(new RuntimeException("AQ endpoint down"));
+
+        var cache = openMeteoService.prefetchWeatherBatchResilient(coords);
+
+        assertThat(cache).hasSize(1);
+        assertThat(cache.get("55.0,-1.5").forecastResponse()).isSameAs(f1);
+        assertThat(cache.get("55.0,-1.5").airQualityResponse()).isNull();
+    }
+
+    @Test
     @DisplayName("prefetchWeatherBatch() omits locations with null forecast entry from cache")
     void prefetchWeatherBatch_nullForecastEntry_omittedFromCache() {
         OpenMeteoForecastResponse f1 = buildForecastResponse(
