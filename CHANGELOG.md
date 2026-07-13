@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [2.15.4] - 2026-07-13
+
 ### Changed — Decomposed `ForecastTaskCollector` (SRP; 1317 → 785 lines)
 - The last and trickiest of the three oversized-service decompositions. `ForecastTaskCollector` mixed briefing candidate collection, weather/cloud pre-fetch, grid-cell stability classification, force-eval headline selection, and per-task assembly. Extracted the four cohesive seams into instance collaborators constructed inside the collector's constructor from its existing dependency fields — so the collector's public constructor and the ~80 tests' `verify(dep)`/`verifyNoInteractions(dep)` assertions (which hinge on the injected mock instances) keep working unchanged.
 - **`BriefingCandidateCollector`** (new) — the first pass over the briefing applying the cheap gates (past-date, travel-day, region-cache freshness, verdict/hard-constraint, unknown-location); now a pure producer returning a `{candidates, dispositions}` record instead of mutating a passed-in list.
@@ -75,6 +77,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Deliberately carries no bloom percentage or "peak" claim.** The mockup wanted `bloom 82% · peak this week`, but phenology — whether the flowers are actually out, and how open — is **modelled nowhere** in the system (`BluebellPromptBuilder` scores conditions *assuming* bloom and is explicitly instructed never to assert it; `SeasonalWindow` is just a calendar gate with no peak date). Any bloom figure would be fabricated, so it's dropped — the same honest-facts discipline applied to the dropped inversion-top altitude.
 - The facts line renders **alongside** BLUEBELL's existing expandable per-region card (`TopicFacts` is persistent, not gated behind expansion) — BLUEBELL is the first topic to carry both. No frontend change: the topic already has a style and the generic `TopicFacts` line.
 - Tests add fact-line coverage (rating chip, the ≥2-site breadth-chip gate, and an explicit assertion that no `bloom`/`peak`/`%` figure is ever emitted) and bring `BluebellHotTopicStrategyTest` in line with the test standards (the `lenient()` shared-default removed; a `stubAhead(day…)` helper pins the freshness stub's date + SUNRISE event with `eq()`).
+
+## Backlog — released across v2.6.0–v2.15.3, not yet split by version
+
+<!-- These entries shipped in tagged releases between v2.5.0 and v2.15.4 but were never cut into
+     per-version sections. Left in place; splitting them by tag is a separate CHANGELOG-hygiene task. -->
 
 ### Added — Snow & frost "science showing" enrichment: snow-on-the-fells, fresh snow, hoar frost & inversion facts
 - Extends the "science showing" fact line to the **snow & frost** hot topics, all read off the survivor surface with no new API calls. Facts stay **anomaly-first + honest** — a figure appears only where real data backs it.
