@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.model.TideData;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.model.WorldTidesResponse;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
+import com.gregochr.goldenhour.util.RestClientMocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,7 +33,6 @@ import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -322,10 +322,8 @@ class TideServiceTest {
     void fetchAndStoreTideExtremes_validResponse_storesEntities() {
         when(worldTidesProperties.getApiKey()).thenReturn("test-key");
 
-        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
-        when(mockClient.get().uri(any(java.util.function.Function.class))
-                .retrieve().body(WorldTidesResponse.class))
-                .thenReturn(buildWorldTidesResponse());
+        RestClient mockClient = mock(RestClient.class);
+        RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, buildWorldTidesResponse());
 
         TideService service = new TideService(
                 mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
@@ -347,10 +345,8 @@ class TideServiceTest {
     void fetchAndStoreTideExtremes_deletesOnlyFetchWindow() {
         when(worldTidesProperties.getApiKey()).thenReturn("test-key");
 
-        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
-        when(mockClient.get().uri(any(java.util.function.Function.class))
-                .retrieve().body(WorldTidesResponse.class))
-                .thenReturn(buildWorldTidesResponse());
+        RestClient mockClient = mock(RestClient.class);
+        RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, buildWorldTidesResponse());
 
         TideService service = new TideService(
                 mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
@@ -391,10 +387,8 @@ class TideServiceTest {
         WorldTidesResponse errorResponse = new WorldTidesResponse();
         errorResponse.setStatus(400);
 
-        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
-        when(mockClient.get().uri(any(java.util.function.Function.class))
-                .retrieve().body(WorldTidesResponse.class))
-                .thenReturn(errorResponse);
+        RestClient mockClient = mock(RestClient.class);
+        RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, errorResponse);
 
         TideService service = new TideService(
                 mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
@@ -411,10 +405,9 @@ class TideServiceTest {
     void fetchAndStoreTideExtremes_exceptionDuringFetch_doesNotThrow() {
         when(worldTidesProperties.getApiKey()).thenReturn("test-key");
 
-        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
-        when(mockClient.get().uri(any(java.util.function.Function.class))
-                .retrieve().body(WorldTidesResponse.class))
-                .thenThrow(new RuntimeException("network error"));
+        RestClient mockClient = mock(RestClient.class);
+        RestClientMocks.stubGetThrows(mockClient, WorldTidesResponse.class,
+                new RuntimeException("network error"));
 
         TideService service = new TideService(
                 mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
@@ -483,10 +476,8 @@ class TideServiceTest {
                 eq(1L), any(LocalDateTime.class), any(LocalDateTime.class)))
                 .thenReturn(false);
 
-        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
-        when(mockClient.get().uri(any(java.util.function.Function.class))
-                .retrieve().body(WorldTidesResponse.class))
-                .thenReturn(buildWorldTidesResponse());
+        RestClient mockClient = mock(RestClient.class);
+        RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, buildWorldTidesResponse());
 
         TideService service = new TideService(
                 mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);

@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.util.RestClientMocks;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -11,11 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
-import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link TurnstileService}.
@@ -60,13 +57,11 @@ class TurnstileServiceTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     @DisplayName("Returns true when Cloudflare responds with success")
     void verify_successResponse_returnsTrue() {
-        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        RestClient mockClient = mock(RestClient.class);
         Map<String, Object> response = Map.of("success", true);
-        when(mockClient.post().uri(anyString()).body(any(Object.class))
-                .retrieve().body(Map.class)).thenReturn(response);
+        RestClientMocks.stubPost(mockClient, Map.class, response);
 
         TurnstileService service = new TurnstileService(mockClient);
         setSecretKey(service, "secret");
@@ -75,13 +70,11 @@ class TurnstileServiceTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     @DisplayName("Returns false when Cloudflare responds with failure")
     void verify_failureResponse_returnsFalse() {
-        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        RestClient mockClient = mock(RestClient.class);
         Map<String, Object> response = Map.of("success", false, "error-codes", List.of("invalid-input-response"));
-        when(mockClient.post().uri(anyString()).body(any(Object.class))
-                .retrieve().body(Map.class)).thenReturn(response);
+        RestClientMocks.stubPost(mockClient, Map.class, response);
 
         TurnstileService service = new TurnstileService(mockClient);
         setSecretKey(service, "secret");
@@ -90,12 +83,10 @@ class TurnstileServiceTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     @DisplayName("Returns false when Cloudflare returns null response")
     void verify_nullResponse_returnsFalse() {
-        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
-        when(mockClient.post().uri(anyString()).body(any(Object.class))
-                .retrieve().body(Map.class)).thenReturn(null);
+        RestClient mockClient = mock(RestClient.class);
+        RestClientMocks.stubPost(mockClient, Map.class, null);
 
         TurnstileService service = new TurnstileService(mockClient);
         setSecretKey(service, "secret");
@@ -104,13 +95,10 @@ class TurnstileServiceTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     @DisplayName("Returns false when REST call throws an exception")
     void verify_exception_returnsFalse() {
-        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
-        when(mockClient.post().uri(anyString()).body(any(Object.class))
-                .retrieve().body(Map.class))
-                .thenThrow(new RuntimeException("Connection timeout"));
+        RestClient mockClient = mock(RestClient.class);
+        RestClientMocks.stubPostThrows(mockClient, Map.class, new RuntimeException("Connection timeout"));
 
         TurnstileService service = new TurnstileService(mockClient);
         setSecretKey(service, "secret");

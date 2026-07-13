@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.model.NlcNightClarity;
 import com.gregochr.goldenhour.model.NlcSightingReport;
 import com.gregochr.goldenhour.model.NlcSightingResponse;
 import com.gregochr.goldenhour.model.NlcWindow;
+import com.gregochr.goldenhour.util.RestClientMocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -25,8 +26,6 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -230,8 +229,8 @@ class NlcSightingServiceTest {
         // Clock 3.5h after the newest live entry — inside the 6h freshness window.
         Clock clock = Clock.fixed(LIVE_NEWEST.plusSeconds(3600 * 3 + 1800), ZoneOffset.UTC);
         LocalDate today = LocalDate.of(2026, 7, 3);
-        RestClient rest = mock(RestClient.class, RETURNS_DEEP_STUBS);
-        when(rest.get().uri(anyString()).retrieve().body(String.class)).thenReturn(liveTableSnapshot());
+        RestClient rest = mock(RestClient.class);
+        RestClientMocks.stubGet(rest, String.class, liveTableSnapshot());
         NlcSightingClient realClient = new NlcSightingClient(rest, new NlcProperties());
         when(clarityService.isNlcSeason(today)).thenReturn(true);
         when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
@@ -253,8 +252,8 @@ class NlcSightingServiceTest {
     void currentSighting_liveTableStale_inactive() {
         Clock clock = Clock.fixed(Instant.parse("2026-07-10T04:00:00Z"), ZoneOffset.UTC);
         LocalDate today = LocalDate.of(2026, 7, 10);
-        RestClient rest = mock(RestClient.class, RETURNS_DEEP_STUBS);
-        when(rest.get().uri(anyString()).retrieve().body(String.class)).thenReturn(liveTableSnapshot());
+        RestClient rest = mock(RestClient.class);
+        RestClientMocks.stubGet(rest, String.class, liveTableSnapshot());
         NlcSightingClient realClient = new NlcSightingClient(rest, new NlcProperties());
         when(clarityService.isNlcSeason(today)).thenReturn(true);
         NlcSightingService liveService = new NlcSightingService(
