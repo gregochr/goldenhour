@@ -17,6 +17,7 @@ import { getDriveTimes } from '../api/settingsApi.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { isTravelDate } from '../utils/conversions.js';
+import { fitBoundsKey } from '../utils/fitBoundsKey.js';
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 
 // Override Leaflet popup width + scrolling.
@@ -172,7 +173,7 @@ function FitBoundsController({ target }) {
 FitBoundsController.propTypes = {
   target: PropTypes.shape({
     points: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
-    key: PropTypes.number,
+    key: PropTypes.string,
   }),
 };
 
@@ -476,7 +477,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
         && l.lat != null && l.lon != null)
       .map((l) => [l.lat, l.lon]);
     if (points.length === 0) return;
-    (async () => setFitBoundsTarget({ points, key: handoffNonce ?? 0 }))();
+    (async () => setFitBoundsTarget({ points, key: fitBoundsKey('region', handoffNonce) }))();
     // locations intentionally omitted (see the location handoff above).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handoffRegion, handoffNonce]);
@@ -486,7 +487,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
   useEffect(() => {
     if (!focus?.points?.length) return;
     // Deferred (async) like the region handoff above, so the fit runs after commit.
-    (async () => setFitBoundsTarget({ points: focus.points, key: focus.nonce ?? 0 }))();
+    (async () => setFitBoundsTarget({ points: focus.points, key: fitBoundsKey('focus', focus.nonce) }))();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus?.nonce]);
   const [tideClassifications, setTideClassifications] = useState({});
