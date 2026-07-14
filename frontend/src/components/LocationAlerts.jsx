@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import PropTypes from 'prop-types';
-import apiClient from '../api/axiosClient.js';
+import { resetLocationFailures } from '../api/forecastApi.js';
 import { formatTimestampUk } from '../utils/conversions';
 
 /**
@@ -18,9 +18,7 @@ export default function LocationAlerts({ locations = [], onReenabledLocation = (
 
   async function handleReenableLocation(locationName) {
     try {
-      await apiClient.put('/api/locations/reset-failures', null, {
-        params: { name: locationName },
-      });
+      await resetLocationFailures(locationName);
       onReenabledLocation(locationName);
     } catch (err) {
       console.error('Failed to re-enable location:', err);

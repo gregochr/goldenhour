@@ -1,7 +1,6 @@
 import React, { useEffect, useOptimistic, useState, useTransition, useMemo } from 'react';
 import PropTypes from 'prop-types';
-import apiClient from '../api/axiosClient.js';
-import { resetUserPassword, updateUserEmail, updateUserRole, updateUserEnabled, deleteUser, resendVerification } from '../api/userApi.js';
+import { getUsers, createUser, resetUserPassword, updateUserEmail, updateUserRole, updateUserEnabled, deleteUser, resendVerification } from '../api/userApi.js';
 import Pagination from './Pagination.jsx';
 import usePagination from '../hooks/usePagination.js';
 import useConfirmDialog from '../hooks/useConfirmDialog.js';
@@ -196,16 +195,15 @@ export default function UserManagementView() {
 
   async function fetchUsers() {
     try {
-      const res = await apiClient.get('/api/users');
-      setUsers(res.data);
+      setUsers(await getUsers());
     } catch {
       // Keep existing list on failure
     }
   }
 
   useEffect(() => {
-    apiClient.get('/api/users')
-      .then((res) => setUsers(res.data))
+    getUsers()
+      .then(setUsers)
       .finally(() => setUsersLoading(false));
   }, []);
 
@@ -261,7 +259,7 @@ export default function UserManagementView() {
     setAddUserError('');
     setAddUserSaving(true);
     try {
-      await apiClient.post('/api/users', {
+      await createUser({
         username: trimmedUsername,
         password: newPassword,
         email: trimmedEmail,
