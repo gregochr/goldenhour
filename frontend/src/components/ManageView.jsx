@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import PropTypes from 'prop-types';
-import apiClient from '../api/axiosClient.js';
+import { getWaitlist } from '../api/waitlistApi.js';
 import UserManagementView from './UserManagementView.jsx';
 import LocationManagementView from './LocationManagementView.jsx';
 import RegionManagementView from './RegionManagementView.jsx';
@@ -78,8 +78,8 @@ export default function ManageView({ onComplete }) {
   const handleWaitlistCount = useCallback((count) => setWaitlistCount(count), []);
 
   useEffect(() => {
-    apiClient.get('/api/admin/waitlist')
-      .then((res) => setWaitlistCount(res.data.length))
+    getWaitlist()
+      .then((list) => setWaitlistCount(list.length))
       .catch(() => { /* badge stays hidden on failure */ });
   }, []);
 

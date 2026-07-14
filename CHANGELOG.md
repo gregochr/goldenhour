@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Moved the last direct-axios component calls onto the API layer
+- Four components (`LocationAlerts`, `ManageView`, `UserManagementView`, `WaitlistManagementView`) still called `apiClient` directly instead of going through an `api/*.js` module — the tail end of the axios-client consolidation. Added `getUsers`/`createUser` to `userApi.js`, a new `waitlistApi.js` (`getWaitlist`), and `resetLocationFailures` to `forecastApi.js`, and repointed all four components. Component tests now mock the api modules rather than the transport. No behaviour change; full frontend suite green (1664 tests), ESLint 0 errors, build clean.
+
 ### Fixed — Briefing-gloss and best-bet Anthropic calls now record their real token cost
 - `JobRunService.logApiCall`'s generic path hardcoded `costMicroDollars = 0` for `ANTHROPIC` (it has no token usage). Three callers use that generic path for Anthropic deliberately — they need to log a custom request URL + request body for the replay harness, which the token-based `logAnthropicApiCall` can't — so the two success-path calls (`briefing-best-bet` and `briefing-gloss`) were logging **£0**, under-reporting job-run spend.
 - Added a token-aware `logApiCall` overload that computes the real micro-dollar cost from the call's `TokenUsage` (and stores the token columns), and repointed those two callers to extract usage from their `Message` response. The failed-call error path is left at 0 (correct — no usage). No behaviour change for any non-Anthropic caller.

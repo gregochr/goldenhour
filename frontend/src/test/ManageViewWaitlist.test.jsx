@@ -1,8 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import apiClient from '../api/axiosClient.js';
+import { getWaitlist } from '../api/waitlistApi.js';
 import ManageView from '../components/ManageView.jsx';
 
+vi.mock('../api/waitlistApi.js', () => ({
+  getWaitlist: vi.fn(),
+}));
+
+// ManageView renders a tree of admin views; the Operations group's default tab
+// (PipelineRunsView) still fetches via apiClient, so keep the transport mocked.
 vi.mock('../api/axiosClient.js', () => ({
   default: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
 }));
@@ -46,7 +53,7 @@ describe('ManageView — Waitlist tab', () => {
   });
 
   it('shows Waitlist tab in Data group', () => {
-    apiClient.get.mockResolvedValue({ data: [] });
+    getWaitlist.mockResolvedValue([]);
 
     render(<ManageView onComplete={vi.fn()} />);
 
@@ -58,7 +65,7 @@ describe('ManageView — Waitlist tab', () => {
     const entries = [
       { id: 1, email: 'alice@example.com', submittedAt: '2026-04-05T10:00:00' },
     ];
-    apiClient.get.mockResolvedValue({ data: entries });
+    getWaitlist.mockResolvedValue(entries);
 
     render(<ManageView onComplete={vi.fn()} />);
 
@@ -75,7 +82,7 @@ describe('ManageView — Waitlist tab', () => {
       { id: 2, email: 'c@d.com', submittedAt: '2026-04-02T00:00:00' },
       { id: 3, email: 'e@f.com', submittedAt: '2026-04-03T00:00:00' },
     ];
-    apiClient.get.mockResolvedValue({ data: entries });
+    getWaitlist.mockResolvedValue(entries);
 
     render(<ManageView onComplete={vi.fn()} />);
 
@@ -89,7 +96,7 @@ describe('ManageView — Waitlist tab', () => {
   });
 
   it('does not show count badge when waitlist is empty', async () => {
-    apiClient.get.mockResolvedValue({ data: [] });
+    getWaitlist.mockResolvedValue([]);
 
     render(<ManageView onComplete={vi.fn()} />);
 
@@ -104,7 +111,7 @@ describe('ManageView — Waitlist tab', () => {
 
   it('navigates to Waitlist via URL hash', () => {
     window.location.hash = 'manage/waitlist';
-    apiClient.get.mockReturnValue(new Promise(() => {}));
+    getWaitlist.mockReturnValue(new Promise(() => {}));
 
     render(<ManageView onComplete={vi.fn()} />);
 
@@ -117,7 +124,7 @@ describe('ManageView — Waitlist tab', () => {
       { id: 1, email: 'a@b.com', submittedAt: '2026-04-01T00:00:00' },
       { id: 2, email: 'c@d.com', submittedAt: '2026-04-02T00:00:00' },
     ];
-    apiClient.get.mockResolvedValue({ data: entries });
+    getWaitlist.mockResolvedValue(entries);
 
     render(<ManageView onComplete={vi.fn()} />);
 
@@ -132,6 +139,9 @@ describe('ManageView — Waitlist tab', () => {
   });
 
   it('Waitlist tab is in the Data group, not Operations', () => {
+    getWaitlist.mockReturnValue(new Promise(() => {}));
+    // Clicking Operations mounts PipelineRunsView, which fetches via apiClient;
+    // keep it pending so no async error escapes during this synchronous test.
     apiClient.get.mockReturnValue(new Promise(() => {}));
 
     render(<ManageView onComplete={vi.fn()} />);
@@ -148,7 +158,7 @@ describe('ManageView — Waitlist tab', () => {
     const entries = [
       { id: 1, email: 'a@b.com', submittedAt: '2026-04-01T00:00:00' },
     ];
-    apiClient.get.mockResolvedValue({ data: entries });
+    getWaitlist.mockResolvedValue(entries);
 
     render(<ManageView onComplete={vi.fn()} />);
 
@@ -167,13 +177,13 @@ describe('ManageView — Waitlist tab', () => {
   });
 
   it('does not show badge when eager fetch fails', async () => {
-    apiClient.get.mockRejectedValue(new Error('Network error'));
+    getWaitlist.mockRejectedValue(new Error('Network error'));
 
     render(<ManageView onComplete={vi.fn()} />);
 
     // Give time for the failed request to settle
     await waitFor(() => {
-      expect(apiClient.get).toHaveBeenCalledWith('/api/admin/waitlist');
+      expect(getWaitlist).toHaveBeenCalled();
     });
 
     expect(screen.queryByTestId('waitlist-count-badge')).not.toBeInTheDocument();

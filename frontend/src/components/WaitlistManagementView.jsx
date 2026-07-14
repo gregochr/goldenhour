@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
-import apiClient from '../api/axiosClient.js';
+import { getWaitlist } from '../api/waitlistApi.js';
 
 /**
  * Admin view displaying waitlist email submissions ordered oldest-first.
@@ -13,10 +13,10 @@ export default function WaitlistManagementView({ onCountChange }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    apiClient.get('/api/admin/waitlist')
-      .then((res) => {
-        setEntries(res.data);
-        onCountChange(res.data.length);
+    getWaitlist()
+      .then((list) => {
+        setEntries(list);
+        onCountChange(list.length);
       })
       .catch(() => {
         // Keep empty list on failure

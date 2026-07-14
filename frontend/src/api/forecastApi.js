@@ -161,6 +161,19 @@ export async function setLocationEnabled(id, enabled) {
 }
 
 /**
+ * Resets the consecutive-failure count for a location, re-enabling it after auto-disable.
+ * ADMIN only.
+ *
+ * @param {string} locationName - The configured location name.
+ * @returns {Promise<void>}
+ */
+export async function resetLocationFailures(locationName) {
+  await apiClient.put(`${BASE_URL}/locations/reset-failures`, null, {
+    params: { name: locationName },
+  });
+}
+
+/**
  * Refreshes drive-time estimates from a given source position to all locations via ORS.
  * Persists drive duration minutes on each location entity. ADMIN only.
  *

@@ -1,6 +1,31 @@
 import apiClient from './axiosClient.js';
 
 /**
+ * Fetches all user accounts. Requires ADMIN role.
+ *
+ * @returns {Promise<Array<object>>} The list of user accounts.
+ */
+export async function getUsers() {
+  const response = await apiClient.get('/api/users');
+  return response.data;
+}
+
+/**
+ * Creates a new user account. Requires ADMIN role.
+ *
+ * @param {object} user - New user payload.
+ * @param {string} user.username - Desired username.
+ * @param {string} user.password - Initial (temporary) password.
+ * @param {string} user.email - Email address.
+ * @param {string} user.role - Role (ADMIN, PRO_USER, or LITE_USER).
+ * @returns {Promise<object>} The created user entity.
+ */
+export async function createUser(user) {
+  const response = await apiClient.post('/api/users', user);
+  return response.data;
+}
+
+/**
  * Resets the password for a user, generating a temporary password server-side.
  * Sets passwordChangeRequired so the user must change it on next login.
  * Requires ADMIN role.
