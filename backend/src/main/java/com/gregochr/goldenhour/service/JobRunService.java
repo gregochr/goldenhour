@@ -336,6 +336,66 @@ public class JobRunService {
     }
 
     /**
+     * Records a single API call made during a job run, computing the real token-based cost when
+     * the call is an Anthropic call carrying usage.
+     *
+     * <p>Callers that must persist a custom request URL and request body (for the replay harness)
+     * cannot use {@link #logAnthropicApiCall}; this overload lets them keep that flexibility while
+     * still recording the true micro-dollar cost and token columns from {@code tokenUsage}. When
+     * {@code tokenUsage} is {@code null}, the cost is {@code 0} for Anthropic and the token columns
+     * are left null (parity with the failed-call path); non-Anthropic services use the flat rate.
+     *
+     * @param jobRunId       the job run ID
+     * @param service        the service name
+     * @param requestMethod  HTTP method (GET, POST, etc.) or null
+     * @param requestUrl     full request URL
+     * @param requestBody    request body (JSON) or null
+     * @param durationMs     duration in milliseconds
+     * @param statusCode     HTTP status code or null
+     * @param responseBody   response body on error, or null on success
+     * @param succeeded      true if the call succeeded
+     * @param errorMessage   brief error message if failed, or null
+     * @param model          evaluation model for Anthropic calls, or null
+     * @param tokenUsage     token counts from the Anthropic response, or null
+     * @return the newly created API call log entity
+     */
+    public ApiCallLogEntity logApiCall(Long jobRunId, ServiceName service,
+            String requestMethod, String requestUrl, String requestBody,
+            long durationMs, Integer statusCode, String responseBody,
+            boolean succeeded, String errorMessage, EvaluationModel model,
+            TokenUsage tokenUsage) {
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        long costMicroDollars = (service == ServiceName.ANTHROPIC)
+                ? (tokenUsage != null
+                        ? costCalculator.calculateCostMicroDollars(model, tokenUsage, false) : 0L)
+                : costCalculator.calculateFlatCostMicroDollars(service);
+
+        ApiCallLogEntity log = ApiCallLogEntity.builder()
+                .jobRunId(jobRunId)
+                .service(service)
+                .calledAt(now)
+                .completedAt(now)
+                .durationMs(durationMs)
+                .requestMethod(requestMethod)
+                .requestUrl(requestUrl)
+                .requestBody(requestBody)
+                .statusCode(statusCode)
+                .responseBody(responseBody)
+                .succeeded(succeeded)
+                .errorMessage(truncate(errorMessage, 500))
+                .createdAt(now)
+                .evaluationModel(model)
+                .inputTokens(tokenUsage != null ? tokenUsage.inputTokens() : null)
+                .outputTokens(tokenUsage != null ? tokenUsage.outputTokens() : null)
+                .cacheCreationInputTokens(
+                        tokenUsage != null ? tokenUsage.cacheCreationInputTokens() : null)
+                .cacheReadInputTokens(tokenUsage != null ? tokenUsage.cacheReadInputTokens() : null)
+                .costMicroDollars(costMicroDollars)
+                .build();
+        return apiCallLogRepository.save(log);
+    }
+
+    /**
      * Records a single API call made during a job run (for non-Anthropic services).
      *
      * @param jobRunId       the job run ID

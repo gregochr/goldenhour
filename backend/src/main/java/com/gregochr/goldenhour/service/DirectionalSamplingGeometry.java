@@ -44,6 +44,9 @@ public final class DirectionalSamplingGeometry {
      */
     public static final int SOLAR_CONE_HALF_ANGLE_DEG = 15;
 
+    /** Number of solar-cone sample points averaged for the solar horizon. */
+    public static final int SOLAR_CONE_POINT_COUNT = 3;
+
     private DirectionalSamplingGeometry() {
     }
 

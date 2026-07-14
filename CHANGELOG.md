@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Briefing-gloss and best-bet Anthropic calls now record their real token cost
+- `JobRunService.logApiCall`'s generic path hardcoded `costMicroDollars = 0` for `ANTHROPIC` (it has no token usage). Three callers use that generic path for Anthropic deliberately — they need to log a custom request URL + request body for the replay harness, which the token-based `logAnthropicApiCall` can't — so the two success-path calls (`briefing-best-bet` and `briefing-gloss`) were logging **£0**, under-reporting job-run spend.
+- Added a token-aware `logApiCall` overload that computes the real micro-dollar cost from the call's `TokenUsage` (and stores the token columns), and repointed those two callers to extract usage from their `Message` response. The failed-call error path is left at 0 (correct — no usage). No behaviour change for any non-Anthropic caller.
+
+### Changed — De-duplicated the directional-cloud sampling geometry in `OpenMeteoService`
+- `fetchDirectionalCloudData` and `fetchCloudApproachData` re-built their sampling points inline instead of using the already-extracted `DirectionalSamplingGeometry`. `fetchDirectionalCloudData` now calls `computeDirectionalCloudPoints` (with a named `SOLAR_CONE_POINT_COUNT` constant for the averaging divisor) and `fetchCloudApproachData`'s solar point uses `computeSolarHorizonPoint`. Behaviour-identical (verified byte-for-byte and by the full `OpenMeteoServiceTest`); the upwind sample stays inline since it needs the sampling distance the geometry helper doesn't return.
+
 ### Changed — Frontend API layer consolidated onto one shared axios client
 - The JWT request interceptor and the 401-refresh response interceptor used to be registered on the global `axios` singleton as an import side effect of `forecastApi.js`, and the other ~25 `api/*.js` modules (plus four components) relied on that global mutation being in place — accidental, import-order-dependent coupling. Introduced `src/api/axiosClient.js`, a dedicated `axios.create()` instance that owns both interceptors; every module now imports it explicitly.
 - Behaviour is identical (same token attach, same single-flight 401 refresh + `session-expired` handling — the interceptors were moved verbatim, only the retry target changed from the global to the instance). Repointed 21 API modules + 4 components off the global axios; the two non-axios modules (`fetch`/`EventSource`) and `geocodePlace`'s deliberate interceptor-free `fetch` were left as-is. Verified with the full frontend suite (1660 tests), ESLint (0 errors), and a production build (confirming the `axiosClient`↔`authApi` import cycle resolves cleanly).

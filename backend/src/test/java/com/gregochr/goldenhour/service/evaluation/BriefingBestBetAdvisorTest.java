@@ -3139,7 +3139,7 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
-        @DisplayName("capture: advise() writes the rollup JSON to api_call_log request body")
+        @DisplayName("capture: advise() writes the rollup JSON and real token usage to api_call_log")
         void captureWritesRollupToRequestBody() {
             stubModelSelection();
             when(auroraStateCache.isActive()).thenReturn(false);
@@ -3148,6 +3148,12 @@ class BriefingBestBetAdvisorTest {
                     + "\"event\":\"" + tomorrow + "_sunset\",\"region\":\"Northumberland\","
                     + "\"confidence\":\"high\"}]}";
             Message stub = message(response);
+            Usage usage = mock(Usage.class);
+            when(usage.inputTokens()).thenReturn(1500L);
+            when(usage.outputTokens()).thenReturn(400L);
+            when(usage.cacheCreationInputTokens()).thenReturn(java.util.Optional.of(0L));
+            when(usage.cacheReadInputTokens()).thenReturn(java.util.Optional.of(0L));
+            when(stub.usage()).thenReturn(usage);
             when(anthropicApiClient.createMessage(any())).thenReturn(stub);
 
             List<BriefingDay> days = List.of(new BriefingDay(tomorrow, List.of(
@@ -3156,10 +3162,13 @@ class BriefingBestBetAdvisorTest {
 
             advisor.advise(days, 7L, Map.of());
 
+            // Now logged via the cost-aware overload: the request body carries the rollup JSON and
+            // the trailing arg carries the real token usage (previously the call recorded £0).
             ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
             verify(jobRunService).logApiCall(eq(7L), eq(ServiceName.ANTHROPIC), eq("POST"),
                     eq("briefing-best-bet"), bodyCaptor.capture(), anyLong(), eq(200),
-                    eq(response), eq(true), isNull(), eq(EvaluationModel.OPUS), isNull(), isNull());
+                    eq(response), eq(true), isNull(), eq(EvaluationModel.OPUS),
+                    eq(new TokenUsage(1500L, 400L, 0L, 0L)));
             String captured = bodyCaptor.getValue();
             assertThat(captured).isNotNull();
             assertThat(captured).contains("\"validEvents\"");

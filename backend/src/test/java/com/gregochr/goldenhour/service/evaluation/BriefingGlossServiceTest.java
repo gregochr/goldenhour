@@ -4,6 +4,7 @@ import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.TextBlock;
+import com.anthropic.models.messages.Usage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.RunType;
@@ -14,6 +15,7 @@ import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingVerdictEvaluator;
@@ -219,7 +221,7 @@ class BriefingGlossServiceTest {
     // ── API call logging ─────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("Successful API call logged with ServiceName.ANTHROPIC, status 200, response body")
+    @DisplayName("Successful API call logged with ANTHROPIC, status 200, response body, real token usage")
     void apiCallLogged_successDetails() {
         stubModelSelection();
         Message response = mockResponse("Good colour potential");
@@ -229,6 +231,8 @@ class BriefingGlossServiceTest {
         List<BriefingDay> days = List.of(dayWith(region("Northumberland", Verdict.GO)));
         glossService.generateGlosses(days, 42L);
 
+        // Success calls now pass the response's token usage to the cost-aware overload, so the
+        // call records its real micro-dollar cost instead of the old hardcoded £0.
         verify(jobRunService).logApiCall(
                 eq(42L),
                 eq(ServiceName.ANTHROPIC),
@@ -240,7 +244,8 @@ class BriefingGlossServiceTest {
                 eq("Good colour potential"),
                 eq(true),
                 isNull(),
-                eq(EvaluationModel.HAIKU));
+                eq(EvaluationModel.HAIKU),
+                eq(STUB_USAGE));
     }
 
     @Test
@@ -1210,11 +1215,22 @@ class BriefingGlossServiceTest {
                 10.0, 8.0, 3.5, 0, null, null);
     }
 
+    /** Token usage returned by {@link #mockResponse}; asserted where the gloss call is logged. */
+    private static final TokenUsage STUB_USAGE = new TokenUsage(1000L, 200L, 50L, 10L);
+
     private static Message mockResponse(String text) {
         TextBlock textBlock = TextBlock.builder().text(text).citations(List.of()).build();
         ContentBlock contentBlock = ContentBlock.ofText(textBlock);
         Message message = mock(Message.class);
         when(message.content()).thenReturn(List.of(contentBlock));
+        Usage usage = mock(Usage.class);
+        when(usage.inputTokens()).thenReturn(STUB_USAGE.inputTokens());
+        when(usage.outputTokens()).thenReturn(STUB_USAGE.outputTokens());
+        when(usage.cacheCreationInputTokens())
+                .thenReturn(java.util.Optional.of(STUB_USAGE.cacheCreationInputTokens()));
+        when(usage.cacheReadInputTokens())
+                .thenReturn(java.util.Optional.of(STUB_USAGE.cacheReadInputTokens()));
+        when(message.usage()).thenReturn(usage);
         return message;
     }
 }
