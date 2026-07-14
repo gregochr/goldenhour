@@ -595,25 +595,9 @@ public class OpenMeteoService {
     public DirectionalCloudData fetchDirectionalCloudData(double lat, double lon,
             int solarAzimuthDeg, LocalDateTime solarEventTime, TargetType targetType,
             JobRunEntity jobRun) {
-        // Compute all 5 sampling points upfront
-        int[] solarBearings = {
-            solarAzimuthDeg - DirectionalSamplingGeometry.SOLAR_CONE_HALF_ANGLE_DEG,
-            solarAzimuthDeg,
-            solarAzimuthDeg + DirectionalSamplingGeometry.SOLAR_CONE_HALF_ANGLE_DEG
-        };
-        double antisolarBearing = GeoUtils.antisolarBearing(solarAzimuthDeg);
-        double[] antisolarPoint = GeoUtils.offsetPoint(lat, lon, antisolarBearing,
-                DirectionalSamplingGeometry.DIRECTIONAL_OFFSET_METRES);
-        double[] farSolarPoint = GeoUtils.offsetPoint(lat, lon, solarAzimuthDeg,
-                DirectionalSamplingGeometry.FAR_SOLAR_OFFSET_METRES);
-
-        // Build batch: [cone0, cone1, cone2, antisolar, far-solar]
-        List<double[]> coords = new ArrayList<>();
-        for (int bearing : solarBearings) {
-            coords.add(GeoUtils.offsetPoint(lat, lon, bearing, DirectionalSamplingGeometry.DIRECTIONAL_OFFSET_METRES));
-        }
-        coords.add(antisolarPoint);
-        coords.add(farSolarPoint);
+        // Build batch: [cone0, cone1, cone2, antisolar, far-solar] via the shared geometry.
+        List<double[]> coords =
+                DirectionalSamplingGeometry.computeDirectionalCloudPoints(lat, lon, solarAzimuthDeg);
 
         LOG.info("Directional cloud batch fetch: 5 points (solar cone {}±{}deg, antisolar, far-solar)",
                 solarAzimuthDeg, DirectionalSamplingGeometry.SOLAR_CONE_HALF_ANGLE_DEG);
@@ -626,7 +610,7 @@ public class OpenMeteoService {
             int solarLowSum = 0;
             int solarMidSum = 0;
             int solarHighSum = 0;
-            for (int i = 0; i < solarBearings.length; i++) {
+            for (int i = 0; i < DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT; i++) {
                 OpenMeteoForecastResponse f = responses.get(i);
                 int idx = findBestIndex(f.getHourly().getTime(), solarEventTime, targetType);
                 OpenMeteoForecastResponse.Hourly h = f.getHourly();
@@ -634,9 +618,9 @@ public class OpenMeteoService {
                 solarMidSum += h.getCloudCoverMid().get(idx);
                 solarHighSum += h.getCloudCoverHigh().get(idx);
             }
-            int solarLow = solarLowSum / solarBearings.length;
-            int solarMid = solarMidSum / solarBearings.length;
-            int solarHigh = solarHighSum / solarBearings.length;
+            int solarLow = solarLowSum / DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT;
+            int solarMid = solarMidSum / DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT;
+            int solarHigh = solarHighSum / DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT;
 
             // Antisolar (index 3)
             OpenMeteoForecastResponse antisolarForecast = responses.get(3);
@@ -725,8 +709,8 @@ public class OpenMeteoService {
             int solarAzimuthDeg, LocalDateTime solarEventTime, LocalDateTime currentTime,
             TargetType targetType, int windFromDeg, double windSpeedMs, JobRunEntity jobRun) {
         try {
-            double[] solarPoint = GeoUtils.offsetPoint(lat, lon, solarAzimuthDeg,
-                    DirectionalSamplingGeometry.DIRECTIONAL_OFFSET_METRES);
+            double[] solarPoint =
+                    DirectionalSamplingGeometry.computeSolarHorizonPoint(lat, lon, solarAzimuthDeg);
 
             // Determine if we need an upwind sample
             double[] upwindPoint = null;

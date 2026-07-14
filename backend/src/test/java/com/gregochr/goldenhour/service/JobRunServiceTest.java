@@ -432,6 +432,49 @@ class JobRunServiceTest {
 
             assertThat(captor.getValue().getErrorMessage()).isNull();
         }
+
+        @Test
+        @DisplayName("cost-aware overload computes ANTHROPIC cost from tokenUsage and stores token columns")
+        void logApiCall_anthropicWithTokenUsage_recordsRealCostAndTokens() {
+            ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
+            when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            TokenUsage usage = new TokenUsage(1200, 300, 50, 20);
+            when(costCalculator.calculateCostMicroDollars(EvaluationModel.OPUS, usage, false))
+                    .thenReturn(87000L);
+
+            jobRunService.logApiCall(9L, ServiceName.ANTHROPIC, "POST", "briefing-best-bet",
+                    "{\"rollup\":true}", 250L, 200, "raw", true, null,
+                    EvaluationModel.OPUS, usage);
+
+            ApiCallLogEntity logged = captor.getValue();
+            assertThat(logged.getService()).isEqualTo(ServiceName.ANTHROPIC);
+            assertThat(logged.getRequestUrl()).isEqualTo("briefing-best-bet");
+            assertThat(logged.getRequestBody()).isEqualTo("{\"rollup\":true}");
+            assertThat(logged.getCostMicroDollars()).isEqualTo(87000L);
+            assertThat(logged.getInputTokens()).isEqualTo(1200L);
+            assertThat(logged.getOutputTokens()).isEqualTo(300L);
+            assertThat(logged.getCacheCreationInputTokens()).isEqualTo(50L);
+            assertThat(logged.getCacheReadInputTokens()).isEqualTo(20L);
+        }
+
+        @Test
+        @DisplayName("cost-aware overload with null tokenUsage records zero cost and null token columns")
+        void logApiCall_anthropicNullTokenUsage_recordsZeroCostAndNullTokens() {
+            ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
+            when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.logApiCall(9L, ServiceName.ANTHROPIC, "POST", "briefing-gloss",
+                    null, 40L, null, null, false, "boom",
+                    EvaluationModel.HAIKU, null);
+
+            ApiCallLogEntity logged = captor.getValue();
+            assertThat(logged.getCostMicroDollars()).isEqualTo(0L);
+            assertThat(logged.getInputTokens()).isNull();
+            assertThat(logged.getOutputTokens()).isNull();
+            assertThat(logged.getCacheCreationInputTokens()).isNull();
+            assertThat(logged.getCacheReadInputTokens()).isNull();
+            verifyNoInteractions(costCalculator);
+        }
     }
 
     @Nested

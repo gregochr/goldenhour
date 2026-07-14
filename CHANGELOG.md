@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Briefing-gloss and best-bet Anthropic calls now record their real token cost
+- `JobRunService.logApiCall`'s generic path hardcoded `costMicroDollars = 0` for `ANTHROPIC` (it has no token usage). Three callers use that generic path for Anthropic deliberately — they need to log a custom request URL + request body for the replay harness, which the token-based `logAnthropicApiCall` can't — so the two success-path calls (`briefing-best-bet` and `briefing-gloss`) were logging **£0**, under-reporting job-run spend.
+- Added a token-aware `logApiCall` overload that computes the real micro-dollar cost from the call's `TokenUsage` (and stores the token columns), and repointed those two callers to extract usage from their `Message` response. The failed-call error path is left at 0 (correct — no usage). No behaviour change for any non-Anthropic caller.
+
+### Changed — De-duplicated the directional-cloud sampling geometry in `OpenMeteoService`
+- `fetchDirectionalCloudData` and `fetchCloudApproachData` re-built their sampling points inline instead of using the already-extracted `DirectionalSamplingGeometry`. `fetchDirectionalCloudData` now calls `computeDirectionalCloudPoints` (with a named `SOLAR_CONE_POINT_COUNT` constant for the averaging divisor) and `fetchCloudApproachData`'s solar point uses `computeSolarHorizonPoint`. Behaviour-identical (verified byte-for-byte and by the full `OpenMeteoServiceTest`); the upwind sample stays inline since it needs the sampling distance the geometry helper doesn't return.
+
 ### Fixed — Map no longer skips a re-fit when region and focus handoffs share a nonce
 - `MapView`'s `FitBoundsController` re-fits the map only when its handoff `key` changes, but two independent sources wrote that key from separate monotonic nonce counters — the Plan-tab **region** handoff and the map-overlay **focus** — using the bare integer. Because both counters start low and increment independently, they could land on the same integer in succession (e.g. first region tap → `1`, then first focus overlay → `1`), leaving the key unchanged so the map silently kept the previous fit instead of framing the new pins.
 - Namespaced the key by source via a small `fitBoundsKey(source, nonce)` helper (`region:1` vs `focus:1`), so equal nonces from different sources can never collide. Behaviour changes only in the collision case (the map now correctly re-fits). Found by an audit of the `react-hooks/exhaustive-deps` suppressions — the dependency arrays themselves were sound (the bug was the shared integer key space, not a stale closure). Unit-tested via `fitBoundsKey.test.js`.

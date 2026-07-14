@@ -201,16 +201,22 @@ public class BriefingBestBetAdvisor {
             long durationMs = System.currentTimeMillis() - startMs;
             String raw = extractFirstText(response);
             Optional<StopReason> stopReason = response.stopReason();
+            var usage = response.usage();
+            TokenUsage tokenUsage = usage == null ? null : new TokenUsage(
+                    usage.inputTokens(), usage.outputTokens(),
+                    usage.cacheCreationInputTokens().orElse(0L),
+                    usage.cacheReadInputTokens().orElse(0L));
 
             LOG.info("Best-bet advisor completed ({}ms, model={}, stopReason={})",
                     durationMs, model, stopReason.map(Object::toString).orElse("unknown"));
             // Capture the exact rollup input (request body) alongside the response so the
             // advisor replay harness can re-feed any live cycle's input through a swapped
-            // prompt for before/after validation — previously this was logged as null.
+            // prompt for before/after validation — previously this was logged as null. The
+            // token usage is passed too so the call records its real cost, not £0.
             jobRunService.logApiCall(jobRunId, ServiceName.ANTHROPIC,
                     "POST", "briefing-best-bet", rollup.json(),
                     durationMs, 200, raw, true, null,
-                    model, null, null);
+                    model, tokenUsage);
 
             BestBetResult parsed = classifyAndParse(raw);
             logResponseDisposition(stopReason, parsed.picks().size(), raw.length(), jobRunId);
