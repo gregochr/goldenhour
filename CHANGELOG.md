@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — ADMIN metrics/model-test/prompt-test endpoints return DTOs, not raw JPA entities
+- Four ADMIN controllers (`JobMetricsController`, `ModelTestController`, `PromptTestController`, `BriefingController`'s compare-models) serialized raw JPA entities straight from the repositories, leaking internal columns and lazy `@OneToMany` relations onto the API. Introduced 8 response DTOs (records in `model/` with a `from(entity)` factory) exposing only the fields the frontend and tests actually consume, and repointed the endpoints.
+- The most notable leaks closed: `api_call_log.request_url` (the full outbound URL **with query parameters** — potential secret/API-key exposure) and `request_body` (raw request payloads); the large `prompt_sent`/`response_json`/`raw_response` reproduction TEXT blobs on test-result rows; and the `apiCalls`/`results` lazy child collections (which risked `LazyInitializationException`/N+1 and dumped the whole child graph — the children have their own endpoints).
+- Each DTO is drop-in (same JSON field names, a subset), so the frontend and the controller tests are unchanged. Verified: the DTO field set was derived per-entity from the actual frontend reads ∪ test assertions (so nothing the UI reads was dropped — independently re-audited), full backend suite green (4416 tests), SpotBugs 0, checkstyle clean, and all 8 new DTOs at 100% line coverage.
+
 ### Changed — Moved the last direct-axios component calls onto the API layer
 - Four components (`LocationAlerts`, `ManageView`, `UserManagementView`, `WaitlistManagementView`) still called `apiClient` directly instead of going through an `api/*.js` module — the tail end of the axios-client consolidation. Added `getUsers`/`createUser` to `userApi.js`, a new `waitlistApi.js` (`getWaitlist`), and `resetLocationFailures` to `forecastApi.js`, and repointed all four components. Component tests now mock the api modules rather than the transport. No behaviour change; full frontend suite green (1664 tests), ESLint 0 errors, build clean.
 
