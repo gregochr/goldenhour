@@ -1,7 +1,7 @@
 package com.gregochr.goldenhour.controller;
 
-import com.gregochr.goldenhour.entity.ModelTestResultEntity;
-import com.gregochr.goldenhour.entity.ModelTestRunEntity;
+import com.gregochr.goldenhour.model.ModelTestResultDto;
+import com.gregochr.goldenhour.model.ModelTestRunDto;
 import com.gregochr.goldenhour.service.ModelTestService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -41,9 +41,8 @@ public class ModelTestController {
      */
     @PostMapping("/run")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ModelTestRunEntity> runTest() {
-        ModelTestRunEntity testRun = modelTestService.runTest();
-        return ResponseEntity.ok(testRun);
+    public ResponseEntity<ModelTestRunDto> runTest() {
+        return ResponseEntity.ok(ModelTestRunDto.from(modelTestService.runTest()));
     }
 
     /**
@@ -54,10 +53,9 @@ public class ModelTestController {
      */
     @PostMapping("/run-location")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ModelTestRunEntity> runTestForLocation(
+    public ResponseEntity<ModelTestRunDto> runTestForLocation(
             @RequestParam Long locationId) {
-        ModelTestRunEntity testRun = modelTestService.runTestForLocation(locationId);
-        return ResponseEntity.ok(testRun);
+        return ResponseEntity.ok(ModelTestRunDto.from(modelTestService.runTestForLocation(locationId)));
     }
 
     /**
@@ -68,10 +66,9 @@ public class ModelTestController {
      */
     @PostMapping("/rerun")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ModelTestRunEntity> rerunTest(
+    public ResponseEntity<ModelTestRunDto> rerunTest(
             @RequestParam Long testRunId) {
-        ModelTestRunEntity testRun = modelTestService.rerunTest(testRunId);
-        return ResponseEntity.ok(testRun);
+        return ResponseEntity.ok(ModelTestRunDto.from(modelTestService.rerunTest(testRunId)));
     }
 
     /**
@@ -85,10 +82,9 @@ public class ModelTestController {
      */
     @PostMapping("/rerun-determinism")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ModelTestRunEntity> rerunDeterminism(
+    public ResponseEntity<ModelTestRunDto> rerunDeterminism(
             @RequestParam Long testRunId) {
-        ModelTestRunEntity testRun = modelTestService.rerunTestDeterministic(testRunId);
-        return ResponseEntity.ok(testRun);
+        return ResponseEntity.ok(ModelTestRunDto.from(modelTestService.rerunTestDeterministic(testRunId)));
     }
 
     /**
@@ -98,8 +94,9 @@ public class ModelTestController {
      */
     @GetMapping("/runs")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<List<ModelTestRunEntity>> getRecentRuns() {
-        return ResponseEntity.ok(modelTestService.getRecentRuns());
+    public ResponseEntity<List<ModelTestRunDto>> getRecentRuns() {
+        return ResponseEntity.ok(modelTestService.getRecentRuns().stream()
+                .map(ModelTestRunDto::from).toList());
     }
 
     /**
@@ -110,8 +107,9 @@ public class ModelTestController {
      */
     @GetMapping("/results")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<List<ModelTestResultEntity>> getResults(
+    public ResponseEntity<List<ModelTestResultDto>> getResults(
             @RequestParam Long testRunId) {
-        return ResponseEntity.ok(modelTestService.getResults(testRunId));
+        return ResponseEntity.ok(modelTestService.getResults(testRunId).stream()
+                .map(ModelTestResultDto::from).toList());
     }
 }
