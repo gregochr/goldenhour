@@ -39,7 +39,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The JWT request interceptor and the 401-refresh response interceptor used to be registered on the global `axios` singleton as an import side effect of `forecastApi.js`, and the other ~25 `api/*.js` modules (plus four components) relied on that global mutation being in place — accidental, import-order-dependent coupling. Introduced `src/api/axiosClient.js`, a dedicated `axios.create()` instance that owns both interceptors; every module now imports it explicitly.
 - Behaviour is identical (same token attach, same single-flight 401 refresh + `session-expired` handling — the interceptors were moved verbatim, only the retry target changed from the global to the instance). Repointed 21 API modules + 4 components off the global axios; the two non-axios modules (`fetch`/`EventSource`) and `geocodePlace`'s deliberate interceptor-free `fetch` were left as-is. Verified with the full frontend suite (1660 tests), ESLint (0 errors), and a production build (confirming the `axiosClient`↔`authApi` import cycle resolves cleanly).
 
-## [2.15.4] - 2026-07-13
+## [v2.15.4] - 2026-07-13
 
 ### Changed — Decomposed `ForecastTaskCollector` (SRP; 1317 → 785 lines)
 - The last and trickiest of the three oversized-service decompositions. `ForecastTaskCollector` mixed briefing candidate collection, weather/cloud pre-fetch, grid-cell stability classification, force-eval headline selection, and per-task assembly. Extracted the four cohesive seams into instance collaborators constructed inside the collector's constructor from its existing dependency fields — so the collector's public constructor and the ~80 tests' `verify(dep)`/`verifyNoInteractions(dep)` assertions (which hinge on the injected mock instances) keep working unchanged.
@@ -104,6 +104,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The Noctilucent cloud topic's detail showed e.g. "Clear northern horizon tonight — 241 dark-sky locations". The 241 was already the *clear* count (correctly computed), but with no denominator it read like the total dark-sky inventory, losing the "how many are clear" colour.
 - It now reads **"clear at 241 of 312 dark-sky locations"**, matching the Plan briefing strip's *"Clear at X of Y"* idiom — so the number reads as how widespread the clear northern horizon is, and the total is visible for context (a quiet high-pressure night lights up nearly all of them). The total (`darkSky.size()`, already computed by the clarity scan) is now carried onto `NlcNightClarity.ClearNight` as `totalDarkSkyCount`; the in-memory clarity cache is not persisted, so no migration.
 - Tests: `NlcClarityServiceTest` locks the denominator (clear 1, total 2 → "of 2"); the NLC detail assertions and `ClearNight` fixtures across the three NLC test classes updated for the new field/wording.
+
+## [v2.15.3] - 2026-07-12
+
+### Added — Bluebell "science showing" enrichment (the last hot-topic group)
 - Adds the generic facts line to the **BLUEBELL** pill, completing the "science showing" roll-out across all hot-topic groups. Two honest, data-backed chips plus a technique note:
   - `conditions 5/5 · excellent` — the best Claude **conditions** rating (1–5) with its quality label. Framed as *conditions*, never flower state.
   - `2 sites scoring 4+/5` — how widespread the good morning is, counting distinct sites at the high-priority tier. Shown only when **≥2** such sites exist (otherwise the rating chip stands alone).
@@ -112,10 +116,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The facts line renders **alongside** BLUEBELL's existing expandable per-region card (`TopicFacts` is persistent, not gated behind expansion) — BLUEBELL is the first topic to carry both. No frontend change: the topic already has a style and the generic `TopicFacts` line.
 - Tests add fact-line coverage (rating chip, the ≥2-site breadth-chip gate, and an explicit assertion that no `bloom`/`peak`/`%` figure is ever emitted) and bring `BluebellHotTopicStrategyTest` in line with the test standards (the `lenient()` shared-default removed; a `stubAhead(day…)` helper pins the freshness stub's date + SUNRISE event with `eq()`).
 
-## Backlog — released across v2.6.0–v2.15.3, not yet split by version
-
-<!-- These entries shipped in tagged releases between v2.5.0 and v2.15.4 but were never cut into
-     per-version sections. Left in place; splitting them by tag is a separate CHANGELOG-hygiene task. -->
+## [v2.15.2] - 2026-07-12
 
 ### Added — Snow & frost "science showing" enrichment: snow-on-the-fells, fresh snow, hoar frost & inversion facts
 - Extends the "science showing" fact line to the **snow & frost** hot topics, all read off the survivor surface with no new API calls. Facts stay **anomaly-first + honest** — a figure appears only where real data backs it.
@@ -127,6 +128,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Frontend needs no change — the four topics already have styles in `HotTopicStrip`, and the facts render through the generic `TopicFacts` line shipped with the coastal group.
 - Tests add band/branch boundary coverage (snow-line margin representative, depth rounding, the sub-zero hoar-frost gate incl. the 0 °C boundary, the dropped inversion altitude, temperature round-trip through writer + reader) and bring `SnowFreshHotTopicStrategyTest` + `InversionHotTopicStrategyTest` in line with the test standards (both `lenient()` shared-default stubs removed, knowable `when()` args pinned with `eq()`).
 
+## [v2.15.1] - 2026-07-11
+
 ### Added — Sky & light "science showing" enrichment: dust, aurora, meteor & supermoon facts + NLC migration
 - Extends the coastal "science showing" fact line to the four **sky & light** hot topics, and migrates the noctilucent (NLC) pill off its bespoke two-line component onto the same generic `TopicFacts` model. Every figure stays **anomaly-first + honest** — shown only where real data backs it, never fabricated.
   - **Saharan dust** (`DustFactsBuilder`, new): `AOD 0.42 · thick plume · afterglow 21:44–22:12`. The optical depth carries an honest qualitative band (dense ≥0.60 / thick ≥0.40 / light veil), and the afterglow window is sunset→civil-dusk (converted to Europe/London) — the interval when dust-scattered colour peaks *after* the sun has set. Note: "look W, high — colour peaks after the sun's gone". The plume transport bearing is deliberately dropped (no wind vector on the survivor surface — it would be fabricated).
@@ -137,6 +140,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Frontend: the `NlcWindows` component and its NLC-only render branch are removed from `HotTopicStrip`; all five sky topics flow through the existing generic `TopicFacts` (mono chips, `dir` glyph, Lite-tier blur, mobile drop-fact) already shipped with the coastal group. No new migration — the facts are derived at detection time from data the strategies already hold.
 - Tests: `DustFactsBuilderTest` (band boundaries at 0.60/0.59/0.40/0.39, afterglow conversion, honest drops); Aurora `cap==0` "whole UK" + moon-null-drop branches; Meteor 25% band boundary + headline/chip consistency; Supermoon's four `sunsetRelation` branches (before sunset / ≤90 min / after dark / no-sunset) + no-moonrise degradations; `NoaaSwpcClient.getGlowLatitudeCap`; and the NLC generic-facts rendering. `DustHotTopicStrategyTest` was also brought in line with the test standards — the two `lenient()` shared-default stubs removed and every knowable `when()` arg pinned with `eq()`.
 
+## [v2.15.0] - 2026-07-11
+
 ### Added — Coastal "science showing" enrichment: king/spring/storm-surge pills + sea-state on the map
 - The Plan screen's **Hot Topics** strip now gives the three coastal topics an enriched second line of "science showing" facts, generalising the pattern the Noctilucent row already had. **King tide**: `high water 5.8 m · +0.7 m over spring · HW 06:42`. **Spring tide**: `range 4.9 m · +1.1 m over average · LW 12:10 · HW 18:20`. **Storm surge**: `waves 4.2 m · very rough · surge 0.6 m above normal · wind WSW 38 mph`. Each carries a "where to look" note and an accent-bordered `(i)` mechanism tooltip (mono heading + serif body). Facts are **anomaly-first** — every figure is paired with its "vs normal" — and shown only where real data backs them (nothing fabricated).
 - New **Open-Meteo Marine** data source for sea-state (significant wave height + swell) — the one genuinely-new signal, since the tide heights/range were already computed. `OpenMeteoMarineApi` is a separate `@HttpExchange` host on the same free tier + `$0` cost tracking as the other Open-Meteo APIs; `MarineClient` does a resilient fetch on the isolated `open-meteo-briefing` breaker and samples Hs at the event hour; `SeaState` maps Hs to the WMO/Douglas band (`4.2 m → "very rough"`). Fetched once per briefing cycle by `MarineWaveRefreshService` (failure-isolated so it can never abort the briefing) into a shared **`marine_wave`** table (V123), read directly by all three coastal pills and the map popups. The band is derived at render, never stored, so no two surfaces can disagree on the same Hs.
@@ -145,17 +150,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Model plumbing: a generic `HotTopicFact(key, value, dir, emphasis, optional)` + `facts`/`note` on `HotTopic` (JSON back-compatible via `@JsonCreator`, threaded through every copy method) and a generic frontend `TopicFacts` component (the NLC pill keeps its bespoke line). **Lite users** see the facts obfuscated (a blurred paywall tease); the least-critical chip is dropped on narrow viewports.
 - Tests: `SeaStateTest` (band boundaries), `MarineClientTest` (event-hour sampling + land-cell degradation), `CoastalTideFactsBuilderTest` + `StormSurgeFactsBuilderTest` (fact math, anomaly framing, representative-slot selection), `HotTopicFact`/DTO JSON round-trips + cache back-compat, and frontend coverage for `TopicFacts`, the `InfoTip` accent card, and the `MarkerPopupContent` sea-state/surge pills. Migration **V123** adds `marine_wave` plus the numeric surge columns.
 
+## [v2.14.15] - 2026-07-08
+
 ### Fixed — Sky-Rating eval batches can no longer get stuck in "Running…" forever
 - On the Manage → Operations → Sky Eval tab, scheduled eval runs could sit in **"Running…"** indefinitely (observed >1 day). The weekly multi-model eval submits one Anthropic message batch, but it then awaited **and** finalised that batch on a fire-and-forget in-memory virtual thread, holding the batch id only on that thread's stack — nothing was persisted. A backend restart (deploy/crash) between submit and finish killed the thread, orphaning the RUNNING run rows with no way to ever reconcile them (the 1-hour await meant a *healthy* thread would have marked them FAILED after 60 min, so a multi-day "Running…" was proof the thread was gone). A `RuntimeException` inside the processing thread had the same effect — it was logged but the runs were never finalised.
 - The batch is now **restart-safe**, mirroring the forecast pipeline's DB-backed `batch_result_polling` loop: submission persists the batch id onto each run (`sky_rating_eval_run.batch_id`, V121) and returns immediately, and a new scheduled reconciler job — `sky_rating_eval_batch_poll` (`SkyRatingEvalBatchService.reconcilePendingBatches`, FIXED_DELAY 60 s, seeded ACTIVE in V122) — reloads RUNNING runs each tick and finalises the ones whose batch has ENDED, fails those still unfinished past the timeout, and reclaims RUNNING orphans that never recorded a batch id. The reconciler is exception-safe (a `scheduleWithFixedDelay` task that throws is not rescheduled) and idempotent (clears a run's prior result rows before re-persisting, so a crash mid-reconcile can't duplicate child rows). `SkyRatingEvalBatchClient.awaitEnded` (blocking) is replaced by a single non-blocking `isEnded`.
 - The dead-batch backstop moved from a **1-hour await timeout** to `photocast.eval.batch.poll-timeout-seconds` defaulting to **24 h** (the Batch API's guaranteed-completion window) — cheap now that polling no longer pins a thread, so slow-but-valid batches are reconciled instead of prematurely failed.
 - V121 also one-time-reclaims any existing RUNNING orphans to FAILED on upgrade, so the perpetual "Running…" rows settle immediately. Tests: rewritten `SkyRatingEvalBatchServiceTest` (batch-id persistence on submit; reconciler branches — ended→COMPLETED, in-flight→leave, past-deadline→FAIL, orphan-without-batch→FAIL, status-check-error safety, no-op-when-empty), `SkyRatingEvalBatchClientTest` (`isEnded`), and `SkyRatingEvalServiceTest` (`findRunning`/`attachBatchId`/`deleteResultsForRun`).
 
+## [v2.14.14] - 2026-07-08
+
 ### Fixed — "Forecast generated" timestamp now shows the real run time, not the moment you opened the popup
 - On the Map/Plan popups, cached-only forecasts (batch-scored slots present in `cached_evaluation` but not yet persisted as a full `forecast_evaluation` row) reported **"Forecast generated: &lt;now&gt;"** — the time the request was served — instead of when the overnight/afternoon batch actually scored them.
 - Root cause: the batch run time was available all along (`cached_evaluation.evaluated_at`, and the in-memory cache's `evaluatedAt`), but it was dropped between the cache and the DTO. `EvaluationViewService.getCachedScores()` returned only the results (no timestamp), so `mergeToView` handed a `null` `evaluatedAt` to the `CACHED_EVALUATION` view, and `ForecastDtoMapper.toSparseDto` then fabricated `LocalDateTime.now()` to fill the gap.
 - The cache's evaluation instant is now plumbed through: new `BriefingEvaluationService.getCachedEvaluatedAt(...)`; `EvaluationViewService` carries it onto the `CACHED_EVALUATION` view from both the in-memory cache and the DB fallback (`evaluated_at`). `toSparseDto` no longer stamps `now()` — it leaves the run time **null** when genuinely unknown, and the popup footer (already guarded on `forecastRunAt`) simply hides rather than showing a false time.
 - The intentional `evaluated_at` (first-evaluated, stable) / `updated_at` (latest write) contract on `cached_evaluation` is untouched. Backend tests: `EvaluationViewServiceTest` (cache hit carries `evaluatedAt`; in-memory and DB-fallback paths in `forDateRange`), `BriefingEvaluationServiceTest` (`getCachedEvaluatedAt` present/absent), and the flipped `ForecastDtoMapperTest` case (null `evaluatedAt` → null run time, no fabricated `now()`). Frontend: two `MarkerPopupContent` cases assert the footer is hidden for a null `forecastRunAt` (admin and non-admin).
+
+## [v2.14.13] - 2026-07-07
 
 ### Fixed — full-briefing grid cell tooltip no longer clips on the rightmost column
 - Hovering a region cell in the Plan tab's full-briefing grid revealed a tooltip (verdict + Claude gloss + weather), but on the **rightmost day column** its right edge was cut off — the last words of the gloss faded/truncated ("…an excellent canvas for sunset colour across t[he region]").
@@ -168,6 +179,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Uses the official `dependabot/fetch-metadata@v2` action to classify the update type; runs only for the `dependabot[bot]` actor with a scoped `contents: write` / `pull-requests: write` token.
 - Requires "Allow auto-merge" enabled in repo settings and branch protection on `main` with the CI checks marked as required.
 
+## [v2.14.12] - 2026-07-07
+
 ### Fixed — summary-strip region hover now shows the verbose gloss, not the terse "X of Y locations"
 - Hovering a rated region chip in the Plan tab's summary strip showed only the one-line roll-up (e.g. "Clear at 38 of 53 locations"), while the full-briefing grid's region cell already surfaced the richer Claude-generated gloss paragraph ("78% high cloud creates an excellent canvas for sunset colour across the region…") from the *same* underlying region object.
 - The summary strip now carries `glossDetail`/`glossHeadline` through to its tooltip and prefers them over `summary` (matching the heatmap grid's `glossDetail || glossHeadline || summary` precedence), falling back to the terse summary when no gloss exists.
@@ -178,6 +191,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Root cause was in the health-status SSE (`/api/status/stream`), not the backend. When the tab idled, the browser dropped the connection; `useHealthStatus` flipped to `DOWN` on the first error, and the only reconnect path was a `setTimeout`, which browsers throttle (or freeze) in background tabs — so the retry never fired, and nothing re-checked when the tab became visible again.
 - `createEventSource` now takes an opt-in `reconnectOnVisible` flag: on `visibilitychange`/`focus`, if the connection is dead it cancels the throttled retry and reconnects immediately. `useHealthStatus` opts in **and** debounces the DOWN state behind a 6s grace window, so a transient drop that reconnects quickly no longer flashes the banner. Other SSE consumers (run progress, briefing) are unaffected.
 - Frontend-only. Tests: 6 new `createEventSource` cases cover reconnect-on-visible, reconnect-on-focus, the no-op-while-OPEN guard, cancelling the pending retry, listener cleanup, and the option being off by default.
+
+## [v2.14.11] - 2026-07-06
 
 ### Fixed — best-bet empty state tells the truth when you're away for the whole window
 - When the operator is marked away for every upcoming day, no forecasts are generated — but the PhotoCast Planner's best-bet empty state still read "No standout recommendations right now — conditions are similar across all regions." That's misleading: there are no conditions to compare, the run simply didn't happen.
@@ -198,15 +213,21 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - The tooltip is now **portalled to `document.body`** and positioned against the chip with `getBoundingClientRect()` (`position: fixed`), so no clipping/transform ancestor can eat its edge. It anchors above the chip, flipping left→right when it would overrun the viewport's right edge (replacing the old pill-index heuristic with a real viewport check), and gains extra right padding so no glyph touches the border. `pointer-events: none` keeps it purely informational; hover **and** keyboard focus reveal it.
 - Frontend-only. Tests updated to hover the chip and assert the portalled `role="tooltip"` carries the verdict/weather/gloss; click-to-navigate and strip/grid parity unchanged. 1603 frontend tests pass; ESLint + build clean.
 
+## [v2.14.10] - 2026-07-05
+
 ### Fixed — empty-state popup never shows a solar time that contradicts the active tab
 - On the map, an unforecast location's popup could show a **sunrise time under the Sunset tab** (and vice-versa): the empty-state "solar times" row always listed *both* events, so when only one event had data (e.g. a sunrise row exists but sunset was never run), it surfaced that mismatched time with a mismatched icon — reading as a wrong forecast even though the medallion correctly showed `–` (unknown).
 - The row now shows **only the selected event** on the Sunrise/Sunset tabs, and **hides entirely** when the selected event has no time available — so a Sunset tab can never display a sunrise time. Aurora/Astro modes still show both events as the dark-window bracket (their event badge is hidden anyway).
 - Frontend-only. Tests: solar row shows only the selected event (sunrise and sunset tabs), and is hidden when the selected event has no time (the reported bug). 132 popup tests + 68 MapView tests pass.
 
+## [v2.14.9] - 2026-07-05
+
 ### Changed — summary-strip region names are hoverable, each showing its own Claude gloss
 - Each rated region in a pill's detail line is now an **individually hoverable chip** (dotted underline). Hovering reveals *that region's own* gloss in a tooltip — verdict-coloured `VERDICT · wx` header (the same `region.summary` + weather the grid cell shows) over the Claude prose in Newsreader italic — so two regions on one pill give two different tooltips. Clicking a name still opens the map for that region (hover reads, click navigates). Every rated region shows as a chip (no more `A, B +N` truncation).
 - The tooltip anchors above the chip and flips to right-aligned for right-half pills so it never spills past the plan card's clipped edge.
 - Frontend-only. Tests: a chip per rated region, its tooltip carries the verdict/weather/gloss, a chip click routes to the region map overlay, and the strip/grid parity still holds. 1601 frontend tests pass; ESLint + build clean.
+
+## [v2.14.8] - 2026-07-05
 
 ### Fixed — summary strip names the event + regions, and can't drift from the grid
 - **Actionable pills.** Each strip pill now says *which* event and *which* regions, not a bare count: the peak line appends the rated event (`◎ Worth it · sunset`, `· sunrise`, or `· sunrise/sunset` when both are rated), and the detail line names the rated regions (short names — "N. Yorks Coast, Tyne & Wear" — overflowing to `A, B +N` past two) instead of "2 regions rated".
@@ -225,11 +246,15 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Why.** A "Cloud inversion — Today sunrise · 04:41" card was still on the board at 21:27, long after that dawn had burned off. The nightly dual-write records an inversion score for whichever event a location was evaluated for — and the augmentor gates only on elevation/overlooks-water, not event type — so an inversion-eligible location also gets a **SUNSET** inversion row. `InversionHotTopicStrategy` judged each row's freshness against its own event, so the today-SUNSET row stayed "fresh" all evening (sunset still ahead), keeping the topic dated today; the frontend then painted it as a sunrise card. A sea of clouds is a dawn phenomenon, so a sunset inversion score is meaningless anyway.
 - **Fix.** The inversion detector now considers **SUNRISE rows only**, dropping the sunset noise so the freshness filter retires each morning the instant its sunrise passes. Tests cover a sunset row being ignored and a mixed sunrise+sunset day resolving to the sunrise card.
 
+## [v2.14.7] - 2026-07-04
+
 ### Changed — Plan summary strip: one pill per day (both events), away days, sticky grid
 - **One pill per day, not per solar event.** The strip now mirrors the grid's day columns — each pill carries *both* solar events (`↑ 04:42 · ↓ 21:49`) and a day-best verdict roll-up (the day's best across sunrise + sunset), capped at 4 days. The earlier per-event version produced two "Tomorrow" pills and read as inconsistent with the grid. A rated pill's "Show on map" click targets the event that drove the day's peak.
 - **Away days.** Travel days (no forecast generated) render as `✈ Away` / `Travel day` / `No forecast` — dimmed, tide-tinted, not interactive — never "All poor" (poor implies we forecast and it's bad; away means we didn't). Away days keep their slot in the horizon.
 - **Sticky grid across the Map round-trip (handoff B5).** The full grid still defaults collapsed, but once opened it persists for the session (`sessionStorage`), so opening the full Map tab and returning lands the user on the same open grid rather than re-collapsing. A fresh session still starts collapsed. (The handoff's deep-link / scroll-to-cell auto-expand has no entry path in the app today — no grid-cell-targeted navigation exists — so only the realizable "back from Map" case is wired.)
 - Tests updated for the per-day/away pill shape plus the grid-persistence behaviour. 1588 frontend tests pass; ESLint clean.
+
+## [v2.14.6] - 2026-07-04
 
 ### Changed — Plan tab: map opens over the plan, and the highlights lead
 - **Map overlay instead of a tab switch.** Tapping any recommendation (Best Bet, Hot Topic, region row, grid cell, summary pill) now opens the map as a modal *over* the Plan tab — focused on what you tapped — instead of switching to the Map tab and losing your place. Closeable with ✕ / Esc / backdrop; `viewMode` is untouched. A quiet "Open the full Map tab →" performs the old tab switch, landing exactly where the overlay was focused (the same handoff + date feed both).
@@ -254,6 +279,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Frontend.** No change needed — `HotTopicStrip` already sorts chronologically and keys pills by `type + date`, so two dated cards of the same type render as an adjacent, correctly-timed run.
 - Tests: per-date assertions across the seven detectors (a 2-day run → two dated cards, no spanning phrase); a `HotTopicEventEnricher` two-day-run test asserting distinct per-day times; a frontend test asserting two same-type dated pills render in order each with its own time.
 
+## [v2.14.5] - 2026-07-03
+
 ### Changed — Plan-screen UX polish: chronological hot topics, calendar-chip day headers, calmer aurora banner
 - **Hot Topics — chronological order.** `HotTopicStrip` now sorts topics by day before rendering (all of Saturday's, then Sunday's, then Monday's), falling back to server priority then type for a stable within-day order — a reader scans one day at a time instead of following payload order.
 - **Plan grid header — calendar chip.** The day-column header is now a horizontal calendar chip (weekday-over-number tile beside a stacked relative-day label + sunrise/sunset times) instead of three quiet stacked lines. Today's chip carries the gold accent; solar times use clean `↑` / `↓` glyphs rather than 🌅 / 🌇. Travel-day "away" badge preserved; `heatmap-day-header` / `heatmap-day-solar-times` testids preserved.
@@ -267,12 +294,16 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Hot Topic pill lead (Option B).** `HotTopicStrip` now opens the detail line with `{glyph} {day} {event} · {time}` in the topic's accent (↑ sunrise / ↓ sunset / ☾ night), then the plain condition — the redundant relative-day phrase ("today and tomorrow", "tomorrow night") is stripped for display only, so the existing aurora tonight/tomorrow join keeps working off the raw `detail`. Falls back to the bare detail when a topic has no event.
 - Tests: `AlertLevel.gScaleFromKp` mapping, live-path gScale on the status controller, banner G-scale rendering; `HotTopicEventEnricher` (event policy, tide alignment, London-time formatting, fallbacks); HotTopic event-field JSON round-trip; and the frontend timing-lead + relative-phrase-strip cases. 4263 backend tests pass (only the pre-existing Docker-less Testcontainers integration tests error); 1563 frontend tests pass.
 
+## [v2.14.4] - 2026-07-02
+
 ### Changed — NLC clarity and the aurora briefing count both sample the northern horizon
 - **Why.** Aurora and noctilucent clouds both appear low on the *poleward* horizon, so what blocks the view is cloud toward the north — not cloud overhead. The aurora *triage* already sampled a northward transect, but two consumers used overhead point cloud instead: the NLC clarity scan (point cloud at the observer) and the aurora "N dark-sky locations with clear skies" count in the briefing (which even *overrode* the transect score with fresh point cloud). Both could call a night clear when the northern horizon was socked in, or vice-versa.
 - **Shared sampler.** New `NorthwardTransectSampler` extracts the transect mechanics that `WeatherTriageService` pioneered — three points 50/100/150 km due north, deduplicated onto the ~0.1° grid across all locations, one `fetchCloudOnlyBatch`, transect-averaged combined cloud at the requested hours — parameterised by a `LayerCombiner` (sum-capped for aurora, worst-layer for NLC). `WeatherTriageService` now delegates to it (behaviour-preserving; its 15 tests unchanged).
 - **NLC → transect.** `NlcClarityService` now samples the northern-horizon transect at each dark-sky location for the deep-night hour, instead of reading overhead point cloud from the briefing's colour-location weather. It also now covers **all** Bortle-classified locations (not just colour ones), fixing the earlier coverage gap — at the cost of one extra deduped cloud-only fetch per briefing run.
 - **Aurora count → transect.** `BriefingAuroraSummaryBuilder` now takes the clear/not-clear decision (and the shown cloud%) from the score's northern-transect cloud — the same figure the triage used to decide viability — rather than overriding it with overhead point cloud. Point weather still supplies the temperature / wind / weather-code display.
 - Tests: new `NorthwardTransectSampler` unit tests; NLC tests rebuilt against the sampler; aurora-summary tests re-expressed so the transect score drives the count. 4238 backend tests pass (only the pre-existing Docker-less Testcontainers integration tests error).
+
+## [v2.14.3] - 2026-07-02
 
 ### Fixed — clock-hermetic tests: kill the nightly 23:00–24:00 UTC flake
 - **Why.** A class of briefing/batch tests built date-relative data from the ambient wall clock while the production code computed "today" from `Europe/London`. In the 23:00–24:00 UTC window (London already the next day) the two dates diverged, so tests flaked — repeatedly reddening CI and failing locally for anyone not on UTC near midnight.
@@ -310,6 +341,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Heatmap cells.** A travel-day cell now reads **"✈️ Away"** instead of a verdict like "Poor" — "Poor" falsely asserted an evaluation that never ran. (The day-header "Away — no forecast" badge and the map-popup notice were already in place.)
 - Tests: rollup excludes travel-day events; aggregator suppresses travel-day topics; heatmap renders "Away" not a verdict.
 
+## [v2.14.2] - 2026-06-29
+
 ### Added — Plan → Map handoff: "View on map" from Best Bet cards
 - **Why.** The Plan view answers "where should I go?"; the Map answers "show me exactly where." The jump should carry context so the user never re-orients on arrival. (Part B of the map filter / handoff addendum.)
 - **Bet card → region (B1).** Each navigable Best Bet / Also Good card gets a `🗺 View on map →` affordance (distinct from "Read more"). Clicking it sets the Map's date and event to the bet's, switches to the Map tab, and **fit-bounds to the bet's region** so all that region's pins fill the view (the macro view).
@@ -331,12 +364,16 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Cluster tuning.** Raised `maxClusterRadius` 60→80 and `disableClusteringAtZoom` 10→13 so a co-located corridor collapses into one bubble until zoomed in to street level. The cluster bubble already shows count-only with colour = group-average score (unchanged); per-location numbers appear only once unclustered.
 - No behavioural change to the cluster icon builder or the rating ramp; full frontend suite green (1553).
 
+## [v2.14.1] - 2026-06-29
+
 ### Changed — Map location popup reskin + tidy (Kodachrome)
 - **Why.** The global Kodachrome reskin never reached `MarkerPopupContent`, so the map popup still rendered the old light theme (white card, slate text, gold `#E5A00D` pills, blurple links) — a bright white card on the dark map.
 - **Reskin.** Replaced the popup's hard-coded hex with `--color-plex-*` tokens so it tracks the theme: the Leaflet popup wrapper/tip/close-button now use `--color-plex-surface` + `--border-light` + a soft shadow (`MapView.jsx`); title/summary/footers use bone ink; the summary sentence uses Newsreader serif. Pills moved off gold — event pill cool blue, type tag surface-light, sunrise/sunset + golden amber, blue hour blue, drive chip neutral, tide chip tide-teal. "More details" link is now bone/mono underlined (was blue). Stars: `--color-verdict-marginal` filled, muted empty.
 - **Score bars — corrected direction.** Both bars now run muted-grey (low) → hot (high), so a higher score fills further AND glows hotter (Fiery Sky was previously backwards). The gradient is sized to the full track and the remainder masked, so a low score shows only the muted end. The value number is tinted value-driven along the same ramp (a Fiery Sky of 20 reads muted, not red).
 - **Tidy.** The existing "More details" collapse is kept — stars + drive + tide + summary lead; the type/sunrise-sunset/golden-blue tag rows + Scores + footer stay one tap away.
 - **Cleanup.** Dropped the now-obsolete `darkMode` light-theme branches (the app is uniformly dark). Popup tests stay green (130).
+
+## [v2.14.0] - 2026-06-29
 
 ### Changed — Plan tab reskin (Kodachrome / Option B bone accent) + density tidy-up
 - **Why.** The Plan tab leant on repeated low-value text (POOR cells shouting, per-location reasoning paragraphs, inline region lists) and a brand accent that collided with the "stand down" red. The fix: lead with the verdict/star, push prose one interaction away, and free colour to mean only verdict semantics.
@@ -364,6 +401,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Inclusivity made explicit.** The From/To labels now say "(inclusive)" and the intro states "Both the start and end date are included" — matching the actual behaviour (the gate uses `BETWEEN`, inclusive of both bounds).
 - **Future-only, descending.** `TravelDayService.list()` now returns only ranges whose end date is on or after today (Europe/London) — already-ended holidays drop off automatically — sorted by start date descending so the furthest-future range sits at the top. A range ending *today* is kept (you're still away today). Backend-side so the admin panel and the briefing/map overlay stay consistent; new `findByEndDateGreaterThanEqualOrderByStartDateDesc` derived query covered by a `@DataJpaTest`.
 
+## [v2.13.0] - 2026-06-29
+
 ### Added — click a Plan-tab location to open it on the map
 - **Why.** From the briefing drill-down you could see a location's verdict and headline, but reaching its full forecast meant switching to Map, finding the date, the event type, and the marker by hand. The location name is the obvious thing to click — now it is.
 - **What.** Each location name in the briefing drill-down slot list is now a button. Clicking it switches to the Map tab with the date and solar event (sunrise/sunset) pre-selected, flies to the location, and opens its popup. Mobile selection drives the existing bottom sheet; desktop opens the Leaflet popup once the fly animation settles (so the marker has declustered).
@@ -381,6 +420,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Backend.** `SkyRatingEvalService.runScheduled()` now scores every fixture with each model in `SCHEDULED_MODELS` (Haiku, Sonnet, Opus), one persisted run per model; a model's failure is logged and doesn't abort the others. The schema already carried `model` on the run and trend point, so no migration. The per-model runs are deliberately the unit a future batched execution layer would submit.
 - **Frontend (Manage → Operations → Sky Eval).** New "Model accuracy over time" chart — one pass-rate line per model — the headline cross-model comparison. The per-fixture drift small-multiples are now scoped to the selected model (pick via the existing model radio) so they aren't 3× the lines.
 - **Batching deferred, deliberately.** Batching is the *execution layer* under multi-model (async, −50% tokens) — orthogonal to *what* runs. At the current fixture count its savings are still ~£tens/yr against real async complexity; the multi-model layer is the lasting part and a sync→batch swap later needs no rework. Revisit batching once the fixture count makes the discount (Opus-dominated) worth it.
+
+## [v2.12.12] - 2026-06-28
 
 ### Added — monitored (trend-only) eval fixtures + pass^k session-correlation finding
 - **Finding.** Running the same fixture many times *within one session* does not give independent pass^k samples — the scorer's answer clusters within a session and flips between sessions. `copt-hill-5mar-washout` (67% low cloud, right on the 60% block line) was seen at 6/8, 0/8, 8/8, 0/8 on identical input/code. So a single-session pass^k result for a boundary-sitting fixture is **one effective sample, not a verdict**, and hard-gating on it would cry wolf — exactly the alert-fatigue that hides a real regression.
@@ -421,6 +462,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 ### Changed — dependency bumps
 - `com.anthropic:anthropic-java` 2.40.1 → **2.42.0**; `org.pitest:pitest-maven` 1.25.4 → **1.25.5**. Clean compile + full suite green (bar Docker-only Testcontainers integration tests, which need a Docker daemon).
 
+## [v2.12.11] - 2026-06-27
+
 ### Added — Sky-rating eval harness (pass^k bands + direction-bucketing)
 - **Why.** Grounded in `docs/engineering/sky-rating-eval-investigation.md` (Step 0). The base `PromptBuilder` sky-rating scorer is non-deterministic, so the honest test is **pass^k**: run a frozen input N times and assert the star `rating` lands in an expected BAND every time (never `== point`, which fails on legitimate variance). This is the standing acceptance gate prompt-calibration work has lacked — prompt changes get measured, not vibe-checked.
 - **Supersedes the mechanics of `PromptRegressionTest`, inherits its philosophy.** Step 0 found that test is a *partial eval*, not a regression guard: it asserts absolute observation-derived bands but single-shot, on partial input. The new `SkyRatingEvalTest` (gated `@Tag("prompt-regression")`, real Claude) adds what it lacked — the `pass^k` loop (`RUNS_PER_FIXTURE = 8`), direction-bucketed miss reporting, and full-augmentation fixtures. **`PromptRegressionTest` is untouched** (its assertions are user-owned); retiring it is a separate, Chris-approved step once coverage is confirmed.
@@ -428,6 +471,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Direction-bucketing is the diagnostic payoff.** Out-of-band misses are split DOWN (below band → scorer too cautious) vs UP (above band → too generous), so a failure says *which way* the prompt is miscalibrated. `RatingBand` + `MissDirection` + `PassRateReport` are pure logic, unit-tested with stubbed scores (`RatingBandTest`, `PassRateReportTest`) — the bucketing is verified in `mvn verify` without Claude.
 - **Fixtures at full augmentation, both halves.** Six frozen `AtmosphericData` JSON resources under `eval/fixtures/`, each carrying the always-block PLUS `directionalCloud` and `cloudApproach.solarTrend` (the colour-load-bearing blocks): a strong (4–5), a flat washout (1–2), two ported verbatim from `PromptRegressionTest` (Copt Hill 11 Mar false-positive {1,2}, 16 Mar horizon-strip {3,4}), a middling (2–3), and a clear-sky-no-canvas CLEAR-SKY-CAP edge ({1,3}). Loaded via a Jackson 2 + `JavaTimeModule` mapper matching the production replay engine, so captured-real exports from `prompt_test_result.atmospheric_data_json` drop straight in. `SkyRatingEvalFixturesTest` (runs in `verify`, no Claude) proves every fixture deserialises fully-augmented and key scalars/trend semantics round-trip.
 - **Known limits (v1, by design).** Score-band only — rationale (`summary`) assertions are deferred to v2 (prose-keyword brittleness). Strong/flat anchors are hand-authored placeholders pending captured-real prod exports (Chris runs prompt-test on prod; the harness + loader are ready). Aerosol/inversion may be null on captured fixtures (the fresh-fetch blind spot) — acceptable for a colour band eval.
+
+## [v2.12.10] - 2026-06-20
 
 ### Fixed — INVERSION hot topic reads the survivor surface (`forecast_score`), not the triaged rejects (Stage A)
 - **Why.** Grounded in `docs/engineering/inversion-persistence-gap-investigation.md` + `survivor-surface-investigation.md`. The INVERSION detector read `forecast_evaluation.inversion_potential`, but nightly that table holds only the **triaged-out rejects** (scoreless rows built with an empty eval); the survivors Claude actually scores route to `cached_evaluation`, and the structured inversion value never reached the column the detector queried. Result: the detector was **fully inert in production** (data-confirmed — the 01:00 batch wrote 0 inversion / 0 rated, the 06:00 sync wrote 54 / 186). Unlike its siblings, `inversion_potential` is sourced from the Claude *verdict* (`evaluation.inversionScore()`), so the reject rows' empty eval left it null even though `dust`/`surge` (pre-eval atmospheric data) populated fine.
@@ -438,6 +483,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Tests.** `ForecastScoreWriterTest` (inversion-bearing eval writes the INVERSION row with score + classification summary; inversion-free eval writes none), `InversionHotTopicStrategyTest` rewritten against `forecast_score` with the STRONG boundary (8 no, 9 yes) and MODERATE-mixed-with-STRONG, `ForecastScoreRepositoryTest` (`findComponentsByType` type + date-range filter), `ForecastTypeSeedDriftTest` green with INVERSION added. Checkstyle clean. The `forecast_score` dual-write **Docker/Testcontainers** integration test (`ForecastScoreDualWriteIntegrationTest`) is environmental here — verified its `evalJson` fixtures carry no `inversion_score`, so its exact row-count assertions are unaffected when it runs in CI.
 - **Acceptance (the "shipped ≠ working" guard).** Today's Lakes data peaks at MODERATE, no STRONG — so even a perfect repoint won't light the pill until a genuine STRONG occurs; that is correct, not a failure. Acceptance is the forced-STRONG unit fixture firing + the dual-write landing INVERSION rows on a real cycle, NOT a live pill. **Outstanding (run by Chris against prod/staging):** confirm the `photocast.forecast-score.dual-write` flag is ON in the running container (committed config defaults true; not overridden in `application-prod.yml`); confirm INVERSION `forecast_score` rows populate on a real survivor cycle; sanity-check STRONG fire-frequency against the survivor population.
 - **Stage B (deferred, tracked).** DUST/SURGE and (also found) SNOW_FRESH/SNOW_TOPS share the reject-sampling root but are pre-eval *atmospheric* data NOT present at the survivor seam (`buildResult` gets only the Claude eval) and not score-shaped — a separate, larger carrier design, not bundled here.
+
+## [v2.12.9] - 2026-06-19
 
 ### Added — Reward cloud clearing-into-the-event in the per-location rating (clearance, NOT a hot topic)
 - **Why.** Grounded in `docs/engineering/clearance-investigation.md` + `clearance-trajectory-investigation.md`. Clearance is quality-of-sky, so it belongs in the per-location Claude rating, not a hot-topic banner (a banner would double-count the rating the clearance causes). The clearance *outcome* already scored 4–5 via the point-in-time directional rules; what was missing was recognition of the clearing *trajectory* + canvas-persistence — the `T-3h…event` series was in the prompt but framed only as `CLOUD APPROACH RISK` with a `[BUILDING]`-penalty-only instruction set.
@@ -463,6 +510,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Persistence.** Three nullable columns on `forecast_evaluation` (`snowfall_cm`, `snow_depth_m`, `freezing_level_m`, `DOUBLE PRECISION`, migration **V113**), written in `ForecastService` alongside the inversion/surge values.
 - **Empirical acceptance (verifiable now, in June).** Live `/v1/forecast` confirmed to expose all three (units: snowfall cm, snow_depth m, freezing_level m); `freezing_level_height` reads a plausible non-zero value year-round (~3300 m over the Lake District in June, 24/24 non-null) — proving fetch+parse+persist works independent of snow season — while `snowfall`/`snow_depth` correctly read 0 out of season. Worst-case 20-coord chunk URL measured at 958 chars (vs ~8190 limit; snow added 42), so `BATCH_COORD_LIMIT = 20` is unchanged and there is no HTTP 414 risk. No regression to existing weather columns or chunk resilience. New extraction unit tests (snow sampled at the selected slot; null when Open-Meteo omits the arrays).
 
+## [v2.12.8] - 2026-06-18
+
 ### Security — Frontend dependency audit fix (undici)
 - `npm audit fix` for a newly-disclosed high advisory in `undici` 7.0.0–7.27.2 (transitive via `jsdom`, a devDependency / test env only — not shipped to production): GHSA-vmh5-mc38-953g (TLS certificate validation bypass) and GHSA-pr7r-676h-xcf6 (cross-user info disclosure via shared cache). `undici` 7.25.0 → 7.28.0. Lockfile-only; no `package.json` or source changes. `npm audit --audit-level=high` now reports 0 vulnerabilities (the frontend CI audit gate was failing on this).
 
@@ -473,6 +522,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Distinct unscored pill (frontend).** Unscored-but-clear slots now render an outline/ghost "Clear · not scored" (or "Maybe · not scored") pill instead of the solid green "Worth it" used for Claude-rated slots — the eye can tell "Claude rated this" from "the sky is clear here". Claude-scored slots keep their star badge / solid pill.
 - **Gloss hedging (Claude prompt).** `BriefingGlossService` now feeds the region gloss prompt a `claudeCoverageRatio` + `lowCoverage` signal (alongside the existing `claudeAverageRating`/`totalLocations`). The system prompt steers the gloss to attribute a high average to "the evaluated spots" rather than the whole region when coverage is low, framed as routine far-horizon scoping — never as a warning (at 0.5 this is the common far-out state).
 - **Tests.** Ratio-tier honesty-filter tests (3/54 flagged, 40/54 unchanged, boundary at the threshold, zero-coverage still fully rewritten, single-arg overload disables the tier); gloss input-contract tests (`lowCoverage`/`claudeCoverageRatio` emitted on low coverage, absent/false on high); frontend tests for the coverage note and ghost pill in both the desktop and mobile drill-downs, plus a fully-covered regression. All backend (4063, excluding 5 Docker-only Testcontainers integration tests) and frontend (1571) tests green.
+
+## [v2.12.6] - 2026-06-17
 
 ### Changed — ESLint 10 upgrade (frontend)
 - **Why.** Frontend CI (`npm ci`) was failing with an `ERESOLVE` conflict: `eslint` had been bumped to 10.x but `eslint-plugin-jsx-a11y@6.10.2` (and `eslint-plugin-react@7.37.5`) still cap their `eslint` peer at `^9`. Neither plugin has published an eslint-10-aware release yet, but both run fine against eslint 10's flat config at runtime.
@@ -523,6 +574,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Prompt-swap replay.** New package-private `replayWithPrompt(rollupJson, systemPrompt, model)` runs the advisor against a captured or synthetic rollup with an explicitly supplied system prompt, bypassing `buildRollupJson` (which needs live `BriefingDay` objects a historical replay lacks). It reconstructs the validation sets (`validEvents`/`validRegions`/`validDayNames`/coverage) from the rollup JSON — a faithful inverse of what `buildRollupJson` emits — so replayed picks pass through the same `validateAndFilterPicks` + `applyCoverageAwareRanking` gates production uses; display enrichment is skipped (it changes neither selection nor ranking). Returns the classified `BestBetResult`.
 - **No behaviour change** beyond the capture: `advise`/`callModel` share a new `extractFirstText` helper (pure refactor). Tests: replay returns validated picks, swaps the system prompt and sends the rollup verbatim, drops picks naming a region absent from the reconstructed rollup, passes an honest empty array through as `SUCCESS_NO_PICKS`; capture writes the rollup to the `api_call_log` request body on the real `advise` path.
 
+## [v2.12.5] - 2026-06-14
+
 ### Changed — Rebrand model self-references to "PhotoCast" in briefing narratives
 - **Why.** The best-bet ("PhotoCast Planner") cards and per-region glosses surfaced phrases like "All ten locations Claude-rated excellent" — the model echoing "Claude" from the `claude*`-prefixed evaluation-score fields it reads in its input. User-facing copy should name the product, not the underlying model.
 - **Prompt-first fix.** Rebranded the prose in `BriefingBestBetAdvisor` and `BriefingGlossService` system prompts (section headers and descriptions now say "PhotoCast", e.g. "how many locations were fully evaluated") and added an explicit BRANDING rule instructing the model never to write "Claude"/"Anthropic" in the headline or detail. The JSON data keys (`claudeRatedCount` etc.) are unchanged — they are internal and depended on by the DB schema (V104), entity, frontend, and tests; only the human-readable vocabulary moved.
@@ -541,6 +594,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Phenology honesty.** Nothing — not Claude, not Open-Meteo — knows whether the bluebells are actually in bloom; the season window is a proxy. The prompt is explicit that it scores *conditions given assumed bloom* ("if they're out, how good is this morning"), must not imply bloom confirmation, and its summary hedges ("ideal light if they're in flower") rather than asserting. A future bloom signal can be fed in without restructuring the contract. **Known limitation:** an in-season confident score over a not-yet-bloomed or gone-over wood is expected behaviour, not a regression.
 - **Standard prompt stripped** of the bluebell system block, the bluebell rating-boost rule, the `bluebell_score`/`bluebell_summary` output-schema fields, and the parser's bluebell extraction (both JSON and regex paths) — the standard `SunsetEvaluation` now carries null bluebell fields until the legacy columns drop (commit 5). The **adjacent inversion boost rule is deliberately preserved** (the easy over-deletion). New `parseBluebellEvaluation` parses the bluebell response (strict JSON + bounded/salvage regex fallback) into a small `BluebellEvaluation` record.
 - **Golden-master review.** The `woodland-bluebell` prompt fixture diff shows the bluebell block + boost leaving the standard prompt (inversion intact); new `bluebell-woodland`/`bluebell-openfell` fixtures show the dedicated prompt arriving — together the reviewable contract change. New `BluebellPromptGoldenMasterTest`, `BluebellPromptBuilderTest`, parser tests, and `PromptBuilderTest` extraction guards; the old standard-prompt bluebell tests removed. 4988 backend tests green (1 pre-existing unrelated `LocationFailureTrackingUIDemo` environmental failure).
+
+## [v2.12.4] - 2026-06-13
 
 ### Added — Best-bet status contract (commit 3/3: freshness-bounded fail-safe fallback)
 - **Why.** With the status contract in place, a `FAILED` advisor outcome can now be protected: rather than showing a blank "No standout recommendations" on what may have been a strong day, the API serves the last successful run's picks, labelled stale. This is cause-agnostic — it protects the user view for any future advisor failure, not just the known truncation bug.
@@ -573,6 +628,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Judgement-risk gate (NOT YET RUN).** This is the one change in the hotfix that can shift *what the advisor picks*. The runbook mandates a before/after pick-comparison on recent cycles' inputs, which cannot be run from the dev machine (no prod rollup inputs; requires a live Claude key). It is committed separately so it can be reverted independently. **Do not deploy this commit until the before/after has been run and confirms pick SELECTION is unchanged (only brevity differs).** If selection shifts materially, revert this commit — Changes 1–3 alone fully restore service.
 - **Proof (so far).** All 111 advisor tests green; system-prompt substring assertions (FORECAST RELIABILITY, ALSO GOOD SELECTION RULE, tiers, differsBy) intact. The empirical pick-equivalence check remains outstanding.
 
+## [v2.12.3] - 2026-06-12
+
 ### Added — Forecast-score re-architecture Pass 2, commit 2: dual-write component scores to `forecast_score`
 - **What.** Each scored forecast evaluation now ALSO persists its component scores to the `forecast_score` table (V108), alongside — never instead of — the live `results_json` serving path. Per scored (location, date, SUNRISE/SUNSET): a `SKY` row (pre-combine sky score + the response prose), `FIERY_SKY` and `GOLDEN_HOUR` rows (the 0–100 potentials), and — for coastal locations whose tide visitor applied and did not abstain — a `TIDAL` row carrying its 1–5 score and a deterministic state clause (king/spring/aligned/widened/misaligned). The tide gets a narrative channel again, component by component, for Pass 4's read-side composition. **Nothing reads `forecast_score` yet.**
 - **Where.** `ForecastResultHandler.buildResult` — the single seam both transports (scheduled batch + admin sync) flow through, so both dual-write. New `ForecastScoreWriter` does the UPSERT against the component unique key `(forecast_type_id, location_id, evaluation_date, event_type)` — latest evaluation wins, so intraday re-runs and sync re-evaluations overwrite the same key. `pipeline_run_id` is threaded from the orchestrated path (via `ResultContext`) as provenance; the sync path writes NULL.
@@ -585,10 +642,14 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **The change.** `combine()` now returns a small `CombinedRating(rating, components)` record: the headline rating is computed exactly as before (half-up mean of applied visitors that returned a value), plus an additive `List<ComponentScore>` of `(type, score, summary)`. `Visitor` gains `type()` (SkyVisitor → `SKY`, TideVisitor → `TIDAL`) and a default `summary()`; `SkyVisitor` re-exposes Claude's prose, and `TideVisitor` authors a deterministic one-line clause per alignment state (king/spring/aligned/widened/misaligned) from a single `classify()` band shared by score and clause so the two can never disagree. The sole caller (`ForecastResultHandler.buildResult`) reads `.rating()` and gets the identical value.
 - **Proof.** The `CachePayloadGoldenMasterTest` cache-payload golden master passes byte-for-byte unchanged (combined ratings identical before/after). Combiner unit tests extended to assert the exposed components — single SKY component inland, SKY+TIDAL coastal, an abstaining tide absent from the components — plus `type()`/`summary()` clause coverage on both visitors. No dual-write in this commit: the seam exists, nothing uses it yet.
 
+## [v2.12.1] - 2026-06-10
+
 ### Fixed — React/react-dom version mismatch + `eslint-plugin-react-hooks` 7 upgrade (Dependabot batch)
 - **react-dom realigned to 19.2.7.** Dependabot's react bump (PR #94) rebased ahead of its react-dom bump (PR #93), so `main` briefly carried `react@19.2.7` with `react-dom@19.2.6`. React requires the two packages to be the *exact* same version and otherwise throws `Incompatible React versions` at runtime, which failed the frontend Vitest job. Bumped `react-dom` to `19.2.7` to match.
 - **`eslint-plugin-react-hooks` 5.1.0 → 7.0.1 (PR #22).** v7's `recommended` config enables the React Compiler lint rules (`purity`, `set-state-in-effect`, `refs`, `immutability`), which surfaced 11 errors in existing code. Resolved with real refactors where cleanly behaviour-preserving — moved `TurnstileWidget`'s latest-ref writes into an effect; derived `useAuroraViewline`'s disabled state instead of clearing it via `setState` in an effect; dropped redundant mount-time `setState` resets in `AuroraForecastModal`/`TideManagementView` (state already initialises to the pending values) — and targeted `eslint-disable` lines, each with a justification, for the five intentional patterns the rules flag overzealously (`Date.now()` snapshots for "logged in ago"/"days remaining" display, the post-auth verify-token cleanup coupled to a `history.replaceState`, the auto-dismissing run banner, and the `window.location.hash` tab-sync navigation).
 - **No behaviour change.** 1563 frontend tests and the production build pass; lint is clean (0 errors).
+
+## [v2.12.0] - 2026-06-10
 
 ### Fixed — Pipeline safety timeout lengthened to 4h and made configurable (afternoon Anthropic batch latency)
 - **Why.** Intraday cycles (14:00 UTC) failed ~100% of the time on `Safety timeout: Batch set did not reach terminal status within PT1H30M`, while nightly cycles (01:00 UTC) always succeeded. Instrumented prod data shows why: Anthropic batch processing is load-dependent — nightly batches reach terminal in 2–5 min, but afternoon batches (peak US-morning/EU-afternoon demand) took 98–173 min, with **zero** request failures in `api_call_log` and the poller detecting terminal within seconds of `ended_at`. Every request succeeded; the batch simply completed after the 90-min backstop had already failed the run. The orchestrator and poller were working correctly; the timeout was mis-calibrated for the afternoon reality.
@@ -620,6 +681,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Tests (commit 2)**: `submitRetry` reconstructs + submits one `is_retry` batch with only the failed location; idempotent (no second submit when a retry exists); ignores non-RETRY selections; leaves unreconstructable requests failed; recovery summary formatting. `mergeFromBatch` preserves prior in-memory locations and overlays the recovered one, persists the combined set, and falls back to the DB prior when in-memory is absent (post-restart) so a retry can never shrink a region. `BatchResultProcessor` routes a retry batch through `mergeCacheKey` and never `flushCacheKey`. Orchestrator: clean cycle records no RETRY_FAILED phase; within-cap submits + records recovery; over-cap records systematic without submitting; INTRADAY exercises the same shared retry path.
 - **Pipeline Run view surfacing (commit 3).** `PipelineRunBatch` gains `retry`, so the Pipeline Run detail view (Manage → Operations → Pipeline Runs) flags the retry batch with a "Retry" badge in "Batches in this cycle" — tied to its precursor(s) via the shared cycle id — while the precursor rows are unflagged. The `RETRY_FAILED` phase appears in the timeline (label "Retry failed requests") with its `"N failed, M retried, K recovered, J still-failed"` detail. Frontend test asserts the badge appears only on the retry batch and the phase row + recovery detail render.
 
+## [v2.11.30] - 2026-06-06
+
 ### Added — `cached_evaluation` defensive instrumentation (tripwire for the 2026-06-06 empty-Planner failure mode)
 - **Why.** On 2026-06-06 the batch demonstrably *wrote* 21 cache keys (logs prove it) yet the rows later vanished, leaving the Planner empty. The investigation established it was not a Postgres restore and not a manual delete, and the root cause is likely unknowable from existing evidence (`log_statement = none`, so no DELETE was ever recorded). The incident has not recurred. This is proportionate hardening — make any recurrence visible within one cycle and remove a latent footgun — **not** a root-cause fix (none is confirmed). See `docs/engineering/cached-evaluation-clear-investigation.md`.
 - **Backwards-jump heartbeat.** `BriefingEvaluationService.recordCacheHealthHeartbeat()` runs on each briefing refresh (wired into the existing `onBriefingRefreshed` event hook — the natural cadence, no new scheduler). It logs `cached_evaluation health: rows=…, maxEvaluatedAt=…, distinctKeys=…` at INFO and compares against an in-memory last-seen baseline; if `maxEvaluatedAt` moves **backwards** or the row count **drops** by more than a small tolerance (with no intervening admin clear, which resets the baseline), it logs a **WARN** — turning the silent, weeks-cold 6-June mystery into a same-cycle alert. Side-effect-free: reads counts only, never mutates, never throws into the refresh path (failures are swallowed and logged).
@@ -627,6 +690,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Footgun removed.** `CachedEvaluationRepository.deleteByEvaluationDateBefore(...)` was unwired dead code (confirmed: zero callers in main and tests) — a date-scoped delete is exactly the shape that could produce a "drop recent, keep old" wipe if ever wired carelessly. Removed. Two read-only aggregate queries (`findMaxEvaluatedAt`, `countDistinctCacheKeys`) added for the heartbeat.
 - **Admin wipe guarded.** `DELETE /api/briefing/evaluate/cache` now requires an explicit `?confirm=true` (400 otherwise) so the full-table wipe cannot be triggered accidentally; auth is unchanged (ADMIN-only) and the WARN audit always fires.
 - **Tests**: heartbeat backwards-timestamp and row-count-drop both WARN; normal forward movement and a within-tolerance drop do not; first call establishes a baseline silently; a repository failure is swallowed (never throws) and logs `heartbeat failed`; an admin clear resets the baseline so the next heartbeat does not false-warn; `clearCache` logs the audit WARN with the row count before `deleteAll`; the admin endpoint rejects without `confirm` and proceeds (with the WARN) with it.
+
+## [v2.11.29] - 2026-06-04
 
 ### Changed — Sky/tide decomposition: Claude scores the sky alone, a `TideVisitor` re-adds the tide (v2.13.2 step 3)
 - **The monolithic coastal rating is now two separately-scored concerns averaged together.** Before: `CoastalPromptBuilder` folded the tide *into* Claude's single `rating` (a "+1 boost for an aligned tide"). After: the coastal prompt asks Claude to score the **sky alone**, and a deterministic, rule-based **`TideVisitor`** contributes a separate 1–5 tide score that `RatingCombiner` averages in (plain mean, round half-up — no gate, no cap, no weakest-link). This is the goal of the v2.13.x arc (option B from the investigation: decompose the prompt, re-derive tide post-batch). **This is the one intentional behavioural change in the arc — coastal ratings shift.**
@@ -646,6 +711,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Real construction seam, no Claude call.** Drives the real `ForecastResultHandler.parseBatchResponse` → real `RatingCombiner` over `SkyVisitor` → the exact `new BriefingEvaluationResult(...)` production builds, from a fixed `SunsetEvaluation` injected via a stubbed parser (the parser is upstream of, and distinct from, the serialisation seam). No `@SpringBootTest`, no `lenient()`, no `any()` in verify
 - **Mutation-verified** (ran locally, reverted): flipping a pinned `rating` → FAIL; reordering/renaming a field → FAIL; changing only `summary` text → PASS (prose tolerance proven). Test-only; no production code, prompt, visitor, combiner, or scoring touched — safe to merge ahead of step 3
 
+## [v2.11.27] - 2026-06-02
+
 ### Added — Visitor foundation: relocate the whole-rating Claude result into a `SkyVisitor` (v2.13.1)
 - **`service/evaluation/visitor/Visitor`** — foundation interface for the v2.13 photogenic-evaluator architecture: `appliesTo(LocationEntity)` plus `evaluate(LocationEntity, SunsetEvaluation) → OptionalInt`. Two deliberate deviations from the original prompt sketch, code-grounded: (1) `OptionalInt` not `int` because the Claude `rating` field is nullable in the schema and parser, and `OptionalInt.empty()` preserves today's "no number this time" behaviour rather than fabricating a value; (2) the second arg is the produced `SunsetEvaluation` not raw forecast data because the rating only exists at result time on the asynchronous batch path — recomputing from inputs would require re-calling Claude, which a batch result handler cannot do. Both class Javadocs spell this out so the contract is honest about what v2.13.1 is and what changes in v2.13.2
 - **`SkyVisitor`** — the only visitor in v2.13.1. `appliesTo` → true (sky is universal); `evaluate` returns the parsed rating as-is, empty when null. This is the existing whole-rating Claude result relocated, not a new evaluator
@@ -658,6 +725,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Briefing layer untouched**: confirmed. `BriefingService`, `BriefingBestBetAdvisor`, best-bet / also-good logic unchanged; `ForecastResultHandler` still calls `briefingEvaluationService.writeFromBatch(...)` with the same `BriefingEvaluationResult` shape
 - **Investigation doc**: `docs/engineering/v2-13-1-foundation-notes.md` records the ground facts, the discrepancies found, and the three design reconciliations where the prompt and the code's architecture collided. Companion to the Pass 0 investigation in `chore/v2-13-visitor-investigation`
 - **What's deferred to v2.13.2 (explicitly NOT in this pass)**: a rule-based `TideVisitor` + non-trivial averaging; sky-prompt decomposition (regenerates golden masters intentionally); relocating triage into `SkyVisitor` as a `SkyTriage` collaborator; switching `Visitor.evaluate`'s second arg from `SunsetEvaluation` to forecast inputs once `SkyVisitor` owns its own Claude call
+
+## [v2.11.26] - 2026-05-29
 
 ### Added — Cross-run comparison: did Plan A or Plan B change since this morning? (intraday refresh, commit 3 of 3)
 - **The Pipeline Run detail view now shows an intraday-vs-nightly best-bet comparison** — the value signal the whole intraday refresh exists to produce. For an INTRADAY run it finds the same-day NIGHTLY baseline (latest nightly run on the same Europe/London day, at or before the intraday trigger) and surfaces, per pick rank (Plan A / Plan B), whether the pick changed and on which dimensions: region, event date, event type, or snapshotted Claude rating
@@ -677,6 +746,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **`ForecastTaskCollector.collectScheduledBatches` gained an `ephemeral` overload.** When `ephemeral=true`, the stability classification is still computed and returned in-memory (so it can drive the cycle's eligibility cost-gate) but the snapshot is **not** written through to `stabilitySnapshotProvider.update()`. This is the one real seam the intraday refresh needs: intraday re-classifies the decision-window cells with fresh afternoon weather purely for its own gating, then discards — the morning's nightly snapshot stays authoritative for everything else (other run types, the admin stability view). Nightly continues to pass `ephemeral=false` (classify + publish); behaviour byte-for-byte unchanged
 - **`PipelinePhase.STABILITY_RECLASSIFY` added.** Intraday will record this as a distinct phase before `FORECAST_BATCH_SUBMIT` so the cost-gate decision ("N reclassified, M settled-skipped, K unsettled-evaluated") is visible in the Pipeline Runs UX rather than buried in logs. Nightly's phase set is unchanged
 - Pure foundation commit — nothing yet invokes the ephemeral path; wiring follows in commit 2
+
+## [v2.11.25] - 2026-05-29
 
 ### Added — Targeted force-evaluation backs far-out headline picks with real evidence (Option C commit 2 of 2)
 - **`ForecastTaskCollector` now force-evaluates a small, capped set of far-out best-bet headline contenders** that the Gate 4 stability gate would otherwise drop. Without this, the coverage-aware selection (commit 1) would make best bet structurally near-term-biased — far-out cells are rarely Claude-evaluated, so a genuinely clear "the weekend looks special" day could never clear the coverage floor. Force-evaluation guarantees the would-be-crowned region actually reaches the floor, so a clear far-out day stays promotable *with real Claude evidence behind it*
@@ -713,6 +784,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Tests**: 22 new tests across `PipelineRunPickServiceTest` (mapping, rating-snapshot boundaries, robustness, helper-function boundaries) and `NightlyPipelineOrchestratorTest.PickPersistence` (4 cases — happy path with 2 picks; empty pick list still persisted; null cached briefing skips persist; service contract violation does NOT fail the BRIEFING phase or run). All 15 existing orchestrator tests pass unchanged
 - **Why ship this independently of intraday**: nightly runs now start accumulating a per-cycle record of their picks immediately. When intraday lands (commits 3 + 4), there's already a baseline of morning picks to compare against — no warm-up gap
 
+## [v2.11.23] - 2026-05-26
+
 ### Added — Pipeline Run observability UX (commit 3 of 3)
 - **New Pipeline Runs sub-tab** under Manage → Operations (added as the first sub-tab, before Job Runs). Lists the most recent 50 cycles with status pill, current phase, waiting_on / failure reason, and total duration. The list polls every 60s so a stuck cycle becomes visible without manual refresh
 - **Pipeline run detail panel** — click any row to drill in. Renders:
@@ -746,6 +819,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Aurora is untouched** — no aurora services are injected into the orchestrator; the briefing's read of `AuroraStateCache` remains a non-blocking volatile lookup unrelated to the cycle
 - Verification: 19/19 new tests green; full verify green except 3 pre-existing environmental failures (Docker-dependent testcontainers tests `IntegrationTestBaseSmokeTest` + `ForecastBatchPipelineIntegrationTest`, stale-schema `LocationFailureTrackingUIDemo`) confirmed by `git stash` + rerun on main HEAD
 
+## [v2.11.22] - 2026-05-25
+
 ### Removed — Stale SSE-path whitelist in JwtAuthenticationFilter (Pass 3.3.3, commit 4 tidy)
 - **`JwtAuthenticationFilter.isSsePath`** — dropped the `/api/briefing/evaluate` entry from the SSE token-via-query-param whitelist. The endpoint was deleted in commit 2; the whitelist line was stale. The three surviving SSE endpoints (`/api/forecast/run/{id}/progress`, `/api/forecast/run/notifications`, `/api/status/stream`) remain whitelisted unchanged
 - Found during acceptance grep for `/api/briefing/evaluate` references — the only stray hit beyond the controller's `@RequestMapping` base path (which legitimately serves `/scores` and DELETE `/cache`)
@@ -778,6 +853,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - Investigation: `docs/engineering/sse-retirement-investigation.md` (untracked at time of this commit; mapped the SSE-ONLY vs SHARED boundary across `BriefingEvaluationService`'s 663 lines, the 7 SSE-only methods, the 7 constructor dependencies that become orphans, the dead REST companions, and the deletion sequence this prompt implements)
 - Tests: 1535 frontend tests pass; backend untouched in this commit
 
+## [v2.11.21] - 2026-05-24
+
 ### Fixed — Map star-threshold filter hid briefing-rated locations
 - **`MapView.getRatingForLocation`** — now consults `briefingScores` before falling back to `forecastsByDate.[type].rating`, matching the precedence the marker render path has used all along (line ~901, `briefingScore?.rating ?? forecast?.rating`). Before this fix, a location whose rating came only via `cached_evaluation` (i.e. the Plan tab's briefing enrichment) would render a 3★ medallion on the marker but get filtered out by the star-threshold filter — `getRatingForLocation` returned `null`, the filter routed it to the `showUnrated` branch (default off), and the marker disappeared. Visible bug: selecting 3★ on a Sunset map with a 3★ briefing-only location (e.g. College Valley) emptied the map
 - Test: 1 new `MapViewStarFilter.test.jsx` regression case (`briefingScore.rating survives the star-threshold filter`)
@@ -788,6 +865,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Merge rule** — when the same `(location, date, type)` tuple has both a `forecast_evaluation` row and a `cached_evaluation` entry, the rich row wins; the cached entry is dropped as a duplicate
 - Tests: 2 new `ForecastControllerTest` cases (`getForecasts_surfacesCachedOnlyRows`, `getForecasts_prefersForecastRowOverCachedDuplicate`); `EvaluationViewService` added to `AbstractControllerTest` mock superset
 
+## [v2.11.18] - 2026-05-18
+
 ### Added — SCHEDULED_BATCH summary line on metrics page (v2.11.18)
 - **`BatchSummary` record** (`backend/.../model`) — new read-only enrichment carrying horizon range, event types, evaluation model, location count, region count, and extended-thinking flag for batch job runs
 - **`HorizonRangeFormatter`** (`backend/.../util`) — pure utility that turns a set of day-ahead offsets into a compact label (`T`, `T+1`, `T to T+2`, `T, T+2`)
@@ -795,6 +874,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **`JobMetricsController.getJobRuns`** — populates a new `@Transient batchSummary` field on each row before returning. Non-batch run types are unaffected
 - **`JobRunsGrid.jsx`** — renders one extra summary line for batch rows (`T+1 · SUNRISE · 29 locations · HAIKU · 7 regions`), or "No detail available" when the run has no usable call rows
 - Tests: 8 `HorizonRangeFormatterTest` cases, 10 `BatchSummaryDeriverTest` cases, 2 new `JobMetricsControllerTest` cases, 6 new `JobRunsGrid.test.jsx` cases
+
+## [v2.11.9] - 2026-04-26
 
 ### Fixed — V84 migration tolerant of missing locations (v2.12.2)
 - **`V84__add_bluebell_support.sql`** — replaced two `INSERT INTO location_location_type (location_id, location_type) VALUES (40/87, 'BLUEBELL')` statements with `INSERT…SELECT…WHERE EXISTS` against `locations.id`. The original hardcoded IDs 40 (Allen Banks) and 87 (Roseberry Topping) work in production where those rows exist from accumulated seed data, but fail the V8 foreign key against any fresh database — including the Postgres testcontainer introduced in v2.12.2's integration test pyramid. The bug was latent because existing `@SpringBootTest` tests use H2 with `ddl-auto=create-drop` and skip Flyway entirely. Production behaviour is unchanged: where IDs 40 and 87 exist, the new statement produces identical rows. The `NOT EXISTS` predicate also guards against accidental replay
@@ -819,12 +900,16 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 ### Changed — CI workflow gains a real-API E2E gate (v2.12.2)
 - **`.github/workflows/ci.yml`** — new `e2e-real-api` job runs on `main` pushes only (not PRs), depends on the standard `backend` job, sets `ANTHROPIC_API_KEY` from repo secrets, and runs `mvn verify -Dtest='BatchSchemaIntegrationTest,*RealApiE2ETest' -Dsurefire.skipAfterFailureCount=1`. Schema test runs first by alphabetical order; if it fails, the broader pipeline test is skipped to avoid a second wasted Anthropic call. Cost per main push: ~2 Haiku batch inferences (sub-pence each). Prerequisite: `ANTHROPIC_API_KEY` must be set as a repository secret
 
+## [v2.11.6] - 2026-04-23
+
 ### Added — Batch observability: per-request api_call_log persistence
 - **`api_call_log` persistence for batch results** — every request in a completed Anthropic batch (success or failure) now writes a row to `api_call_log` with `is_batch=true`, `custom_id`, `batch_id`, `error_type`, token counts, and decoded `target_date`/`target_type`. Turns ephemeral log output into durable, queryable forensic data that survives log rotation.
 - **`describeFailedResult()` NPE guard** — Anthropic SDK errored results with a null error chain no longer abort the entire processing loop; the error is caught, logged as "unknown", and processing continues to the next request
 - **V99 migration** — adds `custom_id` (VARCHAR 64), `error_type` (VARCHAR 100), `batch_id` (VARCHAR 100) columns to `api_call_log`; widens `error_message` from VARCHAR(500) to TEXT; adds partial indexes on `(is_batch, called_at)` and `(custom_id)`
 - **`JobRunService.logBatchResult()`** — new method for persisting batch result rows with token-based cost calculation; all DB writes are try/catch-guarded — persistence failures never break batch processing
 - **Tests** — 6 new tests: succeeded/errored result persistence, persistence failure resilience, no-jobRunId skip, parse failure persistence, describeFailedResult NPE guard
+
+## [v2.11.4] - 2026-04-23
 
 ### Changed — Stability-driven cache freshness for overnight batch
 
@@ -835,6 +920,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **V97 migration** — `evaluation_delta_log` table with stability/age/rating-delta columns and an index on `(stability_level, age_hours)` for post-deploy analysis
 - **Config** — removed `photocast.batch.cached-gate-freshness-hours`; replaced with `photocast.freshness.{settled,transitional,unsettled,safety-floor}-hours`
 - **Tests** — 19 new tests: `FreshnessResolverTest` (7: per-stability returns, safety floor enforcement), `CollectForecastTasksCachedGateTest` rewritten (8: SETTLED/TRANSITIONAL/UNSETTLED skip/refresh, no-snapshot fallback), `EvaluationDeltaLogTest` (3: delta insert, no-prior-entry skip, failure resilience); existing `ScheduledBatchEvaluationServiceTest` updated
+
+## [v2.11.2] - 2026-04-22
 
 ### Fixed — Unified score reads for Plan and Map tabs
 - **Bug A**: Map tab didn't render batch-evaluated scores — it only read `forecast_evaluation`, while batch results live in `cached_evaluation`
@@ -858,6 +945,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **`parseBestBets()`** — parses `relationship` and `differsBy` from Claude response; unrecognised values silently dropped
 - **Frontend** — `BestBetBanner` PropTypes extended with `relationship` and `differsBy`; card labels already derive from each pick's own `dayName`/`eventType`/`eventTime` so tier-2 picks naturally show different dates/events
 
+## [v2.11.1] - 2026-04-22
+
 ### Added — Drill-down Claude scores in briefing
 - **`BriefingSlot`** — 4 new nullable fields: `claudeRating`, `fierySkyPotential`, `goldenHourPotential`, `claudeSummary`; convenience constructor for backward compatibility; `withClaudeScores()` copy method
 - **`BriefingService`** — new `@Lazy BriefingEvaluationService` dependency; `enrichWithCachedScores()` walks the day/event/region hierarchy after `buildDays()` and populates each slot's Claude fields from the evaluation cache
@@ -870,21 +959,29 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 ### Fixed — Open-Meteo zero-task parse failure
 - **`OpenMeteoService.prefetchWeatherBatch()`** — early return with empty map when `coords` list is empty; prevents pointless API call that fails to parse the response
 
+## [v2.11.0] - 2026-04-21
+
 ### Added — Briefing gloss and best-bet read real Claude scores
 - **`BriefingBestBetAdvisor`** — now consumes cached Claude evaluation scores from `BriefingEvaluationService`; when per-location drill-down scores exist, adds `claudeRatedCount`, `claudeHighRatedCount`, `claudeMediumRatedCount`, and `claudeAverageRating` fields to the rollup JSON sent to Claude; system prompt updated with `CLAUDE EVALUATION SCORES` guidance so the model prefers nuanced scores over triage verdicts; per-date cache coverage logging
 - **`BriefingGlossService`** — same cache lookup; appends Claude score distribution to each gloss user message; system prompt updated with `CLAUDE SCORES` calibration guidance; work-item-level cache coverage logging
 - **Circular dependency** — `@Lazy` on the `BriefingEvaluationService` constructor parameter in both services breaks the `BriefingService` → `BriefingBestBetAdvisor` → `BriefingEvaluationService` → `BriefingService` cycle
 - **Tests** — 6 new tests in `BriefingBestBetAdvisorTest` (cached scores added, omitted when empty, triaged entries filtered, all-triaged omitted, exact cache key verification, system prompt check); 5 new tests in `BriefingGlossServiceTest` (same patterns); regression test updated
 
+## [v2.9.16] - 2026-04-17
+
 ### Fixed — Aurora hot topic pill uses consistent clear count
 - **`AuroraHotTopicStrategy`** — tonight detail line now reads the cloud-triaged clear count from `BriefingAuroraSummaryBuilder.buildAuroraTonightCached()` (fresh Open-Meteo weather) instead of `AuroraStateCache.getClearLocationCount()` (stale polling-cycle count); falls back to state cache when briefing summary is unavailable
 - **Tests** — 2 new tests: briefing summary count preferred when available, state cache fallback when null (32 total)
+
+## [v2.9.15] - 2026-04-17
 
 ### Fixed — Persistent logs across deploys
 - **Rolling application log** — added `FILE` appender to `logback-spring.xml` writing `goldenhour.log` with size+time rolling (50MB max file, 30 days, 1GB total cap); attached to root logger alongside console
 - **Volume mount** — `docker-compose.yml` mounts `/Users/gregochr/goldenhour-data/logs` to `/app/logs` so both `goldenhour.log` and `surge-calibration.log` survive container recreation
 - **Deploy workflow** — `mkdir -p` for log directory added to GitHub Actions deploy step before `docker compose up`
 - **Docker log rotation** — `json-file` driver with 10MB×3 cap on backend and database services to prevent unbounded Docker stdout logs
+
+## [v2.9.2] - 2026-04-15
 
 ### Added — Add Location enrichment
 - **`LocationEnrichmentService`** — new service that auto-detects bortle class, sky brightness (SQM), elevation, and Open-Meteo grid cell coordinates via three parallel API calls (lightpollutionmap.info, Open-Meteo elevation, Open-Meteo forecast); each source fails independently, returning null for failed fields
@@ -893,10 +990,14 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 - **Frontend enrichment panel** — after geocoding, the Add Location form shows an "Auto-detected" panel (elevation, bortle, SQM, grid cell) and a "Manual" panel (overlooks water / coastal tidal checkboxes); enrichment data and manual toggles flow through the confirm modal into the save request
 - **Tests** — `LocationEnrichmentServiceTest` (19 tests with exact matchers, verify calls, edge cases), enrichment tests in `LocationControllerTest`, `LocationServiceTest` (swap-killing boolean tests), and `LocationManagementView.test.jsx` (7 enrichment tests)
 
+## [v2.8.21] - 2026-04-13
+
 ### Added — Light pollution job API call logging
 - **`LIGHT_POLLUTION` service name** — added to `ServiceName` enum; `CostCalculator` handles it with zero cost (free API) in both modern micro-dollar and legacy pence switches
 - **API call logging for Bortle enrichment** — `BortleEnrichmentService.enrichAll()` now records each `lightpollutionmap.info` call via `jobRunService.logApiCall()` with per-location URL (lon,lat), duration, HTTP status, and success/error flag; the LIGHT_POLLUTION job run panel now shows individual API calls instead of "No API calls recorded"
 - **Mutation-killing test coverage** — `BortleEnrichmentServiceTest` verifies exact `logApiCall` arguments (service name, method, URL coordinate order, status code, succeeded flag, error message); `CostCalculatorTest` covers zero-cost entries for `LIGHT_POLLUTION`
+
+## [v2.7.0] - 2026-04-02
 
 ### Added — Aurora heatmap grid integration + cloud inversion scoring
 - **Aurora grid columns** — aurora promoted from separate banner row to grid columns in Plan tab heatmap with proper day-spanning; aurora data renders alongside sunrise/sunset in the same visual grid
@@ -942,6 +1043,8 @@ Treats NLC honestly: there is **no mesospheric (~80 km) forecast model**, so Pho
 
 ---
 
+## [v2.6.0] - 2026-04-01
+
 ### Added — Briefing evaluation via SSE (Claude scoring from Plan tab)
 
 Wire the "Run full forecast" button in the Plan tab's heatmap drill-down to trigger Claude evaluations for GO/MARGINAL locations, streaming results back via SSE, and propagating scores to the grid cells and map pins.
@@ -960,6 +1063,8 @@ Wire the "Run full forecast" button in the Plan tab's heatmap drill-down to trig
 - `App.jsx` — lifts `briefingScores` state to pass from DailyBriefing → MapView
 - `MapView.jsx` — overrides forecast scores with briefing evaluation scores when available
 
+## [v2.5.4] - 2026-03-30
+
 ### Changed — SSE health status stream
 
 Replaced polling-based `/actuator/health` approach with a Server-Sent Events endpoint (`GET /api/status/stream`) that pushes enriched status every 30 seconds. The frontend `useHealthStatus` hook now uses native `EventSource` with automatic reconnection.
@@ -974,6 +1079,8 @@ Replaced polling-based `/actuator/health` approach with a Server-Sent Events end
 - `useHealthStatus` — rewritten from `setInterval`/axios polling to `EventSource` SSE consumer
 - `HealthIndicator` — enriched tooltip now shows build info (commit, branch, dirty) and service statuses with circuit breaker detail
 - `healthApi.js` — orphaned (no longer imported); can be removed
+
+## [v2.5.3] - 2026-03-29
 
 ### Changed — Structured best bet banners
 
@@ -999,6 +1106,49 @@ Seven targeted refactorings across the briefing pipeline:
 5. **BriefingSlot** — split 18-field flat record into `WeatherConditions` + `TideInfo` sub-records with `@JsonUnwrapped` to preserve the flat JSON contract
 6. **BestBet** — converted `confidence` from raw String to `Confidence` enum (`HIGH`/`MEDIUM`/`LOW`) with `@JsonValue` for backward-compatible lowercase serialization
 7. **BriefingHierarchyBuilder + BriefingAuroraSummaryBuilder** — extracted shared `RegionGroupingUtils.groupByRegion()` utility replacing duplicated `LinkedHashMap + computeIfAbsent` loops
+
+## [v2.5.0] - 2026-03-21
+
+### Changed — Aurora: NOAA SWPC replaces AuroraWatch UK
+
+Complete rewrite of the aurora pipeline replacing the deprecated AuroraWatch UK XML API with
+NOAA SWPC public JSON endpoints. Alert levels renamed QUIET/MINOR/MODERATE/STRONG (from GREEN/YELLOW/AMBER/RED).
+
+**Backend — new classes:**
+- `NoaaSwpcClient` — fetches and caches 5 NOAA SWPC endpoints: Kp index (15min TTL), 3-day Kp forecast (15min), OVATION aurora probability grid at 55°N (5min), solar wind Bz/speed (1min), G-scale alerts (5min); fail-open (returns cached/empty on error); per-endpoint `CachedResult<T>` with timestamp
+- `MetOfficeSpaceWeatherScraper` — Jsoup HTML scraper of the Met Office specialist space weather page; `@Scheduled` refresh (60min); truncates at 2000 chars to fit Claude context
+- `WeatherTriageService` — northward 3-point transect triage (50/100/150 km) via Open-Meteo hourly `cloud_cover`; 0.1° grid deduplication; pass = any hour < 75% overcast in 6h window; `TriageResult` record with viable/rejected/cloudByLocation
+- `ClaudeAuroraInterpreter` — single `claude-haiku-4-5` call for all viable locations; prompt includes Kp trend, 24h forecast, OVATION %, solar wind Bz, active alerts, Met Office narrative; returns JSON array with stars/summary/detail; strips code fences; fallback 1★ on parse error
+- `AuroraOrchestrator` — drives full pipeline: NOAA fetch → `deriveAlertLevel()` (Kp + OVATION dual-signal, forecast lookahead) → `AuroraStateCache.evaluate()` → triage → Claude → cache; overcast-rejected locations auto-assigned 1★
+- `SpaceWeatherData`, `SpaceWeatherAlert` — new model records
+
+**Backend — modified:**
+- `AlertLevel` — `QUIET(0)/MINOR(1)/MODERATE(2)/STRONG(3)` replacing `GREEN/YELLOW/AMBER/RED`; `fromKp(double)` factory; `hexColour()` and `description()` updated
+- `AuroraProperties` — new `NoaaConfig` (5 URLs + plasma URL), `MetOfficeConfig`, `TriggerConfig` (kp/ovation thresholds + forecast lookahead), `BortleThreshold` (moderate/strong Bortle limits)
+- `AuroraStatusResponse` — removed `station`; added `kp`, `ovationProbability`, `dataSource`
+- `AuroraController` — enriches status with live NOAA Kp and OVATION (best-effort); no admin endpoints (moved to `AuroraAdminController`)
+- `AuroraAdminController` — added `POST /api/aurora/admin/run` (triggers immediate orchestration cycle)
+- `AuroraPollingJob` — simplified to `orchestrator.run()` call guarded by daylight check
+
+**Backend — deleted:**
+- `AuroraWatchClient`, `AuroraScorer`, `AuroraTransectFetcher` — replaced by above
+- `AuroraStatus` model (orphaned after `AuroraWatchClient` removal)
+
+**Dependencies:** `org.jsoup:jsoup:1.18.3` added
+
+**Frontend:**
+- `AuroraBanner.jsx` — `AMBER/RED → MODERATE/STRONG`; subtitle now includes live `Kp X.X` reading alongside location count
+- `MapView.jsx` — `AMBER/RED → MODERATE/STRONG` in `ALERT_WORTHY` set, `auroraThreshold`, InfoTip copy
+- `MarkerPopupContent.jsx` — aurora score pill colour logic `RED → STRONG`
+- `auroraApi.js` — updated comment; added `triggerAuroraRun()` and `resetAuroraState()` for the two new admin endpoints
+
+### Tests
+- `NoaaSwpcClientTest` (21) — parse methods + fetch methods with mocked RestClient
+- `WeatherTriageServiceTest` (8) — null/exception fallback, viable/rejected discrimination via reflection
+- `AuroraOrchestratorTest` (18) — `deriveAlertLevel()` parameterized (8 cases), pipeline control flow
+- `ClaudeAuroraInterpreterTest` (16) — `buildUserMessage()`, `parseResponse()`, `interpret()` with mocked Anthropic SDK
+- `AlertLevelTest`, `AuroraStateCacheTest`, `AuroraPollingJobTest`, `AuroraControllerTest` — updated for new enum names
+- JaCoCo: `NoaaSwpcClient$CachedResult`, `MetOfficeSpaceWeatherScraper`, `WeatherTriageService$CloudResponse/HourlyCloudData` added to exclusions
 
 ### Added — Daily Briefing ("Go or Movie Night?")
 
@@ -1090,49 +1240,6 @@ Allows the admin to inject fake NOAA space weather data to test the full aurora 
 - Total: 1009 backend tests passing
 
 ---
-
-## [v2.5.0] - 2026-03-21
-
-### Changed — Aurora: NOAA SWPC replaces AuroraWatch UK
-
-Complete rewrite of the aurora pipeline replacing the deprecated AuroraWatch UK XML API with
-NOAA SWPC public JSON endpoints. Alert levels renamed QUIET/MINOR/MODERATE/STRONG (from GREEN/YELLOW/AMBER/RED).
-
-**Backend — new classes:**
-- `NoaaSwpcClient` — fetches and caches 5 NOAA SWPC endpoints: Kp index (15min TTL), 3-day Kp forecast (15min), OVATION aurora probability grid at 55°N (5min), solar wind Bz/speed (1min), G-scale alerts (5min); fail-open (returns cached/empty on error); per-endpoint `CachedResult<T>` with timestamp
-- `MetOfficeSpaceWeatherScraper` — Jsoup HTML scraper of the Met Office specialist space weather page; `@Scheduled` refresh (60min); truncates at 2000 chars to fit Claude context
-- `WeatherTriageService` — northward 3-point transect triage (50/100/150 km) via Open-Meteo hourly `cloud_cover`; 0.1° grid deduplication; pass = any hour < 75% overcast in 6h window; `TriageResult` record with viable/rejected/cloudByLocation
-- `ClaudeAuroraInterpreter` — single `claude-haiku-4-5` call for all viable locations; prompt includes Kp trend, 24h forecast, OVATION %, solar wind Bz, active alerts, Met Office narrative; returns JSON array with stars/summary/detail; strips code fences; fallback 1★ on parse error
-- `AuroraOrchestrator` — drives full pipeline: NOAA fetch → `deriveAlertLevel()` (Kp + OVATION dual-signal, forecast lookahead) → `AuroraStateCache.evaluate()` → triage → Claude → cache; overcast-rejected locations auto-assigned 1★
-- `SpaceWeatherData`, `SpaceWeatherAlert` — new model records
-
-**Backend — modified:**
-- `AlertLevel` — `QUIET(0)/MINOR(1)/MODERATE(2)/STRONG(3)` replacing `GREEN/YELLOW/AMBER/RED`; `fromKp(double)` factory; `hexColour()` and `description()` updated
-- `AuroraProperties` — new `NoaaConfig` (5 URLs + plasma URL), `MetOfficeConfig`, `TriggerConfig` (kp/ovation thresholds + forecast lookahead), `BortleThreshold` (moderate/strong Bortle limits)
-- `AuroraStatusResponse` — removed `station`; added `kp`, `ovationProbability`, `dataSource`
-- `AuroraController` — enriches status with live NOAA Kp and OVATION (best-effort); no admin endpoints (moved to `AuroraAdminController`)
-- `AuroraAdminController` — added `POST /api/aurora/admin/run` (triggers immediate orchestration cycle)
-- `AuroraPollingJob` — simplified to `orchestrator.run()` call guarded by daylight check
-
-**Backend — deleted:**
-- `AuroraWatchClient`, `AuroraScorer`, `AuroraTransectFetcher` — replaced by above
-- `AuroraStatus` model (orphaned after `AuroraWatchClient` removal)
-
-**Dependencies:** `org.jsoup:jsoup:1.18.3` added
-
-**Frontend:**
-- `AuroraBanner.jsx` — `AMBER/RED → MODERATE/STRONG`; subtitle now includes live `Kp X.X` reading alongside location count
-- `MapView.jsx` — `AMBER/RED → MODERATE/STRONG` in `ALERT_WORTHY` set, `auroraThreshold`, InfoTip copy
-- `MarkerPopupContent.jsx` — aurora score pill colour logic `RED → STRONG`
-- `auroraApi.js` — updated comment; added `triggerAuroraRun()` and `resetAuroraState()` for the two new admin endpoints
-
-### Tests
-- `NoaaSwpcClientTest` (21) — parse methods + fetch methods with mocked RestClient
-- `WeatherTriageServiceTest` (8) — null/exception fallback, viable/rejected discrimination via reflection
-- `AuroraOrchestratorTest` (18) — `deriveAlertLevel()` parameterized (8 cases), pipeline control flow
-- `ClaudeAuroraInterpreterTest` (16) — `buildUserMessage()`, `parseResponse()`, `interpret()` with mocked Anthropic SDK
-- `AlertLevelTest`, `AuroraStateCacheTest`, `AuroraPollingJobTest`, `AuroraControllerTest` — updated for new enum names
-- JaCoCo: `NoaaSwpcClient$CachedResult`, `MetOfficeSpaceWeatherScraper`, `WeatherTriageService$CloudResponse/HourlyCloudData` added to exclusions
 
 ## [v2.4.0] - 2026-03-21
 
