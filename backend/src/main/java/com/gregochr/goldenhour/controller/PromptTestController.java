@@ -1,9 +1,9 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.PromptTestResultEntity;
-import com.gregochr.goldenhour.entity.PromptTestRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.model.PromptTestResultDto;
+import com.gregochr.goldenhour.model.PromptTestRunDto;
 import com.gregochr.goldenhour.service.GitInfoService;
 import com.gregochr.goldenhour.service.PromptTestService;
 import org.springframework.http.HttpStatus;
@@ -65,14 +65,14 @@ public class PromptTestController {
      */
     @PostMapping("/run")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<PromptTestRunEntity> runTest(
+    public ResponseEntity<PromptTestRunDto> runTest(
             @RequestParam EvaluationModel model,
             @RequestParam RunType runType) {
-        PromptTestRunEntity run = promptTestService.startRun(model, runType);
+        var run = promptTestService.startRun(model, runType);
         CompletableFuture.runAsync(
                 () -> promptTestService.executeRun(run.getId(), model, runType),
                 asyncExecutor);
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(run);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(PromptTestRunDto.from(run));
     }
 
     /**
@@ -86,13 +86,13 @@ public class PromptTestController {
      */
     @PostMapping("/replay")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<PromptTestRunEntity> replayTest(
+    public ResponseEntity<PromptTestRunDto> replayTest(
             @RequestParam Long parentRunId) {
-        PromptTestRunEntity run = promptTestService.startReplay(parentRunId);
+        var run = promptTestService.startReplay(parentRunId);
         CompletableFuture.runAsync(
                 () -> promptTestService.executeReplay(run.getId(), parentRunId),
                 asyncExecutor);
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(run);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(PromptTestRunDto.from(run));
     }
 
     /**
@@ -103,8 +103,9 @@ public class PromptTestController {
      */
     @GetMapping("/runs/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<PromptTestRunEntity> getRun(@PathVariable Long id) {
+    public ResponseEntity<PromptTestRunDto> getRun(@PathVariable Long id) {
         return promptTestService.getRun(id)
+                .map(PromptTestRunDto::from)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -116,8 +117,9 @@ public class PromptTestController {
      */
     @GetMapping("/runs")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<List<PromptTestRunEntity>> getRecentRuns() {
-        return ResponseEntity.ok(promptTestService.getRecentRuns());
+    public ResponseEntity<List<PromptTestRunDto>> getRecentRuns() {
+        return ResponseEntity.ok(promptTestService.getRecentRuns().stream()
+                .map(PromptTestRunDto::from).toList());
     }
 
     /**
@@ -128,9 +130,10 @@ public class PromptTestController {
      */
     @GetMapping("/results")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<List<PromptTestResultEntity>> getResults(
+    public ResponseEntity<List<PromptTestResultDto>> getResults(
             @RequestParam Long testRunId) {
-        return ResponseEntity.ok(promptTestService.getResults(testRunId));
+        return ResponseEntity.ok(promptTestService.getResults(testRunId).stream()
+                .map(PromptTestResultDto::from).toList());
     }
 
     /**

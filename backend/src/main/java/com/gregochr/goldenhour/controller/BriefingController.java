@@ -1,7 +1,7 @@
 package com.gregochr.goldenhour.controller;
 
-import com.gregochr.goldenhour.entity.BriefingModelTestResultEntity;
-import com.gregochr.goldenhour.entity.BriefingModelTestRunEntity;
+import com.gregochr.goldenhour.model.BriefingModelTestResultDto;
+import com.gregochr.goldenhour.model.BriefingModelTestRunDto;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.service.BriefingModelTestService;
 import com.gregochr.goldenhour.service.BriefingService;
@@ -82,8 +82,8 @@ public class BriefingController {
      */
     @PostMapping("/compare-models")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<BriefingModelTestRunEntity> runComparison() {
-        return ResponseEntity.ok(briefingModelTestService.runComparison());
+    public ResponseEntity<BriefingModelTestRunDto> runComparison() {
+        return ResponseEntity.ok(BriefingModelTestRunDto.from(briefingModelTestService.runComparison()));
     }
 
     /**
@@ -93,8 +93,9 @@ public class BriefingController {
      */
     @GetMapping("/compare-models/runs")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<List<BriefingModelTestRunEntity>> getComparisonRuns() {
-        return ResponseEntity.ok(briefingModelTestService.getRecentRuns());
+    public ResponseEntity<List<BriefingModelTestRunDto>> getComparisonRuns() {
+        return ResponseEntity.ok(briefingModelTestService.getRecentRuns().stream()
+                .map(BriefingModelTestRunDto::from).toList());
     }
 
     /**
@@ -105,8 +106,9 @@ public class BriefingController {
      */
     @GetMapping("/compare-models/results")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<List<BriefingModelTestResultEntity>> getComparisonResults(
+    public ResponseEntity<List<BriefingModelTestResultDto>> getComparisonResults(
             @RequestParam Long runId) {
-        return ResponseEntity.ok(briefingModelTestService.getResults(runId));
+        return ResponseEntity.ok(briefingModelTestService.getResults(runId).stream()
+                .map(BriefingModelTestResultDto::from).toList());
     }
 }
