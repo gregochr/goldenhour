@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — One definition of the 75% clear/overcast boundary (`CloudScoringRules`)
+- The cloud percentage at which a sky stops counting as "clear" was defined **six times** under three different names: `CLEAR_SKY_THRESHOLD` (`MeteorClarityService`, `NlcClarityService`, `BriefingAuroraSummaryBuilder`), `OVERCAST_THRESHOLD_PERCENT` (`WeatherTriageService`), and `DEFAULT_OVERCAST_PERCENT` (`NorthwardTransectSampler`, `OverheadCloudSampler`). Changing the rule meant editing six constants — miss one and a location counts as clear for the meteor pill but overcast for aurora triage.
+- Extracted `CloudScoringRules` (`OVERCAST_PERCENT` + `isClear(cloudPercent)`) and repointed all six. Every site already used the identical `cloud < 75` test, and the three fail-open sites (a failed cloud fetch assumes the overcast boundary, so a fetch problem quietly suppresses a "clear" count rather than inventing a clear sky) now share the same constant — so this is a pure de-duplication with no behaviour change. The two unrelated `75`s (moon illumination in `AstroConditionsService` and the aurora prompt) are deliberately left independent.
+
+### Changed — Named `PromptBuilder`'s strip-detection thresholds; de-duplicated its thin-strip rule
+- The strip-vs-blanket block carried inline `80`/`50`/`30`, and the thin-strip condition (`low ≥ 50` and a `≥ 30`pp drop to the far-field sample) was written out twice — once to label the directional-cloud block and again for the cloud-approach wording, so the two could silently diverge. Named the thresholds (`SOLAR_MID_CLOUD_THICK_PERCENT`, `SOLAR_LOW_CLOUD_SIGNIFICANT_PERCENT`, `THIN_STRIP_DROP_POINTS`) and folded both copies into a single `isThinStrip(...)`.
+- The `113km`/`226km` distances quoted to Claude are now derived from `DirectionalSamplingGeometry`'s sampling constants, so the distance in the prompt can't drift from the distance actually sampled. Prompt output is byte-identical (the prompt tests assert it unchanged).
+
 ### Changed — Moved the last direct-axios component calls onto the API layer
 - Four components (`LocationAlerts`, `ManageView`, `UserManagementView`, `WaitlistManagementView`) still called `apiClient` directly instead of going through an `api/*.js` module — the tail end of the axios-client consolidation. Added `getUsers`/`createUser` to `userApi.js`, a new `waitlistApi.js` (`getWaitlist`), and `resetLocationFailures` to `forecastApi.js`, and repointed all four components. Component tests now mock the api modules rather than the transport. No behaviour change; full frontend suite green (1664 tests), ESLint 0 errors, build clean.
 

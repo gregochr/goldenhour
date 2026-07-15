@@ -109,7 +109,7 @@ class NorthwardTransectSamplerTest {
         Map<LocationEntity, int[]> out = sampler.sample(List.of(loc(1, 55, -1.5)), List.of(HOUR),
                 NorthwardTransectSampler.LayerCombiner.MAX_LAYER);
         assertThat(out.values().iterator().next()[0])
-                .isEqualTo(NorthwardTransectSampler.DEFAULT_OVERCAST_PERCENT);
+                .isEqualTo(CloudScoringRules.OVERCAST_PERCENT);
     }
 
     @Test
@@ -119,7 +119,7 @@ class NorthwardTransectSamplerTest {
         Map<LocationEntity, int[]> out = sampler.sample(List.of(loc(1, 55, -1.5)), List.of(HOUR),
                 NorthwardTransectSampler.LayerCombiner.MAX_LAYER);
         assertThat(out.values().iterator().next()[0])
-                .isEqualTo(NorthwardTransectSampler.DEFAULT_OVERCAST_PERCENT);
+                .isEqualTo(CloudScoringRules.OVERCAST_PERCENT);
     }
 
     @Test
@@ -129,7 +129,7 @@ class NorthwardTransectSamplerTest {
         Map<LocationEntity, int[]> out = sampler.sample(List.of(loc(1, 55, -1.5)), List.of(HOUR),
                 NorthwardTransectSampler.LayerCombiner.MAX_LAYER);
         assertThat(out.values().iterator().next()[0])
-                .isEqualTo(NorthwardTransectSampler.DEFAULT_OVERCAST_PERCENT);
+                .isEqualTo(CloudScoringRules.OVERCAST_PERCENT);
     }
 
     @Test

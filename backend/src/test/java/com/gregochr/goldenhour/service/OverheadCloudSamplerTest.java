@@ -107,7 +107,7 @@ class OverheadCloudSamplerTest {
                         .map(c -> (OpenMeteoForecastResponse) null).toList());
         Map<LocationEntity, int[]> out = sampler.sample(List.of(loc(1, 55, -1.5)), List.of(HOUR));
         assertThat(out.values().iterator().next()[0])
-                .isEqualTo(OverheadCloudSampler.DEFAULT_OVERCAST_PERCENT);
+                .isEqualTo(CloudScoringRules.OVERCAST_PERCENT);
     }
 
     @Test
@@ -116,7 +116,7 @@ class OverheadCloudSamplerTest {
         when(openMeteoClient.fetchCloudOnlyBatch(any())).thenThrow(new RuntimeException("down"));
         Map<LocationEntity, int[]> out = sampler.sample(List.of(loc(1, 55, -1.5)), List.of(HOUR));
         assertThat(out.values().iterator().next()[0])
-                .isEqualTo(OverheadCloudSampler.DEFAULT_OVERCAST_PERCENT);
+                .isEqualTo(CloudScoringRules.OVERCAST_PERCENT);
     }
 
     @Test
@@ -125,7 +125,7 @@ class OverheadCloudSamplerTest {
         stubUniform(respAt("2026-08-13T12:00", 0, 0, 0));
         Map<LocationEntity, int[]> out = sampler.sample(List.of(loc(1, 55, -1.5)), List.of(HOUR));
         assertThat(out.values().iterator().next()[0])
-                .isEqualTo(OverheadCloudSampler.DEFAULT_OVERCAST_PERCENT);
+                .isEqualTo(CloudScoringRules.OVERCAST_PERCENT);
     }
 
     @Test

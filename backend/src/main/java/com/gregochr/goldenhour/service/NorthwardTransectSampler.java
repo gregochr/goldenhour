@@ -30,16 +30,13 @@ import java.util.Map;
  * NLC) and a {@link LayerCombiner} for how the low/mid/high layers reduce to one figure.
  *
  * <p>Failure is lenient and never throws: a null/failed grid response, a missing hour, or a batch
- * exception yields the {@value #DEFAULT_OVERCAST_PERCENT}% overcast default for the affected
- * sample, so a fetch problem quietly suppresses a topic rather than fabricating clear skies.
+ * exception yields the {@value CloudScoringRules#OVERCAST_PERCENT}% overcast default for the
+ * affected sample, so a fetch problem quietly suppresses a topic rather than fabricating clear skies.
  */
 @Component
 public class NorthwardTransectSampler {
 
     private static final Logger LOG = LoggerFactory.getLogger(NorthwardTransectSampler.class);
-
-    /** Overcast default (%) used for any sample that cannot be fetched or found. */
-    public static final int DEFAULT_OVERCAST_PERCENT = 75;
 
     /** Northward offsets in metres for the three transect sample points. */
     private static final double[] TRANSECT_OFFSETS_M = {50_000.0, 100_000.0, 150_000.0};
@@ -171,7 +168,7 @@ public class NorthwardTransectSampler {
         for (int i = 0; i < hourKeys.size(); i++) {
             int idx = times.indexOf(hourKeys.get(i));
             if (idx < 0) {
-                out[i] = DEFAULT_OVERCAST_PERCENT;
+                out[i] = CloudScoringRules.OVERCAST_PERCENT;
                 continue;
             }
             int low = safeGet(hourly.getCloudCoverLow(), idx);
@@ -213,7 +210,7 @@ public class NorthwardTransectSampler {
 
     private int[] defaults(int hours) {
         int[] arr = new int[hours];
-        Arrays.fill(arr, DEFAULT_OVERCAST_PERCENT);
+        Arrays.fill(arr, CloudScoringRules.OVERCAST_PERCENT);
         return arr;
     }
 

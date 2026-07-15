@@ -41,9 +41,6 @@ public class BriefingAuroraSummaryBuilder {
 
     private static final Logger LOG = LoggerFactory.getLogger(BriefingAuroraSummaryBuilder.class);
 
-    /** Cloud cover percentage below which a location is considered clear for aurora viewing. */
-    static final int CLEAR_SKY_THRESHOLD = 75;
-
     /** Cache duration for tonight's weather enrichment (5 minutes). */
     private static final long TONIGHT_CACHE_TTL_MS = 5 * 60 * 1000L;
 
@@ -426,7 +423,7 @@ public class BriefingAuroraSummaryBuilder {
                     return new AuroraLocationSlot(
                             s.location().getName(),
                             s.location().getBortleClass(),
-                            cloud < CLEAR_SKY_THRESHOLD,
+                            CloudScoringRules.isClear(cloud),
                             cloud,
                             w != null ? w.temperatureCelsius() : null,
                             w != null ? w.windSpeedMs() : null,
@@ -463,7 +460,7 @@ public class BriefingAuroraSummaryBuilder {
                     int cloud = w != null ? w.cloudPercent() : 50;
                     return new AuroraLocationSlot(
                             loc.getName(), loc.getBortleClass(),
-                            cloud < CLEAR_SKY_THRESHOLD, cloud,
+                            CloudScoringRules.isClear(cloud), cloud,
                             w != null ? w.temperatureCelsius() : null,
                             w != null ? w.windSpeedMs() : null,
                             w != null ? w.weatherCode() : null);

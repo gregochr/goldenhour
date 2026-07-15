@@ -31,12 +31,6 @@ public class MeteorClarityService {
 
     private static final Logger LOG = LoggerFactory.getLogger(MeteorClarityService.class);
 
-    /**
-     * Total-column cloud (%) below which a dark-sky location counts as clear overhead. Matches the
-     * aurora/NLC clear threshold so "clear" means the same darkness of sky across the night topics.
-     */
-    static final int CLEAR_SKY_THRESHOLD = 75;
-
     private static final DateTimeFormatter HOUR_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm");
 
@@ -86,7 +80,7 @@ public class MeteorClarityService {
             int clearCount = 0;
             for (LocationEntity loc : darkSky) {
                 int[] hourly = cloud.get(loc);
-                if (hourly != null && hourly[i] < CLEAR_SKY_THRESHOLD) {
+                if (hourly != null && CloudScoringRules.isClear(hourly[i])) {
                     clearCount++;
                 }
             }
