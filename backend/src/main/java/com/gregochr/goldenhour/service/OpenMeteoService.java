@@ -8,10 +8,8 @@ import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.ForecastRequest;
-import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
-import com.gregochr.goldenhour.model.PressureTrend;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.UpwindCloudSample;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
@@ -114,7 +112,7 @@ public class OpenMeteoService {
             OpenMeteoAirQualityResponse airQuality = openMeteoClient.fetchAirQuality(
                     request.latitude(), request.longitude());
 
-            AtmosphericData data = extractAtmosphericData(forecast, airQuality,
+            AtmosphericData data = OpenMeteoResponseParser.extractAtmosphericData(forecast, airQuality,
                     request.locationName(), solarEventTime, request.targetType());
 
             long durationMs = System.currentTimeMillis() - startMs;
@@ -286,7 +284,7 @@ public class OpenMeteoService {
         if (cached == null) {
             return null;
         }
-        AtmosphericData data = extractAtmosphericData(cached.forecastResponse(),
+        AtmosphericData data = OpenMeteoResponseParser.extractAtmosphericData(cached.forecastResponse(),
                 cached.airQualityResponse(), request.locationName(), solarEventTime,
                 request.targetType());
         return new WeatherExtractionResult(data, cached.forecastResponse(),
@@ -316,18 +314,6 @@ public class OpenMeteoService {
     public List<double[]> computeDirectionalCloudPoints(double lat, double lon,
             int solarAzimuthDeg) {
         return DirectionalSamplingGeometry.computeDirectionalCloudPoints(lat, lon, solarAzimuthDeg);
-    }
-
-    /**
-     * Computes the solar horizon point used for cloud approach trend analysis.
-     *
-     * @param lat             observer latitude
-     * @param lon             observer longitude
-     * @param solarAzimuthDeg compass bearing of the sun
-     * @return [lat, lon] pair at 113 km along the solar bearing
-     */
-    public double[] computeSolarHorizonPoint(double lat, double lon, int solarAzimuthDeg) {
-        return DirectionalSamplingGeometry.computeSolarHorizonPoint(lat, lon, solarAzimuthDeg);
     }
 
     /**
@@ -512,7 +498,7 @@ public class OpenMeteoService {
             List<AtmosphericData> slots = new ArrayList<>();
             LocalDateTime current = startHour;
             while (!current.isAfter(endHour)) {
-                slots.add(extractAtmosphericData(forecast, airQuality,
+                slots.add(OpenMeteoResponseParser.extractAtmosphericData(forecast, airQuality,
                         request.locationName(), current, request.targetType()));
                 current = current.plusHours(1);
             }
@@ -557,25 +543,6 @@ public class OpenMeteoService {
     }
 
     /**
-     * Extracts the forecast values nearest to the solar event time from the API responses.
-     *
-     * <p>Package-private for unit testing.
-     *
-     * @param forecast       the Open-Meteo forecast response
-     * @param airQuality     the Open-Meteo air quality response
-     * @param locationName   human-readable location name
-     * @param solarEventTime UTC time of the solar event
-     * @param targetType     SUNRISE or SUNSET
-     * @return pre-processed atmospheric data for the closest forecast slot
-     */
-    AtmosphericData extractAtmosphericData(OpenMeteoForecastResponse forecast,
-            OpenMeteoAirQualityResponse airQuality, String locationName,
-            LocalDateTime solarEventTime, TargetType targetType) {
-        return OpenMeteoResponseParser.extractAtmosphericData(forecast, airQuality, locationName,
-                solarEventTime, targetType);
-    }
-
-    /**
      * Fetches cloud cover at the solar and antisolar horizon points (113 km from observer),
      * plus a far-field solar sample at 226 km for horizon cloud structure detection.
      *
@@ -612,7 +579,7 @@ public class OpenMeteoService {
             int solarHighSum = 0;
             for (int i = 0; i < DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT; i++) {
                 OpenMeteoForecastResponse f = responses.get(i);
-                int idx = findBestIndex(f.getHourly().getTime(), solarEventTime, targetType);
+                int idx = TimeSlotUtils.findBestIndex(f.getHourly().getTime(), solarEventTime, targetType);
                 OpenMeteoForecastResponse.Hourly h = f.getHourly();
                 solarLowSum += h.getCloudCoverLow().get(idx);
                 solarMidSum += h.getCloudCoverMid().get(idx);
@@ -624,7 +591,7 @@ public class OpenMeteoService {
 
             // Antisolar (index 3)
             OpenMeteoForecastResponse antisolarForecast = responses.get(3);
-            int antisolarIdx = findBestIndex(antisolarForecast.getHourly().getTime(),
+            int antisolarIdx = TimeSlotUtils.findBestIndex(antisolarForecast.getHourly().getTime(),
                     solarEventTime, targetType);
             OpenMeteoForecastResponse.Hourly ah = antisolarForecast.getHourly();
 
@@ -632,7 +599,7 @@ public class OpenMeteoService {
             Integer farSolarLow = null;
             try {
                 OpenMeteoForecastResponse farForecast = responses.get(4);
-                int farIdx = findBestIndex(farForecast.getHourly().getTime(),
+                int farIdx = TimeSlotUtils.findBestIndex(farForecast.getHourly().getTime(),
                         solarEventTime, targetType);
                 farSolarLow = farForecast.getHourly().getCloudCoverLow().get(farIdx);
             } catch (Exception e) {
@@ -673,19 +640,6 @@ public class OpenMeteoService {
             }
             return null;
         }
-    }
-
-    /**
-     * Finds the best hourly slot index for a solar event, respecting event direction.
-     *
-     * @param times      list of ISO-8601 time strings from the API response
-     * @param targetTime the solar event time
-     * @param targetType SUNRISE or SUNSET
-     * @return the index of the best matching slot
-     * @see TimeSlotUtils#findBestIndex(List, LocalDateTime, TargetType)
-     */
-    int findBestIndex(List<String> times, LocalDateTime targetTime, TargetType targetType) {
-        return TimeSlotUtils.findBestIndex(times, targetTime, targetType);
     }
 
     /**
@@ -740,11 +694,12 @@ public class OpenMeteoService {
                         durationMs, 200, null, true, null);
             }
 
-            SolarCloudTrend trend = extractSolarTrend(responses.get(0), solarEventTime, targetType);
+            SolarCloudTrend trend = OpenMeteoResponseParser.extractSolarTrend(
+                    responses.get(0), solarEventTime, targetType);
 
             UpwindCloudSample upwind = null;
             if (upwindPoint != null && responses.size() > 1) {
-                upwind = extractUpwindSample(responses.get(1), solarEventTime, currentTime,
+                upwind = OpenMeteoResponseParser.extractUpwindSample(responses.get(1), solarEventTime, currentTime,
                         targetType, (int) (upwindDistanceM / 1000), windFromDeg);
             }
 
@@ -760,76 +715,4 @@ public class OpenMeteoService {
         }
     }
 
-    /**
-     * Extracts an hourly visibility and dew point trend from T-3h through T+2h.
-     *
-     * <p>Data is sourced from the already-fetched main forecast response — no additional
-     * API call required. Returns {@code null} if dew point or visibility data is absent.
-     *
-     * <p>Package-private for unit testing.
-     *
-     * @param h        the hourly forecast arrays from Open-Meteo
-     * @param eventIdx the slot index corresponding to the solar event time
-     * @return the trend, or {@code null} if data is insufficient
-     */
-    MistTrend extractMistTrend(OpenMeteoForecastResponse.Hourly h, int eventIdx) {
-        return OpenMeteoResponseParser.extractMistTrend(h, eventIdx);
-    }
-
-    /**
-     * Extracts a pressure tendency trend from T-3h through T+3h using mean sea level pressure.
-     *
-     * <p>Boundary handling: if T-3 or T+3 falls outside the array, uses the nearest available
-     * index. Returns {@code null} only if the pressureMsl list is null or empty.
-     *
-     * <p>Package-private for unit testing.
-     *
-     * @param h        the hourly forecast arrays from Open-Meteo
-     * @param eventIdx the slot index corresponding to the solar event time
-     * @return the trend, or {@code null} if pressure data is unavailable
-     */
-    PressureTrend extractPressureTrend(OpenMeteoForecastResponse.Hourly h, int eventIdx) {
-        return OpenMeteoResponseParser.extractPressureTrend(h, eventIdx);
-    }
-
-    /**
-     * Extracts the solar horizon cloud trend from T-3h through T, capturing the low cloud blocker
-     * plus the mid and high canvas layers at each hour.
-     *
-     * <p>The mid/high series lets {@link SolarCloudTrend#isClearing()} distinguish a dramatic
-     * clearance (blocker drops, canvas survives) from a wholesale clear (everything falling toward
-     * bald blue). Mid/high come from the same forecast response as the low cloud — the cloud-only
-     * batch already requests all three layers — so no additional fetch is needed.
-     *
-     * <p>Package-private for unit testing.
-     *
-     * @param forecast       the Open-Meteo forecast for the solar horizon point
-     * @param eventTime      UTC time of the solar event
-     * @param targetType     SUNRISE or SUNSET
-     * @return the trend, or {@code null} if no valid slots found
-     */
-    SolarCloudTrend extractSolarTrend(OpenMeteoForecastResponse forecast,
-            LocalDateTime eventTime, TargetType targetType) {
-        return OpenMeteoResponseParser.extractSolarTrend(forecast, eventTime, targetType);
-    }
-
-    /**
-     * Extracts low cloud at the upwind point for both current time and event time.
-     *
-     * <p>Package-private for unit testing.
-     *
-     * @param forecast        the Open-Meteo forecast for the upwind point
-     * @param eventTime       UTC time of the solar event
-     * @param currentTime     current UTC time
-     * @param targetType      SUNRISE or SUNSET
-     * @param distanceKm      distance to the upwind point in km
-     * @param windFromBearing wind-from bearing in degrees
-     * @return the upwind sample
-     */
-    UpwindCloudSample extractUpwindSample(OpenMeteoForecastResponse forecast,
-            LocalDateTime eventTime, LocalDateTime currentTime, TargetType targetType,
-            int distanceKm, int windFromBearing) {
-        return OpenMeteoResponseParser.extractUpwindSample(forecast, eventTime, currentTime,
-                targetType, distanceKm, windFromBearing);
-    }
 }
