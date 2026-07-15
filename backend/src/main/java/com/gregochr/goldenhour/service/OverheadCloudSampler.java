@@ -26,16 +26,13 @@ import java.util.Map;
  *
  * <p>Fetches in a single deduped cloud-only {@link OpenMeteoClient#fetchCloudOnlyBatch batch}. Failure
  * is lenient and never throws: a null/failed response or a missing hour yields the
- * {@value #DEFAULT_OVERCAST_PERCENT}% overcast default, so a fetch problem quietly suppresses a count
- * rather than fabricating clear skies.
+ * {@value CloudScoringRules#OVERCAST_PERCENT}% overcast default, so a fetch problem quietly
+ * suppresses a count rather than fabricating clear skies.
  */
 @Component
 public class OverheadCloudSampler {
 
     private static final Logger LOG = LoggerFactory.getLogger(OverheadCloudSampler.class);
-
-    /** Overcast default (%) used for any sample that cannot be fetched or found. */
-    public static final int DEFAULT_OVERCAST_PERCENT = 75;
 
     /** Grid resolution for deduplication — the Open-Meteo grid is approximately 0.1°. */
     private static final double GRID_STEP = 0.1;
@@ -126,7 +123,7 @@ public class OverheadCloudSampler {
         for (int i = 0; i < hourKeys.size(); i++) {
             int idx = times.indexOf(hourKeys.get(i));
             if (idx < 0) {
-                out[i] = DEFAULT_OVERCAST_PERCENT;
+                out[i] = CloudScoringRules.OVERCAST_PERCENT;
                 continue;
             }
             int low = safeGet(hourly.getCloudCoverLow(), idx);
@@ -139,7 +136,7 @@ public class OverheadCloudSampler {
 
     private int[] defaults(int hours) {
         int[] arr = new int[hours];
-        Arrays.fill(arr, DEFAULT_OVERCAST_PERCENT);
+        Arrays.fill(arr, CloudScoringRules.OVERCAST_PERCENT);
         return arr;
     }
 

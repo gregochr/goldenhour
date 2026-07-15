@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
+import com.gregochr.goldenhour.service.DirectionalSamplingGeometry;
 import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.PressureTrend;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
@@ -275,6 +276,35 @@ public class PromptBuilder {
     private static final double INVERSION_SCORE_THRESHOLD = 7.0;
 
     /**
+     * Solar-horizon mid cloud (%) above which colour variety is limited — the prompt flags it so
+     * Claude caps the rating at 4 rather than 5.
+     */
+    private static final int SOLAR_MID_CLOUD_THICK_PERCENT = 80;
+
+    /**
+     * Solar-horizon low cloud (%) at or above which the low-cloud penalty is in play, and above
+     * which the far-field sample is worth comparing for strip-vs-blanket.
+     */
+    private static final int SOLAR_LOW_CLOUD_SIGNIFICANT_PERCENT = 50;
+
+    /**
+     * Percentage-point drop in low cloud between the horizon sample and the far-field sample that
+     * marks a thin strip on the horizon (rather than an extensive blanket).
+     */
+    private static final int THIN_STRIP_DROP_POINTS = 30;
+
+    /**
+     * Horizon sampling distance in km, derived from the sampling geometry so the distance quoted
+     * to Claude can never drift from the distance actually sampled.
+     */
+    private static final int HORIZON_SAMPLE_KM =
+            (int) (DirectionalSamplingGeometry.DIRECTIONAL_OFFSET_METRES / 1000);
+
+    /** Far-field sampling distance in km, derived from the sampling geometry (see above). */
+    private static final int FAR_SAMPLE_KM =
+            (int) (DirectionalSamplingGeometry.FAR_SOLAR_OFFSET_METRES / 1000);
+
+    /**
      * Cloud inversion potential classification derived from the inversion score.
      */
     public enum InversionPotential {
@@ -399,32 +429,33 @@ public class PromptBuilder {
         DirectionalCloudData dc = data.directionalCloud();
         if (dc != null) {
             sb.append(String.format(
-                    "%nDIRECTIONAL CLOUD (113km sample):%n"
+                    "%nDIRECTIONAL CLOUD (%dkm sample):%n"
                     + "Solar horizon (toward sun): Low %d%%, Mid %d%%, High %d%%%n"
                     + "Antisolar horizon (away from sun): Low %d%%, Mid %d%%, High %d%%",
+                    HORIZON_SAMPLE_KM,
                     dc.solarLowCloudPercent(), dc.solarMidCloudPercent(),
                     dc.solarHighCloudPercent(),
                     dc.antisolarLowCloudPercent(), dc.antisolarMidCloudPercent(),
                     dc.antisolarHighCloudPercent()));
-            if (dc.solarMidCloudPercent() > 80) {
+            if (dc.solarMidCloudPercent() > SOLAR_MID_CLOUD_THICK_PERCENT) {
                 sb.append(" [THICK MID CLOUD — rate 4 (worth the trip), not 3, not 5]");
             }
             if (dc.farSolarLowCloudPercent() != null) {
                 int near = dc.solarLowCloudPercent();
                 int far = dc.farSolarLowCloudPercent();
-                sb.append(String.format("%nBeyond horizon (226km, solar azimuth): Low %d%%", far));
-                if (near >= 50 && (near - far) >= 30) {
+                sb.append(String.format("%nBeyond horizon (%dkm, solar azimuth): Low %d%%",
+                        FAR_SAMPLE_KM, far));
+                if (isThinStrip(dc)) {
                     sb.append(" [THIN STRIP — soften low-cloud penalty]");
-                } else if (near >= 50 && far >= 50) {
+                } else if (near >= SOLAR_LOW_CLOUD_SIGNIFICANT_PERCENT
+                        && far >= SOLAR_LOW_CLOUD_SIGNIFICANT_PERCENT) {
                     sb.append(" [EXTENSIVE BLANKET — full penalty applies]");
                 }
             }
         }
 
         // Cloud approach risk block — temporal trend and upwind sample
-        boolean thinStripConfirmed = dc != null && dc.farSolarLowCloudPercent() != null
-                && dc.solarLowCloudPercent() >= 50
-                && (dc.solarLowCloudPercent() - dc.farSolarLowCloudPercent()) >= 30;
+        boolean thinStripConfirmed = isThinStrip(dc);
         CloudApproachData ca = data.cloudApproach();
         if (ca != null) {
             sb.append(String.format("%nCLOUD APPROACH RISK:"));
@@ -647,5 +678,22 @@ public class PromptBuilder {
      */
     static boolean isInversionLikely(Double inversionScore) {
         return inversionScore != null && inversionScore >= INVERSION_SCORE_THRESHOLD;
+    }
+
+    /**
+     * Returns {@code true} when the solar-horizon low cloud is significant but drops sharply by
+     * the far-field sample — a thin strip sitting on the horizon rather than an extensive blanket.
+     *
+     * <p>The prompt uses this in two places: to label the directional-cloud block, and to soften
+     * the cloud-approach wording. Both must agree, hence the single definition.
+     *
+     * @param dc directional cloud data, or {@code null} when unavailable
+     * @return true if the horizon low cloud reads as a thin strip
+     */
+    static boolean isThinStrip(DirectionalCloudData dc) {
+        return dc != null && dc.farSolarLowCloudPercent() != null
+                && dc.solarLowCloudPercent() >= SOLAR_LOW_CLOUD_SIGNIFICANT_PERCENT
+                && (dc.solarLowCloudPercent() - dc.farSolarLowCloudPercent())
+                        >= THIN_STRIP_DROP_POINTS;
     }
 }

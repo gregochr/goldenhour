@@ -39,13 +39,6 @@ public class NlcClarityService {
 
     private static final Logger LOG = LoggerFactory.getLogger(NlcClarityService.class);
 
-    /**
-     * Combined cloud percentage at or above which a location is considered too cloudy for NLC.
-     * Mirrors the aurora clear-sky threshold ({@code BriefingAuroraSummaryBuilder.CLEAR_SKY_THRESHOLD})
-     * so the two dark-sky night topics agree on what "clear" means.
-     */
-    static final int CLEAR_SKY_THRESHOLD = 75;
-
     /** NLC visibility season for northern England: late May to early August. */
     private static final SeasonalWindow NLC_SEASON =
             new SeasonalWindow(MonthDay.of(5, 25), MonthDay.of(8, 10), "NLC");
@@ -108,7 +101,7 @@ public class NlcClarityService {
             LocationEntity representative = null;
             for (LocationEntity loc : darkSky) {
                 int[] hourly = cloud.get(loc);
-                if (hourly != null && hourly[night] < CLEAR_SKY_THRESHOLD) {
+                if (hourly != null && CloudScoringRules.isClear(hourly[night])) {
                     clearCount++;
                     if (representative == null) {
                         representative = loc;

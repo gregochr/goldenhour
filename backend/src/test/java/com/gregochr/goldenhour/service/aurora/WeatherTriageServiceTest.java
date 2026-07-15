@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service.aurora;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.service.CloudScoringRules;
 import com.gregochr.goldenhour.service.OpenMeteoClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -243,9 +244,9 @@ class WeatherTriageServiceTest {
     }
 
     @Test
-    @DisplayName("OVERCAST_THRESHOLD_PERCENT constant is 75")
+    @DisplayName("OVERCAST_PERCENT constant is 75")
     void defaultCloud_matchesThreshold() {
-        assertThat(WeatherTriageService.OVERCAST_THRESHOLD_PERCENT).isEqualTo(75);
+        assertThat(CloudScoringRules.OVERCAST_PERCENT).isEqualTo(75);
     }
 
     // -------------------------------------------------------------------------

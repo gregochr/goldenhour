@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service.aurora;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.service.CloudScoringRules;
 import com.gregochr.goldenhour.service.NorthwardTransectSampler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,19 +25,14 @@ import java.util.Map;
  * {@link NorthwardTransectSampler} — aurora appears low on the poleward horizon, so cloud between
  * the observer and the north matters more than cloud overhead. The triage rule is intentionally
  * lenient: <strong>reject only when every hour in the next {@value #TRIAGE_LOOKAHEAD_HOURS} hours
- * exceeds the overcast threshold.</strong> If any single hour is below the threshold, the location
- * passes — a gap in the clouds is all you need for aurora photography.
+ * reaches the shared overcast boundary.</strong> If any single hour counts as clear (see
+ * {@link CloudScoringRules#isClear}), the location passes — a gap in the clouds is all you need for
+ * aurora photography.
  */
 @Service
 public class WeatherTriageService {
 
     private static final Logger LOG = LoggerFactory.getLogger(WeatherTriageService.class);
-
-    /**
-     * Cloud cover percentage above which a single hour is considered overcast for aurora.
-     * A location passes triage if any hour in the window is below this threshold.
-     */
-    static final int OVERCAST_THRESHOLD_PERCENT = 75;
 
     /** Hours ahead to check for any viable aurora window. */
     static final int TRIAGE_LOOKAHEAD_HOURS = 6;
@@ -60,8 +56,8 @@ public class WeatherTriageService {
      *
      * <p>Samples the northward transect's total (low+mid+high, capped) cloud for the current hour
      * and the next {@value #TRIAGE_LOOKAHEAD_HOURS} hours. Separates the list into viable locations
-     * (any hour below {@value #OVERCAST_THRESHOLD_PERCENT}%) and rejected locations (completely
-     * overcast across the window).
+     * (any hour below {@value CloudScoringRules#OVERCAST_PERCENT}%) and rejected locations
+     * (completely overcast across the window).
      *
      * @param candidates locations that have already passed the Bortle filter
      * @return triage result with viable/rejected lists and cloud data per location
@@ -114,7 +110,7 @@ public class WeatherTriageService {
      */
     private boolean hasViableHour(int[] hourlyCloud) {
         for (int cloud : hourlyCloud) {
-            if (cloud < OVERCAST_THRESHOLD_PERCENT) {
+            if (CloudScoringRules.isClear(cloud)) {
                 return true;
             }
         }
@@ -123,7 +119,7 @@ public class WeatherTriageService {
 
     private int averageCloud(int[] hourlyCloud) {
         if (hourlyCloud.length == 0) {
-            return OVERCAST_THRESHOLD_PERCENT;
+            return CloudScoringRules.OVERCAST_PERCENT;
         }
         int sum = 0;
         for (int v : hourlyCloud) {
@@ -134,7 +130,7 @@ public class WeatherTriageService {
 
     private int[] defaultWindow() {
         int[] arr = new int[TRIAGE_LOOKAHEAD_HOURS + 1];
-        Arrays.fill(arr, OVERCAST_THRESHOLD_PERCENT);
+        Arrays.fill(arr, CloudScoringRules.OVERCAST_PERCENT);
         return arr;
     }
 
