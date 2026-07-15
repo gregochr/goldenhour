@@ -1,10 +1,13 @@
 name: Dependabot auto-merge
 
-# Auto-approves and enables auto-merge for Dependabot PRs that are minor or
-# patch bumps. GitHub's native auto-merge waits for the required status checks
-# (the CI workflow's Backend and Frontend jobs) to pass before merging, so this
-# never merges a red PR. Major-version bumps are deliberately left for manual
-# review.
+# Enables auto-merge for Dependabot PRs that are minor or patch bumps.
+# GitHub's native auto-merge waits for the required status checks (the CI
+# workflow's Backend and Frontend jobs) to pass before merging, so this never
+# merges a red PR. Major-version bumps are deliberately left for manual review.
+#
+# `main` requires status checks but no approving review, so this deliberately
+# does not approve: GitHub blocks Actions from approving PRs unless the repo
+# opts in, and an approval would satisfy no protection rule even if it landed.
 #
 # Requirements on the repository (Settings):
 #   - "Allow auto-merge" enabled (Settings → General → Pull Requests).
@@ -14,7 +17,7 @@ name: Dependabot auto-merge
 on: pull_request
 
 # Dependabot-triggered runs get a read-only token by default; grant just what
-# the approve + enable-auto-merge steps need.
+# enabling auto-merge needs.
 permissions:
   contents: write
   pull-requests: write
@@ -29,13 +32,6 @@ jobs:
         uses: dependabot/fetch-metadata@v2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Approve the PR
-        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
-        run: gh pr review --approve "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Enable auto-merge for minor and patch updates
         if: steps.metadata.outputs.update-type != 'version-update:semver-major'

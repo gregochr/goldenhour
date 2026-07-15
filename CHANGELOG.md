@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Dependabot auto-merge no longer dies on the approve step
+- Every Dependabot PR since the workflow landed stopped at `gh pr review --approve`, which fails with "GitHub Actions is not permitted to approve pull requests" unless the repo opts Actions into approving. The step exiting non-zero killed the job before `gh pr merge --auto` ran, so six green dev-dependency bumps (#232–#237) sat unmerged rather than merging themselves.
+- Removed the approve step outright rather than enabling the repo setting: `main`'s protection requires the two CI checks and **no** approving review, so the approval satisfied no rule — it was ceremony that only ever failed. `gh pr merge --auto --squash` still gates on the required checks, so this cannot merge a red PR.
+
 ### Changed — One definition of the 75% clear/overcast boundary (`CloudScoringRules`)
 - The cloud percentage at which a sky stops counting as "clear" was defined **six times** under three different names: `CLEAR_SKY_THRESHOLD` (`MeteorClarityService`, `NlcClarityService`, `BriefingAuroraSummaryBuilder`), `OVERCAST_THRESHOLD_PERCENT` (`WeatherTriageService`), and `DEFAULT_OVERCAST_PERCENT` (`NorthwardTransectSampler`, `OverheadCloudSampler`). Changing the rule meant editing six constants — miss one and a location counts as clear for the meteor pill but overcast for aurora triage.
 - Extracted `CloudScoringRules` (`OVERCAST_PERCENT` + `isClear(cloudPercent)`) and repointed all six. Every site already used the identical `cloud < 75` test, and the three fail-open sites (a failed cloud fetch assumes the overcast boundary, so a fetch problem quietly suppresses a "clear" count rather than inventing a clear sky) now share the same constant — so this is a pure de-duplication with no behaviour change. The two unrelated `75`s (moon illumination in `AstroConditionsService` and the aurora prompt) are deliberately left independent.
