@@ -4,7 +4,9 @@ import com.gregochr.goldenhour.entity.ApiCallLogEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.model.ApiCallLogDto;
 import com.gregochr.goldenhour.model.DispositionBreakdownResponse;
+import com.gregochr.goldenhour.model.JobRunDto;
 import com.gregochr.goldenhour.service.BatchSummaryDeriver;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.batch.ForecastDispositionService;
@@ -80,7 +82,8 @@ public class JobMetricsController {
 
             runs.forEach(run -> batchSummaryDeriver.derive(run).ifPresent(run::setBatchSummary));
 
-            return ResponseEntity.ok(new PageImpl<>(runs, PageRequest.of(page, size), runs.size()));
+            List<JobRunDto> content = runs.stream().map(JobRunDto::from).toList();
+            return ResponseEntity.ok(new PageImpl<>(content, PageRequest.of(page, size), runs.size()));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body("Invalid run type: " + runType);
         }
@@ -96,7 +99,7 @@ public class JobMetricsController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> getApiCalls(@RequestParam Long jobRunId) {
         List<ApiCallLogEntity> calls = jobRunService.getApiCallsForRun(jobRunId);
-        return ResponseEntity.ok(calls);
+        return ResponseEntity.ok(calls.stream().map(ApiCallLogDto::from).toList());
     }
 
     /**
