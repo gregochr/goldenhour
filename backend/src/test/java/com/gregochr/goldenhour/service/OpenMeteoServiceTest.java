@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.UpwindCloudSample;
+import com.gregochr.goldenhour.util.TimeSlotUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -88,7 +89,7 @@ class OpenMeteoServiceTest {
                 List.of(1.0, 2.1, 1.5),
                 List.of(0.08, 0.12, 0.09));
 
-        AtmosphericData result = openMeteoService.extractAtmosphericData(
+        AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
         // Should select index 1 (nearest slot: 30s before event)
@@ -131,7 +132,7 @@ class OpenMeteoServiceTest {
                 List.of("2026-02-20T06:30", "2026-02-20T07:30", "2026-02-20T08:30"),
                 List.of(3.0, 6.0, 4.0), List.of(0.5, 1.0, 0.7), List.of(0.06, 0.10, 0.08));
 
-        AtmosphericData result = openMeteoService.extractAtmosphericData(
+        AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNRISE);
 
         assertThat(result.cloud().lowCloudPercent()).isEqualTo(25);
@@ -154,7 +155,7 @@ class OpenMeteoServiceTest {
                 List.of("2026-06-21T20:47"),
                 null, null, null);
 
-        AtmosphericData result = openMeteoService.extractAtmosphericData(
+        AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
         assertThat(result.aerosol().pm25()).isEqualByComparingTo("0.00");
@@ -178,7 +179,7 @@ class OpenMeteoServiceTest {
                 List.of("2026-06-21T05:10"),
                 List.of(3.0), List.of(0.5), List.of(0.05));
 
-        AtmosphericData result = openMeteoService.extractAtmosphericData(
+        AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNRISE);
 
         assertThat(result.weather().windSpeedMs()).isEqualByComparingTo("7.30");
@@ -275,7 +276,7 @@ class OpenMeteoServiceTest {
                 List.of("2026-06-21T19:00", "2026-06-21T20:00", "2026-06-21T21:00"),
                 List.of(3.0, 4.0, 5.0), List.of(0.5, 0.6, 0.7), List.of(0.05, 0.06, 0.07));
 
-        AtmosphericData result = openMeteoService.extractAtmosphericData(
+        AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
         assertThat(result.cloud().lowCloudPercent()).isEqualTo(99);
@@ -297,7 +298,7 @@ class OpenMeteoServiceTest {
                 List.of("2026-06-21T06:00"),
                 List.of(1.0), List.of(0.1), List.of(0.01));
 
-        AtmosphericData result = openMeteoService.extractAtmosphericData(
+        AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
         assertThat(result.cloud().lowCloudPercent()).isEqualTo(42);
@@ -320,7 +321,7 @@ class OpenMeteoServiceTest {
                 List.of("2026-06-21T19:00"),
                 List.of(9.9), List.of(1.1), List.of(0.9));
 
-        AtmosphericData result = openMeteoService.extractAtmosphericData(
+        AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
         assertThat(result.aerosol().pm25()).isEqualByComparingTo("0.00");
@@ -344,7 +345,7 @@ class OpenMeteoServiceTest {
                 List.of("2026-06-21T20:47"),
                 List.of(1.0), List.of(0.5), List.of(0.05));
 
-        AtmosphericData result = openMeteoService.extractAtmosphericData(
+        AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
         assertThat(result.weather().windSpeedMs()).isEqualByComparingTo("3.56");
@@ -366,7 +367,7 @@ class OpenMeteoServiceTest {
                 List.of("2026-06-21T20:47"),
                 List.of(1.0), List.of(0.5), List.of(0.05));
 
-        AtmosphericData result = openMeteoService.extractAtmosphericData(
+        AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
         assertThat(result.tide()).isNull();
@@ -435,7 +436,7 @@ class OpenMeteoServiceTest {
                 List.of("2026-01-15T07:30", "2026-01-15T08:30", "2026-01-15T09:30"),
                 List.of(5.0, 8.5, 6.0), List.of(1.0, 2.1, 1.5), List.of(0.08, 0.12, 0.09));
 
-        AtmosphericData result = openMeteoService.extractAtmosphericData(
+        AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
                 forecast, airQuality, "Cat Bells", solarEvent, TargetType.SUNRISE);
 
         assertThat(result.weather().snowfallCm()).isEqualTo(1.2);
@@ -458,7 +459,7 @@ class OpenMeteoServiceTest {
         OpenMeteoAirQualityResponse airQuality = buildAirQualityResponse(
                 List.of("2026-06-21T20:47"), List.of(3.0), List.of(0.5), List.of(0.05));
 
-        AtmosphericData result = openMeteoService.extractAtmosphericData(
+        AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
         assertThat(result.weather().snowfallCm()).isNull();
@@ -483,7 +484,7 @@ class OpenMeteoServiceTest {
                 List.of("2026-06-21T20:47"),
                 List.of(1.0), List.of(0.5), List.of(0.05));
 
-        AtmosphericData result = openMeteoService.extractAtmosphericData(
+        AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
         assertThat(result.comfort().temperatureCelsius()).isEqualTo(14.5);
@@ -509,7 +510,7 @@ class OpenMeteoServiceTest {
                 List.of("2026-06-21T20:47"),
                 List.of(1.0), List.of(0.5), List.of(0.05));
 
-        AtmosphericData result = openMeteoService.extractAtmosphericData(
+        AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
         assertThat(result.weather().pressureHpa()).isEqualTo(985.5);
@@ -531,7 +532,7 @@ class OpenMeteoServiceTest {
                 List.of("2026-06-21T20:47"),
                 List.of(1.0), List.of(0.5), List.of(0.05));
 
-        AtmosphericData result = openMeteoService.extractAtmosphericData(
+        AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
         assertThat(result.weather().pressureHpa()).isNull();
@@ -584,7 +585,7 @@ class OpenMeteoServiceTest {
                 List.of("2026-06-21T20:47"),
                 List.of(1.0), List.of(0.5), List.of(0.05));
 
-        AtmosphericData result = openMeteoService.extractAtmosphericData(
+        AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
         assertThat(result.comfort().temperatureCelsius()).isNull();
@@ -715,7 +716,7 @@ class OpenMeteoServiceTest {
         // Sunset at 17:35 — 18:00 is closer (25 min) but 17:00 should be chosen (35 min before)
         LocalDateTime sunset = LocalDateTime.of(2026, 3, 5, 17, 35);
 
-        int idx = openMeteoService.findBestIndex(times, sunset, TargetType.SUNSET);
+        int idx = TimeSlotUtils.findBestIndex(times, sunset, TargetType.SUNSET);
 
         assertThat(idx).isEqualTo(0); // 17:00
     }
@@ -727,7 +728,7 @@ class OpenMeteoServiceTest {
         // Sunrise at 06:25 — 06:00 is closer (25 min) but 07:00 should be chosen (35 min after)
         LocalDateTime sunrise = LocalDateTime.of(2026, 3, 5, 6, 25);
 
-        int idx = openMeteoService.findBestIndex(times, sunrise, TargetType.SUNRISE);
+        int idx = TimeSlotUtils.findBestIndex(times, sunrise, TargetType.SUNRISE);
 
         assertThat(idx).isEqualTo(1); // 07:00
     }
@@ -739,7 +740,7 @@ class OpenMeteoServiceTest {
         // Sunset at 17:35 — both slots are after sunset, should fall back to nearest (19:00)
         LocalDateTime sunset = LocalDateTime.of(2026, 3, 5, 17, 35);
 
-        int idx = openMeteoService.findBestIndex(times, sunset, TargetType.SUNSET);
+        int idx = TimeSlotUtils.findBestIndex(times, sunset, TargetType.SUNSET);
 
         assertThat(idx).isEqualTo(0); // 19:00 (nearest)
     }
@@ -750,7 +751,7 @@ class OpenMeteoServiceTest {
         List<String> times = List.of("2026-03-05T17:00", "2026-03-05T18:00");
         LocalDateTime sunset = LocalDateTime.of(2026, 3, 5, 17, 0);
 
-        int idx = openMeteoService.findBestIndex(times, sunset, TargetType.SUNSET);
+        int idx = TimeSlotUtils.findBestIndex(times, sunset, TargetType.SUNSET);
 
         assertThat(idx).isEqualTo(0); // exact match at 17:00
     }
@@ -871,7 +872,7 @@ class OpenMeteoServiceTest {
                         "2026-03-11T16:00", "2026-03-11T17:00", "2026-03-11T18:00"),
                 List.of(5, 12, 25, 7, 80), List.of(0, 0, 0, 0, 0), List.of(80, 80, 80, 80, 80));
 
-        SolarCloudTrend trend = openMeteoService.extractSolarTrend(
+        SolarCloudTrend trend = OpenMeteoResponseParser.extractSolarTrend(
                 forecast, LocalDateTime.of(2026, 3, 11, 17, 45), TargetType.SUNSET);
 
         assertThat(trend).isNotNull();
@@ -896,7 +897,7 @@ class OpenMeteoServiceTest {
                         "2026-03-11T16:00", "2026-03-11T17:00"),
                 List.of(90, 70, 35, 10), List.of(20, 25, 30, 30), List.of(40, 45, 50, 55));
 
-        SolarCloudTrend trend = openMeteoService.extractSolarTrend(
+        SolarCloudTrend trend = OpenMeteoResponseParser.extractSolarTrend(
                 forecast, LocalDateTime.of(2026, 3, 11, 17, 5), TargetType.SUNSET);
 
         assertThat(trend).isNotNull();
@@ -915,7 +916,7 @@ class OpenMeteoServiceTest {
                 List.of("2026-03-11T06:00", "2026-03-11T07:00"),
                 List.of(30, 45), List.of(0, 0), List.of(80, 80));
 
-        SolarCloudTrend trend = openMeteoService.extractSolarTrend(
+        SolarCloudTrend trend = OpenMeteoResponseParser.extractSolarTrend(
                 forecast, LocalDateTime.of(2026, 3, 11, 7, 15), TargetType.SUNRISE);
 
         assertThat(trend).isNotNull();
@@ -932,7 +933,7 @@ class OpenMeteoServiceTest {
                         "2026-03-11T15:00", "2026-03-11T16:00", "2026-03-11T17:00"),
                 List.of(80, 70, 50, 30, 15), List.of(0, 0, 0, 0, 0), List.of(50, 50, 50, 50, 50));
 
-        UpwindCloudSample sample = openMeteoService.extractUpwindSample(
+        UpwindCloudSample sample = OpenMeteoResponseParser.extractUpwindSample(
                 forecast, LocalDateTime.of(2026, 3, 11, 17, 45),
                 LocalDateTime.of(2026, 3, 11, 13, 30), TargetType.SUNSET, 87, 228);
 
@@ -964,7 +965,7 @@ class OpenMeteoServiceTest {
                 List.of("2026-03-21T18:00", "2026-03-21T19:00"),
                 List.of(2.0, 2.5), List.of(0.5, 0.6), List.of(0.05, 0.06));
 
-        AtmosphericData result = openMeteoService.extractAtmosphericData(
+        AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
                 forecast, airQuality, "Embleton Bay", solarEvent, TargetType.SUNSET);
 
         assertThat(result.weather().dewPointCelsius()).isEqualTo(2.2);
@@ -988,7 +989,7 @@ class OpenMeteoServiceTest {
                 List.of("2026-03-21T06:00"),
                 List.of(2.0), List.of(0.5), List.of(0.05));
 
-        AtmosphericData result = openMeteoService.extractAtmosphericData(
+        AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
                 forecast, airQuality, "Embleton Bay", solarEvent, TargetType.SUNRISE);
 
         assertThat(result.weather().dewPointCelsius()).isNull();
@@ -1005,7 +1006,7 @@ class OpenMeteoServiceTest {
         h.setDewPoint2m(List.of(1.0, 1.5, 2.0, 2.2, 2.3, 2.4, 2.2));
         h.setTemperature2m(List.of(6.0, 5.5, 4.5, 3.8, 3.2, 3.1, 3.5));
 
-        MistTrend trend = openMeteoService.extractMistTrend(h, 3);
+        MistTrend trend = OpenMeteoResponseParser.extractMistTrend(h, 3);
 
         assertThat(trend).isNotNull();
         assertThat(trend.slots()).hasSize(6); // T-3h through T+2h
@@ -1028,7 +1029,7 @@ class OpenMeteoServiceTest {
         h.setVisibility(List.of(4200.0));
         // dewPoint2m not set (null)
 
-        MistTrend trend = openMeteoService.extractMistTrend(h, 0);
+        MistTrend trend = OpenMeteoResponseParser.extractMistTrend(h, 0);
 
         assertThat(trend).isNull();
     }
@@ -1043,7 +1044,7 @@ class OpenMeteoServiceTest {
         h.setTemperature2m(List.of(4.5, 4.0, 3.5));
 
         // Event at index 0 — no slots before it, T+1h and T+2h available
-        MistTrend trend = openMeteoService.extractMistTrend(h, 0);
+        MistTrend trend = OpenMeteoResponseParser.extractMistTrend(h, 0);
 
         assertThat(trend).isNotNull();
         assertThat(trend.slots()).hasSize(3); // only event, T+1h, T+2h
@@ -1926,7 +1927,7 @@ class OpenMeteoServiceTest {
         LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 18, 0);
         LocalDateTime currentTime = LocalDateTime.of(2026, 6, 21, 20, 0);
 
-        UpwindCloudSample result = openMeteoService.extractUpwindSample(
+        UpwindCloudSample result = OpenMeteoResponseParser.extractUpwindSample(
                 forecast, eventTime, currentTime, TargetType.SUNSET, 50, 270);
 
         assertThat(result.currentLowCloudPercent()).isEqualTo(30);
@@ -1957,7 +1958,7 @@ class OpenMeteoServiceTest {
                     List.of(14.0), List.of(12.0), null, List.of(5.0));
             forecast.getHourly().setVisibility(null);
 
-            MistTrend result = openMeteoService.extractMistTrend(forecast.getHourly(), 0);
+            MistTrend result = OpenMeteoResponseParser.extractMistTrend(forecast.getHourly(), 0);
 
             assertThat(result).isNull();
         }
@@ -1976,7 +1977,7 @@ class OpenMeteoServiceTest {
                     List.of(1000.0), List.of(100.0),
                     List.of(14.0), List.of(12.0), null, List.of(5.0));
 
-            MistTrend result = openMeteoService.extractMistTrend(forecast.getHourly(), 0);
+            MistTrend result = OpenMeteoResponseParser.extractMistTrend(forecast.getHourly(), 0);
 
             assertThat(result).isNotNull();
         }
@@ -1998,7 +1999,7 @@ class OpenMeteoServiceTest {
             dewWithNull.add(null);
             forecast.getHourly().setDewPoint2m(dewWithNull);
 
-            MistTrend result = openMeteoService.extractMistTrend(forecast.getHourly(), 0);
+            MistTrend result = OpenMeteoResponseParser.extractMistTrend(forecast.getHourly(), 0);
 
             assertThat(result).isNull();
         }
@@ -2021,7 +2022,7 @@ class OpenMeteoServiceTest {
             // vis and dew are now non-null; clear temp explicitly
             forecast.getHourly().setTemperature2m(null);
 
-            MistTrend result = openMeteoService.extractMistTrend(forecast.getHourly(), 0);
+            MistTrend result = OpenMeteoResponseParser.extractMistTrend(forecast.getHourly(), 0);
 
             assertThat(result).isNull();
         }
@@ -2041,7 +2042,7 @@ class OpenMeteoServiceTest {
         OpenMeteoForecastResponse cloud = buildCloudOnlyResponse(
                 List.of("2026-06-21T20:00"), List.of(40), List.of(10), List.of(5));
 
-        SolarCloudTrend result = openMeteoService.extractSolarTrend(
+        SolarCloudTrend result = OpenMeteoResponseParser.extractSolarTrend(
                 cloud, LocalDateTime.of(2026, 6, 21, 20, 0), TargetType.SUNSET);
 
         assertThat(result).isNotNull();
@@ -2066,7 +2067,7 @@ class OpenMeteoServiceTest {
                 List.of("2026-06-21T20:00"),
                 List.of(), List.of(), List.of());
 
-        SolarCloudTrend result = openMeteoService.extractSolarTrend(
+        SolarCloudTrend result = OpenMeteoResponseParser.extractSolarTrend(
                 cloud, LocalDateTime.of(2026, 6, 21, 20, 0), TargetType.SUNSET);
 
         assertThat(result).isNull();
@@ -2082,7 +2083,7 @@ class OpenMeteoServiceTest {
     @DisplayName("fetchCloudApproachDataFromCache returns non-null when solar point is in cache")
     void fetchCloudApproachDataFromCache_solarPointInCache_returnsNonNull() {
         // Build a cache containing the exact grid cell for the solar horizon point
-        double[] solarPoint = openMeteoService.computeSolarHorizonPoint(55.0, -1.5, 270);
+        double[] solarPoint = DirectionalSamplingGeometry.computeSolarHorizonPoint(55.0, -1.5, 270);
         String key = com.gregochr.goldenhour.model.CloudPointCache.gridKey(
                 solarPoint[0], solarPoint[1]);
         OpenMeteoForecastResponse cloud = buildCloudOnlyResponse(
@@ -2109,7 +2110,7 @@ class OpenMeteoServiceTest {
         int windFromDeg = 270;
         double windSpeedMs = 5.0;
 
-        double[] solarPoint = openMeteoService.computeSolarHorizonPoint(55.0, -1.5, 270);
+        double[] solarPoint = DirectionalSamplingGeometry.computeSolarHorizonPoint(55.0, -1.5, 270);
         double[] upwindPoint = openMeteoService.computeUpwindPoint(
                 55.0, -1.5, windFromDeg, windSpeedMs, currentTime, eventTime);
         assertThat(upwindPoint).isNotNull();
@@ -2182,7 +2183,7 @@ class OpenMeteoServiceTest {
                 List.of("2026-06-21T06:00", "2026-06-21T07:00"),
                 List.of(5.0, 6.0), List.of(1.0, 1.5), List.of(0.05, 0.06));
 
-        AtmosphericData result = openMeteoService.extractAtmosphericData(
+        AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
                 forecast, aq, "Test", LocalDateTime.of(2026, 6, 21, 8, 0),
                 TargetType.SUNSET);
 
@@ -2213,7 +2214,7 @@ class OpenMeteoServiceTest {
             h.setPressureMsl(pressures);
 
             com.gregochr.goldenhour.model.PressureTrend result =
-                    openMeteoService.extractPressureTrend(h, 12);
+                    OpenMeteoResponseParser.extractPressureTrend(h, 12);
 
             assertThat(result).isNotNull();
             assertThat(result.pressureHpa()).hasSize(7);
@@ -2235,7 +2236,7 @@ class OpenMeteoServiceTest {
             h.setPressureMsl(List.of(1015.0, 1014.5, 1014.0, 1013.5, 1013.0));
 
             com.gregochr.goldenhour.model.PressureTrend result =
-                    openMeteoService.extractPressureTrend(h, 1);
+                    OpenMeteoResponseParser.extractPressureTrend(h, 1);
 
             assertThat(result).isNotNull();
             // T-3h clamps to index 0; T+3h = 4; extracts indices 0,0,0,1,2,3,4
@@ -2250,7 +2251,7 @@ class OpenMeteoServiceTest {
             h.setPressureMsl(List.of(1020.0, 1019.3, 1018.6, 1017.9, 1017.2, 1016.5, 1015.8));
 
             com.gregochr.goldenhour.model.PressureTrend result =
-                    openMeteoService.extractPressureTrend(h, 3);
+                    OpenMeteoResponseParser.extractPressureTrend(h, 3);
 
             // tendency = 1015.8 - 1020.0 = -4.2
             assertThat(result.tendencyHpa6h()).isCloseTo(-4.2, org.assertj.core.data.Offset.offset(0.001));
@@ -2264,7 +2265,7 @@ class OpenMeteoServiceTest {
             h.setPressureMsl(List.of(1020.0, 1019.65, 1019.3, 1018.95, 1018.6, 1018.25, 1017.9));
 
             com.gregochr.goldenhour.model.PressureTrend result =
-                    openMeteoService.extractPressureTrend(h, 3);
+                    OpenMeteoResponseParser.extractPressureTrend(h, 3);
 
             assertThat(result.tendencyHpa6h()).isCloseTo(-2.1, org.assertj.core.data.Offset.offset(0.001));
             assertThat(result.tendencyLabel()).isEqualTo("FALLING");
@@ -2277,7 +2278,7 @@ class OpenMeteoServiceTest {
             h.setPressureMsl(List.of(1013.0, 1013.05, 1013.1, 1013.15, 1013.2, 1013.25, 1013.3));
 
             com.gregochr.goldenhour.model.PressureTrend result =
-                    openMeteoService.extractPressureTrend(h, 3);
+                    OpenMeteoResponseParser.extractPressureTrend(h, 3);
 
             assertThat(result.tendencyHpa6h()).isCloseTo(0.3, org.assertj.core.data.Offset.offset(0.001));
             assertThat(result.tendencyLabel()).isEqualTo("STEADY");
@@ -2290,7 +2291,7 @@ class OpenMeteoServiceTest {
             h.setPressureMsl(List.of(1010.0, 1010.3, 1010.6, 1010.9, 1011.2, 1011.5, 1011.8));
 
             com.gregochr.goldenhour.model.PressureTrend result =
-                    openMeteoService.extractPressureTrend(h, 3);
+                    OpenMeteoResponseParser.extractPressureTrend(h, 3);
 
             assertThat(result.tendencyHpa6h()).isCloseTo(1.8, org.assertj.core.data.Offset.offset(0.001));
             assertThat(result.tendencyLabel()).isEqualTo("RISING");
@@ -2303,7 +2304,7 @@ class OpenMeteoServiceTest {
             h.setPressureMsl(null);
 
             com.gregochr.goldenhour.model.PressureTrend result =
-                    openMeteoService.extractPressureTrend(h, 0);
+                    OpenMeteoResponseParser.extractPressureTrend(h, 0);
 
             assertThat(result).isNull();
         }
@@ -2315,7 +2316,7 @@ class OpenMeteoServiceTest {
             h.setPressureMsl(List.of());
 
             com.gregochr.goldenhour.model.PressureTrend result =
-                    openMeteoService.extractPressureTrend(h, 0);
+                    OpenMeteoResponseParser.extractPressureTrend(h, 0);
 
             assertThat(result).isNull();
         }
@@ -2332,7 +2333,7 @@ class OpenMeteoServiceTest {
             h.setPressureMsl(pressures);
 
             com.gregochr.goldenhour.model.PressureTrend result =
-                    openMeteoService.extractPressureTrend(h, 9);
+                    OpenMeteoResponseParser.extractPressureTrend(h, 9);
 
             assertThat(result).isNotNull();
             // T-3h = index 6, T+3h clamps to index 9
@@ -2355,7 +2356,7 @@ class OpenMeteoServiceTest {
             h.setPressureMsl(pressures);
 
             com.gregochr.goldenhour.model.PressureTrend result =
-                    openMeteoService.extractPressureTrend(h, 5);
+                    OpenMeteoResponseParser.extractPressureTrend(h, 5);
 
             assertThat(result).isNull();
         }
