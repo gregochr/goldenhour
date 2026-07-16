@@ -111,6 +111,64 @@ public final class GridCellStabilityService {
                     .add(loc.getName());
         }
 
+        return publishSnapshot(stabilityByCell, locationsByCell, ephemeral);
+    }
+
+    /**
+     * Classifies every unique grid cell touched by a synchronous-run batch and publishes
+     * the snapshot. {@link ForecastPreEvalResult} counterpart of
+     * {@link #classifyGridCellsAndPublishSnapshot(List, Map, boolean)} for the admin
+     * synchronous path ({@code ForecastCommandExecutor}), so both forecast engines share
+     * one snapshot schema and one publish rule.
+     *
+     * <p>Tasks without a grid cell are skipped entirely; tasks without a forecast
+     * response contribute their location name to the snapshot detail but are not
+     * classified (the {@link #stabilityFor} TRANSITIONAL fallback covers them during
+     * filtering).
+     *
+     * @param batch tasks surviving the triage and sentinel phases
+     * @return classification keyed by grid-cell key (empty if no cells classified)
+     */
+    public Map<String, GridCellStabilityResult> classifyGridCellsAndPublishSnapshot(
+            List<ForecastPreEvalResult> batch) {
+        Map<String, GridCellStabilityResult> stabilityByCell = new LinkedHashMap<>();
+        Map<String, Set<String>> locationsByCell = new LinkedHashMap<>();
+
+        for (ForecastPreEvalResult task : batch) {
+            LocationEntity loc = task.location();
+            if (!loc.hasGridCell()) {
+                continue;
+            }
+            String key = loc.gridCellKey();
+            locationsByCell
+                    .computeIfAbsent(key, k -> new LinkedHashSet<>())
+                    .add(loc.getName());
+            if (task.forecastResponse() == null) {
+                continue;
+            }
+            stabilityByCell.computeIfAbsent(key, k -> stabilityClassifier.classify(
+                    key, loc.getGridLat(), loc.getGridLng(),
+                    task.forecastResponse().getHourly()));
+        }
+
+        return publishSnapshot(stabilityByCell, locationsByCell, false);
+    }
+
+    /**
+     * Builds the {@link StabilitySummaryResponse} from a classification map and, unless
+     * ephemeral or empty, publishes it via {@link StabilitySnapshotProvider#update}.
+     * Shared tail of both {@code classifyGridCellsAndPublishSnapshot} overloads — the
+     * snapshot schema and publish rule live only here.
+     *
+     * @param stabilityByCell classification keyed by grid-cell key
+     * @param locationsByCell location names per grid cell for the snapshot detail
+     * @param ephemeral       when {@code true} the snapshot is built but not published
+     * @return {@code stabilityByCell}, for caller chaining
+     */
+    private Map<String, GridCellStabilityResult> publishSnapshot(
+            Map<String, GridCellStabilityResult> stabilityByCell,
+            Map<String, Set<String>> locationsByCell,
+            boolean ephemeral) {
         if (stabilityByCell.isEmpty()) {
             LOG.warn("[STABILITY] No grid cells classified in this batch run "
                     + "— snapshot not written");

@@ -14,11 +14,12 @@ package com.gregochr.goldenhour.entity;
  * </ul>
  *
  * <p><b>Note for maintainers:</b> classification is independent of the
- * policy that decides which (location, daysAhead) tuples enter the batch
- * for Claude evaluation. That policy lives in
- * {@code ForecastTaskCollector#resolveEligibility} and is expressed
- * explicitly per {@code daysAhead}, so the enum no longer encodes any
- * batch-eligibility rule.
+ * policy that decides which (location, daysAhead) tuples are evaluated by
+ * Claude. That policy lives in
+ * {@code com.gregochr.goldenhour.service.batch.NightlyEligibilityPolicy}
+ * and is expressed explicitly per {@code daysAhead}; both the batch
+ * pipeline and the synchronous {@code ForecastCommandExecutor} consult it,
+ * so the enum no longer encodes any eligibility rule.
  */
 public enum ForecastStability {
 
@@ -45,18 +46,13 @@ public enum ForecastStability {
      * UI. Larger numbers correspond to more settled conditions (SETTLED→3,
      * TRANSITIONAL→1, UNSETTLED→0).
      *
-     * <p><b>Not authoritative for batch evaluation eligibility.</b> The
-     * scheduled batch eligibility policy lives in
-     * {@code ForecastTaskCollector#resolveEligibility} and is expressed
-     * explicitly per {@code daysAhead}. Callers wanting to know "should
-     * this task be evaluated?" must consult the collector, never this
-     * field.
-     *
-     * <p>The legacy {@code ForecastCommand} (admin "Run Forecast")
-     * non-batch path in {@code ForecastCommandExecutor.applyStabilityFilter}
-     * still reads this field as a policy proxy until that path is
-     * unified into the batch flow. See CLAUDE.md for the open
-     * inconsistency.
+     * <p><b>Not authoritative for evaluation eligibility.</b> The policy
+     * lives in {@code NightlyEligibilityPolicy} and is expressed explicitly
+     * per {@code daysAhead}; both forecast engines consult it. Callers
+     * wanting to know "should this task be evaluated?" must use the policy,
+     * never this field. (The former policy-proxy read in
+     * {@code ForecastCommandExecutor.applyStabilityFilter} was unified onto
+     * the policy in July 2026 — no reader treats this as policy any more.)
      *
      * @return display-only depth hint in days
      */

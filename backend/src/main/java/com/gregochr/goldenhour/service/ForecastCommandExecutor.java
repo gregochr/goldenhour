@@ -15,12 +15,13 @@ import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.GridCellStabilityResult;
 import com.gregochr.goldenhour.model.LocationTaskEvent;
-import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.RunPhase;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
+import com.gregochr.goldenhour.service.batch.GridCellStabilityService;
+import com.gregochr.goldenhour.service.batch.NightlyEligibilityPolicy;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,19 +31,15 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
  * Executes {@link ForecastCommand} instances using a three-phase pipeline:
@@ -77,9 +74,14 @@ public class ForecastCommandExecutor {
     private final ApplicationEventPublisher eventPublisher;
     private final SentinelSelector sentinelSelector;
     private final AstroConditionsService astroConditionsService;
-    private final ForecastStabilityClassifier stabilityClassifier;
     private final OpenMeteoService openMeteoService;
-    private final StabilitySnapshotProvider stabilitySnapshotProvider;
+
+    /**
+     * Shared classifier + snapshot producer, wrapping the injected classifier and
+     * snapshot provider — the same seam the batch pipeline's {@code ForecastTaskCollector}
+     * constructs, so both forecast engines share one snapshot schema and publish rule.
+     */
+    private final GridCellStabilityService gridCellStabilityService;
 
     /**
      * Constructs a {@code ForecastCommandExecutor}.
@@ -123,9 +125,9 @@ public class ForecastCommandExecutor {
         this.eventPublisher = eventPublisher;
         this.sentinelSelector = sentinelSelector;
         this.astroConditionsService = astroConditionsService;
-        this.stabilityClassifier = stabilityClassifier;
         this.openMeteoService = openMeteoService;
-        this.stabilitySnapshotProvider = stabilitySnapshotProvider;
+        this.gridCellStabilityService =
+                new GridCellStabilityService(stabilityClassifier, stabilitySnapshotProvider);
     }
 
     /**
@@ -600,76 +602,32 @@ public class ForecastCommandExecutor {
     }
 
     /**
-     * Classifies forecast stability per grid cell and filters out tasks whose
-     * {@code daysAhead} exceeds the stability evaluation window.
+     * Classifies forecast stability per grid cell and filters out tasks beyond the
+     * Gate 4 horizon-depth table.
      *
-     * <p>Each unique grid cell is classified once using the first available
-     * Open-Meteo response for that cell. Tasks without a grid cell assignment
-     * default to TRANSITIONAL (T+1 window).
+     * <p>Classification and snapshot publishing are delegated to the shared
+     * {@link GridCellStabilityService}, and the include/skip decision to
+     * {@link NightlyEligibilityPolicy} — the same policy the nightly batch pipeline
+     * applies — so the synchronous and batch engines cannot drift apart. Tasks without
+     * a grid cell or forecast response fall back to TRANSITIONAL, matching the batch
+     * path.
      *
      * @param batch tasks surviving triage and sentinel phases
      * @return filter result containing tasks and the stability classification map
      */
     private StabilityFilterResult applyStabilityFilter(List<ForecastPreEvalResult> batch) {
-        Map<String, GridCellStabilityResult> stabilityByCell = new ConcurrentHashMap<>();
-
-        for (ForecastPreEvalResult task : batch) {
-            LocationEntity loc = task.location();
-            if (!loc.hasGridCell() || task.forecastResponse() == null) {
-                continue;
-            }
-            String key = loc.gridCellKey();
-            stabilityByCell.computeIfAbsent(key, k -> {
-                OpenMeteoForecastResponse resp = task.forecastResponse();
-                return stabilityClassifier.classify(
-                        key, loc.getGridLat(), loc.getGridLng(),
-                        resp != null ? resp.getHourly() : null);
-            });
-        }
-
-        Map<ForecastStability, Long> countsByStability = stabilityByCell.values().stream()
-                .collect(Collectors.groupingBy(GridCellStabilityResult::stability, Collectors.counting()));
-        countsByStability.forEach((s, count) ->
-                LOG.info("Stability: {} = {} grid cells", s, count));
-
-        // Collect unique location names per grid cell for the summary snapshot.
-        Map<String, Set<String>> locationsByCell = new LinkedHashMap<>();
-        for (ForecastPreEvalResult task : batch) {
-            if (task.location().hasGridCell()) {
-                locationsByCell
-                        .computeIfAbsent(task.location().gridCellKey(), k -> new LinkedHashSet<>())
-                        .add(task.location().getName());
-            }
-        }
-
-        // Build and cache summary for admin endpoint.
-        List<StabilitySummaryResponse.GridCellDetail> cellDetails = stabilityByCell.values().stream()
-                .map(r -> new StabilitySummaryResponse.GridCellDetail(
-                        r.gridCellKey(), r.gridLat(), r.gridLng(),
-                        r.stability(), r.reason(), r.evaluationWindowDays(),
-                        List.copyOf(locationsByCell.getOrDefault(r.gridCellKey(), Set.of()))))
-                .sorted(java.util.Comparator.comparing(StabilitySummaryResponse.GridCellDetail::gridCellKey))
-                .toList();
-        StabilitySummaryResponse summary = new StabilitySummaryResponse(
-                Instant.now(), stabilityByCell.size(), countsByStability, cellDetails);
-        stabilitySnapshotProvider.update(summary);
+        Map<String, GridCellStabilityResult> stabilityByCell =
+                gridCellStabilityService.classifyGridCellsAndPublishSnapshot(batch);
 
         int originalSize = batch.size();
         List<ForecastPreEvalResult> filtered = batch.stream()
                 .filter(task -> {
-                    if (!task.location().hasGridCell()) {
-                        return task.daysAhead() <= 1;
-                    }
-                    GridCellStabilityResult stability =
-                            stabilityByCell.get(task.location().gridCellKey());
-                    if (stability == null) {
-                        return task.daysAhead() <= 1;
-                    }
-                    int maxDays = Math.min(stability.evaluationWindowDays(), 3);
-                    if (task.daysAhead() > maxDays) {
-                        LOG.debug("Stability filter: skipping {} T+{} — {} ({})",
-                                task.location().getName(), task.daysAhead(),
-                                stability.stability(), stability.reason());
+                    ForecastStability stability = gridCellStabilityService.stabilityFor(
+                            task.location(), task, stabilityByCell);
+                    if (!NightlyEligibilityPolicy.INSTANCE.permitsHorizon(
+                            task.daysAhead(), stability)) {
+                        LOG.debug("Stability filter: skipping {} T+{} — {}",
+                                task.location().getName(), task.daysAhead(), stability);
                         return false;
                     }
                     return true;

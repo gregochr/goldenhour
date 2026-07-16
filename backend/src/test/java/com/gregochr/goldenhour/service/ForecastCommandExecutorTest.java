@@ -1161,8 +1161,8 @@ class ForecastCommandExecutorTest {
     }
 
     @Test
-    @DisplayName("Stability filter: UNSETTLED skips T+2 tasks, keeps T+0")
-    void stabilityFilter_unsettled_skipsT2() {
+    @DisplayName("Stability filter: UNSETTLED allows T+0 and T+1, skips T+2 (Gate 4 table)")
+    void stabilityFilter_unsettled_allowsT0T1_skipsT2() {
         stubExecuteDefaults();
         stubSolarNotPast();
         LocationEntity loc = durhamWithGrid();
@@ -1193,19 +1193,19 @@ class ForecastCommandExecutorTest {
 
         executor.execute(cmd);
 
-        // Only T+0 tasks should reach Claude (2 = sunrise + sunset)
+        // T+0 and T+1 pass (Gate 4: UNSETTLED is near-term only), T+2 filtered
         ArgumentCaptor<ForecastPreEvalResult> evalCaptor =
                 ArgumentCaptor.forClass(ForecastPreEvalResult.class);
-        verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
+        verify(forecastService, times(2 * EXPECTED_CALLS_PER_DAY))
                 .evaluateAndPersist(evalCaptor.capture(), eq(stubJobRun));
         assertThat(evalCaptor.getAllValues())
                 .extracting(ForecastPreEvalResult::date)
-                .containsOnly(today);
+                .containsOnly(today, today.plusDays(1));
     }
 
     @Test
-    @DisplayName("Stability filter: SETTLED allows all tasks through")
-    void stabilityFilter_settled_allowsAll() {
+    @DisplayName("Stability filter: SETTLED allows T+0 through T+3, skips T+4 (beyond horizon)")
+    void stabilityFilter_settled_allowsToT3_skipsT4() {
         stubExecuteDefaults();
         stubSolarNotPast();
         LocationEntity loc = durhamWithGrid();
@@ -1231,24 +1231,25 @@ class ForecastCommandExecutorTest {
 
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
-                List.of(today, today.plusDays(1), today.plusDays(2)),
+                List.of(today, today.plusDays(1), today.plusDays(2),
+                        today.plusDays(3), today.plusDays(4)),
                 List.of(loc), haikuStrategy, false);
 
         executor.execute(cmd);
 
-        // All 3 days × 2 types = 6 Claude calls
+        // T+0..T+3 pass (4 days × 2 types = 8 calls); T+4 is beyond the Gate 4 horizon
         ArgumentCaptor<ForecastPreEvalResult> settledCaptor =
                 ArgumentCaptor.forClass(ForecastPreEvalResult.class);
-        verify(forecastService, times(3 * EXPECTED_CALLS_PER_DAY))
+        verify(forecastService, times(4 * EXPECTED_CALLS_PER_DAY))
                 .evaluateAndPersist(settledCaptor.capture(), eq(stubJobRun));
         assertThat(settledCaptor.getAllValues())
                 .extracting(ForecastPreEvalResult::date)
-                .containsAll(List.of(today, today.plusDays(1), today.plusDays(2)));
+                .containsOnly(today, today.plusDays(1), today.plusDays(2), today.plusDays(3));
     }
 
     @Test
-    @DisplayName("Stability filter: location without grid cell defaults to T+1 window")
-    void stabilityFilter_noGridCell_defaultsToT1() {
+    @DisplayName("Stability filter: location without grid cell falls back to TRANSITIONAL (T+0–T+2)")
+    void stabilityFilter_noGridCell_fallsBackToTransitional() {
         stubExecuteDefaults();
         stubSolarNotPast();
         LocationEntity loc = durham(); // no gridLat/gridLng
@@ -1268,24 +1269,24 @@ class ForecastCommandExecutorTest {
 
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
-                List.of(today, today.plusDays(1), today.plusDays(2)),
+                List.of(today, today.plusDays(1), today.plusDays(2), today.plusDays(3)),
                 List.of(loc), haikuStrategy, false);
 
         executor.execute(cmd);
 
-        // T+0 and T+1 pass (4 tasks), T+2 filtered (2 tasks skipped)
+        // TRANSITIONAL fallback (matches the batch path): T+0..T+2 pass, T+3 filtered
         ArgumentCaptor<ForecastPreEvalResult> noGridCaptor =
                 ArgumentCaptor.forClass(ForecastPreEvalResult.class);
-        verify(forecastService, times(2 * EXPECTED_CALLS_PER_DAY))
+        verify(forecastService, times(3 * EXPECTED_CALLS_PER_DAY))
                 .evaluateAndPersist(noGridCaptor.capture(), eq(stubJobRun));
         assertThat(noGridCaptor.getAllValues())
                 .extracting(ForecastPreEvalResult::date)
-                .containsOnly(today, today.plusDays(1));
+                .containsOnly(today, today.plusDays(1), today.plusDays(2));
     }
 
     @Test
-    @DisplayName("Stability filter: TRANSITIONAL allows T+0 and T+1, skips T+2")
-    void stabilityFilter_transitional_allowsT0T1() {
+    @DisplayName("Stability filter: TRANSITIONAL allows T+0 through T+2, skips T+3 (Gate 4 table)")
+    void stabilityFilter_transitional_allowsToT2_skipsT3() {
         stubExecuteDefaults();
         stubSolarNotPast();
         LocationEntity loc = durhamWithGrid();
@@ -1311,20 +1312,19 @@ class ForecastCommandExecutorTest {
 
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
-                List.of(today, today.plusDays(1), today.plusDays(2)),
+                List.of(today, today.plusDays(1), today.plusDays(2), today.plusDays(3)),
                 List.of(loc), haikuStrategy, false);
 
         executor.execute(cmd);
 
-        // T+0 and T+1 pass (4 tasks), T+2 filtered
+        // T+0..T+2 pass (Gate 4: TRANSITIONAL reaches T+2), T+3 filtered
         ArgumentCaptor<ForecastPreEvalResult> transCaptor =
                 ArgumentCaptor.forClass(ForecastPreEvalResult.class);
-        LocalDate todayTrans = LocalDate.now(ZoneOffset.UTC);
-        verify(forecastService, times(2 * EXPECTED_CALLS_PER_DAY))
+        verify(forecastService, times(3 * EXPECTED_CALLS_PER_DAY))
                 .evaluateAndPersist(transCaptor.capture(), eq(stubJobRun));
         assertThat(transCaptor.getAllValues())
                 .extracting(ForecastPreEvalResult::date)
-                .containsOnly(todayTrans, todayTrans.plusDays(1));
+                .containsOnly(today, today.plusDays(1), today.plusDays(2));
     }
 
     // -------------------------------------------------------------------------
@@ -1441,19 +1441,31 @@ class ForecastCommandExecutorTest {
     }
 
     @Test
-    @DisplayName("Stability snapshot: manual run does not call provider.update()")
+    @DisplayName("Stability snapshot: manual run bypasses classification and does not publish")
     void stabilitySnapshot_notPublishedByManualRun() {
         stubExecuteDefaults();
         stubSolarNotPast();
-        stubDefaultFetch();
         stubDefaultEval();
         LocationEntity loc = durhamWithGrid();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
+
+        // A classifiable task (grid cell + non-null response): if the manual-bypass guard
+        // were removed, the filter would classify this cell — making both verifies below
+        // falsifiable (a null-response stub would leave the snapshot unpublished either way).
+        OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
+        when(forecastService.fetchWeatherAndTriage(
+                any(), eq(today), any(), any(), any(), anyBoolean(), any(),
+                eq(stubPrefetchedWeather), eq(stubCloudCache)))
+                .thenReturn(new ForecastPreEvalResult(false, null, null,
+                        loc, today, TargetType.SUNSET, LocalDateTime.now(), 270,
+                        0, EvaluationModel.HAIKU, loc.getTideType(),
+                        loc.getName() + "|" + today + "|SUNSET", resp));
 
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                 List.of(today), List.of(loc), haikuStrategy, true);
         executor.execute(cmd);
 
+        verify(stabilityClassifier, never()).classify(any(), anyDouble(), anyDouble(), any());
         verify(stabilitySnapshotProvider, never()).update(any());
     }
 
