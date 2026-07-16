@@ -35,10 +35,12 @@ import com.gregochr.goldenhour.model.TokenUsage;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Makes a single Haiku call after briefing triage completes to produce Claude-generated
@@ -67,6 +69,20 @@ public class BriefingBestBetAdvisor {
 
     /** Maximum response tokens for extended-thinking calls (thinking budget + response). */
     private static final int MAX_TOKENS_THINKING = 16000;
+
+    /**
+     * The {@code claudeAverageRating} a region must reach to be eligible as Pick 2
+     * ("Also Good") under either tier of the advisor's selection rule.
+     *
+     * <p>Diagnostic mirror of the threshold stated in {@link BestBetPromptText}, which remains
+     * the single source of truth: this constant never gates selection or ranking. It exists only
+     * so {@link #logPickTwoEligibility} can report whether any region <em>could</em> have
+     * supported an Also Good pick. Keep it in step with the prompt if that rule changes.
+     */
+    private static final double PICK_TWO_RATING_FLOOR = 3.0;
+
+    /** How many top-rated candidate slots {@link #logPickTwoEligibility} names. */
+    private static final int PICK_TWO_LOG_TOP_N = 3;
 
     private final AnthropicApiClient anthropicApiClient;
     private final ObjectMapper objectMapper;
@@ -184,6 +200,7 @@ public class BriefingBestBetAdvisor {
                     && model != EvaluationModel.HAIKU;
             LocalDateTime now = LocalDateTime.now(clock);
             RollupResult rollup = rollupBuilder.buildRollupJson(days, now);
+            logPickTwoEligibility(rollup.coverageByKey(), jobRunId);
             long startMs = System.currentTimeMillis();
 
             MessageCreateParams.Builder paramsBuilder = MessageCreateParams.builder()
@@ -254,6 +271,51 @@ public class BriefingBestBetAdvisor {
             LOG.warn("Best-bet advisor failed — returning FAILED status (fallback to headline)", e);
             return BestBetResult.failed();
         }
+    }
+
+    /**
+     * Logs, once per cycle, whether any region could have supported a Pick 2 ("Also Good").
+     *
+     * <p>Pick 2 carries a quality floor that Pick 1 does not: both tiers of the advisor's
+     * selection rule require a region rated at least {@link #PICK_TWO_RATING_FLOOR}, and the
+     * prompt instructs the model to stay silent rather than pad the recommendation when nothing
+     * clears it. A briefing then shows a Best Bet and no Also Good — from the outside,
+     * indistinguishable from a silent failure. This line makes "the week was simply flat" legible
+     * in the log, so diagnosing a missing Also Good needs no database query.
+     *
+     * <p>Reports the best rating available, how many slots clear the floor, and the top few
+     * candidates by rating. Slots with no colour rating at all are excluded from the ranking —
+     * they can never support a pick (see {@link BestBetRanker#dropUnevaluatedPicks}).
+     *
+     * @param coverage per-{@code event|region} Claude coverage from the rollup
+     * @param jobRunId the briefing job run id — correlates to the {@code api_call_log} row
+     */
+    private void logPickTwoEligibility(Map<String, CandidateCoverage> coverage, Long jobRunId) {
+        List<Map.Entry<String, CandidateCoverage>> rated = coverage.entrySet().stream()
+                .filter(e -> e.getValue().claudeRatedCount() > 0)
+                .sorted(Comparator.comparingDouble(
+                        (Map.Entry<String, CandidateCoverage> e) -> e.getValue().claudeAverageRating())
+                        .reversed())
+                .toList();
+        if (rated.isEmpty()) {
+            LOG.info("[BEST-BET PICK2] No region-event slot carries a colour rating this cycle — "
+                    + "no Also Good is possible (jobRunId={})", jobRunId);
+            return;
+        }
+        long clearing = rated.stream()
+                .filter(e -> e.getValue().claudeAverageRating() >= PICK_TWO_RATING_FLOOR)
+                .count();
+        String top = rated.stream()
+                .limit(PICK_TWO_LOG_TOP_N)
+                .map(e -> String.format("%s=%.2f(n=%d)", e.getKey(),
+                        e.getValue().claudeAverageRating(), e.getValue().claudeRatedCount()))
+                .collect(Collectors.joining(", "));
+        LOG.info("[BEST-BET PICK2] Best available rating {} across {} rated slot(s); {} clear the "
+                        + "{} Also Good floor{}. Top: {} (jobRunId={})",
+                String.format("%.2f", rated.get(0).getValue().claudeAverageRating()),
+                rated.size(), clearing, PICK_TWO_RATING_FLOOR,
+                clearing == 0 ? " — no Also Good is possible" : "",
+                top, jobRunId);
     }
 
     /**
