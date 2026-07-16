@@ -5,7 +5,6 @@ import com.gregochr.goldenhour.config.OrsProperties;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.UserDriveTimeEntity;
 import com.gregochr.goldenhour.repository.LocationRepository;
-import com.gregochr.goldenhour.repository.UserDriveTimeRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -21,7 +20,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -42,7 +40,7 @@ class DriveDurationServiceTest {
     private LocationRepository locationRepository;
 
     @Mock
-    private UserDriveTimeRepository userDriveTimeRepository;
+    private UserDriveTimeWriter driveTimeWriter;
 
     private DriveDurationService service;
 
@@ -53,7 +51,7 @@ class DriveDurationServiceTest {
     @BeforeEach
     void setUp() {
         service = new DriveDurationService(orsClient, orsProperties,
-                locationRepository, userDriveTimeRepository);
+                locationRepository, driveTimeWriter);
     }
 
     @Test
@@ -90,10 +88,9 @@ class DriveDurationServiceTest {
         int result = service.refreshForUser(USER_ID, SOURCE_LAT, SOURCE_LON);
 
         assertThat(result).isEqualTo(1);
-        verify(userDriveTimeRepository).deleteAllByUserId(USER_ID);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<UserDriveTimeEntity>> captor = ArgumentCaptor.forClass(List.class);
-        verify(userDriveTimeRepository).saveAll(captor.capture());
+        verify(driveTimeWriter).replaceForUser(eq(USER_ID), captor.capture());
         assertThat(captor.getValue()).hasSize(1);
         assertThat(captor.getValue().get(0).getLocationId()).isEqualTo(1L);
         assertThat(captor.getValue().get(0).getDriveDurationSeconds()).isEqualTo(2700);
@@ -113,7 +110,7 @@ class DriveDurationServiceTest {
     }
 
     @Test
-    @DisplayName("null ORS duration is skipped (not persisted)")
+    @DisplayName("null ORS duration is skipped (not persisted) but old drive times are still cleared")
     void refreshForUser_nullDuration_skipped() {
         when(orsProperties.isConfigured()).thenReturn(true);
         LocationEntity durham = location(1L, "Durham UK", 54.78, -1.58);
@@ -124,6 +121,10 @@ class DriveDurationServiceTest {
         int result = service.refreshForUser(USER_ID, SOURCE_LAT, SOURCE_LON);
 
         assertThat(result).isZero();
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<UserDriveTimeEntity>> captor = ArgumentCaptor.forClass(List.class);
+        verify(driveTimeWriter).replaceForUser(eq(USER_ID), captor.capture());
+        assertThat(captor.getValue()).isEmpty();
     }
 
     @Test
@@ -141,13 +142,13 @@ class DriveDurationServiceTest {
         assertThat(result).isEqualTo(2);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<UserDriveTimeEntity>> captor = ArgumentCaptor.forClass(List.class);
-        verify(userDriveTimeRepository).saveAll(captor.capture());
+        verify(driveTimeWriter).replaceForUser(eq(USER_ID), captor.capture());
         assertThat(captor.getValue()).hasSize(2);
     }
 
     @Test
-    @DisplayName("deletes existing drive times before saving new ones")
-    void refreshForUser_deletesExistingFirst() {
+    @DisplayName("replaces existing drive times via the transactional writer")
+    void refreshForUser_replacesExistingViaWriter() {
         when(orsProperties.isConfigured()).thenReturn(true);
         LocationEntity durham = location(1L, "Durham UK", 54.78, -1.58);
         when(locationRepository.findAll()).thenReturn(List.of(durham));
@@ -155,7 +156,10 @@ class DriveDurationServiceTest {
 
         service.refreshForUser(USER_ID, SOURCE_LAT, SOURCE_LON);
 
-        verify(userDriveTimeRepository).deleteAllByUserId(USER_ID);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<UserDriveTimeEntity>> captor = ArgumentCaptor.forClass(List.class);
+        verify(driveTimeWriter).replaceForUser(eq(USER_ID), captor.capture());
+        assertThat(captor.getValue()).hasSize(1);
     }
 
     @Test
@@ -207,7 +211,7 @@ class DriveDurationServiceTest {
         assertThat(result).isEqualTo(1);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<UserDriveTimeEntity>> captor = ArgumentCaptor.forClass(List.class);
-        verify(userDriveTimeRepository).saveAll(captor.capture());
+        verify(driveTimeWriter).replaceForUser(eq(USER_ID), captor.capture());
         List<UserDriveTimeEntity> saved = captor.getValue();
         assertThat(saved).hasSize(1);
         assertThat(saved.get(0).getLocationId()).isEqualTo(1L);
@@ -226,10 +230,9 @@ class DriveDurationServiceTest {
         Long differentUserId = 99L;
         service.refreshForUser(differentUserId, SOURCE_LAT, SOURCE_LON);
 
-        verify(userDriveTimeRepository).deleteAllByUserId(differentUserId);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<UserDriveTimeEntity>> captor = ArgumentCaptor.forClass(List.class);
-        verify(userDriveTimeRepository).saveAll(captor.capture());
+        verify(driveTimeWriter).replaceForUser(eq(differentUserId), captor.capture());
         assertThat(captor.getValue().get(0).getUserId()).isEqualTo(differentUserId);
     }
 
@@ -245,13 +248,13 @@ class DriveDurationServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<UserDriveTimeEntity>> captor = ArgumentCaptor.forClass(List.class);
-        verify(userDriveTimeRepository).saveAll(captor.capture());
+        verify(driveTimeWriter).replaceForUser(eq(USER_ID), captor.capture());
         assertThat(captor.getValue().get(0).getDriveDurationSeconds()).isEqualTo(2701);
     }
 
     @Test
-    @DisplayName("old drive times deleted before save — even if ORS returns empty")
-    void refreshForUser_deletesBeforeSave_evenOnEmptyResult() {
+    @DisplayName("old drive times are retained when ORS returns empty — the method returns early")
+    void refreshForUser_emptyOrsResult_writerNotCalled() {
         when(orsProperties.isConfigured()).thenReturn(true);
         LocationEntity loc = location(1L, "Durham", 54.78, -1.58);
         when(locationRepository.findAll()).thenReturn(List.of(loc));
@@ -259,8 +262,8 @@ class DriveDurationServiceTest {
 
         service.refreshForUser(USER_ID, SOURCE_LAT, SOURCE_LON);
 
-        // Old data should NOT be deleted when ORS returns empty — the method returns early
-        verify(userDriveTimeRepository, never()).deleteAllByUserId(USER_ID);
+        // Old data should NOT be wiped when ORS returns empty — the method returns early
+        verifyNoInteractions(driveTimeWriter);
     }
 
     @Test
@@ -295,7 +298,7 @@ class DriveDurationServiceTest {
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("503");
 
-        verify(userDriveTimeRepository, never()).saveAll(any());
+        verifyNoInteractions(driveTimeWriter);
     }
 
     @Test
@@ -313,7 +316,7 @@ class DriveDurationServiceTest {
         assertThat(result).isEqualTo(1);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<UserDriveTimeEntity>> captor = ArgumentCaptor.forClass(List.class);
-        verify(userDriveTimeRepository).saveAll(captor.capture());
+        verify(driveTimeWriter).replaceForUser(eq(USER_ID), captor.capture());
         assertThat(captor.getValue().get(0).getDriveDurationSeconds()).isZero();
     }
 
@@ -333,7 +336,7 @@ class DriveDurationServiceTest {
         assertThat(result).isEqualTo(2);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<UserDriveTimeEntity>> captor = ArgumentCaptor.forClass(List.class);
-        verify(userDriveTimeRepository).saveAll(captor.capture());
+        verify(driveTimeWriter).replaceForUser(eq(USER_ID), captor.capture());
         assertThat(captor.getValue()).hasSize(2);
         assertThat(captor.getValue().get(0).getLocationId()).isEqualTo(1L);
         assertThat(captor.getValue().get(1).getLocationId()).isEqualTo(2L);

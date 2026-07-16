@@ -24,9 +24,12 @@ import static org.springframework.http.HttpStatus.TOO_MANY_REQUESTS;
 
 /**
  * Service for user profile and settings — home location and drive time management.
+ *
+ * <p>Deliberately not class-level transactional: several methods call external HTTP services
+ * (postcodes.io geocoding, the ORS drive-time chain), and a class-level transaction would pin a
+ * pooled database connection across those calls. Only the write methods open transactions.
  */
 @Service
-@Transactional
 public class UserSettingsService {
 
     private static final Logger LOG = LoggerFactory.getLogger(UserSettingsService.class);
@@ -83,6 +86,7 @@ public class UserSettingsService {
      * @param request the confirmed postcode and coordinates
      * @return the updated user settings response
      */
+    @Transactional
     public UserSettingsResponse saveHome(Authentication auth, SaveHomeRequest request) {
         AppUserEntity user = getUser(auth);
         user.setHomePostcode(request.postcode());
