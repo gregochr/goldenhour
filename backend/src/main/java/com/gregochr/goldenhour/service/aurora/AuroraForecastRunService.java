@@ -19,7 +19,6 @@ import com.gregochr.solarutils.SolarCalculator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -79,6 +78,7 @@ public class AuroraForecastRunService {
     private final AuroraProperties properties;
     private final SolarCalculator solarCalculator;
     private final AuroraStateCache stateCache;
+    private final AuroraForecastResultWriter resultWriter;
 
     /**
      * Constructs the service with all required dependencies.
@@ -87,10 +87,11 @@ public class AuroraForecastRunService {
      * @param weatherTriage      cloud cover triage service (used for tonight only)
      * @param claudeInterpreter  Claude aurora scoring service
      * @param locationRepository location data access
-     * @param resultRepository   aurora result persistence
+     * @param resultRepository   aurora result read access
      * @param properties         aurora configuration
      * @param solarCalculator    solar-utils twilight calculator
      * @param stateCache         aurora state machine (checked for simulation mode)
+     * @param resultWriter       transactional per-night result writer
      */
     public AuroraForecastRunService(NoaaSwpcClient noaaClient,
             WeatherTriageService weatherTriage,
@@ -99,7 +100,8 @@ public class AuroraForecastRunService {
             AuroraForecastResultRepository resultRepository,
             AuroraProperties properties,
             SolarCalculator solarCalculator,
-            AuroraStateCache stateCache) {
+            AuroraStateCache stateCache,
+            AuroraForecastResultWriter resultWriter) {
         this.noaaClient = noaaClient;
         this.weatherTriage = weatherTriage;
         this.claudeInterpreter = claudeInterpreter;
@@ -108,6 +110,7 @@ public class AuroraForecastRunService {
         this.properties = properties;
         this.solarCalculator = solarCalculator;
         this.stateCache = stateCache;
+        this.resultWriter = resultWriter;
     }
 
     /**
@@ -174,21 +177,20 @@ public class AuroraForecastRunService {
      *   <li>Persists all results (Claude-scored and triaged) keyed by date and location.</li>
      * </ol>
      *
-     * <p>Existing results for the requested dates are deleted before new results are inserted,
-     * so re-running a night always produces fresh data.
+     * <p>Each night's stored results are replaced atomically once that night's data is ready
+     * (via {@link AuroraForecastResultWriter}), so re-running a night always produces fresh
+     * data. The slow external calls (NOAA fetch, Claude) run outside any transaction — no
+     * database connection is held across them — and a failure on a later night leaves earlier
+     * nights' committed results intact.
      *
      * @param request the nights to forecast
      * @return per-night outcomes and cost summary
      */
-    @Transactional
     public AuroraForecastRunResponse runForecast(AuroraForecastRunRequest request) {
         List<LocalDate> nights = request.nights();
         if (nights == null || nights.isEmpty()) {
             return new AuroraForecastRunResponse(List.of(), 0, "~$0.00");
         }
-
-        // Delete any prior results for these dates so re-runs replace old data cleanly
-        resultRepository.deleteByForecastDateIn(nights);
 
         SpaceWeatherData spaceWeather = stateCache.isSimulated()
                 ? buildSimulatedSpaceWeather(stateCache.getSimulatedData())
@@ -206,6 +208,7 @@ public class AuroraForecastRunService {
 
             if (maxKp < 1.0) {
                 LOG.info("Aurora forecast {}: Kp={} — no significant activity", date, maxKp);
+                resultWriter.replaceNightResults(date, List.of());
                 results.add(new AuroraForecastRunResponse.NightResult(
                         date, "no_activity", 0, 0, maxKp, "No significant geomagnetic activity"));
                 continue;
@@ -222,6 +225,7 @@ public class AuroraForecastRunService {
             if (candidates.isEmpty()) {
                 LOG.info("Aurora forecast {}: no Bortle-eligible locations (threshold={})",
                         date, bortleThreshold);
+                resultWriter.replaceNightResults(date, List.of());
                 results.add(new AuroraForecastRunResponse.NightResult(
                         date, "no_eligible_locations", 0, 0, maxKp,
                         "No dark-sky locations available (Bortle threshold = " + bortleThreshold + ")"));
@@ -233,10 +237,11 @@ public class AuroraForecastRunService {
                     ? weatherTriage.triage(candidates)
                     : buildFutureNightTriage(candidates);
 
-            // Persist triage-rejected locations as 1★ template results
+            // Collect triage-rejected locations as 1★ template results
+            List<AuroraForecastResultEntity> nightResults = new ArrayList<>();
             for (LocationEntity rejected : triage.rejected()) {
                 int cloud = triage.cloudByLocation().getOrDefault(rejected, 100);
-                AuroraForecastResultEntity entity = AuroraForecastResultEntity.builder()
+                nightResults.add(AuroraForecastResultEntity.builder()
                         .location(rejected)
                         .forecastDate(date)
                         .runTimestamp(now)
@@ -248,8 +253,7 @@ public class AuroraForecastRunService {
                         .source("triage_template")
                         .alertLevel(level.name())
                         .maxKp(maxKp)
-                        .build();
-                resultRepository.save(entity);
+                        .build());
             }
 
             // Claude call for viable locations
@@ -263,7 +267,7 @@ public class AuroraForecastRunService {
                 totalClaudeCalls++;
 
                 for (AuroraForecastScore score : claudeScores) {
-                    AuroraForecastResultEntity entity = AuroraForecastResultEntity.builder()
+                    nightResults.add(AuroraForecastResultEntity.builder()
                             .location(score.location())
                             .forecastDate(date)
                             .runTimestamp(now)
@@ -275,10 +279,11 @@ public class AuroraForecastRunService {
                             .source("claude")
                             .alertLevel(level.name())
                             .maxKp(maxKp)
-                            .build();
-                    resultRepository.save(entity);
+                            .build());
                 }
             }
+
+            resultWriter.replaceNightResults(date, nightResults);
 
             String nightStatus = triage.viable().isEmpty() ? "all_triaged" : "scored";
             String nightSummary = buildNightSummary(claudeScores, triage.rejected().size());

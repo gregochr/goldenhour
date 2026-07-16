@@ -1,11 +1,10 @@
 package com.gregochr.goldenhour.controller;
 
-import com.gregochr.goldenhour.config.JwtProperties;
 import com.gregochr.goldenhour.entity.AppUserEntity;
-import com.gregochr.goldenhour.entity.RefreshTokenEntity;
+import com.gregochr.goldenhour.exception.InvalidCredentialsException;
+import com.gregochr.goldenhour.model.AuthTokens;
 import com.gregochr.goldenhour.repository.AppUserRepository;
-import com.gregochr.goldenhour.repository.RefreshTokenRepository;
-import com.gregochr.goldenhour.service.JwtService;
+import com.gregochr.goldenhour.service.AuthenticationService;
 import com.gregochr.goldenhour.service.RegistrationService;
 import com.gregochr.goldenhour.service.TurnstileService;
 import lombok.RequiredArgsConstructor;
@@ -14,15 +13,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.LocalDateTime;
-import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -32,6 +28,10 @@ import java.util.regex.Pattern;
  *
  * <p>Handles login, token refresh, and logout. All endpoints under
  * {@code /api/auth} are public (no JWT required).
+ *
+ * <p>The controller is a thin HTTP layer: request-shape validation and CAPTCHA checks happen
+ * here, while credential verification, token issuance/rotation, and the password policy live in
+ * {@link AuthenticationService}.
  */
 @RestController
 @RequestMapping("/api/auth")
@@ -43,11 +43,8 @@ public class AuthController {
     private static final Pattern USERNAME_PATTERN = Pattern.compile("^[a-zA-Z0-9_-]{3,30}$");
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
 
+    private final AuthenticationService authenticationService;
     private final AppUserRepository userRepository;
-    private final RefreshTokenRepository refreshTokenRepository;
-    private final JwtService jwtService;
-    private final PasswordEncoder passwordEncoder;
-    private final JwtProperties jwtProperties;
     private final RegistrationService registrationService;
     private final TurnstileService turnstileService;
 
@@ -68,50 +65,13 @@ public class AuthController {
                     .body(Map.of("error", "CAPTCHA verification failed. Please try again."));
         }
 
-        AppUserEntity user = userRepository.findByUsername(username).orElse(null);
-
-        if (user == null || !passwordEncoder.matches(password, user.getPassword())) {
-            LOG.warn("Login failed: user='{}' — bad credentials", username);
+        try {
+            AuthTokens tokens = authenticationService.login(username, password);
+            return ResponseEntity.ok(buildAuthResponse(tokens));
+        } catch (InvalidCredentialsException ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Invalid username or password"));
+                    .body(Map.of("error", ex.getMessage()));
         }
-
-        if (!user.isEnabled()) {
-            LOG.warn("Login failed: user='{}' — account disabled", username);
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Account is disabled"));
-        }
-
-        user.setLastActiveAt(LocalDateTime.now());
-        userRepository.save(user);
-
-        String accessToken = jwtService.generateAccessToken(user.getUsername(), user.getRole());
-        String rawRefresh = jwtService.generateRefreshToken();
-        String refreshHash = jwtService.hashToken(rawRefresh);
-        Date expiresAt = jwtService.extractExpiry(accessToken);
-
-        LocalDateTime refreshExpiresAt = LocalDateTime.now()
-                .plusDays(jwtProperties.getRefreshTokenExpiryDays());
-        RefreshTokenEntity tokenEntity = RefreshTokenEntity.builder()
-                .tokenHash(refreshHash)
-                .userId(user.getId())
-                .expiresAt(refreshExpiresAt)
-                .revoked(false)
-                .build();
-        refreshTokenRepository.save(tokenEntity);
-
-        LOG.info("Login: user='{}' role={}", user.getUsername(), user.getRole());
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("accessToken", accessToken);
-        response.put("refreshToken", rawRefresh);
-        response.put("username", user.getUsername());
-        response.put("role", user.getRole().name());
-        response.put("expiresAt", expiresAt.toInstant().toString());
-        response.put("refreshExpiresAt", refreshExpiresAt.toInstant(java.time.ZoneOffset.UTC).toString());
-        response.put("passwordChangeRequired", user.isPasswordChangeRequired());
-        response.put("marketingEmailOptIn", user.isMarketingEmailOptIn());
-        response.put("termsVersion", user.getTermsVersion());
-        return ResponseEntity.ok(response);
     }
 
     /**
@@ -139,48 +99,19 @@ public class AuthController {
         }
 
         String newPassword = body.get("newPassword");
-        String complexityError = validatePasswordComplexity(newPassword);
+        String complexityError = authenticationService.validatePasswordComplexity(newPassword);
         if (complexityError != null) {
             return ResponseEntity.badRequest().body(Map.of("error", complexityError));
         }
 
-        AppUserEntity user = userRepository.findByUsername(username).orElse(null);
-        if (user == null) {
+        try {
+            authenticationService.changePassword(username, newPassword);
+        } catch (InvalidCredentialsException ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "User not found"));
+                    .body(Map.of("error", ex.getMessage()));
         }
 
-        user.setPassword(passwordEncoder.encode(newPassword));
-        user.setPasswordChangeRequired(false);
-        userRepository.save(user);
-
-        LOG.info("Password changed: user='{}'", username);
         return ResponseEntity.ok(Map.of("message", "Password updated"));
-    }
-
-    /**
-     * Returns {@code null} if the password meets all complexity requirements, or an error message.
-     *
-     * @param password the candidate password
-     * @return error message, or {@code null} if valid
-     */
-    private String validatePasswordComplexity(String password) {
-        if (password == null || password.length() < 8) {
-            return "Password must be at least 8 characters.";
-        }
-        if (!Pattern.compile("[A-Z]").matcher(password).find()) {
-            return "Password must contain at least one uppercase letter.";
-        }
-        if (!Pattern.compile("[a-z]").matcher(password).find()) {
-            return "Password must contain at least one lowercase letter.";
-        }
-        if (!Pattern.compile("[0-9]").matcher(password).find()) {
-            return "Password must contain at least one number.";
-        }
-        if (!Pattern.compile("[^A-Za-z0-9]").matcher(password).find()) {
-            return "Password must contain at least one special character.";
-        }
-        return null;
     }
 
     /**
@@ -200,47 +131,17 @@ public class AuthController {
                     .body(Map.of("error", "Refresh token required"));
         }
 
-        String hash = jwtService.hashToken(rawRefresh);
-        RefreshTokenEntity stored = refreshTokenRepository.findByTokenHash(hash).orElse(null);
-
-        if (stored == null || stored.isRevoked()
-                || stored.getExpiresAt().isBefore(LocalDateTime.now())) {
+        try {
+            AuthTokens tokens = authenticationService.refresh(rawRefresh);
+            return ResponseEntity.ok(Map.of(
+                    "accessToken", tokens.accessToken(),
+                    "refreshToken", tokens.refreshToken(),
+                    "expiresAt", tokens.accessTokenExpiresAt().toString(),
+                    "refreshExpiresAt", tokens.refreshTokenExpiresAt().toString()));
+        } catch (InvalidCredentialsException ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Refresh token is invalid or expired"));
+                    .body(Map.of("error", ex.getMessage()));
         }
-
-        AppUserEntity user = userRepository.findById(stored.getUserId()).orElse(null);
-        if (user == null || !user.isEnabled()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "User not found or disabled"));
-        }
-
-        // Revoke old token (rotation — prevents reuse)
-        stored.setRevoked(true);
-        refreshTokenRepository.save(stored);
-
-        // Issue new access token
-        String newAccessToken = jwtService.generateAccessToken(user.getUsername(), user.getRole());
-        Date accessExpiresAt = jwtService.extractExpiry(newAccessToken);
-
-        // Issue new refresh token
-        String newRawRefresh = jwtService.generateRefreshToken();
-        String newRefreshHash = jwtService.hashToken(newRawRefresh);
-        LocalDateTime refreshExpiresAt = LocalDateTime.now()
-                .plusDays(jwtProperties.getRefreshTokenExpiryDays());
-        RefreshTokenEntity newToken = RefreshTokenEntity.builder()
-                .tokenHash(newRefreshHash)
-                .userId(user.getId())
-                .expiresAt(refreshExpiresAt)
-                .revoked(false)
-                .build();
-        refreshTokenRepository.save(newToken);
-
-        return ResponseEntity.ok(Map.of(
-                "accessToken", newAccessToken,
-                "refreshToken", newRawRefresh,
-                "expiresAt", accessExpiresAt.toInstant().toString(),
-                "refreshExpiresAt", refreshExpiresAt.toInstant(java.time.ZoneOffset.UTC).toString()));
     }
 
     /**
@@ -374,7 +275,7 @@ public class AuthController {
                     .body(Map.of("error", "Invalid userId"));
         }
 
-        String complexityError = validatePasswordComplexity(password);
+        String complexityError = authenticationService.validatePasswordComplexity(password);
         if (complexityError != null) {
             return ResponseEntity.badRequest().body(Map.of("error", complexityError));
         }
@@ -391,33 +292,9 @@ public class AuthController {
             return ResponseEntity.badRequest().body(Map.of("error", "User not found"));
         }
 
-        String accessToken = jwtService.generateAccessToken(user.getUsername(), user.getRole());
-        String rawRefresh = jwtService.generateRefreshToken();
-        String refreshHash = jwtService.hashToken(rawRefresh);
-        Date expiresAt = jwtService.extractExpiry(accessToken);
-
-        LocalDateTime refreshExpiresAt = LocalDateTime.now()
-                .plusDays(jwtProperties.getRefreshTokenExpiryDays());
-        RefreshTokenEntity tokenEntity = RefreshTokenEntity.builder()
-                .tokenHash(refreshHash)
-                .userId(user.getId())
-                .expiresAt(refreshExpiresAt)
-                .revoked(false)
-                .build();
-        refreshTokenRepository.save(tokenEntity);
-
+        AuthTokens tokens = authenticationService.issueTokensFor(user);
         LOG.info("Registration complete: user='{}' role={}", user.getUsername(), user.getRole());
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("accessToken", accessToken);
-        response.put("refreshToken", rawRefresh);
-        response.put("username", user.getUsername());
-        response.put("role", user.getRole().name());
-        response.put("expiresAt", expiresAt.toInstant().toString());
-        response.put("refreshExpiresAt", refreshExpiresAt.toInstant(java.time.ZoneOffset.UTC).toString());
-        response.put("passwordChangeRequired", false);
-        response.put("marketingEmailOptIn", user.isMarketingEmailOptIn());
-        response.put("termsVersion", user.getTermsVersion());
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(buildAuthResponse(tokens));
     }
 
     /**
@@ -466,12 +343,31 @@ public class AuthController {
     public ResponseEntity<Map<String, Object>> logout(@RequestBody Map<String, String> body) {
         String rawRefresh = body.get("refreshToken");
         if (rawRefresh != null) {
-            String hash = jwtService.hashToken(rawRefresh);
-            refreshTokenRepository.findByTokenHash(hash).ifPresent(token -> {
-                token.setRevoked(true);
-                refreshTokenRepository.save(token);
-            });
+            authenticationService.revokeRefreshToken(rawRefresh);
         }
         return ResponseEntity.ok(Map.of("message", "Logged out"));
+    }
+
+    /**
+     * Builds the full auth response body shared by {@code /login} and {@code /set-password}.
+     *
+     * <p>Uses a {@link LinkedHashMap} (not {@code Map.of}) because {@code termsVersion} may be
+     * {@code null} for pre-terms accounts.
+     *
+     * @param tokens the issued tokens and user fields
+     * @return the response body map
+     */
+    private Map<String, Object> buildAuthResponse(AuthTokens tokens) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("accessToken", tokens.accessToken());
+        response.put("refreshToken", tokens.refreshToken());
+        response.put("username", tokens.username());
+        response.put("role", tokens.role());
+        response.put("expiresAt", tokens.accessTokenExpiresAt().toString());
+        response.put("refreshExpiresAt", tokens.refreshTokenExpiresAt().toString());
+        response.put("passwordChangeRequired", tokens.passwordChangeRequired());
+        response.put("marketingEmailOptIn", tokens.marketingEmailOptIn());
+        response.put("termsVersion", tokens.termsVersion());
+        return response;
     }
 }

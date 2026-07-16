@@ -5,11 +5,9 @@ import com.gregochr.goldenhour.config.OrsProperties;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.UserDriveTimeEntity;
 import com.gregochr.goldenhour.repository.LocationRepository;
-import com.gregochr.goldenhour.repository.UserDriveTimeRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,6 +19,10 @@ import java.util.concurrent.Semaphore;
  *
  * <p>Results are stored in the {@code user_drive_time} table, keyed by user + location.
  * A semaphore limits concurrent ORS calls to avoid rate-limiting.
+ *
+ * <p>Deliberately not transactional: the semaphore wait and the ORS HTTP call run outside any
+ * transaction so no database connection is pinned across them. Persistence is delegated to
+ * {@link UserDriveTimeWriter}, which replaces the user's rows in one short transaction.
  */
 @Service
 public class DriveDurationService {
@@ -33,23 +35,23 @@ public class DriveDurationService {
     private final OpenRouteServiceClient orsClient;
     private final OrsProperties orsProperties;
     private final LocationRepository locationRepository;
-    private final UserDriveTimeRepository userDriveTimeRepository;
+    private final UserDriveTimeWriter driveTimeWriter;
 
     /**
      * Constructs a {@code DriveDurationService}.
      *
-     * @param orsClient              client for the ORS matrix API
-     * @param orsProperties          ORS configuration (API key, enabled flag)
-     * @param locationRepository     JPA repository for locations
-     * @param userDriveTimeRepository JPA repository for per-user drive times
+     * @param orsClient          client for the ORS matrix API
+     * @param orsProperties      ORS configuration (API key, enabled flag)
+     * @param locationRepository JPA repository for locations
+     * @param driveTimeWriter    transactional writer for per-user drive times
      */
     public DriveDurationService(OpenRouteServiceClient orsClient, OrsProperties orsProperties,
             LocationRepository locationRepository,
-            UserDriveTimeRepository userDriveTimeRepository) {
+            UserDriveTimeWriter driveTimeWriter) {
         this.orsClient = orsClient;
         this.orsProperties = orsProperties;
         this.locationRepository = locationRepository;
-        this.userDriveTimeRepository = userDriveTimeRepository;
+        this.driveTimeWriter = driveTimeWriter;
     }
 
     /**
@@ -64,7 +66,6 @@ public class DriveDurationService {
      * @param originLon the origin longitude (user's home)
      * @return the number of locations with valid drive times
      */
-    @Transactional
     public int refreshForUser(Long userId, double originLat, double originLon) {
         if (!orsProperties.isConfigured()) {
             LOG.warn("ORS not configured — skipping drive time refresh for user {}", userId);
@@ -104,8 +105,6 @@ public class DriveDurationService {
             return 0;
         }
 
-        userDriveTimeRepository.deleteAllByUserId(userId);
-
         List<UserDriveTimeEntity> driveTimes = new ArrayList<>();
         for (int i = 0; i < Math.min(locations.size(), durations.size()); i++) {
             Double seconds = durations.get(i);
@@ -115,7 +114,7 @@ public class DriveDurationService {
             }
         }
 
-        userDriveTimeRepository.saveAll(driveTimes);
+        driveTimeWriter.replaceForUser(userId, driveTimes);
         LOG.info("Drive time refresh complete for user {} — {} locations updated",
                 userId, driveTimes.size());
         return driveTimes.size();

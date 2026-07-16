@@ -58,6 +58,7 @@ class AuroraForecastRunServiceTest {
     @Mock private AuroraForecastResultRepository resultRepository;
     @Mock private SolarCalculator solarCalculator;
     @Mock private AuroraStateCache stateCache;
+    @Mock private AuroraForecastResultWriter resultWriter;
 
     private AuroraForecastRunService service;
     private AuroraProperties properties;
@@ -67,7 +68,7 @@ class AuroraForecastRunServiceTest {
         properties = new AuroraProperties();
         service = new AuroraForecastRunService(noaaClient, weatherTriage,
                 claudeInterpreter, locationRepository, resultRepository, properties, solarCalculator,
-                stateCache);
+                stateCache, resultWriter);
         when(stateCache.isSimulated()).thenReturn(false);
 
         ZoneId utc = ZoneId.of("UTC");
@@ -262,7 +263,6 @@ class AuroraForecastRunServiceTest {
         when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any()))
                 .thenReturn(List.of(new AuroraForecastScore(loc, 4, AlertLevel.MODERATE, 30,
                         "Excellent conditions", "✓ Geomagnetic: MODERATE\n✓ Cloud: 30%")));
-        when(resultRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
         AuroraForecastRunResponse response = service.runForecast(
                 new AuroraForecastRunRequest(List.of(tonight)));
@@ -302,13 +302,13 @@ class AuroraForecastRunServiceTest {
                 .thenReturn(List.of(new AuroraForecastScore(viableLoc, 3, AlertLevel.MODERATE, 20,
                         "Good conditions", "✓ Cloud: 20%")));
 
-        ArgumentCaptor<AuroraForecastResultEntity> savedCaptor =
-                ArgumentCaptor.forClass(AuroraForecastResultEntity.class);
-        when(resultRepository.save(savedCaptor.capture())).thenAnswer(i -> i.getArgument(0));
-
         service.runForecast(new AuroraForecastRunRequest(List.of(tonight)));
 
-        List<AuroraForecastResultEntity> saved = savedCaptor.getAllValues();
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<AuroraForecastResultEntity>> savedCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(resultWriter).replaceNightResults(eq(tonight), savedCaptor.capture());
+        List<AuroraForecastResultEntity> saved = savedCaptor.getValue();
         assertThat(saved).hasSize(2);
 
         AuroraForecastResultEntity triaged = saved.stream()
@@ -324,15 +324,14 @@ class AuroraForecastRunServiceTest {
     }
 
     @Test
-    @DisplayName("runForecast deletes existing results before inserting new ones")
-    void runForecast_deletesExistingResults() {
+    @DisplayName("runForecast clears stored results for a quiet night via the writer")
+    void runForecast_quietNight_clearsStoredResults() {
         LocalDate tonight = LocalDate.now(ZoneId.of("UTC"));
         when(noaaClient.fetchAll()).thenReturn(quietSpaceWeather());
 
-
         service.runForecast(new AuroraForecastRunRequest(List.of(tonight)));
 
-        verify(resultRepository).deleteByForecastDateIn(List.of(tonight));
+        verify(resultWriter).replaceNightResults(tonight, List.of());
     }
 
     @Test
@@ -358,7 +357,6 @@ class AuroraForecastRunServiceTest {
         when(weatherTriage.triage(any())).thenReturn(
                 new WeatherTriageService.TriageResult(
                         List.of(), List.of(overcastLoc), Map.of(overcastLoc, 90)));
-        when(resultRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
         AuroraForecastRunResponse response = service.runForecast(
                 new AuroraForecastRunRequest(List.of(tonight)));
@@ -366,6 +364,78 @@ class AuroraForecastRunServiceTest {
         verify(claudeInterpreter, never()).interpret(any(), any(), any(), any(), any(), any());
         assertThat(response.nights().get(0).status()).isEqualTo("all_triaged");
         assertThat(response.totalClaudeCalls()).isZero();
+
+        // The triage-template row must still replace the night's stored results
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<AuroraForecastResultEntity>> writtenCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(resultWriter).replaceNightResults(eq(tonight), writtenCaptor.capture());
+        assertThat(writtenCaptor.getValue()).hasSize(1);
+        assertThat(writtenCaptor.getValue().get(0).isTriaged()).isTrue();
+    }
+
+    @Test
+    @DisplayName("runForecast clears stored results when no Bortle-eligible locations exist")
+    void runForecast_noEligibleLocations_clearsStoredResults() {
+        LocalDate tonight = LocalDate.now(ZoneId.of("UTC"));
+        ZoneId utc = ZoneId.of("UTC");
+        ZonedDateTime dusk = tonight.atTime(20, 35).atZone(utc);
+        ZonedDateTime dawn = tonight.plusDays(1).atTime(3, 25).atZone(utc);
+
+        SpaceWeatherData data = new SpaceWeatherData(
+                List.of(),
+                List.of(new KpForecast(dusk, dawn, 6.0)),
+                null, List.of(), List.of());
+        when(noaaClient.fetchAll()).thenReturn(data);
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
+                .thenReturn(List.of());
+
+        AuroraForecastRunResponse response = service.runForecast(
+                new AuroraForecastRunRequest(List.of(tonight)));
+
+        assertThat(response.nights().get(0).status()).isEqualTo("no_eligible_locations");
+        verify(resultWriter).replaceNightResults(tonight, List.of());
+    }
+
+    @Test
+    @DisplayName("a Claude failure on night 2 leaves night 1 committed and night 2's stored rows untouched")
+    void runForecast_laterNightFailure_preservesEarlierNightWrites() {
+        ZoneId utc = ZoneId.of("UTC");
+        LocalDate night1 = LocalDate.now(utc);
+        LocalDate night2 = night1.plusDays(1);
+        // The solar stub returns today's times for any date, so both nights share one dark window
+        ZonedDateTime dusk = night1.atTime(20, 35).atZone(utc);
+        ZonedDateTime dawn = night1.plusDays(1).atTime(3, 25).atZone(utc);
+
+        SpaceWeatherData data = new SpaceWeatherData(
+                List.of(),
+                List.of(new KpForecast(dusk, dawn, 6.0)),
+                null, List.of(), List.of());
+        when(noaaClient.fetchAll()).thenReturn(data);
+
+        LocationEntity loc = LocationEntity.builder()
+                .id(1L).name("Test Location").lat(55.0).lon(-1.5).bortleClass(3).build();
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
+                .thenReturn(List.of(loc));
+        when(weatherTriage.triage(any())).thenReturn(
+                new WeatherTriageService.TriageResult(List.of(loc), List.of(), Map.of(loc, 30)));
+        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any()))
+                .thenReturn(List.of(new AuroraForecastScore(loc, 4, AlertLevel.MODERATE, 30,
+                        "Good conditions", "✓ Cloud: 30%")))
+                .thenThrow(new RuntimeException("Claude 529 overloaded"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.runForecast(
+                new AuroraForecastRunRequest(List.of(night1, night2))))
+                .hasMessageContaining("529");
+
+        // Night 1's results were written before the failure; night 2 was never touched,
+        // so its previously stored rows survive the failed re-run
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<AuroraForecastResultEntity>> writtenCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(resultWriter).replaceNightResults(eq(night1), writtenCaptor.capture());
+        assertThat(writtenCaptor.getValue()).hasSize(1);
+        verify(resultWriter, never()).replaceNightResults(eq(night2), any());
     }
 
     @Test
@@ -404,7 +474,6 @@ class AuroraForecastRunServiceTest {
         when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any()))
                 .thenReturn(List.of(new AuroraForecastScore(loc, 3, AlertLevel.MODERATE, 50,
                         "Possible aurora", "✓ Geomagnetic: MODERATE")));
-        when(resultRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
         service.runForecast(new AuroraForecastRunRequest(List.of(tomorrow)));
 
@@ -468,7 +537,6 @@ class AuroraForecastRunServiceTest {
         when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any()))
                 .thenReturn(List.of(new AuroraForecastScore(loc, 4, AlertLevel.STRONG, 30,
                         "Strong conditions", "✓ Geomagnetic: STRONG")));
-        when(resultRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
         AuroraForecastRunResponse response = service.runForecast(
                 new AuroraForecastRunRequest(List.of(tonight)));
