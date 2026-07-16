@@ -1,44 +1,9 @@
 import React, { useEffect, useOptimistic, useState, useTransition, useMemo } from 'react';
-import PropTypes from 'prop-types';
 import { fetchRegions, addRegion, updateRegion, setRegionEnabled } from '../api/regionApi.js';
 import { fetchLocations } from '../api/forecastApi.js';
 import Pagination from './Pagination.jsx';
 import usePagination from '../hooks/usePagination.js';
-
-/**
- * Sortable header cell for the regions table.
- *
- * @param {object} props
- * @param {string} props.label - Column header label.
- * @param {string} props.sortKey - Key used for sorting.
- * @param {string} props.currentSortKey - Currently active sort key.
- * @param {'asc'|'desc'} props.currentSortDir - Current sort direction.
- * @param {function} props.onSort - Called with the sort key when clicked.
- */
-function SortableHeader({ label, sortKey, currentSortKey, currentSortDir, onSort }) {
-  const active = currentSortKey === sortKey;
-  const arrow = active ? (currentSortDir === 'asc' ? ' ▲' : ' ▼') : '';
-
-  return (
-    <th className="pb-1 font-medium align-bottom">
-      <button
-        type="button"
-        onClick={() => onSort(sortKey)}
-        className="text-xs text-plex-text-muted hover:text-plex-text cursor-pointer whitespace-nowrap"
-      >
-        {label}{arrow}
-      </button>
-    </th>
-  );
-}
-
-SortableHeader.propTypes = {
-  label: PropTypes.string.isRequired,
-  sortKey: PropTypes.string.isRequired,
-  currentSortKey: PropTypes.string.isRequired,
-  currentSortDir: PropTypes.string.isRequired,
-  onSort: PropTypes.func.isRequired,
-};
+import SortableHeader from './shared/SortableHeader.jsx';
 
 /**
  * Region management view with list/add/edit modes and client-side pagination.
@@ -204,10 +169,10 @@ export default function RegionManagementView() {
               <table className="w-full table-fixed text-sm text-left" data-testid="regions-table">
                 <thead>
                   <tr className="text-xs text-plex-text-muted border-b border-plex-border">
-                    <SortableHeader label="Name" sortKey="name" currentSortKey={sortKey} currentSortDir={sortDir} onSort={handleSort} />
-                    <SortableHeader label="Created" sortKey="created" currentSortKey={sortKey} currentSortDir={sortDir} onSort={handleSort} />
-                    <SortableHeader label="Status" sortKey="status" currentSortKey={sortKey} currentSortDir={sortDir} onSort={handleSort} />
-                    <SortableHeader label="Location Count" sortKey="locationCount" currentSortKey={sortKey} currentSortDir={sortDir} onSort={handleSort} />
+                    <SortableHeader label="Name" sortKey="name" currentSortKey={sortKey} currentSortDir={sortDir} onSort={handleSort} spacer={false} />
+                    <SortableHeader label="Created" sortKey="created" currentSortKey={sortKey} currentSortDir={sortDir} onSort={handleSort} spacer={false} />
+                    <SortableHeader label="Status" sortKey="status" currentSortKey={sortKey} currentSortDir={sortDir} onSort={handleSort} spacer={false} />
+                    <SortableHeader label="Location Count" sortKey="locationCount" currentSortKey={sortKey} currentSortDir={sortDir} onSort={handleSort} spacer={false} />
                     <th className="pb-1 font-medium text-xs text-plex-text-muted align-bottom">
                       <span className="whitespace-nowrap">Actions</span>
                     </th>
