@@ -236,10 +236,11 @@ public class EvaluationViewService {
                                     loc.getName(), row.getRating(),
                                     row.getFierySkyPotential(), row.getGoldenHourPotential(),
                                     row.getSummary()));
-                        } else if (row.getTriageReason() != null) {
+                        } else if (row.getTriage() != null
+                                && row.getTriage().getReason() != null) {
                             result.put(loc.getName(), new BriefingEvaluationResult(
                                     loc.getName(), null, null, null, null,
-                                    row.getTriageReason(), row.getTriageMessage()));
+                                    row.getTriage().getReason(), row.getTriage().getMessage()));
                         }
                     });
         }
@@ -317,10 +318,10 @@ public class EvaluationViewService {
                     regionMap.put(loc.getName(), new BriefingEvaluationResult(
                             loc.getName(), row.getRating(), row.getFierySkyPotential(),
                             row.getGoldenHourPotential(), row.getSummary()));
-                } else if (row.getTriageReason() != null) {
+                } else if (row.getTriage() != null && row.getTriage().getReason() != null) {
                     regionMap.put(loc.getName(), new BriefingEvaluationResult(
                             loc.getName(), null, null, null, null,
-                            row.getTriageReason(), row.getTriageMessage()));
+                            row.getTriage().getReason(), row.getTriage().getMessage()));
                 }
             }
         }
@@ -399,13 +400,14 @@ public class EvaluationViewService {
         }
 
         // 3. Triaged forecast_evaluation row
-        if (forecastRow != null && forecastRow.getTriageReason() != null) {
+        if (forecastRow != null && forecastRow.getTriage() != null
+                && forecastRow.getTriage().getReason() != null) {
             DisplayVerdict displayVerdict = DisplayVerdict.resolve(null, Verdict.STANDDOWN);
             return new LocationEvaluationView(
                     locationId, locationName, regionId, regionName, date, targetType,
                     Source.FORECAST_EVALUATION_TRIAGE,
                     null, null, null, null,
-                    forecastRow.getTriageReason(), forecastRow.getTriageMessage(),
+                    forecastRow.getTriage().getReason(), forecastRow.getTriage().getMessage(),
                     null,
                     forecastRow.getForecastRunAt() != null
                             ? forecastRow.getForecastRunAt().atZone(

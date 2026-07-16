@@ -1,7 +1,7 @@
 package com.gregochr.goldenhour.controller;
 
-import com.gregochr.goldenhour.entity.ActualOutcomeEntity;
 import com.gregochr.goldenhour.model.ActualOutcome;
+import com.gregochr.goldenhour.model.ActualOutcomeDto;
 import com.gregochr.goldenhour.service.OutcomeService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
@@ -45,23 +45,25 @@ public class OutcomeController {
      * @throws IllegalArgumentException if {@code from} is after {@code to}
      */
     @GetMapping
-    public List<ActualOutcomeEntity> getOutcomes(
+    public List<ActualOutcomeDto> getOutcomes(
             @RequestParam double lat,
             @RequestParam double lon,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        return outcomeService.query(lat, lon, from, to);
+        return outcomeService.query(lat, lon, from, to).stream()
+                .map(ActualOutcomeDto::from)
+                .toList();
     }
 
     /**
      * Records an observed sunrise or sunset outcome.
      *
      * @param outcome the outcome data from the client
-     * @return the saved entity with its assigned database ID
+     * @return the saved outcome with its assigned database ID
      */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public ActualOutcomeEntity record(@RequestBody ActualOutcome outcome) {
-        return outcomeService.record(outcome);
+    public ActualOutcomeDto record(@RequestBody ActualOutcome outcome) {
+        return ActualOutcomeDto.from(outcomeService.record(outcome));
     }
 }

@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.TideDetails;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
@@ -292,7 +293,7 @@ class ForecastEvaluationRepositoryTest {
                 .evaluationModel(EvaluationModel.SONNET)
                 .fierySkyPotential(65)
                 .goldenHourPotential(72)
-                .tideAligned(tideAligned)
+                .tide(TideDetails.builder().aligned(tideAligned).build())
                 .summary("Test evaluation.")
                 .build();
     }

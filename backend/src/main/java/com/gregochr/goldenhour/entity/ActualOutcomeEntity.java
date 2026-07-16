@@ -1,7 +1,5 @@
 package com.gregochr.goldenhour.entity;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -54,7 +52,6 @@ public class ActualOutcomeEntity {
     /** The location this outcome was recorded for. */
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "location_id", nullable = false)
-    @JsonIgnore
     private LocationEntity location;
 
     /** The date the event was observed. */
@@ -91,11 +88,10 @@ public class ActualOutcomeEntity {
     private LocalDateTime recordedAt;
 
     /**
-     * Returns the location name for JSON serialisation, preserving the API contract.
+     * Convenience accessor for the owning location's name.
      *
      * @return the location name, or {@code null} if the location is not set
      */
-    @JsonProperty("locationName")
     public String getLocationName() {
         return location != null ? location.getName() : null;
     }

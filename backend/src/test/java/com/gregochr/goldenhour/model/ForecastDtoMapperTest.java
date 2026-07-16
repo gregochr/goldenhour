@@ -2,7 +2,12 @@ package com.gregochr.goldenhour.model;
 
 import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.CloudApproachDetails;
+import com.gregochr.goldenhour.entity.DirectionalCloudDetails;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.StormSurgeDetails;
+import com.gregochr.goldenhour.entity.TideDetails;
+import com.gregochr.goldenhour.entity.TriageDetails;
 import com.gregochr.goldenhour.entity.ForecastScoreEntity;
 import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
@@ -362,8 +367,7 @@ class ForecastDtoMapperTest {
                 .targetType(TargetType.SUNSET)
                 .forecastRunAt(LocalDateTime.of(2026, 3, 8, 12, 0))
                 .daysAhead(0)
-                .triageReason(TriageReason.HIGH_CLOUD)
-                .triageMessage("Solar horizon low cloud 85% — sun blocked")
+                .triage(new TriageDetails(TriageReason.HIGH_CLOUD, "Solar horizon low cloud 85% — sun blocked"))
                 .build();
 
         ForecastEvaluationDto dto = mapper.toDto(entity, false);
@@ -399,8 +403,7 @@ class ForecastDtoMapperTest {
                 .targetType(TargetType.SUNRISE)
                 .forecastRunAt(LocalDateTime.of(2026, 3, 8, 6, 0))
                 .daysAhead(0)
-                .triageReason(TriageReason.TIDE_MISALIGNED)
-                .triageMessage("No high tide in golden/blue hour window")
+                .triage(new TriageDetails(TriageReason.TIDE_MISALIGNED, "No high tide in golden/blue hour window"))
                 .build();
 
         ForecastEvaluationDto dto = mapper.toDto(entity, true);
@@ -413,12 +416,7 @@ class ForecastDtoMapperTest {
     @DisplayName("toDto() returns null surge fields when entity has no surge data")
     void toDto_nullSurge_returnsNullFields() {
         ForecastEvaluationEntity entity = buildFullEntity();
-        entity.setSurgeTotalMetres(null);
-        entity.setSurgePressureMetres(null);
-        entity.setSurgeWindMetres(null);
-        entity.setSurgeRiskLevel(null);
-        entity.setSurgeAdjustedRangeMetres(null);
-        entity.setSurgeAstronomicalRangeMetres(null);
+        entity.setSurge(null);
 
         ForecastEvaluationDto dto = mapper.toDto(entity, false);
 
@@ -589,30 +587,28 @@ class ForecastDtoMapperTest {
                 .temperatureCelsius(12.5)
                 .apparentTemperatureCelsius(9.8)
                 .precipitationProbabilityPercent(10)
-                .tideState(TideState.HIGH)
-                .nextHighTideTime(LocalDateTime.of(2026, 3, 8, 18, 30))
-                .nextHighTideHeightMetres(new BigDecimal("4.50"))
-                .nextLowTideTime(LocalDateTime.of(2026, 3, 8, 12, 15))
-                .nextLowTideHeightMetres(new BigDecimal("1.20"))
-                .tideAligned(true)
-                .solarLowCloud(5)
-                .solarMidCloud(10)
-                .solarHighCloud(70)
-                .antisolarLowCloud(30)
-                .antisolarMidCloud(50)
-                .antisolarHighCloud(90)
-                .solarTrendEventLowCloud(7)
-                .solarTrendEarliestLowCloud(5)
-                .solarTrendBuilding(true)
-                .upwindCurrentLowCloud(70)
-                .upwindEventLowCloud(15)
-                .upwindDistanceKm(87)
-                .surgeTotalMetres(0.35)
-                .surgePressureMetres(0.20)
-                .surgeWindMetres(0.15)
-                .surgeRiskLevel("MODERATE")
-                .surgeAdjustedRangeMetres(3.65)
-                .surgeAstronomicalRangeMetres(3.30)
+                .tide(TideDetails.builder()
+                        .state(TideState.HIGH)
+                        .nextHighTime(LocalDateTime.of(2026, 3, 8, 18, 30))
+                        .nextHighHeightMetres(new BigDecimal("4.50"))
+                        .nextLowTime(LocalDateTime.of(2026, 3, 8, 12, 15))
+                        .nextLowHeightMetres(new BigDecimal("1.20"))
+                        .aligned(true)
+                        .build())
+                .directionalCloud(DirectionalCloudDetails.builder()
+                        .solarLow(5).solarMid(10).solarHigh(70)
+                        .antisolarLow(30).antisolarMid(50).antisolarHigh(90)
+                        .build())
+                .cloudApproach(CloudApproachDetails.builder()
+                        .solarTrendEventLowCloud(7).solarTrendEarliestLowCloud(5)
+                        .solarTrendBuilding(true).upwindCurrentLowCloud(70)
+                        .upwindEventLowCloud(15).upwindDistanceKm(87)
+                        .build())
+                .surge(StormSurgeDetails.builder()
+                        .totalMetres(0.35).pressureMetres(0.20).windMetres(0.15)
+                        .riskLevel("MODERATE").adjustedRangeMetres(3.65)
+                        .astronomicalRangeMetres(3.30)
+                        .build())
                 .build();
     }
 }
