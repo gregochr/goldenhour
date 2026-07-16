@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.CachedEvaluationEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.TriageDetails;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -228,8 +229,7 @@ class EvaluationViewServiceTest {
                     .thenReturn(Map.of());
 
             ForecastEvaluationEntity row = ForecastEvaluationEntity.builder()
-                    .triageReason(TriageReason.HIGH_CLOUD)
-                    .triageMessage("Low cloud 85%")
+                    .triage(new TriageDetails(TriageReason.HIGH_CLOUD, "Low cloud 85%"))
                     .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
                     .build();
             when(forecastEvaluationRepository
@@ -282,8 +282,7 @@ class EvaluationViewServiceTest {
                             new BriefingEvaluationResult("Bamburgh", 5, 90, 85, "Stunning")));
 
             ForecastEvaluationEntity triageRow = ForecastEvaluationEntity.builder()
-                    .triageReason(TriageReason.PRECIPITATION)
-                    .triageMessage("Rain 80%")
+                    .triage(new TriageDetails(TriageReason.PRECIPITATION, "Rain 80%"))
                     .forecastRunAt(LocalDateTime.of(2026, 4, 22, 4, 0))
                     .build();
             when(forecastEvaluationRepository
@@ -344,8 +343,7 @@ class EvaluationViewServiceTest {
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
                             2L, DATE, SUNRISE))
                     .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
-                            .triageReason(TriageReason.LOW_VISIBILITY)
-                            .triageMessage("Visibility 5km")
+                            .triage(new TriageDetails(TriageReason.LOW_VISIBILITY, "Visibility 5km"))
                             .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
                             .build()));
 
@@ -563,8 +561,7 @@ class EvaluationViewServiceTest {
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
                             1L, DATE, SUNRISE))
                     .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
-                            .triageReason(TriageReason.PRECIPITATION)
-                            .triageMessage("Rain 80%")
+                            .triage(new TriageDetails(TriageReason.PRECIPITATION, "Rain 80%"))
                             .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
                             .build()));
 
@@ -650,8 +647,7 @@ class EvaluationViewServiceTest {
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
                             1L, DATE, SUNRISE))
                     .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
-                            .triageReason(TriageReason.PRECIPITATION)
-                            .triageMessage("Rain expected")
+                            .triage(new TriageDetails(TriageReason.PRECIPITATION, "Rain expected"))
                             .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
                             .build()));
 
@@ -807,7 +803,7 @@ class EvaluationViewServiceTest {
                             eq(1L), eq(DATE), eq(DATE)))
                     .thenReturn(List.of(ForecastEvaluationEntity.builder()
                             .targetDate(DATE).targetType(SUNSET)
-                            .triageReason(TriageReason.PRECIPITATION).triageMessage("Rain")
+                            .triage(new TriageDetails(TriageReason.PRECIPITATION, "Rain"))
                             .forecastRunAt(LocalDateTime.of(2026, 4, 22, 18, 0))
                             .build()));
 
@@ -964,8 +960,7 @@ class EvaluationViewServiceTest {
             // Sandsend: triaged sunset in forecast_evaluation
             ForecastEvaluationEntity sandsendTriage = ForecastEvaluationEntity.builder()
                     .targetDate(DATE).targetType(SUNSET)
-                    .triageReason(TriageReason.HIGH_CLOUD)
-                    .triageMessage("Overcast")
+                    .triage(new TriageDetails(TriageReason.HIGH_CLOUD, "Overcast"))
                     .forecastRunAt(LocalDateTime.of(2026, 4, 22, 4, 0))
                     .build();
 

@@ -446,8 +446,8 @@ class ForecastServiceTest {
         assertThat(triaged.getTargetType()).isEqualTo(TargetType.SUNRISE);
         assertThat(triaged.getSummary()).isNull();
         assertThat(triaged.getRating()).isNull();
-        assertThat(triaged.getTriageReason()).isEqualTo(TriageReason.HIGH_CLOUD);
-        assertThat(triaged.getTriageMessage()).contains("Low cloud 85%");
+        assertThat(triaged.getTriage().getReason()).isEqualTo(TriageReason.HIGH_CLOUD);
+        assertThat(triaged.getTriage().getMessage()).contains("Low cloud 85%");
     }
 
     @Test
@@ -557,8 +557,8 @@ class ForecastServiceTest {
         assertThat(saved.getTargetType()).isEqualTo(TargetType.SUNSET);
         assertThat(saved.getRating()).isNull();
         assertThat(saved.getSummary()).isNull();
-        assertThat(saved.getTriageReason()).isEqualTo(TriageReason.TIDE_MISALIGNED);
-        assertThat(saved.getTriageMessage()).contains("tide");
+        assertThat(saved.getTriage().getReason()).isEqualTo(TriageReason.TIDE_MISALIGNED);
+        assertThat(saved.getTriage().getMessage()).contains("tide");
     }
 
     @Test
@@ -817,9 +817,9 @@ class ForecastServiceTest {
         assertThat(saved.getFierySkyPotential()).isNull();
         assertThat(saved.getGoldenHourPotential()).isNull();
         assertThat(saved.getSummary()).isNull();
-        assertThat(saved.getTriageReason()).isEqualTo(
+        assertThat(saved.getTriage().getReason()).isEqualTo(
                 com.gregochr.goldenhour.model.TriageReason.GENERIC);
-        assertThat(saved.getTriageMessage()).contains("Sentinel skip — region poor");
+        assertThat(saved.getTriage().getMessage()).contains("Sentinel skip — region poor");
     }
 
     @Test
@@ -1186,8 +1186,8 @@ class ForecastServiceTest {
         verify(repository).save(captor.capture());
         assertThat(captor.getValue().getSummary()).isNull();
         assertThat(captor.getValue().getRating()).isNull();
-        assertThat(captor.getValue().getTriageReason()).isEqualTo(TriageReason.TIDE_MISALIGNED);
-        assertThat(captor.getValue().getTriageMessage()).contains("tide");
+        assertThat(captor.getValue().getTriage().getReason()).isEqualTo(TriageReason.TIDE_MISALIGNED);
+        assertThat(captor.getValue().getTriage().getMessage()).contains("tide");
     }
 
     // --- fetchWeatherAndTriage: result carries daysAhead and forecastResponse ---
@@ -1686,10 +1686,11 @@ class ForecastServiceTest {
 
             ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
 
-            assertThat(result.getTideState()).isEqualTo(TideState.HIGH);
-            assertThat(result.getTideAligned()).isTrue();
-            assertThat(result.getNextHighTideTime()).isEqualTo(highTideTime);
-            assertThat(result.getNextHighTideHeightMetres()).isEqualByComparingTo(new BigDecimal("4.5"));
+            assertThat(result.getTide().getState()).isEqualTo(TideState.HIGH);
+            assertThat(result.getTide().getAligned()).isTrue();
+            assertThat(result.getTide().getNextHighTime()).isEqualTo(highTideTime);
+            assertThat(result.getTide().getNextHighHeightMetres())
+                    .isEqualByComparingTo(new BigDecimal("4.5"));
         }
 
         @Test
@@ -1705,9 +1706,7 @@ class ForecastServiceTest {
 
             ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
 
-            assertThat(result.getTideState()).isNull();
-            assertThat(result.getTideAligned()).isNull();
-            assertThat(result.getNextHighTideTime()).isNull();
+            assertThat(result.getTide()).isNull();
         }
 
         @Test
@@ -1727,9 +1726,9 @@ class ForecastServiceTest {
 
             ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
 
-            assertThat(result.getSolarLowCloud()).isEqualTo(35);
-            assertThat(result.getSolarMidCloud()).isEqualTo(45);
-            assertThat(result.getFarSolarLowCloud()).isEqualTo(55);
+            assertThat(result.getDirectionalCloud().getSolarLow()).isEqualTo(35);
+            assertThat(result.getDirectionalCloud().getSolarMid()).isEqualTo(45);
+            assertThat(result.getDirectionalCloud().getFarSolarLow()).isEqualTo(55);
         }
 
         @Test
@@ -1745,8 +1744,7 @@ class ForecastServiceTest {
 
             ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
 
-            assertThat(result.getSolarLowCloud()).isNull();
-            assertThat(result.getFarSolarLowCloud()).isNull();
+            assertThat(result.getDirectionalCloud()).isNull();
         }
 
         @Test
@@ -1770,12 +1768,12 @@ class ForecastServiceTest {
 
             // solarTrend: first slot=10 (earliest), last slot=40 (event time)
             // isBuilding: peak(40) - earliest(10) = 30 ≥ 20 → true
-            assertThat(result.getSolarTrendEarliestLowCloud()).isEqualTo(10);
-            assertThat(result.getSolarTrendEventLowCloud()).isEqualTo(40);
-            assertThat(result.getSolarTrendBuilding()).isTrue();
-            assertThat(result.getUpwindCurrentLowCloud()).isEqualTo(65);
-            assertThat(result.getUpwindEventLowCloud()).isEqualTo(35);
-            assertThat(result.getUpwindDistanceKm()).isEqualTo(80);
+            assertThat(result.getCloudApproach().getSolarTrendEarliestLowCloud()).isEqualTo(10);
+            assertThat(result.getCloudApproach().getSolarTrendEventLowCloud()).isEqualTo(40);
+            assertThat(result.getCloudApproach().getSolarTrendBuilding()).isTrue();
+            assertThat(result.getCloudApproach().getUpwindCurrentLowCloud()).isEqualTo(65);
+            assertThat(result.getCloudApproach().getUpwindEventLowCloud()).isEqualTo(35);
+            assertThat(result.getCloudApproach().getUpwindDistanceKm()).isEqualTo(80);
         }
 
         @Test
@@ -1791,8 +1789,7 @@ class ForecastServiceTest {
 
             ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
 
-            assertThat(result.getSolarTrendBuilding()).isNull();
-            assertThat(result.getUpwindCurrentLowCloud()).isNull();
+            assertThat(result.getCloudApproach()).isNull();
         }
 
         @Test
@@ -1811,11 +1808,11 @@ class ForecastServiceTest {
 
             ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
 
-            assertThat(result.getSurgeTotalMetres()).isEqualTo(0.13);
-            assertThat(result.getSurgePressureMetres()).isEqualTo(0.08);
-            assertThat(result.getSurgeWindMetres()).isEqualTo(0.05);
-            assertThat(result.getSurgeRiskLevel()).isEqualTo("LOW");
-            assertThat(result.getSurgeAdjustedRangeMetres()).isEqualTo(3.5);
+            assertThat(result.getSurge().getTotalMetres()).isEqualTo(0.13);
+            assertThat(result.getSurge().getPressureMetres()).isEqualTo(0.08);
+            assertThat(result.getSurge().getWindMetres()).isEqualTo(0.05);
+            assertThat(result.getSurge().getRiskLevel()).isEqualTo("LOW");
+            assertThat(result.getSurge().getAdjustedRangeMetres()).isEqualTo(3.5);
         }
 
         @Test
@@ -1831,9 +1828,7 @@ class ForecastServiceTest {
 
             ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
 
-            assertThat(result.getSurgeTotalMetres()).isNull();
-            assertThat(result.getSurgeRiskLevel()).isNull();
-            assertThat(result.getSurgeAdjustedRangeMetres()).isNull();
+            assertThat(result.getSurge()).isNull();
         }
 
         @Test
@@ -1851,8 +1846,8 @@ class ForecastServiceTest {
 
             ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
 
-            assertThat(result.getInversionScore()).isEqualTo(7);
-            assertThat(result.getInversionPotential()).isEqualTo("STRONG");
+            assertThat(result.getInversion().getScore()).isEqualTo(7);
+            assertThat(result.getInversion().getPotential()).isEqualTo("STRONG");
         }
 
         @Test
@@ -1869,8 +1864,7 @@ class ForecastServiceTest {
 
             ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
 
-            assertThat(result.getInversionScore()).isNull();
-            assertThat(result.getInversionPotential()).isNull();
+            assertThat(result.getInversion()).isNull();
         }
     }
 

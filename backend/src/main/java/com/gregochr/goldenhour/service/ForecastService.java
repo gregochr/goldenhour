@@ -1,7 +1,13 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.CloudApproachDetails;
+import com.gregochr.goldenhour.entity.DirectionalCloudDetails;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.InversionDetails;
+import com.gregochr.goldenhour.entity.StormSurgeDetails;
+import com.gregochr.goldenhour.entity.TideDetails;
+import com.gregochr.goldenhour.entity.TriageDetails;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
@@ -374,8 +380,7 @@ public class ForecastService {
             ForecastEvaluationEntity entity = buildEntity(
                     location, lat, lon, date, targetType, daysAhead, eventTime, azimuth,
                     forecastData, emptyEval, model);
-            entity.setTriageReason(tr.triageReason());
-            entity.setTriageMessage(reason);
+            entity.setTriage(new TriageDetails(tr.triageReason(), reason));
             repository.save(entity);
             publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
                     LocationTaskState.TRIAGED);
@@ -405,8 +410,7 @@ public class ForecastService {
                 ForecastEvaluationEntity entity = buildEntity(
                         location, lat, lon, date, targetType, daysAhead, eventTime, azimuth,
                         forecastData, emptyEval, model);
-                entity.setTriageReason(tr.triageReason());
-                entity.setTriageMessage(reason);
+                entity.setTriage(new TriageDetails(tr.triageReason(), reason));
                 repository.save(entity);
                 publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
                         LocationTaskState.TRIAGED);
@@ -514,8 +518,7 @@ public class ForecastService {
                 preEval.location(), preEval.location().getLat(), preEval.location().getLon(),
                 preEval.date(), preEval.targetType(), preEval.daysAhead(), preEval.eventTime(),
                 preEval.azimuth(), preEval.atmosphericData(), emptyEval, preEval.model());
-        entity.setTriageReason(TriageReason.GENERIC);
-        entity.setTriageMessage(reason);
+        entity.setTriage(new TriageDetails(TriageReason.GENERIC, reason));
         ForecastEvaluationEntity saved = repository.save(entity);
 
         Long runId = jobRun != null ? jobRun.getId() : null;
@@ -612,9 +615,6 @@ public class ForecastService {
     private ForecastEvaluationEntity buildEntity(LocationEntity location, double lat, double lon,
             LocalDate date, TargetType type, int daysAhead, LocalDateTime eventTime, Integer azimuth,
             AtmosphericData data, SunsetEvaluation evaluation, EvaluationModel model) {
-        var dc = data.directionalCloud();
-        var tide = data.tide();
-        var ca = data.cloudApproach();
         return ForecastEvaluationEntity.builder()
                 .locationLat(BigDecimal.valueOf(lat))
                 .locationLon(BigDecimal.valueOf(lon))
@@ -641,19 +641,8 @@ public class ForecastService {
                 .apparentTemperatureCelsius(data.comfort().apparentTemperatureCelsius())
                 .precipitationProbabilityPercent(data.comfort().precipitationProbability())
                 .dewPointCelsius(data.weather().dewPointCelsius())
-                .tideState(tide != null ? tide.tideState() : null)
-                .nextHighTideTime(tide != null ? tide.nextHighTideTime() : null)
-                .nextHighTideHeightMetres(tide != null ? tide.nextHighTideHeightMetres() : null)
-                .nextLowTideTime(tide != null ? tide.nextLowTideTime() : null)
-                .nextLowTideHeightMetres(tide != null ? tide.nextLowTideHeightMetres() : null)
-                .tideAligned(tide != null ? tide.tideAligned() : null)
-                .solarLowCloud(dc != null ? dc.solarLowCloudPercent() : null)
-                .solarMidCloud(dc != null ? dc.solarMidCloudPercent() : null)
-                .solarHighCloud(dc != null ? dc.solarHighCloudPercent() : null)
-                .antisolarLowCloud(dc != null ? dc.antisolarLowCloudPercent() : null)
-                .antisolarMidCloud(dc != null ? dc.antisolarMidCloudPercent() : null)
-                .antisolarHighCloud(dc != null ? dc.antisolarHighCloudPercent() : null)
-                .farSolarLowCloud(dc != null ? dc.farSolarLowCloudPercent() : null)
+                .tide(TideDetails.from(data.tide()))
+                .directionalCloud(DirectionalCloudDetails.from(data.directionalCloud()))
                 .evaluationModel(model)
                 .rating(evaluation.rating())
                 .fierySkyPotential(evaluation.fierySkyPotential())
@@ -665,34 +654,11 @@ public class ForecastService {
                 .basicSummary(evaluation.basicSummary())
                 .solarEventTime(eventTime)
                 .azimuthDeg(azimuth)
-                .solarTrendEventLowCloud(ca != null && ca.solarTrend() != null
-                        && !ca.solarTrend().slots().isEmpty()
-                        ? ca.solarTrend().slots().getLast().lowCloudPercent() : null)
-                .solarTrendEarliestLowCloud(ca != null && ca.solarTrend() != null
-                        && !ca.solarTrend().slots().isEmpty()
-                        ? ca.solarTrend().slots().getFirst().lowCloudPercent() : null)
-                .solarTrendBuilding(ca != null && ca.solarTrend() != null
-                        ? ca.solarTrend().isBuilding() : null)
-                .upwindCurrentLowCloud(ca != null && ca.upwindSample() != null
-                        ? ca.upwindSample().currentLowCloudPercent() : null)
-                .upwindEventLowCloud(ca != null && ca.upwindSample() != null
-                        ? ca.upwindSample().eventLowCloudPercent() : null)
-                .upwindDistanceKm(ca != null && ca.upwindSample() != null
-                        ? ca.upwindSample().distanceKm() : null)
-                .surgeTotalMetres(data.surge() != null
-                        ? data.surge().totalSurgeMetres() : null)
-                .surgePressureMetres(data.surge() != null
-                        ? data.surge().pressureRiseMetres() : null)
-                .surgeWindMetres(data.surge() != null
-                        ? data.surge().windRiseMetres() : null)
-                .surgeRiskLevel(data.surge() != null
-                        ? data.surge().riskLevel().name() : null)
-                .surgeAdjustedRangeMetres(data.adjustedRangeMetres())
-                .surgeAstronomicalRangeMetres(data.astronomicalRangeMetres())
-                .inversionScore(data.inversionScore() != null
-                        ? evaluation.inversionScore() : null)
-                .inversionPotential(data.inversionScore() != null
-                        ? evaluation.inversionPotential() : null)
+                .cloudApproach(CloudApproachDetails.from(data.cloudApproach()))
+                .surge(StormSurgeDetails.from(data.surge(),
+                        data.adjustedRangeMetres(), data.astronomicalRangeMetres()))
+                .inversion(InversionDetails.from(data.inversionScore() != null,
+                        evaluation.inversionScore(), evaluation.inversionPotential()))
                 .build();
     }
 }

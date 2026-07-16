@@ -1,7 +1,13 @@
 package com.gregochr.goldenhour.model;
 
+import com.gregochr.goldenhour.entity.CloudApproachDetails;
+import com.gregochr.goldenhour.entity.DirectionalCloudDetails;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.ForecastScoreEntity;
+import com.gregochr.goldenhour.entity.InversionDetails;
+import com.gregochr.goldenhour.entity.StormSurgeDetails;
+import com.gregochr.goldenhour.entity.TideDetails;
+import com.gregochr.goldenhour.entity.TriageDetails;
 import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
@@ -189,6 +195,13 @@ public class ForecastDtoMapper {
 
         WaveInfo wave = resolveWave(loc, entity.getTargetDate(), entity.getTargetType());
 
+        TideDetails tide = TideDetails.orEmpty(entity.getTide());
+        DirectionalCloudDetails dc = DirectionalCloudDetails.orEmpty(entity.getDirectionalCloud());
+        CloudApproachDetails approach = CloudApproachDetails.orEmpty(entity.getCloudApproach());
+        StormSurgeDetails surge = StormSurgeDetails.orEmpty(entity.getSurge());
+        InversionDetails inversion = InversionDetails.orEmpty(entity.getInversion());
+        TriageDetails triage = TriageDetails.orEmpty(entity.getTriage());
+
         return new ForecastEvaluationDto(
                 entity.getId(),
                 entity.getLocationName(),
@@ -223,34 +236,34 @@ public class ForecastDtoMapper {
                 entity.getApparentTemperatureCelsius(),
                 entity.getPrecipitationProbabilityPercent(),
                 entity.getDewPointCelsius(),
-                entity.getTideState(),
-                entity.getNextHighTideTime(),
-                entity.getNextHighTideHeightMetres(),
-                entity.getNextLowTideTime(),
-                entity.getNextLowTideHeightMetres(),
-                entity.getTideAligned(),
-                entity.getSolarLowCloud(),
-                entity.getSolarMidCloud(),
-                entity.getSolarHighCloud(),
-                entity.getAntisolarLowCloud(),
-                entity.getAntisolarMidCloud(),
-                entity.getAntisolarHighCloud(),
-                entity.getSolarTrendEventLowCloud(),
-                entity.getSolarTrendEarliestLowCloud(),
-                entity.getSolarTrendBuilding(),
-                entity.getUpwindCurrentLowCloud(),
-                entity.getUpwindEventLowCloud(),
-                entity.getUpwindDistanceKm(),
+                tide.getState(),
+                tide.getNextHighTime(),
+                tide.getNextHighHeightMetres(),
+                tide.getNextLowTime(),
+                tide.getNextLowHeightMetres(),
+                tide.getAligned(),
+                dc.getSolarLow(),
+                dc.getSolarMid(),
+                dc.getSolarHigh(),
+                dc.getAntisolarLow(),
+                dc.getAntisolarMid(),
+                dc.getAntisolarHigh(),
+                approach.getSolarTrendEventLowCloud(),
+                approach.getSolarTrendEarliestLowCloud(),
+                approach.getSolarTrendBuilding(),
+                approach.getUpwindCurrentLowCloud(),
+                approach.getUpwindEventLowCloud(),
+                approach.getUpwindDistanceKm(),
                 lunarTideType,
                 lunarPhase,
-                entity.getSurgeTotalMetres(),
-                entity.getSurgePressureMetres(),
-                entity.getSurgeWindMetres(),
-                entity.getSurgeRiskLevel(),
-                entity.getSurgeAdjustedRangeMetres(),
-                entity.getSurgeAstronomicalRangeMetres(),
-                entity.getInversionScore(),
-                entity.getInversionPotential(),
+                surge.getTotalMetres(),
+                surge.getPressureMetres(),
+                surge.getWindMetres(),
+                surge.getRiskLevel(),
+                surge.getAdjustedRangeMetres(),
+                surge.getAstronomicalRangeMetres(),
+                inversion.getScore(),
+                inversion.getPotential(),
                 goldenHourStart,
                 goldenHourEnd,
                 blueHourStart,
@@ -258,8 +271,8 @@ public class ForecastDtoMapper {
                 bluebellScore,
                 bluebellSummary,
                 bluebellExposure,
-                entity.getTriageReason(),
-                entity.getTriageMessage(),
+                triage.getReason(),
+                triage.getMessage(),
                 entity.getHeadline(),
                 wave.waveHeightMetres(),
                 wave.seaState());

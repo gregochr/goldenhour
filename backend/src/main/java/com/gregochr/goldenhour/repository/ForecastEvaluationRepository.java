@@ -85,7 +85,7 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
     @Query("SELECT e.targetType, COUNT(DISTINCT e.location.id)"
             + " FROM ForecastEvaluationEntity e"
             + " JOIN e.location l JOIN l.tideType tt"
-            + " WHERE e.targetDate = :date AND e.tideAligned = true"
+            + " WHERE e.targetDate = :date AND e.tide.aligned = true"
             + " GROUP BY e.targetType")
     List<Object[]> countTideAlignedByTargetType(@Param("date") LocalDate date);
 }
