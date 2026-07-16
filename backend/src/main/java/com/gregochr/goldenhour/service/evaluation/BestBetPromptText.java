@@ -163,7 +163,7 @@ public final class BestBetPromptText {
             Some regions carry a "scarcity" field flagging a perishable opportunity:
             KING_TIDE (rare — only a handful per year) or SPRING_TIDE (perishable — the window
             passes within a day or two). When two candidates are comparable in quality — within
-            about half a star of each other AND both clearing the usual quality bar (>= 3.5
+            about half a star of each other AND both clearing the usual quality bar (>= 3.0
             PhotoCast rating where scores are present) — PREFER the scarcer one: a passing king
             or spring tide is worth catching while it is here.
             Scarcity is a tiebreak among GOOD options, NEVER a substitute for quality. A scarce
@@ -185,7 +185,7 @@ public final class BestBetPromptText {
             If another region on the SAME date and SAME event as Pick 1 has a \
             claudeAverageRating that is:
               - within 0.5 of Pick 1's rating, AND
-              - at least 3.5 absolute,
+              - at least 3.0 absolute,
             emit that region as Pick 2. Set relationship = "SAME_SLOT".
             Use case: the user can't reach Pick 1's region and wants a backup \
             for the same outing.
@@ -194,7 +194,7 @@ public final class BestBetPromptText {
             If no same-slot region clears the Tier 1 threshold, look across ALL \
             OTHER slots in the window (different date, different event, or both). \
             Choose the single best opportunity from those slots. It must have:
-              - claudeAverageRating >= 3.5, AND
+              - claudeAverageRating >= 3.0, AND
               - meaningful differentiation from Pick 1 (not just a second-best \
                 region on a near-identical slot).
             Emit it as Pick 2 with relationship = "DIFFERENT_SLOT" and differsBy \

@@ -1219,6 +1219,74 @@ describe('DailyBriefing', () => {
       expect(empty.textContent).toContain('conditions are similar');
     });
 
+    describe('"No Also Good" note — a single pick must not read as a silent failure', () => {
+      it('shows the note when a fresh cycle produced only a Best Bet', async () => {
+        useAuth.mockReturnValue({ role: 'PRO_USER' });
+        getDailyBriefing.mockResolvedValue({
+          ...buildBriefing(),
+          bestBetStatus: 'SUCCESS_WITH_PICKS',
+          bestBets: [
+            { rank: 1, headline: 'Only pick', detail: 'Clear.',
+              event: 'tomorrow_sunset', region: 'Northumberland', confidence: 'high' },
+          ],
+        });
+        render(<DailyBriefing />);
+        await waitFor(() => screen.getByTestId('best-bet-banner'));
+        const note = screen.getByTestId('best-bet-no-second-pick');
+        expect(note.textContent).toContain('NO ALSO GOOD');
+        expect(note.textContent).toContain('not a missing recommendation');
+      });
+
+      it('hides the note when both picks are present', async () => {
+        useAuth.mockReturnValue({ role: 'PRO_USER' });
+        getDailyBriefing.mockResolvedValue({
+          ...buildBriefing(),
+          bestBetStatus: 'SUCCESS_WITH_PICKS',
+          bestBets: [
+            { rank: 1, headline: 'Best', detail: 'Clear.',
+              event: 'tomorrow_sunset', region: 'Northumberland', confidence: 'high' },
+            { rank: 2, headline: 'Also', detail: 'Also clear.',
+              event: 'tomorrow_sunrise', region: 'Durham', confidence: 'medium',
+              relationship: 'DIFFERENT_SLOT' },
+          ],
+        });
+        render(<DailyBriefing />);
+        await waitFor(() => screen.getByTestId('best-bet-banner'));
+        expect(screen.queryByTestId('best-bet-no-second-pick')).toBeNull();
+      });
+
+      it('hides the note on a stale fallback — one surviving pick is not honest silence', async () => {
+        useAuth.mockReturnValue({ role: 'PRO_USER' });
+        getDailyBriefing.mockResolvedValue({
+          ...buildBriefing(),
+          bestBetStatus: 'FAILED',
+          bestBets: [
+            { rank: 1, headline: 'Stale pick', detail: 'From earlier.',
+              event: 'tomorrow_sunset', region: 'Northumberland', confidence: 'high' },
+          ],
+        });
+        render(<DailyBriefing />);
+        await waitFor(() => screen.getByTestId('best-bet-banner'));
+        expect(screen.getByTestId('best-bet-stale')).toBeInTheDocument();
+        expect(screen.queryByTestId('best-bet-no-second-pick')).toBeNull();
+      });
+
+      it('hides the note on a stay-home pick — that pick is already the message', async () => {
+        useAuth.mockReturnValue({ role: 'PRO_USER' });
+        getDailyBriefing.mockResolvedValue({
+          ...buildBriefing(),
+          bestBetStatus: 'SUCCESS_WITH_PICKS',
+          bestBets: [
+            { rank: 1, headline: "Stay home, edit last weekend's shots",
+              detail: 'Flat week.', event: null, region: null, confidence: 'high' },
+          ],
+        });
+        render(<DailyBriefing />);
+        await waitFor(() => screen.getByTestId('best-bet-banner'));
+        expect(screen.queryByTestId('best-bet-no-second-pick')).toBeNull();
+      });
+    });
+
     it('FAILED status with fallback picks → banner WITH stale chip', async () => {
       useAuth.mockReturnValue({ role: 'PRO_USER' });
       getDailyBriefing.mockResolvedValue({
