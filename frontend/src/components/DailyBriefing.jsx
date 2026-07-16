@@ -8,11 +8,16 @@ import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import HeatmapGrid from './HeatmapGrid.jsx';
 import SlotLocationName from './shared/SlotLocationName.jsx';
+import VerdictPill from './shared/VerdictPill.jsx';
 import HotTopicStrip from './HotTopicStrip.jsx';
 import BriefingSummaryStrip from './BriefingSummaryStrip.jsx';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
 import { computeCellTier, isCellVisible, resolveRegionDisplay } from '../utils/tierUtils.js';
-import { formatEventTimeUk, formatTideHighlight, isTravelDate } from '../utils/conversions.js';
+import {
+  DISPLAY_ORDER, LOCATION_TYPE_ICONS, isPoorSlot, sortedSlotsByVerdict, weatherCodeToIcon,
+  msToMph, formatDriveDuration, formatTime, getEventTime, isEventPast,
+} from '../utils/briefingDisplay.js';
+import { formatTideHighlight, isTravelDate } from '../utils/conversions.js';
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -22,44 +27,6 @@ const SHOW_ALL_TIER = 5;
 
 // ── Small shared components ─────────────────────────────────────────────────
 /* eslint-disable react/prop-types */
-
-/**
- * Colour pill for a display signal. Accepts either a {@code displayVerdict}
- * (preferred — already reflects Claude ratings when available) or falls back
- * to the legacy {@code verdict} prop for not-yet-migrated call sites.
- *
- * <p>Optional {@code label} prop overrides the default text for the resolved
- * signal — used by the Gate 2 honesty patch to surface
- * "Too unsettled to forecast" on STAND_DOWN regions where no Claude
- * evaluation was produced.
- */
-function VerdictPill({ displayVerdict, verdict, label }) {
-  const signal = displayVerdict
-    || (verdict === 'GO' ? 'WORTH_IT'
-      : verdict === 'MARGINAL' ? 'MAYBE'
-        : verdict === 'STANDDOWN' ? 'STAND_DOWN'
-          : 'AWAITING');
-  const colours = {
-    WORTH_IT: 'bg-green-600 text-white',
-    MAYBE: 'bg-amber-600 text-white',
-    STAND_DOWN: 'bg-red-900/60 text-red-200/70',
-    AWAITING: 'bg-plex-surface text-plex-text-secondary border border-plex-border',
-  };
-  const labels = {
-    WORTH_IT: 'Worth it',
-    MAYBE: 'Maybe',
-    STAND_DOWN: 'Stand down',
-    AWAITING: 'Awaiting',
-  };
-  return (
-    <span
-      data-testid="verdict-pill"
-      className={`inline-block px-2 py-0.5 rounded text-[12px] font-bold ${colours[signal] || 'bg-plex-surface text-plex-text-secondary'}`}
-    >
-      {label || labels[signal] || signal}
-    </span>
-  );
-}
 
 /** Inline chip for a flag string. */
 function FlagChip({ label }) {  return (
@@ -101,11 +68,6 @@ function Chevron({ open, className = '' }) {  return (
 
 // ── Pure helpers ─────────────────────────────────────────────────────────────
 
-function formatTime(isoString) {
-  if (!isoString) return '';
-  return formatEventTimeUk(isoString) ?? '';
-}
-
 function formatAge(isoString) {
   if (!isoString) return '';
   const generated = new Date(isoString + 'Z');
@@ -115,26 +77,6 @@ function formatAge(isoString) {
   if (diffMin < 60) return `${diffMin}m ago`;
   const diffHrs = Math.round(diffMin / 60);
   return `${diffHrs}h ago`;
-}
-
-function getEventTime(es) {
-  for (const r of es.regions || []) {
-    for (const s of r.slots || []) {
-      if (s.solarEventTime) return s.solarEventTime;
-    }
-  }
-  for (const s of es.unregioned || []) {
-    if (s.solarEventTime) return s.solarEventTime;
-  }
-  return null;
-}
-
-const AFTERGLOW_MS = 30 * 60 * 1000;
-
-function isEventPast(es) {
-  const t = getEventTime(es);
-  if (!t) return false;
-  return new Date(t + 'Z').getTime() + AFTERGLOW_MS < Date.now();
 }
 
 function getVerdictCounts(es) {
@@ -147,22 +89,6 @@ function hasTideAligned(es) {
   return (es.regions || []).some((r) => (r.slots || []).some((s) => s.tideAligned));
 }
 
-function weatherCodeToIcon(code) {
-  if (code == null) return '';
-  if (code === 0) return '☀️';
-  if (code <= 2) return '🌤️';
-  if (code === 3) return '☁️';
-  if (code <= 48) return '🌫️';
-  if (code <= 67 || (code >= 80 && code <= 82)) return '🌦️';
-  if (code <= 77 || (code >= 85 && code <= 86)) return '❄️';
-  return '⛈️';
-}
-
-function msToMph(ms) {
-  if (ms == null) return null;
-  return Math.round(ms * 2.237);
-}
-
 function resolveEventKey(event, todayStr, tomorrowStr) {
   if (!event) return null;
   const underscore = event.indexOf('_');
@@ -173,35 +99,6 @@ function resolveEventKey(event, todayStr, tomorrowStr) {
   if (!dateStr || !['SUNRISE', 'SUNSET'].includes(typePart)) return null;
   return `${dateStr}-${typePart}`;
 }
-
-/** Sort order for verdict: GO first, MARGINAL second, STANDDOWN last. */
-const VERDICT_ORDER = { GO: 0, MARGINAL: 1, STANDDOWN: 2 };
-
-/** Sort order for the unified display signal, used for region rollups. */
-const DISPLAY_ORDER = { WORTH_IT: 0, MAYBE: 1, STAND_DOWN: 2, AWAITING: 3 };
-
-function sortedSlots(slots) {
-  return [...slots].sort((a, b) => {
-    const vd = (VERDICT_ORDER[a.verdict] ?? 3) - (VERDICT_ORDER[b.verdict] ?? 3);
-    return vd !== 0 ? vd : a.locationName.localeCompare(b.locationName);
-  });
-}
-
-function formatDriveDuration(minutes) {
-  if (minutes == null) return null;
-  if (minutes < 60) return `${minutes} min`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return m > 0 ? `${h}h ${m}min` : `${h}h`;
-}
-
-/** Location type icon lookup. */
-const LOCATION_TYPE_ICONS = {
-  LANDSCAPE: '🏔️',
-  WILDLIFE: '🐾',
-  SEASCAPE: '🌊',
-  WATERFALL: '💧',
-};
 
 // ── Grid / day helpers ────────────────────────────────────────────────────────
 
@@ -381,14 +278,6 @@ function buildSummaryPills(upcomingEvents, briefingDays, todayStr, tomorrowStr, 
 }
 
 /**
- * Returns "Sat 22 Mar" style short date.
- */
-function getShortDate(dateStr) {
-  const d = new Date(dateStr + 'T12:00:00Z');
-  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
-}
-
-/**
  * For a given day and region, returns the best event across all upcoming event
  * summaries, plus a list of all events for drill-down.
  * Returns null if the region doesn't appear on this day.
@@ -543,19 +432,8 @@ function EventPips({ allEvents, auroraActive }) { // eslint-disable-line no-unus
 
 // ── LocationSlotList (shared between mobile drill-down and heatmap drill-down) ──
 
-// Decides whether a slot belongs in the dimmed "standdown" section. After the Gate 2
-// redesign, the displayVerdict already incorporates Claude's rating — so a triage-STANDDOWN
-// slot that Claude rated 3-5★ stays in the main list. Falls back to the legacy verdict
-// check for slots that pre-date the displayVerdict field.
-function isPoorSlot(slot) {
-  if (slot.displayVerdict) {
-    return slot.displayVerdict === 'STAND_DOWN' || slot.displayVerdict === 'AWAITING';
-  }
-  return slot.verdict === 'STANDDOWN';
-}
-
-function LocationSlotList({ slots, driveMap, typeMap, date = null, targetType = null, onShowOnMap = null }) {  const visible = sortedSlots((slots || []).filter((s) => !isPoorSlot(s)));
-  const standdowns = sortedSlots((slots || []).filter(isPoorSlot));
+function LocationSlotList({ slots, driveMap, typeMap, date = null, targetType = null, onShowOnMap = null }) {  const visible = sortedSlotsByVerdict((slots || []).filter((s) => !isPoorSlot(s)));
+  const standdowns = sortedSlotsByVerdict((slots || []).filter(isPoorSlot));
   if (visible.length === 0 && standdowns.length === 0) return null;
   return (
     <div className="ml-4 mt-0.5 space-y-1 mb-1" data-testid="region-slots">
@@ -719,44 +597,6 @@ function EventDrillList({ events, driveMap, typeMap, date, onShowOnMap }) {  con
   );
 }
 
-// ── HeatmapDrillDown (spans full grid, shows all events for a day × region) ─
-
-function HeatmapDrillDown({ date, regionName, briefingDays, driveMap, typeMap, onClose, onShowOnMap }) { // eslint-disable-line no-unused-vars
-  const day = briefingDays.find((d) => d.date === date);
-  const events = [];
-  if (day) {
-    for (const es of day.eventSummaries || []) {
-      const region = (es.regions || []).find((r) => r.regionName === regionName);
-      if (region) events.push({ es, region, past: isEventPast(es) });
-    }
-  }
-
-  return (
-    <div
-      data-testid="drill-down-panel"
-      style={{ gridColumn: '1 / -1' }}
-      className="px-3 py-2.5 rounded bg-plex-bg/50 border border-plex-border/30 mt-0.5"
-    >
-      <div className="flex items-center justify-between mb-2">
-        <span className="font-semibold text-plex-text" style={{ fontSize: '13px' }}>
-          {regionName} — {getShortDate(date)}
-        </span>
-        <button
-          onClick={onClose}
-          className="text-plex-text-muted hover:text-plex-text px-1 text-sm"
-          aria-label="Close drill-down"
-        >
-          ✕
-        </button>
-      </div>
-      <EventDrillList events={events} driveMap={driveMap} typeMap={typeMap}
-        date={date} onShowOnMap={onShowOnMap} />
-    </div>
-  );
-}
-
-// HeatmapGrid is imported from ./HeatmapGrid.jsx
-
 // ── MobileRegionCard (one region × selected day) ─────────────────────────────
 
 function MobileRegionCard({ date, regionName, briefingDays, driveMap, typeMap, isOpen, onToggle, onShowOnMap }) {  const cellData = getDayCellData(date, regionName, briefingDays);
@@ -842,10 +682,23 @@ function MobileRegionCard({ date, regionName, briefingDays, driveMap, typeMap, i
 
 // ── BestBetBanner (updated: side-by-side on sm+, pick ② muted) ───────────────
 
+// A single pick can mean two very different things, and silence looks the same either way:
+// the advisor withholds an Also Good when no region clears its quality floor (honest — the week
+// was flat), but a stale fallback may carry one pick simply because that's all that survived.
+// Only claim the honest reading. A stay-home pick (no event/region) is its own message, and an
+// aurora pick has no colour-rated alternative to compare against, so neither gets the note.
+function lacksSecondPick(picks, stale) {
+  if (stale || picks.length !== 1) return false;
+  const only = picks[0];
+  if (only.event == null && only.region == null) return false;
+  return !only.event?.endsWith('_aurora');
+}
+
 function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick, onViewOnMap = null, stale = false }) {
   // Which card has its detail paragraph expanded past the 2-line clamp.
   const [expandedRank, setExpandedRank] = useState(null);
   if (!picks || picks.length === 0) return null;
+  const showNoSecondPick = lacksSecondPick(picks, stale);
 
   return (
     <div className="mb-3" data-testid="best-bet-banner">
@@ -971,6 +824,27 @@ function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick, onViewOnMap 
             </div>
           );
         })}
+        {showNoSecondPick && (
+          <div
+            data-testid="best-bet-no-second-pick"
+            className="rounded border border-dashed border-plex-border"
+            style={{ padding: '14px 16px' }}
+          >
+            <span
+              className="font-semibold uppercase"
+              style={{ fontSize: '11px', letterSpacing: '0.08em', color: 'var(--color-plex-text-muted)' }}
+            >
+              ② NO ALSO GOOD
+            </span>
+            <p
+              className="text-plex-text-secondary"
+              style={{ fontSize: '13px', fontFamily: 'var(--font-serif)', lineHeight: 1.55, marginTop: '8px' }}
+            >
+              Nothing else in this window scored well enough to be worth a second trip. That&apos;s
+              the forecast, not a missing recommendation.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1263,7 +1137,6 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
     () => dayDates.length > 0 && dayDates.every((d) => travelDayDates.has(d)),
     [dayDates, travelDayDates],
   );
-
 
   const sortedRegions = useMemo(() => {
     if (!briefing) return [];

@@ -2,53 +2,16 @@ import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
 import { computeCellTier, isCellVisible, resolveRegionDisplay } from '../utils/tierUtils.js';
-import { formatEventTimeUk, formatTideHighlight } from '../utils/conversions.js';
+import { formatTideHighlight } from '../utils/conversions.js';
+import {
+  LOCATION_TYPE_ICONS, isPoorSlot, slotSortKey, sortedSlotsByTidePriority, weatherCodeToIcon,
+  msToMph, formatDriveDuration, formatTime, isEventPast,
+} from '../utils/briefingDisplay.js';
 import SlotLocationName from './shared/SlotLocationName.jsx';
+import VerdictPill from './shared/VerdictPill.jsx';
 import { RATING_COLOURS } from './markerUtils.js';
 
 // ── Pure helpers (copied from DailyBriefing — shared logic) ─────────────────
-
-const VERDICT_ORDER = { GO: 0, MARGINAL: 1, STANDDOWN: 2 };
-
-function formatTime(isoString) {
-  if (!isoString) return '';
-  return formatEventTimeUk(isoString) ?? '';
-}
-
-const AFTERGLOW_MS = 30 * 60 * 1000;
-
-function isEventPast(es) {
-  for (const r of es.regions || []) {
-    for (const s of r.slots || []) {
-      if (s.solarEventTime) {
-        return new Date(s.solarEventTime + 'Z').getTime() + AFTERGLOW_MS < Date.now();
-      }
-    }
-  }
-  for (const s of es.unregioned || []) {
-    if (s.solarEventTime) {
-      return new Date(s.solarEventTime + 'Z').getTime() + AFTERGLOW_MS < Date.now();
-    }
-  }
-  return false;
-}
-
-function weatherCodeToIcon(code) {
-  if (code == null) return '';
-  if (code === 0) return '☀️';
-  if (code <= 2) return '🌤️';
-  if (code === 3) return '☁️';
-  if (code <= 48) return '🌫️';
-  if (code <= 67 || (code >= 80 && code <= 82)) return '🌦️';
-  if (code <= 77 || (code >= 85 && code <= 86)) return '❄️';
-  return '⛈️';
-}
-
-function msToMph(ms) {
-  if (ms == null) return null;
-  return Math.round(ms * 2.237);
-}
-
 
 function getShortDate(dateStr) {
   const d = new Date(dateStr + 'T12:00:00Z');
@@ -108,89 +71,8 @@ function getRegionLocationNames(date, regionName, briefingDays) {
   return [...names];
 }
 
-/** Small shared components (local copies for the extracted file) */
+/** Small local components */
 /* eslint-disable react/prop-types */
-
-/**
- * Colour pill for a display signal. Accepts either a {@code displayVerdict}
- * ({@code WORTH_IT} / {@code MAYBE} / {@code STAND_DOWN} / {@code AWAITING})
- * or falls back to the legacy {@code verdict} ({@code GO} / {@code MARGINAL}
- * / {@code STANDDOWN}) for call-sites that haven't been migrated.
- *
- * Optional {@code label} prop overrides the default text — used by the
- * Gate 2 honesty patch on zero-coverage STAND_DOWN regions.
- */
-function VerdictPill({ displayVerdict, verdict, label }) {
-  const signal = displayVerdict
-    || (verdict === 'GO' ? 'WORTH_IT'
-      : verdict === 'MARGINAL' ? 'MAYBE'
-        : verdict === 'STANDDOWN' ? 'STAND_DOWN'
-          : 'AWAITING');
-  const colours = {
-    WORTH_IT: 'bg-green-600 text-white',
-    MAYBE: 'bg-amber-600 text-white',
-    STAND_DOWN: 'bg-red-900/60 text-red-200/70',
-    AWAITING: 'bg-plex-surface text-plex-text-secondary border border-plex-border',
-  };
-  const labels = {
-    WORTH_IT: 'Worth it',
-    MAYBE: 'Maybe',
-    STAND_DOWN: 'Stand down',
-    AWAITING: 'Awaiting',
-  };
-  return (
-    <span
-      data-testid="verdict-pill"
-      className={`inline-block px-2 py-0.5 rounded text-[12px] font-bold ${colours[signal] || 'bg-plex-surface text-plex-text-secondary'}`}
-    >
-      {label || labels[signal] || signal}
-    </span>
-  );
-}
-
-
-/**
- * Sort order for drill-down location slots:
- *   1. King tide + GO
- *   2. Tide-aligned + GO
- *   3. Other GO
- *   4. Tide-aligned + MARGINAL
- *   5. Other MARGINAL
- *   6. STANDDOWN (filtered out by caller)
- * Then A-Z within each group.
- */
-function slotSortKey(slot) {
-  const v = VERDICT_ORDER[slot.verdict] ?? 3;
-  const hasKing = (slot.flags || []).some((f) => f.toLowerCase().includes('king'));
-  if (v === 0 && hasKing) return 0;          // GO + king
-  if (v === 0 && slot.tideAligned) return 1; // GO + tide
-  if (v === 0) return 2;                     // GO plain
-  if (v === 1 && slot.tideAligned) return 3; // MARGINAL + tide
-  if (v === 1) return 4;                     // MARGINAL plain
-  return 5;
-}
-
-function sortedSlots(slots) {
-  return [...slots].sort((a, b) => {
-    const diff = slotSortKey(a) - slotSortKey(b);
-    return diff !== 0 ? diff : a.locationName.localeCompare(b.locationName);
-  });
-}
-
-function formatDriveDuration(minutes) {
-  if (minutes == null) return null;
-  if (minutes < 60) return `${minutes} min`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return m > 0 ? `${h}h ${m}min` : `${h}h`;
-}
-
-const LOCATION_TYPE_ICONS = {
-  LANDSCAPE: '🏔️',
-  WILDLIFE: '🐾',
-  SEASCAPE: '🌊',
-  WATERFALL: '💧',
-};
 
 // ── LocationSlotList ──────────────────────────────────────────────────────────
 
@@ -235,19 +117,6 @@ function mergedScore(slot, sseScore) {
   return null;
 }
 
-// Decides whether a slot belongs in the "Poor" dimmed-rows section.
-// Post Gate 2 redesign: Claude evaluates weather-STANDDOWN slots and may elevate them
-// to 3-5★ — those slots should NOT be dimmed even if their triage verdict was STANDDOWN.
-// The slot's `displayVerdict` already encodes this (Claude rating > triage when both present).
-// For backwards compatibility with slots that pre-date the displayVerdict field, we fall
-// back to the legacy verdict check.
-function isPoorSlot(slot) {
-  if (slot.displayVerdict) {
-    return slot.displayVerdict === 'STAND_DOWN' || slot.displayVerdict === 'AWAITING';
-  }
-  return slot.verdict === 'STANDDOWN';
-}
-
 /** Grid template shared by viable and poor drill-down rows: star · name · chips · drive. */
 const ROW_GRID = '46px 1fr auto auto';
 
@@ -273,9 +142,9 @@ function TideChip({ label, muted = false }) {
 function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evaluationComplete = false, showAllLocations = false, date = null, targetType = null, onShowOnMap = null }) {
   // Rows are collapsed by default — the reasoning sentence is one tap away.
   const [expandedRows, setExpandedRows] = useState(new Set());
-  const visible = sortedSlots((slots || []).filter((s) => !isPoorSlot(s)));
+  const visible = sortedSlotsByTidePriority((slots || []).filter((s) => !isPoorSlot(s)));
   const standdownSlots = showAllLocations
-    ? sortedSlots((slots || []).filter(isPoorSlot))
+    ? sortedSlotsByTidePriority((slots || []).filter(isPoorSlot))
     : [];
 
   const hasHiddenStanddowns = !showAllLocations && (slots || []).some(isPoorSlot);

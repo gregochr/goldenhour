@@ -8,6 +8,8 @@ import InfoTip from './InfoTip.jsx';
 import { formatTimestampUk } from '../utils/conversions';
 import Pagination from './Pagination.jsx';
 import usePagination from '../hooks/usePagination.js';
+import SortableHeader from './shared/SortableHeader.jsx';
+import useSortAndFilter from '../hooks/useSortAndFilter.js';
 import Modal from './shared/Modal.jsx';
 
 const SOLAR_EVENT_TYPES = [
@@ -238,140 +240,6 @@ function formatSolarEventType(types) {
 function firstOrDefault(set, fallback) {
   if (!set || set.length === 0) return fallback;
   return set[0];
-}
-
-/**
- * Sortable, filterable header cell for data tables.
- *
- * @param {object} props
- * @param {string} props.label - Column header label.
- * @param {string} props.sortKey - Key used for sorting.
- * @param {string} props.currentSortKey - Currently active sort key.
- * @param {'asc'|'desc'} props.currentSortDir - Current sort direction.
- * @param {function} props.onSort - Called with the sort key when clicked.
- * @param {string} props.filterValue - Current filter value.
- * @param {function} props.onFilter - Called with new filter value.
- * @param {string} [props.filterPlaceholder] - Placeholder for filter input.
- */
-function SortableHeader({ label, sortKey, currentSortKey, currentSortDir, onSort, filterValue, onFilter, filterPlaceholder, className = '' }) {
-  const active = currentSortKey === sortKey;
-  const arrow = active ? (currentSortDir === 'asc' ? ' ▲' : ' ▼') : '';
-
-  return (
-    <th className={`pb-1 font-medium align-bottom ${className}`}>
-      <button
-        type="button"
-        onClick={() => onSort(sortKey)}
-        className="text-xs text-plex-text-muted hover:text-plex-text cursor-pointer whitespace-nowrap"
-      >
-        {label}{arrow}
-      </button>
-      <div className="mt-1">
-        <input
-          type="text"
-          value={filterValue}
-          onChange={(e) => onFilter(e.target.value)}
-          placeholder={filterPlaceholder || 'Filter…'}
-          className="w-full bg-plex-surface-light border border-plex-border rounded px-1.5 py-0.5 text-xs text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
-          data-testid={`filter-${sortKey}`}
-        />
-      </div>
-    </th>
-  );
-}
-
-SortableHeader.propTypes = {
-  label: PropTypes.string.isRequired,
-  sortKey: PropTypes.string.isRequired,
-  currentSortKey: PropTypes.string.isRequired,
-  currentSortDir: PropTypes.string.isRequired,
-  onSort: PropTypes.func.isRequired,
-  filterValue: PropTypes.string.isRequired,
-  onFilter: PropTypes.func.isRequired,
-  filterPlaceholder: PropTypes.string,
-  className: PropTypes.string,
-};
-
-/**
- * Generic sort/filter hook for table data.
- *
- * @param {string} defaultSortKey - Initial sort column.
- * @param {'asc'|'desc'} defaultSortDir - Initial sort direction.
- * @param {Object<string, function>} accessors - Map of sort key to value accessor function.
- * @returns {object} Sort/filter state and handlers.
- */
-function useSortAndFilter(defaultSortKey, defaultSortDir, accessors) {
-  const [sortKey, setSortKey] = useState(defaultSortKey);
-  const [sortDir, setSortDir] = useState(defaultSortDir);
-  const [filters, setFilters] = useState({});
-
-  function handleSort(key) {
-    if (sortKey === key) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortKey(key);
-      setSortDir('asc');
-    }
-  }
-
-  function setFilter(key, value) {
-    setFilters((prev) => ({ ...prev, [key]: value }));
-  }
-
-  function getFilterValue(key) {
-    return filters[key] || '';
-  }
-
-  function apply(items) {
-    let result = [...items];
-
-    // Filter
-    for (const [key, value] of Object.entries(filters)) {
-      if (!value || (Array.isArray(value) && value.length === 0)) continue;
-      const accessor = accessors[key];
-      if (!accessor) continue;
-      if (Array.isArray(value)) {
-        result = result.filter((item) => {
-          const val = accessor(item);
-          if (val == null) return false;
-          const lower = String(val).toLowerCase();
-          return value.every((v) => lower.includes(v.toLowerCase()));
-        });
-      } else {
-        const lower = value.toLowerCase();
-        result = result.filter((item) => {
-          const val = accessor(item);
-          return val != null && String(val).toLowerCase().includes(lower);
-        });
-      }
-    }
-
-    // Sort
-    const accessor = accessors[sortKey];
-    if (accessor) {
-      result.sort((a, b) => {
-        const va = accessor(a);
-        const vb = accessor(b);
-        if (va == null && vb == null) return 0;
-        if (va == null) return 1;
-        if (vb == null) return -1;
-        if (typeof va === 'string') {
-          const cmp = va.localeCompare(vb, undefined, { sensitivity: 'base' });
-          return sortDir === 'asc' ? cmp : -cmp;
-        }
-        if (typeof va === 'boolean') {
-          const cmp = (va === vb) ? 0 : (va ? -1 : 1);
-          return sortDir === 'asc' ? cmp : -cmp;
-        }
-        const cmp = va < vb ? -1 : va > vb ? 1 : 0;
-        return sortDir === 'asc' ? cmp : -cmp;
-      });
-    }
-
-    return result;
-  }
-
-  return { sortKey, sortDir, handleSort, setFilter, getFilterValue, apply };
 }
 
 /**
