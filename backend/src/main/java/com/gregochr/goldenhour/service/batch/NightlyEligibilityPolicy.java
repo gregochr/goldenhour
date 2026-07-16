@@ -54,4 +54,20 @@ public final class NightlyEligibilityPolicy implements EligibilityPolicy {
             default -> EligibilityDecision.skip("T+" + daysAhead + " beyond horizon");
         };
     }
+
+    /**
+     * Boolean view of {@link #resolve} for callers that need only the include/skip
+     * horizon-depth decision, not the model tier — the synchronous path's stability
+     * filter in {@code ForecastCommandExecutor}. Delegates to {@code resolve} so the
+     * Gate 4 table has exactly one home and the two forecast engines cannot drift.
+     *
+     * @param daysAhead forecast horizon (T+0 = 0)
+     * @param stability classified stability for the candidate's grid cell
+     * @return whether the candidate is within the Gate 4 horizon-depth table
+     */
+    public boolean permitsHorizon(int daysAhead, ForecastStability stability) {
+        // Model tiers are irrelevant to the boolean decision — the sync path picks
+        // its model from the command, so null placeholders are never read.
+        return resolve(daysAhead, stability, null, null).eligible();
+    }
 }

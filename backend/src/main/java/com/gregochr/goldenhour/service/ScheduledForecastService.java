@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service;
 
-import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
@@ -13,70 +12,46 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 /**
- * Triggers automatic forecast runs and tide data refreshes on configured cron schedules.
+ * Scheduled job targets for the weekly tide refresh and the daily briefing (registered
+ * with the {@link DynamicSchedulerService}), plus the admin-triggered tide backfill.
  *
- * <p>This is now a thin scheduling wrapper — all orchestration logic lives in
- * {@link ForecastCommandExecutor}.
- *
- * <h2>Dormant forecast methods</h2>
- *
- * <p>{@link #refreshExchangeRate()}, {@link #runNearTermForecasts()},
- * {@link #runDistantForecasts()} and {@link #runWeatherForecasts()} retain
- * their bodies but their {@code @Scheduled} annotations were commented out
- * during the v2.12 consolidation programme in favour of the Anthropic Batch
- * API pipeline driven by
- * {@link com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService}.
- * The methods are kept because admin endpoints and tests may still invoke
- * them directly. Do not re-enable the cron triggers without also retiring
- * the batch pipeline — running both paths would duplicate forecast spend
- * and confuse the {@code stability_snapshot} write contract.
- *
- * <p>Snapshot-write responsibility (previously a side-effect of
- * {@link ForecastCommandExecutor#applyStabilityFilter}) now sits on the
- * batch path inside
- * {@link com.gregochr.goldenhour.service.batch.ForecastTaskCollector}.
+ * <p>The synchronous forecast wrappers that used to live here (near-term, distant and
+ * weather runs, plus the exchange-rate warm-up) were removed after the v2.12
+ * consolidation onto the Anthropic Batch API pipeline
+ * ({@link com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService}) left
+ * them dormant with no callers — their {@code @Scheduled} triggers had already been
+ * commented out. Admin manual runs go through {@code ForecastController} →
+ * {@link ForecastCommandExecutor} directly, and the {@code stability_snapshot} write
+ * contract is owned by the shared
+ * {@link com.gregochr.goldenhour.service.batch.GridCellStabilityService}.
  */
 @Service
 public class ScheduledForecastService {
 
-    /** Maximum number of days ahead to forecast on each scheduled run. */
-    public static final int FORECAST_HORIZON_DAYS = ForecastCommandFactory.FORECAST_HORIZON_DAYS;
-
     private static final Logger LOG = LoggerFactory.getLogger(ScheduledForecastService.class);
 
-    private final ForecastCommandFactory commandFactory;
-    private final ForecastCommandExecutor commandExecutor;
     private final TideService tideService;
     private final LocationService locationService;
     private final JobRunService jobRunService;
-    private final ExchangeRateService exchangeRateService;
     private final BriefingService briefingService;
     private final DynamicSchedulerService dynamicSchedulerService;
 
     /**
      * Constructs a {@code ScheduledForecastService}.
      *
-     * @param commandFactory           builds forecast commands
-     * @param commandExecutor          executes forecast commands
      * @param tideService              the service that fetches and stores tide extremes
      * @param locationService          the service providing persisted locations
      * @param jobRunService            the service for tracking job run metrics
-     * @param exchangeRateService      the service for fetching exchange rates
      * @param briefingService          the service that generates daily briefings
      * @param dynamicSchedulerService  the dynamic scheduler for job registration
      */
-    public ScheduledForecastService(ForecastCommandFactory commandFactory,
-            ForecastCommandExecutor commandExecutor,
-            TideService tideService, LocationService locationService,
-            JobRunService jobRunService, ExchangeRateService exchangeRateService,
+    public ScheduledForecastService(TideService tideService, LocationService locationService,
+            JobRunService jobRunService,
             BriefingService briefingService,
             DynamicSchedulerService dynamicSchedulerService) {
-        this.commandFactory = commandFactory;
-        this.commandExecutor = commandExecutor;
         this.tideService = tideService;
         this.locationService = locationService;
         this.jobRunService = jobRunService;
-        this.exchangeRateService = exchangeRateService;
         this.briefingService = briefingService;
         this.dynamicSchedulerService = dynamicSchedulerService;
     }
@@ -88,52 +63,6 @@ public class ScheduledForecastService {
     void registerJobs() {
         dynamicSchedulerService.registerJobTarget("tide_refresh", this::refreshTideExtremes);
         dynamicSchedulerService.registerJobTarget("daily_briefing", this::refreshDailyBriefing);
-    }
-
-    /**
-     * Warms the exchange rate cache for today, called before forecast runs.
-     *
-     * <p>If the Frankfurter API is unavailable, falls back to the most recent cached rate.
-     */
-    // @Scheduled(cron = "0 55 5 * * *")
-    public void refreshExchangeRate() {
-        try {
-            double rate = exchangeRateService.getCurrentRate();
-            LOG.info("Exchange rate warmed: {} GBP/USD", rate);
-        } catch (Exception e) {
-            LOG.warn("Exchange rate refresh failed — will use fallback: {}", e.getMessage());
-        }
-    }
-
-    /**
-     * Runs near-term forecasts (T, T+1, T+2) twice daily at 6 AM and 6 PM UTC.
-     *
-     * @return all saved evaluation entities produced by the run
-     */
-    // @Scheduled(cron = "${forecast.schedule.haiku.cron:0 0 6,18 * * *}")
-    public List<ForecastEvaluationEntity> runNearTermForecasts() {
-        ForecastCommand cmd = commandFactory.create(RunType.SHORT_TERM, false);
-        return commandExecutor.execute(cmd);
-    }
-
-    /**
-     * Runs distant forecasts (T+3 through T+5) once daily at 6 AM UTC.
-     *
-     * @return all saved evaluation entities produced by the run
-     */
-    // @Scheduled(cron = "${forecast.schedule.haiku.distant.cron:0 0 1 * * *}")
-    public List<ForecastEvaluationEntity> runDistantForecasts() {
-        ForecastCommand cmd = commandFactory.create(RunType.LONG_TERM, false);
-        return commandExecutor.execute(cmd);
-    }
-
-    /**
-     * Runs comfort-only (no Claude) weather forecasts for pure WILDLIFE locations every 12 h.
-     */
-    // @Scheduled(cron = "${forecast.schedule.weather.cron:0 0 6,18 * * *}")
-    public void runWeatherForecasts() {
-        ForecastCommand cmd = commandFactory.create(RunType.WEATHER, false);
-        commandExecutor.execute(cmd);
     }
 
     /**

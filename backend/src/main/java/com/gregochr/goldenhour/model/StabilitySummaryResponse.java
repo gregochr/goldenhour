@@ -10,7 +10,8 @@ import java.util.Map;
 /**
  * Snapshot of stability classifications from the most recent scheduled forecast run.
  *
- * <p>Populated by {@code ForecastCommandExecutor} after each triage cycle and served by
+ * <p>Populated by {@code GridCellStabilityService} — the single snapshot producer shared
+ * by the batch pipeline and the synchronous executor — and served by
  * {@code StabilityController}. Returns {@code null} until at least one automatic run has
  * completed.
  *
