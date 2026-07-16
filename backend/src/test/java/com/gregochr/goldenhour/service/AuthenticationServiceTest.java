@@ -34,6 +34,10 @@ import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link AuthenticationService}.
+ *
+ * <p>The refresh tests focus on the race-safety of token rotation: the old token must be
+ * consumed via the atomic {@code revokeIfActive} compare-and-set, and any refresh attempt
+ * with an already-consumed token must revoke the user's whole token family.
  */
 @ExtendWith(MockitoExtension.class)
 class AuthenticationServiceTest {
@@ -174,11 +178,12 @@ class AuthenticationServiceTest {
         }
 
         @Test
-        @DisplayName("valid token is revoked and a replacement issued")
+        @DisplayName("valid token is consumed via the atomic compare-and-set and a replacement issued")
         void validToken_rotates() {
             RefreshTokenEntity stored = storedToken(false, LocalDateTime.now().plusDays(10));
             when(jwtService.hashToken("old-raw")).thenReturn("old-hash");
             when(refreshTokenRepository.findByTokenHash("old-hash")).thenReturn(Optional.of(stored));
+            when(refreshTokenRepository.revokeIfActive("old-hash")).thenReturn(1);
             when(userRepository.findById(1L)).thenReturn(Optional.of(user));
             stubTokenIssuance();
 
@@ -187,14 +192,15 @@ class AuthenticationServiceTest {
             assertThat(tokens.accessToken()).isEqualTo(ACCESS_TOKEN);
             assertThat(tokens.refreshToken()).isEqualTo(RAW_REFRESH);
 
+            verify(refreshTokenRepository).revokeIfActive("old-hash");
+            verify(refreshTokenRepository, never()).revokeAllActiveByUserId(1L);
+
             ArgumentCaptor<RefreshTokenEntity> tokenCaptor =
                     ArgumentCaptor.forClass(RefreshTokenEntity.class);
-            verify(refreshTokenRepository, org.mockito.Mockito.times(2)).save(tokenCaptor.capture());
-            RefreshTokenEntity revokedOld = tokenCaptor.getAllValues().get(0);
-            RefreshTokenEntity issuedNew = tokenCaptor.getAllValues().get(1);
-            assertThat(revokedOld.getTokenHash()).isEqualTo("old-hash");
-            assertThat(revokedOld.isRevoked()).isTrue();
+            verify(refreshTokenRepository).save(tokenCaptor.capture());
+            RefreshTokenEntity issuedNew = tokenCaptor.getValue();
             assertThat(issuedNew.getTokenHash()).isEqualTo(REFRESH_HASH);
+            assertThat(issuedNew.getUserId()).isEqualTo(1L);
             assertThat(issuedNew.isRevoked()).isFalse();
         }
 
@@ -209,10 +215,11 @@ class AuthenticationServiceTest {
                     .hasMessage("Refresh token is invalid or expired");
 
             verify(refreshTokenRepository, never()).save(any());
+            verify(refreshTokenRepository, never()).revokeAllActiveByUserId(any());
         }
 
         @Test
-        @DisplayName("expired token throws")
+        @DisplayName("expired token throws without being consumed")
         void expiredToken_throws() {
             RefreshTokenEntity stored = storedToken(false, LocalDateTime.now().minusMinutes(1));
             when(jwtService.hashToken("old-raw")).thenReturn("old-hash");
@@ -223,11 +230,13 @@ class AuthenticationServiceTest {
                     .hasMessage("Refresh token is invalid or expired");
 
             verify(refreshTokenRepository, never()).save(any());
+            verify(refreshTokenRepository, never()).revokeIfActive("old-hash");
+            verify(refreshTokenRepository, never()).revokeAllActiveByUserId(1L);
         }
 
         @Test
-        @DisplayName("already-revoked token throws")
-        void revokedToken_throws() {
+        @DisplayName("already-revoked token throws and revokes the user's whole token family")
+        void revokedToken_revokesWholeFamilyAndThrows() {
             RefreshTokenEntity stored = storedToken(true, LocalDateTime.now().plusDays(10));
             when(jwtService.hashToken("old-raw")).thenReturn("old-hash");
             when(refreshTokenRepository.findByTokenHash("old-hash")).thenReturn(Optional.of(stored));
@@ -236,11 +245,30 @@ class AuthenticationServiceTest {
                     .isInstanceOf(InvalidCredentialsException.class)
                     .hasMessage("Refresh token is invalid or expired");
 
+            verify(refreshTokenRepository).revokeAllActiveByUserId(1L);
+            verify(refreshTokenRepository, never()).save(any());
+            verifyNoInteractions(userRepository);
+        }
+
+        @Test
+        @DisplayName("losing the rotation race revokes the family and issues nothing")
+        void lostRotationRace_revokesFamilyAndThrows() {
+            RefreshTokenEntity stored = storedToken(false, LocalDateTime.now().plusDays(10));
+            when(jwtService.hashToken("old-raw")).thenReturn("old-hash");
+            when(refreshTokenRepository.findByTokenHash("old-hash")).thenReturn(Optional.of(stored));
+            when(refreshTokenRepository.revokeIfActive("old-hash")).thenReturn(0);
+            when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+
+            assertThatThrownBy(() -> service.refresh("old-raw"))
+                    .isInstanceOf(InvalidCredentialsException.class)
+                    .hasMessage("Refresh token is invalid or expired");
+
+            verify(refreshTokenRepository).revokeAllActiveByUserId(1L);
             verify(refreshTokenRepository, never()).save(any());
         }
 
         @Test
-        @DisplayName("disabled user throws and the old token is NOT revoked")
+        @DisplayName("disabled user throws and the old token is NOT consumed")
         void disabledUser_throwsWithoutRevoking() {
             user.setEnabled(false);
             RefreshTokenEntity stored = storedToken(false, LocalDateTime.now().plusDays(10));
@@ -253,6 +281,7 @@ class AuthenticationServiceTest {
                     .hasMessage("User not found or disabled");
 
             verify(refreshTokenRepository, never()).save(any());
+            verify(refreshTokenRepository, never()).revokeIfActive("old-hash");
         }
 
         @Test
@@ -268,6 +297,7 @@ class AuthenticationServiceTest {
                     .hasMessage("User not found or disabled");
 
             verify(refreshTokenRepository, never()).save(any());
+            verify(refreshTokenRepository, never()).revokeIfActive("old-hash");
         }
     }
 

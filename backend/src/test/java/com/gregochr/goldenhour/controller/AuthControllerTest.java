@@ -134,6 +134,7 @@ class AuthControllerTest extends AbstractControllerTest {
                 .revoked(false)
                 .build();
         when(refreshTokenRepository.findByTokenHash(hash)).thenReturn(Optional.of(stored));
+        when(refreshTokenRepository.revokeIfActive(hash)).thenReturn(1);
         when(userRepository.findById(1L)).thenReturn(Optional.of(adminUser));
 
         mockMvc.perform(post("/api/auth/refresh")
@@ -146,7 +147,7 @@ class AuthControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/auth/refresh rotates token — old token is revoked")
+    @DisplayName("POST /api/auth/refresh rotates token — old token is consumed atomically")
     void refresh_validToken_revokesOldToken() throws Exception {
         String rawRefresh = jwtService.generateRefreshToken();
         String hash = jwtService.hashToken(rawRefresh);
@@ -158,6 +159,7 @@ class AuthControllerTest extends AbstractControllerTest {
                 .revoked(false)
                 .build();
         when(refreshTokenRepository.findByTokenHash(hash)).thenReturn(Optional.of(stored));
+        when(refreshTokenRepository.revokeIfActive(hash)).thenReturn(1);
         when(userRepository.findById(1L)).thenReturn(Optional.of(adminUser));
 
         mockMvc.perform(post("/api/auth/refresh")
@@ -165,8 +167,32 @@ class AuthControllerTest extends AbstractControllerTest {
                         .content("{\"refreshToken\":\"" + rawRefresh + "\"}"))
                 .andExpect(status().isOk());
 
-        org.mockito.Mockito.verify(refreshTokenRepository, org.mockito.Mockito.atLeastOnce())
-                .save(org.mockito.ArgumentMatchers.argThat(RefreshTokenEntity::isRevoked));
+        org.mockito.Mockito.verify(refreshTokenRepository).revokeIfActive(hash);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/refresh returns 401 when the token was concurrently consumed")
+    void refresh_concurrentlyConsumedToken_returns401AndRevokesFamily() throws Exception {
+        String rawRefresh = jwtService.generateRefreshToken();
+        String hash = jwtService.hashToken(rawRefresh);
+        RefreshTokenEntity stored = RefreshTokenEntity.builder()
+                .id(1L)
+                .tokenHash(hash)
+                .userId(1L)
+                .expiresAt(LocalDateTime.now().plusDays(30))
+                .revoked(false)
+                .build();
+        when(refreshTokenRepository.findByTokenHash(hash)).thenReturn(Optional.of(stored));
+        when(refreshTokenRepository.revokeIfActive(hash)).thenReturn(0);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(adminUser));
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"" + rawRefresh + "\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("Refresh token is invalid or expired"));
+
+        org.mockito.Mockito.verify(refreshTokenRepository).revokeAllActiveByUserId(1L);
     }
 
     @Test
@@ -202,7 +228,7 @@ class AuthControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/auth/refresh returns 401 for revoked refresh token")
+    @DisplayName("POST /api/auth/refresh returns 401 for revoked refresh token and revokes the token family")
     void refresh_revokedToken_returns401() throws Exception {
         String rawRefresh = jwtService.generateRefreshToken();
         String hash = jwtService.hashToken(rawRefresh);
@@ -219,6 +245,8 @@ class AuthControllerTest extends AbstractControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"refreshToken\":\"" + rawRefresh + "\"}"))
                 .andExpect(status().isUnauthorized());
+
+        org.mockito.Mockito.verify(refreshTokenRepository).revokeAllActiveByUserId(1L);
     }
 
     @Test

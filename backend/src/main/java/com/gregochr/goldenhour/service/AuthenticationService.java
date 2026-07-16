@@ -22,18 +22,23 @@ import java.util.regex.Pattern;
  * Owns the authentication flows: credential verification, refresh-token rotation, token
  * issuance, password changes, and the password complexity policy.
  *
- * <p>{@link #refresh(String)} is {@link Transactional}: revoke-old and issue-new share one
- * transaction, so a mid-flow failure cannot strand the user with no valid refresh token
- * (previously each save ran in its own implicit transaction). {@link #login} and
- * {@link #changePassword} are deliberately <em>not</em> transactional: BCrypt
- * verification/encoding takes ~100 ms, and a surrounding transaction would pin a pooled
- * database connection across it on a public endpoint. Their writes are independent
- * single-row saves, each atomic on its own.
+ * <p>{@link #refresh(String)} is {@link Transactional} and race-safe: the old token is
+ * consumed with a database-level compare-and-set
+ * ({@link RefreshTokenRepository#revokeIfActive}), so of two concurrent refresh calls
+ * presenting the same token exactly one is issued new tokens. Any refresh attempt with an
+ * already-consumed token is treated as evidence of token theft and revokes every active
+ * token for that user (family revocation). {@link #login} and {@link #changePassword} are
+ * deliberately <em>not</em> transactional: BCrypt verification/encoding takes ~100 ms, and a
+ * surrounding transaction would pin a pooled database connection across it on a public
+ * endpoint. Their writes are independent single-row saves, each atomic on its own.
  */
 @Service
 public class AuthenticationService {
 
     private static final Logger LOG = LoggerFactory.getLogger(AuthenticationService.class);
+
+    /** Generic message for all invalid-token outcomes, to avoid leaking token state. */
+    private static final String INVALID_TOKEN_MESSAGE = "Refresh token is invalid or expired";
 
     private static final int MIN_PASSWORD_LENGTH = 8;
     private static final Pattern UPPERCASE = Pattern.compile("[A-Z]");
@@ -102,23 +107,37 @@ public class AuthenticationService {
     }
 
     /**
-     * Rotates a refresh token: validates the supplied token, revokes it, and issues a new access
+     * Rotates a refresh token: consumes the supplied token atomically and issues a new access
      * + refresh token pair. Revoke and reissue share one transaction, so a mid-flow failure
      * rolls back the revoke instead of stranding the user without a valid token.
      *
+     * <p>The revoke is a database-level compare-and-set ({@code UPDATE … WHERE revoked =
+     * false}): of two concurrent refresh calls presenting the same token, exactly one sees an
+     * update count of 1 and rotates; the other is rejected. Presenting an already-revoked
+     * token, or losing that race, indicates the token was stolen (the legitimate rotation
+     * already consumed it), so every active token for the user is revoked and all sessions
+     * must re-authenticate.
+     *
      * @param rawRefreshToken the raw refresh token supplied by the client
      * @return the newly issued tokens and user fields
-     * @throws InvalidCredentialsException if the token is unknown, revoked, or expired, or the
-     *                                     user no longer exists or is disabled
+     * @throws InvalidCredentialsException if the token is unknown, revoked, expired, or already
+     *                                     consumed by a concurrent refresh, or the user no
+     *                                     longer exists or is disabled
      */
     @Transactional
     public AuthTokens refresh(String rawRefreshToken) {
         String hash = jwtService.hashToken(rawRefreshToken);
         RefreshTokenEntity stored = refreshTokenRepository.findByTokenHash(hash).orElse(null);
 
-        if (stored == null || stored.isRevoked()
-                || stored.getExpiresAt().isBefore(LocalDateTime.now())) {
-            throw new InvalidCredentialsException("Refresh token is invalid or expired");
+        if (stored == null) {
+            throw new InvalidCredentialsException(INVALID_TOKEN_MESSAGE);
+        }
+        if (stored.isRevoked()) {
+            revokeFamily(stored.getUserId(), "already-revoked token presented");
+            throw new InvalidCredentialsException(INVALID_TOKEN_MESSAGE);
+        }
+        if (stored.getExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new InvalidCredentialsException(INVALID_TOKEN_MESSAGE);
         }
 
         AppUserEntity user = userRepository.findById(stored.getUserId()).orElse(null);
@@ -126,9 +145,12 @@ public class AuthenticationService {
             throw new InvalidCredentialsException("User not found or disabled");
         }
 
-        // Revoke old token (rotation — prevents reuse)
-        stored.setRevoked(true);
-        refreshTokenRepository.save(stored);
+        // Atomic compare-and-set: only one concurrent refresh can consume the token.
+        int consumed = refreshTokenRepository.revokeIfActive(hash);
+        if (consumed != 1) {
+            revokeFamily(stored.getUserId(), "lost rotation race — token concurrently consumed");
+            throw new InvalidCredentialsException(INVALID_TOKEN_MESSAGE);
+        }
 
         return issueTokensFor(user);
     }
@@ -235,5 +257,11 @@ public class AuthenticationService {
             return "Password must contain at least one special character.";
         }
         return null;
+    }
+
+    private void revokeFamily(Long userId, String reason) {
+        int revoked = refreshTokenRepository.revokeAllActiveByUserId(userId);
+        LOG.warn("Refresh token reuse detected (userId={}, {}): revoked {} active token(s)",
+                userId, reason, revoked);
     }
 }
