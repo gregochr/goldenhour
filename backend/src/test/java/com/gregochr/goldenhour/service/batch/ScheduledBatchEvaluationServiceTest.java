@@ -41,6 +41,7 @@ import static java.time.LocalDate.now;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -98,6 +99,9 @@ class ScheduledBatchEvaluationServiceTest {
 
     @BeforeEach
     void setUp() {
+        // The aurora batch self-gates on this flag; these tests exercise the enabled path.
+        // The disabled path is pinned by submitAuroraBatch_auroraDisabled_* below.
+        lenient().when(auroraProperties.isEnabled()).thenReturn(true);
         service = new ScheduledBatchEvaluationService(
                 modelSelectionService, noaaSwpcClient,
                 weatherTriageService, auroraOrchestrator,
@@ -367,6 +371,19 @@ class ScheduledBatchEvaluationServiceTest {
 
         service.submitAuroraBatch();
 
+        verifyNoInteractions(evaluationService);
+    }
+
+    @Test
+    @DisplayName("aurora batch does nothing when aurora.enabled=false — no NOAA fetch, no spend")
+    void submitAuroraBatch_auroraDisabled_fetchesNothingAndSubmitsNothing() {
+        when(auroraProperties.isEnabled()).thenReturn(false);
+
+        service.submitAuroraBatch();
+
+        // The gate must fire before the NOAA call: resuming or triggering this job from the
+        // Scheduler UI with the feature off previously fetched NOAA and submitted a batch.
+        verifyNoInteractions(noaaSwpcClient);
         verifyNoInteractions(evaluationService);
     }
 

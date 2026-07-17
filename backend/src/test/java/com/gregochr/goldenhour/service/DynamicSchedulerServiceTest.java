@@ -111,6 +111,77 @@ class DynamicSchedulerServiceTest {
         assertThat(aurora.getStatus()).isEqualTo(SchedulerJobStatus.ACTIVE);
     }
 
+    @Test
+    @DisplayName("a deliberately-PAUSED job is remembered as PAUSED when the config disables it")
+    void initSchedules_disablingPausedJob_remembersPausedStatus() {
+        when(auroraProperties.isEnabled()).thenReturn(false);
+        // aurora_batch_evaluation is seeded PAUSED by V73 — it must not be silently promoted.
+        SchedulerJobConfigEntity batch = fixedDelayJob("aurora_batch_evaluation", 300000L,
+                SchedulerJobStatus.PAUSED);
+        batch.setConfigSource("aurora.enabled");
+        when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(batch));
+
+        service.initSchedules();
+
+        assertThat(batch.getStatus()).isEqualTo(SchedulerJobStatus.DISABLED_BY_CONFIG);
+        assertThat(batch.getStatusBeforeConfigDisable()).isEqualTo(SchedulerJobStatus.PAUSED);
+    }
+
+    @Test
+    @DisplayName("re-enabling restores PAUSED, never promoting a paused job to ACTIVE")
+    void initSchedules_reEnabling_restoresPausedRatherThanActivating() {
+        // The whole point of V126. Restoring blindly to ACTIVE would start aurora_batch_evaluation
+        // — submitting Anthropic Batch work nightly — on the first aurora.enabled off->on toggle.
+        SchedulerJobConfigEntity batch = fixedDelayJob("aurora_batch_evaluation", 300000L,
+                SchedulerJobStatus.DISABLED_BY_CONFIG);
+        batch.setConfigSource("aurora.enabled");
+        batch.setStatusBeforeConfigDisable(SchedulerJobStatus.PAUSED);
+        when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(batch));
+
+        service.initSchedules();
+
+        assertThat(batch.getStatus()).isEqualTo(SchedulerJobStatus.PAUSED);
+        assertThat(batch.getStatusBeforeConfigDisable()).isNull();
+        verify(taskScheduler, never()).scheduleWithFixedDelay(any(Runnable.class),
+                any(Duration.class));
+    }
+
+    @Test
+    @DisplayName("an admin's manual pause survives a config off/on cycle")
+    void initSchedules_offOnCycle_preservesAdminPause() {
+        SchedulerJobConfigEntity aurora = fixedDelayJob("aurora_polling", 300000L,
+                SchedulerJobStatus.PAUSED);
+        aurora.setConfigSource("aurora.enabled");
+        when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(aurora));
+
+        when(auroraProperties.isEnabled()).thenReturn(false);
+        service.initSchedules();
+        assertThat(aurora.getStatus()).isEqualTo(SchedulerJobStatus.DISABLED_BY_CONFIG);
+
+        when(auroraProperties.isEnabled()).thenReturn(true);
+        service.initSchedules();
+
+        // Previously the restore hardcoded ACTIVE, silently discarding the admin's pause.
+        assertThat(aurora.getStatus()).isEqualTo(SchedulerJobStatus.PAUSED);
+    }
+
+    @Test
+    @DisplayName("a job with an unrecognised config_source is left alone, not crashed on")
+    void initSchedules_unknownConfigSource_isNoOp() {
+        // config_source is free text and prod rows are hand-editable.
+        SchedulerJobConfigEntity job = fixedDelayJob("tide_refresh", 300000L,
+                SchedulerJobStatus.ACTIVE);
+        job.setConfigSource("something.nobody.registered");
+        when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(job));
+        when(taskScheduler.scheduleWithFixedDelay(any(Runnable.class), any(Duration.class)))
+                .thenReturn(mock(ScheduledFuture.class));
+        service.registerJobTarget("tide_refresh", () -> { });
+
+        service.initSchedules();
+
+        assertThat(job.getStatus()).isEqualTo(SchedulerJobStatus.ACTIVE);
+    }
+
     // -------------------------------------------------------------------------
     // pause
     // -------------------------------------------------------------------------

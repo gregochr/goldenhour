@@ -17,10 +17,10 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.BooleanSupplier;
 
 /**
  * Orchestrates dynamic scheduling of jobs based on persisted {@link SchedulerJobConfigEntity} rows.
@@ -40,8 +40,6 @@ public class DynamicSchedulerService {
 
     /** Config source value that indicates dependency on aurora.enabled. */
     private static final String AURORA_CONFIG_SOURCE = "aurora.enabled";
-
-    private static final Set<String> AURORA_JOB_KEYS = Set.of("aurora_polling");
 
     private final SchedulerJobConfigRepository repository;
     private final TaskScheduler taskScheduler;
@@ -93,7 +91,7 @@ public class DynamicSchedulerService {
     public void initSchedules() {
         List<SchedulerJobConfigEntity> configs = repository.findAllByOrderByIdAsc();
         for (SchedulerJobConfigEntity config : configs) {
-            syncAuroraStatus(config);
+            syncConfigGatedStatus(config);
             if (config.getStatus() == SchedulerJobStatus.ACTIVE) {
                 scheduleJob(config);
             } else {
@@ -305,25 +303,64 @@ public class DynamicSchedulerService {
         };
     }
 
-    private void syncAuroraStatus(SchedulerJobConfigEntity config) {
-        if (!AURORA_JOB_KEYS.contains(config.getJobKey())) {
+    /**
+     * Aligns a job's status with the feature flag named by its {@code config_source}.
+     *
+     * <p>Driven by the DB column rather than a hardcoded key set. The key set only ever listed
+     * {@code aurora_polling}, so {@code aurora_batch_evaluation} — which declares
+     * {@code aurora.enabled} in its V73 seed — was never gated: with aurora switched off, one
+     * Resume click in the Scheduler UI was all that stood between the flag and a nightly NOAA
+     * fetch plus Anthropic Batch spend. ({@code doSubmitAuroraBatch} now self-gates too; this
+     * makes the UI tell the truth.)
+     *
+     * <p>An unrecognised {@code config_source} is a no-op, not a crash — the column is free text
+     * and prod rows are hand-editable.
+     *
+     * <p>The pre-disable status is remembered so re-enabling restores it. Restoring blindly to
+     * ACTIVE would promote {@code aurora_batch_evaluation} — deliberately seeded PAUSED — into a
+     * running job on the first off/on toggle, which is the very spend this method prevents.
+     *
+     * @param config the job configuration, updated and saved in place when the flag disagrees
+     */
+    private void syncConfigGatedStatus(SchedulerJobConfigEntity config) {
+        BooleanSupplier gate = configGateFor(config.getConfigSource());
+        if (gate == null) {
             return;
         }
 
-        if (!auroraProperties.isEnabled()) {
+        if (!gate.getAsBoolean()) {
             if (config.getStatus() != SchedulerJobStatus.DISABLED_BY_CONFIG) {
+                config.setStatusBeforeConfigDisable(config.getStatus());
                 config.setStatus(SchedulerJobStatus.DISABLED_BY_CONFIG);
-                config.setConfigSource(AURORA_CONFIG_SOURCE);
                 config.setUpdatedAt(Instant.now());
                 repository.save(config);
-                LOG.info("Disabled job '{}' — aurora.enabled=false", config.getJobKey());
+                LOG.info("Disabled job '{}' — {}=false", config.getJobKey(),
+                        config.getConfigSource());
             }
         } else if (config.getStatus() == SchedulerJobStatus.DISABLED_BY_CONFIG) {
-            config.setStatus(SchedulerJobStatus.ACTIVE);
+            SchedulerJobStatus restored = config.getStatusBeforeConfigDisable() != null
+                    ? config.getStatusBeforeConfigDisable()
+                    : SchedulerJobStatus.ACTIVE;
+            config.setStatus(restored);
+            config.setStatusBeforeConfigDisable(null);
             config.setUpdatedAt(Instant.now());
             repository.save(config);
-            LOG.info("Re-enabled job '{}' — aurora.enabled=true", config.getJobKey());
+            LOG.info("Re-enabled job '{}' as {} — {}=true", config.getJobKey(), restored,
+                    config.getConfigSource());
         }
+    }
+
+    /**
+     * Resolves the feature flag a {@code config_source} names.
+     *
+     * @param configSource the DB column value, possibly null or unrecognised
+     * @return the flag supplier, or {@code null} when nothing gates this job
+     */
+    private BooleanSupplier configGateFor(String configSource) {
+        if (AURORA_CONFIG_SOURCE.equals(configSource)) {
+            return auroraProperties::isEnabled;
+        }
+        return null;
     }
 
     private void validateCron(String cronExpression) {

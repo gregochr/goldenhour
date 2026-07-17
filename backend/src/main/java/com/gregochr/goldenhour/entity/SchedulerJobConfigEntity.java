@@ -83,6 +83,15 @@ public class SchedulerJobConfigEntity {
     @Column(name = "config_source", length = 200)
     private String configSource;
 
+    /**
+     * The status held before a config flag disabled this job, restored when the flag flips back
+     * on. Null means the job was never config-disabled. Without this, re-enabling would promote
+     * every disabled job to ACTIVE — including ones deliberately seeded PAUSED.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status_before_config_disable", length = 30)
+    private SchedulerJobStatus statusBeforeConfigDisable;
+
     /** When this config row was last modified. */
     @Column(name = "updated_at", nullable = false)
     @Builder.Default
