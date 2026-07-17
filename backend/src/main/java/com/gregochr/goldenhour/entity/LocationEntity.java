@@ -234,6 +234,30 @@ public class LocationEntity {
     }
 
     /**
+     * Whether this location is photographed for sky colour — i.e. whether a colour forecast run
+     * should evaluate it. True for LANDSCAPE, SEASCAPE and WATERFALL, and for a location with no
+     * type set at all (an unclassified location is assumed to want colour rather than be skipped).
+     *
+     * <p>Lives here beside {@link #supportsTargetType} because it is a fact about the location,
+     * not about any one caller. It previously existed as four copies — in
+     * {@code ForecastCommandExecutor}, {@code ModelTestService}, {@code PromptTestService} and
+     * inline in {@code ForceSubmitBatchService} — which had already drifted: only the inline copy
+     * null-guarded the type set. That guard is kept here (it is unreachable while the field
+     * defaults to an empty set, but the union of the previous behaviours is what every caller
+     * keeps).
+     *
+     * @return true if this location is evaluated for sky colour
+     */
+    public boolean hasColourTypes() {
+        if (locationType == null || locationType.isEmpty()) {
+            return true;
+        }
+        return locationType.contains(LocationType.LANDSCAPE)
+                || locationType.contains(LocationType.SEASCAPE)
+                || locationType.contains(LocationType.WATERFALL);
+    }
+
+    /**
      * Builds a {@link CoastalParameters} from this entity's coastal columns.
      *
      * @return coastal parameters, or {@link CoastalParameters#NON_TIDAL} for inland locations

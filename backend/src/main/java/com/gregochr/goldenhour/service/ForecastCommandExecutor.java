@@ -176,7 +176,7 @@ public class ForecastCommandExecutor {
         List<LocationEntity> locations = command.locations() != null
                 ? command.locations()
                 : locationService.findAllEnabled().stream()
-                .filter(loc -> isWildlife ? isPureWildlife(loc) : hasColourTypes(loc))
+                .filter(loc -> isWildlife ? isPureWildlife(loc) : loc.hasColourTypes())
                 .toList();
 
         // Apply drive-time exclusions (locations the user chose to skip this run)
@@ -742,19 +742,6 @@ public class ForecastCommandExecutor {
                 || runType == RunType.LONG_TERM;
     }
 
-    /**
-     * Returns {@code true} if the location has at least one colour photography type
-     * (LANDSCAPE, SEASCAPE, or WATERFALL), or has no types at all (treated as colour).
-     *
-     * @param loc the location to check
-     * @return {@code true} if colour forecasts should be generated for this location
-     */
-    boolean hasColourTypes(LocationEntity loc) {
-        return loc.getLocationType().contains(LocationType.LANDSCAPE)
-                || loc.getLocationType().contains(LocationType.SEASCAPE)
-                || loc.getLocationType().contains(LocationType.WATERFALL)
-                || loc.getLocationType().isEmpty();
-    }
 
     /**
      * Returns {@code true} if the location is exclusively a WILDLIFE location
@@ -764,7 +751,7 @@ public class ForecastCommandExecutor {
      * @return {@code true} if only wildlife comfort rows should be generated
      */
     boolean isPureWildlife(LocationEntity loc) {
-        return loc.getLocationType().contains(LocationType.WILDLIFE) && !hasColourTypes(loc);
+        return loc.getLocationType().contains(LocationType.WILDLIFE) && !loc.hasColourTypes();
     }
 
     private boolean shouldSkipEvent(LocalDate targetDate, TargetType targetType,

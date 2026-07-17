@@ -85,18 +85,7 @@ public class ForceSubmitBatchService {
                 .filter(loc -> loc.getRegion() != null)
                 .filter(loc -> regionFilter == null
                         || regionFilter.contains(loc.getRegion().getId()))
-                .filter(loc -> {
-                    var types = loc.getLocationType();
-                    if (types == null || types.isEmpty()) {
-                        return true;
-                    }
-                    return types.contains(
-                            com.gregochr.goldenhour.entity.LocationType.LANDSCAPE)
-                            || types.contains(
-                            com.gregochr.goldenhour.entity.LocationType.SEASCAPE)
-                            || types.contains(
-                            com.gregochr.goldenhour.entity.LocationType.WATERFALL);
-                })
+                .filter(LocationEntity::hasColourTypes)
                 .toList();
 
         if (locations.isEmpty()) {

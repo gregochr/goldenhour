@@ -349,17 +349,6 @@ class ForecastCommandExecutorTest {
                         eq(Set.of()), eq(EvaluationModel.WILDLIFE), eq(stubJobRun));
     }
 
-    @Test
-    @DisplayName("hasColourTypes() returns true for untyped location")
-    void hasColourTypes_untypedLocation_returnsTrue() {
-        assertThat(executor.hasColourTypes(durham())).isTrue();
-    }
-
-    @Test
-    @DisplayName("hasColourTypes() returns false for pure-WILDLIFE location")
-    void hasColourTypes_pureWildlifeLocation_returnsFalse() {
-        assertThat(executor.hasColourTypes(wildlifeReserve())).isFalse();
-    }
 
     @Test
     @DisplayName("isPureWildlife() returns true for pure-WILDLIFE location")
@@ -371,19 +360,6 @@ class ForecastCommandExecutorTest {
     @DisplayName("isPureWildlife() returns false for untyped location")
     void isPureWildlife_untypedLocation_returnsFalse() {
         assertThat(executor.isPureWildlife(durham())).isFalse();
-    }
-
-    @Test
-    @DisplayName("hasColourTypes() returns true for WATERFALL location")
-    void hasColourTypes_waterfallLocation_returnsTrue() {
-        LocationEntity waterfall = LocationEntity.builder()
-                .name("High Force")
-                .lat(54.6)
-                .lon(-2.1)
-                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
-                .locationType(java.util.Set.of(LocationType.WATERFALL))
-                .build();
-        assertThat(executor.hasColourTypes(waterfall)).isTrue();
     }
 
     @Test

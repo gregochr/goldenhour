@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.entity;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import java.util.HashSet;
 
 import java.util.Set;
 
@@ -177,6 +178,56 @@ class LocationEntityTest {
             LocationEntity loc = LocationEntity.builder().name("T").lat(-34).lon(-58)
                     .gridLat(-34.625).gridLng(-58.375).build();
             assertThat(loc.gridCellKey()).isEqualTo("-34.6250,-58.3750");
+        }
+    }
+
+    @Nested
+    @DisplayName("hasColourTypes")
+    class HasColourTypes {
+
+        @Test
+        @DisplayName("an untyped location is evaluated for colour")
+        void untypedLocation_returnsTrue() {
+            assertThat(colourLocation(Set.of()).hasColourTypes()).isTrue();
+        }
+
+        @Test
+        @DisplayName("a null type set is evaluated for colour")
+        void nullTypeSet_returnsTrue() {
+            // Only ForceSubmitBatchService's inline copy guarded this; the union is kept here.
+            LocationEntity loc = colourLocation(Set.of());
+            loc.setLocationType(null);
+            assertThat(loc.hasColourTypes()).isTrue();
+        }
+
+        @Test
+        @DisplayName("a pure-WILDLIFE location is not evaluated for colour")
+        void pureWildlife_returnsFalse() {
+            assertThat(colourLocation(Set.of(LocationType.WILDLIFE)).hasColourTypes()).isFalse();
+        }
+
+        @Test
+        @DisplayName("LANDSCAPE, SEASCAPE and WATERFALL are all colour types")
+        void colourTypes_returnTrue() {
+            assertThat(colourLocation(Set.of(LocationType.LANDSCAPE)).hasColourTypes()).isTrue();
+            assertThat(colourLocation(Set.of(LocationType.SEASCAPE)).hasColourTypes()).isTrue();
+            assertThat(colourLocation(Set.of(LocationType.WATERFALL)).hasColourTypes()).isTrue();
+        }
+
+        @Test
+        @DisplayName("a mixed WILDLIFE + LANDSCAPE location is still evaluated for colour")
+        void mixedWithColourType_returnsTrue() {
+            assertThat(colourLocation(Set.of(LocationType.WILDLIFE, LocationType.LANDSCAPE))
+                    .hasColourTypes()).isTrue();
+        }
+
+        private LocationEntity colourLocation(Set<LocationType> types) {
+            return LocationEntity.builder()
+                    .name("High Force")
+                    .lat(54.6)
+                    .lon(-2.1)
+                    .locationType(new HashSet<>(types))
+                    .build();
         }
     }
 }

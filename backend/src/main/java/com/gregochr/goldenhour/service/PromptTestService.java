@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.PromptTestResultEntity;
 import com.gregochr.goldenhour.entity.PromptTestRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
@@ -146,7 +145,7 @@ public class PromptTestService {
             List<LocationEntity> allLocations =
                     locationRepository.findAllByEnabledTrueOrderByNameAsc();
             List<LocationEntity> colourLocations = allLocations.stream()
-                    .filter(this::hasColourTypes)
+                    .filter(LocationEntity::hasColourTypes)
                     .toList();
             List<LocalDate> targetDates = resolveDates(runType);
 
@@ -530,12 +529,6 @@ public class PromptTestService {
         }
     }
 
-    private boolean hasColourTypes(LocationEntity loc) {
-        return loc.getLocationType().contains(LocationType.LANDSCAPE)
-                || loc.getLocationType().contains(LocationType.SEASCAPE)
-                || loc.getLocationType().contains(LocationType.WATERFALL)
-                || loc.getLocationType().isEmpty();
-    }
 
     private AtmosphericData fetchAtmosphericData(LocationEntity location, LocalDate targetDate,
             TargetType targetType) {

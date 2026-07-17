@@ -1,7 +1,6 @@
 package com.gregochr.goldenhour.service.evaluation;
 
 import com.gregochr.goldenhour.model.AtmosphericData;
-import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 
 /**
  * Extends {@link PromptBuilder} with coastal-specific guidance for storm surge conditions.
@@ -41,30 +40,5 @@ public class CoastalPromptBuilder extends PromptBuilder {
     @Override
     public String getSystemPrompt() {
         return super.getSystemPrompt() + COASTAL_SYSTEM_PROMPT_SUFFIX;
-    }
-
-    /**
-     * Builds the user message including storm surge data after the base sky content.
-     *
-     * <p>The base (sky) user message is unchanged from inland; only the surge block is appended.
-     * Tide data is not included — it is scored separately by the {@code TideVisitor}.
-     *
-     * @param data               the atmospheric forecast data
-     * @param surge              storm surge breakdown, or null
-     * @param adjustedRangeM     adjusted tidal range including surge, or null
-     * @param astronomicalRangeM astronomical tidal range before surge, or null
-     * @return formatted user message with sky + surge sections
-     */
-    @Override
-    public String buildUserMessage(AtmosphericData data,
-                                   StormSurgeBreakdown surge,
-                                   Double adjustedRangeM,
-                                   Double astronomicalRangeM) {
-        String base = super.buildUserMessage(data);
-        String surgeBlock = SurgeBlockFormatter.format(surge, adjustedRangeM, astronomicalRangeM);
-        if (surgeBlock.isEmpty()) {
-            return base;
-        }
-        return PromptUtils.insertBeforeSuffix(base, getPromptSuffix(), surgeBlock);
     }
 }
