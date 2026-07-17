@@ -140,6 +140,30 @@ describe('BriefingSummaryStrip', () => {
     expect(tooltip).not.toContain('Clear at 30 of 36 locations.');
   });
 
+  it('marks the Best bet / Also good chips with a ◎ marker and data-pick, leaving plain chips bare', () => {
+    render(<BriefingSummaryStrip
+      pills={[pill({
+        countLabel: null,
+        regions: [
+          { regionName: 'Tyne and Wear', shortName: 'Tyne & Wear', targetType: 'SUNSET', verdictLabel: 'Worth it sunset', wx: '', summary: '', pickKind: 'best' },
+          { regionName: 'The North Yorkshire Coast', shortName: 'N. Yorks Coast', targetType: 'SUNSET', verdictLabel: 'Worth it sunset', wx: '', summary: '', pickKind: 'also' },
+          { regionName: 'Teesdale', shortName: 'Teesdale', targetType: 'SUNSET', verdictLabel: 'Worth it sunset', wx: '', summary: '' },
+        ],
+      })]}
+      onPillClick={vi.fn()}
+      onRegionClick={vi.fn()}
+    />);
+    const chips = screen.getAllByTestId('summary-region-chip');
+    expect(chips[0]).toHaveAttribute('data-pick', 'best');
+    expect(chips[1]).toHaveAttribute('data-pick', 'also');
+    expect(chips[2]).not.toHaveAttribute('data-pick');
+    // The ◎ marker is a visual-only redundancy for the colour (aria-hidden).
+    expect(chips[0].querySelector('.rn-mark')).not.toBeNull();
+    expect(chips[0].querySelector('.rn-mark')).toHaveAttribute('aria-hidden', 'true');
+    expect(chips[1].querySelector('.rn-mark')).not.toBeNull();
+    expect(chips[2].querySelector('.rn-mark')).toBeNull();
+  });
+
   it('falls back to the terse summary when no gloss is available', () => {
     render(<BriefingSummaryStrip
       pills={[pill({

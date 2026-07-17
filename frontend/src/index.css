@@ -39,6 +39,11 @@
 
   /* Tide facts (objective, independent of the sky verdict). */
   --color-tide: #6FA8B0;
+
+  /* Pick identity — carries the Best bet / Also good card accents down into the compact strip
+     chips. Best reuses the GO verdict green; Also good gets its own periwinkle so the two picks
+     read as a matched pair rather than one green and one neutral. */
+  --color-pick-also: #7C8DD6;
 }
 
 @layer base {
@@ -276,9 +281,27 @@
   border-bottom: 1px dotted var(--color-plex-text-muted);
   transition: color 0.14s ease;
 }
-.summary-region-chip[data-peak="go"]:hover { color: var(--color-verdict-go); }
-.summary-region-chip[data-peak="maybe"]:hover { color: var(--color-verdict-marginal); }
+/* Plain chips take a hover tint keyed to the tile verdict; picked chips own their colour (below)
+   and only brighten on hover, so the tile-verdict tint must not fight them. */
+.summary-region-chip[data-peak="go"]:not([data-pick]):hover { color: var(--color-verdict-go); }
+.summary-region-chip[data-peak="maybe"]:not([data-pick]):hover { color: var(--color-verdict-marginal); }
 .summary-region-chip:focus-visible { outline: 1px solid var(--color-plex-border-light); outline-offset: 2px; }
+
+/* Pick highlights — colour-match the compact region chips to the Best bet / Also good cards. The
+   accent drives both the text colour and the dotted underline (at 60% alpha); a leading ◎ marker
+   keeps the pick identifiable without relying on colour alone. */
+.summary-region-chip[data-pick="best"] {
+  color: var(--color-verdict-go);
+  font-weight: 600;
+  border-bottom-color: rgba(138, 174, 114, 0.6);
+}
+.summary-region-chip[data-pick="also"] {
+  color: var(--color-pick-also);
+  font-weight: 600;
+  border-bottom-color: rgba(124, 141, 214, 0.6);
+}
+.summary-region-chip[data-pick]:hover { filter: brightness(1.14); }
+.summary-region-chip .rn-mark { margin-right: 2px; opacity: 0.9; }
 
 /* Portalled to <body> and positioned via JS (position: fixed), so no clipping/transform ancestor
    can eat its edge. Generous right padding keeps the widest gloss line off the border. */
