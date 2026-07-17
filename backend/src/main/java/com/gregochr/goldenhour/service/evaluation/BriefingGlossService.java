@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
+import com.gregochr.goldenhour.service.BriefingRatingStats;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
@@ -343,28 +344,28 @@ public class BriefingGlossService {
             return;
         }
 
-        List<BriefingEvaluationResult> scored = cached.values().stream()
-                .filter(r -> r.rating() != null)
-                .toList();
-        if (scored.isEmpty()) {
+        // Route through the shared aggregator rather than recomputing: this was the last of four
+        // copies of the "high >= 4, medium == 3, mean to 1dp" rule, and the only one that skipped
+        // RatingValidator — so an out-of-range rating would have inflated the counts and the mean
+        // fed to Haiku as prompt input. The arithmetic is otherwise identical.
+        BriefingRatingStats.Stats stats = BriefingRatingStats.compute(
+                cached.values().stream()
+                        .map(r -> new BriefingRatingStats.Entry(r.locationName(), r.rating()))
+                        .toList(),
+                regionName, date, targetType);
+        if (stats.isEmpty()) {
             return;
         }
 
-        long highRated = scored.stream().filter(r -> r.rating() >= 4).count();
-        long mediumRated = scored.stream().filter(r -> r.rating() == 3).count();
-        double avgRating = scored.stream()
-                .mapToInt(BriefingEvaluationResult::rating).average().orElse(0);
-
-        node.put("claudeRatedCount", scored.size());
-        node.put("claudeHighRatedCount", highRated);
-        node.put("claudeMediumRatedCount", mediumRated);
-        node.put("claudeAverageRating",
-                Math.round(avgRating * 10.0) / 10.0);
+        node.put("claudeRatedCount", stats.count());
+        node.put("claudeHighRatedCount", stats.highRated());
+        node.put("claudeMediumRatedCount", stats.mediumRated());
+        node.put("claudeAverageRating", stats.averageRating());
 
         if (totalLocations > 0) {
-            double coverage = (double) scored.size() / totalLocations;
+            double coverage = (double) stats.count() / totalLocations;
             node.put("claudeCoverageRatio", Math.round(coverage * 100.0) / 100.0);
-            node.put("lowCoverage", scored.size() < minCoverageRatio * totalLocations);
+            node.put("lowCoverage", stats.count() < minCoverageRatio * totalLocations);
         }
     }
 
