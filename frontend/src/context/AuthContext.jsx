@@ -127,6 +127,19 @@ export function AuthProvider({ children }) {
     if (data.refreshToken) setRefreshToken(data.refreshToken);
   }, []);
 
+  // Keep in-memory auth state in sync when the axios interceptor silently refreshes
+  // the access token (it writes localStorage only). Without this, long-lived consumers
+  // keyed on `token` — notably the health status SSE stream — stay bound to the expired
+  // token and surface a persistent "service unavailable" banner until a full page reload.
+  useEffect(() => {
+    const handleRefreshed = () => {
+      setToken(readStorage(TOKEN_KEY));
+      setRefreshToken(readStorage(REFRESH_KEY));
+    };
+    window.addEventListener('goldenhour:token-refreshed', handleRefreshed);
+    return () => window.removeEventListener('goldenhour:token-refreshed', handleRefreshed);
+  }, []);
+
   // Listen for session-expired events from the axios interceptor
   useEffect(() => {
     const handleExpired = () => {

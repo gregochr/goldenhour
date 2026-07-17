@@ -119,4 +119,49 @@ describe('AuthContext', () => {
       removeSpy.mockRestore();
     });
   });
+
+  describe('token-refreshed event', () => {
+    it('re-syncs token from localStorage when goldenhour:token-refreshed fires', () => {
+      localStorage.setItem(TOKEN_KEY, 'old-jwt');
+      localStorage.setItem(REFRESH_KEY, 'old-refresh');
+
+      render(
+        <AuthProvider>
+          <AuthStateDisplay />
+        </AuthProvider>
+      );
+
+      expect(screen.getByTestId('token')).toHaveTextContent('old-jwt');
+
+      // The axios interceptor refreshes localStorage then notifies AuthContext.
+      act(() => {
+        localStorage.setItem(TOKEN_KEY, 'fresh-jwt');
+        localStorage.setItem(REFRESH_KEY, 'fresh-refresh');
+        window.dispatchEvent(new Event('goldenhour:token-refreshed'));
+      });
+
+      // In-memory token tracks the refreshed value — so consumers keyed on it
+      // (the health SSE stream) reconnect with a valid token instead of stranding.
+      expect(screen.getByTestId('token')).toHaveTextContent('fresh-jwt');
+    });
+
+    it('cleans up the token-refreshed listener on unmount', () => {
+      const removeSpy = vi.spyOn(window, 'removeEventListener');
+
+      const { unmount } = render(
+        <AuthProvider>
+          <AuthStateDisplay />
+        </AuthProvider>
+      );
+
+      unmount();
+
+      expect(removeSpy).toHaveBeenCalledWith(
+        'goldenhour:token-refreshed',
+        expect.any(Function)
+      );
+
+      removeSpy.mockRestore();
+    });
+  });
 });

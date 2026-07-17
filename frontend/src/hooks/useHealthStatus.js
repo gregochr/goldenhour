@@ -7,8 +7,16 @@ import createEventSource from '../utils/createEventSource.js';
  * (tab waking from the background, a momentary network blip) triggers an immediate
  * reconnect, so we wait this long before flashing the "service unavailable" banner —
  * long enough to cover a reconnect but short enough to surface a genuine outage.
+ *
+ * Must comfortably exceed createEventSource's RECONNECT_DELAY (5s) plus a reconnect
+ * handshake and first status round-trip; otherwise a perfectly healthy reconnect that
+ * takes just over a second flashes the banner before the status event clears it. The
+ * cost of a longer grace is only that a real outage surfaces a few seconds later.
  */
-const DOWN_GRACE_MS = 6000;
+const DOWN_GRACE_MS = 12000;
+
+/** localStorage key holding the current access token (shared with AuthContext/axios). */
+const TOKEN_KEY = 'goldenhour_token';
 
 /**
  * Connects to the SSE status stream and pushes health updates into state.
@@ -57,7 +65,12 @@ export function useHealthStatus() {
         },
       },
       {
-        getToken: () => token,
+        // Read the freshest token from localStorage at each (re)connect rather than
+        // capturing the AuthContext value in this closure. The axios 401 interceptor
+        // refreshes the access token into localStorage without changing AuthContext
+        // state, so a closure-captured token would leave a reconnecting stream
+        // stranded on the expired token — a permanent DOWN banner until page reload.
+        getToken: () => localStorage.getItem(TOKEN_KEY) || token,
         reconnectOnVisible: true,
         onError: () => {
           // Debounce: don't flash DOWN on a transient drop that reconnects quickly.

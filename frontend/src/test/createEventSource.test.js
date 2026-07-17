@@ -135,6 +135,40 @@ describe('createEventSource', () => {
     vi.useRealTimers();
   });
 
+  it('reads a freshly-provided token on reconnect, not a stale captured one', () => {
+    vi.useFakeTimers();
+    let current = 'tok-1';
+    createEventSource('/api/test', {}, {}, { getToken: () => current });
+    expect(MockEventSource.instances[0].url).toContain('token=tok-1');
+
+    const source = MockEventSource.instances[0];
+    source.readyState = MockEventSource.CLOSED;
+    current = 'tok-2'; // token refreshed (e.g. by the axios interceptor) between attempts
+    source.onerror();
+
+    vi.advanceTimersByTime(5000);
+
+    expect(MockEventSource.instances).toHaveLength(2);
+    expect(MockEventSource.instances[1].url).toContain('token=tok-2');
+
+    vi.useRealTimers();
+  });
+
+  it('closes the previous source when reconnecting', () => {
+    vi.useFakeTimers();
+    createEventSource('/api/test');
+    const first = MockEventSource.instances[0];
+    first.readyState = MockEventSource.CLOSED;
+    first.onerror();
+
+    vi.advanceTimersByTime(5000);
+
+    expect(first._closed).toBe(true);
+    expect(MockEventSource.instances).toHaveLength(2);
+
+    vi.useRealTimers();
+  });
+
   it('does not reconnect after cleanup is called', () => {
     vi.useFakeTimers();
     const cleanup = createEventSource('/api/test');
