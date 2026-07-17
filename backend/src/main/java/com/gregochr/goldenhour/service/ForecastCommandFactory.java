@@ -4,7 +4,6 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
-import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -12,7 +11,6 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.IntStream;
 
 /**
  * Builds {@link ForecastCommand} instances from a {@link RunType}, resolving
@@ -22,7 +20,7 @@ import java.util.stream.IntStream;
 public class ForecastCommandFactory {
 
     /** Maximum number of days ahead to forecast. */
-    public static final int FORECAST_HORIZON_DAYS = 5;
+    public static final int FORECAST_HORIZON_DAYS = RunType.FORECAST_HORIZON_DAYS;
 
     private final ModelSelectionService modelSelectionService;
     private final Map<EvaluationModel, EvaluationStrategy> strategies;
@@ -106,21 +104,7 @@ public class ForecastCommandFactory {
      * @return list of dates
      */
     private List<LocalDate> defaultDates(RunType runType) {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        return switch (runType) {
-            case VERY_SHORT_TERM -> List.of(today, today.plusDays(1));
-            case SHORT_TERM -> List.of(today, today.plusDays(1), today.plusDays(2));
-            case LONG_TERM -> today.plusDays(3)
-                    .datesUntil(today.plusDays(FORECAST_HORIZON_DAYS + 1))
-                    .toList();
-            case WEATHER, TIDE, LIGHT_POLLUTION, BRIEFING,
-                    BRIEFING_BEST_BET, BRIEFING_GLOSS,
-                    AURORA_EVALUATION, AURORA_GLOSS, BLUEBELL_GLOSS,
-                    SCHEDULED_BATCH, BATCH_NEAR_TERM, BATCH_FAR_TERM ->
-                    IntStream.rangeClosed(0, FORECAST_HORIZON_DAYS)
-                    .mapToObj(today::plusDays)
-                    .toList();
-        };
+        return runType.defaultDateRange(LocalDate.now(ZoneOffset.UTC));
     }
 
     /**
@@ -160,7 +144,7 @@ public class ForecastCommandFactory {
         if (command.strategy() == null) {
             return null;
         }
-        if (command.strategy() instanceof NoOpEvaluationStrategy) {
+        if (command.strategy().getEvaluationModel() == EvaluationModel.WILDLIFE) {
             return EvaluationModel.WILDLIFE;
         }
         return modelSelectionService.getActiveModel(command.runType());

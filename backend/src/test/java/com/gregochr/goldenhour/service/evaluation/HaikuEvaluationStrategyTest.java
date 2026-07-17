@@ -40,6 +40,7 @@ class HaikuEvaluationStrategyTest {
     private AnthropicApiClient anthropicApiClient;
 
     private ClaudeEvaluationStrategy strategy;
+    private final SunsetEvaluationParser parser = new SunsetEvaluationParser();
     private ObjectMapper objectMapper;
 
     @BeforeEach
@@ -47,7 +48,7 @@ class HaikuEvaluationStrategyTest {
         objectMapper = new ObjectMapper();
         strategy = new ClaudeEvaluationStrategy(
                 anthropicApiClient, new PromptBuilder(), new CoastalPromptBuilder(),
-                objectMapper, EvaluationModel.HAIKU);
+                objectMapper, EvaluationModel.HAIKU, new SunsetEvaluationParser());
     }
 
     @Test
@@ -77,7 +78,7 @@ class HaikuEvaluationStrategyTest {
     @Test
     @DisplayName("parseEvaluation() extracts rating, dual scores, and summary from valid JSON")
     void parseEvaluation_validJson_returnsEvaluation() {
-        SunsetEvaluation result = strategy.parseEvaluation(
+        SunsetEvaluation result = parser.parseEvaluation(
                 "{\"rating\": 4, \"fiery_sky\": 65, \"golden_hour\": 75,"
                 + " \"summary\": \"Good mid-level cloud above a clear horizon.\"}",
                 objectMapper);
@@ -91,7 +92,7 @@ class HaikuEvaluationStrategyTest {
     @Test
     @DisplayName("parseEvaluation() throws on invalid JSON with no rating field")
     void parseEvaluation_invalidJson_throwsIllegalArgumentException() {
-        assertThatThrownBy(() -> strategy.parseEvaluation("not json", objectMapper))
+        assertThatThrownBy(() -> parser.parseEvaluation("not json", objectMapper))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Failed to parse");
     }
@@ -99,7 +100,7 @@ class HaikuEvaluationStrategyTest {
     @Test
     @DisplayName("parseEvaluation() strips markdown code block wrapper")
     void parseEvaluation_codeBlockWrapped_returnsEvaluation() {
-        SunsetEvaluation result = strategy.parseEvaluation(
+        SunsetEvaluation result = parser.parseEvaluation(
                 "```json\n{\"rating\": 5, \"fiery_sky\": 90, \"golden_hour\": 85,"
                 + " \"summary\": \"Exceptional conditions.\"}\n```",
                 objectMapper);
@@ -113,7 +114,7 @@ class HaikuEvaluationStrategyTest {
     @Test
     @DisplayName("parseEvaluation() falls back to regex when summary contains unescaped quotes")
     void parseEvaluation_unescapedQuotesInSummary_returnsEvaluation() {
-        SunsetEvaluation result = strategy.parseEvaluation(
+        SunsetEvaluation result = parser.parseEvaluation(
                 "{\"rating\": 2, \"fiery_sky\": 20, \"golden_hour\": 25,"
                 + " \"summary\": \"A \"dull\" outlook with heavy overcast.\"}",
                 objectMapper);

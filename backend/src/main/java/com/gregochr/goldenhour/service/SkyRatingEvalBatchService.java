@@ -11,8 +11,7 @@ import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.service.evaluation.BatchRequestFactory;
 import com.gregochr.goldenhour.service.evaluation.ClaudeBatchOutcome;
-import com.gregochr.goldenhour.service.evaluation.ClaudeEvaluationStrategy;
-import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.SunsetEvaluationParser;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,7 +50,7 @@ import java.util.Map;
  * {@link SkyRatingEvalService#persistResult} / {@link SkyRatingEvalService#finalise} so both paths
  * write the {@code sky_rating_eval_*} tables identically.
  *
- * <p>Result text is parsed with the same {@link ClaudeEvaluationStrategy#parseEvaluation} the
+ * <p>Result text is parsed with the same {@link SunsetEvaluationParser#parseEvaluation} the
  * synchronous scorer and the forecast batch handler use; the HAIKU strategy is pulled from the map
  * purely as a parser handle (no Claude call is made through it).
  */
@@ -70,7 +69,7 @@ public class SkyRatingEvalBatchService {
     private final SkyRatingEvalBatchClient batchClient;
     private final BatchRequestFactory batchRequestFactory;
     private final DynamicSchedulerService dynamicSchedulerService;
-    private final ClaudeEvaluationStrategy parser;
+    private final SunsetEvaluationParser parser;
     private final ObjectMapper objectMapper;
     private final boolean batchEnabled;
     private final Duration pollTimeout;
@@ -82,7 +81,7 @@ public class SkyRatingEvalBatchService {
      * @param batchClient             thin Anthropic Batch API wrapper
      * @param batchRequestFactory     builds per-fixture batch requests (same builder the pipeline uses)
      * @param dynamicSchedulerService the scheduler the weekly eval job and reconciler register with
-     * @param evaluationStrategies    the strategy map; only HAIKU's {@code parseEvaluation} is borrowed
+     * @param parser                  parses raw Batch API text into evaluations
      * @param objectMapper            Jackson mapper threaded into the parser
      * @param batchEnabled            when true the weekly job submits via batch; else it runs sync
      * @param pollTimeoutSeconds      fail a still-unfinished batch once its runs are older than this
@@ -92,7 +91,7 @@ public class SkyRatingEvalBatchService {
             SkyRatingEvalBatchClient batchClient,
             BatchRequestFactory batchRequestFactory,
             DynamicSchedulerService dynamicSchedulerService,
-            Map<EvaluationModel, EvaluationStrategy> evaluationStrategies,
+            SunsetEvaluationParser parser,
             ObjectMapper objectMapper,
             @Value("${photocast.eval.batch.enabled:true}") boolean batchEnabled,
             @Value("${photocast.eval.batch.poll-timeout-seconds:86400}") long pollTimeoutSeconds) {
@@ -100,13 +99,7 @@ public class SkyRatingEvalBatchService {
         this.batchClient = batchClient;
         this.batchRequestFactory = batchRequestFactory;
         this.dynamicSchedulerService = dynamicSchedulerService;
-        EvaluationStrategy haiku = evaluationStrategies.get(EvaluationModel.HAIKU);
-        if (!(haiku instanceof ClaudeEvaluationStrategy claude)) {
-            throw new IllegalStateException(
-                    "SkyRatingEvalBatchService requires a ClaudeEvaluationStrategy bean for HAIKU "
-                            + "to reuse its JSON parser; got " + haiku);
-        }
-        this.parser = claude;
+        this.parser = parser;
         this.objectMapper = objectMapper;
         this.batchEnabled = batchEnabled;
         this.pollTimeout = Duration.ofSeconds(pollTimeoutSeconds);

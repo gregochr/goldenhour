@@ -40,6 +40,7 @@ class SonnetEvaluationStrategyTest {
     private AnthropicApiClient anthropicApiClient;
 
     private ClaudeEvaluationStrategy strategy;
+    private final SunsetEvaluationParser parser = new SunsetEvaluationParser();
     private ObjectMapper objectMapper;
 
     @BeforeEach
@@ -47,7 +48,7 @@ class SonnetEvaluationStrategyTest {
         objectMapper = new ObjectMapper();
         strategy = new ClaudeEvaluationStrategy(
                 anthropicApiClient, new PromptBuilder(), new CoastalPromptBuilder(),
-                objectMapper, EvaluationModel.SONNET);
+                objectMapper, EvaluationModel.SONNET, new SunsetEvaluationParser());
     }
 
     @Test
@@ -78,7 +79,7 @@ class SonnetEvaluationStrategyTest {
     @Test
     @DisplayName("parseEvaluation() extracts rating, scores, and summary from valid JSON")
     void parseEvaluation_validJson_returnsEvaluation() {
-        SunsetEvaluation result = strategy.parseEvaluation(
+        SunsetEvaluation result = parser.parseEvaluation(
                 "{\"rating\": 4, \"fiery_sky\": 75, \"golden_hour\": 80, "
                 + "\"summary\": \"Good mid-level cloud above a clear horizon.\"}",
                 objectMapper);
@@ -92,7 +93,7 @@ class SonnetEvaluationStrategyTest {
     @Test
     @DisplayName("parseEvaluation() throws on invalid JSON")
     void parseEvaluation_invalidJson_throwsIllegalArgumentException() {
-        assertThatThrownBy(() -> strategy.parseEvaluation("not json", objectMapper))
+        assertThatThrownBy(() -> parser.parseEvaluation("not json", objectMapper))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Failed to parse");
     }
@@ -100,7 +101,7 @@ class SonnetEvaluationStrategyTest {
     @Test
     @DisplayName("parseEvaluation() handles JSON with surrounding whitespace")
     void parseEvaluation_trailingWhitespace_returnsEvaluation() {
-        SunsetEvaluation result = strategy.parseEvaluation(
+        SunsetEvaluation result = parser.parseEvaluation(
                 "  {\"rating\": 2, \"fiery_sky\": 20, \"golden_hour\": 35,"
                 + " \"summary\": \"Mostly overcast.\"}  ",
                 objectMapper);
@@ -114,7 +115,7 @@ class SonnetEvaluationStrategyTest {
     @Test
     @DisplayName("parseEvaluation() strips markdown code block wrapper")
     void parseEvaluation_codeBlockWrapped_returnsEvaluation() {
-        SunsetEvaluation result = strategy.parseEvaluation(
+        SunsetEvaluation result = parser.parseEvaluation(
                 "```json\n{\"rating\": 3, \"fiery_sky\": 55, \"golden_hour\": 65,"
                 + " \"summary\": \"Some cloud.\"}\n```",
                 objectMapper);
@@ -128,7 +129,7 @@ class SonnetEvaluationStrategyTest {
     @Test
     @DisplayName("parseEvaluation() falls back to regex when summary contains unescaped quotes")
     void parseEvaluation_unescapedQuotesInSummary_returnsEvaluation() {
-        SunsetEvaluation result = strategy.parseEvaluation(
+        SunsetEvaluation result = parser.parseEvaluation(
                 "```json\n{\"rating\": 2, \"fiery_sky\": 25, \"golden_hour\": 40, "
                 + "\"summary\": \"A \"blank canvas\" scenario with pale tones.\"}\n```",
                 objectMapper);

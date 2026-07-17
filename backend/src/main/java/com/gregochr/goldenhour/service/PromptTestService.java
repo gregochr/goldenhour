@@ -25,7 +25,9 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -92,7 +94,9 @@ public class PromptTestService {
                 .registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
     }
 
-    private static final int FORECAST_HORIZON_DAYS = 5;
+    /** Run types the prompt-test harness can sweep; everything else is rejected. */
+    private static final Set<RunType> PROMPT_TESTABLE_RUN_TYPES =
+            EnumSet.of(RunType.VERY_SHORT_TERM, RunType.SHORT_TERM, RunType.LONG_TERM);
 
     /**
      * Creates a prompt test run entity and returns it immediately (for async use).
@@ -432,24 +436,11 @@ public class PromptTestService {
      * @return ordered list of target dates
      */
     List<LocalDate> resolveDates(RunType runType) {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        return switch (runType) {
-            case VERY_SHORT_TERM -> List.of(today, today.plusDays(1));
-            case SHORT_TERM -> List.of(today, today.plusDays(1), today.plusDays(2));
-            case LONG_TERM -> {
-                List<LocalDate> dates = new ArrayList<>();
-                for (int i = 3; i <= FORECAST_HORIZON_DAYS + 2; i++) {
-                    dates.add(today.plusDays(i));
-                }
-                yield List.copyOf(dates);
-            }
-            case WEATHER, TIDE, LIGHT_POLLUTION, BRIEFING,
-                    BRIEFING_BEST_BET, BRIEFING_GLOSS,
-                    AURORA_EVALUATION, AURORA_GLOSS, BLUEBELL_GLOSS,
-                    SCHEDULED_BATCH, BATCH_NEAR_TERM, BATCH_FAR_TERM ->
-                    throw new IllegalArgumentException(
+        if (!PROMPT_TESTABLE_RUN_TYPES.contains(runType)) {
+            throw new IllegalArgumentException(
                     "RunType " + runType + " is not supported for prompt tests");
-        };
+        }
+        return runType.defaultDateRange(LocalDate.now(ZoneOffset.UTC));
     }
 
     TargetType resolveTargetType(LocalDateTime now, List<LocationEntity> allLocations) {

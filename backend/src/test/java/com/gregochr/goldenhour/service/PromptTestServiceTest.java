@@ -719,13 +719,16 @@ class PromptTestServiceTest {
     }
 
     @Test
-    @DisplayName("resolveDates returns 5 dates for LONG_TERM (T+3 to T+7)")
+    @DisplayName("resolveDates returns 3 dates for LONG_TERM (T+3 to the T+5 horizon)")
     void resolveDates_longTerm() {
+        // Was T+3..T+7: the harness had its own copy of the date table and swept two days past
+        // FORECAST_HORIZON_DAYS, prompt-testing horizons production never scores. Both callers
+        // now share RunType.defaultDateRange, so the harness sweeps exactly production's range.
         List<LocalDate> dates = service.resolveDates(RunType.LONG_TERM);
         LocalDate today = LocalDate.now(java.time.ZoneOffset.UTC);
-        assertThat(dates).hasSize(5);
+        assertThat(dates).hasSize(3);
         assertThat(dates.get(0)).isEqualTo(today.plusDays(3));
-        assertThat(dates.get(4)).isEqualTo(today.plusDays(7));
+        assertThat(dates.get(2)).isEqualTo(today.plusDays(RunType.FORECAST_HORIZON_DAYS));
     }
 
     @Test

@@ -44,7 +44,7 @@ class OpusEvaluationStrategyTest {
     void setUp() {
         strategy = new ClaudeEvaluationStrategy(
                 anthropicApiClient, new PromptBuilder(), new CoastalPromptBuilder(),
-                new ObjectMapper(), EvaluationModel.OPUS);
+                new ObjectMapper(), EvaluationModel.OPUS, new SunsetEvaluationParser());
     }
 
     @Test

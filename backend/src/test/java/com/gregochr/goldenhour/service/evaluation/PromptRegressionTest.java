@@ -68,7 +68,8 @@ class PromptRegressionTest {
         EvaluationModel model = EvaluationModel.valueOf(modelName.toUpperCase());
 
         strategy = new ClaudeEvaluationStrategy(
-                apiClient, new PromptBuilder(), new CoastalPromptBuilder(), mapper, model);
+                apiClient, new PromptBuilder(), new CoastalPromptBuilder(), mapper, model,
+                new SunsetEvaluationParser());
     }
 
     /**

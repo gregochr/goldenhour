@@ -10,8 +10,7 @@ import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.evaluation.BatchRequestFactory;
 import com.gregochr.goldenhour.service.evaluation.ClaudeBatchOutcome;
-import com.gregochr.goldenhour.service.evaluation.ClaudeEvaluationStrategy;
-import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.SunsetEvaluationParser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -20,7 +19,6 @@ import tools.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -53,7 +51,7 @@ class SkyRatingEvalBatchServiceTest {
     private SkyRatingEvalBatchClient batchClient;
     private BatchRequestFactory batchRequestFactory;
     private DynamicSchedulerService dynamicSchedulerService;
-    private ClaudeEvaluationStrategy parser;
+    private SunsetEvaluationParser parser;
     private ObjectMapper objectMapper;
     private SkyRatingEvalBatchService service;
 
@@ -63,11 +61,10 @@ class SkyRatingEvalBatchServiceTest {
         batchClient = mock(SkyRatingEvalBatchClient.class);
         batchRequestFactory = mock(BatchRequestFactory.class);
         dynamicSchedulerService = mock(DynamicSchedulerService.class);
-        parser = mock(ClaudeEvaluationStrategy.class);
+        parser = mock(SunsetEvaluationParser.class);
         objectMapper = mock(ObjectMapper.class);
-        Map<EvaluationModel, EvaluationStrategy> strategies = Map.of(EvaluationModel.HAIKU, parser);
         service = new SkyRatingEvalBatchService(evalService, batchClient, batchRequestFactory,
-                dynamicSchedulerService, strategies, objectMapper, true, POLL_TIMEOUT_SECONDS);
+                dynamicSchedulerService, parser, objectMapper, true, POLL_TIMEOUT_SECONDS);
     }
 
     @Test
@@ -77,17 +74,6 @@ class SkyRatingEvalBatchServiceTest {
         verify(dynamicSchedulerService).registerJobTarget(eq(SkyRatingEvalService.JOB_KEY), any());
         verify(dynamicSchedulerService).registerJobTarget(
                 eq(SkyRatingEvalBatchService.POLL_JOB_KEY), any());
-    }
-
-    @Test
-    @DisplayName("constructor rejects a non-Claude HAIKU strategy")
-    void constructorRejectsNonClaudeParser() {
-        Map<EvaluationModel, EvaluationStrategy> bad =
-                Map.of(EvaluationModel.HAIKU, mock(EvaluationStrategy.class));
-        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
-                new SkyRatingEvalBatchService(evalService, batchClient, batchRequestFactory,
-                        dynamicSchedulerService, bad, objectMapper, true, POLL_TIMEOUT_SECONDS))
-                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test

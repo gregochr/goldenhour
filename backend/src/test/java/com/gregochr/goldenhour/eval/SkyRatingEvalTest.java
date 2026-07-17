@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
 import com.gregochr.goldenhour.service.evaluation.ClaudeEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.CoastalPromptBuilder;
 import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
+import com.gregochr.goldenhour.service.evaluation.SunsetEvaluationParser;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -97,7 +98,8 @@ class SkyRatingEvalTest {
         model = EvaluationModel.valueOf(modelName.toUpperCase());
 
         strategy = new ClaudeEvaluationStrategy(
-                apiClient, new PromptBuilder(), new CoastalPromptBuilder(), new ObjectMapper(), model);
+                apiClient, new PromptBuilder(), new CoastalPromptBuilder(), new ObjectMapper(), model,
+                new SunsetEvaluationParser());
     }
 
     private static List<SkyRatingEvalFixture> fixtures() {

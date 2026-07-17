@@ -4,6 +4,7 @@ import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
 import com.gregochr.goldenhour.service.evaluation.ClaudeEvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.SunsetEvaluationParser;
 import com.gregochr.goldenhour.service.evaluation.CoastalPromptBuilder;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
@@ -52,6 +53,7 @@ public class EvaluationConfig {
      * @param promptBuilder        shared prompt builder for inland locations
      * @param coastalPromptBuilder coastal prompt builder for tide locations
      * @param objectMapper         Jackson mapper
+     * @param parser               shared Claude response parser
      * @return immutable map from model to strategy
      */
     @Bean
@@ -59,17 +61,18 @@ public class EvaluationConfig {
             AnthropicApiClient anthropicApiClient,
             PromptBuilder promptBuilder,
             CoastalPromptBuilder coastalPromptBuilder,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            SunsetEvaluationParser parser) {
         return Map.of(
                 EvaluationModel.HAIKU,
                 new ClaudeEvaluationStrategy(anthropicApiClient, promptBuilder,
-                        coastalPromptBuilder, objectMapper, EvaluationModel.HAIKU),
+                        coastalPromptBuilder, objectMapper, EvaluationModel.HAIKU, parser),
                 EvaluationModel.SONNET,
                 new ClaudeEvaluationStrategy(anthropicApiClient, promptBuilder,
-                        coastalPromptBuilder, objectMapper, EvaluationModel.SONNET),
+                        coastalPromptBuilder, objectMapper, EvaluationModel.SONNET, parser),
                 EvaluationModel.OPUS,
                 new ClaudeEvaluationStrategy(anthropicApiClient, promptBuilder,
-                        coastalPromptBuilder, objectMapper, EvaluationModel.OPUS),
+                        coastalPromptBuilder, objectMapper, EvaluationModel.OPUS, parser),
                 EvaluationModel.WILDLIFE,
                 new NoOpEvaluationStrategy());
     }

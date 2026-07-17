@@ -39,7 +39,6 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -111,7 +110,7 @@ class CachePayloadGoldenMasterTest {
     @Mock
     private BriefingEvaluationService briefingEvaluationService;
     @Mock
-    private ClaudeEvaluationStrategy parsingStrategy;
+    private SunsetEvaluationParser parser;
     @Mock
     private JobRunService jobRunService;
     @Mock
@@ -256,17 +255,16 @@ class CachePayloadGoldenMasterTest {
     private String serialisePayload(LocationEntity location, SunsetEvaluation eval) {
         ForecastResultHandler handler = new ForecastResultHandler(
                 briefingEvaluationService,
-                Map.of(EvaluationModel.HAIKU, parsingStrategy),
                 jobRunService, parserHandle,
                 new RatingCombiner(List.of(new SkyVisitor(), new TideVisitor())),
-                forecastDataAugmentor, forecastScoreWriter);
+                forecastDataAugmentor, forecastScoreWriter, parser);
 
         String customId = "fc-" + location.getId() + "-2026-06-21-SUNSET";
         String rawText = "{\"injected-by-stub\":true}";
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 customId, rawText, new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
-        when(parsingStrategy.parseEvaluationWithMetadata(eq(rawText), eq(parserHandle)))
-                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(eval, false));
+        when(parser.parseEvaluationWithMetadata(eq(rawText), eq(parserHandle)))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(eval, false));
 
         ForecastIdentity identity = new ForecastIdentity(location.getId(), DATE, SUNSET);
         Optional<BatchSuccess> parsed = handler.parseBatchResponse(

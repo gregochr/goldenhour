@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
 import com.gregochr.goldenhour.service.evaluation.ClaudeEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.CoastalPromptBuilder;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.SunsetEvaluationParser;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
 import org.junit.jupiter.api.DisplayName;
@@ -46,7 +47,8 @@ class EvaluationConfigTest {
     @DisplayName("evaluationStrategies() returns map with all four EvaluationModel keys")
     void evaluationStrategies_containsAllFourKeys() {
         Map<EvaluationModel, EvaluationStrategy> strategies =
-                config.evaluationStrategies(anthropicApiClient, promptBuilder, coastalPromptBuilder, objectMapper);
+                config.evaluationStrategies(anthropicApiClient, promptBuilder, coastalPromptBuilder,
+                        objectMapper, new SunsetEvaluationParser());
 
         assertThat(strategies).containsOnlyKeys(
                 EvaluationModel.HAIKU, EvaluationModel.SONNET,
@@ -57,7 +59,8 @@ class EvaluationConfigTest {
     @DisplayName("evaluationStrategies() maps HAIKU to ClaudeEvaluationStrategy")
     void evaluationStrategies_haikuIsClaudeStrategy() {
         Map<EvaluationModel, EvaluationStrategy> strategies =
-                config.evaluationStrategies(anthropicApiClient, promptBuilder, coastalPromptBuilder, objectMapper);
+                config.evaluationStrategies(anthropicApiClient, promptBuilder, coastalPromptBuilder,
+                        objectMapper, new SunsetEvaluationParser());
 
         assertThat(strategies.get(EvaluationModel.HAIKU)).isInstanceOf(ClaudeEvaluationStrategy.class);
     }
@@ -66,7 +69,8 @@ class EvaluationConfigTest {
     @DisplayName("evaluationStrategies() maps SONNET to ClaudeEvaluationStrategy")
     void evaluationStrategies_sonnetIsClaudeStrategy() {
         Map<EvaluationModel, EvaluationStrategy> strategies =
-                config.evaluationStrategies(anthropicApiClient, promptBuilder, coastalPromptBuilder, objectMapper);
+                config.evaluationStrategies(anthropicApiClient, promptBuilder, coastalPromptBuilder,
+                        objectMapper, new SunsetEvaluationParser());
 
         assertThat(strategies.get(EvaluationModel.SONNET)).isInstanceOf(ClaudeEvaluationStrategy.class);
     }
@@ -75,7 +79,8 @@ class EvaluationConfigTest {
     @DisplayName("evaluationStrategies() maps OPUS to ClaudeEvaluationStrategy")
     void evaluationStrategies_opusIsClaudeStrategy() {
         Map<EvaluationModel, EvaluationStrategy> strategies =
-                config.evaluationStrategies(anthropicApiClient, promptBuilder, coastalPromptBuilder, objectMapper);
+                config.evaluationStrategies(anthropicApiClient, promptBuilder, coastalPromptBuilder,
+                        objectMapper, new SunsetEvaluationParser());
 
         assertThat(strategies.get(EvaluationModel.OPUS)).isInstanceOf(ClaudeEvaluationStrategy.class);
     }
@@ -84,7 +89,8 @@ class EvaluationConfigTest {
     @DisplayName("evaluationStrategies() maps WILDLIFE to NoOpEvaluationStrategy")
     void evaluationStrategies_wildlifeIsNoOpStrategy() {
         Map<EvaluationModel, EvaluationStrategy> strategies =
-                config.evaluationStrategies(anthropicApiClient, promptBuilder, coastalPromptBuilder, objectMapper);
+                config.evaluationStrategies(anthropicApiClient, promptBuilder, coastalPromptBuilder,
+                        objectMapper, new SunsetEvaluationParser());
 
         assertThat(strategies.get(EvaluationModel.WILDLIFE)).isInstanceOf(NoOpEvaluationStrategy.class);
     }

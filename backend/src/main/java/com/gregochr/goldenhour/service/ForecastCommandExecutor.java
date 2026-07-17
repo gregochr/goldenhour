@@ -22,7 +22,6 @@ import com.gregochr.goldenhour.model.RunPhase;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.service.batch.GridCellStabilityService;
 import com.gregochr.goldenhour.service.batch.NightlyEligibilityPolicy;
-import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -154,7 +153,11 @@ public class ForecastCommandExecutor {
             JobRunEntity preCreatedJobRun) {
         RunType runType = command.runType();
         EvaluationModel evaluationModel = commandFactory.resolveEvaluationModel(command);
-        boolean isWildlife = command.strategy() instanceof NoOpEvaluationStrategy;
+        // Null-safe like the `instanceof` this replaced: ForecastCommand.strategy is
+        // documented nullable (ForecastCommandFactory.resolveStrategy returns null for the
+        // non-evaluating run types), and the sibling check in the factory guards the same way.
+        boolean isWildlife = command.strategy() != null
+                && command.strategy().getEvaluationModel() == EvaluationModel.WILDLIFE;
 
         // Load strategies once before the main loop
         List<OptimisationStrategyEntity> enabledStrategies = isWildlife

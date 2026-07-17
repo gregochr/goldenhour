@@ -3,6 +3,7 @@ import { runPromptTest, replayPromptTest, getPromptTestRun, getPromptTestRuns, g
 import { getAvailableModels } from '../api/modelsApi';
 import { fetchLocations } from '../api/forecastApi';
 import { formatCostGbp, formatCostUsd } from '../utils/formatCost';
+import { RUN_TYPE_RANGES } from '../utils/runTypeRanges.js';
 import useConfirmDialog from '../hooks/useConfirmDialog.js';
 import ConfirmDialog from './shared/ConfirmDialog.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
@@ -13,10 +14,14 @@ const USD_TO_GBP = 0.79;
 const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, OPUS: 0.008 };
 const MODELS = ['HAIKU', 'SONNET', 'OPUS'];
 const RUN_TYPES = [
-  { value: 'VERY_SHORT_TERM', label: 'Very Short Term', desc: 'T, T+1', days: 2 },
-  { value: 'SHORT_TERM', label: 'Short Term', desc: 'T to T+2', days: 3 },
-  { value: 'LONG_TERM', label: 'Long Term', desc: 'T+3 to T+7', days: 5 },
-];
+  { value: 'VERY_SHORT_TERM', label: 'Very Short Term' },
+  { value: 'SHORT_TERM', label: 'Short Term' },
+  { value: 'LONG_TERM', label: 'Long Term' },
+].map((rt) => ({
+  ...rt,
+  desc: RUN_TYPE_RANGES[rt.value].dateRange,
+  days: RUN_TYPE_RANGES[rt.value].days,
+}));
 
 const POLL_INTERVAL_MS = 3000;
 

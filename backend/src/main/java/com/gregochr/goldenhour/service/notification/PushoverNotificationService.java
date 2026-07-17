@@ -20,7 +20,7 @@ import java.util.Map;
  * Sonnet shows dual 0–100 scores.
  */
 @Service
-public class PushoverNotificationService {
+public class PushoverNotificationService implements NotificationChannel {
 
     private static final Logger LOG = LoggerFactory.getLogger(PushoverNotificationService.class);
     private static final String PUSHOVER_API_URL = "https://api.pushover.net/1/messages.json";
@@ -47,6 +47,7 @@ public class PushoverNotificationService {
      * @param targetType   SUNRISE or SUNSET
      * @param date         date of the solar event
      */
+    @Override
     public void notify(SunsetEvaluation evaluation, String locationName,
             TargetType targetType, LocalDate date) {
         if (!properties.getPushover().isEnabled()) {

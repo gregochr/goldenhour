@@ -44,11 +44,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
@@ -76,7 +74,7 @@ class ForecastResultHandlerTest {
     @Mock
     private BriefingEvaluationService briefingEvaluationService;
     @Mock
-    private ClaudeEvaluationStrategy parsingStrategy;
+    private SunsetEvaluationParser parser;
     @Mock
     private JobRunService jobRunService;
     @Mock
@@ -92,29 +90,15 @@ class ForecastResultHandlerTest {
     void setUp() {
         handler = new ForecastResultHandler(
                 briefingEvaluationService,
-                Map.of(EvaluationModel.HAIKU, parsingStrategy),
                 jobRunService, objectMapper,
                 new RatingCombiner(List.of(
                         new SkyVisitor(), new TideVisitor(), new BluebellVisitor())),
-                forecastDataAugmentor, forecastScoreWriter);
+                forecastDataAugmentor, forecastScoreWriter, parser);
     }
 
     @Test
     void taskTypeReturnsForecastClass() {
         assertThat(handler.taskType()).isEqualTo(EvaluationTask.Forecast.class);
-    }
-
-    @Test
-    void rejectsConstructionWithoutClaudeStrategyForHaiku() {
-        EvaluationStrategy notClaude = new NoOpEvaluationStrategy();
-        assertThatThrownBy(() -> new ForecastResultHandler(
-                briefingEvaluationService,
-                Map.of(EvaluationModel.HAIKU, notClaude),
-                jobRunService, objectMapper,
-                new RatingCombiner(List.of(new SkyVisitor())),
-                forecastDataAugmentor, forecastScoreWriter))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("ClaudeEvaluationStrategy");
     }
 
     // ── Batch path ───────────────────────────────────────────────────────────
@@ -129,8 +113,8 @@ class ForecastResultHandlerTest {
                 "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
                 new TokenUsage(500, 200, 0, 1000),
                 EvaluationModel.HAIKU);
-        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
-                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
                         new SunsetEvaluation(4, 70, 65, "X"), false));
 
         ResultContext context = ResultContext.forBatch(
@@ -163,7 +147,7 @@ class ForecastResultHandlerTest {
                         + "\"headline\":\"Soft canopy light\"}",
                 new TokenUsage(300, 80, 0, 900),
                 EvaluationModel.HAIKU);
-        when(parsingStrategy.parseBluebellEvaluation(outcome.rawText(), objectMapper))
+        when(parser.parseBluebellEvaluation(outcome.rawText(), objectMapper))
                 .thenReturn(new BluebellEvaluation(
                         4, "Bright still light if they are in flower.", "Soft canopy light"));
 
@@ -228,8 +212,8 @@ class ForecastResultHandlerTest {
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 "fc-42-2026-04-16-SUNRISE", rawText,
                 new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
-        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
-                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
                         new SunsetEvaluation(4, 70, 65, "Clear horizon."), true));
 
         Optional<BatchSuccess> result = handler.parseBatchResponse(
@@ -268,7 +252,7 @@ class ForecastResultHandlerTest {
                 eq("overloaded_error"), eq("busy"),
                 eq(null), eq(null),
                 eq(DATE), eq(SUNRISE), eq(null));
-        verifyNoInteractions(parsingStrategy);
+        verifyNoInteractions(parser);
     }
 
     @Test
@@ -279,7 +263,7 @@ class ForecastResultHandlerTest {
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 "fc-42-2026-04-16-SUNRISE", "garbage",
                 new TokenUsage(0, 0, 0, 0), EvaluationModel.HAIKU);
-        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
                 .thenThrow(new IllegalArgumentException("bad json"));
 
         ResultContext context = ResultContext.forBatch(
@@ -308,8 +292,8 @@ class ForecastResultHandlerTest {
                 "{\"rating\":7,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
                 new TokenUsage(500, 200, 0, 1000),
                 EvaluationModel.HAIKU);
-        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
-                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
                         new SunsetEvaluation(7, 70, 65, "X"), false));
 
         Optional<BatchSuccess> result = handler.parseBatchResponse(
@@ -330,8 +314,8 @@ class ForecastResultHandlerTest {
                 "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
                 new TokenUsage(500, 200, 0, 1000),
                 EvaluationModel.HAIKU);
-        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
-                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
                         new SunsetEvaluation(4, 70, 65, "X"), false));
         // The forecast_score dual-write blows up — it must NOT take down the evaluation.
         doThrow(new RuntimeException("DB down")).when(forecastScoreWriter)
@@ -373,8 +357,8 @@ class ForecastResultHandlerTest {
                 "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
                 new TokenUsage(500, 200, 0, 1000),
                 EvaluationModel.HAIKU);
-        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
-                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
                         new SunsetEvaluation(4, 70, 65, "X"), false));
 
         Optional<BatchSuccess> result = handler.parseBatchResponse(
@@ -395,8 +379,8 @@ class ForecastResultHandlerTest {
                 "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
                 new TokenUsage(500, 200, 0, 1000),
                 EvaluationModel.HAIKU);
-        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
-                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
                         new SunsetEvaluation(4, 70, 65, "X"), false));
 
         Optional<BatchSuccess> result = handler.parseBatchResponse(
@@ -417,8 +401,8 @@ class ForecastResultHandlerTest {
                 "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
                 new TokenUsage(500, 200, 0, 1000),
                 EvaluationModel.HAIKU);
-        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
-                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
                         new SunsetEvaluation(4, 70, 65, "X"), false));
         org.mockito.Mockito.doThrow(new RuntimeException("DB down"))
                 .when(jobRunService).logBatchResult(
@@ -455,8 +439,8 @@ class ForecastResultHandlerTest {
                 "fc-50-2026-04-16-SUNRISE",
                 "{\"rating\":3,\"fiery_sky\":55,\"golden_hour\":60,\"summary\":\"sky\"}",
                 new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
-        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
-                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
                         new SunsetEvaluation(3, 55, 60, "sky-only summary"), false));
         when(forecastDataAugmentor.deriveTideContext(location, DATE, SUNRISE))
                 .thenReturn(Optional.of(tideContext(true, false, LunarTideType.REGULAR_TIDE)));
@@ -480,8 +464,8 @@ class ForecastResultHandlerTest {
                 "fc-51-2026-04-16-SUNRISE",
                 "{\"rating\":3,\"fiery_sky\":55,\"golden_hour\":60,\"summary\":\"sky\"}",
                 new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
-        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
-                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
                         new SunsetEvaluation(3, 55, 60, "sky-only summary"), false));
         when(forecastDataAugmentor.deriveTideContext(location, DATE, SUNRISE))
                 .thenReturn(Optional.of(tideContext(false, false, LunarTideType.REGULAR_TIDE)));
@@ -504,8 +488,8 @@ class ForecastResultHandlerTest {
                 "fc-52-2026-04-16-SUNRISE",
                 "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"sky\"}",
                 new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
-        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
-                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
                         new SunsetEvaluation(4, 70, 65, "sky-only summary"), false));
         when(forecastDataAugmentor.deriveTideContext(location, DATE, SUNRISE))
                 .thenReturn(Optional.empty());
@@ -528,8 +512,8 @@ class ForecastResultHandlerTest {
                 "fc-53-2026-04-16-SUNRISE",
                 "{\"fiery_sky\":40,\"golden_hour\":45,\"summary\":\"ignored\"}",
                 new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
-        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
-                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
                         new SunsetEvaluation(null, 40, 45, "Claude prose to be overridden"), false));
 
         Optional<BatchSuccess> result = handler.parseBatchResponse(
@@ -555,8 +539,8 @@ class ForecastResultHandlerTest {
                 "fc-54-2026-04-16-SUNRISE",
                 "{\"fiery_sky\":40,\"golden_hour\":45,\"summary\":\"ignored\"}",
                 new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
-        when(parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
-                .thenReturn(new ClaudeEvaluationStrategy.ParseResult(
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
                         new SunsetEvaluation(null, 40, 45, "prose"), false));
 
         Optional<BatchSuccess> result = handler.parseBatchResponse(
@@ -585,7 +569,7 @@ class ForecastResultHandlerTest {
                 "{\"rating\":5,\"fiery_sky\":80,\"golden_hour\":75,\"summary\":\"OK\"}",
                 new TokenUsage(500, 200, 0, 1000),
                 EvaluationModel.HAIKU, 8500);
-        when(parsingStrategy.parseEvaluation(outcome.rawText(), objectMapper))
+        when(parser.parseEvaluation(outcome.rawText(), objectMapper))
                 .thenReturn(new SunsetEvaluation(5, 80, 75, "OK"));
 
         EvaluationResult result = handler.handleSyncResult(
@@ -614,7 +598,7 @@ class ForecastResultHandlerTest {
                 "{\"rating\":5,\"fiery_sky\":80,\"golden_hour\":75,\"summary\":\"OK\"}",
                 new TokenUsage(500, 200, 0, 1000),
                 EvaluationModel.HAIKU, 8500);
-        when(parsingStrategy.parseEvaluation(outcome.rawText(), objectMapper))
+        when(parser.parseEvaluation(outcome.rawText(), objectMapper))
                 .thenReturn(new SunsetEvaluation(5, 80, 75, "OK"));
 
         EvaluationResult result = handler.handleSyncResult(
@@ -664,7 +648,7 @@ class ForecastResultHandlerTest {
                 EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
         ClaudeSyncOutcome outcome = ClaudeSyncOutcome.success(
                 "garbage", new TokenUsage(0, 0, 0, 0), EvaluationModel.HAIKU, 1500);
-        when(parsingStrategy.parseEvaluation(outcome.rawText(), objectMapper))
+        when(parser.parseEvaluation(outcome.rawText(), objectMapper))
                 .thenThrow(new IllegalArgumentException("bad json"));
 
         EvaluationResult result = handler.handleSyncResult(
@@ -687,7 +671,7 @@ class ForecastResultHandlerTest {
                 "{\"rating\":5,\"fiery_sky\":80,\"golden_hour\":75,\"summary\":\"OK\"}",
                 new TokenUsage(500, 200, 0, 1000),
                 EvaluationModel.HAIKU, 8500);
-        when(parsingStrategy.parseEvaluation(outcome.rawText(), objectMapper))
+        when(parser.parseEvaluation(outcome.rawText(), objectMapper))
                 .thenReturn(new SunsetEvaluation(5, 80, 75, "OK"));
 
         EvaluationResult result = handler.handleSyncResult(
