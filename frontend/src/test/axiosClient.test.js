@@ -71,6 +71,43 @@ describe('axiosClient interceptors', () => {
       expect(localStorage.getItem(REFRESH_KEY)).toBeNull();
     });
 
+    it('dispatches token-refreshed and stores new tokens on a successful refresh', async () => {
+      localStorage.setItem(TOKEN_KEY, 'expired-jwt');
+      localStorage.setItem(REFRESH_KEY, 'good-refresh');
+
+      AuthApi.refreshAccessToken.mockResolvedValue({
+        accessToken: 'fresh-jwt',
+        refreshToken: 'rotated-refresh',
+      });
+
+      // Reject the first attempt with 401, then succeed on the retry.
+      let call = 0;
+      const adapter = vi.fn((config) => {
+        call += 1;
+        if (call === 1) {
+          return Promise.reject({ response: { status: 401 }, config });
+        }
+        return Promise.resolve({ status: 200, data: { ok: true }, config, headers: {} });
+      });
+
+      const res = await apiClient.get('/api/test', { adapter });
+      expect(res.data).toEqual({ ok: true });
+
+      // localStorage rolled forward to the fresh tokens...
+      expect(localStorage.getItem(TOKEN_KEY)).toBe('fresh-jwt');
+      expect(localStorage.getItem(REFRESH_KEY)).toBe('rotated-refresh');
+
+      // ...and AuthContext (and any other in-memory consumer, e.g. the health SSE
+      // stream) is notified so it can re-sync instead of stranding on the old token.
+      const refreshedEvents = dispatchSpy.mock.calls.filter(
+        ([event]) => event.type === 'goldenhour:token-refreshed'
+      );
+      expect(refreshedEvents.length).toBe(1);
+
+      // The retry carried the fresh token.
+      expect(adapter.mock.calls[1][0].headers['Authorization']).toBe('Bearer fresh-jwt');
+    });
+
     it('does not dispatch session-expired for non-401 errors', async () => {
       localStorage.setItem(TOKEN_KEY, 'my-jwt');
 

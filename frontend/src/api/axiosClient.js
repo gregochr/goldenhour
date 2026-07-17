@@ -52,6 +52,10 @@ apiClient.interceptors.response.use(
       .then((data) => {
         localStorage.setItem(TOKEN_KEY, data.accessToken);
         if (data.refreshToken) localStorage.setItem(REFRESH_KEY, data.refreshToken);
+        // Notify AuthContext so its in-memory token stays in sync with localStorage.
+        // Long-lived consumers keyed on the AuthContext token (e.g. the health SSE
+        // stream) otherwise stay bound to the now-expired token until a page reload.
+        window.dispatchEvent(new Event('goldenhour:token-refreshed'));
       })
       .catch(() => {
         localStorage.removeItem(TOKEN_KEY);

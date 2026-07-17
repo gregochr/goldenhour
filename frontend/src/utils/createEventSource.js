@@ -32,6 +32,11 @@ export default function createEventSource(path, params = {}, eventHandlers = {},
   }
 
   function connect() {
+    // Close any previous connection before opening a new one. Its onerror handler
+    // stays attached otherwise, so a stale source (e.g. still CONNECTING after a
+    // network drop) could keep firing onError and race with the new connection.
+    if (source) source.close();
+
     const token = options.getToken ? options.getToken() : localStorage.getItem(TOKEN_KEY);
     const qp = new URLSearchParams({ ...params, token });
     const url = `${BASE_URL}${path}?${qp.toString()}`;
