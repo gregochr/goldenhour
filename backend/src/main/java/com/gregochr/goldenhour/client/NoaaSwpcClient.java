@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.time.Clock;
 import java.time.ZonedDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
@@ -117,12 +118,15 @@ public class NoaaSwpcClient {
     private final RestClient restClient;
     private final AuroraProperties properties;
     private final ObjectMapper mapper;
+    private final Clock clock;
 
     private volatile CachedResult<List<KpReading>> cachedKp;
     private volatile CachedResult<List<KpForecast>> cachedKpForecast;
     private volatile CachedResult<OvationReading> cachedOvation;
     private volatile CachedResult<List<SolarWindReading>> cachedSolarWind;
     private volatile CachedResult<List<SpaceWeatherAlert>> cachedAlerts;
+    /** Pre-Kp-cap viewline. The Kp clamp is applied per call, so it must not be cached. */
+    private volatile CachedResult<AuroraViewlineResponse> cachedViewline;
 
     /**
      * Constructs the client with the shared HTTP client, aurora configuration, and JSON mapper.
@@ -130,11 +134,14 @@ public class NoaaSwpcClient {
      * @param restClient shared HTTP client
      * @param properties aurora configuration (NOAA endpoint URLs)
      * @param mapper     Jackson object mapper
+     * @param clock      clock backing the cache TTL checks
      */
-    public NoaaSwpcClient(RestClient restClient, AuroraProperties properties, ObjectMapper mapper) {
+    public NoaaSwpcClient(RestClient restClient, AuroraProperties properties,
+            ObjectMapper mapper, Clock clock) {
         this.restClient = restClient;
         this.properties = properties;
         this.mapper = mapper;
+        this.clock = clock;
     }
 
     /**
@@ -167,7 +174,7 @@ public class NoaaSwpcClient {
                     .retrieve()
                     .body(String.class);
             List<KpReading> readings = parseKpReadings(json);
-            cachedKp = new CachedResult<>(readings);
+            cachedKp = new CachedResult<>(readings, ZonedDateTime.now(clock));
             return readings;
         } catch (Exception e) {
             LOG.warn("NOAA Kp fetch failed (retaining cached): {}", e.getMessage());
@@ -191,7 +198,7 @@ public class NoaaSwpcClient {
                     .retrieve()
                     .body(String.class);
             List<KpForecast> forecasts = parseKpForecasts(json);
-            cachedKpForecast = new CachedResult<>(forecasts);
+            cachedKpForecast = new CachedResult<>(forecasts, ZonedDateTime.now(clock));
             return forecasts;
         } catch (Exception e) {
             LOG.warn("NOAA Kp forecast fetch failed (retaining cached): {}", e.getMessage());
@@ -240,7 +247,7 @@ public class NoaaSwpcClient {
                     .retrieve()
                     .body(String.class);
             OvationReading reading = parseOvation(json, OVATION_TARGET_LAT);
-            cachedOvation = new CachedResult<>(reading);
+            cachedOvation = new CachedResult<>(reading, ZonedDateTime.now(clock));
             return reading;
         } catch (Exception e) {
             LOG.warn("NOAA OVATION fetch failed (retaining cached): {}", e.getMessage());
@@ -272,7 +279,7 @@ public class NoaaSwpcClient {
                     .retrieve()
                     .body(String.class);
             List<SolarWindReading> readings = parseSolarWind(magJson, plasmaJson);
-            cachedSolarWind = new CachedResult<>(readings);
+            cachedSolarWind = new CachedResult<>(readings, ZonedDateTime.now(clock));
             return readings;
         } catch (Exception e) {
             LOG.warn("NOAA solar wind fetch failed (retaining cached): {}", e.getMessage());
@@ -296,7 +303,7 @@ public class NoaaSwpcClient {
                     .retrieve()
                     .body(String.class);
             List<SpaceWeatherAlert> alerts = parseAlerts(json);
-            cachedAlerts = new CachedResult<>(alerts);
+            cachedAlerts = new CachedResult<>(alerts, ZonedDateTime.now(clock));
             return alerts;
         } catch (Exception e) {
             LOG.warn("NOAA alerts fetch failed (retaining cached): {}", e.getMessage());
@@ -306,24 +313,41 @@ public class NoaaSwpcClient {
 
     /**
      * Returns the aurora viewline (southernmost visible aurora boundary) for UK longitudes,
-     * derived from the cached OVATION data, clamped by a physically grounded Kp-to-latitude cap.
+     * derived from the OVATION grid, clamped by a physically grounded Kp-to-latitude cap.
      *
-     * <p>Reuses the OVATION cache (5-minute TTL). Returns an inactive response if OVATION data
-     * is unavailable or no aurora probability above threshold exists in the UK longitude range.
+     * <p>Cached for 5 minutes, matching the OVATION nowcast's own cadence. Only the
+     * <em>pre-cap</em> viewline is cached: {@link #applyKpCap} is a pure function of
+     * (viewline, Kp) and runs on every call, so a changing Kp still moves the line while a
+     * cache hit is live. This endpoint is user-facing — it previously re-downloaded the
+     * ~900 KB OVATION grid on every authenticated page load, unbounded in user traffic,
+     * despite its own Javadoc claiming to reuse a cache.
+     *
+     * <p>Fails open like the sibling fetches: a NOAA outage keeps serving the last good
+     * viewline rather than blanking the map overlay. Returns an inactive response if OVATION
+     * data was never retrieved, or if no aurora probability above threshold exists in the UK
+     * longitude range.
      *
      * @param currentKp the current or forecast Kp index, used to cap the viewline latitude
      * @return viewline response, never {@code null}
      */
     public AuroraViewlineResponse fetchViewline(double currentKp) {
+        CachedResult<AuroraViewlineResponse> cache = cachedViewline;
+        if (isFresh(cache, OVATION_TTL_MINUTES)) {
+            return applyKpCap(cache.data(), currentKp);
+        }
         try {
             String json = restClient.get()
                     .uri(properties.getNoaa().getOvationUrl())
                     .retrieve()
                     .body(String.class);
             AuroraViewlineResponse raw = parseViewline(json, VIEWLINE_THRESHOLD);
+            cachedViewline = new CachedResult<>(raw, ZonedDateTime.now(clock));
             return applyKpCap(raw, currentKp);
         } catch (Exception e) {
-            LOG.warn("NOAA viewline fetch failed: {}", e.getMessage());
+            LOG.warn("NOAA viewline fetch failed (retaining cached): {}", e.getMessage());
+            if (cache != null) {
+                return applyKpCap(cache.data(), currentKp);
+            }
             return new AuroraViewlineResponse(
                     List.of(), "Aurora viewline unavailable", 90.0,
                     ZonedDateTime.now(ZoneOffset.UTC), false, false);
@@ -749,7 +773,7 @@ public class NoaaSwpcClient {
 
     private boolean isFresh(CachedResult<?> cache, int ttlMinutes) {
         return cache != null
-                && ZonedDateTime.now(ZoneOffset.UTC)
+                && ZonedDateTime.now(clock)
                         .isBefore(cache.fetchedAt().plusMinutes(ttlMinutes));
     }
 
@@ -814,8 +838,5 @@ public class NoaaSwpcClient {
 
     /** Immutable cache entry tracking when data was fetched. */
     private record CachedResult<T>(T data, ZonedDateTime fetchedAt) {
-        CachedResult(T data) {
-            this(data, ZonedDateTime.now(ZoneOffset.UTC));
-        }
     }
 }

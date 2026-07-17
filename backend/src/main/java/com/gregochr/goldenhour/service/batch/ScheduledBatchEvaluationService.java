@@ -555,6 +555,15 @@ public class ScheduledBatchEvaluationService {
      * Core aurora batch logic extracted to keep the public method a thin guard wrapper.
      */
     private void doSubmitAuroraBatch() {
+        // Self-gate, matching AuroraPollingJob.poll(). The scheduler also marks aurora jobs
+        // DISABLED_BY_CONFIG when aurora.enabled=false, but this is the layer that actually
+        // stops the spend: without it, resuming or manually triggering this job from the
+        // Scheduler UI would fetch NOAA and submit an Anthropic batch with the feature off.
+        if (!auroraProperties.isEnabled()) {
+            LOG.info("Aurora batch skipped — aurora.enabled=false");
+            return;
+        }
+
         SpaceWeatherData spaceWeather;
         try {
             spaceWeather = noaaSwpcClient.fetchAll();

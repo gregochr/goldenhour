@@ -19,11 +19,17 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 
 /**
  * Unit tests for {@link NoaaSwpcClient} JSON parsing logic.
@@ -36,9 +42,41 @@ class NoaaSwpcClientTest {
 
     private NoaaSwpcClient client;
 
+    /** Mutable clock so tests can age the cache past its TTL and reach the fail-open branch. */
+    private MutableClock clock;
+
     @BeforeEach
     void setUp() {
-        client = new NoaaSwpcClient(restClient, new AuroraProperties(), new ObjectMapper());
+        clock = new MutableClock(Instant.parse("2026-07-17T12:00:00Z"));
+        client = new NoaaSwpcClient(restClient, new AuroraProperties(), new ObjectMapper(), clock);
+    }
+
+    /** A Clock whose instant the test advances by hand. */
+    private static final class MutableClock extends Clock {
+        private Instant now;
+
+        private MutableClock(Instant now) {
+            this.now = now;
+        }
+
+        void advanceMinutes(long minutes) {
+            now = now.plus(Duration.ofMinutes(minutes));
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return now;
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -888,5 +926,167 @@ class NoaaSwpcClientTest {
         return new AuroraViewlineResponse(
                 points, client.viewlineSummary(southernmostLat),
                 southernmostLat, ZonedDateTime.now(ZoneOffset.UTC), true, false);
+    }
+
+    // -------------------------------------------------------------------------
+    // Cache + fail-open characterization
+    //
+    // Every fetch documents "retaining cached" on failure — the branch that keeps the aurora
+    // banner alive through a NOAA outage. It had no coverage: reaching it needs an EXPIRED
+    // cache, which was impossible while isFresh read the wall clock. These pin that contract,
+    // and the caching that keeps the ~900 KB OVATION grid off the wire.
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("fetchOvation serves the cache within its TTL — no second HTTP call")
+    void fetchOvation_withinTtl_doesNotRefetch() {
+        String json = "{\"Forecast Time\":\"2026-07-17T12:00:00Z\",\"coordinates\":[[0,55,10]]}";
+        RestClientMocks.stubGet(restClient, String.class, json);
+
+        OvationReading first = client.fetchOvation();
+        clock.advanceMinutes(4);
+        OvationReading second = client.fetchOvation();
+
+        assertThat(second).isSameAs(first);
+        verify(restClient, times(1)).get();
+    }
+
+    @Test
+    @DisplayName("fetchOvation refetches once its 5-minute TTL expires")
+    void fetchOvation_afterTtl_refetches() {
+        String json = "{\"Forecast Time\":\"2026-07-17T12:00:00Z\",\"coordinates\":[[0,55,10]]}";
+        RestClientMocks.stubGet(restClient, String.class, json);
+
+        client.fetchOvation();
+        clock.advanceMinutes(6);
+        client.fetchOvation();
+
+        verify(restClient, times(2)).get();
+    }
+
+    @Test
+    @DisplayName("fetchOvation fails open — a NOAA outage after a good fetch serves the stale value")
+    void fetchOvation_failureAfterSuccess_retainsStale() {
+        String json = "{\"Forecast Time\":\"2026-07-17T12:00:00Z\",\"coordinates\":[[0,55,10]]}";
+        RestClientMocks.stubGet(restClient, String.class, json);
+        OvationReading fresh = client.fetchOvation();
+
+        clock.advanceMinutes(6);
+        RestClientMocks.stubGetThrows(restClient, String.class, new RestClientException("NOAA down"));
+
+        assertThat(client.fetchOvation()).isSameAs(fresh);
+    }
+
+    @Test
+    @DisplayName("fetchKp fails open — outage after a good fetch serves the stale readings")
+    void fetchKp_failureAfterSuccess_retainsStale() {
+        String json = "[[\"time_tag\",\"Kp\",\"Kp_fraction\",\"Kp_int\"],"
+                + "[\"2026-07-17 00:00:00\",\"3.33\",\"3.333\",\"3\"]]";
+        RestClientMocks.stubGet(restClient, String.class, json);
+        List<KpReading> fresh = client.fetchKp();
+
+        clock.advanceMinutes(16);
+        RestClientMocks.stubGetThrows(restClient, String.class, new RestClientException("NOAA down"));
+
+        assertThat(client.fetchKp()).isSameAs(fresh);
+    }
+
+    @Test
+    @DisplayName("fetchAlerts fails open — outage after a good fetch serves the stale alerts")
+    void fetchAlerts_failureAfterSuccess_retainsStale() {
+        String json = "[{\"message_type\":\"A\",\"message_id\":\"1\","
+                + "\"issue_datetime\":\"2026-07-17 12:00:00\",\"message\":\"G2 storm\"}]";
+        RestClientMocks.stubGet(restClient, String.class, json);
+        List<SpaceWeatherAlert> fresh = client.fetchAlerts();
+
+        clock.advanceMinutes(6);
+        RestClientMocks.stubGetThrows(restClient, String.class, new RestClientException("NOAA down"));
+
+        assertThat(client.fetchAlerts()).isSameAs(fresh);
+    }
+
+    // -------------------------------------------------------------------------
+    // Viewline caching — this endpoint is user-facing and re-downloaded the ~900 KB OVATION
+    // grid on EVERY authenticated page load, unbounded in user traffic.
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("fetchViewline serves the cache within its TTL — no ~900 KB re-download per page load")
+    void fetchViewline_withinTtl_doesNotRefetch() {
+        RestClientMocks.stubGet(restClient, String.class, viewlineJson());
+
+        client.fetchViewline(5.0);
+        clock.advanceMinutes(4);
+        client.fetchViewline(5.0);
+
+        verify(restClient, times(1)).get();
+    }
+
+    @Test
+    @DisplayName("fetchViewline re-applies the Kp cap on a cache hit — caching must not freeze the Kp clamp")
+    void fetchViewline_cacheHit_stillAppliesCurrentKp() {
+        RestClientMocks.stubGet(restClient, String.class, viewlineJson());
+
+        AuroraViewlineResponse lowKp = client.fetchViewline(1.0);
+        clock.advanceMinutes(1);
+        AuroraViewlineResponse highKp = client.fetchViewline(8.0);
+
+        // One download, but the clamp still tracks the Kp passed on each call.
+        verify(restClient, times(1)).get();
+        assertThat(highKp.southernmostLatitude())
+                .isLessThan(lowKp.southernmostLatitude());
+    }
+
+    @Test
+    @DisplayName("fetchViewline refetches once its TTL expires")
+    void fetchViewline_afterTtl_refetches() {
+        RestClientMocks.stubGet(restClient, String.class, viewlineJson());
+
+        client.fetchViewline(5.0);
+        clock.advanceMinutes(6);
+        client.fetchViewline(5.0);
+
+        verify(restClient, times(2)).get();
+    }
+
+    @Test
+    @DisplayName("fetchViewline fails open — an outage keeps the overlay rather than blanking it")
+    void fetchViewline_failureAfterSuccess_retainsStale() {
+        RestClientMocks.stubGet(restClient, String.class, viewlineJson());
+        AuroraViewlineResponse fresh = client.fetchViewline(5.0);
+        assertThat(fresh.active()).isTrue();
+
+        clock.advanceMinutes(6);
+        RestClientMocks.stubGetThrows(restClient, String.class, new RestClientException("NOAA down"));
+        AuroraViewlineResponse stale = client.fetchViewline(5.0);
+
+        assertThat(stale.active()).isTrue();
+        assertThat(stale.southernmostLatitude()).isEqualTo(fresh.southernmostLatitude());
+    }
+
+    @Test
+    @DisplayName("fetchViewline with no cache and a failing NOAA returns an inactive response")
+    void fetchViewline_failureWhenCold_returnsInactive() {
+        RestClientMocks.stubGetThrows(restClient, String.class, new RestClientException("NOAA down"));
+
+        AuroraViewlineResponse response = client.fetchViewline(5.0);
+
+        assertThat(response.active()).isFalse();
+        assertThat(response.summary()).isEqualTo("Aurora viewline unavailable");
+    }
+
+    /** OVATION grid with a UK-longitude band well above the viewline threshold. */
+    private static String viewlineJson() {
+        StringBuilder coords = new StringBuilder();
+        for (int lon = 0; lon <= 3; lon++) {
+            for (int lat = 50; lat <= 70; lat++) {
+                if (coords.length() > 0) {
+                    coords.append(',');
+                }
+                coords.append('[').append(lon).append(',').append(lat).append(",60]");
+            }
+        }
+        return "{\"Forecast Time\":\"2026-07-17T12:00:00Z\",\"coordinates\":["
+                + coords + "]}";
     }
 }
