@@ -34,9 +34,7 @@ import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.batch.BatchTriggerSource;
 import com.gregochr.goldenhour.service.evaluation.EvaluationResult;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
-import com.gregochr.goldenhour.service.notification.EmailNotificationService;
-import com.gregochr.goldenhour.service.notification.MacOsToastNotificationService;
-import com.gregochr.goldenhour.service.notification.PushoverNotificationService;
+import com.gregochr.goldenhour.service.notification.NotificationDispatcher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -94,11 +92,7 @@ class ForecastServiceTest {
     @Mock
     private ForecastEvaluationRepository repository;
     @Mock
-    private EmailNotificationService emailService;
-    @Mock
-    private PushoverNotificationService pushoverService;
-    @Mock
-    private MacOsToastNotificationService toastService;
+    private NotificationDispatcher notificationDispatcher;
     @Mock
     private ApplicationEventPublisher eventPublisher;
     @Mock
@@ -193,12 +187,10 @@ class ForecastServiceTest {
         forecastService.runForecasts(DURHAM_LOCATION, date, null, Set.of(),
                 EvaluationModel.SONNET, null);
 
-        verify(emailService).notify(eq(evaluation), eq(DURHAM), eq(TargetType.SUNRISE), eq(date));
-        verify(emailService).notify(eq(evaluation), eq(DURHAM), eq(TargetType.SUNSET), eq(date));
-        verify(pushoverService).notify(eq(evaluation), eq(DURHAM), eq(TargetType.SUNRISE), eq(date));
-        verify(pushoverService).notify(eq(evaluation), eq(DURHAM), eq(TargetType.SUNSET), eq(date));
-        verify(toastService).notify(eq(evaluation), eq(DURHAM), eq(TargetType.SUNRISE), eq(date));
-        verify(toastService).notify(eq(evaluation), eq(DURHAM), eq(TargetType.SUNSET), eq(date));
+        verify(notificationDispatcher)
+                .dispatch(eq(evaluation), eq(DURHAM), eq(TargetType.SUNRISE), eq(date));
+        verify(notificationDispatcher)
+                .dispatch(eq(evaluation), eq(DURHAM), eq(TargetType.SUNSET), eq(date));
     }
 
     @Test
@@ -301,9 +293,7 @@ class ForecastServiceTest {
                 .containsOnly(EvaluationModel.WILDLIFE);
         verify(evaluationService, never())
                 .evaluate(any(), any(EvaluationModel.class), any());
-        verify(emailService, never()).notify(any(), any(), any(), any());
-        verify(pushoverService, never()).notify(any(), any(), any(), any());
-        verify(toastService, never()).notify(any(), any(), any(), any());
+        verify(notificationDispatcher, never()).dispatch(any(), any(), any(), any());
     }
 
     @Test
@@ -727,9 +717,8 @@ class ForecastServiceTest {
 
         forecastService.evaluateAndPersist(preEval, null);
 
-        verify(emailService).notify(eq(evaluation), eq(DURHAM), eq(TargetType.SUNSET), eq(date));
-        verify(pushoverService).notify(eq(evaluation), eq(DURHAM), eq(TargetType.SUNSET), eq(date));
-        verify(toastService).notify(eq(evaluation), eq(DURHAM), eq(TargetType.SUNSET), eq(date));
+        verify(notificationDispatcher)
+                .dispatch(eq(evaluation), eq(DURHAM), eq(TargetType.SUNSET), eq(date));
     }
 
     @Test
@@ -748,7 +737,8 @@ class ForecastServiceTest {
         when(engineEvaluationService.evaluateNow(any(), any()))
                 .thenReturn(new EvaluationResult.Scored(evaluation));
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        doThrow(new RuntimeException("SMTP down")).when(emailService).notify(any(), any(), any(), any());
+        doThrow(new RuntimeException("SMTP down"))
+                .when(notificationDispatcher).dispatch(any(), any(), any(), any());
 
         ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEval, null);
 
@@ -784,7 +774,7 @@ class ForecastServiceTest {
                 .isEqualTo("overloaded_error");
 
         verify(repository, never()).save(any());
-        verify(emailService, never()).notify(any(), any(), any(), any());
+        verify(notificationDispatcher, never()).dispatch(any(), any(), any(), any());
     }
 
     // --- persistCannedResult tests ---
@@ -1233,7 +1223,7 @@ class ForecastServiceTest {
                 .thenReturn(evaluation);
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         doThrow(new RuntimeException("SMTP down"))
-                .when(emailService).notify(any(), any(), any(), any());
+                .when(notificationDispatcher).dispatch(any(), any(), any(), any());
 
         List<ForecastEvaluationEntity> results = forecastService.runForecasts(
                 DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.SONNET, null);
@@ -1329,7 +1319,8 @@ class ForecastServiceTest {
                 .thenReturn(new EvaluationResult.Scored(evaluation));
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         doThrow(new RuntimeException("SMTP down"))
-                .when(emailService).notify(eq(evaluation), eq(DURHAM), eq(TargetType.SUNSET), eq(date));
+                .when(notificationDispatcher)
+                .dispatch(eq(evaluation), eq(DURHAM), eq(TargetType.SUNSET), eq(date));
 
         ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEval, null);
 

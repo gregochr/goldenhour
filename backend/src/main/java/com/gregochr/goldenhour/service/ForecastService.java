@@ -30,9 +30,7 @@ import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.batch.BatchTriggerSource;
 import com.gregochr.goldenhour.service.evaluation.EvaluationResult;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
-import com.gregochr.goldenhour.service.notification.EmailNotificationService;
-import com.gregochr.goldenhour.service.notification.MacOsToastNotificationService;
-import com.gregochr.goldenhour.service.notification.PushoverNotificationService;
+import com.gregochr.goldenhour.service.notification.NotificationDispatcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.github.resilience4j.bulkhead.annotation.Bulkhead;
@@ -69,9 +67,7 @@ public class ForecastService {
     private final EvaluationService evaluationService;
     private final com.gregochr.goldenhour.service.evaluation.EvaluationService engineEvaluationService;
     private final ForecastEvaluationRepository repository;
-    private final EmailNotificationService emailService;
-    private final PushoverNotificationService pushoverService;
-    private final MacOsToastNotificationService toastService;
+    private final NotificationDispatcher notificationDispatcher;
     private final ApplicationEventPublisher eventPublisher;
     private final WeatherTriageEvaluator weatherTriageEvaluator;
     private final TideAlignmentEvaluator tideAlignmentEvaluator;
@@ -88,9 +84,7 @@ public class ForecastService {
      *                                pending its v2.13 retirement
      * @param engineEvaluationService Pass 3.2 engine — used by {@link #evaluateAndPersist}
      * @param repository              persists forecast evaluation results
-     * @param emailService            email notification channel
-     * @param pushoverService         Pushover notification channel
-     * @param toastService            macOS toast notification channel
+     * @param notificationDispatcher  announces evaluations on every enabled notification channel
      * @param eventPublisher          publishes location task state transition events
      * @param weatherTriageEvaluator  heuristic triage evaluator for skipping unsuitable conditions
      * @param tideAlignmentEvaluator  pre-Claude triage evaluator for tide misalignment at SEASCAPE locations
@@ -99,8 +93,8 @@ public class ForecastService {
     public ForecastService(SolarService solarService, OpenMeteoService openMeteoService,
             ForecastDataAugmentor augmentor, EvaluationService evaluationService,
             @Lazy com.gregochr.goldenhour.service.evaluation.EvaluationService engineEvaluationService,
-            ForecastEvaluationRepository repository, EmailNotificationService emailService,
-            PushoverNotificationService pushoverService, MacOsToastNotificationService toastService,
+            ForecastEvaluationRepository repository,
+            NotificationDispatcher notificationDispatcher,
             ApplicationEventPublisher eventPublisher, WeatherTriageEvaluator weatherTriageEvaluator,
             TideAlignmentEvaluator tideAlignmentEvaluator,
             com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter
@@ -111,9 +105,7 @@ public class ForecastService {
         this.evaluationService = evaluationService;
         this.engineEvaluationService = engineEvaluationService;
         this.repository = repository;
-        this.emailService = emailService;
-        this.pushoverService = pushoverService;
-        this.toastService = toastService;
+        this.notificationDispatcher = notificationDispatcher;
         this.eventPublisher = eventPublisher;
         this.weatherTriageEvaluator = weatherTriageEvaluator;
         this.tideAlignmentEvaluator = tideAlignmentEvaluator;
@@ -237,10 +229,10 @@ public class ForecastService {
                         evaluation.fierySkyPotential(), evaluation.goldenHourPotential());
             }
             try {
-                emailService.notify(evaluation, locationName, type, date);
-                pushoverService.notify(evaluation, locationName, type, date);
-                toastService.notify(evaluation, locationName, type, date);
+                notificationDispatcher.dispatch(evaluation, locationName, type, date);
             } catch (Exception e) {
+                // Backstop: the dispatcher already isolates each channel, so this only fires on a
+                // fault in the notification layer itself. A saved forecast must never be lost to one.
                 LOG.warn("Notification failed for {} {} {} — forecast was saved successfully: {}",
                         locationName, type, date, e.getMessage());
             }
@@ -492,10 +484,10 @@ public class ForecastService {
         }
 
         try {
-            emailService.notify(evaluation, locationName, preEval.targetType(), preEval.date());
-            pushoverService.notify(evaluation, locationName, preEval.targetType(), preEval.date());
-            toastService.notify(evaluation, locationName, preEval.targetType(), preEval.date());
+            notificationDispatcher.dispatch(evaluation, locationName,
+                    preEval.targetType(), preEval.date());
         } catch (Exception e) {
+            // Backstop — see the note in runForecasts.
             LOG.warn("Notification failed for {} {} {} — forecast was saved successfully: {}",
                     locationName, preEval.targetType(), preEval.date(), e.getMessage());
         }

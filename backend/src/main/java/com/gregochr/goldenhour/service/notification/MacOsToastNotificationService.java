@@ -19,7 +19,7 @@ import java.time.LocalDate;
  * Sonnet shows dual 0–100 scores.
  */
 @Service
-public class MacOsToastNotificationService {
+public class MacOsToastNotificationService implements NotificationChannel {
 
     private static final Logger LOG = LoggerFactory.getLogger(MacOsToastNotificationService.class);
 
@@ -43,6 +43,7 @@ public class MacOsToastNotificationService {
      * @param targetType   SUNRISE or SUNSET
      * @param date         date of the solar event
      */
+    @Override
     public void notify(SunsetEvaluation evaluation, String locationName,
             TargetType targetType, LocalDate date) {
         if (!properties.getMacosToast().isEnabled()) {

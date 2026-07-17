@@ -21,7 +21,6 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -45,7 +44,7 @@ import java.util.Set;
  * </ul>
  *
  * <p>Wraps the same {@link RatingValidator} call and the same
- * {@link ClaudeEvaluationStrategy#parseEvaluation} logic that
+ * {@link SunsetEvaluationParser#parseEvaluation} logic that
  * {@code BatchResultProcessor} used inline before Pass 3.2. The integration test
  * pyramid (sub-package {@code integration}) is the contract that proves the writes
  * remain byte-identical.
@@ -77,7 +76,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             "Claude did not forecast the fiery sky and golden hour for this location";
 
     private final BriefingEvaluationService briefingEvaluationService;
-    private final ClaudeEvaluationStrategy parsingStrategy;
+    private final SunsetEvaluationParser parser;
     private final JobRunService jobRunService;
     private final ObjectMapper objectMapper;
     private final RatingCombiner ratingCombiner;
@@ -87,13 +86,13 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
     /**
      * Constructs the handler.
      *
-     * <p>Pulls a {@link ClaudeEvaluationStrategy} (any concrete model — HAIKU is the
+     * <p>Uses the shared {@link SunsetEvaluationParser} (any concrete model — HAIKU is the
      * cheapest to instantiate) out of the strategy map only to reuse its
-     * {@link ClaudeEvaluationStrategy#parseEvaluation} method. No Claude calls are made
+     * {@link SunsetEvaluationParser#parseEvaluation} method. No Claude calls are made
      * through this strategy; it is a parser handle.
      *
      * @param briefingEvaluationService cache writer (for both sync and end-of-batch flushes)
-     * @param evaluationStrategies      the strategy bean map; only HAIKU's parser is used
+     * @param parser                    parses raw Batch API text into evaluations
      * @param jobRunService             writer of {@code api_call_log} rows
      * @param objectMapper              Jackson mapper threaded through to the parser
      * @param ratingCombiner            v2.13 visitor combiner — derives the persisted star
@@ -107,20 +106,14 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      *                                  isolated so its failure never fails the evaluation
      */
     public ForecastResultHandler(BriefingEvaluationService briefingEvaluationService,
-            Map<EvaluationModel, EvaluationStrategy> evaluationStrategies,
             JobRunService jobRunService,
             ObjectMapper objectMapper,
             RatingCombiner ratingCombiner,
             ForecastDataAugmentor forecastDataAugmentor,
-            ForecastScoreWriter forecastScoreWriter) {
+            ForecastScoreWriter forecastScoreWriter,
+            SunsetEvaluationParser parser) {
         this.briefingEvaluationService = briefingEvaluationService;
-        EvaluationStrategy strategy = evaluationStrategies.get(EvaluationModel.HAIKU);
-        if (!(strategy instanceof ClaudeEvaluationStrategy claude)) {
-            throw new IllegalStateException(
-                    "ForecastResultHandler requires a ClaudeEvaluationStrategy bean for HAIKU "
-                            + "to reuse its JSON parser; got " + strategy);
-        }
-        this.parsingStrategy = claude;
+        this.parser = parser;
         this.jobRunService = jobRunService;
         this.objectMapper = objectMapper;
         this.ratingCombiner = ratingCombiner;
@@ -185,8 +178,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         }
 
         try {
-            ClaudeEvaluationStrategy.ParseResult parsed0 =
-                    parsingStrategy.parseEvaluationWithMetadata(outcome.rawText(), objectMapper);
+            SunsetEvaluationParser.ParseResult parsed0 =
+                    parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper);
             SunsetEvaluation eval = parsed0.evaluation();
             String modelName = outcome.model() != null ? outcome.model().name() : "UNKNOWN";
             BriefingEvaluationResult result = buildResult(
@@ -220,7 +213,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      *
      * <p>The bluebell sibling of {@link #parseBatchResponse}: the response was produced by the
      * dedicated bluebell prompt (custom id {@code bb-...}), so it is parsed via
-     * {@link ClaudeEvaluationStrategy#parseBluebellEvaluation} and combined through the
+     * {@link SunsetEvaluationParser#parseBluebellEvaluation} and combined through the
      * {@link RatingCombiner} with a bluebell-only {@link VisitorContext} (no sky evaluation). For
      * an in-season WOODLAND site the combiner's exposure rule makes the bluebell score the rating;
      * the dual-write persists ONLY the BLUEBELL component (no FIERY_SKY / GOLDEN_HOUR rows).
@@ -250,7 +243,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
 
         try {
             BluebellEvaluation bluebell =
-                    parsingStrategy.parseBluebellEvaluation(outcome.rawText(), objectMapper);
+                    parser.parseBluebellEvaluation(outcome.rawText(), objectMapper);
             if (bluebell.rating() == null) {
                 throw new IllegalStateException("bluebell response omitted the rating");
             }
@@ -330,7 +323,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
 
         SunsetEvaluation eval;
         try {
-            eval = parsingStrategy.parseEvaluation(outcome.rawText(), objectMapper);
+            eval = parser.parseEvaluation(outcome.rawText(), objectMapper);
         } catch (Exception e) {
             LOG.warn("Forecast sync evaluation: parse failed for {}: {}",
                     task.taskKey(), e.getMessage());

@@ -20,7 +20,7 @@ import java.time.LocalDate;
  * show a 1–5 rating; Sonnet evaluations show dual 0–100 scores.
  */
 @Service
-public class EmailNotificationService {
+public class EmailNotificationService implements NotificationChannel {
 
     private static final Logger LOG = LoggerFactory.getLogger(EmailNotificationService.class);
     private static final String FROM_ADDRESS = "noreply@photocast.online";
@@ -49,6 +49,7 @@ public class EmailNotificationService {
      * @param targetType   SUNRISE or SUNSET
      * @param date         date of the solar event
      */
+    @Override
     public void notify(SunsetEvaluation evaluation, String locationName,
             TargetType targetType, LocalDate date) {
         boolean emailDisabled = !properties.getEmail().isEnabled();

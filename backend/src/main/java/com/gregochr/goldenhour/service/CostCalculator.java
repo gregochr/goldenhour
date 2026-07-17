@@ -77,38 +77,38 @@ public class CostCalculator {
     }
 
     private double getInputRate(EvaluationModel model) {
-        return switch (model) {
+        return switch (model.pricingTier()) {
             case HAIKU -> costProperties.getHaikuInputUsdPerMtok();
-            case SONNET, SONNET_ET -> costProperties.getSonnetInputUsdPerMtok();
-            case OPUS, OPUS_ET -> costProperties.getOpusInputUsdPerMtok();
-            default -> costProperties.getSonnetInputUsdPerMtok();
+            case SONNET -> costProperties.getSonnetInputUsdPerMtok();
+            case OPUS -> costProperties.getOpusInputUsdPerMtok();
+            case FREE -> 0.0;
         };
     }
 
     private double getOutputRate(EvaluationModel model) {
-        return switch (model) {
+        return switch (model.pricingTier()) {
             case HAIKU -> costProperties.getHaikuOutputUsdPerMtok();
-            case SONNET, SONNET_ET -> costProperties.getSonnetOutputUsdPerMtok();
-            case OPUS, OPUS_ET -> costProperties.getOpusOutputUsdPerMtok();
-            default -> costProperties.getSonnetOutputUsdPerMtok();
+            case SONNET -> costProperties.getSonnetOutputUsdPerMtok();
+            case OPUS -> costProperties.getOpusOutputUsdPerMtok();
+            case FREE -> 0.0;
         };
     }
 
     private double getCacheWriteRate(EvaluationModel model) {
-        return switch (model) {
+        return switch (model.pricingTier()) {
             case HAIKU -> costProperties.getHaikuCacheWriteUsdPerMtok();
-            case SONNET, SONNET_ET -> costProperties.getSonnetCacheWriteUsdPerMtok();
-            case OPUS, OPUS_ET -> costProperties.getOpusCacheWriteUsdPerMtok();
-            default -> costProperties.getSonnetCacheWriteUsdPerMtok();
+            case SONNET -> costProperties.getSonnetCacheWriteUsdPerMtok();
+            case OPUS -> costProperties.getOpusCacheWriteUsdPerMtok();
+            case FREE -> 0.0;
         };
     }
 
     private double getCacheReadRate(EvaluationModel model) {
-        return switch (model) {
+        return switch (model.pricingTier()) {
             case HAIKU -> costProperties.getHaikuCacheReadUsdPerMtok();
-            case SONNET, SONNET_ET -> costProperties.getSonnetCacheReadUsdPerMtok();
-            case OPUS, OPUS_ET -> costProperties.getOpusCacheReadUsdPerMtok();
-            default -> costProperties.getSonnetCacheReadUsdPerMtok();
+            case SONNET -> costProperties.getSonnetCacheReadUsdPerMtok();
+            case OPUS -> costProperties.getOpusCacheReadUsdPerMtok();
+            case FREE -> 0.0;
         };
     }
 }

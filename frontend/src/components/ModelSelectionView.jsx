@@ -4,6 +4,7 @@ import { fetchLocations } from '../api/forecastApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import InfoTip from './InfoTip.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
+import { RUN_TYPE_RANGES } from '../utils/runTypeRanges.js';
 
 const CONFIG_TABS = [
   { key: 'VERY_SHORT_TERM', label: 'Very Short-Term (T, T+1)', tip: 'Imminent forecasts — today and tomorrow. Use a high-accuracy model here.' },
@@ -59,7 +60,11 @@ function toGbp(usd) {
 const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, OPUS: 0.008 };
 
 /** Number of forecast days per run type. Each day has 2 slots (sunrise + sunset). */
-const DAYS_PER_RUN = { VERY_SHORT_TERM: 2, SHORT_TERM: 3, LONG_TERM: 3 };
+const DAYS_PER_RUN = {
+  VERY_SHORT_TERM: RUN_TYPE_RANGES.VERY_SHORT_TERM.days,
+  SHORT_TERM: RUN_TYPE_RANGES.SHORT_TERM.days,
+  LONG_TERM: RUN_TYPE_RANGES.LONG_TERM.days,
+};
 
 /** Tab-specific model card descriptions (override generic MODEL_INFO.description). */
 const TAB_DESCRIPTIONS = {

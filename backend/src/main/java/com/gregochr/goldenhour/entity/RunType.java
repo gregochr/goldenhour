@@ -14,7 +14,7 @@ public enum RunType {
     /** Short-term: today through T+2. */
     SHORT_TERM,
 
-    /** Long-term: T+3 through T+7. */
+    /** Long-term: T+3 through the forecast horizon. */
     LONG_TERM,
 
     /** Wildlife comfort data — no Claude evaluation. */
@@ -51,5 +51,37 @@ public enum RunType {
     BATCH_NEAR_TERM,
 
     /** Far-term batch evaluation (T+2, T+3) — only evaluated when weather is SETTLED. */
-    BATCH_FAR_TERM
+    BATCH_FAR_TERM;
+
+    /** Furthest day ahead any run type forecasts (T+5). */
+    public static final int FORECAST_HORIZON_DAYS = 5;
+
+    /**
+     * The target dates this run type covers, relative to the given day.
+     *
+     * <p>The single source of truth for the run-type date table. It previously existed twice —
+     * in {@code ForecastCommandFactory} (production) and {@code PromptTestService} (the admin
+     * prompt-test harness) — and the two had drifted: the harness swept LONG_TERM out to T+7,
+     * past {@link #FORECAST_HORIZON_DAYS} and past Gate 4's "T+4 and beyond is never evaluated"
+     * policy, so it prompt-tested horizons production never scores. This table is production's.
+     *
+     * @param today the day to compute the range from (UTC)
+     * @return the ordered target dates
+     */
+    public java.util.List<java.time.LocalDate> defaultDateRange(java.time.LocalDate today) {
+        return switch (this) {
+            case VERY_SHORT_TERM -> java.util.List.of(today, today.plusDays(1));
+            case SHORT_TERM -> java.util.List.of(today, today.plusDays(1), today.plusDays(2));
+            case LONG_TERM -> today.plusDays(3)
+                    .datesUntil(today.plusDays(FORECAST_HORIZON_DAYS + 1))
+                    .toList();
+            case WEATHER, TIDE, LIGHT_POLLUTION, BRIEFING,
+                    BRIEFING_BEST_BET, BRIEFING_GLOSS,
+                    AURORA_EVALUATION, AURORA_GLOSS, BLUEBELL_GLOSS,
+                    SCHEDULED_BATCH, BATCH_NEAR_TERM, BATCH_FAR_TERM ->
+                    java.util.stream.IntStream.rangeClosed(0, FORECAST_HORIZON_DAYS)
+                            .mapToObj(today::plusDays)
+                            .toList();
+        };
+    }
 }

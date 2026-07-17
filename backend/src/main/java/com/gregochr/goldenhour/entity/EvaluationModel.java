@@ -45,6 +45,36 @@ public enum EvaluationModel {
     }
 
     /**
+     * The billing tier a model is priced at. Several models share a tier (the extended-thinking
+     * variants bill at their base model's rates), and WILDLIFE makes no API call at all.
+     */
+    public enum PricingTier {
+        /** Haiku rates. */
+        HAIKU,
+        /** Sonnet rates — also used by SONNET_ET. */
+        SONNET,
+        /** Opus rates — also used by OPUS_ET. */
+        OPUS,
+        /** No API call, so no cost. */
+        FREE
+    }
+
+    /**
+     * Returns the billing tier this model is priced at — the single source of truth for the
+     * model-to-rate mapping, which {@code CostCalculator} previously repeated once per rate kind.
+     *
+     * @return the pricing tier
+     */
+    public PricingTier pricingTier() {
+        return switch (this) {
+            case HAIKU -> PricingTier.HAIKU;
+            case SONNET, SONNET_ET -> PricingTier.SONNET;
+            case OPUS, OPUS_ET -> PricingTier.OPUS;
+            case WILDLIFE -> PricingTier.FREE;
+        };
+    }
+
+    /**
      * Returns the Anthropic API model identifier (e.g. "claude-haiku-4-5-20251001"), or null for WILDLIFE.
      *
      * @return model identifier string, or null
