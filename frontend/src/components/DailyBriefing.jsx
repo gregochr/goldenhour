@@ -190,9 +190,18 @@ function buildRegionWx(region) {
  * @param {string} todayStr        today's ISO date
  * @param {string} tomorrowStr     tomorrow's ISO date
  * @param {Set}    travelDayDates  dates the operator is away
+ * @param {{best: ?string, also: ?string}} pickRegions the Best bet / Also good pick region names,
+ *        used to colour-match a chip to its headline card and float the picks to the front of the run
  * @returns {Array} pill descriptors for {@link BriefingSummaryStrip}
  */
-function buildSummaryPills(upcomingEvents, briefingDays, todayStr, tomorrowStr, travelDayDates) {
+function buildSummaryPills(upcomingEvents, briefingDays, todayStr, tomorrowStr, travelDayDates, pickRegions = {}) {
+  // Resolve each rated region to a pick identity by region name (the stable id shared by the pick
+  // payload and the grid roll-up), so a pick shows its colour on every day it appears rated.
+  const { best: bestRegion = null, also: alsoRegion = null } = pickRegions || {};
+  const pickKindOf = (name) => (bestRegion && name === bestRegion
+    ? 'best'
+    : alsoRegion && name === alsoRegion ? 'also' : null);
+  const pickOrder = (kind) => (kind === 'best' ? 0 : kind === 'also' ? 1 : 2);
   // Group the grid's exact columns by date, preserving order — one pill per day, capped.
   const targetsByDate = new Map();
   for (const { date, targetType } of upcomingEvents) {
@@ -251,17 +260,22 @@ function buildSummaryPills(upcomingEvents, briefingDays, todayStr, tomorrowStr, 
     const ratedEvents = new Set(rated.map((e) => e.event));
     const evTxt = ratedEvents.size === 1 ? [...ratedEvents][0] : ratedEvents.size > 1 ? 'sunrise/sunset' : '';
     const peakBase = peak === 'go' ? '◎ Worth it' : peak === 'maybe' ? 'Maybe' : 'All poor';
-    // Peak line names which event is good; each rated region becomes its own hoverable chip.
-    const regions = rated.map((e) => ({
-      regionName: e.region.regionName,
-      shortName: shortRegionName(e.region.regionName),
-      targetType: e.targetType,
-      verdictLabel: `${e.display === 'WORTH_IT' ? 'Worth it' : 'Maybe'} ${e.event}`,
-      wx: buildRegionWx(e.region),
-      summary: e.region.summary || '',
-      glossHeadline: e.region.glossHeadline || '',
-      glossDetail: e.region.glossDetail || '',
-    }));
+    // Peak line names which event is good; each rated region becomes its own hoverable chip. The
+    // two headline picks are tagged and floated to the front (best, then also) so the highlight
+    // reads first; the remaining regions keep their roll-up order.
+    const regions = rated
+      .map((e) => ({
+        regionName: e.region.regionName,
+        shortName: shortRegionName(e.region.regionName),
+        targetType: e.targetType,
+        verdictLabel: `${e.display === 'WORTH_IT' ? 'Worth it' : 'Maybe'} ${e.event}`,
+        wx: buildRegionWx(e.region),
+        summary: e.region.summary || '',
+        glossHeadline: e.region.glossHeadline || '',
+        glossDetail: e.region.glossDetail || '',
+        pickKind: pickKindOf(e.region.regionName),
+      }))
+      .sort((a, b) => pickOrder(a.pickKind) - pickOrder(b.pickKind));
     return {
       ...base,
       isAway: false,
@@ -727,12 +741,15 @@ function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick, onViewOnMap 
           const rankLabel = pick.rank === 1
             ? '① BEST BET'
             : isNearestGood ? '② NEAREST GOOD' : '② ALSO GOOD';
-          // Lead colour belongs to the verdict family; chrome stays bone.
+          // Each pick owns an accent so the two cards read as a matched pair: Best bet green, Also
+          // good periwinkle. Low confidence mutes both back to neutral chrome. The strip chips
+          // below reuse these same two colours (keyed by region) to carry the identity down.
           const labelColour = lowConf
             ? 'var(--color-plex-text-muted)'
-            : isPrimary ? 'var(--color-verdict-go)' : 'var(--color-plex-text-secondary)';
-          const accentColour = isPrimary && !lowConf
-            ? 'var(--color-verdict-go)' : 'var(--color-plex-border-light)';
+            : isPrimary ? 'var(--color-verdict-go)' : 'var(--color-pick-also)';
+          const accentColour = lowConf
+            ? 'var(--color-plex-border-light)'
+            : isPrimary ? 'var(--color-verdict-go)' : 'var(--color-pick-also)';
 
           const expanded = expandedRank === pick.rank;
           const clampStyle = expanded
@@ -1151,10 +1168,21 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(d);
   })();
 
+  // Best bet / Also good region names, so the strip chips can colour-match their headline cards.
+  // PRO/ADMIN only — LITE sees a redacted banner, so colouring its strip chips would point at cards
+  // it can't see. Mirrors the banner's own render gate (isPro + bestBets present).
+  const pickRegions = useMemo(() => {
+    if (!isPro || !briefing?.bestBets?.length) return {};
+    return {
+      best: briefing.bestBets.find((p) => p.rank === 1)?.region ?? null,
+      also: briefing.bestBets.find((p) => p.rank === 2)?.region ?? null,
+    };
+  }, [isPro, briefing]);
+
   const summaryPills = useMemo(() => {
     if (!briefing) return [];
-    return buildSummaryPills(upcomingEvents, briefing.days, todayStr, tomorrowStr, travelDayDates);
-  }, [briefing, upcomingEvents, todayStr, tomorrowStr, travelDayDates]);
+    return buildSummaryPills(upcomingEvents, briefing.days, todayStr, tomorrowStr, travelDayDates, pickRegions);
+  }, [briefing, upcomingEvents, todayStr, tomorrowStr, travelDayDates, pickRegions]);
 
   if (loading) {
     return (

@@ -185,6 +185,8 @@ export default function BriefingSummaryStrip({ pills, onPillClick, onRegionClick
                         <span
                           data-testid="summary-region-chip"
                           data-peak={pill.peak}
+                          // Best bet / Also good chips carry the card's accent colour + a ◎ marker.
+                          data-pick={region.pickKind || undefined}
                           className="summary-region-chip"
                           role="button"
                           tabIndex={0}
@@ -203,6 +205,9 @@ export default function BriefingSummaryStrip({ pills, onPillClick, onRegionClick
                           onFocus={(e) => showTip(e, region, headColour, pill.date)}
                           onBlur={() => hideTip(region, pill.date)}
                         >
+                          {region.pickKind && (
+                            <span className="rn-mark" aria-hidden="true">◎</span>
+                          )}
                           {region.shortName}
                         </span>
                       </span>
@@ -263,6 +268,7 @@ BriefingSummaryStrip.propTypes = {
           summary: PropTypes.string,
           glossHeadline: PropTypes.string,
           glossDetail: PropTypes.string,
+          pickKind: PropTypes.oneOf(['best', 'also']),
         }),
       ),
       ratedCount: PropTypes.number.isRequired,

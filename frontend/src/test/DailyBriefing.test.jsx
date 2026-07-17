@@ -1452,19 +1452,20 @@ describe('DailyBriefing', () => {
       expect(screen.getByText('① BEST BET')).toBeInTheDocument();
       expect(screen.getByText('② ALSO GOOD')).toBeInTheDocument();
 
-      // BEST BET (primary, high-conf) gets the verdict-go left accent;
-      // ALSO GOOD (secondary) gets the muted bone accent.
+      // BEST BET (primary, high-conf) gets the verdict-go green left accent; ALSO GOOD (secondary)
+      // gets the periwinkle pick-also accent — the two picks read as a matched pair, not one green
+      // and one neutral. The same two colours carry down into the strip chips (keyed by region).
       const pick1 = screen.getByTestId('best-bet-pick-1');
       const pick2 = screen.getByTestId('best-bet-pick-2');
       expect(pick1.style.borderLeft).toBe('3px solid var(--color-verdict-go)');
-      expect(pick2.style.borderLeft).toBe('3px solid var(--color-plex-border-light)');
-      // Also Good must NOT pick up the verdict-go accent.
+      expect(pick2.style.borderLeft).toBe('3px solid var(--color-pick-also)');
+      // Also Good must NOT pick up the verdict-go accent — it owns its own periwinkle.
       expect(pick2.style.borderLeft).not.toContain('var(--color-verdict-go)');
 
       const label1 = screen.getByText('① BEST BET');
       const label2 = screen.getByText('② ALSO GOOD');
       expect(label1.style.color).toBe('var(--color-verdict-go)');
-      expect(label2.style.color).toBe('var(--color-plex-text-secondary)');
+      expect(label2.style.color).toBe('var(--color-pick-also)');
       expect(label2.style.color).not.toBe('var(--color-verdict-go)');
     });
 
@@ -2284,6 +2285,52 @@ describe('DailyBriefing — summary strip', () => {
     await waitFor(() => screen.getByTestId('briefing-summary-strip'));
     fireEvent.click(screen.getByTestId('summary-region-chip'));
     expect(onShowOnMap).toHaveBeenCalledWith({ region: 'Tyne and Wear', date: d, eventType: 'SUNSET' });
+  });
+
+  it('colour-matches the Best bet / Also good chips and floats them to the front, marker and all', async () => {
+    const d = futureDateStr(1);
+    getDailyBriefing.mockResolvedValue({
+      ...stripBriefing(d, [
+        region('Teesdale', 'GO', { date: d }),
+        region('The North Yorkshire Coast', 'GO', { date: d }),
+        region('Tyne and Wear', 'GO', { date: d }),
+      ]),
+      // Match is by region name (the stable id shared with the grid roll-up), independent of event.
+      bestBets: [
+        { rank: 1, headline: 'Best', detail: '', event: 'tomorrow_sunset', region: 'Tyne and Wear', confidence: 'high' },
+        { rank: 2, headline: 'Also', detail: '', event: 'tomorrow_sunset', region: 'The North Yorkshire Coast', confidence: 'medium' },
+      ],
+    });
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-summary-strip'));
+    const chips = screen.getAllByTestId('summary-region-chip');
+    // Best floated first, Also second, then the remaining (unpicked) region in roll-up order.
+    expect(chips[0]).toHaveAttribute('data-pick', 'best');
+    expect(chips[0].textContent).toContain('Tyne & Wear');
+    expect(chips[1]).toHaveAttribute('data-pick', 'also');
+    expect(chips[1].textContent).toContain('N. Yorks Coast');
+    expect(chips[2]).not.toHaveAttribute('data-pick');
+    expect(chips[2].textContent).toContain('Teesdale');
+    // \u25ce marker rides the picks only.
+    expect(chips[0].querySelector('.rn-mark')).not.toBeNull();
+    expect(chips[1].querySelector('.rn-mark')).not.toBeNull();
+    expect(chips[2].querySelector('.rn-mark')).toBeNull();
+  });
+
+  it('does not colour-match strip chips for LITE users \u2014 they see a redacted banner, not the cards', async () => {
+    useAuth.mockReturnValue({ role: 'LITE_USER' });
+    const d = futureDateStr(1);
+    getDailyBriefing.mockResolvedValue({
+      ...stripBriefing(d, [region('Tyne and Wear', 'GO', { date: d })]),
+      bestBets: [
+        { rank: 1, headline: 'Best', detail: '', event: 'tomorrow_sunset', region: 'Tyne and Wear', confidence: 'high' },
+      ],
+    });
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-summary-strip'));
+    const chip = screen.getByTestId('summary-region-chip');
+    expect(chip).not.toHaveAttribute('data-pick');
+    expect(chip.querySelector('.rn-mark')).toBeNull();
   });
 
   it('rolls up the grid display verdict, not the raw verdict \u2014 no strip/grid drift', async () => {
