@@ -709,8 +709,6 @@ function lacksSecondPick(picks, stale) {
 }
 
 function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick, onViewOnMap = null, stale = false }) {
-  // Which card has its detail paragraph expanded past the 2-line clamp.
-  const [expandedRank, setExpandedRank] = useState(null);
   if (!picks || picks.length === 0) return null;
   const showNoSecondPick = lacksSecondPick(picks, stale);
 
@@ -750,11 +748,6 @@ function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick, onViewOnMap 
           const accentColour = lowConf
             ? 'var(--color-plex-border-light)'
             : isPrimary ? 'var(--color-verdict-go)' : 'var(--color-pick-also)';
-
-          const expanded = expandedRank === pick.rank;
-          const clampStyle = expanded
-            ? {}
-            : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' };
 
           return (
             <div
@@ -798,27 +791,13 @@ function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick, onViewOnMap 
                 {pick.headline}
               </p>
               {pick.detail && (
-                <>
-                  <p
-                    data-testid="best-bet-detail"
-                    className="text-plex-text-secondary"
-                    style={{ fontSize: '13px', fontFamily: 'var(--font-serif)', lineHeight: 1.55, marginTop: '8px', ...clampStyle }}
-                  >
-                    {pick.detail}
-                  </p>
-                  <button
-                    type="button"
-                    data-testid="best-bet-read-more"
-                    className="text-plex-text-muted hover:text-plex-text underline"
-                    style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', marginTop: '6px', textUnderlineOffset: '2px' }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setExpandedRank(expanded ? null : pick.rank);
-                    }}
-                  >
-                    {expanded ? 'Show less ▴' : 'Read more ▾'}
-                  </button>
-                </>
+                <p
+                  data-testid="best-bet-detail"
+                  className="text-plex-text-secondary"
+                  style={{ fontSize: '13px', fontFamily: 'var(--font-serif)', lineHeight: 1.55, marginTop: '8px', textWrap: 'pretty' }}
+                >
+                  {pick.detail}
+                </p>
               )}
               {/* Jump to the bet's region on the map (macro view) — same map-pin
                   cue as the location rows (which jump to a single pin). */}
