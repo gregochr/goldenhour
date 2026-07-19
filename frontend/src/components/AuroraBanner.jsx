@@ -183,12 +183,21 @@ export default function AuroraBanner({ onViewOnMap = null }) {
   // Dismissed at this exact level — re-show only on escalation
   if (dismissedLevel === status.level) return null;
 
+  // Gate on clear skies. Telling a photographer "aurora tonight" when every dark-sky
+  // location is overcast is noise in the most valuable slot on the screen — NLC already
+  // gates the same way (active && clearTonight). Suppress the banner when all locations
+  // are overcast, unless it's a major storm (STRONG+, rare and worth surfacing under
+  // cloud — gaps open, people travel). Fail OPEN when the clear count is unknown
+  // (missing data ≠ overcast).
+  const allOvercast = status.darkSkyLocationCount > 0
+    && status.clearLocationCount != null && status.clearLocationCount === 0;
+  const isMajorStorm = status.level === 'STRONG'; // extend if SEVERE/EXTREME join ALERT_WORTHY
+  if (allOvercast && !isMajorStorm) return null;
+
   const isSimulated = status.simulated === true;
   const detectedLabel = formatDetectedAt(status.detectedAt);
 
   let locationText = null;
-  const allOvercast = status.darkSkyLocationCount > 0
-    && status.clearLocationCount != null && status.clearLocationCount === 0;
   if (!allOvercast && status.darkSkyLocationCount > 0) {
     if (status.clearLocationCount != null) {
       const c = status.clearLocationCount;

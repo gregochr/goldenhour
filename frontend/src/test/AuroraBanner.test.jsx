@@ -119,7 +119,8 @@ describe('AuroraBanner', () => {
     expect(screen.getByText(/1 dark sky location clear/i)).toBeInTheDocument();
   });
 
-  it('shows overcast message when all locations are cloudy', () => {
+  it('suppresses a MODERATE banner when all locations are overcast', () => {
+    // A MODERATE alert nobody can see anywhere is noise in the top slot — gate it out.
     renderBanner({
       level: 'MODERATE',
       hexColour: '#ff9900',
@@ -129,6 +130,21 @@ describe('AuroraBanner', () => {
       darkSkyLocationCount: 20,
       clearLocationCount: 0,
     });
+    expect(screen.queryByTestId('aurora-banner')).not.toBeInTheDocument();
+  });
+
+  it('keeps a STRONG banner under full overcast, with the honest overcast note', () => {
+    // A major storm stays surfaced even under cloud — gaps open, people travel.
+    renderBanner({
+      level: 'STRONG',
+      hexColour: '#ff0000',
+      description: 'Red alert: strong aurora',
+      active: true,
+      eligibleLocations: 20,
+      darkSkyLocationCount: 20,
+      clearLocationCount: 0,
+    });
+    expect(screen.getByTestId('aurora-banner')).toBeInTheDocument();
     expect(screen.getByTestId('aurora-banner-overcast')).toBeInTheDocument();
     expect(screen.getByTestId('aurora-banner-overcast').textContent).toMatch(/All locations overcast/i);
   });
