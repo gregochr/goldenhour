@@ -25,7 +25,11 @@ jobs:
   smoke:
     name: Real API completion smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Must exceed the test's own BATCH_COMPLETION_TIMEOUT (4h) plus its 5h JUnit
+    # backstop, so the test decides the outcome rather than the runner killing it
+    # mid-poll — a runner kill reports as a failure and loses the inconclusive
+    # signal we are trying to preserve.
+    timeout-minutes: 320
 
     defaults:
       run:
@@ -46,6 +50,24 @@ jobs:
         run: ./mvnw test -Dtest=ForecastBatchPipelineRealApiE2ETest -e
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      # An inconclusive run is a green tick, which on its own is indistinguishable
+      # from "the parse assertions passed". Annotate it loudly so a run of
+      # consecutive inconclusives is visible rather than reading as healthy.
+      - name: Flag inconclusive run
+        if: always()
+        run: |
+          report=target/surefire-reports/TEST-com.gregochr.goldenhour.integration.ForecastBatchPipelineRealApiE2ETest.xml
+          if [ -f "$report" ] && grep -q 'INCONCLUSIVE' "$report"; then
+            echo "::warning title=Smoke inconclusive::Anthropic did not finish the batch in time. Response parsing was NOT verified on this run."
+            {
+              echo "### ⚠️ Real API Smoke — inconclusive"
+              echo
+              echo "The batch was still processing when the test gave up, so the"
+              echo "**response-parsing assertions did not run**. This is not a product"
+              echo "failure, but this run verified nothing. Investigate if it repeats."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload surefire reports on failure
         if: failure()
