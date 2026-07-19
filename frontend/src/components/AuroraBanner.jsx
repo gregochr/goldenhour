@@ -222,7 +222,7 @@ export default function AuroraBanner({ onViewOnMap = null }) {
   const bzInfo = bz != null ? bzStatus(bz) : null;
   const bzText = bzInfo ? `${bzInfo.emoji} ${bzInfo.label} — ${bzInfo.explanation}` : null;
 
-  const actionCta = isSimulated ? 'Generate scores →' : 'View on map →';
+  const actionCta = isSimulated ? 'Generate scores →' : 'Show on map →';
 
   const viewlineSummary = !isSimulated && viewline?.active ? viewline.summary : null;
 

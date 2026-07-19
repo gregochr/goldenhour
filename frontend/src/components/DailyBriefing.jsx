@@ -813,7 +813,7 @@ function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick, onViewOnMap 
                       onViewOnMap(pick, eventKey);
                     }}
                   >
-                    🗺 View on map →
+                    🗺 Show on map →
                   </button>
                 </div>
               )}
