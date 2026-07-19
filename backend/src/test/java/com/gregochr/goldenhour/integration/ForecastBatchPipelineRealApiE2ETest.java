@@ -26,7 +26,9 @@ import com.gregochr.goldenhour.service.evaluation.BatchRequestFactory;
 import com.gregochr.goldenhour.service.evaluation.CacheKeyFactory;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
 import org.awaitility.Awaitility;
+import org.awaitility.core.ConditionTimeoutException;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -70,7 +72,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * (see {@code .github/workflows/ci.yml}).
  *
  * <p>Cost per run: one Haiku-on-batch inference (sub-pence). Wall clock:
- * up to ~4 minutes for the batch to reach ENDED at Anthropic.
+ * typically ~2 minutes for the batch to reach ENDED at Anthropic, but the
+ * latency is heavy-tailed — excursions past 20 minutes have been observed.
+ * If Anthropic has not finished within {@code BATCH_COMPLETION_TIMEOUT} the
+ * test aborts as <em>inconclusive</em> (reported skipped) rather than failing:
+ * a slow batch says nothing about whether we can still parse the response,
+ * and production has no equivalent timeout.
  *
  * <p>Does not extend {@link IntegrationTestBase} because that base uses
  * the {@code WireMockAnthropicClientTestConfiguration} override; this test
@@ -83,6 +90,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Testcontainers
 @EnabledIfEnvironmentVariable(named = "ANTHROPIC_API_KEY", matches = ".+")
 class ForecastBatchPipelineRealApiE2ETest {
+
+    /**
+     * How long to wait for Anthropic to finish processing the batch before
+     * declaring the run inconclusive. Sized well clear of the observed latency
+     * tail (median ~2 min, worst observed 24 min) rather than hugging it.
+     */
+    private static final Duration BATCH_COMPLETION_TIMEOUT = Duration.ofHours(4);
 
     @Container
     @SuppressWarnings("resource")
@@ -151,7 +165,10 @@ class ForecastBatchPipelineRealApiE2ETest {
     }
 
     @Test
-    @Timeout(value = 30, unit = TimeUnit.MINUTES)
+    // Backstop only — must stay above BATCH_COMPLETION_TIMEOUT so the
+    // inconclusive path gets a chance to run rather than being pre-empted
+    // by a hard JUnit timeout, which would report as a failure.
+    @Timeout(value = 5, unit = TimeUnit.HOURS)
     @DisplayName("Real-API E2E: full pipeline with one Haiku request through Anthropic")
     void fullPipeline_singleRequest_realAnthropic() {
         RegionEntity lakes = regionRepository.save(RegionEntity.builder()
@@ -195,19 +212,53 @@ class ForecastBatchPipelineRealApiE2ETest {
 
         // Poll until the batch reaches a terminal state. The poller updates
         // forecast_batch.status synchronously when results arrive.
-        Awaitility.await()
-                .atMost(Duration.ofMinutes(30))
-                .pollInterval(Duration.ofSeconds(15))
-                .pollDelay(Duration.ofSeconds(15))
-                .untilAsserted(() -> {
-                    batchPollingService.pollPendingBatches();
-                    BatchStatus status = forecastBatchRepository.findByAnthropicBatchId(batchId)
-                            .orElseThrow().getStatus();
-                    assertThat(status)
-                            .as("Batch %s should reach COMPLETED via the production "
-                                    + "polling pipeline", batchId)
-                            .isEqualTo(BatchStatus.COMPLETED);
-                });
+        //
+        // Anthropic batch latency here is heavy-tailed: a ~2 minute median with
+        // observed excursions to 24 minutes (run #45, 2026-06-10). The previous
+        // 30-minute cap left almost no margin against that tail and duly expired
+        // on 2026-07-17 and 07-18 — both times with the batch still SUBMITTED,
+        // so the response-parsing assertions below never ran at all. A cap this
+        // tight converts "Anthropic was busy" into the same red X as "Anthropic
+        // changed their schema", which defeats the point of the smoke.
+        //
+        // Two changes: wait well past the tail, and treat a still-processing
+        // batch as inconclusive rather than failed. Only a genuine terminal
+        // failure — or a parse/persistence break below — fails this test.
+        try {
+            Awaitility.await()
+                    .atMost(BATCH_COMPLETION_TIMEOUT)
+                    .pollInterval(Duration.ofSeconds(60))
+                    .pollDelay(Duration.ofSeconds(15))
+                    .untilAsserted(() -> {
+                        batchPollingService.pollPendingBatches();
+                        BatchStatus status = forecastBatchRepository
+                                .findByAnthropicBatchId(batchId)
+                                .orElseThrow().getStatus();
+                        assertThat(status)
+                                .as("Batch %s should reach COMPLETED via the production "
+                                        + "polling pipeline", batchId)
+                                .isEqualTo(BatchStatus.COMPLETED);
+                    });
+        } catch (ConditionTimeoutException e) {
+            BatchStatus finalStatus = forecastBatchRepository.findByAnthropicBatchId(batchId)
+                    .orElseThrow().getStatus();
+
+            // Still queued or in flight at Anthropic: nothing has been disproven
+            // about our parsing, so abort (JUnit reports "skipped") instead of
+            // failing. Production tolerates this — BatchPollingService has no
+            // give-up path and picks the batch up on a later 60s poll.
+            Assumptions.assumeTrue(finalStatus != BatchStatus.SUBMITTED, () -> String.format(
+                    "INCONCLUSIVE: batch %s was still SUBMITTED after %d minutes. Anthropic had "
+                            + "not finished processing, so the response-parsing assertions did "
+                            + "not run. This is not a product failure — the production poller "
+                            + "has no timeout and will process this batch when it ends.",
+                    batchId, BATCH_COMPLETION_TIMEOUT.toMinutes()));
+
+            // Any other non-COMPLETED terminal state is a real failure.
+            throw new AssertionError(String.format(
+                    "Batch %s reached terminal status %s instead of COMPLETED",
+                    batchId, finalStatus), e);
+        }
 
         // Forecast batch entity reflects a single succeeded request.
         assertThat(forecastBatchRepository.findByAnthropicBatchId(batchId))
