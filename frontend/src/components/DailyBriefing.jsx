@@ -1238,7 +1238,11 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
               : briefing.partialFailure
                 ? <span title={`${briefing.failedLocationCount} location(s) failed`}>{formatAge(briefing.generatedAt)}</span>
                 : formatAge(briefing.generatedAt)}
-            {briefing.bestBetModel && <span className="text-plex-text-muted opacity-60">by {briefing.bestBetModel}</span>}
+            {/* The model name is developer-facing implementation detail — meaningless to a
+                photographer — so it's hidden from the user-facing stamp and kept for admins only. */}
+            {role === 'ADMIN' && briefing.bestBetModel && (
+              <span className="text-plex-text-muted opacity-60">by {briefing.bestBetModel}</span>
+            )}
             {/* Expand/collapse only affects the mobile day-card view; on desktop the
                 heatmap is always shown, so the chevron would be a dead control. */}
             <Chevron open={isExpanded} className="sm:hidden text-base text-plex-text-muted" />
