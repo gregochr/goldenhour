@@ -220,7 +220,7 @@ function AuroraExpandedCard({ auroraData }) {
                 {region.regionName}
               </span>
               {region.glossHeadline && (
-                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>
+                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.62)', fontStyle: 'italic' }}>
                   {region.glossHeadline}
                   {region.glossDetail && (
                     <span style={{ marginLeft: '3px' }}>
@@ -665,7 +665,10 @@ function TopicFacts({ topic, accentColor, isLiteUser = false }) {
           style={{
             fontFamily: 'var(--font-mono)',
             fontSize: '10px',
-            color: 'var(--color-plex-text-muted)',
+            // Carries real information (the science-showing fact line), so it sits at the
+            // secondary tier (0.66α) rather than muted (0.42α) — below comfortable contrast
+            // for body-size fine print. See Change C3.
+            color: 'var(--color-plex-text-secondary)',
             fontStyle: 'italic',
           }}
         >
