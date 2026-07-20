@@ -1,0 +1,13 @@
+-- V127: durable per-evaluation forecast confidence.
+--
+-- Change B added a spread-aware region confidence that rides the daily_briefing_cache JSON
+-- (serve-time-derived, no schema change). This adds the horizon-only counterpart at the
+-- evaluation level: each forecast_evaluation row records HIGH/MEDIUM/LOW derived purely from
+-- its days_ahead (a single evaluation has no cross-location spread to consider), stored as the
+-- enum name to match pipeline_run_pick.confidence.
+--
+-- Durable per-row record for analytics — e.g. calibrating how far-ahead forecasts pan out
+-- against recorded outcomes. Every new row records its horizon tier regardless of model (the
+-- signal is purely horizon-based, so it applies to any evaluation). Additive and fully
+-- nullable: only legacy pre-migration rows carry NULL, and nothing reads it as a gate.
+ALTER TABLE forecast_evaluation ADD COLUMN confidence VARCHAR(20);

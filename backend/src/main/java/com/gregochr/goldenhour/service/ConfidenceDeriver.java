@@ -56,7 +56,7 @@ public final class ConfidenceDeriver {
         if (stats == null || stats.isEmpty()) {
             return null;
         }
-        Confidence base = baseByHorizon(daysAhead);
+        Confidence base = fromHorizon(daysAhead);
         boolean wideSpread = stats.ratingRange() >= WIDE_SPREAD_RANGE;
         boolean thinCoverage = rosterSize > 0
                 && stats.count() < THIN_COVERAGE_RATIO * rosterSize;
@@ -66,7 +66,16 @@ public final class ConfidenceDeriver {
         return base;
     }
 
-    private static Confidence baseByHorizon(int daysAhead) {
+    /**
+     * The horizon-only confidence base (never null). This is the whole story for a single
+     * evaluation, which has no region spread to consider — it is persisted per row on
+     * {@code forecast_evaluation.confidence} as a durable "how far ahead was this forecast"
+     * attribute, and is the base term of the region-level {@link #derive} above.
+     *
+     * @param daysAhead forecast horizon in days
+     * @return HIGH for T+0/1, MEDIUM for T+2/3, LOW for T+4+
+     */
+    public static Confidence fromHorizon(int daysAhead) {
         if (daysAhead <= HIGH_HORIZON_MAX_DAYS) {
             return Confidence.HIGH;
         }

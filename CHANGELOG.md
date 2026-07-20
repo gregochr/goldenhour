@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Durable per-evaluation forecast confidence (V127)
+- **Each forecast evaluation now records a horizon-derived confidence** — `forecast_evaluation.confidence` (HIGH/MEDIUM/LOW from the row's `days_ahead`), the durable, per-row counterpart to Change B's spread-aware region confidence. A single evaluation has no cross-location spread, so this is horizon-only (`ConfidenceDeriver.fromHorizon`), stored as the enum name to match `pipeline_run_pick.confidence`. Populated at the sole evaluation write site, so every new row carries it regardless of model. The column is additive, nullable, and read by nothing as a gate — a durable record for calibrating how far-ahead forecasts pan out against recorded outcomes.
+
 ### Added — Confidence as one uniform, quiet channel on the Plan screen (Change B)
 - **A far-horizon "Worth it" now reads visibly more provisional than a same-day one.** The Plan screen previously rendered a `4.0★` for tonight and one three days out identically, though the far one is far less reliable — horizon confidence was invisible. A new confidence channel fixes that, layered **alongside** the star (which stays as the sky-quality signal, unchanged), never replacing it.
 - **Backend-derived, spread-aware.** Each region carries a `confidence` (high/medium/low) derived server-side from the forecast horizon (the dominant term) plus the region's rating spread and coverage, so it reflects real model agreement — not just days-out. It rides the existing briefing cache (no migration) and falls back to a horizon-only tier client-side if the field is ever absent.

@@ -77,6 +77,16 @@ public class ForecastEvaluationEntity {
     @Column(name = "days_ahead", nullable = false)
     private Integer daysAhead;
 
+    /**
+     * Horizon-derived forecast confidence ({@code HIGH}/{@code MEDIUM}/{@code LOW}) for this
+     * evaluation, stored as the enum name. A single evaluation has no region spread, so this is
+     * the horizon base only (see {@code ConfidenceDeriver.fromHorizon}); the spread-aware region
+     * confidence is computed separately at briefing-serve time. Durable per-row record for
+     * analytics (e.g. how far-ahead forecasts pan out). Nullable for legacy rows.
+     */
+    @Column(name = "confidence", length = 20)
+    private String confidence;
+
     /** Low cloud cover percentage (0-100) in the ±30 min window. */
     @Column(name = "low_cloud")
     private Integer lowCloud;

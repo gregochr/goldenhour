@@ -227,6 +227,10 @@ class ForecastServiceTest {
         assertThat(first.getLocationName()).isEqualTo(DURHAM);
         assertThat(first.getTargetDate()).isEqualTo(date);
         assertThat(first.getSolarEventTime()).isEqualTo(sunrise);
+        // Confidence is the horizon derivation of the persisted row's own daysAhead — asserting
+        // the relationship (not an absolute tier) keeps this robust to the fixture's date.
+        assertThat(first.getConfidence())
+                .isEqualTo(ConfidenceDeriver.fromHorizon(first.getDaysAhead()).name());
 
         ForecastEvaluationEntity second = captor.getAllValues().get(1);
         assertThat(second.getSolarEventTime()).isEqualTo(sunset);
