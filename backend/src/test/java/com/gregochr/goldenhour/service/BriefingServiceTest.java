@@ -1832,6 +1832,49 @@ class BriefingServiceTest {
         }
 
         @Test
+        @DisplayName("Region confidence is derived and decays with horizon on the build path")
+        void regionConfidence_decaysWithHorizon() {
+            // The core behavioural claim of Change B: a same-day 'Worth it' is more certain than a
+            // far one. getCachedBriefing() is the raw build-path result, so this pins the daysAhead
+            // computation + ConfidenceDeriver + withConfidence wiring in enrichWithCachedScores.
+            LocationEntity loc = locationWithRegion("Bamburgh", "North East");
+            stubFullRefresh(loc);
+            BriefingEvaluationResult eval = new BriefingEvaluationResult(
+                    "Bamburgh", 4, 78, 52, "Dramatic light expected.", null, null);
+            when(evaluationViewService.getScoresForEnrichment(
+                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of("Bamburgh", eval));
+
+            briefingService.refreshBriefing();
+            DailyBriefingResponse cached = briefingService.getCachedBriefing();
+
+            // Map each day's horizon → the region's derived confidence, for whatever days carry it.
+            Map<Long, Confidence> byHorizon = new java.util.HashMap<>();
+            for (BriefingDay day : cached.days()) {
+                long ahead = day.date().toEpochDay() - FIXED_TODAY.toEpochDay();
+                day.eventSummaries().stream()
+                        .flatMap(es -> es.regions().stream())
+                        .filter(r -> r.regionName().equals("North East") && r.confidence() != null)
+                        .findFirst()
+                        .ifPresent(r -> byHorizon.put(ahead, r.confidence()));
+            }
+
+            assertThat(byHorizon).as("some day should carry a derived confidence").isNotEmpty();
+            // Every present day must match its horizon band. This is what catches a daysAhead sign
+            // flip or off-by-one: a far day (T+2/T+3) would mis-map to HIGH and fail here. The tier
+            // mapping itself is exhaustively covered in ConfidenceDeriverTest.
+            byHorizon.forEach((ahead, conf) -> {
+                Confidence expected = ahead <= 1 ? Confidence.HIGH
+                        : ahead <= 3 ? Confidence.MEDIUM : Confidence.LOW;
+                assertThat(conf).as("T+%d confidence", ahead).isEqualTo(expected);
+            });
+            // And a same-day 'Worth it' reads HIGH — the near end of the wiring (T+0 is always
+            // present). Note T+0 alone is sign-flip-invariant; the far-day bands above do that job.
+            assertThat(byHorizon).containsKey(0L);
+            assertThat(byHorizon.get(0L)).isEqualTo(Confidence.HIGH);
+        }
+
+        @Test
         @DisplayName("Slot NOT enriched when evaluation cache is empty")
         void slotNotEnrichedWhenCacheEmpty() {
             LocationEntity loc = locationWithRegion("Bamburgh", "North East");

@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AuroraTonightSummary;
 import com.gregochr.goldenhour.model.AuroraTomorrowSummary;
 import com.gregochr.goldenhour.model.BestBet;
+import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.BestBetResult;
 import com.gregochr.goldenhour.model.BestBetStatus;
 import com.gregochr.goldenhour.model.BriefingDay;
@@ -596,6 +597,9 @@ public class BriefingService {
      */
     private List<BriefingDay> enrichWithCachedScores(List<BriefingDay> days,
             RegionScoreResolver resolver) {
+        // Request-time "today" so the confidence horizon stays fresh when a briefing built
+        // yesterday is served today (this method runs on both the build and the serve paths).
+        LocalDate today = LocalDate.now(clock.withZone(LONDON));
         List<BriefingDay> enrichedDays = new ArrayList<>(days.size());
         for (BriefingDay day : days) {
             List<BriefingEventSummary> enrichedEvents = new ArrayList<>();
@@ -634,6 +638,11 @@ public class BriefingService {
                     boolean verdictChanged = region.displayVerdict() != freshVerdict;
                     String glossHeadline = verdictChanged ? null : region.glossHeadline();
                     String glossDetail = verdictChanged ? null : region.glossDetail();
+                    // Derive the quiet confidence channel from horizon + rating spread/coverage.
+                    // Zero-coverage regions yield null (unknown), which reads as provisional.
+                    int daysAhead = (int) (day.date().toEpochDay() - today.toEpochDay());
+                    Confidence confidence = ConfidenceDeriver.derive(
+                            daysAhead, stats, enrichedSlots.size());
                     enrichedRegions.add(new BriefingRegion(
                             region.regionName(), region.verdict(), region.summary(),
                             region.tideHighlights(), enrichedSlots,
@@ -641,7 +650,7 @@ public class BriefingService {
                             region.regionApparentTemperatureCelsius(),
                             region.regionWindSpeedMs(), region.regionWeatherCode(),
                             glossHeadline, glossDetail,
-                            freshVerdict, stats.count()));
+                            freshVerdict, stats.count()).withConfidence(confidence));
                 }
                 enrichedEvents.add(new BriefingEventSummary(
                         es.targetType(), enrichedRegions, es.unregioned()));

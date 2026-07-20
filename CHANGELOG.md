@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Confidence as one uniform, quiet channel on the Plan screen (Change B)
+- **A far-horizon "Worth it" now reads visibly more provisional than a same-day one.** The Plan screen previously rendered a `4.0★` for tonight and one three days out identically, though the far one is far less reliable — horizon confidence was invisible. A new confidence channel fixes that, layered **alongside** the star (which stays as the sky-quality signal, unchanged), never replacing it.
+- **Backend-derived, spread-aware.** Each region carries a `confidence` (high/medium/low) derived server-side from the forecast horizon (the dominant term) plus the region's rating spread and coverage, so it reflects real model agreement — not just days-out. It rides the existing briefing cache (no migration) and falls back to a horizon-only tier client-side if the field is ever absent.
+- **One treatment everywhere.** Grid cells dim their verdict fill as confidence drops and show a small "provisional" marker on the low tier; the Best Bet card's low-confidence state now routes through the same channel; the summary strip's day-pills carry the same marker. The star/quality badge is never touched.
+- Deferred to a follow-up (intentionally): the hot-topic certainty *vocabulary* (a separate axis — aurora is a live detection, tides are almanac-certain, seasonal is a forecast) and the drill-down/mobile verdict pills.
+
 ### Changed — Aurora banner now gates on clear skies (Plan-screen signal cleanup A1)
 - **The top-slot aurora alert no longer fires when every dark-sky location is overcast.** A `MODERATE` "aurora tonight" that can't be seen anywhere was noise in the most valuable position on the screen; NLC already gates the same way (`active && clearTonight`), and aurora now aligns with it. The banner is suppressed when `darkSkyLocationCount > 0 && clearLocationCount === 0` — **unless** it's a major storm (`STRONG`+), which is rare and worth surfacing even under cloud (gaps open, people travel). Fails **open** when the clear count is unknown (`clearLocationCount == null`), so missing data never hides a real alert.
 - The existing "All locations overcast" sub-note now renders only for the surviving `STRONG`+ case, so it reads honestly rather than contradicting a banner nobody can act on.

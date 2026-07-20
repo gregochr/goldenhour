@@ -420,12 +420,10 @@ public class BriefingGlossService {
                     GlossWorkItem item = glossIndex[di][ei][ri];
                     String headline = item != null ? item.glossHeadline : null;
                     String detail = item != null ? item.glossDetail : null;
-                    newRegions.add(new BriefingRegion(
-                            r.regionName(), r.verdict(), r.summary(), r.tideHighlights(),
-                            r.slots(), r.regionTemperatureCelsius(),
-                            r.regionApparentTemperatureCelsius(), r.regionWindSpeedMs(),
-                            r.regionWeatherCode(), headline, detail,
-                            r.displayVerdict(), r.scoredLocationCount()));
+                    // withGloss preserves every other field — critically the confidence attached by
+                    // enrichWithCachedScores just before this pass runs. A plain constructor here
+                    // silently dropped it (13-arg convenience ctor → confidence null on the build path).
+                    newRegions.add(r.withGloss(headline, detail));
                 }
                 newEvents.add(new BriefingEventSummary(es.targetType(), newRegions, es.unregioned()));
             }

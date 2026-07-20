@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
-import DailyBriefing from '../components/DailyBriefing.jsx';
+import DailyBriefing, { bestConfidence } from '../components/DailyBriefing.jsx';
 
 vi.mock('../api/briefingApi.js', () => ({
   getDailyBriefing: vi.fn(),
@@ -1398,6 +1398,26 @@ describe('DailyBriefing', () => {
       expect(screen.getByText('Rare king tide.')).toBeInTheDocument();
     });
 
+    it('marks a low-confidence pick as provisional on the shared channel', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
+        { rank: 1, headline: 'Maybe worth a look', detail: 'The models disagree.',
+          event: 'tomorrow_sunset', region: 'Northumberland', confidence: 'low' },
+      ]));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('best-bet-banner'));
+      expect(screen.getByTestId('provisional-mark')).toBeInTheDocument();
+    });
+
+    it('does not mark a high-confidence pick as provisional', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
+        { rank: 1, headline: 'Solid tonight', detail: 'Clear and settled.',
+          event: 'tomorrow_sunset', region: 'Northumberland', confidence: 'high' },
+      ]));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('best-bet-banner'));
+      expect(screen.queryByTestId('provisional-mark')).toBeNull();
+    });
+
     it('renders the full detail sentence with no clamp or read-more affordance', async () => {
       // The headline recommendation is the single most important element on the screen —
       // it renders complete, never clipped mid-word behind a "Read more" toggle.
@@ -2342,5 +2362,29 @@ describe('DailyBriefing — summary strip', () => {
     const chips = screen.getAllByTestId('summary-region-chip');
     expect(chips).toHaveLength(1);
     expect(chips[0].textContent).toContain('Lake District');
+  });
+});
+
+describe('bestConfidence (day-pill confidence aggregation)', () => {
+  const entry = (confidence) => ({ region: { confidence } });
+
+  it('returns the most-confident tier regardless of region order', () => {
+    // The day-pill points at the day's best pick, so it reads provisional only when even that
+    // best pick is — the result must not depend on which region is iterated first.
+    expect(bestConfidence([entry('low'), entry('high')], null)).toBe('high');
+    expect(bestConfidence([entry('high'), entry('low')], null)).toBe('high');
+    expect(bestConfidence([entry('low'), entry('medium')], null)).toBe('medium');
+  });
+
+  it('falls back to the horizon when a region has no backend confidence', () => {
+    // No supplied confidence + far horizon → low; the most-confident of two far regions is low.
+    expect(bestConfidence([entry(undefined), entry(undefined)], 5)).toBe('low');
+    // A same-day region with no field falls back to high.
+    expect(bestConfidence([entry(undefined)], 0)).toBe('high');
+  });
+
+  it('returns null for an empty set (no reduce-without-seed throw)', () => {
+    expect(bestConfidence([], 0)).toBeNull();
+    expect(bestConfidence(null, 0)).toBeNull();
   });
 });

@@ -9,7 +9,9 @@ import {
 } from '../utils/briefingDisplay.js';
 import SlotLocationName from './shared/SlotLocationName.jsx';
 import VerdictPill from './shared/VerdictPill.jsx';
+import ProvisionalMark from './shared/ProvisionalMark.jsx';
 import { RATING_COLOURS } from './markerUtils.js';
+import { daysOut, resolveConfidence, confidenceTreatment, scaleRgbaAlpha } from '../utils/confidenceUtils.js';
 
 // ── Pure helpers (copied from DailyBriefing — shared logic) ─────────────────
 
@@ -500,7 +502,7 @@ function computeCellTipPlacement(rect) {
   return { style, alignRight };
 }
 
-function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map(), showAllLocations = false, travelDayDates = new Set() }) {  const cellData = getSubCellData(date, regionName, targetType, briefingDays);
+function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map(), showAllLocations = false, travelDayDates = new Set(), todayStr = null }) {  const cellData = getSubCellData(date, regionName, targetType, briefingDays);
 
   // Hover tooltip placement, portalled to <body> so the plan card's overflow:hidden can't clip
   // the rightmost column's tip. Declared before any early return to satisfy the rules of hooks.
@@ -597,9 +599,18 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
 
   // ── Good / Maybe cell — quiet by default; the gloss sentence moves to hover ──
   const isGo = displaySignal === 'WORTH_IT';
-  const cellBg = isGo
+  const baseCellBg = isGo
     ? { background: 'rgba(138,174,114,0.18)', borderColor: 'rgba(138,174,114,0.35)' }
     : { background: 'rgba(224,165,66,0.14)', borderColor: 'rgba(224,165,66,0.28)' };
+  // Confidence channel: a far-horizon / wide-spread verdict reads visibly more provisional —
+  // dimmed fill + a small marker — WITHOUT touching the star (quality) signal. Fail-soft: a
+  // missing backend confidence falls back to a horizon-only tier via resolveConfidence.
+  const confidenceTier = resolveConfidence(region, daysOut(date, todayStr));
+  const treatment = confidenceTreatment(confidenceTier);
+  const cellBg = {
+    background: scaleRgbaAlpha(baseCellBg.background, treatment.fillScale),
+    borderColor: scaleRgbaAlpha(baseCellBg.borderColor, treatment.fillScale),
+  };
   const verdictColour = isGo ? 'var(--color-verdict-go)' : 'var(--color-verdict-marginal)';
 
   const weatherLine = region.regionTemperatureCelsius != null
@@ -641,8 +652,9 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
       onFocus={showTip}
       onBlur={hideTip}
     >
-      <div className="font-medium" style={{ fontSize: '11px', color: verdictColour }}>
-        {verdictLabel}
+      <div className="font-medium flex items-center gap-1" style={{ fontSize: '11px', color: verdictColour }}>
+        <span>{verdictLabel}</span>
+        {treatment.provisional && <ProvisionalMark />}
       </div>
 
       {weatherLine && (
@@ -924,6 +936,7 @@ export default function HeatmapGrid({
               evaluationScores={evaluationScores}
               showAllLocations={showAllLocations}
               travelDayDates={travelDayDates}
+              todayStr={todayStr}
             />
           );
         })}

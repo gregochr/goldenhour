@@ -60,7 +60,21 @@ class BriefingRatingStatsTest {
             assertThat(stats.highRated()).isEqualTo(2L);
             assertThat(stats.mediumRated()).isEqualTo(1L);
             assertThat(stats.averageRating()).isEqualTo(3.5);
+            assertThat(stats.minRating()).isEqualTo(2);
+            assertThat(stats.maxRating()).isEqualTo(5);
+            assertThat(stats.ratingRange()).isEqualTo(3);
             assertThat(stats.isEmpty()).isFalse();
+        }
+
+        @Test
+        void tracksMinMaxForATightRegion() {
+            BriefingRatingStats.Stats stats = BriefingRatingStats.compute(
+                    List.of(entry("A", 4), entry("B", 4), entry("C", 4)),
+                    REGION, DATE, EVENT);
+
+            assertThat(stats.minRating()).isEqualTo(4);
+            assertThat(stats.maxRating()).isEqualTo(4);
+            assertThat(stats.ratingRange()).isZero();
         }
 
         @Test
@@ -102,6 +116,7 @@ class BriefingRatingStatsTest {
             assertThat(stats.isEmpty()).isTrue();
             assertThat(stats.count()).isZero();
             assertThat(stats.averageRating()).isZero();
+            assertThat(stats.ratingRange()).isZero();
         }
 
         @Test

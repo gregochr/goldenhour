@@ -41,15 +41,31 @@ public final class BriefingRatingStats {
      * @param mediumRated    count of ratings == 3
      * @param averageRating  arithmetic mean of valid ratings, rounded to 1dp;
      *                       {@code 0.0} when {@link #isEmpty()} is true
+     * @param minRating      lowest valid rating in the region, or {@code 0} when
+     *                       {@link #isEmpty()} is true
+     * @param maxRating      highest valid rating in the region, or {@code 0} when
+     *                       {@link #isEmpty()} is true
      */
-    public record Stats(int count, long highRated, long mediumRated, double averageRating) {
+    public record Stats(int count, long highRated, long mediumRated, double averageRating,
+            int minRating, int maxRating) {
 
         public static Stats empty() {
-            return new Stats(0, 0L, 0L, 0.0);
+            return new Stats(0, 0L, 0L, 0.0, 0, 0);
         }
 
         public boolean isEmpty() {
             return count == 0;
+        }
+
+        /**
+         * The spread of ratings across the region — {@code maxRating - minRating}.
+         * A wide spread (locations disagreeing sharply) is a confidence-lowering
+         * signal. Returns {@code 0} when {@link #isEmpty()} is true.
+         *
+         * @return the rating range, or 0 when empty
+         */
+        public int ratingRange() {
+            return isEmpty() ? 0 : maxRating - minRating;
         }
     }
 
@@ -72,6 +88,8 @@ public final class BriefingRatingStats {
         long high = 0L;
         long medium = 0L;
         long sum = 0L;
+        int min = Integer.MAX_VALUE;
+        int max = Integer.MIN_VALUE;
         for (Entry entry : entries) {
             Integer rating = RatingValidator.validateRating(
                     entry.rating(), regionName, date, targetType, entry.locationName(), null);
@@ -80,6 +98,12 @@ public final class BriefingRatingStats {
             }
             count++;
             sum += rating;
+            if (rating < min) {
+                min = rating;
+            }
+            if (rating > max) {
+                max = rating;
+            }
             if (rating >= 4) {
                 high++;
             } else if (rating == 3) {
@@ -91,7 +115,7 @@ public final class BriefingRatingStats {
         }
         double avg = (double) sum / count;
         double rounded = Math.round(avg * 10.0) / 10.0;
-        return new Stats(count, high, medium, rounded);
+        return new Stats(count, high, medium, rounded, min, max);
     }
 
     /**

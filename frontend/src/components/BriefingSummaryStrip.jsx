@@ -1,6 +1,8 @@
 import { useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
+import ProvisionalMark from './shared/ProvisionalMark.jsx';
+import { confidenceTreatment } from '../utils/confidenceUtils.js';
 
 const TIP_WIDTH = 264;
 const TIP_MARGIN = 8;
@@ -145,6 +147,7 @@ export default function BriefingSummaryStrip({ pills, onPillClick, onRegionClick
 
             <div
               data-testid="summary-pill-peak"
+              className="flex items-center gap-1"
               style={{
                 marginTop: '10px',
                 fontSize: '12px',
@@ -153,7 +156,10 @@ export default function BriefingSummaryStrip({ pills, onPillClick, onRegionClick
                 color: peakColour,
               }}
             >
-              {pill.peakLabel}
+              <span>{pill.peakLabel}</span>
+              {pill.confidence && confidenceTreatment(pill.confidence).provisional && (
+                <ProvisionalMark title={confidenceTreatment(pill.confidence).label} />
+              )}
             </div>
             {pill.subLabel && (
               <div className="font-mono" style={{ fontSize: '10px', color: 'var(--color-tide)', marginTop: '4px' }}>
@@ -273,6 +279,7 @@ BriefingSummaryStrip.propTypes = {
       ),
       ratedCount: PropTypes.number.isRequired,
       isAway: PropTypes.bool,
+      confidence: PropTypes.oneOf(['high', 'medium', 'low']),
     }),
   ).isRequired,
   onPillClick: PropTypes.func,

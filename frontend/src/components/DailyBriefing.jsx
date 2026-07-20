@@ -9,6 +9,8 @@ import { useAuth } from '../context/AuthContext.jsx';
 import HeatmapGrid from './HeatmapGrid.jsx';
 import SlotLocationName from './shared/SlotLocationName.jsx';
 import VerdictPill from './shared/VerdictPill.jsx';
+import ProvisionalMark from './shared/ProvisionalMark.jsx';
+import { resolveConfidence, confidenceTreatment, daysOut } from '../utils/confidenceUtils.js';
 import HotTopicStrip from './HotTopicStrip.jsx';
 import BriefingSummaryStrip from './BriefingSummaryStrip.jsx';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
@@ -194,6 +196,22 @@ function buildRegionWx(region) {
  *        used to colour-match a chip to its headline card and float the picks to the front of the run
  * @returns {Array} pill descriptors for {@link BriefingSummaryStrip}
  */
+/** Confidence tiers ranked most → least certain, for order-independent aggregation. */
+const CONFIDENCE_RANK = { high: 0, medium: 1, low: 2 };
+
+/**
+ * The most-confident tier among a day's peak-tier rated regions (order-independent).
+ * @param {Array} ratedEntries entries with a {@code .region} carrying {@code confidence}
+ * @param {number|null} days horizon fallback for regions with no backend confidence
+ * @returns {'high'|'medium'|'low'|null} the best tier, or null when there are no entries
+ */
+export function bestConfidence(ratedEntries, days) {
+  if (!ratedEntries || ratedEntries.length === 0) return null;
+  return ratedEntries
+    .map((e) => resolveConfidence(e.region, days))
+    .reduce((best, tier) => (CONFIDENCE_RANK[tier] < CONFIDENCE_RANK[best] ? tier : best));
+}
+
 function buildSummaryPills(upcomingEvents, briefingDays, todayStr, tomorrowStr, travelDayDates, pickRegions = {}) {
   // Resolve each rated region to a pick identity by region name (the stable id shared by the pick
   // payload and the grid roll-up), so a pick shows its colour on every day it appears rated.
@@ -283,6 +301,11 @@ function buildSummaryPills(upcomingEvents, briefingDays, todayStr, tomorrowStr, 
       peakLabel: peak !== 'poor' && evTxt ? `${peakBase} · ${evTxt}` : peakBase,
       subLabel: null,
       regions,
+      // Confidence channel for the day-pill: the MOST-confident of the day's peak-tier regions
+      // (order-independent — the pill points you at the day's best pick, so it reads provisional
+      // only when even that best pick is). Falls back to this day's horizon per region. A poor
+      // day carries no confidence.
+      confidence: peak === 'poor' ? null : bestConfidence(rated, daysOut(date, todayStr)),
       // Fallback text when nothing is rated ("N regions"); chips carry the rated case.
       countLabel: regions.length ? null : `${allRegions.size} ${allRegions.size === 1 ? 'region' : 'regions'}`,
       ratedCount: regions.length,
@@ -729,7 +752,10 @@ function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick, onViewOnMap 
         {picks.map((pick) => {
           const eventKey = resolveEventKey(pick.event, todayStr, tomorrowStr);
           const navigable = pick.event != null && eventKey != null;
-          const lowConf = pick.confidence === 'low';
+          // Confidence channel (shared with the grid cells + strip). Best Bet reads Claude's
+          // self-reported confidence; the low tier is "provisional" — muted chrome + a marker.
+          const confTreatment = confidenceTreatment(resolveConfidence(pick, null));
+          const lowConf = confTreatment.provisional;
           const isPrimary = pick.rank === 1;
 
           const pick1 = picks[0];
@@ -775,8 +801,9 @@ function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick, onViewOnMap 
                 )}
               </div>
               {lowConf && (
-                <span className="text-plex-text-muted italic" style={{ fontSize: '11px' }}>
-                  (low confidence)
+                <span className="text-plex-text-muted italic inline-flex items-center gap-1" style={{ fontSize: '11px' }}>
+                  <ProvisionalMark title={confTreatment.label} />
+                  ({confTreatment.label})
                 </span>
               )}
               {pick.dayName && pick.eventType && (

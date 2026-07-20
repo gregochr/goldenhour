@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
@@ -90,6 +91,27 @@ class BriefingGlossServiceTest {
         BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
         assertThat(r.glossHeadline()).isEqualTo("High cirrus — good colour potential");
         assertThat(r.glossDetail()).isEqualTo("40% high cloud provides canvas.");
+    }
+
+    @Test
+    @DisplayName("Gloss generation preserves the region's derived confidence")
+    void glossGeneration_preservesConfidence() {
+        // The gloss pass rebuilds each region to attach the headline/detail. It must NOT drop the
+        // confidence attached moments earlier by enrichWithCachedScores on the build path.
+        stubModelSelection();
+        Message response = mockResponse(
+                "{\"headline\": \"High cirrus\", \"detail\": \"Canvas.\"}");
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(response);
+
+        BriefingRegion withConf = region("Northumberland", Verdict.GO)
+                .withConfidence(Confidence.HIGH);
+        List<BriefingDay> days = List.of(dayWith(withConf));
+        List<BriefingDay> enriched = glossService.generateGlosses(days, 1L);
+
+        BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+        assertThat(r.glossHeadline()).isEqualTo("High cirrus"); // the gloss reconstruction ran…
+        assertThat(r.confidence()).isEqualTo(Confidence.HIGH); // …and confidence survived it
     }
 
     @Test
