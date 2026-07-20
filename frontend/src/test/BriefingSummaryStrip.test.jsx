@@ -41,6 +41,18 @@ describe('BriefingSummaryStrip', () => {
     expect(pills[0].textContent).toContain('2 regions rated');
   });
 
+  it('flags a low-confidence (provisional) day-pill with a marker', () => {
+    render(<BriefingSummaryStrip pills={[pill({ confidence: 'low' })]} />);
+    expect(screen.getByTestId('provisional-mark')).toBeInTheDocument();
+  });
+
+  it('does not flag a high-confidence day-pill, nor one with no confidence signal', () => {
+    const { rerender } = render(<BriefingSummaryStrip pills={[pill({ confidence: 'high' })]} />);
+    expect(screen.queryByTestId('provisional-mark')).toBeNull();
+    rerender(<BriefingSummaryStrip pills={[pill()]} />);
+    expect(screen.queryByTestId('provisional-mark')).toBeNull();
+  });
+
   it('shows only the present event when a day has one solar event left', () => {
     render(<BriefingSummaryStrip pills={[pill({ sunriseTime: '' })]} />);
     const times = screen.getByTestId('summary-pill-times');

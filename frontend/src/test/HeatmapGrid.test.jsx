@@ -1367,6 +1367,86 @@ function renderMixedGrid(regions) {
   );
 }
 
+describe('HeatmapGrid — confidence channel (Change B)', () => {
+  // A scored slot (claudeRating) so the star/quality badge actually renders and can be
+  // asserted untouched by the confidence channel.
+  function renderCellWithConfidence(confidence) {
+    const region = {
+      regionName: 'North East',
+      verdict: 'GO',
+      displayVerdict: 'WORTH_IT',
+      summary: 'Clear skies',
+      confidence,
+      slots: [{ locationName: 'Bamburgh', verdict: 'GO', claudeRating: 4, solarEventTime: `${DATE_1}T19:30:00` }],
+    };
+    return render(
+      <HeatmapGrid
+        events={[{ date: DATE_1, targetType: 'SUNSET' }]}
+        sortedRegions={['North East']}
+        briefingDays={[{ date: DATE_1, eventSummaries: [{ targetType: 'SUNSET', regions: [region] }] }]}
+        qualityTier={5}
+        driveMap={new Map()}
+        typeMap={new Map()}
+        todayStr={futureDateStr(0)}
+        tomorrowStr={DATE_1}
+        onShowOnMap={vi.fn()}
+        astroScoresByDate={{}}
+        travelDayDates={new Set()}
+      />,
+    );
+  }
+
+  // Pull the background alpha out of the cell's inline style attribute (robust to jsdom formatting).
+  function cellFillAlpha() {
+    const style = screen.getByTestId('heatmap-cell').getAttribute('style') || '';
+    const m = style.match(/background:\s*rgba\([\d.]+,\s*[\d.]+,\s*[\d.]+,\s*([\d.]+)\)/i);
+    return m ? parseFloat(m[1]) : null;
+  }
+
+  function starBadgeStyle() {
+    return screen.getByTestId('mean-score-badge').querySelector('span').getAttribute('style');
+  }
+
+  it('marks a low-confidence Worth-it cell as provisional', () => {
+    renderCellWithConfidence('low');
+    expect(screen.getByTestId('provisional-mark')).toBeInTheDocument();
+  });
+
+  it('does not mark a high- or medium-confidence cell as provisional (marker is low-only)', () => {
+    const { unmount } = renderCellWithConfidence('high');
+    expect(screen.queryByTestId('provisional-mark')).toBeNull();
+    unmount();
+    renderCellWithConfidence('medium');
+    expect(screen.queryByTestId('provisional-mark')).toBeNull();
+  });
+
+  it('dims the cell fill as confidence drops, but never for high', () => {
+    // The fill saturation IS the confidence signal for medium cells (which carry no marker).
+    const { unmount: u1 } = renderCellWithConfidence('high');
+    const high = cellFillAlpha();
+    u1();
+    const { unmount: u2 } = renderCellWithConfidence('medium');
+    const medium = cellFillAlpha();
+    u2();
+    renderCellWithConfidence('low');
+    const low = cellFillAlpha();
+
+    expect(high).toBeCloseTo(0.18, 5); // base alpha, undimmed
+    expect(medium).toBeLessThan(high);
+    expect(low).toBeLessThan(medium);
+  });
+
+  it('leaves the star/quality badge untouched across confidence tiers (separate channels)', () => {
+    const { unmount } = renderCellWithConfidence('high');
+    expect(screen.getByTestId('mean-score-badge').textContent).toContain('4★');
+    const highStar = starBadgeStyle();
+    unmount();
+    renderCellWithConfidence('low');
+    expect(screen.getByTestId('mean-score-badge').textContent).toContain('4★');
+    expect(starBadgeStyle()).toBe(highStar);
+  });
+});
+
 describe('HeatmapGrid — poor-region pooling (A3a)', () => {
   const RATED = { name: 'Rated Region', verdict: 'GO', displayVerdict: 'WORTH_IT' };
   const POOR_A = { name: 'Poor Alpha', verdict: 'STANDDOWN', displayVerdict: 'STAND_DOWN' };
