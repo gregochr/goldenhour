@@ -180,7 +180,7 @@ export default function NlcSightingBanner() {
               {lookDirection && <span className="nlc-div" aria-hidden="true" />}
               {lookDirection && <span>Look {lookDirection}, low</span>}
               <span className="nlc-div" aria-hidden="true" />
-              <span className="nlc-cta">View on map →</span>
+              <span className="nlc-cta">Show on map →</span>
             </p>
 
             {darkSkyCount > 0 && (

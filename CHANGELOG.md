@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Aurora banner now gates on clear skies (Plan-screen signal cleanup A1)
+- **The top-slot aurora alert no longer fires when every dark-sky location is overcast.** A `MODERATE` "aurora tonight" that can't be seen anywhere was noise in the most valuable position on the screen; NLC already gates the same way (`active && clearTonight`), and aurora now aligns with it. The banner is suppressed when `darkSkyLocationCount > 0 && clearLocationCount === 0` — **unless** it's a major storm (`STRONG`+), which is rare and worth surfacing even under cloud (gaps open, people travel). Fails **open** when the clear count is unknown (`clearLocationCount == null`), so missing data never hides a real alert.
+- The existing "All locations overcast" sub-note now renders only for the surviving `STRONG`+ case, so it reads honestly rather than contradicting a banner nobody can act on.
+
+### Changed — Best Bet recommendation renders in full, no clamp (Plan-screen signal cleanup A2)
+- **The headline recommendation is no longer truncated.** The Best Bet / Also Good detail paragraph previously clamped to two lines behind a "Read more ▾" toggle — the one element you most want read to completion was hidden behind an interaction. The clamp and toggle are gone; the detail wraps fully with `text-wrap: pretty`. The copy is already written as complete sentences, so nothing is clipped mid-word. If unbounded height ever becomes a concern, cap the *source copy* in the briefing payload rather than clipping in CSS.
+
+### Changed — One verb for "go to the map" across the Plan screen (copy & a11y tidy C2)
+- **The same gesture is now worded one way.** "View on map →" (aurora + NLC banners) and "🗺 View on map →" (Best Bet) all become **"Show on map →"**, matching the compact strip pills that already used it. The overlay footer's **"Open the full Map tab →"** stays deliberately distinct — it's a different destination (the whole Map tab, not the in-place overlay).
+
+### Changed — Dropped the model name from the user-facing planner stamp (copy & a11y tidy C1)
+- **The planner header no longer reads "11h ago · by Sonnet" for photographers.** The model name is developer-facing implementation detail that means nothing to a user, so the "by &lt;model&gt;" span is now gated to ADMIN only — the age ("Updated 11h ago") still shows for everyone, and admins keep the model label for internal debugging.
+
+### Changed — Raised contrast on informational fine print (copy & a11y tidy C3)
+- **Fine print that carries real information is a step brighter.** The hot-topic "science showing" fact note moves from muted (0.42α) to secondary (0.66α), and the per-region science gloss headline from 0.5α to 0.62α — both were below comfortable contrast for body-size text on the dark surface. Decorative-only labels stay quiet, and the gloss *bodies* (InfoTip card, summary-strip tooltip) already sat at the secondary tier. Info tips remain tap-to-toggle (already reachable on touch via the shared `InfoTip`), so no hover-only affordance is left stranded.
+
+### Changed — Full briefing grid pools the poor rows behind a reveal (Plan-screen signal cleanup A3a)
+- **Rated regions lead; poor-only regions collapse behind a toggle.** Expanded, the grid was mostly dead cells — a user scanned every region row to find the two or three worth acting on. Now only regions with at least one Worth-it / Maybe cell render by default; the rest fold behind a full-width `+N regions · all poor ▾` / `Hide poor regions ▴` toggle (the same "poor conditions" divider idea the drill-down already uses, applied one level up to the region rows). A region is "poor" when every one of its evaluated cells is stand-down/awaiting — keyed on the display verdict, since the quality slider was retired and every tier now renders. An all-poor week (nothing rated to lead with) shows every row instead of hiding them behind an empty grid.
+
+### Fixed — Review follow-ups on the Plan-screen signal cleanup
+- **The C3 contrast bump now covers both per-region gloss headlines.** The first pass raised the aurora expanded-card science gloss headline (0.5α → 0.62α) but missed the structurally identical bluebell/hot-topic headline, which stayed below comfortable contrast; it now matches, so no informational gloss headline is left at the dim tier.
+- **The aurora clear-sky gate never suppresses an admin simulation.** A simulated alert is an admin preview tool that must render regardless of weather, so the gate now applies only to real alerts (`allOvercast && !isMajorStorm && !isSimulated`).
+
 ### Fixed — Health banner stuck DOWN on tab-return; the status SSE stream was stranded on an expired token
 - **Returning to an already-open tab showed a persistent red "Service is temporarily unavailable" banner (health pill DOWN) that only a full page reload cleared.** The banner is driven by the `/api/status/stream` SSE connection, which authenticated with the access token captured once in a frozen `AuthContext` closure (`getToken: () => token`). The axios 401 interceptor refreshes the access token into `localStorage` only — never into `AuthContext` state — so once the 24h access token expired, every reconnect re-sent the dead token → 401 → `EventSource` CLOSED (fatal) → a 5 s retry loop that re-sent the same expired token forever. A reload re-read the already-refreshed token from `localStorage`, which is why refreshing always cleared it.
 - **`useHealthStatus`** now reads the freshest token from `localStorage` at each (re)connect instead of the closure, so a reconnecting stream is never stranded on a stale token.

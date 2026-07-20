@@ -1398,7 +1398,9 @@ describe('DailyBriefing', () => {
       expect(screen.getByText('Rare king tide.')).toBeInTheDocument();
     });
 
-    it('read-more button toggles the detail clamp label and does not navigate', async () => {
+    it('renders the full detail sentence with no clamp or read-more affordance', async () => {
+      // The headline recommendation is the single most important element on the screen —
+      // it renders complete, never clipped mid-word behind a "Read more" toggle.
       getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
         { rank: 1, headline: 'Go to Lake District', detail: 'A long detailed analysis.',
           event: 'tomorrow_sunset', region: 'Lake District', confidence: 'high' },
@@ -1406,17 +1408,8 @@ describe('DailyBriefing', () => {
       render(<DailyBriefing />);
       await waitFor(() => screen.getByTestId('best-bet-banner'));
 
-      const readMore = screen.getByTestId('best-bet-read-more');
-      expect(readMore).toHaveTextContent('Read more ▾');
-
-      // Clicking read-more expands (label flips) without triggering card navigation.
-      fireEvent.click(readMore);
-      expect(readMore).toHaveTextContent('Show less ▴');
-      expect(screen.queryByTestId('briefing-expanded')).toBeNull();
-
-      // Clicking again collapses back.
-      fireEvent.click(readMore);
-      expect(readMore).toHaveTextContent('Read more ▾');
+      expect(screen.getByTestId('best-bet-detail')).toHaveTextContent('A long detailed analysis.');
+      expect(screen.queryByTestId('best-bet-read-more')).toBeNull();
     });
 
     it('View on map hands off the bet region, date and event', async () => {
@@ -1808,6 +1801,8 @@ describe('DailyBriefing', () => {
       getDailyBriefing.mockResolvedValue(buildBriefing());
       render(<DailyBriefing />);
       await openFullGrid();
+      // Poor-only regions are pooled behind a reveal (A3a); open it to reach the STANDDOWN cells.
+      fireEvent.click(screen.getByTestId('heatmap-poor-toggle'));
       const cells = screen.getAllByTestId('heatmap-cell');
       const disabledCells = cells.filter((c) => c.getAttribute('aria-disabled') === 'true');
       expect(disabledCells.length).toBeGreaterThanOrEqual(1);
