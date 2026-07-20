@@ -355,7 +355,7 @@ function BluebellExpandedCard({ expandedDetail, topic, onShowOnMap = null, isLit
             {region.glossHeadline && (
               <span
                 data-testid="bluebell-gloss-headline"
-                style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}
+                style={{ fontSize: '11px', color: 'rgba(255,255,255,0.62)', fontStyle: 'italic' }}
               >
                 {region.glossHeadline}
               </span>

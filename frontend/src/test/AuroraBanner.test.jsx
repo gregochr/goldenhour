@@ -133,6 +133,22 @@ describe('AuroraBanner', () => {
     expect(screen.queryByTestId('aurora-banner')).not.toBeInTheDocument();
   });
 
+  it('keeps a simulated banner visible under full overcast (admin preview always renders)', () => {
+    // The clear-sky gate targets real alerts nobody can act on — a simulation is an admin
+    // preview tool, so it must render regardless of weather even at MODERATE.
+    renderBanner({
+      level: 'MODERATE',
+      hexColour: '#ff9900',
+      description: 'Amber alert: possible aurora',
+      active: true,
+      eligibleLocations: 20,
+      simulated: true,
+      darkSkyLocationCount: 20,
+      clearLocationCount: 0,
+    });
+    expect(screen.getByTestId('aurora-banner')).toBeInTheDocument();
+  });
+
   it('keeps a STRONG banner under full overcast, with the honest overcast note', () => {
     // A major storm stays surfaced even under cloud — gaps open, people travel.
     renderBanner({
