@@ -729,6 +729,8 @@ export default function HeatmapGrid({
   travelDayDates = new Set(),
 }) {
   const [drillDown, setDrillDown] = useState(null); // { date, regionName, targetType }
+  const [showPoorRegions, setShowPoorRegions] = useState(false); // A3a: reveal the pooled poor-only rows
+  const [prevPoolPoor, setPrevPoolPoor] = useState(false); // tracks poolPoor to reset the reveal (F4)
 
   // Compute day groups from events for dynamic header spanning
   const dayGroups = useMemo(() => {
@@ -815,6 +817,137 @@ export default function HeatmapGrid({
     }
     return true;
   }
+
+  // ── A3a: pool poor-only region rows behind a reveal ──────────────────────────
+  // A region is "all poor" when none of its evaluated cells is a GO/MARGINAL (Worth it / Maybe)
+  // — every cell is STAND_DOWN or AWAITING. The quality slider was retired (qualityTier is pinned
+  // to SHOW_ALL_TIER), so isRegionFullyHidden — which keys on isCellVisible — never fires; we key
+  // on the display verdict directly instead. reorderedRegions is sorted best-first, so poor rows
+  // already trail. Split them off and tuck them behind a full-width toggle so a rated-heavy grid
+  // isn't mostly dead cells the eye must scan past.
+  function isRegionAllPoor(regionName) {
+    for (const { date, targetType } of events) {
+      if (travelDayDates.has(date)) continue; // away days assert no verdict
+      const cd = getSubCellData(date, regionName, targetType, briefingDays);
+      if (!cd || cd.past || !cd.region) continue;
+      const dv = resolveRegionDisplay(cd.region);
+      if (dv === 'WORTH_IT' || dv === 'MAYBE') return false;
+    }
+    return true;
+  }
+  const poorRegions = reorderedRegions.filter(isRegionAllPoor);
+  const ratedRegions = reorderedRegions.filter((r) => !isRegionAllPoor(r));
+  // Only pool when there's a genuine mix: an all-poor week has nothing rated to lead with, so
+  // show every row (faded, as before) rather than an empty grid sitting behind a toggle.
+  const poolPoor = ratedRegions.length > 0 && poorRegions.length > 0;
+  // Reset the reveal whenever pooling stops being active, so a stale "open" flag can't
+  // auto-expand the pool after a briefing refresh reshapes the region set (F4). This is React's
+  // supported adjust-state-during-render pattern — it runs before paint and can't loop (once
+  // prevPoolPoor tracks poolPoor the branch is skipped). Cheaper than a post-render effect, and
+  // benign polls that keep poolPoor true never touch the user's chosen open state.
+  if (poolPoor !== prevPoolPoor) {
+    setPrevPoolPoor(poolPoor);
+    if (!poolPoor) setShowPoorRegions(false);
+  }
+  const leadRows = poolPoor ? ratedRegions : reorderedRegions;
+
+  // Render one region row (label + event cells + drill-down). `revealed` forces a pooled poor
+  // row to full opacity once the user has deliberately opened the poor section.
+  const renderRegionRow = (regionName, revealed = false) => {
+    const faded = isRegionFullyHidden(regionName) && !revealed;
+    return (
+      <React.Fragment key={regionName}>
+        {/* Region label */}
+        <div
+          className="font-medium text-plex-text px-1 py-2 flex items-start transition-opacity duration-300"
+          style={{
+            fontSize: '13px',
+            overflowWrap: 'break-word',
+            wordBreak: 'break-word',
+            minWidth: 0,
+            opacity: faded ? 0.06 : 1,
+          }}
+          aria-hidden={faded}
+        >
+          {regionName}
+        </div>
+
+        {/* Event cells */}
+        {events.map(({ date, targetType }) => {
+          const drillKey = `${date}-${regionName}-${targetType}`;
+
+          // Astro cells use a different rendering path
+          if (targetType === 'ASTRO') {
+            const dateScores = astroScoresByDate[date] || {};
+            const regionLocNames = getRegionLocationNames(date, regionName, briefingDays);
+            const astroStars = regionLocNames
+              .map((n) => dateScores[n]?.stars)
+              .filter((s) => s != null);
+            const bestStars = astroStars.length > 0 ? Math.max(...astroStars) : null;
+            return (
+              <button
+                key={drillKey}
+                data-testid="astro-heatmap-cell"
+                className={`rounded border text-center p-1.5 transition-all ${
+                  bestStars != null
+                    ? 'cursor-pointer hover:scale-[1.01]'
+                    : 'bg-plex-surface/30 border-plex-border/20 text-plex-text-muted cursor-default'
+                }`}
+                style={bestStars != null ? ratingStyle(bestStars) : undefined}
+                disabled={bestStars == null}
+                onClick={bestStars != null ? () => onShowOnMap?.(date, 'ASTRO') : undefined}
+                title={bestStars != null ? `Best astro: ${bestStars}★ — tap to view on map` : 'No dark-sky locations in this region'}
+              >
+                {bestStars != null ? (
+                  <div className="font-bold" style={{ fontSize: '12px' }}>{bestStars}★</div>
+                ) : (
+                  <div style={{ fontSize: '12px' }}>—</div>
+                )}
+              </button>
+            );
+          }
+
+          const isActive =
+            drillDown?.date === date &&
+            drillDown?.regionName === regionName &&
+            drillDown?.targetType === targetType;
+          return (
+            <HeatmapCell
+              key={drillKey}
+              date={date}
+              regionName={regionName}
+              targetType={targetType}
+              briefingDays={briefingDays}
+              qualityTier={qualityTier}
+              isActive={isActive}
+              onToggle={toggleDrillDown}
+              evaluationScores={evaluationScores}
+              showAllLocations={showAllLocations}
+              travelDayDates={travelDayDates}
+            />
+          );
+        })}
+
+        {/* Drill-down panel — spans full grid width */}
+        {drillDown?.regionName === regionName && drillDown?.date && (
+          <HeatmapDrillDown
+            date={drillDown.date}
+            regionName={regionName}
+            targetType={drillDown.targetType}
+            briefingDays={briefingDays}
+            driveMap={driveMap}
+            typeMap={typeMap}
+            onClose={() => setDrillDown(null)}
+            onShowOnMap={onShowOnMap}
+            evaluationScores={evaluationScores}
+            isPro={isPro}
+            showAllLocations={showAllLocations}
+            onShowAllLocationsChange={onShowAllLocationsChange}
+          />
+        )}
+      </React.Fragment>
+    );
+  };
 
   return (
     <div
@@ -928,103 +1061,28 @@ export default function HeatmapGrid({
         </div>
       ))}
 
-      {/* ── Region rows ── */}
-      {reorderedRegions.map((regionName) => {
-        const fullyHidden = isRegionFullyHidden(regionName);
+      {/* ── Region rows (rated lead; poor rows pooled behind a reveal) ── */}
+      {leadRows.map((regionName) => renderRegionRow(regionName))}
 
-        return (
-          <React.Fragment key={regionName}>
-            {/* Region label */}
-            <div
-              className="font-medium text-plex-text px-1 py-2 flex items-start transition-opacity duration-300"
-              style={{
-                fontSize: '13px',
-                overflowWrap: 'break-word',
-                wordBreak: 'break-word',
-                minWidth: 0,
-                opacity: fullyHidden ? 0.06 : 1,
-              }}
-              aria-hidden={fullyHidden}
-            >
-              {regionName}
-            </div>
-
-            {/* Event cells */}
-            {events.map(({ date, targetType }) => {
-              const drillKey = `${date}-${regionName}-${targetType}`;
-
-              // Astro cells use a different rendering path
-              if (targetType === 'ASTRO') {
-                const dateScores = astroScoresByDate[date] || {};
-                const regionLocNames = getRegionLocationNames(date, regionName, briefingDays);
-                const astroStars = regionLocNames
-                  .map((n) => dateScores[n]?.stars)
-                  .filter((s) => s != null);
-                const bestStars = astroStars.length > 0 ? Math.max(...astroStars) : null;
-                return (
-                  <button
-                    key={drillKey}
-                    data-testid="astro-heatmap-cell"
-                    className={`rounded border text-center p-1.5 transition-all ${
-                      bestStars != null
-                        ? 'cursor-pointer hover:scale-[1.01]'
-                        : 'bg-plex-surface/30 border-plex-border/20 text-plex-text-muted cursor-default'
-                    }`}
-                    style={bestStars != null ? ratingStyle(bestStars) : undefined}
-                    disabled={bestStars == null}
-                    onClick={bestStars != null ? () => onShowOnMap?.(date, 'ASTRO') : undefined}
-                    title={bestStars != null ? `Best astro: ${bestStars}★ — tap to view on map` : 'No dark-sky locations in this region'}
-                  >
-                    {bestStars != null ? (
-                      <div className="font-bold" style={{ fontSize: '12px' }}>{bestStars}★</div>
-                    ) : (
-                      <div style={{ fontSize: '12px' }}>—</div>
-                    )}
-                  </button>
-                );
-              }
-
-              const isActive =
-                drillDown?.date === date &&
-                drillDown?.regionName === regionName &&
-                drillDown?.targetType === targetType;
-              return (
-                <HeatmapCell
-                  key={drillKey}
-                  date={date}
-                  regionName={regionName}
-                  targetType={targetType}
-                  briefingDays={briefingDays}
-                  qualityTier={qualityTier}
-                  isActive={isActive}
-                  onToggle={toggleDrillDown}
-                  evaluationScores={evaluationScores}
-                  showAllLocations={showAllLocations}
-                  travelDayDates={travelDayDates}
-                />
-              );
-            })}
-
-            {/* Drill-down panel — spans full grid width */}
-            {drillDown?.regionName === regionName && drillDown?.date && (
-              <HeatmapDrillDown
-                date={drillDown.date}
-                regionName={regionName}
-                targetType={drillDown.targetType}
-                briefingDays={briefingDays}
-                driveMap={driveMap}
-                typeMap={typeMap}
-                onClose={() => setDrillDown(null)}
-                onShowOnMap={onShowOnMap}
-                evaluationScores={evaluationScores}
-                isPro={isPro}
-                showAllLocations={showAllLocations}
-                onShowAllLocationsChange={onShowAllLocationsChange}
-              />
-            )}
-          </React.Fragment>
-        );
-      })}
+      {/* A3a: full-width toggle revealing the poor-only region rows */}
+      {poolPoor && (
+        <button
+          type="button"
+          data-testid="heatmap-poor-toggle"
+          aria-expanded={showPoorRegions}
+          onClick={() => setShowPoorRegions((v) => !v)}
+          // Secondary (0.66a), not muted (0.42a): this is the sole affordance to reveal the pooled
+          // rows, so its label must clear comfortable contrast at rest — hover never fires for
+          // keyboard/touch users. Matches the C3 fine-print bump.
+          className="font-mono text-plex-text-secondary hover:text-plex-text border border-plex-border hover:border-plex-border-light rounded transition-colors"
+          style={{ gridColumn: '1 / -1', fontSize: '11px', padding: '6px 10px', marginTop: '2px', justifySelf: 'stretch' }}
+        >
+          {showPoorRegions
+            ? 'Hide poor regions ▴'
+            : `+${poorRegions.length} region${poorRegions.length !== 1 ? 's' : ''} · all poor ▾`}
+        </button>
+      )}
+      {poolPoor && showPoorRegions && poorRegions.map((regionName) => renderRegionRow(regionName, true))}
     </div>
   );
 }

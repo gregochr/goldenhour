@@ -1801,6 +1801,8 @@ describe('DailyBriefing', () => {
       getDailyBriefing.mockResolvedValue(buildBriefing());
       render(<DailyBriefing />);
       await openFullGrid();
+      // Poor-only regions are pooled behind a reveal (A3a); open it to reach the STANDDOWN cells.
+      fireEvent.click(screen.getByTestId('heatmap-poor-toggle'));
       const cells = screen.getAllByTestId('heatmap-cell');
       const disabledCells = cells.filter((c) => c.getAttribute('aria-disabled') === 'true');
       expect(disabledCells.length).toBeGreaterThanOrEqual(1);

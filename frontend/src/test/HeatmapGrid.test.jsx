@@ -1324,3 +1324,170 @@ describe('HeatmapGrid — clickable location name', () => {
     expect(onShowOnMap).toHaveBeenCalledWith(DATE_1, 'SUNSET', 'Bamburgh');
   });
 });
+
+// ── A3a: poor-region pooling ─────────────────────────────────────────────────
+
+/**
+ * Builds briefing days with a mix of rated (GO) and poor (STANDDOWN) regions so the
+ * pooling split can be exercised. Each named region carries the given verdict on every date.
+ */
+function buildRegionsDays(dates, regions) {
+  return dates.map((date) => ({
+    date,
+    eventSummaries: [
+      {
+        targetType: 'SUNSET',
+        regions: regions.map(({ name, verdict, displayVerdict }) => ({
+          regionName: name,
+          verdict,
+          displayVerdict,
+          summary: verdict === 'GO' ? 'Clear skies' : 'Overcast',
+          slots: [{ locationName: `${name} spot`, verdict, solarEventTime: `${date}T19:30:00` }],
+        })),
+      },
+    ],
+  }));
+}
+
+function renderMixedGrid(regions) {
+  return render(
+    <HeatmapGrid
+      events={[{ date: DATE_1, targetType: 'SUNSET' }, { date: DATE_2, targetType: 'SUNSET' }]}
+      sortedRegions={regions.map((r) => r.name)}
+      briefingDays={buildRegionsDays([DATE_1, DATE_2], regions)}
+      qualityTier={5}
+      driveMap={new Map()}
+      typeMap={new Map()}
+      todayStr={futureDateStr(0)}
+      tomorrowStr={DATE_1}
+      onShowOnMap={vi.fn()}
+      astroScoresByDate={{}}
+      travelDayDates={new Set()}
+    />,
+  );
+}
+
+describe('HeatmapGrid — poor-region pooling (A3a)', () => {
+  const RATED = { name: 'Rated Region', verdict: 'GO', displayVerdict: 'WORTH_IT' };
+  const POOR_A = { name: 'Poor Alpha', verdict: 'STANDDOWN', displayVerdict: 'STAND_DOWN' };
+  const POOR_B = { name: 'Poor Beta', verdict: 'STANDDOWN', displayVerdict: 'STAND_DOWN' };
+
+  it('hides poor-only rows behind a reveal, and the toggle shows them', () => {
+    renderMixedGrid([RATED, POOR_A, POOR_B]);
+
+    // Rated region leads; the two poor regions are pooled away initially.
+    expect(screen.getByText('Rated Region')).toBeInTheDocument();
+    expect(screen.queryByText('Poor Alpha')).toBeNull();
+    expect(screen.queryByText('Poor Beta')).toBeNull();
+
+    const toggle = screen.getByTestId('heatmap-poor-toggle');
+    expect(toggle.textContent).toContain('+2 regions · all poor');
+
+    fireEvent.click(toggle);
+    expect(screen.getByText('Poor Alpha')).toBeInTheDocument();
+    expect(screen.getByText('Poor Beta')).toBeInTheDocument();
+    expect(toggle.textContent).toContain('Hide poor regions');
+  });
+
+  it('uses the singular for a single pooled region', () => {
+    renderMixedGrid([RATED, POOR_A]);
+    expect(screen.getByTestId('heatmap-poor-toggle').textContent).toContain('+1 region · all poor');
+  });
+
+  it('renders no toggle when every region is rated', () => {
+    renderMixedGrid([RATED, { name: 'Second Rated', verdict: 'GO', displayVerdict: 'WORTH_IT' }]);
+    expect(screen.queryByTestId('heatmap-poor-toggle')).toBeNull();
+    expect(screen.getByText('Rated Region')).toBeInTheDocument();
+    expect(screen.getByText('Second Rated')).toBeInTheDocument();
+  });
+
+  it('renders no toggle and shows all rows when every region is poor', () => {
+    // An all-poor week has nothing rated to lead with, so pooling would leave an empty grid —
+    // show every row instead.
+    renderMixedGrid([POOR_A, POOR_B]);
+    expect(screen.queryByTestId('heatmap-poor-toggle')).toBeNull();
+    expect(screen.getByText('Poor Alpha')).toBeInTheDocument();
+    expect(screen.getByText('Poor Beta')).toBeInTheDocument();
+  });
+
+  it('keeps a row out of the pool when any date in the window is GO/MARGINAL', () => {
+    // isRegionAllPoor scans EVERY event across the window: one rated date rescues the row. Two
+    // split regions with opposite orderings (rescued-late vs rescued-early) mean any single-date
+    // mis-scope — first-only OR last-only — mis-pools at least one and fails this test. Also
+    // exercises the MAYBE branch of the predicate, which no same-verdict fixture covers.
+    const LATE = 'Rescued Late'; // poor on DATE_1, MAYBE on DATE_2
+    const EARLY = 'Rescued Early'; // MAYBE on DATE_1, poor on DATE_2
+    const mk = (name, verdict, displayVerdict, date) => ({
+      regionName: name,
+      verdict,
+      displayVerdict,
+      summary: verdict === 'STANDDOWN' ? 'Overcast' : 'Maybe',
+      slots: [{ locationName: `${name} spot`, verdict, solarEventTime: `${date}T19:30:00` }],
+    });
+    const days = [
+      { date: DATE_1, eventSummaries: [{ targetType: 'SUNSET', regions: [
+        mk(LATE, 'STANDDOWN', 'STAND_DOWN', DATE_1),
+        mk(EARLY, 'MARGINAL', 'MAYBE', DATE_1),
+        mk(POOR_A.name, 'STANDDOWN', 'STAND_DOWN', DATE_1)] }] },
+      { date: DATE_2, eventSummaries: [{ targetType: 'SUNSET', regions: [
+        mk(LATE, 'MARGINAL', 'MAYBE', DATE_2),
+        mk(EARLY, 'STANDDOWN', 'STAND_DOWN', DATE_2),
+        mk(POOR_A.name, 'STANDDOWN', 'STAND_DOWN', DATE_2)] }] },
+    ];
+    render(
+      <HeatmapGrid
+        events={[{ date: DATE_1, targetType: 'SUNSET' }, { date: DATE_2, targetType: 'SUNSET' }]}
+        sortedRegions={[LATE, EARLY, POOR_A.name]}
+        briefingDays={days}
+        qualityTier={5}
+        driveMap={new Map()}
+        typeMap={new Map()}
+        todayStr={futureDateStr(0)}
+        tomorrowStr={DATE_1}
+        onShowOnMap={vi.fn()}
+        astroScoresByDate={{}}
+        travelDayDates={new Set()}
+      />,
+    );
+    // Both split regions are rescued into the rated lead; only Poor Alpha (poor on both dates) pools.
+    expect(screen.getByText('Rescued Late')).toBeInTheDocument();
+    expect(screen.getByText('Rescued Early')).toBeInTheDocument();
+    expect(screen.getByTestId('heatmap-poor-toggle').textContent).toContain('+1 region · all poor');
+    expect(screen.queryByText('Poor Alpha')).toBeNull();
+  });
+
+  it('re-collapses the reveal after pooling deactivates then reactivates (no sticky auto-expand)', () => {
+    // F4: the reveal flag must not leak across briefing refreshes. Open the pool, refresh to an
+    // all-rated set (pooling off), then back to a mixed set — the pool must start collapsed again.
+    const gridEl = (regions) => (
+      <HeatmapGrid
+        events={[{ date: DATE_1, targetType: 'SUNSET' }, { date: DATE_2, targetType: 'SUNSET' }]}
+        sortedRegions={regions.map((r) => r.name)}
+        briefingDays={buildRegionsDays([DATE_1, DATE_2], regions)}
+        qualityTier={5}
+        driveMap={new Map()}
+        typeMap={new Map()}
+        todayStr={futureDateStr(0)}
+        tomorrowStr={DATE_1}
+        onShowOnMap={vi.fn()}
+        astroScoresByDate={{}}
+        travelDayDates={new Set()}
+      />
+    );
+    const SECOND_RATED = { name: 'Second Rated', verdict: 'GO', displayVerdict: 'WORTH_IT' };
+    const { rerender } = render(gridEl([RATED, POOR_A]));
+
+    // User opens the pool.
+    fireEvent.click(screen.getByTestId('heatmap-poor-toggle'));
+    expect(screen.getByText('Poor Alpha')).toBeInTheDocument();
+
+    // Refresh to an all-rated set: pooling deactivates.
+    rerender(gridEl([RATED, SECOND_RATED]));
+    expect(screen.queryByTestId('heatmap-poor-toggle')).toBeNull();
+
+    // Refresh back to a mixed set: the pool is collapsed again, not sticky-open.
+    rerender(gridEl([RATED, POOR_A]));
+    expect(screen.getByTestId('heatmap-poor-toggle').textContent).toContain('all poor');
+    expect(screen.queryByText('Poor Alpha')).toBeNull();
+  });
+});
