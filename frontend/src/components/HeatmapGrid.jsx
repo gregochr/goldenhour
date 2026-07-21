@@ -503,7 +503,7 @@ function computeCellTipPlacement(rect) {
   return { style, alignRight };
 }
 
-function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map(), showAllLocations = false, travelDayDates = new Set(), todayStr = null }) {  const cellData = getSubCellData(date, regionName, targetType, briefingDays);
+function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map(), showAllLocations = false, todayStr = null }) {  const cellData = getSubCellData(date, regionName, targetType, briefingDays);
 
   // Hover tooltip placement, portalled to <body> so the plan card's overflow:hidden can't clip
   // the rightmost column's tip. Declared before any early return to satisfy the rules of hooks.
@@ -525,28 +525,6 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
   }
 
   const { region, past } = cellData;
-
-  // Travel day — the operator is away, so no forecast was run for this date. Show a neutral
-  // "Away" rather than a verdict like "Poor", which would falsely assert an evaluated judgement.
-  if (travelDayDates.has(date)) {
-    return (
-      <div
-        data-testid="heatmap-cell-away"
-        title="You're away on this day — forecast not run"
-        className="flex items-center justify-center rounded border"
-        style={{
-          minHeight: '52px',
-          background: 'rgba(148,113,74,0.06)',
-          borderColor: 'rgba(148,113,74,0.15)',
-          cursor: 'default',
-        }}
-      >
-        <span className="text-plex-text-muted" style={{ fontSize: '10px', opacity: 0.7 }}>
-          ✈️ Away
-        </span>
-      </div>
-    );
-  }
 
   const cellTier = computeCellTier(region);
   const visible = isCellVisible(cellTier, qualityTier);
@@ -745,11 +723,18 @@ export default function HeatmapGrid({
   const [showPoorRegions, setShowPoorRegions] = useState(false); // A3a: reveal the pooled poor-only rows
   const [prevPoolPoor, setPrevPoolPoor] = useState(false); // tracks poolPoor to reset the reveal (F4)
 
-  // Compute day groups from events for dynamic header spanning
+  // A3b: away days (travel days with no forecast) are dropped from the grid's columns and shown as
+  // a slim band below it, so the reclaimed width goes to the real forecast days (the cramped ones).
+  const gridEvents = useMemo(
+    () => events.filter((ev) => !travelDayDates.has(ev.date)),
+    [events, travelDayDates],
+  );
+
+  // Compute day groups from the forecast (non-away) events for dynamic header spanning
   const dayGroups = useMemo(() => {
     const groups = [];
     let current = null;
-    for (const ev of events) {
+    for (const ev of gridEvents) {
       if (!current || current.date !== ev.date) {
         current = { date: ev.date, count: 1 };
         groups.push(current);
@@ -758,7 +743,7 @@ export default function HeatmapGrid({
       }
     }
     return groups;
-  }, [events]);
+  }, [gridEvents]);
 
   // Extract the first sunrise and sunset solarEventTime for each date
   const solarTimesPerDate = useMemo(() => {
@@ -791,8 +776,24 @@ export default function HeatmapGrid({
 
   if (sortedRegions.length === 0 || events.length === 0) return null;
 
-  const numEventCols = events.length;
+  const numEventCols = gridEvents.length;
   const gridCols = `minmax(100px, 140px) repeat(${numEventCols}, minmax(0, 1fr))`;
+
+  // Group the in-view away dates into consecutive runs, one band per run (e.g. Mon–Tue).
+  const awayDatesInView = [...new Set(events.map((ev) => ev.date).filter((d) => travelDayDates.has(d)))].sort();
+  const awayRuns = [];
+  for (const date of awayDatesInView) {
+    const run = awayRuns[awayRuns.length - 1];
+    const prev = run?.[run.length - 1];
+    const consecutive = prev
+      && Date.parse(`${date}T00:00:00Z`) - Date.parse(`${prev}T00:00:00Z`) === 86400000;
+    if (consecutive) run.push(date);
+    else awayRuns.push([date]);
+  }
+  const awayRunLabel = (run) => {
+    const start = getDayLabel(run[0], todayStr, tomorrowStr);
+    return run.length === 1 ? start : `${start}–${getDayLabel(run[run.length - 1], todayStr, tomorrowStr)}`;
+  };
 
   const toggleDrillDown = (date, regionName, targetType) => {
     setDrillDown((prev) => {
@@ -805,7 +806,7 @@ export default function HeatmapGrid({
   const reorderedRegions = [...sortedRegions].sort((a, b) => {
     let bestA = 6;
     let bestB = 6;
-    for (const { date, targetType } of events) {
+    for (const { date, targetType } of gridEvents) {
       const cdA = getSubCellData(date, a, targetType, briefingDays);
       const cdB = getSubCellData(date, b, targetType, briefingDays);
       if (cdA && !cdA.past) {
@@ -822,7 +823,7 @@ export default function HeatmapGrid({
 
   // Check whether all cells in a region row are hidden (for label fading)
   function isRegionFullyHidden(regionName) {
-    for (const { date, targetType } of events) {
+    for (const { date, targetType } of gridEvents) {
       const cd = getSubCellData(date, regionName, targetType, briefingDays);
       if (!cd || cd.past) continue;
       const t = computeCellTier(cd.region);
@@ -839,8 +840,7 @@ export default function HeatmapGrid({
   // already trail. Split them off and tuck them behind a full-width toggle so a rated-heavy grid
   // isn't mostly dead cells the eye must scan past.
   function isRegionAllPoor(regionName) {
-    for (const { date, targetType } of events) {
-      if (travelDayDates.has(date)) continue; // away days assert no verdict
+    for (const { date, targetType } of gridEvents) {
       const cd = getSubCellData(date, regionName, targetType, briefingDays);
       if (!cd || cd.past || !cd.region) continue;
       const dv = resolveRegionDisplay(cd.region);
@@ -885,8 +885,8 @@ export default function HeatmapGrid({
           {regionName}
         </div>
 
-        {/* Event cells */}
-        {events.map(({ date, targetType }) => {
+        {/* Event cells (away days are excluded from the columns — shown as a band below) */}
+        {gridEvents.map(({ date, targetType }) => {
           const drillKey = `${date}-${regionName}-${targetType}`;
 
           // Astro cells use a different rendering path
@@ -936,14 +936,16 @@ export default function HeatmapGrid({
               onToggle={toggleDrillDown}
               evaluationScores={evaluationScores}
               showAllLocations={showAllLocations}
-              travelDayDates={travelDayDates}
               todayStr={todayStr}
             />
           );
         })}
 
-        {/* Drill-down panel — spans full grid width */}
-        {drillDown?.regionName === regionName && drillDown?.date && (
+        {/* Drill-down panel — spans full grid width. Gated on the drill-down's date still being a
+            forecast column: if a briefing refresh reclassifies that date as away (A3b drops it from
+            gridEvents into the band), the panel must not linger orphaned below a column that's gone. */}
+        {drillDown?.regionName === regionName && drillDown?.date
+          && gridEvents.some((ev) => ev.date === drillDown.date) && (
           <HeatmapDrillDown
             date={drillDown.date}
             regionName={regionName}
@@ -964,11 +966,13 @@ export default function HeatmapGrid({
   };
 
   return (
-    <div
-      data-testid="briefing-heatmap"
-      className="hidden sm:grid gap-1 mt-2"
-      style={{ gridTemplateColumns: gridCols }}
-    >
+    <>
+      {gridEvents.length > 0 && (
+      <div
+        data-testid="briefing-heatmap"
+        className="hidden sm:grid gap-1 mt-2"
+        style={{ gridTemplateColumns: gridCols }}
+      >
       {/* ── Header row: corner + day-spanning headers ── */}
       <div className="px-1 py-1" style={{ fontSize: '12px', color: 'var(--color-plex-text-secondary)' }}>
         Region
@@ -1048,23 +1052,13 @@ export default function HeatmapGrid({
                 )}
               </div>
             </div>
-            {travelDayDates.has(date) && (
-              <div
-                data-testid="heatmap-travel-day-badge"
-                title="You're away on this day — forecast not executed"
-                className="mt-1 inline-block text-plex-text-muted border border-plex-border rounded-full px-1.5"
-                style={{ fontSize: '10px' }}
-              >
-                ✈️ Away — no forecast
-              </div>
-            )}
           </div>
         );
       })}
 
       {/* ── Sub-column header row: 🌅 / 🌇 ── */}
       <div /> {/* empty corner */}
-      {events.map(({ date, targetType }) => (
+      {gridEvents.map(({ date, targetType }) => (
         <div
           key={`${date}-${targetType}`}
           className="text-center text-plex-text-muted pb-0.5"
@@ -1097,7 +1091,32 @@ export default function HeatmapGrid({
         </button>
       )}
       {poolPoor && showPoorRegions && poorRegions.map((regionName) => renderRegionRow(regionName, true))}
-    </div>
+      </div>
+      )}
+
+      {/* ── A3b: away days collapsed into slim consecutive-range band(s) below the grid ── */}
+      {awayRuns.length > 0 && (
+        <div data-testid="heatmap-away-bands" className="hidden sm:flex sm:flex-col gap-1 mt-1">
+          {awayRuns.map((run) => (
+            <div
+              key={run[0]}
+              data-testid="heatmap-away-band"
+              className="font-mono"
+              style={{
+                fontSize: '11px',
+                color: 'var(--color-tide)',
+                border: '1px dashed var(--color-plex-border-light)',
+                background: 'rgba(111,168,176,0.06)',
+                borderRadius: '6px',
+                padding: '4px 10px',
+              }}
+            >
+              ✈ {awayRunLabel(run)} · away — no forecast generated
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 

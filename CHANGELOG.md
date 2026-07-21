@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Away days collapse into a slim band below the full grid (Plan-screen signal cleanup A3b)
+- **Travel/away days no longer eat a full greyed grid column.** An away day (no forecast run) previously rendered as a whole column of "✈️ Away" cells plus a header badge, taking the same width as a real forecast day — so two of four columns could be dead. Away days are now dropped from the grid's columns and shown as a slim band below it (`✈ Tomorrow–Thursday · away — no forecast generated`), with **consecutive away days collapsed into one band**; the reclaimed width goes to the real forecast days (the cramped ones carrying every actual cell). The compact summary strip is unchanged — it still shows its away pills. An open drill-down whose date gets reclassified as away (on a briefing refresh) is now dismissed rather than left orphaned. This clears the last item from Change A.
+
 ### Added — Confidence marker on drill-down and mobile region pills (Change B follow-up)
 - **The shared `VerdictPill` now carries the confidence channel**, so the drill-down region rows and the mobile region cards read on the same channel as the grid cells and Best Bet: a low-confidence (provisional) region verdict appends the small quiet marker. Only rated verdicts (Worth it / Maybe) are marked — a poor/awaiting pill is already its own signal — and the pill stays structurally unchanged whenever there's no marker. Wired at the three region-level call sites; the per-location slot pills stay clean, since confidence is a region property. This clears the last deferred Change B item.
 
