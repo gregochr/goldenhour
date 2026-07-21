@@ -100,6 +100,23 @@ class ConfidenceDeriverTest {
     }
 
     @Nested
+    class HorizonOnly {
+
+        @Test
+        void maps_bands_and_is_never_null() {
+            // The per-evaluation (forecast_evaluation.confidence) derivation — horizon only, no
+            // spread, never null since an evaluated row always has a known horizon.
+            assertThat(ConfidenceDeriver.fromHorizon(0)).isEqualTo(Confidence.HIGH);
+            assertThat(ConfidenceDeriver.fromHorizon(1)).isEqualTo(Confidence.HIGH);
+            assertThat(ConfidenceDeriver.fromHorizon(2)).isEqualTo(Confidence.MEDIUM);
+            assertThat(ConfidenceDeriver.fromHorizon(3)).isEqualTo(Confidence.MEDIUM);
+            assertThat(ConfidenceDeriver.fromHorizon(4)).isEqualTo(Confidence.LOW);
+            assertThat(ConfidenceDeriver.fromHorizon(10)).isEqualTo(Confidence.LOW);
+            assertThat(ConfidenceDeriver.fromHorizon(-1)).isEqualTo(Confidence.HIGH);
+        }
+    }
+
+    @Nested
     class UnknownSignal {
 
         @Test

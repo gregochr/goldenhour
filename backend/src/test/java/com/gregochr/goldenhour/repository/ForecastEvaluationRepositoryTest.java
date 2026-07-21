@@ -2,6 +2,8 @@ package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.model.Confidence;
+import com.gregochr.goldenhour.service.ConfidenceDeriver;
 import com.gregochr.goldenhour.entity.TideDetails;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -70,6 +72,34 @@ class ForecastEvaluationRepositoryTest {
         assertThat(found.get().getFierySkyPotential()).isEqualTo(65);
         assertThat(found.get().getGoldenHourPotential()).isEqualTo(72);
         assertThat(found.get().getEvaluationModel()).isEqualTo(EvaluationModel.SONNET);
+    }
+
+    @Test
+    @DisplayName("Horizon-derived confidence persists and round-trips to the Confidence enum")
+    void confidence_persistsAndRoundTrips() {
+        ForecastEvaluationEntity entity = buildSonnetEvaluation(
+                durham, LocalDate.of(2026, 2, 20), TargetType.SUNSET,
+                LocalDateTime.of(2026, 2, 18, 6, 0), 2);
+        entity.setConfidence(ConfidenceDeriver.fromHorizon(2).name()); // T+2 → MEDIUM
+
+        ForecastEvaluationEntity saved = repository.save(entity);
+
+        ForecastEvaluationEntity found = repository.findById(saved.getId()).orElseThrow();
+        assertThat(found.getConfidence()).isEqualTo("MEDIUM");
+        assertThat(Confidence.fromString(found.getConfidence())).isEqualTo(Confidence.MEDIUM);
+    }
+
+    @Test
+    @DisplayName("A row with confidence left unset (legacy pre-migration) round-trips as null")
+    void nullConfidence_roundTrips() {
+        ForecastEvaluationEntity entity = buildSonnetEvaluation(
+                durham, LocalDate.of(2026, 2, 21), TargetType.SUNRISE,
+                LocalDateTime.of(2026, 2, 18, 6, 0), 3);
+        // confidence intentionally left unset
+
+        ForecastEvaluationEntity saved = repository.save(entity);
+
+        assertThat(repository.findById(saved.getId()).orElseThrow().getConfidence()).isNull();
     }
 
     @Test

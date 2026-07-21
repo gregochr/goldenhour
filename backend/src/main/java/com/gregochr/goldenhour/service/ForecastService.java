@@ -615,6 +615,7 @@ public class ForecastService {
                 .targetType(type)
                 .forecastRunAt(LocalDateTime.now(ZoneOffset.UTC))
                 .daysAhead(daysAhead)
+                .confidence(ConfidenceDeriver.fromHorizon(daysAhead).name())
                 .lowCloud(data.cloud().lowCloudPercent())
                 .midCloud(data.cloud().midCloudPercent())
                 .highCloud(data.cloud().highCloudPercent())
