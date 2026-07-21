@@ -93,31 +93,108 @@ describe('HeatmapGrid — no aurora cells after column removal', () => {
   });
 });
 
-describe('HeatmapGrid — travel-day badge', () => {
-  it('renders an "Away — no forecast" badge in the header of a travel day', () => {
+describe('HeatmapGrid — away days (A3b band)', () => {
+  it('renders an away day as a band below the grid, not a column', () => {
+    // DATE_1 is a travel day, DATE_2 a real forecast day: DATE_1 drops out of the columns and
+    // appears in the band; the grid keeps rendering DATE_2 (and reclaims its width).
     renderGrid({ travelDayDates: new Set([DATE_1]) });
-    const badges = screen.getAllByTestId('heatmap-travel-day-badge');
-    expect(badges).toHaveLength(1);
-    expect(badges[0].textContent).toContain('no forecast');
+
+    const bands = screen.getAllByTestId('heatmap-away-band');
+    expect(bands).toHaveLength(1);
+    expect(bands[0].textContent).toContain('no forecast generated');
+    expect(bands[0].textContent).toContain('Tomorrow'); // DATE_1 === tomorrowStr
+    // Only the real day survives as a column header.
+    expect(screen.getAllByTestId('heatmap-day-header')).toHaveLength(1);
   });
 
-  it('renders no travel-day badge when no dates are travel days', () => {
+  it('renders no away band when there are no travel days', () => {
     renderGrid({ travelDayDates: new Set() });
-    expect(screen.queryByTestId('heatmap-travel-day-badge')).toBeNull();
+    expect(screen.queryByTestId('heatmap-away-band')).toBeNull();
+    expect(screen.queryByTestId('heatmap-away-bands')).toBeNull();
   });
 
-  it('shows "Away" (not a verdict) in a travel-day cell', () => {
-    // A single GO column that would otherwise read "Worth it sunset" must read "Away" on a
-    // travel day, and must not assert a verdict cell for that date.
+  it('drops the away day from the columns entirely — no away cell, no grid when all away', () => {
     renderGrid({
       events: [{ date: DATE_1, targetType: 'SUNSET' }],
       travelDayDates: new Set([DATE_1]),
     });
 
-    const awayCells = screen.getAllByTestId('heatmap-cell-away');
-    expect(awayCells.length).toBeGreaterThan(0);
-    expect(awayCells[0].textContent).toContain('Away');
+    expect(screen.getByTestId('heatmap-away-band')).toBeInTheDocument();
     expect(screen.queryByTestId('heatmap-cell')).toBeNull();
+    expect(screen.queryByTestId('heatmap-cell-away')).toBeNull(); // old away-column cell is gone
+    expect(screen.queryByTestId('briefing-heatmap')).toBeNull(); // no forecast columns → no grid
+  });
+
+  it('collapses consecutive away days into a single range band', () => {
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }, { date: DATE_2, targetType: 'SUNSET' }],
+      travelDayDates: new Set([DATE_1, DATE_2]),
+    });
+
+    const endLabel = new Date(`${DATE_2}T12:00:00Z`)
+      .toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
+    const bands = screen.getAllByTestId('heatmap-away-band');
+    expect(bands).toHaveLength(1); // one band for the whole run, not two
+    expect(bands[0].textContent).toContain(`Tomorrow–${endLabel}`); // pins both ends of the range
+    expect(bands[0].textContent).toContain('no forecast generated');
+  });
+
+  it('renders non-consecutive away days as separate bands, keeping the real day a column', () => {
+    const DATE_3 = futureDateStr(3);
+    renderGrid({
+      events: [
+        { date: DATE_1, targetType: 'SUNSET' },
+        { date: DATE_2, targetType: 'SUNSET' },
+        { date: DATE_3, targetType: 'SUNSET' },
+      ],
+      briefingDays: buildBriefingDays([DATE_1, DATE_2, DATE_3], 'North East', ['Bamburgh']),
+      travelDayDates: new Set([DATE_1, DATE_3]), // gap at DATE_2 (a real forecast day)
+    });
+
+    // Two separate bands, not one spanning the real day between them.
+    const bands = screen.getAllByTestId('heatmap-away-band');
+    expect(bands).toHaveLength(2);
+    bands.forEach((b) => expect(b.textContent).not.toContain('–'));
+    expect(screen.getAllByTestId('heatmap-day-header')).toHaveLength(1); // only DATE_2 survives
+  });
+
+  it('dedupes multiple event types on the same away date into one band', () => {
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNRISE' }, { date: DATE_1, targetType: 'SUNSET' }],
+      travelDayDates: new Set([DATE_1]),
+    });
+    expect(screen.getAllByTestId('heatmap-away-band')).toHaveLength(1);
+  });
+
+  it('dismisses an open drill-down when its date is reclassified as away (F3)', () => {
+    const region = {
+      regionName: 'North East', verdict: 'GO', displayVerdict: 'WORTH_IT', summary: 'Clear skies',
+      slots: [{ locationName: 'Bamburgh', verdict: 'GO', displayVerdict: 'WORTH_IT', solarEventTime: `${DATE_1}T19:30:00` }],
+    };
+    const days = [{ date: DATE_1, eventSummaries: [{ targetType: 'SUNSET', regions: [region] }] }];
+    const gridEl = (travelDayDates) => (
+      <HeatmapGrid
+        events={[{ date: DATE_1, targetType: 'SUNSET' }]}
+        sortedRegions={['North East']}
+        briefingDays={days}
+        qualityTier={5}
+        driveMap={new Map()}
+        typeMap={new Map()}
+        todayStr={futureDateStr(0)}
+        tomorrowStr={DATE_1}
+        onShowOnMap={vi.fn()}
+        astroScoresByDate={{}}
+        travelDayDates={travelDayDates}
+      />
+    );
+    const { rerender } = render(gridEl(new Set()));
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+    expect(screen.getByTestId('drill-down-event-row')).toBeInTheDocument();
+
+    // A briefing refresh reclassifies DATE_1 as a travel day — the orphaned drill-down must go.
+    rerender(gridEl(new Set([DATE_1])));
+    expect(screen.queryByTestId('drill-down-event-row')).toBeNull();
+    expect(screen.getByTestId('heatmap-away-band')).toBeInTheDocument();
   });
 });
 
