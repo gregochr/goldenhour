@@ -584,6 +584,7 @@ function EventDrillList({ events, driveMap, typeMap, date, onShowOnMap }) {  con
                 displayVerdict={region.displayVerdict}
                 verdict={region.verdict}
                 label={region.verdictLabel}
+                confidence={region.confidence}
               />
               <span className="text-plex-text-secondary flex-1 truncate" style={{ fontSize: '12px' }}>
                 {region.summary}
@@ -665,7 +666,7 @@ function MobileRegionCard({ date, regionName, briefingDays, driveMap, typeMap, i
         style={{ pointerEvents: isStanddown ? 'none' : undefined }}
         onClick={isStanddown ? undefined : onToggle}
       >
-        <VerdictPill displayVerdict={bestDisplay} label={bestRegion?.verdictLabel} />
+        <VerdictPill displayVerdict={bestDisplay} label={bestRegion?.verdictLabel} confidence={bestRegion?.confidence} />
         <span className="font-medium text-plex-text flex-1" style={{ fontSize: '13px' }}>
           {regionName}
         </span>

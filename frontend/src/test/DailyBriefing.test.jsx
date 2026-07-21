@@ -454,6 +454,25 @@ describe('DailyBriefing', () => {
     expect(pillTexts).toContain('Worth it');
   });
 
+  it('marks a low-confidence region card pill as provisional (MobileRegionCard wiring)', async () => {
+    // Wiring guard for DailyBriefing's region-level pill: a low-confidence Worth-it region card
+    // carries the shared provisional marker (bestRegion.confidence -> VerdictPill).
+    localStorage.setItem('plannerQualityTier', JSON.stringify(5));
+    const briefing = buildBriefing();
+    briefing.days.forEach((d) => d.eventSummaries.forEach((es) => es.regions.forEach((r) => {
+      if (r.verdict === 'GO') r.confidence = 'low';
+    })));
+    getDailyBriefing.mockResolvedValue(briefing);
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-toggle'));
+    fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+    const worthItRow = screen.getAllByTestId('region-row').find(
+      (row) => row.querySelector('[data-testid="verdict-pill"]')?.textContent === 'Worth it');
+    expect(worthItRow).toBeTruthy();
+    expect(worthItRow.querySelector('[data-testid="provisional-mark"]')).not.toBeNull();
+  });
+
   it('shows Maybe verdict pill for MARGINAL region', async () => {
     localStorage.setItem('plannerQualityTier', JSON.stringify(5));
     getDailyBriefing.mockResolvedValue(buildBriefing());
