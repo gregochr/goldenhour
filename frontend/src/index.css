@@ -208,9 +208,13 @@
 }
 
 /* Enriched hot-topic fact line: on narrow viewports drop the least-critical (`.opt`) chips so
-   the line stays to the headline metric plus the "where to look" note. */
+   the line stays to the headline metric plus the "where to look" note. The certainty-vocabulary
+   chip is likewise meta rather than content, so it drops on mobile to keep the pill's detail
+   sentence its full width (the chip sits in the no-shrink label group, so it would otherwise
+   steal from the flex-1 detail). */
 @media (max-width: 639px) {
-  .hot-topic-facts .opt {
+  .hot-topic-facts .opt,
+  .certainty-chip {
     display: none;
   }
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import PropTypes from 'prop-types';
 import InfoTip from './InfoTip.jsx';
+import CertaintyChip from './shared/CertaintyChip.jsx';
 import { bortleLabel, moonIlluminationStyle, MOON_EMOJI } from '../utils/conversions.js';
 
 /**
@@ -826,6 +827,9 @@ export default function HotTopicStrip({
                     />
                   </span>
                 )}
+                {/* Certainty vocabulary — names the KIND of certainty (almanac / forecast /
+                    chance) so a fixed tide doesn't read like a three-day weather forecast. */}
+                <CertaintyChip type={topic.type} />
               </span>
 
               {/* Detail sentence — single line, ellipsis-truncated. When the topic carries a
