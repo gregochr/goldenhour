@@ -22,6 +22,34 @@ function accentWrapper(pill) {
 }
 
 describe('HotTopicStrip', () => {
+  describe('certainty vocabulary chip', () => {
+    const chipFor = (type) => {
+      render(<HotTopicStrip hotTopics={[buildTopic({ type, label: type })]} />);
+      return screen.getByTestId(`hot-topic-pill-${type}`).querySelector('[data-testid="certainty-chip"]');
+    };
+
+    it('labels an astronomically-fixed topic "almanac"', () => {
+      const chip = chipFor('SPRING_TIDE');
+      expect(chip).not.toBeNull();
+      expect(chip.textContent).toBe('almanac');
+      expect(chip.getAttribute('data-certainty')).toBe('almanac');
+    });
+
+    it('labels a weather-driven topic "forecast"', () => {
+      expect(chipFor('SNOW_FRESH').textContent).toBe('forecast');
+    });
+
+    it('labels NLC a "chance" (window fixed, display unforecastable)', () => {
+      const chip = chipFor('NLC');
+      expect(chip.textContent).toBe('chance');
+      expect(chip.getAttribute('data-certainty')).toBe('chance');
+    });
+
+    it('carries a hover gloss so the word is not the only cue for pointer users', () => {
+      expect(chipFor('SPRING_TIDE').getAttribute('title')).toMatch(/fixed/i);
+    });
+  });
+
   it('renders nothing when hotTopics is empty', () => {
     const { container } = render(<HotTopicStrip hotTopics={[]} />);
     expect(container.innerHTML).toBe('');
@@ -727,9 +755,10 @@ describe('HotTopicStrip', () => {
       );
       const pill = screen.getByTestId('hot-topic-pill-UNKNOWN');
       const labelGroup = pill.children[0];
-      // First (and only) child should be the label span, not an emoji
-      expect(labelGroup.children).toHaveLength(1);
+      // No emoji for an unknown type: the first child is the label span (not an emoji), followed
+      // by the certainty chip (which every pill carries).
       expect(labelGroup.children[0].textContent).toBe('UNKNOWN');
+      expect(labelGroup.querySelector('[data-testid="certainty-chip"]')).not.toBeNull();
     });
 
     it('uses 14px font size on the emoji span', () => {
