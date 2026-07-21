@@ -1445,6 +1445,26 @@ describe('HeatmapGrid — confidence channel (Change B)', () => {
     expect(screen.getByTestId('mean-score-badge').textContent).toContain('4★');
     expect(starBadgeStyle()).toBe(highStar);
   });
+
+  it('propagates region confidence to the drill-down verdict pill', () => {
+    // Wiring guard: opening the drill-down of a low-confidence Worth-it region shows the shared
+    // provisional marker on the region-row VerdictPill (region.confidence -> VerdictPill).
+    const region = {
+      regionName: 'North East',
+      verdict: 'GO',
+      displayVerdict: 'WORTH_IT',
+      summary: 'Clear skies',
+      confidence: 'low',
+      slots: [{ locationName: 'Bamburgh', verdict: 'GO', displayVerdict: 'WORTH_IT', claudeRating: 4, solarEventTime: `${DATE_1}T19:30:00` }],
+    };
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: [{ date: DATE_1, eventSummaries: [{ targetType: 'SUNSET', regions: [region] }] }],
+    });
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+    const row = screen.getByTestId('drill-down-event-row');
+    expect(row.querySelector('[data-testid="provisional-mark"]')).not.toBeNull();
+  });
 });
 
 describe('HeatmapGrid — poor-region pooling (A3a)', () => {

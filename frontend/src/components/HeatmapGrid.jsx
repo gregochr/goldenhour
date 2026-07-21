@@ -412,6 +412,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
                   displayVerdict={region.displayVerdict}
                   verdict={region.verdict}
                   label={region.verdictLabel}
+                  confidence={region.confidence}
                 />
                 <span className="text-plex-text-secondary flex-1 truncate" style={{ fontSize: '12px' }}>
                   {region.summary}
