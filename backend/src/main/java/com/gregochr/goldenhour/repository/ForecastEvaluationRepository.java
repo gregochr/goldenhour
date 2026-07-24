@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -29,6 +30,49 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
      */
     List<ForecastEvaluationEntity> findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
             Long locationId, LocalDate from, LocalDate to);
+
+    /**
+     * Returns only the most recent evaluation run per slot for a set of locations within a
+     * date range.
+     *
+     * <p>A "slot" is (location, target date, target type). For {@code HOURLY} wildlife rows —
+     * which share a single target type across many hours of one day — the solar event time is
+     * added to the key so each hour is kept distinct. For {@code SUNRISE}/{@code SUNSET} the
+     * solar event time is deliberately excluded: it is derived from the location's editable
+     * lat/lon, so a coordinate edit changes it, and including it would return a stale pre-edit
+     * row alongside the latest one for the same slot.
+     *
+     * <p>Because every evaluation run inserts a new row (runs are never updated in place), the
+     * table accumulates many rows per slot as forecasts are re-evaluated. The map view renders
+     * only the latest run per slot, so this query performs that de-duplication at source — via a
+     * single batched query instead of one query per location. The correlated {@code MAX} subquery
+     * is supported by the composite index {@code idx_forecast_eval_latest_run} on
+     * {@code (location_id, target_date, target_type, forecast_run_at)} (migration V128).
+     *
+     * <p>{@code JOIN FETCH e.location} initialises the eagerly-mapped location in the same query,
+     * avoiding a secondary select per returned row.
+     *
+     * @param locationIds the location primary keys to query
+     * @param from        the start of the date range (inclusive)
+     * @param to          the end of the date range (inclusive)
+     * @return the latest run per slot, ordered by location, target date, then target type
+     */
+    @Query("SELECT e FROM ForecastEvaluationEntity e JOIN FETCH e.location"
+            + " WHERE e.location.id IN :locationIds"
+            + " AND e.targetDate BETWEEN :from AND :to"
+            + " AND e.forecastRunAt = ("
+            + "   SELECT MAX(e2.forecastRunAt) FROM ForecastEvaluationEntity e2"
+            + "   WHERE e2.location.id = e.location.id"
+            + "   AND e2.targetDate = e.targetDate"
+            + "   AND e2.targetType = e.targetType"
+            + "   AND (e.targetType <> com.gregochr.goldenhour.entity.TargetType.HOURLY"
+            + "     OR e2.solarEventTime = e.solarEventTime"
+            + "     OR (e2.solarEventTime IS NULL AND e.solarEventTime IS NULL)))"
+            + " ORDER BY e.location.id ASC, e.targetDate ASC, e.targetType ASC")
+    List<ForecastEvaluationEntity> findLatestRunPerSlotByLocationIds(
+            @Param("locationIds") Collection<Long> locationIds,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to);
 
     /**
      * Returns evaluations for a location, date range, and evaluation model, ordered by date

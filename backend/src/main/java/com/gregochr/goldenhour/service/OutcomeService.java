@@ -56,6 +56,21 @@ public class OutcomeService {
     }
 
     /**
+     * Returns recorded outcomes for every location within a date range in a single query.
+     *
+     * @param from start of the date range (inclusive)
+     * @param to   end of the date range (inclusive)
+     * @return outcomes across all locations ordered by outcome date ascending
+     * @throws IllegalArgumentException if {@code from} is after {@code to}
+     */
+    public List<ActualOutcomeEntity> queryAll(LocalDate from, LocalDate to) {
+        if (from.isAfter(to)) {
+            throw new IllegalArgumentException("'from' must not be after 'to'");
+        }
+        return repository.findAllByOutcomeDateBetween(from, to);
+    }
+
+    /**
      * Persists an observed outcome and returns the saved entity.
      *
      * @param outcome the outcome data received from the client

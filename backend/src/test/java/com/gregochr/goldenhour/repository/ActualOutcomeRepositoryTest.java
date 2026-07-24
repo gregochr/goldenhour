@@ -110,6 +110,31 @@ class ActualOutcomeRepositoryTest {
         assertThat(results.get(2).getOutcomeDate()).isEqualTo(base.plusDays(3));
     }
 
+    @Test
+    @DisplayName("findAllByOutcomeDateBetween returns outcomes for every location in range")
+    void findAllByOutcomeDateBetween_returnsAllLocationsInRange() {
+        LocationEntity edinburgh = locationRepository.save(LocationEntity.builder()
+                .name("Edinburgh UK").lat(55.9533).lon(-3.1883)
+                .createdAt(LocalDateTime.of(2026, 1, 1, 0, 0))
+                .build());
+        LocalDate from = LocalDate.of(2026, 2, 20);
+        repository.save(buildOutcome(from, TargetType.SUNSET));
+        ActualOutcomeEntity edinburghOutcome = buildOutcome(from.plusDays(1), TargetType.SUNRISE);
+        edinburghOutcome.setLocation(edinburgh);
+        edinburghOutcome.setLocationLat(new BigDecimal("55.953300"));
+        edinburghOutcome.setLocationLon(new BigDecimal("-3.188300"));
+        repository.save(edinburghOutcome);
+        repository.save(buildOutcome(from.plusDays(8), TargetType.SUNSET)); // out of range
+
+        List<ActualOutcomeEntity> results =
+                repository.findAllByOutcomeDateBetween(from, from.plusDays(7));
+
+        assertThat(results).hasSize(2);
+        assertThat(results).extracting(ActualOutcomeEntity::getLocationName)
+                .containsExactlyInAnyOrder("Durham UK", "Edinburgh UK");
+        assertThat(results.get(0).getOutcomeDate()).isEqualTo(from);
+    }
+
     private ActualOutcomeEntity buildOutcome(LocalDate outcomeDate, TargetType targetType) {
         return ActualOutcomeEntity.builder()
                 .locationLat(DURHAM_LAT)

@@ -199,6 +199,139 @@ class ForecastEvaluationRepositoryTest {
         assertThat(results.get(0).getTargetType()).isEqualTo(TargetType.SUNSET);
     }
 
+    // ── findLatestRunPerSlotByLocationIds ───────────────────────────────────
+
+    @Test
+    @DisplayName("findLatestRunPerSlot keeps only the most recent run for each slot")
+    void findLatestRunPerSlot_keepsOnlyLatestRun() {
+        LocalDate today = LocalDate.of(2026, 2, 20);
+        // Three runs of the same sunset slot, plus one earlier run of a different slot.
+        repository.save(buildSonnetEvaluation(durham, today, TargetType.SUNSET,
+                LocalDateTime.of(2026, 2, 18, 6, 0), 2));
+        ForecastEvaluationEntity latest = repository.save(buildSonnetEvaluation(durham, today,
+                TargetType.SUNSET, LocalDateTime.of(2026, 2, 19, 18, 0), 1));
+        repository.save(buildSonnetEvaluation(durham, today, TargetType.SUNSET,
+                LocalDateTime.of(2026, 2, 18, 12, 0), 2));
+
+        List<ForecastEvaluationEntity> results = repository.findLatestRunPerSlotByLocationIds(
+                List.of(durham.getId()), today, today.plusDays(7));
+
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).getId()).isEqualTo(latest.getId());
+        assertThat(results.get(0).getForecastRunAt())
+                .isEqualTo(LocalDateTime.of(2026, 2, 19, 18, 0));
+    }
+
+    @Test
+    @DisplayName("findLatestRunPerSlot de-duplicates independently per slot across locations")
+    void findLatestRunPerSlot_batchesAcrossLocationsAndSlots() {
+        LocalDate today = LocalDate.of(2026, 2, 20);
+        // Durham sunrise: two runs; Durham sunset: one run; Edinburgh sunrise: two runs.
+        repository.save(buildSonnetEvaluation(durham, today, TargetType.SUNRISE,
+                LocalDateTime.of(2026, 2, 18, 6, 0), 2));
+        repository.save(buildSonnetEvaluation(durham, today, TargetType.SUNRISE,
+                LocalDateTime.of(2026, 2, 19, 6, 0), 1));
+        repository.save(buildSonnetEvaluation(durham, today, TargetType.SUNSET,
+                LocalDateTime.of(2026, 2, 19, 18, 0), 1));
+        repository.save(buildSonnetEvaluation(edinburgh, today, TargetType.SUNRISE,
+                LocalDateTime.of(2026, 2, 18, 6, 0), 2));
+        repository.save(buildSonnetEvaluation(edinburgh, today, TargetType.SUNRISE,
+                LocalDateTime.of(2026, 2, 19, 6, 0), 1));
+
+        List<ForecastEvaluationEntity> results = repository.findLatestRunPerSlotByLocationIds(
+                List.of(durham.getId(), edinburgh.getId()), today, today.plusDays(7));
+
+        // One row per (location, date, type) slot: Durham sunrise, Durham sunset, Edinburgh sunrise.
+        assertThat(results).hasSize(3);
+        assertThat(results).allMatch(e ->
+                e.getForecastRunAt().equals(LocalDateTime.of(2026, 2, 19, 6, 0))
+                || e.getForecastRunAt().equals(LocalDateTime.of(2026, 2, 19, 18, 0)));
+    }
+
+    @Test
+    @DisplayName("findLatestRunPerSlot keeps HOURLY rows distinct per solar event time")
+    void findLatestRunPerSlot_keepsHourlySlotsDistinctBySolarEventTime() {
+        LocalDate today = LocalDate.of(2026, 2, 20);
+        LocalDateTime slot9 = LocalDateTime.of(2026, 2, 20, 9, 0);
+        LocalDateTime slot10 = LocalDateTime.of(2026, 2, 20, 10, 0);
+        // Two hourly slots on the same date/type, each evaluated twice.
+        repository.save(buildHourlyEvaluation(durham, today, slot9,
+                LocalDateTime.of(2026, 2, 18, 6, 0)));
+        repository.save(buildHourlyEvaluation(durham, today, slot9,
+                LocalDateTime.of(2026, 2, 19, 6, 0)));
+        repository.save(buildHourlyEvaluation(durham, today, slot10,
+                LocalDateTime.of(2026, 2, 18, 6, 0)));
+        repository.save(buildHourlyEvaluation(durham, today, slot10,
+                LocalDateTime.of(2026, 2, 19, 6, 0)));
+
+        List<ForecastEvaluationEntity> results = repository.findLatestRunPerSlotByLocationIds(
+                List.of(durham.getId()), today, today.plusDays(7));
+
+        // Both hourly slots survive, each collapsed to its latest run.
+        assertThat(results).hasSize(2);
+        assertThat(results).extracting(ForecastEvaluationEntity::getSolarEventTime)
+                .containsExactlyInAnyOrder(slot9, slot10);
+        assertThat(results).allMatch(e ->
+                e.getForecastRunAt().equals(LocalDateTime.of(2026, 2, 19, 6, 0)));
+    }
+
+    @Test
+    @DisplayName("findLatestRunPerSlot excludes rows outside the date range")
+    void findLatestRunPerSlot_excludesRowsOutsideRange() {
+        LocalDate today = LocalDate.of(2026, 2, 20);
+        LocalDateTime run = LocalDateTime.of(2026, 2, 18, 6, 0);
+        repository.save(buildSonnetEvaluation(durham, today, TargetType.SUNSET, run, 2));
+        repository.save(buildSonnetEvaluation(durham, today.plusDays(8), TargetType.SUNSET, run, 10));
+
+        List<ForecastEvaluationEntity> results = repository.findLatestRunPerSlotByLocationIds(
+                List.of(durham.getId()), today, today.plusDays(7));
+
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).getTargetDate()).isEqualTo(today);
+    }
+
+    @Test
+    @DisplayName("findLatestRunPerSlot collapses a SUNRISE/SUNSET slot across differing solar event times")
+    void findLatestRunPerSlot_collapsesNonHourlyAcrossSolarEventTime() {
+        // Simulates an admin lat/lon edit: the same (location, date, SUNSET) slot is evaluated
+        // before and after the edit, producing two rows with DIFFERENT solar event times. Only the
+        // latest run should be returned — solar event time is not part of the key for solar slots.
+        LocalDate today = LocalDate.of(2026, 2, 20);
+        repository.save(buildSolarRun(durham, today, TargetType.SUNSET,
+                LocalDateTime.of(2026, 2, 20, 18, 0), LocalDateTime.of(2026, 2, 18, 6, 0),
+                EvaluationModel.SONNET));
+        ForecastEvaluationEntity afterEdit = repository.save(buildSolarRun(durham, today, TargetType.SUNSET,
+                LocalDateTime.of(2026, 2, 20, 18, 7), LocalDateTime.of(2026, 2, 19, 6, 0),
+                EvaluationModel.SONNET));
+
+        List<ForecastEvaluationEntity> results = repository.findLatestRunPerSlotByLocationIds(
+                List.of(durham.getId()), today, today.plusDays(7));
+
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).getId()).isEqualTo(afterEdit.getId());
+        assertThat(results.get(0).getSolarEventTime())
+                .isEqualTo(LocalDateTime.of(2026, 2, 20, 18, 7));
+    }
+
+    @Test
+    @DisplayName("findLatestRunPerSlot returns the latest run regardless of evaluation model")
+    void findLatestRunPerSlot_returnsLatestRunRegardlessOfModel() {
+        LocalDate today = LocalDate.of(2026, 2, 20);
+        LocalDateTime solar = LocalDateTime.of(2026, 2, 20, 18, 0);
+        // Earlier HAIKU run, later SONNET run for the same slot — the later run wins.
+        repository.save(buildSolarRun(durham, today, TargetType.SUNSET, solar,
+                LocalDateTime.of(2026, 2, 18, 6, 0), EvaluationModel.HAIKU));
+        ForecastEvaluationEntity latest = repository.save(buildSolarRun(durham, today, TargetType.SUNSET,
+                solar, LocalDateTime.of(2026, 2, 19, 18, 0), EvaluationModel.SONNET));
+
+        List<ForecastEvaluationEntity> results = repository.findLatestRunPerSlotByLocationIds(
+                List.of(durham.getId()), today, today.plusDays(7));
+
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).getId()).isEqualTo(latest.getId());
+        assertThat(results.get(0).getEvaluationModel()).isEqualTo(EvaluationModel.SONNET);
+    }
+
     // ── countTideAlignedByTargetType ────────────────────────────────────────
 
     @Test
@@ -328,14 +461,35 @@ class ForecastEvaluationRepositoryTest {
                 .build();
     }
 
+    private ForecastEvaluationEntity buildHourlyEvaluation(LocationEntity location,
+            LocalDate targetDate, LocalDateTime solarEventTime, LocalDateTime forecastRunAt) {
+        return ForecastEvaluationEntity.builder()
+                .locationLat(new BigDecimal("54.775300"))
+                .locationLon(new BigDecimal("-1.584900"))
+                .location(location)
+                .targetDate(targetDate)
+                .targetType(TargetType.HOURLY)
+                .solarEventTime(solarEventTime)
+                .forecastRunAt(forecastRunAt)
+                .daysAhead(0)
+                .evaluationModel(EvaluationModel.HAIKU)
+                .summary("Hourly comfort row.")
+                .build();
+    }
+
     private ForecastEvaluationEntity buildSonnetEvaluation(LocationEntity location,
             LocalDate targetDate, TargetType targetType, LocalDateTime forecastRunAt, int daysAhead) {
+        // Solar rows in production always carry a non-null solar event time; set a realistic
+        // per-type value so the dedup tests exercise the same data shape as production.
+        LocalDateTime solarEventTime =
+                targetDate.atTime(targetType == TargetType.SUNRISE ? 6 : 18, 0);
         return ForecastEvaluationEntity.builder()
                 .locationLat(new BigDecimal("54.775300"))
                 .locationLon(new BigDecimal("-1.584900"))
                 .location(location)
                 .targetDate(targetDate)
                 .targetType(targetType)
+                .solarEventTime(solarEventTime)
                 .forecastRunAt(forecastRunAt)
                 .daysAhead(daysAhead)
                 .lowCloud(20)
@@ -349,6 +503,25 @@ class ForecastEvaluationRepositoryTest {
                 .fierySkyPotential(65)
                 .goldenHourPotential(72)
                 .summary("Moderate cloud mix with a clear horizon — worth watching.")
+                .build();
+    }
+
+    private ForecastEvaluationEntity buildSolarRun(LocationEntity location, LocalDate targetDate,
+            TargetType targetType, LocalDateTime solarEventTime, LocalDateTime forecastRunAt,
+            EvaluationModel model) {
+        return ForecastEvaluationEntity.builder()
+                .locationLat(new BigDecimal("54.775300"))
+                .locationLon(new BigDecimal("-1.584900"))
+                .location(location)
+                .targetDate(targetDate)
+                .targetType(targetType)
+                .solarEventTime(solarEventTime)
+                .forecastRunAt(forecastRunAt)
+                .daysAhead(1)
+                .evaluationModel(model)
+                .fierySkyPotential(65)
+                .goldenHourPotential(72)
+                .summary("Explicit solar-event-time run.")
                 .build();
     }
 

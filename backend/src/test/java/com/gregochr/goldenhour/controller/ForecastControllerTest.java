@@ -11,9 +11,11 @@ import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.model.RunProgress;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
+import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -24,14 +26,18 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.Collection;
 import java.util.List;
 import java.util.NoSuchElementException;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -77,8 +83,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     void getForecasts_returnsDtosForConfiguredLocations() throws Exception {
         ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 20));
         when(forecastEvaluationRepository
-                .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                        eq(1L), any(LocalDate.class), any(LocalDate.class)))
+                .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(List.of(entity));
         when(dtoMapper.toDtoList(any(), anyBoolean()))
                 .thenReturn(List.of(buildDto("Durham UK", 72, 80)));
@@ -93,8 +98,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     @DisplayName("GET /api/forecast surfaces cached_evaluation rows when forecast_evaluation has none")
     void getForecasts_surfacesCachedOnlyRows() throws Exception {
         when(forecastEvaluationRepository
-                .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                        eq(1L), any(LocalDate.class), any(LocalDate.class)))
+                .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(List.of());
         when(dtoMapper.toDtoList(any(), anyBoolean())).thenReturn(List.of());
 
@@ -119,12 +123,37 @@ class ForecastControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser
+    @DisplayName("GET /api/forecast passes enabled location ids and the date window to the repository")
+    @SuppressWarnings("unchecked")
+    void getForecasts_passesLocationIdsAndDateWindowToRepository() throws Exception {
+        when(forecastEvaluationRepository
+                .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of());
+        when(dtoMapper.toDtoList(any(), anyBoolean())).thenReturn(List.of());
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        mockMvc.perform(get("/api/forecast")).andExpect(status().isOk());
+
+        ArgumentCaptor<Collection<Long>> idsCaptor = ArgumentCaptor.forClass(Collection.class);
+        ArgumentCaptor<LocalDate> fromCaptor = ArgumentCaptor.forClass(LocalDate.class);
+        ArgumentCaptor<LocalDate> toCaptor = ArgumentCaptor.forClass(LocalDate.class);
+        verify(forecastEvaluationRepository).findLatestRunPerSlotByLocationIds(
+                idsCaptor.capture(), fromCaptor.capture(), toCaptor.capture());
+
+        // setUp() stubs findAllEnabled() -> [DURHAM] (id 1)
+        assertThat(idsCaptor.getValue()).containsExactly(1L);
+        assertThat(fromCaptor.getValue()).isEqualTo(today.minusDays(7));
+        assertThat(toCaptor.getValue())
+                .isEqualTo(today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS));
+    }
+
+    @Test
+    @WithMockUser
     @DisplayName("GET /api/forecast prefers forecast_evaluation rows over cached_evaluation duplicates")
     void getForecasts_prefersForecastRowOverCachedDuplicate() throws Exception {
         ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 20));
         when(forecastEvaluationRepository
-                .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                        eq(1L), any(LocalDate.class), any(LocalDate.class)))
+                .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(List.of(entity));
         when(dtoMapper.toDtoList(any(), anyBoolean()))
                 .thenReturn(List.of(buildDto("Durham UK", 72, 80)));
@@ -141,6 +170,22 @@ class ForecastControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].fierySkyPotential").value(72));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/forecast returns empty and skips the repository when no locations are enabled")
+    void getForecasts_noEnabledLocations_skipsRepositoryQuery() throws Exception {
+        when(locationService.findAllEnabled()).thenReturn(List.of());
+        when(dtoMapper.toDtoList(any(), anyBoolean())).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/forecast"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$.length()").value(0));
+
+        verify(forecastEvaluationRepository, never())
+                .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class));
     }
 
     @Test
@@ -411,8 +456,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     @DisplayName("GET /api/forecast as LITE_USER passes isLiteUser=true to mapper")
     void getForecasts_asLiteUser_passesLiteFlag() throws Exception {
         when(forecastEvaluationRepository
-                .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                        eq(1L), any(LocalDate.class), any(LocalDate.class)))
+                .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(List.of());
         when(dtoMapper.toDtoList(any(), eq(true))).thenReturn(List.of());
 
@@ -426,8 +470,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     @DisplayName("GET /api/forecast as ADMIN passes isLiteUser=false to mapper")
     void getForecasts_asAdmin_passesNonLiteFlag() throws Exception {
         when(forecastEvaluationRepository
-                .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                        eq(1L), any(LocalDate.class), any(LocalDate.class)))
+                .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(List.of());
         when(dtoMapper.toDtoList(any(), eq(false))).thenReturn(List.of());
 

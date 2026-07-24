@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchForecasts, fetchLocations, fetchOutcomes } from '../api/forecastApi.js';
+import { fetchForecasts, fetchLocations, fetchAllOutcomes } from '../api/forecastApi.js';
 import { groupForecastsByLocation } from '../utils/conversions.js';
 
 /**
@@ -27,9 +27,23 @@ export function useForecasts() {
         .toISOString()
         .slice(0, 10);
 
-      const [forecasts, locationMeta] = await Promise.all([fetchForecasts(), fetchLocations()]);
+      // Fetch forecasts, location metadata, and every location's outcomes in parallel —
+      // outcomes are batched into one request rather than one per location.
+      const [forecasts, locationMeta, outcomes] = await Promise.all([
+        fetchForecasts(),
+        fetchLocations(),
+        fetchAllOutcomes(from, to),
+      ]);
       const forecastGroups = groupForecastsByLocation(forecasts);
       const forecastByName = Object.fromEntries(forecastGroups.map((g) => [g.name, g]));
+
+      // Group the batched outcomes by location name for O(1) attachment below.
+      const outcomesByName = new Map();
+      for (const outcome of outcomes) {
+        const list = outcomesByName.get(outcome.locationName);
+        if (list) list.push(outcome);
+        else outcomesByName.set(outcome.locationName, [outcome]);
+      }
 
       // Start from the full location list so locations without forecast rows
       // (e.g. pure-WILDLIFE) still appear on the map.
@@ -46,18 +60,10 @@ export function useForecasts() {
           solarEventType: l.solarEventType ?? ['SUNRISE', 'SUNSET'],
           bortleClass: l.bortleClass ?? null,
           regionName: l.region?.name ?? null,
+          outcomes: outcomesByName.get(l.name) ?? [],
         }));
 
-      const outcomeResults = await Promise.all(
-        allLocations.map((loc) => fetchOutcomes(loc.lat, loc.lon, from, to))
-      );
-
-      setLocations(
-        allLocations.map((loc, i) => ({
-          ...loc,
-          outcomes: outcomeResults[i],
-        }))
-      );
+      setLocations(allLocations);
     } catch (err) {
       setError(
         err.response?.data?.message ||
