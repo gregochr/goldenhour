@@ -76,6 +76,38 @@ class OutcomeControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser
+    @DisplayName("GET /api/outcome/all returns outcomes across all locations for a date range")
+    void getAllOutcomes_validRequest_returnsOutcomes() throws Exception {
+        when(outcomeService.queryAll(eq(LocalDate.of(2026, 2, 1)), eq(LocalDate.of(2026, 2, 28))))
+                .thenReturn(List.of(buildOutcomeEntity()));
+
+        mockMvc.perform(get("/api/outcome/all")
+                        .param("from", "2026-02-01")
+                        .param("to", "2026-02-28"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].locationName").value("Durham UK"));
+
+        verify(outcomeService).queryAll(
+                eq(LocalDate.of(2026, 2, 1)), eq(LocalDate.of(2026, 2, 28)));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/outcome/all returns 400 when from is after to")
+    void getAllOutcomes_fromAfterTo_returns400() throws Exception {
+        when(outcomeService.queryAll(
+                eq(LocalDate.of(2026, 2, 28)), eq(LocalDate.of(2026, 2, 1))))
+                .thenThrow(new IllegalArgumentException("'from' must not be after 'to'"));
+
+        mockMvc.perform(get("/api/outcome/all")
+                        .param("from", "2026-02-28")
+                        .param("to", "2026-02-01"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("'from' must not be after 'to'"));
+    }
+
+    @Test
+    @WithMockUser
     @DisplayName("POST /api/outcome returns 201 with the saved entity")
     void recordOutcome_validRequest_returns201() throws Exception {
         ActualOutcomeEntity saved = buildOutcomeEntity();

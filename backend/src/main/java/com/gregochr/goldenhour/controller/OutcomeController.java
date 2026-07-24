@@ -56,6 +56,26 @@ public class OutcomeController {
     }
 
     /**
+     * Returns recorded outcomes for every location within a date range in a single request.
+     *
+     * <p>Lets the map view load all locations' outcomes in one call instead of one request per
+     * location. Each outcome carries its {@code locationName} for client-side grouping.
+     *
+     * @param from start of the date range (inclusive), ISO format {@code yyyy-MM-dd}
+     * @param to   end of the date range (inclusive), ISO format {@code yyyy-MM-dd}
+     * @return outcomes across all locations ordered by outcome date ascending
+     * @throws IllegalArgumentException if {@code from} is after {@code to}
+     */
+    @GetMapping("/all")
+    public List<ActualOutcomeDto> getAllOutcomes(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return outcomeService.queryAll(from, to).stream()
+                .map(ActualOutcomeDto::from)
+                .toList();
+    }
+
+    /**
      * Records an observed sunrise or sunset outcome.
      *
      * @param outcome the outcome data from the client

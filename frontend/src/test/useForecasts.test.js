@@ -5,10 +5,10 @@ import { useForecasts } from '../hooks/useForecasts.js';
 vi.mock('../api/forecastApi', () => ({
   fetchForecasts: vi.fn(),
   fetchLocations: vi.fn(),
-  fetchOutcomes: vi.fn(),
+  fetchAllOutcomes: vi.fn(),
 }));
 
-import { fetchForecasts, fetchLocations, fetchOutcomes } from '../api/forecastApi';
+import { fetchForecasts, fetchLocations, fetchAllOutcomes } from '../api/forecastApi';
 
 const LANDSCAPE_LOCATION = {
   name: 'Bamburgh Castle',
@@ -68,7 +68,7 @@ const BAMBURGH_FORECAST = {
 describe('useForecasts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    fetchOutcomes.mockResolvedValue([]);
+    fetchAllOutcomes.mockResolvedValue([]);
   });
 
   it('includes wildlife locations that have no forecast rows', async () => {
@@ -161,6 +161,54 @@ describe('useForecasts', () => {
     expect(kielder.id).toBe(7);
     expect(kielder.bortleClass).toBe(3);
     expect(kielder.regionName).toBe('Northumberland');
+  });
+
+  it('groups batched outcomes to locations by name with a single request', async () => {
+    fetchForecasts.mockResolvedValue([BAMBURGH_FORECAST]);
+    fetchLocations.mockResolvedValue([LANDSCAPE_LOCATION, WILDLIFE_LOCATION]);
+    fetchAllOutcomes.mockResolvedValue([
+      { id: 1, locationName: 'Bamburgh Castle', outcomeDate: '2026-03-03', targetType: 'SUNSET' },
+      { id: 2, locationName: 'Bamburgh Castle', outcomeDate: '2026-03-04', targetType: 'SUNRISE' },
+      { id: 3, locationName: 'Low Barns', outcomeDate: '2026-03-03', targetType: 'SUNSET' },
+    ]);
+
+    const { result } = renderHook(() => useForecasts());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Outcomes are batched into exactly one request, not one per location.
+    expect(fetchAllOutcomes).toHaveBeenCalledTimes(1);
+
+    const bamburgh = result.current.locations.find((l) => l.name === 'Bamburgh Castle');
+    const lowBarns = result.current.locations.find((l) => l.name === 'Low Barns');
+    expect(bamburgh.outcomes.map((o) => o.id)).toEqual([1, 2]);
+    expect(lowBarns.outcomes.map((o) => o.id)).toEqual([3]);
+  });
+
+  it('sets error and clears loading when the batched outcome fetch rejects', async () => {
+    fetchForecasts.mockResolvedValue([BAMBURGH_FORECAST]);
+    fetchLocations.mockResolvedValue([LANDSCAPE_LOCATION]);
+    fetchAllOutcomes.mockRejectedValue(new Error('outcome service unavailable'));
+
+    const { result } = renderHook(() => useForecasts());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.error).toBe('outcome service unavailable');
+    expect(result.current.locations).toEqual([]);
+  });
+
+  it('defaults outcomes to an empty array when a location has none', async () => {
+    fetchForecasts.mockResolvedValue([]);
+    fetchLocations.mockResolvedValue([LANDSCAPE_LOCATION]);
+    fetchAllOutcomes.mockResolvedValue([]);
+
+    const { result } = renderHook(() => useForecasts());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const bamburgh = result.current.locations.find((l) => l.name === 'Bamburgh Castle');
+    expect(bamburgh.outcomes).toEqual([]);
   });
 
   it('defaults bortleClass to null and regionName to null when absent', async () => {

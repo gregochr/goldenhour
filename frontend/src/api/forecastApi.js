@@ -29,6 +29,23 @@ export async function fetchOutcomes(lat, lon, from, to) {
 }
 
 /**
+ * Fetches recorded actual outcomes for every location in one request.
+ *
+ * Each returned outcome carries a {@code locationName} for client-side grouping,
+ * replacing the previous one-request-per-location fan-out.
+ *
+ * @param {string} from - Start date (YYYY-MM-DD).
+ * @param {string} to - End date (YYYY-MM-DD).
+ * @returns {Promise<Array<object>>} Array of actual outcome records across all locations.
+ */
+export async function fetchAllOutcomes(from, to) {
+  const response = await apiClient.get(`${BASE_URL}/outcome/all`, {
+    params: { from, to },
+  });
+  return response.data;
+}
+
+/**
  * Triggers an on-demand forecast re-run for a specific date, location, and target type.
  *
  * @param {string} date - Target date (YYYY-MM-DD).

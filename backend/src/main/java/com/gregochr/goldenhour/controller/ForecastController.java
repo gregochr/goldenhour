@@ -134,11 +134,14 @@ public class ForecastController {
 
         List<LocationEntity> enabled = locationService.findAllEnabled();
 
-        // 1. Rich rows from forecast_evaluation (full atmospheric data)
-        var entities = enabled.stream()
-                .flatMap(loc -> repository.findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                        loc.getId(), from, horizon).stream())
+        // 1. Rich rows from forecast_evaluation — the latest run per slot (dedup at source),
+        //    fetched in one batched query for all enabled locations.
+        List<Long> locationIds = enabled.stream()
+                .map(LocationEntity::getId)
                 .toList();
+        List<com.gregochr.goldenhour.entity.ForecastEvaluationEntity> entities = locationIds.isEmpty()
+                ? List.of()
+                : repository.findLatestRunPerSlotByLocationIds(locationIds, from, horizon);
         List<ForecastEvaluationDto> dtos = new ArrayList<>(dtoMapper.toDtoList(entities, lite));
 
         // 2. Cached-only rows — surfaced so the Map date strip shows future dates that the

@@ -220,4 +220,31 @@ class OutcomeServiceTest {
         assertThatCode(() -> outcomeService.query(54.7753, -1.5849, date, date))
                 .doesNotThrowAnyException();
     }
+
+    // ── queryAll() tests ─────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("queryAll() delegates to the batched repository query for a valid range")
+    void queryAll_validRange_delegatesToRepository() {
+        LocalDate from = LocalDate.of(2026, 2, 1);
+        LocalDate to = LocalDate.of(2026, 2, 28);
+        List<ActualOutcomeEntity> expected = List.of(
+                ActualOutcomeEntity.builder().id(1L).build());
+        when(repository.findAllByOutcomeDateBetween(eq(from), eq(to))).thenReturn(expected);
+
+        List<ActualOutcomeEntity> result = outcomeService.queryAll(from, to);
+
+        assertThat(result).isSameAs(expected);
+    }
+
+    @Test
+    @DisplayName("queryAll() throws IllegalArgumentException when from is after to")
+    void queryAll_fromAfterTo_throws() {
+        LocalDate from = LocalDate.of(2026, 3, 1);
+        LocalDate to = LocalDate.of(2026, 2, 1);
+
+        assertThatThrownBy(() -> outcomeService.queryAll(from, to))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("'from' must not be after 'to'");
+    }
 }
