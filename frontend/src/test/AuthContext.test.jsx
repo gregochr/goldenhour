@@ -1,6 +1,7 @@
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AuthProvider, useAuth } from '../context/AuthContext.jsx';
+import { writeSwrCache, readSwrCache } from '../utils/swrCache.js';
 
 vi.mock('../api/authApi.js');
 
@@ -16,7 +17,7 @@ const MARKETING_OPT_IN_KEY = 'goldenhour_marketing_opt_in';
  * Test component that displays auth state for assertion.
  */
 function AuthStateDisplay() {
-  const { token, role, username, mustChangePassword, marketingEmailOptIn } = useAuth();
+  const { token, role, username, mustChangePassword, marketingEmailOptIn, logout } = useAuth();
   return (
     <div>
       <span data-testid="token">{token ?? 'null'}</span>
@@ -24,6 +25,7 @@ function AuthStateDisplay() {
       <span data-testid="username">{username ?? 'null'}</span>
       <span data-testid="must-change">{String(mustChangePassword)}</span>
       <span data-testid="marketing">{String(marketingEmailOptIn)}</span>
+      <button data-testid="logout-btn" onClick={logout}>logout</button>
     </div>
   );
 }
@@ -117,6 +119,38 @@ describe('AuthContext', () => {
       );
 
       removeSpy.mockRestore();
+    });
+
+    it('clears the instant-paint SWR cache so it never leaks to the next session', () => {
+      writeSwrCache('briefing:ADMIN', { best: 'Bamburgh' });
+      render(
+        <AuthProvider>
+          <AuthStateDisplay />
+        </AuthProvider>
+      );
+
+      act(() => {
+        window.dispatchEvent(new Event('goldenhour:session-expired'));
+      });
+
+      expect(readSwrCache('briefing:ADMIN')).toBeNull();
+    });
+  });
+
+  describe('logout', () => {
+    it('clears the instant-paint SWR cache', async () => {
+      writeSwrCache('briefing:ADMIN', { best: 'Bamburgh' });
+      render(
+        <AuthProvider>
+          <AuthStateDisplay />
+        </AuthProvider>
+      );
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('logout-btn'));
+      });
+
+      expect(readSwrCache('briefing:ADMIN')).toBeNull();
     });
   });
 
