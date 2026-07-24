@@ -22,8 +22,13 @@ export function useForecasts() {
     setError(null);
     try {
       const now = new Date();
-      const from = now.toISOString().slice(0, 10);
-      const to = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+      // Recorded outcomes are PAST observations — a photographer rating a sunrise/sunset
+      // they already saw (ActualOutcomeEntity.outcomeDate is always historical). The window
+      // must therefore look BACKWARDS: a forward [today, today+7] range returns essentially
+      // nothing. Match the forecast payload's today-7 past edge (ForecastController) so every
+      // outcome lines up with a date the map already shows.
+      const to = now.toISOString().slice(0, 10);
+      const from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
         .toISOString()
         .slice(0, 10);
 

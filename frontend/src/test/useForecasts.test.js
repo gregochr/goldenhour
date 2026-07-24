@@ -223,4 +223,31 @@ describe('useForecasts', () => {
     expect(bamburgh.bortleClass).toBeNull();
     expect(bamburgh.regionName).toBeNull();
   });
+
+  it('fetches outcomes over a backward-looking (past) window, not a future one', async () => {
+    fetchForecasts.mockResolvedValue([]);
+    fetchLocations.mockResolvedValue([LANDSCAPE_LOCATION]);
+    fetchAllOutcomes.mockResolvedValue([
+      { id: 1, locationName: 'Bamburgh Castle', outcomeDate: '2026-03-03', targetType: 'SUNSET' },
+    ]);
+
+    const { result } = renderHook(() => useForecasts());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Recorded outcomes are past observations, so the window must look backwards —
+    // a forward [today, today+7] range would return nothing and leave the map empty.
+    expect(fetchAllOutcomes).toHaveBeenCalledWith(expect.any(String), expect.any(String));
+    const [from, to] = fetchAllOutcomes.mock.calls[0];
+    expect(from <= to).toBe(true);
+    expect(new Date(`${to}T00:00:00Z`).getTime()).toBeLessThanOrEqual(Date.now());
+    // ...and it spans the same 7-day past reach as the forecast payload's today-7 edge.
+    const spanDays =
+      (new Date(`${to}T00:00:00Z`) - new Date(`${from}T00:00:00Z`)) / (24 * 60 * 60 * 1000);
+    expect(spanDays).toBe(7);
+
+    // The outcome returned within that past window is still attached to its location.
+    const bamburgh = result.current.locations.find((l) => l.name === 'Bamburgh Castle');
+    expect(bamburgh.outcomes.map((o) => o.id)).toEqual([1]);
+  });
 });
