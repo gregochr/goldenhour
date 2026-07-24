@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import { login as apiLogin, logout as apiLogout, changePassword as apiChangePassword, refreshAccessToken as apiRefresh } from '../api/authApi.js';
+import { clearSwrCache } from '../utils/swrCache.js';
 
 const TOKEN_KEY = 'goldenhour_token';
 const REFRESH_KEY = 'goldenhour_refresh';
@@ -81,6 +82,7 @@ export function AuthProvider({ children }) {
     localStorage.removeItem(USERNAME_KEY);
     localStorage.removeItem(REFRESH_EXPIRES_KEY);
     localStorage.removeItem(MARKETING_OPT_IN_KEY);
+    clearSwrCache(); // drop any instant-paint cache so the next account never sees this one's data
     setToken(null);
     setRefreshToken(null);
     setRole(null);
@@ -143,6 +145,7 @@ export function AuthProvider({ children }) {
   // Listen for session-expired events from the axios interceptor
   useEffect(() => {
     const handleExpired = () => {
+      clearSwrCache(); // session-expiry is the most common session-end path — clear cache here too, not just on logout
       setToken(null);
       setRefreshToken(null);
       setRole(null);

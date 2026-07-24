@@ -40,6 +40,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { getDriveTimes } from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { getSimulationState } from '../api/hotTopicSimulationApi.js';
+import { writeSwrCache, readSwrCache } from '../utils/swrCache.js';
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
 
@@ -223,6 +224,56 @@ describe('DailyBriefing', () => {
     await waitFor(() => {
       expect(screen.getByText(/ago|just now/i)).toBeInTheDocument();
     });
+  });
+
+  // ────── Instant-paint SWR cache (F) ──────
+
+  it('paints instantly from the role-keyed cache before the fetch resolves', () => {
+    // Same never-resolving fetch as "renders nothing when loading" — but with a cached briefing
+    // the Plan tab must paint synchronously from cache instead of showing nothing.
+    writeSwrCache('briefing:ADMIN', buildBriefing()); // role ADMIN from beforeEach
+    getDailyBriefing.mockReturnValue(new Promise(() => {}));
+    render(<DailyBriefing />);
+    expect(screen.getByTestId('daily-briefing')).toBeInTheDocument();
+  });
+
+  it('does not use a cache written for a different role', () => {
+    writeSwrCache('briefing:LITE_USER', buildBriefing()); // wrong tier for the ADMIN session
+    getDailyBriefing.mockReturnValue(new Promise(() => {}));
+    render(<DailyBriefing />);
+    expect(screen.queryByTestId('daily-briefing')).toBeNull();
+  });
+
+  it('writes the fetched briefing to the instant-paint cache for next load', async () => {
+    const fresh = buildBriefing();
+    getDailyBriefing.mockResolvedValue(fresh);
+    render(<DailyBriefing />);
+    await waitFor(() => expect(screen.getByTestId('daily-briefing')).toBeInTheDocument());
+    expect(readSwrCache('briefing:ADMIN')).toEqual(fresh);
+  });
+
+  it('keeps the cached briefing displayed and intact when revalidation fails', async () => {
+    writeSwrCache('briefing:ADMIN', buildBriefing());
+    getDailyBriefing.mockRejectedValue(new Error('network'));
+    render(<DailyBriefing />);
+
+    // Painted from cache immediately…
+    expect(screen.getByTestId('daily-briefing')).toBeInTheDocument();
+    await waitFor(() => expect(getDailyBriefing).toHaveBeenCalled());
+    // …and a failed revalidation neither blanks the view nor drops the cache.
+    expect(screen.getByTestId('daily-briefing')).toBeInTheDocument();
+    expect(readSwrCache('briefing:ADMIN')).not.toBeNull();
+  });
+
+  it('does not blank the view or poison the cache when revalidation returns an empty briefing', async () => {
+    const cached = buildBriefing();
+    writeSwrCache('briefing:ADMIN', cached);
+    getDailyBriefing.mockResolvedValue(null);
+    render(<DailyBriefing />);
+
+    await waitFor(() => expect(getDailyBriefing).toHaveBeenCalled());
+    expect(screen.getByTestId('daily-briefing')).toBeInTheDocument();
+    expect(readSwrCache('briefing:ADMIN')).toEqual(cached);
   });
 
   // ────── Expand/collapse ──────

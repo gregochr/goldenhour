@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { getDailyBriefing } from '../api/briefingApi.js';
+import { readSwrCache, writeSwrCache } from '../utils/swrCache.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { getDriveTimes } from '../api/settingsApi.js';
@@ -928,6 +929,12 @@ function BestBetPlaceholder() {
 // ── DISMISSED_AT_KEY ──────────────────────────────────────────────────────────
 const DISMISSED_AT_KEY = 'briefing-dismissed-at';
 
+// Instant-paint cache horizon: hydrate the Plan tab from the last briefing if it was cached within
+// this window, then revalidate. Bounded so a long-stale plan (e.g. after days away) isn't shown even
+// briefly — beyond it we fall back to the normal skeleton + fetch. The briefing regenerates every
+// ~8–10h, so a 12h window covers the common "used it last night, refreshed this morning" case.
+const BRIEFING_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+
 // ── DailyBriefing (main export) ───────────────────────────────────────────────
 
 /**
@@ -942,8 +949,11 @@ const DISMISSED_AT_KEY = 'briefing-dismissed-at';
 export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScoresChange, onSeasonalFeaturesChange }) {
   const { role } = useAuth();
   const isPro = role === 'ADMIN' || role === 'PRO_USER';
-  const [briefing, setBriefing] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Role-keyed instant-paint cache: on refresh, hydrate the last briefing synchronously so Best Bet /
+  // Hot Topics / the region grid paint immediately, then revalidate below (stale-while-revalidate).
+  const briefingCacheKey = `briefing:${role || 'anon'}`;
+  const [briefing, setBriefing] = useState(() => readSwrCache(briefingCacheKey, BRIEFING_CACHE_MAX_AGE_MS));
+  const [loading, setLoading] = useState(() => readSwrCache(briefingCacheKey, BRIEFING_CACHE_MAX_AGE_MS) === null);
   const [dismissedAt, setDismissedAt] = useState(() => sessionStorage.getItem(DISMISSED_AT_KEY));
   const [isExpanded, setIsExpanded] = useState(false);
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
@@ -1060,13 +1070,19 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
   const fetchBriefing = useCallback(async () => {
     try {
       const data = await getDailyBriefing();
-      setBriefing(data);
+      // Ignore an empty/204 revalidation: keep the last good briefing on screen and don't let a
+      // null response poison the instant-paint cache. (With no prior briefing this stays null,
+      // preserving the "nothing to show" behaviour.)
+      if (data) {
+        setBriefing(data);
+        writeSwrCache(briefingCacheKey, data);
+      }
     } catch {
-      // Transient — keep existing data
+      // Transient — keep existing data (cached or previously fetched)
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [briefingCacheKey]);
 
   useEffect(() => {
     if (briefing && dismissedAt && briefing.generatedAt > dismissedAt) {
