@@ -1,11 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { computeAutoSelection } from './utils/conversions.js';
 import ViewToggle from './components/ViewToggle.jsx';
 import DateStrip from './components/DateStrip.jsx';
-import MapView from './components/MapView.jsx';
-import MapOverlay from './components/MapOverlay.jsx';
 import { buildMapOverlay } from './utils/mapOverlay.js';
-import ManageView from './components/ManageView.jsx';
 import LoginPage from './components/LoginPage.jsx';
 import RegisterPage from './components/RegisterPage.jsx';
 import ChangePasswordPage from './components/ChangePasswordPage.jsx';
@@ -19,6 +16,22 @@ import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { useForecasts } from './hooks/useForecasts.js';
 import { useHealthStatus } from './hooks/useHealthStatus.js';
 import { useRunNotifications } from './hooks/useRunNotifications.js';
+
+// Code-split the heavy, rarely-first-viewed subtrees so they stay out of the initial bundle:
+// the Leaflet map stack (Plan is the default tab; the map is a drill-down) and the admin-only
+// Manage view (which also pulls in recharts). They load on demand behind the Suspense boundaries.
+const MapView = lazy(() => import('./components/MapView.jsx'));
+const MapOverlay = lazy(() => import('./components/MapOverlay.jsx'));
+const ManageView = lazy(() => import('./components/ManageView.jsx'));
+
+/** Lightweight fallback shown while a lazily-loaded view chunk is fetched. */
+function ViewFallback() {
+  return (
+    <div className="flex justify-center py-16">
+      <p className="text-plex-text-secondary animate-pulse">Loading…</p>
+    </div>
+  );
+}
 
 /**
  * Auth gate — renders {@link LoginPage} when no token is present,
@@ -316,63 +329,46 @@ function AppInner() {
       )}
 
       <main className={`max-w-4xl mx-auto px-4 py-6${isDown ? ' opacity-50 pointer-events-none' : ''}`}>
-        {loading && (
-          <div className="flex justify-center py-16">
-            <p className="text-plex-text-secondary animate-pulse">Loading forecast…</p>
-          </div>
+        {/* Tab shell — always visible; needs no server data, so it paints instantly on refresh. */}
+        <div className="mb-6">
+          <ViewToggle value={viewMode} onChange={setViewMode} isAdmin={isAdmin} />
+        </div>
+
+        {/* PLAN (default tab) renders immediately: DailyBriefing owns its own briefing fetch and
+            skeleton and tolerates an empty locations list, so Best Bet / Hot Topics / regions paint
+            without waiting on the forecast + locations + outcomes load. */}
+        {viewMode === 'plan' && (
+          <DailyBriefing locations={visibleLocations} onShowOnMap={handleShowOnMap} onEvaluationScoresChange={handleEvaluationScoresChange} onSeasonalFeaturesChange={handleSeasonalFeaturesChange} />
         )}
 
-        {!loading && error && (
-          <div
-            data-testid="error-message"
-            className="card border-red-900/50 text-center py-8"
-            role="alert"
-          >
-            <p className="text-red-400 font-medium mb-2">Unable to load forecast</p>
-            <p className="text-plex-text-secondary text-sm mb-4">{error}</p>
-            <button
-              className="btn-primary"
-              onClick={refresh}
-              disabled={healthStatus === 'DOWN'}
-            >
-              Try again
-            </button>
-          </div>
-        )}
-
-        {!loading && !error && sortedLocations.length === 0 && viewMode !== 'manage' && (
-          <div className="card text-center py-16">
-            <p className="text-plex-text-secondary text-lg mb-4">No forecasts available</p>
-            <p className="text-plex-text-muted text-sm mb-6">Add locations in the Manage tab to get started</p>
-            <button
-              className="btn-primary"
-              onClick={() => setViewMode('manage')}
-            >
-              Go to Manage
-            </button>
-          </div>
-        )}
-
-        {!loading && !error && sortedLocations.length === 0 && viewMode === 'manage' && isAdmin && (
+        {/* MAP needs the forecast/location data — keep the loading / error / empty gating here. */}
+        {viewMode === 'map' && (
           <>
-            <div className="mb-6">
-              <ViewToggle value={viewMode} onChange={setViewMode} isAdmin={isAdmin} />
-            </div>
-            <ManageView onComplete={refresh} />
-          </>
-        )}
-
-        {!loading && !error && sortedLocations.length > 0 && (
-          <>
-            <div className="mb-6">
-              <ViewToggle value={viewMode} onChange={setViewMode} isAdmin={isAdmin} />
-            </div>
-
-            {viewMode === 'plan' && (
-              <DailyBriefing locations={visibleLocations} onShowOnMap={handleShowOnMap} onEvaluationScoresChange={handleEvaluationScoresChange} onSeasonalFeaturesChange={handleSeasonalFeaturesChange} />
+            {loading && (
+              <div className="flex justify-center py-16">
+                <p className="text-plex-text-secondary animate-pulse">Loading forecast…</p>
+              </div>
             )}
 
-            {viewMode === 'map' && allDates.length > 0 && effectiveDate && (
+            {!loading && error && (
+              <div
+                data-testid="error-message"
+                className="card border-red-900/50 text-center py-8"
+                role="alert"
+              >
+                <p className="text-red-400 font-medium mb-2">Unable to load forecast</p>
+                <p className="text-plex-text-secondary text-sm mb-4">{error}</p>
+                <button
+                  className="btn-primary"
+                  onClick={refresh}
+                  disabled={healthStatus === 'DOWN'}
+                >
+                  Try again
+                </button>
+              </div>
+            )}
+
+            {!loading && !error && allDates.length > 0 && effectiveDate && (
               <DateStrip
                 dates={allDates}
                 selectedDate={effectiveDate}
@@ -380,23 +376,25 @@ function AppInner() {
               />
             )}
 
-            {viewMode === 'map' && allDates.length > 0 && (
-              <MapView
-                locations={visibleLocations}
-                date={effectiveDate}
-                autoEventType={autoSelection?.eventType ?? null}
-                handoffEventType={mapHandoff?.eventType ?? null}
-                handoffFilterAction={mapHandoff?.filterAction ?? null}
-                handoffLocationName={mapHandoff?.locationName ?? null}
-                handoffRegion={mapHandoff?.region ?? null}
-                handoffNonce={mapHandoff?.nonce ?? null}
-                briefingScores={briefingScores}
-                onForecastRun={refresh}
-                seasonalFeatures={seasonalFeatures}
-              />
+            {!loading && !error && allDates.length > 0 && (
+              <Suspense fallback={<ViewFallback />}>
+                <MapView
+                  locations={visibleLocations}
+                  date={effectiveDate}
+                  autoEventType={autoSelection?.eventType ?? null}
+                  handoffEventType={mapHandoff?.eventType ?? null}
+                  handoffFilterAction={mapHandoff?.filterAction ?? null}
+                  handoffLocationName={mapHandoff?.locationName ?? null}
+                  handoffRegion={mapHandoff?.region ?? null}
+                  handoffNonce={mapHandoff?.nonce ?? null}
+                  briefingScores={briefingScores}
+                  onForecastRun={refresh}
+                  seasonalFeatures={seasonalFeatures}
+                />
+              </Suspense>
             )}
 
-            {viewMode === 'map' && allDates.length === 0 && (
+            {!loading && !error && allDates.length === 0 && (
               <div className="card text-center py-16">
                 <p className="text-plex-text-secondary text-lg mb-4">No forecasts loaded yet</p>
                 <p className="text-plex-text-muted text-sm mb-6">Forecasts are generated automatically at 06:00 and 18:00 UTC. Check back in a moment.</p>
@@ -412,11 +410,14 @@ function AppInner() {
                 </div>
               </div>
             )}
-
-            {viewMode === 'manage' && isAdmin && (
-              <ManageView onComplete={refresh} />
-            )}
           </>
+        )}
+
+        {/* MANAGE — admin only. */}
+        {viewMode === 'manage' && isAdmin && (
+          <Suspense fallback={<ViewFallback />}>
+            <ManageView onComplete={refresh} />
+          </Suspense>
         )}
       </main>
 
@@ -453,31 +454,33 @@ function AppInner() {
       )}
 
       {mapOverlay && (
-        <MapOverlay
-          title={mapOverlay.title}
-          subLine={mapOverlay.subLine}
-          caption={mapOverlay.caption}
-          narrative={mapOverlay.narrative}
-          narrativeHead={mapOverlay.narrativeHead}
-          narrativeTone={mapOverlay.narrativeTone}
-          onClose={() => setMapOverlay(null)}
-          onOpenFullMap={openFullMapTab}
-        >
-          <MapView
-            locations={visibleLocations}
-            date={mapOverlay.date ?? effectiveDate}
-            autoEventType={autoSelection?.eventType ?? null}
-            handoffEventType={mapOverlay.handoff.eventType ?? null}
-            handoffFilterAction={mapOverlay.handoff.filterAction ?? null}
-            handoffLocationName={mapOverlay.handoff.locationName ?? null}
-            handoffRegion={mapOverlay.handoff.region ?? null}
-            handoffNonce={mapOverlay.nonce}
-            focus={mapOverlay.focus}
-            briefingScores={briefingScores}
-            onForecastRun={refresh}
-            seasonalFeatures={seasonalFeatures}
-          />
-        </MapOverlay>
+        <Suspense fallback={<ViewFallback />}>
+          <MapOverlay
+            title={mapOverlay.title}
+            subLine={mapOverlay.subLine}
+            caption={mapOverlay.caption}
+            narrative={mapOverlay.narrative}
+            narrativeHead={mapOverlay.narrativeHead}
+            narrativeTone={mapOverlay.narrativeTone}
+            onClose={() => setMapOverlay(null)}
+            onOpenFullMap={openFullMapTab}
+          >
+            <MapView
+              locations={visibleLocations}
+              date={mapOverlay.date ?? effectiveDate}
+              autoEventType={autoSelection?.eventType ?? null}
+              handoffEventType={mapOverlay.handoff.eventType ?? null}
+              handoffFilterAction={mapOverlay.handoff.filterAction ?? null}
+              handoffLocationName={mapOverlay.handoff.locationName ?? null}
+              handoffRegion={mapOverlay.handoff.region ?? null}
+              handoffNonce={mapOverlay.nonce}
+              focus={mapOverlay.focus}
+              briefingScores={briefingScores}
+              onForecastRun={refresh}
+              seasonalFeatures={seasonalFeatures}
+            />
+          </MapOverlay>
+        </Suspense>
       )}
     </div>
   );
