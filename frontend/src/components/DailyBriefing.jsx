@@ -954,6 +954,9 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
   const briefingCacheKey = `briefing:${role || 'anon'}`;
   const [briefing, setBriefing] = useState(() => readSwrCache(briefingCacheKey, BRIEFING_CACHE_MAX_AGE_MS));
   const [loading, setLoading] = useState(() => readSwrCache(briefingCacheKey, BRIEFING_CACHE_MAX_AGE_MS) === null);
+  // One-shot gentle fade when a revalidation swaps in a genuinely newer briefing (see effect below).
+  const briefingGeneratedAtRef = useRef(null);
+  const [contentRefreshed, setContentRefreshed] = useState(false);
   const [dismissedAt, setDismissedAt] = useState(() => sessionStorage.getItem(DISMISSED_AT_KEY));
   const [isExpanded, setIsExpanded] = useState(false);
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
@@ -1091,6 +1094,20 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
       sessionStorage.removeItem(DISMISSED_AT_KEY);
     }
   }, [briefing, dismissedAt]);
+
+  // Play the gentle "just refreshed" fade only when a revalidation swaps in a genuinely newer
+  // briefing (generatedAt changed from a prior value) — not on first load, and not on the common
+  // same-data revalidation (that leaves generatedAt unchanged, so this effect doesn't even re-run).
+  useEffect(() => {
+    const g = briefing?.generatedAt ?? null;
+    const prev = briefingGeneratedAtRef.current;
+    briefingGeneratedAtRef.current = g;
+    if (prev == null || g == null || g === prev) return undefined;
+    // Inline async wrapper satisfies react-hooks/set-state-in-effect (matches the dismiss effect above).
+    (async () => setContentRefreshed(true))();
+    const timer = setTimeout(() => setContentRefreshed(false), 500);
+    return () => clearTimeout(timer);
+  }, [briefing?.generatedAt]);
 
   useEffect(() => {
     (async () => {
@@ -1264,7 +1281,10 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
   const selectedDate = dayDates[Math.min(selectedDayIndex, dayDates.length - 1)];
 
   return (
-    <div data-testid="daily-briefing" className="card mb-4 overflow-hidden">
+    <div
+      data-testid="daily-briefing"
+      className={`card mb-4 overflow-hidden${contentRefreshed ? ' animate-briefing-refresh' : ''}`}
+    >
       {/* ── Header ── */}
       <div className="flex items-center gap-2">
         <button

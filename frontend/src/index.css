@@ -397,6 +397,21 @@
   animation: fade-in 300ms ease-out;
 }
 
+/* Plan tab — gentle settle when a stale-while-revalidate swap brings in a newer briefing.
+   Subtle for a whole card (a soft opacity dip, not the popup's stronger 0.3 flash); fires only
+   when generatedAt actually changes, never on the common same-data revalidation. */
+@keyframes briefing-refresh {
+  from { opacity: 0.6; }
+  to   { opacity: 1; }
+}
+
+.animate-briefing-refresh {
+  animation: briefing-refresh 450ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-briefing-refresh { animation: none; }
+}
+
 /* Native date inputs — make the calendar picker indicator visible on the dark theme
    and let the whole field act as a calendar trigger (paired with showPicker on click). */
 .date-field::-webkit-calendar-picker-indicator {
