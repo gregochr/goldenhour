@@ -1,9 +1,83 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchForecasts, fetchLocations, fetchAllOutcomes } from '../api/forecastApi.js';
 import { groupForecastsByLocation } from '../utils/conversions.js';
+import { readSwrCache, writeSwrCache } from '../utils/swrCache.js';
+import { useAuth } from '../context/AuthContext.jsx';
+
+/** Stale-while-revalidate window for the cached forecast payload — matches the briefing cache. */
+const FORECASTS_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * Shapes the three raw API payloads into the per-location view model the map and the Plan tab's
+ * location-derived enrichments consume. Pure, so it runs identically on the live fetch and when
+ * hydrating synchronously from the instant-paint cache.
+ *
+ * @param {Array} forecasts - forecast rows from /api/forecast
+ * @param {Array} locationMeta - location metadata from /api/locations
+ * @param {Array} outcomes - recorded outcomes from /api/outcome/all
+ * @returns {Array} per-location objects with a forecastsByDate Map and attached outcomes
+ */
+function buildLocations(forecasts, locationMeta, outcomes) {
+  const forecastGroups = groupForecastsByLocation(forecasts);
+  const forecastByName = Object.fromEntries(forecastGroups.map((g) => [g.name, g]));
+
+  // Group the batched outcomes by location name for O(1) attachment below.
+  const outcomesByName = new Map();
+  for (const outcome of outcomes) {
+    const list = outcomesByName.get(outcome.locationName);
+    if (list) list.push(outcome);
+    else outcomesByName.set(outcome.locationName, [outcome]);
+  }
+
+  // Start from the full location list so locations without forecast rows
+  // (e.g. pure-WILDLIFE) still appear on the map.
+  return locationMeta
+    .filter((l) => l.enabled !== false)
+    .map((l) => ({
+      id: l.id,
+      name: l.name,
+      lat: l.lat,
+      lon: l.lon,
+      forecastsByDate: forecastByName[l.name]?.forecastsByDate ?? new Map(),
+      locationType: l.locationType ?? [],
+      tideType: l.tideType ?? [],
+      solarEventType: l.solarEventType ?? ['SUNRISE', 'SUNSET'],
+      bortleClass: l.bortleClass ?? null,
+      regionName: l.region?.name ?? null,
+      outcomes: outcomesByName.get(l.name) ?? [],
+    }));
+}
+
+/**
+ * Reads the cached raw payload if present, fresh enough, and structurally intact. Returns the raw
+ * {forecasts, locationMeta, outcomes} object or null — kept separate from {@link buildLocations} so
+ * the cheap "do we have a cache?" check (for the initial loading flag) never runs a full rebuild.
+ *
+ * @param {string} cacheKey - role-specific SWR cache key
+ * @returns {{forecasts: Array, locationMeta: Array, outcomes: Array}|null}
+ */
+function readValidCache(cacheKey) {
+  const cached = readSwrCache(cacheKey, FORECASTS_CACHE_MAX_AGE_MS);
+  if (
+    cached &&
+    Array.isArray(cached.forecasts) &&
+    Array.isArray(cached.locationMeta) &&
+    Array.isArray(cached.outcomes)
+  ) {
+    return cached;
+  }
+  return null;
+}
 
 /**
  * Custom hook that fetches forecast data and actual outcomes for all configured locations.
+ *
+ * <p>Stale-while-revalidate: on refresh it hydrates the last-seen payload synchronously so the map
+ * and the Plan tab's location-derived enrichments paint instantly, then revalidates in the
+ * background and swaps in fresh data. The cache holds the raw (JSON-serialisable) API payloads,
+ * role-keyed because the forecast scores differ by role; the {@code forecastsByDate} Maps are
+ * rebuilt on hydrate. A failed *revalidation* keeps the stale data on screen rather than blanking
+ * it with an error.
  *
  * @returns {{
  *   locations: Array<{name: string, lat: number, lon: number, forecastsByDate: Map, outcomes: Array}>,
@@ -13,13 +87,24 @@ import { groupForecastsByLocation } from '../utils/conversions.js';
  * }}
  */
 export function useForecasts() {
-  const [locations, setLocations] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { role } = useAuth();
+  const cacheKey = `forecasts:${role || 'anon'}`;
+
+  const [locations, setLocations] = useState(() => {
+    const cached = readValidCache(cacheKey);
+    return cached ? buildLocations(cached.forecasts, cached.locationMeta, cached.outcomes) : [];
+  });
+  const [loading, setLoading] = useState(() => readValidCache(cacheKey) === null);
   const [error, setError] = useState(null);
+  // True once anything is on screen (cache hydrate or a successful fetch). Guards the loading flash
+  // and the error path so a failed revalidation over a hydrated map keeps the stale data.
+  const hasDataRef = useRef(locations.length > 0);
 
   const load = useCallback(async () => {
-    setLoading(true);
     setError(null);
+    // Only show the skeleton when there's nothing to show yet. A revalidation over hydrated or
+    // previously-loaded data stays silent, so refreshing the map never blanks it (no jar).
+    if (!hasDataRef.current) setLoading(true);
     try {
       const now = new Date();
       // Recorded outcomes are PAST observations — a photographer rating a sunrise/sunset
@@ -39,46 +124,25 @@ export function useForecasts() {
         fetchLocations(),
         fetchAllOutcomes(from, to),
       ]);
-      const forecastGroups = groupForecastsByLocation(forecasts);
-      const forecastByName = Object.fromEntries(forecastGroups.map((g) => [g.name, g]));
 
-      // Group the batched outcomes by location name for O(1) attachment below.
-      const outcomesByName = new Map();
-      for (const outcome of outcomes) {
-        const list = outcomesByName.get(outcome.locationName);
-        if (list) list.push(outcome);
-        else outcomesByName.set(outcome.locationName, [outcome]);
-      }
-
-      // Start from the full location list so locations without forecast rows
-      // (e.g. pure-WILDLIFE) still appear on the map.
-      const allLocations = locationMeta
-        .filter((l) => l.enabled !== false)
-        .map((l) => ({
-          id: l.id,
-          name: l.name,
-          lat: l.lat,
-          lon: l.lon,
-          forecastsByDate: forecastByName[l.name]?.forecastsByDate ?? new Map(),
-          locationType: l.locationType ?? [],
-          tideType: l.tideType ?? [],
-          solarEventType: l.solarEventType ?? ['SUNRISE', 'SUNSET'],
-          bortleClass: l.bortleClass ?? null,
-          regionName: l.region?.name ?? null,
-          outcomes: outcomesByName.get(l.name) ?? [],
-        }));
-
-      setLocations(allLocations);
+      setLocations(buildLocations(forecasts, locationMeta, outcomes));
+      hasDataRef.current = true;
+      // Best-effort: writeSwrCache silently no-ops if the payload exceeds the storage quota.
+      writeSwrCache(cacheKey, { forecasts, locationMeta, outcomes });
     } catch (err) {
-      setError(
-        err.response?.data?.message ||
-          err.message ||
-          'Failed to load forecast data. Please try again.'
-      );
+      // Only surface an error when there's nothing already on screen; a failed revalidation over a
+      // hydrated / previously-loaded map should keep the stale data rather than blank it.
+      if (!hasDataRef.current) {
+        setError(
+          err.response?.data?.message ||
+            err.message ||
+            'Failed to load forecast data. Please try again.'
+        );
+      }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [cacheKey]);
 
   useEffect(() => {
     // Invoke via an inline async function so the synchronous setState calls at
