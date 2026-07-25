@@ -19,6 +19,7 @@ import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.EvaluationViewService;
+import com.gregochr.goldenhour.service.CloudVerificationService;
 import com.gregochr.goldenhour.service.ForecastCalibrationService;
 import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
@@ -250,4 +251,8 @@ abstract class AbstractControllerTest {
     /** Scores forecasts against recorded outcomes for {@code CalibrationController}. */
     @MockitoBean
     protected ForecastCalibrationService calibrationService;
+
+    /** Scores forecasts against reanalysed cloud for {@code CloudVerificationController}. */
+    @MockitoBean
+    protected CloudVerificationService cloudVerificationService;
 }

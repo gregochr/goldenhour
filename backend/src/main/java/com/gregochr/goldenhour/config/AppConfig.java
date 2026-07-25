@@ -7,6 +7,7 @@ import com.anthropic.core.ClientOptions;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.gregochr.goldenhour.client.OpenMeteoAirQualityApi;
+import com.gregochr.goldenhour.client.OpenMeteoArchiveApi;
 import com.gregochr.goldenhour.client.OpenMeteoForecastApi;
 import com.gregochr.goldenhour.client.OpenMeteoMarineApi;
 import com.gregochr.solarutils.LunarCalculator;
@@ -188,6 +189,24 @@ public class AppConfig {
                 .build();
         return HttpServiceProxyFactory.builderFor(RestClientAdapter.create(client))
                 .build().createClient(OpenMeteoForecastApi.class);
+    }
+
+    /**
+     * Proxy for the Open-Meteo Historical Weather (archive) API backed by {@link RestClient}.
+     *
+     * <p>Serves reanalysed past weather, used to score old forecasts against what actually
+     * happened without needing a recorded human observation.
+     *
+     * @return a typed proxy implementing {@link OpenMeteoArchiveApi}
+     */
+    @Bean
+    OpenMeteoArchiveApi openMeteoArchiveApi() {
+        RestClient client = RestClient.builder()
+                .baseUrl("https://archive-api.open-meteo.com")
+                .requestFactory(openMeteoRequestFactory())
+                .build();
+        return HttpServiceProxyFactory.builderFor(RestClientAdapter.create(client))
+                .build().createClient(OpenMeteoArchiveApi.class);
     }
 
     /**
