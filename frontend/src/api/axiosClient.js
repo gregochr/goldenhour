@@ -9,6 +9,14 @@ import { refreshAccessToken } from './authApi.js';
  * component imports this instance rather than the global axios singleton, so
  * the interceptors are explicit dependencies instead of import-order side
  * effects.
+ *
+ * ETag note: the read GET endpoints send ETags + `Cache-Control: private, no-cache`
+ * (backend HttpCachingConfig). The browser's own HTTP cache revalidates these below
+ * the XHR layer and hands axios a full 200 with a populated body on a 304 — so this
+ * client needs no conditional-request handling and gets the bandwidth saving for free.
+ * Do NOT store the ETag in JS and attach a manual `If-None-Match`: axios's default
+ * `validateStatus` rejects a bare 304 as an error, which would surface an empty body
+ * to callers like `useForecasts` and break the cold load.
  */
 const apiClient = axios.create();
 

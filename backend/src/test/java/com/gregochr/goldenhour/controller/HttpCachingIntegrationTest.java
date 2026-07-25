@@ -1,0 +1,124 @@
+package com.gregochr.goldenhour.controller;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.gregochr.goldenhour.entity.LocationEntity;
+import java.time.LocalDateTime;
+import java.util.List;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+
+/**
+ * Integration tests for {@link com.gregochr.goldenhour.config.HttpCachingConfig} — the ETag +
+ * {@code Cache-Control} behaviour on the read GET endpoints, exercised through the full filter
+ * chain (including Spring Security) so the header interaction is verified as it runs in production.
+ */
+class HttpCachingIntegrationTest extends AbstractControllerTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Test
+    @WithMockUser
+    @DisplayName("A whitelisted read GET carries an ETag and a revalidatable Cache-Control (not no-store)")
+    void readEndpointCarriesEtagAndRevalidatableCacheControl() throws Exception {
+        when(locationService.findAll()).thenReturn(List.of(loc(1L, "Ambleside")));
+
+        MvcResult result = mockMvc.perform(get("/api/locations"))
+                .andExpect(status().isOk())
+                .andExpect(header().exists(HttpHeaders.ETAG))
+                .andReturn();
+
+        String cacheControl = result.getResponse().getHeader(HttpHeaders.CACHE_CONTROL);
+        // "no-cache" = store but always revalidate; must NOT be Spring Security's default "no-store"
+        // (which would stop the browser caching the response, so no conditional request is ever sent).
+        assertThat(cacheControl).contains("no-cache");
+        assertThat(cacheControl).doesNotContain("no-store");
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("An unchanged read revalidates as a 304 Not Modified")
+    void unchangedReadRevalidatesAs304() throws Exception {
+        when(locationService.findAll()).thenReturn(List.of(loc(1L, "Ambleside")));
+
+        String etag = mockMvc.perform(get("/api/locations"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getHeader(HttpHeaders.ETAG);
+
+        // Same body -> same body-derived ETag -> a matching If-None-Match short-circuits to 304.
+        mockMvc.perform(get("/api/locations").header(HttpHeaders.IF_NONE_MATCH, etag))
+                .andExpect(status().isNotModified());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("A changed read returns a fresh 200 rather than a stale 304")
+    void changedReadReturnsFresh200() throws Exception {
+        when(locationService.findAll()).thenReturn(List.of(loc(1L, "Ambleside")));
+        String etag = mockMvc.perform(get("/api/locations"))
+                .andReturn()
+                .getResponse()
+                .getHeader(HttpHeaders.ETAG);
+
+        // Body changes -> different hash -> the old ETag no longer matches -> fresh 200 with the new body.
+        when(locationService.findAll()).thenReturn(List.of(loc(1L, "Ambleside"), loc(2L, "Durham UK")));
+        mockMvc.perform(get("/api/locations").header(HttpHeaders.IF_NONE_MATCH, etag))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("A body-derived ETag is role-safe: a changed (role) body never 304s into a cached one")
+    void bodyDerivedEtagIsRoleSafe() throws Exception {
+        // The ETag hashes the rendered body, so any content difference (including role-varying scores)
+        // yields a different validator — the mechanism that prevents a LITE request 304ing into a PRO
+        // body. Model that here as a straightforward body difference under the same URL.
+        when(locationService.findAll()).thenReturn(List.of(loc(1L, "Ambleside")));
+        String etagA = mockMvc.perform(get("/api/locations"))
+                .andReturn().getResponse().getHeader(HttpHeaders.ETAG);
+
+        when(locationService.findAll()).thenReturn(List.of(loc(1L, "Bamburgh")));
+        String etagB = mockMvc.perform(get("/api/locations"))
+                .andReturn().getResponse().getHeader(HttpHeaders.ETAG);
+
+        assertThat(etagA).isNotEqualTo(etagB);
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("A non-whitelisted read GET keeps Spring Security's no-store and gets no ETag")
+    void nonWhitelistedGetKeepsNoStoreAndNoEtag() throws Exception {
+        when(regionService.findAll()).thenReturn(List.of());
+
+        MvcResult result = mockMvc.perform(get("/api/regions"))
+                .andExpect(status().isOk())
+                .andExpect(header().doesNotExist(HttpHeaders.ETAG))
+                .andReturn();
+
+        assertThat(result.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("no-store");
+    }
+
+    private static LocationEntity loc(Long id, String name) {
+        return LocationEntity.builder()
+                .id(id)
+                .name(name)
+                .lat(54.4)
+                .lon(-2.9)
+                .createdAt(LocalDateTime.of(2026, 2, 22, 12, 0))
+                .build();
+    }
+}
