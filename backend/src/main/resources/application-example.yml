@@ -11,6 +11,10 @@ spring:
     hibernate:
       ddl-auto: validate
     show-sql: false
+    properties:
+      hibernate:
+        # Batch eager @ElementCollection loads on LocationEntity into IN-queries (see prod config).
+        default_batch_fetch_size: 32
   flyway:
     enabled: true
   mail:

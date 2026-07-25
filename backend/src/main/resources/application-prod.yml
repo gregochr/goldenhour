@@ -12,6 +12,12 @@ spring:
       # Production: validate only, never auto-migrate. Flyway handles all migrations.
       ddl-auto: validate
     show-sql: false
+    properties:
+      hibernate:
+        # Batch the eager @ElementCollection loads on LocationEntity (solar/tide/location types)
+        # into IN-queries instead of one SELECT per location — cuts the /api/forecast and
+        # /api/locations query counts sharply at 200+ locations.
+        default_batch_fetch_size: 32
 
   flyway:
     enabled: true

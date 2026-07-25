@@ -25,7 +25,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Maps {@link ForecastEvaluationEntity} to {@link ForecastEvaluationDto} with role-based
@@ -83,10 +85,20 @@ public class ForecastDtoMapper {
      * @param type     the target event type
      * @return the sea-state info, or {@link WaveInfo#NONE}
      */
+    /**
+     * True when a location/date/event could carry a coastal sea-state: a non-HOURLY solar event at a
+     * location with a tide preference. Shared by the per-row {@link #resolveWave} and the bulk map
+     * lookup so both apply the same coastal gate — a location reclassified inland (tideType cleared)
+     * whose stale {@code marine_wave} rows still exist must resolve to {@link WaveInfo#NONE} on both.
+     */
+    private boolean isCoastalWaveSlot(LocationEntity location, LocalDate date, TargetType type) {
+        return location != null && location.getId() != null && date != null
+                && type != null && type != TargetType.HOURLY
+                && location.getTideType() != null && !location.getTideType().isEmpty();
+    }
+
     private WaveInfo resolveWave(LocationEntity location, LocalDate date, TargetType type) {
-        if (location == null || location.getId() == null || date == null
-                || type == null || type == TargetType.HOURLY
-                || location.getTideType() == null || location.getTideType().isEmpty()) {
+        if (!isCoastalWaveSlot(location, date, type)) {
             return WaveInfo.NONE;
         }
         return marineWaveRepository
@@ -106,7 +118,62 @@ public class ForecastDtoMapper {
      */
     public List<ForecastEvaluationDto> toDtoList(List<ForecastEvaluationEntity> entities,
             boolean isLiteUser) {
-        return entities.stream().map(e -> toDto(e, isLiteUser)).toList();
+        // Preload the whole window's coastal sea-state in one query (avoids a marine_wave SELECT
+        // per coastal row), and memoise the per-date lunar classification (identical for every row
+        // on a given date) instead of recomputing it for all rows.
+        Map<String, WaveInfo> waveByKey = preloadWaves(entities);
+        Map<LocalDate, LunarInfo> lunarByDate = new HashMap<>();
+        return entities.stream()
+                .map(e -> toDto(e, isLiteUser, waveByKey, lunarByDate))
+                .toList();
+    }
+
+    /**
+     * Per-date lunar classification, memoised across the rows of a single mapping pass.
+     *
+     * @param tideType the astronomical tide classification for the date
+     * @param phase    the human-readable moon phase for the date
+     */
+    private record LunarInfo(LunarTideType tideType, String phase) {
+    }
+
+    /**
+     * Loads the coastal sea-state for every row's date range in one query and indexes it by
+     * {@code locationId|date|eventType}, so {@link #toDto} can resolve waves with a map lookup
+     * instead of a per-row {@code marine_wave} query. Reading the lazy {@code location} proxy's id
+     * does not trigger a load (the FK is already known).
+     *
+     * @param entities the entities about to be mapped
+     * @return a map from {@code locationId|date|eventType} to its {@link WaveInfo}
+     */
+    private Map<String, WaveInfo> preloadWaves(List<ForecastEvaluationEntity> entities) {
+        LocalDate min = null;
+        LocalDate max = null;
+        for (ForecastEvaluationEntity e : entities) {
+            LocalDate d = e.getTargetDate();
+            if (d == null) {
+                continue;
+            }
+            if (min == null || d.isBefore(min)) {
+                min = d;
+            }
+            if (max == null || d.isAfter(max)) {
+                max = d;
+            }
+        }
+        if (min == null) {
+            return Map.of();
+        }
+        Map<String, WaveInfo> byKey = new HashMap<>();
+        for (MarineWaveEntity w : marineWaveRepository.findByEvaluationDateBetween(min, max)) {
+            Double hs = w.getSignificantWaveHeightMetres();
+            if (hs == null || w.getLocation() == null || w.getLocation().getId() == null) {
+                continue;
+            }
+            String key = w.getLocation().getId() + "|" + w.getEvaluationDate() + "|" + w.getEventType();
+            byKey.put(key, new WaveInfo(hs, SeaState.fromHs(hs).label()));
+        }
+        return byKey;
     }
 
     /**
@@ -122,6 +189,13 @@ public class ForecastDtoMapper {
      * @return the mapped DTO
      */
     public ForecastEvaluationDto toDto(ForecastEvaluationEntity entity, boolean isLiteUser) {
+        // Single-row path: no preloaded wave map (falls back to a per-row query) and a fresh
+        // one-entry lunar memo. The bulk path (toDtoList) shares preloaded/memoised maps.
+        return toDto(entity, isLiteUser, null, new HashMap<>());
+    }
+
+    private ForecastEvaluationDto toDto(ForecastEvaluationEntity entity, boolean isLiteUser,
+            Map<String, WaveInfo> waveByKey, Map<LocalDate, LunarInfo> lunarByDate) {
         Integer fierySky;
         Integer goldenHour;
         String summary;
@@ -136,12 +210,14 @@ public class ForecastDtoMapper {
             summary = entity.getSummary();
         }
 
-        // Lunar classification — deterministic from target date
+        // Lunar classification — deterministic from target date, so memoise it per date across rows.
         LunarTideType lunarTideType = null;
         String lunarPhase = null;
         if (entity.getTargetDate() != null) {
-            lunarTideType = lunarPhaseService.classifyTide(entity.getTargetDate());
-            lunarPhase = lunarPhaseService.getMoonPhase(entity.getTargetDate());
+            LunarInfo li = lunarByDate.computeIfAbsent(entity.getTargetDate(),
+                    d -> new LunarInfo(lunarPhaseService.classifyTide(d), lunarPhaseService.getMoonPhase(d)));
+            lunarTideType = li.tideType();
+            lunarPhase = li.phase();
         }
 
         // Golden/blue hour window — elevation-based, not ±60 min
@@ -193,7 +269,18 @@ public class ForecastDtoMapper {
             }
         }
 
-        WaveInfo wave = resolveWave(loc, entity.getTargetDate(), entity.getTargetType());
+        // Bulk path: for a coastal slot, look the wave up in the preloaded map (an absent key means
+        // no wave was persisted — same as resolveWave). Non-coastal/HOURLY slots go through
+        // resolveWave, which short-circuits to NONE without a query, so a stale marine_wave row on a
+        // reclassified-inland location is never surfaced. Single-row path: direct query fallback.
+        WaveInfo wave;
+        if (waveByKey != null && isCoastalWaveSlot(loc, entity.getTargetDate(), entity.getTargetType())) {
+            wave = waveByKey.getOrDefault(
+                    loc.getId() + "|" + entity.getTargetDate() + "|" + entity.getTargetType(),
+                    WaveInfo.NONE);
+        } else {
+            wave = resolveWave(loc, entity.getTargetDate(), entity.getTargetType());
+        }
 
         TideDetails tide = TideDetails.orEmpty(entity.getTide());
         DirectionalCloudDetails dc = DirectionalCloudDetails.orEmpty(entity.getDirectionalCloud());

@@ -44,6 +44,10 @@ import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -289,6 +293,96 @@ class ForecastDtoMapperTest {
         List<ForecastEvaluationDto> dtos = mapper.toDtoList(List.of(), false);
 
         assertThat(dtos).isEmpty();
+    }
+
+    @Test
+    @DisplayName("toDtoList() resolves coastal waves from ONE batched query for many rows, not per-row (J2)")
+    void toDtoList_preloadsWavesInOneBatchedQuery() {
+        LocalDate date = LocalDate.of(2026, 3, 8);
+        LocationEntity bamburgh = LocationEntity.builder()
+                .id(7L).name("Bamburgh").lat(55.6).lon(-1.7).tideType(Set.of(TideType.HIGH)).build();
+        LocationEntity craster = LocationEntity.builder()
+                .id(8L).name("Craster").lat(55.47).lon(-1.59).tideType(Set.of(TideType.HIGH)).build();
+        ForecastEvaluationEntity e1 = coastalEntity(bamburgh, date);
+        ForecastEvaluationEntity e2 = coastalEntity(craster, date);
+        when(marineWaveRepository.findByEvaluationDateBetween(eq(date), eq(date)))
+                .thenReturn(List.of(marineWaveRow(bamburgh, date, 4.2),
+                        marineWaveRow(craster, date, 1.1)));
+
+        List<ForecastEvaluationDto> dtos = mapper.toDtoList(List.of(e1, e2), false);
+
+        assertThat(dtos.get(0).significantWaveHeightMetres()).isEqualTo(4.2);
+        assertThat(dtos.get(1).significantWaveHeightMetres()).isEqualTo(1.1);
+        // Exactly ONE batched query for both rows; never the per-row lookup.
+        verify(marineWaveRepository, times(1)).findByEvaluationDateBetween(any(), any());
+        verify(marineWaveRepository, never())
+                .findByLocation_IdAndEvaluationDateAndEventType(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("toDtoList() bulk path suppresses a stale wave on a location reclassified inland (J2 equivalence)")
+    void toDtoList_reclassifiedInland_suppressesStaleWave() {
+        LocalDate date = LocalDate.of(2026, 3, 8);
+        // Coastal location edited to inland: tideType now empty, but its old marine_wave row survives
+        // (marine_wave is never pruned). The bulk path must still resolve to NONE, like resolveWave.
+        LocationEntity nowInland = LocationEntity.builder()
+                .id(7L).name("Former Seascape").lat(55.6).lon(-1.7).build();
+        ForecastEvaluationEntity entity = coastalEntity(nowInland, date);
+        when(marineWaveRepository.findByEvaluationDateBetween(eq(date), eq(date)))
+                .thenReturn(List.of(marineWaveRow(nowInland, date, 4.2)));
+
+        List<ForecastEvaluationDto> dtos = mapper.toDtoList(List.of(entity), false);
+
+        assertThat(dtos.get(0).seaState()).isNull();
+        assertThat(dtos.get(0).significantWaveHeightMetres()).isNull();
+    }
+
+    @Test
+    @DisplayName("toDtoList() computes lunar once per DISTINCT date, proving per-date keying (K1)")
+    void toDtoList_lunarComputedOncePerDistinctDate() {
+        LunarPhaseService lunarSpy = spy(new LunarPhaseService());
+        ForecastDtoMapper localMapper = new ForecastDtoMapper(lunarSpy, solarService,
+                new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"),
+                forecastScoreRepository, marineWaveRepository);
+        LocalDate dateA = LocalDate.of(2026, 3, 8);
+        LocalDate dateB = LocalDate.of(2026, 3, 9);
+        ForecastEvaluationEntity a1 = lunarEntity(dateA, TargetType.SUNRISE);
+        ForecastEvaluationEntity a2 = lunarEntity(dateA, TargetType.SUNSET);
+        ForecastEvaluationEntity b1 = lunarEntity(dateB, TargetType.SUNRISE);
+
+        localMapper.toDtoList(List.of(a1, a2, b1), false);
+
+        // Each distinct date computed exactly once (once, not per row) — a memo ignoring the date key
+        // would compute once total and never call for dateB, failing these assertions.
+        verify(lunarSpy, times(1)).classifyTide(dateA);
+        verify(lunarSpy, times(1)).getMoonPhase(dateA);
+        verify(lunarSpy, times(1)).classifyTide(dateB);
+        verify(lunarSpy, times(1)).getMoonPhase(dateB);
+    }
+
+    private static MarineWaveEntity marineWaveRow(LocationEntity loc, LocalDate date, double hs) {
+        MarineWaveEntity w = new MarineWaveEntity();
+        w.setLocation(loc);
+        w.setEvaluationDate(date);
+        w.setEventType(TargetType.SUNSET);
+        w.setSignificantWaveHeightMetres(hs);
+        return w;
+    }
+
+    private static ForecastEvaluationEntity coastalEntity(LocationEntity loc, LocalDate date) {
+        ForecastEvaluationEntity e = new ForecastEvaluationEntity();
+        e.setLocation(loc);
+        e.setTargetDate(date);
+        e.setTargetType(TargetType.SUNSET);
+        return e;
+    }
+
+    private ForecastEvaluationEntity lunarEntity(LocalDate date, TargetType type) {
+        ForecastEvaluationEntity e = new ForecastEvaluationEntity();
+        e.setLocation(LOCATION);
+        e.setTargetDate(date);
+        e.setTargetType(type);
+        return e;
     }
 
     @Test
