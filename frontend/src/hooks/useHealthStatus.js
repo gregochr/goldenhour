@@ -26,7 +26,7 @@ const TOKEN_KEY = 'goldenhour_token';
  *
  * @returns {{ status: string|null, degraded: string[], checkedAt: Date|null, build: object|null, session: object|null, database: object|null, services: object|null, appVersion: string|null, startedAt: string|null }}
  */
-export function useHealthStatus() {
+export function useHealthStatus(enabled = true) {
   const { token } = useAuth();
   const [health, setHealth] = useState({
     status: null, degraded: [], checkedAt: null,
@@ -35,7 +35,7 @@ export function useHealthStatus() {
   });
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || !enabled) return;
 
     let downTimer = null;
     const clearDownTimer = () => {
@@ -91,7 +91,7 @@ export function useHealthStatus() {
       clearDownTimer();
       cleanup();
     };
-  }, [token]);
+  }, [token, enabled]);
 
   return health;
 }

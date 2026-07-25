@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { readSwrCache, writeSwrCache } from '../utils/swrCache.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
-import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
+import { getAstroConditions } from '../api/astroApi.js';
 import { getDriveTimes } from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -984,7 +984,6 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
 
   // Astro conditions: per-date scores keyed by locationName
   const [astroScoresByDate, setAstroScoresByDate] = useState({}); // { date: { locName: score } }
-  const [astroAvailableDates, setAstroAvailableDates] = useState([]);
 
   // Hydrate evaluation scores from backend cache on mount (batch-scored locations)
   useEffect(() => {
@@ -1122,12 +1121,9 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
     };
   }, [fetchBriefing]);
 
-  // Fetch astro available dates once on mount.
-  useEffect(() => {
-    getAstroAvailableDates().then(setAstroAvailableDates).catch(() => {});
-  }, []);
-
-  // Fetch astro conditions for each visible date in the heatmap.
+  // Fetch astro conditions for each visible heatmap date directly (dates come from the briefing).
+  // A date with no astro data returns an empty result, so we no longer gate on a separate
+  // available-dates round-trip — the conditions resolve one wave earlier.
   const astroDayDates = useMemo(() => {
     if (!briefing) return [];
     const events = selectUpcomingEvents(briefing.days);
@@ -1135,13 +1131,11 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
   }, [briefing]);
 
   useEffect(() => {
-    if (astroDayDates.length === 0) return;
-    const astroDates = astroDayDates.filter((d) => astroAvailableDates.includes(d));
-    if (astroDates.length === 0) {
+    if (astroDayDates.length === 0) {
       (async () => setAstroScoresByDate({}))();
       return;
     }
-    Promise.all(astroDates.map((d) =>
+    Promise.all(astroDayDates.map((d) =>
       getAstroConditions(d).then((scores) => ({ date: d, scores })).catch(() => ({ date: d, scores: [] })),
     )).then((results) => {
       const byDate = {};
@@ -1152,7 +1146,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
       }
       setAstroScoresByDate(byDate);
     });
-  }, [astroDayDates, astroAvailableDates]);
+  }, [astroDayDates]);
 
   const handlePickClick = useCallback(() => {
     setIsExpanded(true);
