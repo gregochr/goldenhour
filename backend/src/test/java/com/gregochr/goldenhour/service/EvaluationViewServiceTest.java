@@ -1057,4 +1057,51 @@ class EvaluationViewServiceTest {
             assertThat(v.evaluatedAt()).isEqualTo(evaluatedAt);
         }
     }
+
+    @Nested
+    @DisplayName("cachedOnlyViewsForDateRange — GET /api/forecast cached-only path")
+    class CachedOnlyViewsForDateRange {
+
+        @Test
+        @DisplayName("returns cached views WITHOUT a per-location forecast query or a repeat findAllEnabled")
+        void skipsPerLocationForecastQuery() {
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
+            when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(DATE))
+                    .thenReturn(List.of());
+
+            List<LocationEvaluationView> views = service.cachedOnlyViewsForDateRange(
+                    DATE, DATE, Set.of(SUNRISE), List.of(bamburgh));
+
+            assertThat(views).hasSize(1);
+            LocationEvaluationView v = views.getFirst();
+            assertThat(v.source()).isEqualTo(Source.CACHED_EVALUATION);
+            assertThat(v.rating()).isEqualTo(4);
+            assertThat(v.summary()).isEqualTo("Great sky");
+            // The whole point: no forecast_evaluation re-query, and no repeat findAllEnabled
+            // (the caller supplied the locations).
+            verify(forecastEvaluationRepository, never())
+                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                            any(), any(), any());
+            verify(locationService, never()).findAllEnabled();
+        }
+
+        @Test
+        @DisplayName("returns empty (no NONE views) when there is no cached score")
+        void noCache_returnsEmpty() {
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of());
+            when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(DATE))
+                    .thenReturn(List.of());
+
+            List<LocationEvaluationView> views = service.cachedOnlyViewsForDateRange(
+                    DATE, DATE, Set.of(SUNRISE), List.of(bamburgh));
+
+            assertThat(views).isEmpty();
+            verify(forecastEvaluationRepository, never())
+                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                            any(), any(), any());
+        }
+    }
 }

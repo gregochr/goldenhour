@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — /api/forecast no longer re-loads forecast_evaluation per location for the cached-only rows
+- **`getForecasts` used `EvaluationViewService.forDateRange`, which loads the latest `forecast_evaluation` row per enabled location and merges everything — but `getForecasts` already has its own latest forecast rows (from the dedup query) and only keeps the *cached-only* views.** So that whole per-location `forecast_evaluation` re-query + merge was wasted work on the map's primary endpoint, every request. A new `EvaluationViewService.cachedOnlyViewsForDateRange(start, end, types, locations)` builds the same `CACHED_EVALUATION` views from the cache alone (safe because `mergeToView` gives cached results priority, so an empty forecast map yields identical cached views), skipping the N+1 forecast query entirely and reusing the caller's already-loaded enabled locations (so no repeat `findAllEnabled`)
+- `forDateRange` is unchanged for its other caller (`BriefingEvaluationController`, the Map tab) — the per-location load + merge were extracted into shared `loadLatestForecasts` / `buildViews` helpers and `loadCachedEvaluations` now takes the caller's locations instead of re-querying them
+- Tests: `EvaluationViewServiceTest` gains a `cachedOnlyViewsForDateRange` case asserting it returns the cached views **without** any per-location `forecast_evaluation` query or a repeat `findAllEnabled`; `forDateRange` behaviour and the `getForecasts` cached-row surfacing are both still covered
+
 ### Added — Gentle "just refreshed" fade on the Plan tab
 - **When the instant-paint cache revalidates and swaps in a genuinely newer briefing, the Plan card now settles in with a subtle 450ms opacity fade** (`animate-briefing-refresh`, a soft 0.6→1 dip) instead of the values snapping in place. It fires **only** when `generatedAt` actually changes — never on first load, and never on the common same-data revalidation (which leaves `generatedAt` untouched, so the effect doesn't even re-run). Honours `prefers-reduced-motion`, and the swap still reconciles in place (no remount, so expanded cards / selected day are preserved). Tests: fade fires on a newer briefing, and does not on first load or a same-data revalidation
 

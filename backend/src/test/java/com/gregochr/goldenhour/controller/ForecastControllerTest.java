@@ -108,7 +108,8 @@ class ForecastControllerTest extends AbstractControllerTest {
                 LocationEvaluationView.Source.CACHED_EVALUATION,
                 4, "Patchy mid cloud — could pop colour.", 72, 80,
                 null, null, null, null, DisplayVerdict.WORTH_IT);
-        when(evaluationViewService.forDateRange(any(LocalDate.class), any(LocalDate.class), any()))
+        when(evaluationViewService.cachedOnlyViewsForDateRange(
+                any(LocalDate.class), any(LocalDate.class), any(), any()))
                 .thenReturn(List.of(cachedView));
         when(dtoMapper.toSparseDto(eq(cachedView), eq(DURHAM), anyBoolean()))
                 .thenReturn(buildDto("Durham UK", 72, 80));
@@ -163,7 +164,8 @@ class ForecastControllerTest extends AbstractControllerTest {
                 1L, "Durham UK", null, null, LocalDate.of(2026, 2, 20), TargetType.SUNSET,
                 LocationEvaluationView.Source.CACHED_EVALUATION,
                 3, "stale", 50, 60, null, null, null, null, DisplayVerdict.MAYBE);
-        when(evaluationViewService.forDateRange(any(LocalDate.class), any(LocalDate.class), any()))
+        when(evaluationViewService.cachedOnlyViewsForDateRange(
+                any(LocalDate.class), any(LocalDate.class), any(), any()))
                 .thenReturn(List.of(duplicateView));
 
         mockMvc.perform(get("/api/forecast"))

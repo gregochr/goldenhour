@@ -137,11 +137,43 @@ public class EvaluationViewService {
      */
     public List<LocationEvaluationView> forDateRange(LocalDate start, LocalDate end,
             Set<TargetType> types) {
-        // 1. Load all cached evaluation entries from DB for the date range
-        Map<String, CachedEntry> cachedByKey = loadCachedEvaluations(start, end);
-
-        // 2. Load all forecast_evaluation rows for enabled locations in date range
         List<LocationEntity> locations = locationService.findAllEnabled();
+        Map<String, CachedEntry> cachedByKey = loadCachedEvaluations(start, end, locations);
+        Map<String, ForecastEvaluationEntity> latestForecasts =
+                loadLatestForecasts(locations, start, end, types);
+        return buildViews(cachedByKey, latestForecasts, locations, start, end, types);
+    }
+
+    /**
+     * Returns only the cached-only views for a date range, skipping the per-location
+     * {@code forecast_evaluation} load and merge that {@link #forDateRange} performs.
+     *
+     * <p>{@code GET /api/forecast} already loads its own latest {@code forecast_evaluation} rows and
+     * only needs the cached-only (not-yet-persisted) rows from here, so re-querying
+     * {@code forecast_evaluation} once per location would be wasted work — an N+1 on the map's
+     * primary endpoint. Because {@link #mergeToView} gives cached results priority, passing an empty
+     * forecast map yields exactly the {@code CACHED_EVALUATION} views {@code forDateRange} would
+     * produce (and {@code NONE} for the rest, which are dropped). The caller passes its already-loaded
+     * enabled locations so this adds no extra {@code findAllEnabled} query.
+     *
+     * @param start     the start date (inclusive)
+     * @param end       the end date (inclusive)
+     * @param types     the target types to include
+     * @param locations the enabled locations, supplied by the caller to avoid a repeat query
+     * @return the cached-only views, ordered by date then location
+     */
+    public List<LocationEvaluationView> cachedOnlyViewsForDateRange(LocalDate start, LocalDate end,
+            Set<TargetType> types, List<LocationEntity> locations) {
+        Map<String, CachedEntry> cachedByKey = loadCachedEvaluations(start, end, locations);
+        return buildViews(cachedByKey, Map.of(), locations, start, end, types);
+    }
+
+    /**
+     * Loads the latest {@code forecast_evaluation} row per (location, date, target type) for the
+     * range, keyed by {@code locationId|date|targetType}. One query per location.
+     */
+    private Map<String, ForecastEvaluationEntity> loadLatestForecasts(List<LocationEntity> locations,
+            LocalDate start, LocalDate end, Set<TargetType> types) {
         Map<String, ForecastEvaluationEntity> latestForecasts = new HashMap<>();
         for (LocationEntity loc : locations) {
             List<ForecastEvaluationEntity> rows =
@@ -160,8 +192,17 @@ public class EvaluationViewService {
                 }
             }
         }
+        return latestForecasts;
+    }
 
-        // 3. Merge: iterate all locations × dates × types
+    /**
+     * Merges cached evaluations and (optionally) latest forecast rows into views for every
+     * location × date × target type, dropping {@code NONE} results. Shared by {@link #forDateRange}
+     * (with forecast rows) and {@link #cachedOnlyViewsForDateRange} (with an empty forecast map).
+     */
+    private List<LocationEvaluationView> buildViews(Map<String, CachedEntry> cachedByKey,
+            Map<String, ForecastEvaluationEntity> latestForecasts, List<LocationEntity> locations,
+            LocalDate start, LocalDate end, Set<TargetType> types) {
         List<LocationEvaluationView> views = new ArrayList<>();
         for (LocationEntity loc : locations) {
             String regionName = loc.getRegion() != null ? loc.getRegion().getName() : null;
@@ -443,11 +484,11 @@ public class EvaluationViewService {
      * falling back to the database. Returns a map keyed by "regionName|date|targetType"
      * to a {@link CachedEntry} carrying both the per-location results and the evaluation instant.
      */
-    private Map<String, CachedEntry> loadCachedEvaluations(LocalDate start, LocalDate end) {
+    private Map<String, CachedEntry> loadCachedEvaluations(LocalDate start, LocalDate end,
+            List<LocationEntity> locations) {
         Map<String, CachedEntry> result = new HashMap<>();
 
         // Try in-memory cache first (it's the primary read source)
-        List<LocationEntity> locations = locationService.findAllEnabled();
         Set<String> regionNames = locations.stream()
                 .filter(l -> l.getRegion() != null)
                 .map(l -> l.getRegion().getName())
