@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents, useMap } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
@@ -18,6 +18,7 @@ import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { isTravelDate } from '../utils/conversions.js';
 import { fitBoundsKey } from '../utils/fitBoundsKey.js';
+import { buildBriefingScoreIndex, lookupBriefingScore } from '../utils/briefingScoreIndex.js';
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 
 // Override Leaflet popup width + scrolling.
@@ -102,6 +103,9 @@ import { buildMarkerSvg, buildStandDownSvg, markerLabelAndColour, createClusterI
 
 const SUNRISE_LINE_COLOUR = '#f97316';
 const SUNSET_LINE_COLOUR  = '#a855f7';
+
+/** Bortle class at or below which a location counts as "dark sky" (aurora/astro suitable). */
+const DARK_SKY_THRESHOLD = 4;
 
 /**
  * Maps Leaflet zoom level to azimuth line length in km.
@@ -251,7 +255,22 @@ function destinationPoint(lat, lon, bearingDeg, distanceKm) {
  * @param {boolean} [isStandDown=false] - If true, renders a muted stand-down marker (triaged forecast).
  * @returns {L.DivIcon}
  */
+// Cache of built DivIcons keyed by the content that determines the icon (name + scores + variant
+// flags). Returning a stable instance for unchanged markers lets react-leaflet skip setIcon (and
+// the SVG/DOM rebuild) across re-renders — a zoom, hover or filter change no longer rebuilds every
+// marker's icon. A DivIcon is safely shareable: Leaflet's createIcon() builds fresh DOM from
+// options.html on each use, and the per-marker options embedded here (rating/scores/exclude flag,
+// read by createClusterIcon) are part of the cache key, so identical-content markers share safely.
+const markerIconCache = new Map();
+
+/** Soft cap so a long-lived tab whose scores change daily can't grow the icon cache without bound. */
+const MARKER_ICON_CACHE_LIMIT = 2000;
+
 function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildlife = false, excludeFromCluster = false, isStandDown = false) {
+  const cacheKey = `${locationName}|${rating}|${fierySky}|${goldenHour}|${isPureWildlife ? 1 : 0}|${excludeFromCluster ? 1 : 0}|${isStandDown ? 1 : 0}`;
+  const cached = markerIconCache.get(cacheKey);
+  if (cached) return cached;
+
   const { label, colour } = markerLabelAndColour(rating, fierySky, goldenHour, isPureWildlife);
 
   const svg = isStandDown
@@ -277,7 +296,7 @@ function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildli
     </div>
   `;
 
-  return L.divIcon({
+  const icon = L.divIcon({
     html,
     className: 'photocast-marker',
     iconSize: [44, 44],
@@ -288,6 +307,10 @@ function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildli
     excludeFromCluster: excludeFromCluster,
     popupAnchor: [0, -24],
   });
+
+  if (markerIconCache.size >= MARKER_ICON_CACHE_LIMIT) markerIconCache.clear();
+  markerIconCache.set(cacheKey, icon);
+  return icon;
 }
 
 /**
@@ -313,19 +336,6 @@ const LOCATION_TYPE_LABELS = {
  * @param {string} date - The selected date (YYYY-MM-DD).
  * @returns {string} 'SUNRISE' or 'SUNSET'.
  */
-/**
- * Looks up a briefing evaluation score for a location by scanning all keys in the scores map.
- * Key format: "regionName|date|targetType|locationName".
- */
-function getBriefingScore(briefingScores, locationName, date, eventType) {
-  if (!briefingScores || briefingScores.size === 0) return null;
-  const suffix = `|${date}|${eventType}|${locationName}`;
-  for (const [key, result] of briefingScores) {
-    if (key.endsWith(suffix)) return result;
-  }
-  return null;
-}
-
 function getNextEventType(locations, date) {
   const now = new Date();
   const todayStr = now.toLocaleDateString('en-CA'); // YYYY-MM-DD
@@ -607,21 +617,28 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
     });
   }
 
+  // Index briefing scores once per map so the per-marker lookup is O(1), instead of scanning the
+  // whole Map for every marker (previously O(markers x scores) on each render).
+  const briefingScoreIndex = useMemo(() => buildBriefingScoreIndex(briefingScores), [briefingScores]);
+
+  const isAuroraMode = eventType === 'AURORA';
+  const isAstroMode = eventType === 'ASTRO';
+
   /** True when this location's forecast for the current event was triaged (stand-down). */
-  function isStandDownLocation(loc) {
+  const isStandDownLocation = useCallback((loc) => {
     if (eventType === 'AURORA') return false;
     const types = loc.locationType ?? [];
     const isPureWildlife = types.length > 0 && types.every((t) => t === 'WILDLIFE');
     if (isPureWildlife) return false;
-    const briefingScore = getBriefingScore(briefingScores, loc.name, date, eventType);
+    const briefingScore = lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType);
     const dayData = loc.forecastsByDate.get(date);
     const solarType = eventType === 'SUNRISE' ? 'sunrise' : 'sunset';
     const forecast = dayData?.[solarType];
     return briefingScore?.triageReason != null || forecast?.triageReason != null;
-  }
+  }, [eventType, date, briefingScoreIndex]);
 
   /** Get the forecast rating for a location on the current date/event. */
-  function getRatingForLocation(loc) {
+  const getRatingForLocation = useCallback((loc) => {
     if (eventType === 'AURORA') {
       // Prefer stored DB results; fall back to live state cache for tonight
       return storedAuroraResults[loc.name]?.stars
@@ -634,65 +651,72 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
     // Mirror the marker render's precedence (line ~901): briefing score wins, then
     // forecast row. Without this, locations rated only via cached_evaluation render a
     // medallion but get hidden by the star-threshold filter.
-    const briefingScore = getBriefingScore(briefingScores, loc.name, date, eventType);
+    const briefingScore = lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType);
     const dayData = loc.forecastsByDate.get(date);
     const forecast = eventType === 'SUNRISE' ? dayData?.sunrise : dayData?.sunset;
     return briefingScore?.rating ?? forecast?.rating ?? null;
-  }
+  }, [eventType, date, briefingScoreIndex, storedAuroraResults, auroraScores, astroScores]);
 
   // Filter logic: type filters and rating filters are both AND-ed.
   // Within each filter group, any match passes (OR).
-  const typeFiltered = activeTypeFilters.size === 0
-    ? locations
-    : locations.filter((loc) => {
-        const types = loc.locationType ?? [];
-        return types.length === 0 || types.some((t) => activeTypeFilters.has(t));
-      });
+  const typeFiltered = useMemo(() => (
+    activeTypeFilters.size === 0
+      ? locations
+      : locations.filter((loc) => {
+          const types = loc.locationType ?? [];
+          return types.length === 0 || types.some((t) => activeTypeFilters.has(t));
+        })
+  ), [locations, activeTypeFilters]);
 
   const hasStandDown = typeFiltered.some((loc) => isStandDownLocation(loc));
   const hasUnrated = typeFiltered.some((loc) => (
     !isStandDownLocation(loc) && getRatingForLocation(loc) == null
   ));
 
-  const ratingFiltered = typeFiltered.filter((loc) => {
-    if (isStandDownLocation(loc)) return showStandDown;
-    const types = loc.locationType ?? [];
-    const isPureWildlife = types.length > 0 && types.every((t) => t === 'WILDLIFE');
-    const rating = getRatingForLocation(loc);
-    // Wildlife has no sky rating by design, so the sky-quality threshold must not
-    // hide it. Other unrated (not-yet-evaluated) locations stay admin-gated behind
-    // the "unknown" toggle, so the default 3★+ map reads quality-first.
-    if (rating == null) return isPureWildlife || showUnrated;
-    return rating >= minStars;
-  });
+  // Full filter pipeline → the markers actually rendered. Memoised so a re-render that touches no
+  // filter input (e.g. a zoom change, which only affects the azimuth line length) reuses the same
+  // location list, keeping marker identities stable for react-leaflet.
+  const visibleLocations = useMemo(() => {
+    const ratingFiltered = typeFiltered.filter((loc) => {
+      if (isStandDownLocation(loc)) return showStandDown;
+      const types = loc.locationType ?? [];
+      const isPureWildlife = types.length > 0 && types.every((t) => t === 'WILDLIFE');
+      const rating = getRatingForLocation(loc);
+      // Wildlife has no sky rating by design, so the sky-quality threshold must not
+      // hide it. Other unrated (not-yet-evaluated) locations stay admin-gated behind
+      // the "unknown" toggle, so the default 3★+ map reads quality-first.
+      if (rating == null) return isPureWildlife || showUnrated;
+      return rating >= minStars;
+    });
 
-  const driveFiltered = driveTimeFilter === 0
-    ? ratingFiltered
-    : ratingFiltered.filter((loc) => {
-        const mins = userDriveTimes[String(loc.id)];
-        return mins != null && mins <= driveTimeFilter;
-      });
+    const driveFiltered = driveTimeFilter === 0
+      ? ratingFiltered
+      : ratingFiltered.filter((loc) => {
+          const mins = userDriveTimes[String(loc.id)];
+          return mins != null && mins <= driveTimeFilter;
+        });
 
-  const isAuroraMode = eventType === 'AURORA';
-  const isAstroMode = eventType === 'ASTRO';
+    // Dark sky filter: show only locations with Bortle class 4 or darker.
+    const darkSkyFiltered = darkSkyFilter
+      ? driveFiltered.filter((loc) =>
+          loc.bortleClass != null && loc.bortleClass <= DARK_SKY_THRESHOLD,
+        )
+      : driveFiltered;
 
-  // Dark sky filter: show only locations with Bortle class 4 or darker.
-  const darkSkyThreshold = 4;
-  const darkSkyFiltered = darkSkyFilter
-    ? driveFiltered.filter((loc) =>
-        loc.bortleClass != null && loc.bortleClass <= darkSkyThreshold,
-      )
-    : driveFiltered;
-
-  // Map-overlay focus: when a hot-topic drilldown carries its qualifying spots, show ONLY those
-  // markers — exactly the locations that made the topic fire (coastal / dark-sky / elevated / …) —
-  // overriding the map's own type/rating filters so nothing worth showing is hidden.
-  const focusNames = focus?.names?.length ? new Set(focus.names) : null;
-  const visibleLocations = focusNames
-    ? locations.filter((loc) => focusNames.has(loc.name))
-    : isAstroMode
-      ? darkSkyFiltered.filter((loc) => loc.bortleClass != null)
-      : darkSkyFiltered;
+    // Map-overlay focus: when a hot-topic drilldown carries its qualifying spots, show ONLY those
+    // markers — exactly the locations that made the topic fire (coastal / dark-sky / elevated / …) —
+    // overriding the map's own type/rating filters so nothing worth showing is hidden.
+    const focusNames = focus?.names?.length ? new Set(focus.names) : null;
+    return focusNames
+      ? locations.filter((loc) => focusNames.has(loc.name))
+      : isAstroMode
+        ? darkSkyFiltered.filter((loc) => loc.bortleClass != null)
+        : darkSkyFiltered;
+  }, [
+    typeFiltered, locations, isStandDownLocation, getRatingForLocation,
+    showStandDown, showUnrated, minStars, driveTimeFilter, userDriveTimes,
+    darkSkyFilter, focus, isAstroMode,
+  ]);
 
   // Best aurora location — highest-starred entry from current aurora scores.
   const bestAuroraLocation = useMemo(() => {
@@ -958,7 +982,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
                   <button
                     onClick={() => setDarkSkyFilter((v) => !v)}
                     data-testid="dark-sky-filter-toggle"
-                    title={`Show only locations with a light pollution rating of ${darkSkyThreshold} or lower — suitable for aurora, astrophotography, and stargazing.`}
+                    title={`Show only locations with a light pollution rating of ${DARK_SKY_THRESHOLD} or lower — suitable for aurora, astrophotography, and stargazing.`}
                     className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
                       darkSkyFilter
                         ? 'bg-indigo-900/40 border-indigo-500/60 text-indigo-300'
@@ -967,7 +991,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
                   >
                     🔭 Dark sky only
                   </button>
-                  <InfoTip text={`Shows locations with a light pollution rating of ${darkSkyThreshold} or lower — suitable for aurora, astrophotography, and stargazing.${role === 'ADMIN' ? '\n\nRun 🌌 Refresh Light Pollution in Location Management to populate ratings.' : ''}`} />
+                  <InfoTip text={`Shows locations with a light pollution rating of ${DARK_SKY_THRESHOLD} or lower — suitable for aurora, astrophotography, and stargazing.${role === 'ADMIN' ? '\n\nRun 🌌 Refresh Light Pollution in Location Management to populate ratings.' : ''}`} />
                 </>
               )}
               {hasNonDefaultFilters && (
@@ -1092,7 +1116,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
               const { forecast, hourlyData, isPureWildlife, isWaterfall } = getContentProps(loc);
               const locAuroraScore = isAuroraMode ? (auroraScores[loc.name] ?? null) : null;
               // Look up briefing evaluation score for this location (if any)
-              const briefingScore = !isAuroraMode ? getBriefingScore(briefingScores, loc.name, date, eventType) : null;
+              const briefingScore = !isAuroraMode ? lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType) : null;
               const markerRating = isAuroraMode
                 ? (locAuroraScore?.stars ?? null)
                 : (briefingScore?.rating ?? forecast?.rating ?? null);
@@ -1117,7 +1141,10 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
 
               return (
                 <Marker
-                  key={`${loc.name}-${userDriveTimes[String(loc.id)] ?? 'none'}`}
+                  // Stable per-location key: names are unique, so the marker (and its Leaflet
+                  // instance) is never remounted by a drive-time load or a filter/zoom change —
+                  // driveMinutes flows through as a prop, so no remount is needed to refresh it.
+                  key={loc.name}
                   position={[loc.lat, loc.lon]}
                   icon={icon}
                   ref={(m) => {
@@ -1212,7 +1239,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
         const loc = visibleLocations.find((l) => l.name === selectedLocationName);
         if (!loc) return null;
         const { forecast, hourlyData, isPureWildlife, isWaterfall } = getContentProps(loc);
-        const briefingScore = !isAuroraMode ? getBriefingScore(briefingScores, loc.name, date, eventType) : null;
+        const briefingScore = !isAuroraMode ? lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType) : null;
         return (
           <BottomSheet
             open
