@@ -20,6 +20,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -27,6 +28,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -34,8 +36,10 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -737,8 +741,8 @@ class EvaluationViewServiceTest {
                     .thenReturn(Map.of("Bamburgh", new BriefingEvaluationResult(
                             "Bamburgh", 4, 75, 65, "Good", null, null, "Fiery skies at dusk")));
             when(forecastEvaluationRepository
-                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            eq(1L), eq(DATE), eq(DATE)))
+                    .findLatestRunPerSlotByLocationIds(
+                            anyCollection(), eq(DATE), eq(DATE)))
                     .thenReturn(List.of());
 
             Map<String, Map<String, BriefingEvaluationResult>> index =
@@ -756,9 +760,10 @@ class EvaluationViewServiceTest {
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
                     .thenReturn(Map.of());
             when(forecastEvaluationRepository
-                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            eq(2L), eq(DATE), eq(DATE)))
+                    .findLatestRunPerSlotByLocationIds(
+                            anyCollection(), eq(DATE), eq(DATE)))
                     .thenReturn(List.of(ForecastEvaluationEntity.builder()
+                            .location(sandsend)
                             .targetDate(DATE).targetType(SUNSET)
                             .rating(3).fierySkyPotential(55).goldenHourPotential(45)
                             .summary("Decent").evaluationModel(EvaluationModel.HAIKU)
@@ -779,9 +784,10 @@ class EvaluationViewServiceTest {
                     .thenReturn(Map.of("Bamburgh",
                             new BriefingEvaluationResult("Bamburgh", 5, 90, 80, "Stunning")));
             when(forecastEvaluationRepository
-                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            eq(1L), eq(DATE), eq(DATE)))
+                    .findLatestRunPerSlotByLocationIds(
+                            anyCollection(), eq(DATE), eq(DATE)))
                     .thenReturn(List.of(ForecastEvaluationEntity.builder()
+                            .location(bamburgh)
                             .targetDate(DATE).targetType(SUNSET).rating(2)
                             .forecastRunAt(LocalDateTime.of(2026, 4, 22, 18, 0))
                             .build()));
@@ -799,9 +805,10 @@ class EvaluationViewServiceTest {
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
                     .thenReturn(Map.of());
             when(forecastEvaluationRepository
-                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            eq(1L), eq(DATE), eq(DATE)))
+                    .findLatestRunPerSlotByLocationIds(
+                            anyCollection(), eq(DATE), eq(DATE)))
                     .thenReturn(List.of(ForecastEvaluationEntity.builder()
+                            .location(bamburgh)
                             .targetDate(DATE).targetType(SUNSET)
                             .triage(new TriageDetails(TriageReason.PRECIPITATION, "Rain"))
                             .forecastRunAt(LocalDateTime.of(2026, 4, 22, 18, 0))
@@ -816,37 +823,103 @@ class EvaluationViewServiceTest {
         }
 
         @Test
-        @DisplayName("issues one range query per location, never a per-date findTop")
-        void oneRangeQueryPerLocation() {
+        @DisplayName("issues ONE bulk query for all locations — never per-location, never a per-date findTop")
+        void oneBulkQueryForAllLocations() {
             when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh, sandsend));
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
                     .thenReturn(Map.of());
             when(forecastEvaluationRepository
-                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            eq(1L), eq(DATE), eq(DATE)))
-                    .thenReturn(List.of());
-            when(forecastEvaluationRepository
-                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            eq(2L), eq(DATE), eq(DATE)))
+                    .findLatestRunPerSlotByLocationIds(
+                            anyCollection(), eq(DATE), eq(DATE)))
                     .thenReturn(List.of());
 
             service.getScoresForEnrichmentBulk(DATE, DATE, Set.of(SUNSET));
 
-            verify(forecastEvaluationRepository)
+            // Exactly one round trip regardless of location count, carrying every location id.
+            ArgumentCaptor<Collection<Long>> idsCaptor = ArgumentCaptor.captor();
+            verify(forecastEvaluationRepository, times(1))
+                    .findLatestRunPerSlotByLocationIds(
+                            idsCaptor.capture(), eq(DATE), eq(DATE));
+            assertThat(idsCaptor.getValue()).containsExactlyInAnyOrder(1L, 2L);
+
+            // Neither of the superseded shapes is used any more.
+            verify(forecastEvaluationRepository, never())
                     .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            eq(1L), eq(DATE), eq(DATE));
-            verify(forecastEvaluationRepository)
-                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            eq(2L), eq(DATE), eq(DATE));
+                            any(), any(), any());
             verify(forecastEvaluationRepository, never())
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
                             any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("no region-assigned locations → no query at all (an empty IN list is invalid)")
+        void noRegionLocations_skipsQueryEntirely() {
+            LocationEntity unregioned = new LocationEntity();
+            unregioned.setId(3L);
+            unregioned.setName("Orphan");
+            when(locationService.findAllEnabled()).thenReturn(List.of(unregioned));
+
+            Map<String, Map<String, BriefingEvaluationResult>> index =
+                    service.getScoresForEnrichmentBulk(DATE, DATE, Set.of(SUNSET));
+
+            assertThat(index).isEmpty();
+            verify(forecastEvaluationRepository, never())
+                    .findLatestRunPerSlotByLocationIds(anyCollection(), any(), any());
         }
     }
 
     @Nested
     @DisplayName("forDateRange — bulk loading for Map tab")
     class ForDateRange {
+
+        @Test
+        @DisplayName("queries EVERY enabled location in one call — including region-less ones")
+        void queriesEveryEnabledLocationInOneCall() {
+            // Pins the one axis the bulk-query refactor changed: the id list. Without this, a future
+            // edit that copied the sibling's `region != null` filter (getScoresForEnrichmentBulk
+            // legitimately applies it) — or otherwise truncated the list — would silently drop those
+            // locations to Source.NONE on the Plan/Map load with no test failing.
+            LocationEntity unregioned = new LocationEntity();
+            unregioned.setId(3L);
+            unregioned.setName("Orphan");
+            when(locationService.findAllEnabled())
+                    .thenReturn(List.of(bamburgh, sandsend, unregioned));
+            when(briefingEvaluationService.getCachedScores(eq(REGION_NAME), eq(DATE), eq(SUNRISE)))
+                    .thenReturn(Map.of());
+            when(briefingEvaluationService.getCachedScores(eq(REGION_NAME), eq(DATE), eq(SUNSET)))
+                    .thenReturn(Map.of());
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(
+                            anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of());
+            when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(DATE))
+                    .thenReturn(List.of());
+
+            service.forDateRange(DATE, DATE, Set.of(SUNRISE, SUNSET));
+
+            ArgumentCaptor<Collection<Long>> idsCaptor = ArgumentCaptor.captor();
+            verify(forecastEvaluationRepository, times(1))
+                    .findLatestRunPerSlotByLocationIds(
+                            idsCaptor.capture(), eq(DATE), eq(DATE));
+            // A location with no region still gets its forecast rows here — unlike the briefing
+            // fallback, this path is not region-scoped.
+            assertThat(idsCaptor.getValue()).containsExactlyInAnyOrder(1L, 2L, 3L);
+        }
+
+        @Test
+        @DisplayName("no enabled locations → no query at all (an empty IN list is invalid)")
+        void noEnabledLocations_skipsQueryEntirely() {
+            when(locationService.findAllEnabled()).thenReturn(List.of());
+            when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(DATE))
+                    .thenReturn(List.of());
+
+            List<LocationEvaluationView> views = service.forDateRange(
+                    DATE, DATE, Set.of(SUNRISE, SUNSET));
+
+            assertThat(views).isEmpty();
+            verify(forecastEvaluationRepository, never())
+                    .findLatestRunPerSlotByLocationIds(anyCollection(), any(), any());
+        }
 
         @Test
         @DisplayName("filters out NONE-source views from results")
@@ -861,8 +934,8 @@ class EvaluationViewServiceTest {
 
             // No forecast rows
             when(forecastEvaluationRepository
-                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            eq(1L), eq(DATE), eq(DATE)))
+                    .findLatestRunPerSlotByLocationIds(
+                            anyCollection(), eq(DATE), eq(DATE)))
                     .thenReturn(List.of());
             when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(DATE))
                     .thenReturn(List.of());
@@ -885,12 +958,14 @@ class EvaluationViewServiceTest {
 
             // Two forecast rows for the same location/date/type — stale and fresh
             ForecastEvaluationEntity stale = ForecastEvaluationEntity.builder()
+                    .location(bamburgh)
                     .targetDate(DATE).targetType(SUNRISE)
                     .rating(2).fierySkyPotential(20).goldenHourPotential(15)
                     .summary("Stale").evaluationModel(EvaluationModel.HAIKU)
                     .forecastRunAt(LocalDateTime.of(2026, 4, 21, 6, 0))
                     .build();
             ForecastEvaluationEntity fresh = ForecastEvaluationEntity.builder()
+                    .location(bamburgh)
                     .targetDate(DATE).targetType(SUNRISE)
                     .rating(4).fierySkyPotential(70).goldenHourPotential(65)
                     .summary("Fresh").evaluationModel(EvaluationModel.SONNET)
@@ -898,8 +973,8 @@ class EvaluationViewServiceTest {
                     .build();
 
             when(forecastEvaluationRepository
-                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            eq(1L), eq(DATE), eq(DATE)))
+                    .findLatestRunPerSlotByLocationIds(
+                            anyCollection(), eq(DATE), eq(DATE)))
                     .thenReturn(List.of(stale, fresh));
             when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(DATE))
                     .thenReturn(List.of());
@@ -925,6 +1000,7 @@ class EvaluationViewServiceTest {
                     .thenReturn(Map.of());
 
             ForecastEvaluationEntity hourlyRow = ForecastEvaluationEntity.builder()
+                    .location(bamburgh)
                     .targetDate(DATE).targetType(TargetType.HOURLY)
                     .rating(3).fierySkyPotential(50).goldenHourPotential(40)
                     .summary("Hourly").evaluationModel(EvaluationModel.HAIKU)
@@ -932,8 +1008,8 @@ class EvaluationViewServiceTest {
                     .build();
 
             when(forecastEvaluationRepository
-                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            eq(1L), eq(DATE), eq(DATE)))
+                    .findLatestRunPerSlotByLocationIds(
+                            anyCollection(), eq(DATE), eq(DATE)))
                     .thenReturn(List.of(hourlyRow));
             when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(DATE))
                     .thenReturn(List.of());
@@ -957,20 +1033,19 @@ class EvaluationViewServiceTest {
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
                     .thenReturn(Map.of());
 
-            // Sandsend: triaged sunset in forecast_evaluation
+            // Sandsend: triaged sunset in forecast_evaluation. The bulk query returns rows for every
+            // requested location in one list, with the location relation initialised by JOIN FETCH —
+            // the service groups on row.getLocation().getId(), so the fixture must set it.
             ForecastEvaluationEntity sandsendTriage = ForecastEvaluationEntity.builder()
+                    .location(sandsend)
                     .targetDate(DATE).targetType(SUNSET)
                     .triage(new TriageDetails(TriageReason.HIGH_CLOUD, "Overcast"))
                     .forecastRunAt(LocalDateTime.of(2026, 4, 22, 4, 0))
                     .build();
 
             when(forecastEvaluationRepository
-                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            eq(1L), eq(DATE), eq(DATE)))
-                    .thenReturn(List.of());
-            when(forecastEvaluationRepository
-                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            eq(2L), eq(DATE), eq(DATE)))
+                    .findLatestRunPerSlotByLocationIds(
+                            anyCollection(), eq(DATE), eq(DATE)))
                     .thenReturn(List.of(sandsendTriage));
             when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(DATE))
                     .thenReturn(List.of());
@@ -1008,8 +1083,8 @@ class EvaluationViewServiceTest {
             when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
                     .thenReturn(Optional.of(evaluatedAt));
             when(forecastEvaluationRepository
-                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            eq(1L), eq(DATE), eq(DATE)))
+                    .findLatestRunPerSlotByLocationIds(
+                            anyCollection(), eq(DATE), eq(DATE)))
                     .thenReturn(List.of());
             when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(DATE))
                     .thenReturn(List.of());
@@ -1034,8 +1109,8 @@ class EvaluationViewServiceTest {
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
                     .thenReturn(Map.of());
             when(forecastEvaluationRepository
-                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            eq(1L), eq(DATE), eq(DATE)))
+                    .findLatestRunPerSlotByLocationIds(
+                            anyCollection(), eq(DATE), eq(DATE)))
                     .thenReturn(List.of());
 
             CachedEvaluationEntity dbEntry = new CachedEvaluationEntity();
@@ -1082,8 +1157,8 @@ class EvaluationViewServiceTest {
             // The whole point: no forecast_evaluation re-query, and no repeat findAllEnabled
             // (the caller supplied the locations).
             verify(forecastEvaluationRepository, never())
-                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            any(), any(), any());
+                    .findLatestRunPerSlotByLocationIds(
+                            anyCollection(), any(), any());
             verify(locationService, never()).findAllEnabled();
         }
 
@@ -1100,8 +1175,8 @@ class EvaluationViewServiceTest {
 
             assertThat(views).isEmpty();
             verify(forecastEvaluationRepository, never())
-                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            any(), any(), any());
+                    .findLatestRunPerSlotByLocationIds(
+                            anyCollection(), any(), any());
         }
     }
 }

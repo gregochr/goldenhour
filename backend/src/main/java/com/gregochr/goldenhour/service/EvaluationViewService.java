@@ -170,26 +170,40 @@ public class EvaluationViewService {
 
     /**
      * Loads the latest {@code forecast_evaluation} row per (location, date, target type) for the
-     * range, keyed by {@code locationId|date|targetType}. One query per location.
+     * range, keyed by {@code locationId|date|targetType}.
+     *
+     * <p>Uses the dedup-at-source bulk query (one statement for every location, backed by
+     * {@code idx_forecast_eval_latest_run}) rather than a range query per location. The former shape
+     * issued ~one round trip per enabled location and pulled <em>every</em> historical run over the
+     * window — this table is insert-only — only to discard all but the latest per slot.
+     *
+     * <p>Two behaviours of the bulk query are load-bearing and must not be simplified away: it does
+     * <em>not</em> filter target type (so the {@code types} guard stays), and its
+     * {@code forecastRunAt = (SELECT MAX(...))} predicate returns <em>both</em> rows on an exact
+     * timestamp tie (so the strict-{@code isAfter} reduction below stays, keeping the first row seen
+     * exactly as before — a {@code Collectors.toMap} would throw on the duplicate key).
      */
     private Map<String, ForecastEvaluationEntity> loadLatestForecasts(List<LocationEntity> locations,
             LocalDate start, LocalDate end, Set<TargetType> types) {
+        List<Long> locationIds = locations.stream()
+                .map(LocationEntity::getId)
+                .toList();
+        if (locationIds.isEmpty()) {
+            // An empty IN list is invalid on some dialects — mirror the guard in ForecastController.
+            return Map.of();
+        }
         Map<String, ForecastEvaluationEntity> latestForecasts = new HashMap<>();
-        for (LocationEntity loc : locations) {
-            List<ForecastEvaluationEntity> rows =
-                    forecastEvaluationRepository
-                            .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                                    loc.getId(), start, end);
-            for (ForecastEvaluationEntity row : rows) {
-                if (!types.contains(row.getTargetType())) {
-                    continue;
-                }
-                String key = loc.getId() + "|" + row.getTargetDate() + "|" + row.getTargetType();
-                ForecastEvaluationEntity existing = latestForecasts.get(key);
-                if (existing == null
-                        || row.getForecastRunAt().isAfter(existing.getForecastRunAt())) {
-                    latestForecasts.put(key, row);
-                }
+        for (ForecastEvaluationEntity row : forecastEvaluationRepository
+                .findLatestRunPerSlotByLocationIds(locationIds, start, end)) {
+            if (!types.contains(row.getTargetType())) {
+                continue;
+            }
+            String key = row.getLocation().getId() + "|" + row.getTargetDate()
+                    + "|" + row.getTargetType();
+            ForecastEvaluationEntity existing = latestForecasts.get(key);
+            if (existing == null
+                    || row.getForecastRunAt().isAfter(existing.getForecastRunAt())) {
+                latestForecasts.put(key, row);
             }
         }
         return latestForecasts;
@@ -295,11 +309,11 @@ public class EvaluationViewService {
      *
      * <p>Same precedence — in-memory cached scores (which carry the Claude {@code headline}) win,
      * with a {@code forecast_evaluation} fallback for locations the cache does not cover. The
-     * difference is query shape: the fallback issues <em>one</em> range query per location
-     * ({@code targetDate BETWEEN start AND end}) instead of one {@code findTop} per
-     * (location, date, targetType). Serving a briefing re-enriches the full plan window in a
-     * single pass, so this collapses what was O(locations × dates × targets) point lookups into
-     * O(locations) range scans.
+     * difference is query shape: the fallback issues a <em>single</em> dedup-at-source query for
+     * every region-assigned location, instead of one {@code findTop} per (location, date,
+     * targetType) or one range query per location. Serving a briefing re-enriches the full plan
+     * window in a single pass, so this collapses what was O(locations × dates × targets) point
+     * lookups — and then O(locations) range scans — into one indexed statement.
      *
      * @param start the start date (inclusive)
      * @param end   the end date (inclusive)
@@ -328,19 +342,25 @@ public class EvaluationViewService {
             }
         }
 
-        // 2. forecast_evaluation fallback — one range query per location, latest row per (date, type).
-        for (LocationEntity loc : locations) {
-            if (loc.getRegion() == null) {
-                continue;
-            }
-            String regionName = loc.getRegion().getName();
-            Map<String, ForecastEvaluationEntity> latest = new HashMap<>();
+        // 2. forecast_evaluation fallback — ONE bulk query for every region-assigned location,
+        //    reduced in memory to the latest row per (location, date, type). Previously this issued
+        //    a range query per location, each pulling every historical run over the window from an
+        //    insert-only table just to keep the newest per slot. The type guard and the strict
+        //    isAfter reduction are retained: the bulk query doesn't filter target type, and its
+        //    MAX(forecastRunAt) predicate returns both rows on an exact tie.
+        List<Long> regionLocationIds = locations.stream()
+                .filter(loc -> loc.getRegion() != null)
+                .map(LocationEntity::getId)
+                .toList();
+        Map<Long, Map<String, ForecastEvaluationEntity>> latestByLocationId = new HashMap<>();
+        if (!regionLocationIds.isEmpty()) {
             for (ForecastEvaluationEntity row : forecastEvaluationRepository
-                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            loc.getId(), start, end)) {
+                    .findLatestRunPerSlotByLocationIds(regionLocationIds, start, end)) {
                 if (!types.contains(row.getTargetType())) {
                     continue;
                 }
+                Map<String, ForecastEvaluationEntity> latest = latestByLocationId
+                        .computeIfAbsent(row.getLocation().getId(), k -> new HashMap<>());
                 String fk = row.getTargetDate() + "|" + row.getTargetType();
                 ForecastEvaluationEntity existing = latest.get(fk);
                 if (existing == null
@@ -348,6 +368,17 @@ public class EvaluationViewService {
                     latest.put(fk, row);
                 }
             }
+        }
+
+        // Iterate the locations (not the query result) so the cached-score-wins precedence below
+        // still resolves in the original, stable location order.
+        for (LocationEntity loc : locations) {
+            if (loc.getRegion() == null) {
+                continue;
+            }
+            String regionName = loc.getRegion().getName();
+            Map<String, ForecastEvaluationEntity> latest =
+                    latestByLocationId.getOrDefault(loc.getId(), Map.of());
             for (ForecastEvaluationEntity row : latest.values()) {
                 Map<String, BriefingEvaluationResult> regionMap = byKey.computeIfAbsent(
                         regionName + "|" + row.getTargetDate() + "|" + row.getTargetType(),
