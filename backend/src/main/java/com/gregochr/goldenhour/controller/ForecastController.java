@@ -153,8 +153,11 @@ public class ForecastController {
         }
         Map<Long, LocationEntity> byId = enabled.stream()
                 .collect(Collectors.toMap(LocationEntity::getId, l -> l));
-        List<LocationEvaluationView> views = evaluationViewService.forDateRange(
-                from, horizon, Set.of(TargetType.SUNRISE, TargetType.SUNSET));
+        // Cached-only views (dates the batch pipeline scored but hasn't persisted as forecast rows).
+        // getForecasts already has its own latest forecast rows, so this skips the per-location
+        // forecast_evaluation re-query + merge that forDateRange would do — and reuses `enabled`.
+        List<LocationEvaluationView> views = evaluationViewService.cachedOnlyViewsForDateRange(
+                from, horizon, Set.of(TargetType.SUNRISE, TargetType.SUNSET), enabled);
         for (LocationEvaluationView view : views) {
             if (view.source() != LocationEvaluationView.Source.CACHED_EVALUATION) {
                 continue;
