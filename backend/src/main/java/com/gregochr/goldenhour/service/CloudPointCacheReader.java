@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -50,16 +51,10 @@ public final class CloudPointCacheReader {
                 lat, lon, solarAzimuthDeg);
 
         try {
-            int[] solarBearings = {
-                solarAzimuthDeg - DirectionalSamplingGeometry.SOLAR_CONE_HALF_ANGLE_DEG,
-                solarAzimuthDeg,
-                solarAzimuthDeg + DirectionalSamplingGeometry.SOLAR_CONE_HALF_ANGLE_DEG
-            };
-
             int solarLowSum = 0;
             int solarMidSum = 0;
             int solarHighSum = 0;
-            for (int i = 0; i < solarBearings.length; i++) {
+            for (int i = 0; i < DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT; i++) {
                 OpenMeteoForecastResponse f = cloudCache.get(points.get(i)[0], points.get(i)[1]);
                 if (f == null) {
                     return null;
@@ -91,9 +86,9 @@ public final class CloudPointCacheReader {
             }
 
             return new DirectionalCloudData(
-                    solarLowSum / solarBearings.length,
-                    solarMidSum / solarBearings.length,
-                    solarHighSum / solarBearings.length,
+                    solarLowSum / DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT,
+                    solarMidSum / DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT,
+                    solarHighSum / DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT,
                     ah.getCloudCoverLow().get(antisolarIdx),
                     ah.getCloudCoverMid().get(antisolarIdx),
                     ah.getCloudCoverHigh().get(antisolarIdx),
@@ -123,15 +118,24 @@ public final class CloudPointCacheReader {
             TargetType targetType, int windFromDeg, double windSpeedMs,
             CloudPointCache cloudCache) {
         try {
-            double[] solarPoint = DirectionalSamplingGeometry.computeSolarHorizonPoint(
+            // Average the trend across the solar cone, not the centre bearing alone. These three
+            // points are already in the cache — computeDirectionalCloudPoints fetched them for the
+            // same observer, distance and bearings — so the smoothing costs no extra request.
+            List<double[]> conePoints = DirectionalSamplingGeometry.computeSolarConePoints(
                     lat, lon, solarAzimuthDeg);
-            OpenMeteoForecastResponse solarF = cloudCache.get(solarPoint[0], solarPoint[1]);
-            if (solarF == null) {
-                return null;
+            List<SolarCloudTrend> coneTrends = new ArrayList<>(conePoints.size());
+            for (double[] point : conePoints) {
+                OpenMeteoForecastResponse coneF = cloudCache.get(point[0], point[1]);
+                if (coneF != null) {
+                    coneTrends.add(OpenMeteoResponseParser.extractSolarTrend(
+                            coneF, solarEventTime, targetType));
+                }
             }
 
-            SolarCloudTrend trend = OpenMeteoResponseParser.extractSolarTrend(
-                    solarF, solarEventTime, targetType);
+            SolarCloudTrend trend = SolarCloudTrend.average(coneTrends);
+            if (trend == null) {
+                return null;
+            }
 
             UpwindCloudSample upwind = null;
             double[] upwindPoint = DirectionalSamplingGeometry.computeUpwindPoint(

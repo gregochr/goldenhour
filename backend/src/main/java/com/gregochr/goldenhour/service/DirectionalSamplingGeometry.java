@@ -61,18 +61,50 @@ public final class DirectionalSamplingGeometry {
      */
     public static List<double[]> computeDirectionalCloudPoints(double lat, double lon,
             int solarAzimuthDeg) {
-        List<double[]> points = new ArrayList<>();
-        int[] solarBearings = {
+        List<double[]> points = new ArrayList<>(computeSolarConePoints(lat, lon, solarAzimuthDeg));
+        points.add(GeoUtils.offsetPoint(lat, lon,
+                GeoUtils.antisolarBearing(solarAzimuthDeg), DIRECTIONAL_OFFSET_METRES));
+        points.add(GeoUtils.offsetPoint(lat, lon, solarAzimuthDeg, FAR_SOLAR_OFFSET_METRES));
+        return points;
+    }
+
+    /**
+     * Returns the three solar-cone bearings (azimuth − 15°, azimuth, azimuth + 15°).
+     *
+     * <p>Single source of truth for the cone bearings — callers that re-read the cone from a
+     * pre-fetched cache must iterate the same bearings in the same order as
+     * {@link #computeDirectionalCloudPoints}.
+     *
+     * @param solarAzimuthDeg compass bearing of the sun
+     * @return the three cone bearings, flank-low first
+     */
+    public static int[] solarConeBearings(int solarAzimuthDeg) {
+        return new int[] {
             solarAzimuthDeg - SOLAR_CONE_HALF_ANGLE_DEG,
             solarAzimuthDeg,
             solarAzimuthDeg + SOLAR_CONE_HALF_ANGLE_DEG
         };
-        for (int bearing : solarBearings) {
+    }
+
+    /**
+     * Computes the three solar-cone sampling points at the horizon distance (113 km).
+     *
+     * <p>These are the first three entries of {@link #computeDirectionalCloudPoints}, exposed
+     * separately so the cloud-approach trend can be averaged over the same cone rather than read
+     * from the centre bearing alone. The centre point (index 1) is identical to
+     * {@link #computeSolarHorizonPoint}.
+     *
+     * @param lat             observer latitude
+     * @param lon             observer longitude
+     * @param solarAzimuthDeg compass bearing of the sun
+     * @return list of 3 [lat, lon] pairs, flank-low first
+     */
+    public static List<double[]> computeSolarConePoints(double lat, double lon,
+            int solarAzimuthDeg) {
+        List<double[]> points = new ArrayList<>();
+        for (int bearing : solarConeBearings(solarAzimuthDeg)) {
             points.add(GeoUtils.offsetPoint(lat, lon, bearing, DIRECTIONAL_OFFSET_METRES));
         }
-        points.add(GeoUtils.offsetPoint(lat, lon,
-                GeoUtils.antisolarBearing(solarAzimuthDeg), DIRECTIONAL_OFFSET_METRES));
-        points.add(GeoUtils.offsetPoint(lat, lon, solarAzimuthDeg, FAR_SOLAR_OFFSET_METRES));
         return points;
     }
 

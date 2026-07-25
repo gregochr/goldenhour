@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.model;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -223,5 +224,118 @@ class SolarCloudTrendTest {
                 new SolarCloudTrend.SolarCloudSlot(0, 10, 50, 40))).isClearing()).isFalse();
         assertThat(new SolarCloudTrend(List.of()).isClearing()).isFalse();
         assertThat(new SolarCloudTrend(null).isClearing()).isFalse();
+    }
+
+    @Test
+    @DisplayName("average() damps a single-cone-point spike that would otherwise trip isBuilding()")
+    void average_singlePointSpike_doesNotTripBuilding() {
+        // The centre bearing lands on a grid cell showing a sharp build (10 -> 40 = 30pp), while
+        // both flanking bearings 15 degrees either side stay flat. Reading the centre alone trips
+        // the [BUILDING] flag, which feeds an absolute rating ceiling in the prompt; the coned
+        // average (10 -> 20 = 10pp) does not. This is the adjacent-location divergence guard.
+        var flankLow = new SolarCloudTrend(List.of(
+                new SolarCloudTrend.SolarCloudSlot(3, 10),
+                new SolarCloudTrend.SolarCloudSlot(0, 10)));
+        var centre = new SolarCloudTrend(List.of(
+                new SolarCloudTrend.SolarCloudSlot(3, 10),
+                new SolarCloudTrend.SolarCloudSlot(0, 40)));
+        var flankHigh = new SolarCloudTrend(List.of(
+                new SolarCloudTrend.SolarCloudSlot(3, 10),
+                new SolarCloudTrend.SolarCloudSlot(0, 10)));
+
+        assertThat(centre.isBuilding()).isTrue();
+
+        var averaged = SolarCloudTrend.average(List.of(flankLow, centre, flankHigh));
+
+        assertThat(averaged.slots()).extracting(SolarCloudTrend.SolarCloudSlot::lowCloudPercent)
+                .containsExactly(10, 20);
+        assertThat(averaged.isBuilding()).isFalse();
+    }
+
+    @Test
+    @DisplayName("average() keeps a genuine build that all three cone points agree on")
+    void average_agreedBuild_stillTripsBuilding() {
+        var trend = new SolarCloudTrend(List.of(
+                new SolarCloudTrend.SolarCloudSlot(3, 10),
+                new SolarCloudTrend.SolarCloudSlot(0, 70)));
+
+        var averaged = SolarCloudTrend.average(List.of(trend, trend, trend));
+
+        assertThat(averaged.isBuilding()).isTrue();
+    }
+
+    @Test
+    @DisplayName("average() preserves hoursBeforeEvent and averages the canvas layers")
+    void average_averagesCanvasLayers() {
+        var a = new SolarCloudTrend(List.of(
+                new SolarCloudTrend.SolarCloudSlot(3, 10, 40, 20),
+                new SolarCloudTrend.SolarCloudSlot(0, 20, 60, 30)));
+        var b = new SolarCloudTrend(List.of(
+                new SolarCloudTrend.SolarCloudSlot(3, 20, 50, 30),
+                new SolarCloudTrend.SolarCloudSlot(0, 40, 80, 50)));
+
+        var averaged = SolarCloudTrend.average(List.of(a, b));
+
+        assertThat(averaged.slots()).containsExactly(
+                new SolarCloudTrend.SolarCloudSlot(3, 15, 45, 25),
+                new SolarCloudTrend.SolarCloudSlot(0, 30, 70, 40));
+    }
+
+    @Test
+    @DisplayName("average() reports a null canvas when any contributing slot omitted it")
+    void average_partialCanvas_returnsNullCanvas() {
+        var withCanvas = new SolarCloudTrend(List.of(
+                new SolarCloudTrend.SolarCloudSlot(3, 10, 40, 20),
+                new SolarCloudTrend.SolarCloudSlot(0, 20, 60, 30)));
+        var withoutCanvas = new SolarCloudTrend(List.of(
+                new SolarCloudTrend.SolarCloudSlot(3, 20),
+                new SolarCloudTrend.SolarCloudSlot(0, 40)));
+
+        var averaged = SolarCloudTrend.average(List.of(withCanvas, withoutCanvas));
+
+        assertThat(averaged.slots().getFirst().midCloudPercent()).isNull();
+        assertThat(averaged.slots().getFirst().highCloudPercent()).isNull();
+        // Canvas cannot be asserted against, so clearing must stay false.
+        assertThat(averaged.isClearing()).isFalse();
+    }
+
+    @Test
+    @DisplayName("average() skips null and empty trends, keeping the usable ones")
+    void average_skipsNullAndEmptyTrends() {
+        var usable = new SolarCloudTrend(List.of(
+                new SolarCloudTrend.SolarCloudSlot(3, 10),
+                new SolarCloudTrend.SolarCloudSlot(0, 30)));
+
+        var averaged = SolarCloudTrend.average(
+                Arrays.asList(null, new SolarCloudTrend(List.of()), usable));
+
+        assertThat(averaged).isEqualTo(usable);
+    }
+
+    @Test
+    @DisplayName("average() returns null when no usable trend is supplied")
+    void average_noUsableTrend_returnsNull() {
+        assertThat(SolarCloudTrend.average(null)).isNull();
+        assertThat(SolarCloudTrend.average(List.of())).isNull();
+        assertThat(SolarCloudTrend.average(
+                Arrays.asList(null, new SolarCloudTrend(List.of())))).isNull();
+    }
+
+    @Test
+    @DisplayName("average() truncates to the shortest trajectory when lengths differ")
+    void average_differingLengths_truncatesToShortest() {
+        var longer = new SolarCloudTrend(List.of(
+                new SolarCloudTrend.SolarCloudSlot(3, 10),
+                new SolarCloudTrend.SolarCloudSlot(2, 20),
+                new SolarCloudTrend.SolarCloudSlot(0, 30)));
+        var shorter = new SolarCloudTrend(List.of(
+                new SolarCloudTrend.SolarCloudSlot(3, 20),
+                new SolarCloudTrend.SolarCloudSlot(2, 40)));
+
+        var averaged = SolarCloudTrend.average(List.of(longer, shorter));
+
+        assertThat(averaged.slots()).containsExactly(
+                new SolarCloudTrend.SolarCloudSlot(3, 15),
+                new SolarCloudTrend.SolarCloudSlot(2, 30));
     }
 }

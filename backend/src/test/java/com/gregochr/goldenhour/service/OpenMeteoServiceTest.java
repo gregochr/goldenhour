@@ -776,8 +776,10 @@ class OpenMeteoServiceTest {
                         "2026-03-11T16:00", "2026-03-11T17:00"),
                 List.of(70, 55, 30, 15), List.of(0, 0, 0, 0), List.of(50, 50, 50, 50));
 
+        // Batch order is the three solar-cone points then the upwind point. The cone points read
+        // identically here, so the coned average equals the single-bearing trajectory.
         when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
-                .thenReturn(List.of(solarForecast, upwindForecast));
+                .thenReturn(List.of(solarForecast, solarForecast, solarForecast, upwindForecast));
 
         CloudApproachData result = openMeteoService.fetchCloudApproachData(
                 54.8975, -1.5076, 245, eventTime, currentTime,
@@ -1865,11 +1867,12 @@ class OpenMeteoServiceTest {
             OpenMeteoForecastResponse cloud = buildCloudOnlyResponse(
                     List.of("2026-06-21T20:00"), List.of(15), List.of(10), List.of(5));
 
-            // 2 coords (solar + upwind) → 2 responses
+            // 4 coords (3 solar-cone points + upwind) → 4 responses. The size matcher is the
+            // mutation guard: it fails if the upwind coord is not appended to the cone.
             when(openMeteoClient.fetchCloudOnlyBatch(
                     org.mockito.ArgumentMatchers.argThat(
-                            (java.util.List<double[]> c) -> c != null && c.size() == 2)))
-                    .thenReturn(java.util.Arrays.asList(cloud, cloud));
+                            (java.util.List<double[]> c) -> c != null && c.size() == 4)))
+                    .thenReturn(java.util.Arrays.asList(cloud, cloud, cloud, cloud));
 
             var result = openMeteoService.fetchCloudApproachData(
                     55.0, -1.5, 270, eventTime, currentTime,
@@ -1896,7 +1899,7 @@ class OpenMeteoServiceTest {
                 List.of("2026-06-21T20:00"), List.of(20), List.of(10), List.of(5));
 
         when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
-                .thenReturn(java.util.Arrays.asList(cloud, cloud));
+                .thenReturn(java.util.Arrays.asList(cloud, cloud, cloud, cloud));
 
         var result = openMeteoService.fetchCloudApproachData(
                 55.0, -1.5, 270, eventTime, currentTime,

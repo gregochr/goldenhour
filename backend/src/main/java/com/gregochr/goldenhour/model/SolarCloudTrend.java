@@ -1,6 +1,9 @@
 package com.gregochr.goldenhour.model;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
+import java.util.function.ToIntFunction;
 
 /**
  * Temporal trend of cloud cover at the solar horizon point across the hours before a solar event.
@@ -145,5 +148,88 @@ public record SolarCloudTrend(List<SolarCloudSlot> slots) {
 
         // The canvas must not be collapsing alongside the low cloud.
         return canvasEarliest - canvasEvent < CANVAS_COLLAPSE_PP;
+    }
+
+    /**
+     * Averages several trends slot-by-slot into a single trend.
+     *
+     * <p>Used to read the cloud-approach trend across the three solar-cone bearings rather than
+     * from the centre bearing alone, matching the smoothing that
+     * {@code DirectionalSamplingGeometry.SOLAR_CONE_HALF_ANGLE_DEG} already applies to the solar
+     * horizon cloud reading. Open-Meteo's ~11 km grid means a single 113 km sample can land either
+     * side of a cell boundary; {@link #isBuilding()} feeds an absolute rating ceiling in the
+     * prompt, so it must not turn on one cell.
+     *
+     * <p>Null and empty trends are ignored. Slots are aligned by position (all cone points share an
+     * event time and target type, so their trajectories are the same length in practice); if
+     * lengths differ the result is truncated to the shortest. {@code hoursBeforeEvent} is taken
+     * from the first contributing trend. Mid and high cloud average only when every contributing
+     * slot captured them — otherwise the averaged slot reports null, preserving the
+     * "canvas trajectory not captured" semantics {@link #isClearing()} relies on.
+     *
+     * @param trends the per-bearing trends to average
+     * @return the averaged trend, or {@code null} if no usable trend was supplied
+     */
+    public static SolarCloudTrend average(List<SolarCloudTrend> trends) {
+        if (trends == null) {
+            return null;
+        }
+        List<SolarCloudTrend> usable = trends.stream()
+                .filter(t -> t != null && t.slots() != null && !t.slots().isEmpty())
+                .toList();
+        if (usable.isEmpty()) {
+            return null;
+        }
+        if (usable.size() == 1) {
+            return usable.getFirst();
+        }
+
+        int slotCount = usable.stream().mapToInt(t -> t.slots().size()).min().orElse(0);
+        List<SolarCloudSlot> averaged = new ArrayList<>(slotCount);
+        for (int i = 0; i < slotCount; i++) {
+            final int idx = i;
+            List<SolarCloudSlot> atIndex = usable.stream().map(t -> t.slots().get(idx)).toList();
+            averaged.add(new SolarCloudSlot(
+                    atIndex.getFirst().hoursBeforeEvent(),
+                    meanInt(atIndex, SolarCloudSlot::lowCloudPercent),
+                    meanNullable(atIndex, SolarCloudSlot::midCloudPercent),
+                    meanNullable(atIndex, SolarCloudSlot::highCloudPercent)));
+        }
+        return new SolarCloudTrend(averaged);
+    }
+
+    /**
+     * Integer mean of a required slot field, truncating like the solar-cone average.
+     *
+     * @param slots    the slots to average
+     * @param accessor the field to read
+     * @return the truncated mean
+     */
+    private static int meanInt(List<SolarCloudSlot> slots, ToIntFunction<SolarCloudSlot> accessor) {
+        int sum = 0;
+        for (SolarCloudSlot slot : slots) {
+            sum += accessor.applyAsInt(slot);
+        }
+        return sum / slots.size();
+    }
+
+    /**
+     * Integer mean of an optional slot field, or {@code null} if any contributing slot omitted it.
+     *
+     * @param slots    the slots to average
+     * @param accessor the nullable field to read
+     * @return the truncated mean, or {@code null} if the field was not captured everywhere
+     */
+    private static Integer meanNullable(List<SolarCloudSlot> slots,
+            Function<SolarCloudSlot, Integer> accessor) {
+        int sum = 0;
+        for (SolarCloudSlot slot : slots) {
+            Integer value = accessor.apply(slot);
+            if (value == null) {
+                return null;
+            }
+            sum += value;
+        }
+        return sum / slots.size();
     }
 }

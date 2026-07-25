@@ -1,7 +1,9 @@
 package com.gregochr.goldenhour.repository;
 
+import com.gregochr.goldenhour.entity.ActualOutcomeEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.model.CalibrationPair;
 import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.service.ConfidenceDeriver;
 import com.gregochr.goldenhour.entity.TideDetails;
@@ -15,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -37,6 +40,9 @@ class ForecastEvaluationRepositoryTest {
 
     @Autowired
     private LocationRepository locationRepository;
+
+    @Autowired
+    private ActualOutcomeRepository outcomeRepository;
 
     private LocationEntity durham;
     private LocationEntity edinburgh;
@@ -545,6 +551,116 @@ class ForecastEvaluationRepositoryTest {
                 .evaluationModel(EvaluationModel.HAIKU)
                 .rating(3)
                 .summary("Moderate cloud mix.")
+                .build();
+    }
+
+    // --- findCalibrationPairs: forecast scored against what was actually recorded ---
+
+    @Test
+    @DisplayName("findCalibrationPairs pairs a rated evaluation with its recorded outcome")
+    void findCalibrationPairs_pairsForecastWithOutcome() {
+        LocalDate date = LocalDate.of(2026, 5, 10);
+        repository.save(buildHaikuEvaluation(
+                durham, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1));
+        outcomeRepository.save(buildOutcome(durham, date, TargetType.SUNSET, 5));
+
+        List<CalibrationPair> pairs = repository.findCalibrationPairs(
+                date.minusDays(1), date.plusDays(1));
+
+        assertThat(pairs).hasSize(1);
+        CalibrationPair pair = pairs.getFirst();
+        assertThat(pair.locationName()).isEqualTo("Durham UK");
+        assertThat(pair.targetDate()).isEqualTo(date);
+        assertThat(pair.targetType()).isEqualTo(TargetType.SUNSET);
+        assertThat(pair.daysAhead()).isEqualTo(1);
+        assertThat(pair.evaluationModel()).isEqualTo(EvaluationModel.HAIKU);
+        assertThat(pair.predictedRating()).isEqualTo(3);
+        assertThat(pair.actualRating()).isEqualTo(5);
+        // Forecast said 3, sky delivered 5 — a two-star pessimistic miss.
+        assertThat(pair.ratingError()).isEqualTo(-2);
+    }
+
+    @Test
+    @DisplayName("findCalibrationPairs yields one row per forecast horizon for the same slot")
+    void findCalibrationPairs_onePairPerHorizon() {
+        LocalDate date = LocalDate.of(2026, 5, 10);
+        repository.save(buildHaikuEvaluation(
+                durham, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 10, 1, 0), 0));
+        repository.save(buildHaikuEvaluation(
+                durham, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 8, 1, 0), 2));
+        outcomeRepository.save(buildOutcome(durham, date, TargetType.SUNSET, 4));
+
+        List<CalibrationPair> pairs = repository.findCalibrationPairs(date, date);
+
+        assertThat(pairs).hasSize(2);
+        assertThat(pairs).extracting(CalibrationPair::daysAhead)
+                .containsExactlyInAnyOrder(0, 2);
+    }
+
+    @Test
+    @DisplayName("findCalibrationPairs skips unrated forecasts and unrated outcomes")
+    void findCalibrationPairs_skipsUnratedRows() {
+        LocalDate date = LocalDate.of(2026, 5, 10);
+
+        // Triaged forecast: no rating, so nothing to score.
+        ForecastEvaluationEntity triaged = buildHaikuEvaluation(
+                durham, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1);
+        triaged.setRating(null);
+        repository.save(triaged);
+        outcomeRepository.save(buildOutcome(durham, date, TargetType.SUNSET, 4));
+
+        // Rated forecast, but the outcome carries no rating.
+        repository.save(buildHaikuEvaluation(
+                edinburgh, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1));
+        outcomeRepository.save(buildOutcome(edinburgh, date, TargetType.SUNSET, null));
+
+        assertThat(repository.findCalibrationPairs(date, date)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("findCalibrationPairs does not pair across locations or target types")
+    void findCalibrationPairs_matchesOnNaturalKeyOnly() {
+        LocalDate date = LocalDate.of(2026, 5, 10);
+        repository.save(buildHaikuEvaluation(
+                durham, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1));
+        // Same date, different location.
+        outcomeRepository.save(buildOutcome(edinburgh, date, TargetType.SUNSET, 5));
+        // Same location, different event.
+        outcomeRepository.save(buildOutcome(durham, date, TargetType.SUNRISE, 5));
+
+        assertThat(repository.findCalibrationPairs(date, date)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("findCalibrationPairs bounds on the outcome date, inclusive at both ends")
+    void findCalibrationPairs_respectsWindow() {
+        LocalDate inside = LocalDate.of(2026, 5, 10);
+        LocalDate outside = LocalDate.of(2026, 5, 20);
+        repository.save(buildHaikuEvaluation(
+                durham, inside, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1));
+        outcomeRepository.save(buildOutcome(durham, inside, TargetType.SUNSET, 4));
+        repository.save(buildHaikuEvaluation(
+                durham, outside, TargetType.SUNSET, LocalDateTime.of(2026, 5, 19, 1, 0), 1));
+        outcomeRepository.save(buildOutcome(durham, outside, TargetType.SUNSET, 2));
+
+        assertThat(repository.findCalibrationPairs(inside, inside)).hasSize(1);
+        assertThat(repository.findCalibrationPairs(inside, outside)).hasSize(2);
+        assertThat(repository.findCalibrationPairs(
+                outside.plusDays(1), outside.plusDays(5))).isEmpty();
+    }
+
+    private ActualOutcomeEntity buildOutcome(LocationEntity location, LocalDate date,
+            TargetType targetType, Integer actualRating) {
+        return ActualOutcomeEntity.builder()
+                .locationLat(BigDecimal.valueOf(location.getLat()).setScale(6, RoundingMode.HALF_UP))
+                .locationLon(BigDecimal.valueOf(location.getLon()).setScale(6, RoundingMode.HALF_UP))
+                .location(location)
+                .outcomeDate(date)
+                .targetType(targetType)
+                .wentOut(true)
+                .actualRating(actualRating)
+                .fierySkyActual(actualRating == null ? null : actualRating * 20)
+                .recordedAt(LocalDateTime.of(2026, 5, 11, 9, 0))
                 .build();
     }
 }
