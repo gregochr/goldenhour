@@ -37,14 +37,23 @@ public class HttpCachingConfig {
      * {@code /api/forecast/run/**} (which must never be buffered) and the write endpoints are
      * excluded. {@code /api/forecast/{id}} detail will join this list when the lazy-detail endpoint
      * ships.
+     *
+     * <p>Note the deliberate omission of the outcome endpoints ({@code /api/outcome},
+     * {@code /api/outcome/all}). Enabling an ETag requires {@code Cache-Control: private, no-cache},
+     * which lets the browser persist the body to its on-disk HTTP cache (that is how a 304
+     * reconstructs the body) — and, unlike the localStorage SWR cache, the browser HTTP cache cannot
+     * be evicted from JavaScript on logout. Outcome responses carry user-authored free-text notes, so
+     * they stay on Spring Security's {@code no-store} default rather than lingering at rest on a
+     * shared machine after logout. These endpoints are small and change when the user records an
+     * outcome, so the lost revalidation saving is negligible. The remaining endpoints are
+     * system-generated forecast data, the user's own location config, and public tide/astronomical
+     * data — acceptable in the browser's private per-profile cache.
      */
     private static final String[] REVALIDATABLE_READ_PATHS = {
         "/api/forecast",
         "/api/forecast/history",
         "/api/forecast/compare",
         "/api/locations",
-        "/api/outcome",
-        "/api/outcome/all",
         "/api/tides",
         "/api/tides/stats",
     };

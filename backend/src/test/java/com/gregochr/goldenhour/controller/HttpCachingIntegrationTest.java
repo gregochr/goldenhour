@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -105,6 +106,24 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
         when(regionService.findAll()).thenReturn(List.of());
 
         MvcResult result = mockMvc.perform(get("/api/regions"))
+                .andExpect(status().isOk())
+                .andExpect(header().doesNotExist(HttpHeaders.ETAG))
+                .andReturn();
+
+        assertThat(result.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("no-store");
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("The outcome endpoint is deliberately excluded — free-text notes stay no-store, no ETag")
+    void outcomeEndpointStaysNoStoreForPrivacy() throws Exception {
+        // Outcomes carry user-authored free-text notes. They are kept on no-store so their bodies are
+        // never persisted to the browser's on-disk HTTP cache (which JS can't evict on logout).
+        when(outcomeService.queryAll(any(), any())).thenReturn(List.of());
+
+        MvcResult result = mockMvc.perform(get("/api/outcome/all")
+                        .param("from", "2026-01-01")
+                        .param("to", "2026-01-07"))
                 .andExpect(status().isOk())
                 .andExpect(header().doesNotExist(HttpHeaders.ETAG))
                 .andReturn();
