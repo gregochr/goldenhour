@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Gentle "just refreshed" fade on the Plan tab
+- **When the instant-paint cache revalidates and swaps in a genuinely newer briefing, the Plan card now settles in with a subtle 450ms opacity fade** (`animate-briefing-refresh`, a soft 0.6→1 dip) instead of the values snapping in place. It fires **only** when `generatedAt` actually changes — never on first load, and never on the common same-data revalidation (which leaves `generatedAt` untouched, so the effect doesn't even re-run). Honours `prefers-reduced-motion`, and the swap still reconciles in place (no remount, so expanded cards / selected day are preserved). Tests: fade fires on a newer briefing, and does not on first load or a same-data revalidation
+
 ### Changed — /api/forecast backend scale wins at 200+ locations (fewer queries, less per-row compute)
 - **`hibernate.default_batch_fetch_size: 32`** (added to every profile's `spring.jpa.properties`) — `LocationEntity`'s three eager `@ElementCollection`s (solar-event / tide / location types) previously loaded with one `SELECT` per location; they now batch into `IN`-queries, sharply cutting the query count on `/api/forecast` and `/api/locations` as the roster grows
 - **Marine sea-state resolved in one batched query, not per row.** `ForecastDtoMapper.toDtoList` now preloads the whole window's `marine_wave` rows once (`findByEvaluationDateBetween`) and indexes them by `locationId|date|eventType`, so mapping a coastal row is a map lookup instead of a `marine_wave` `SELECT` per coastal row — one query replaces N. The single-row `toDto(entity, isLite)` path is unchanged (still a direct lookup)

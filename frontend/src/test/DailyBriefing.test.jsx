@@ -276,6 +276,36 @@ describe('DailyBriefing', () => {
     expect(readSwrCache('briefing:ADMIN')).toEqual(cached);
   });
 
+  it('plays a one-shot fade when a revalidation swaps in a newer briefing', async () => {
+    writeSwrCache('briefing:ADMIN', buildBriefing({ generatedAt: '2026-07-25T04:00:00' }));
+    getDailyBriefing.mockResolvedValue(buildBriefing({ generatedAt: '2026-07-25T14:00:00' }));
+
+    render(<DailyBriefing />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('daily-briefing').className).toContain('animate-briefing-refresh'));
+  });
+
+  it('does not fade on first load (no cache)', async () => {
+    getDailyBriefing.mockResolvedValue(buildBriefing({ generatedAt: '2026-07-25T14:00:00' }));
+
+    render(<DailyBriefing />);
+
+    await waitFor(() => expect(screen.getByTestId('daily-briefing')).toBeInTheDocument());
+    expect(screen.getByTestId('daily-briefing').className).not.toContain('animate-briefing-refresh');
+  });
+
+  it('does not fade on a same-data revalidation', async () => {
+    const same = buildBriefing({ generatedAt: '2026-07-25T14:00:00' });
+    writeSwrCache('briefing:ADMIN', same);
+    getDailyBriefing.mockResolvedValue(same);
+
+    render(<DailyBriefing />);
+
+    await waitFor(() => expect(getDailyBriefing).toHaveBeenCalled());
+    expect(screen.getByTestId('daily-briefing').className).not.toContain('animate-briefing-refresh');
+  });
+
   // ────── Expand/collapse ──────
 
   it('expands on click to show briefing-expanded', async () => {
