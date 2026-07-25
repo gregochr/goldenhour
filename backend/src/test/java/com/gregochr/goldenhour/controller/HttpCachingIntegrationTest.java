@@ -131,6 +131,44 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
         assertThat(result.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("no-store");
     }
 
+    @Test
+    @WithMockUser
+    @DisplayName("The lazy popup-detail endpoint is revalidatable and 304s when unchanged")
+    void forecastDetailEndpointRevalidates() throws Exception {
+        var entity = com.gregochr.goldenhour.entity.ForecastEvaluationEntity.builder()
+                .id(42L)
+                .targetDate(java.time.LocalDate.of(2026, 3, 8))
+                .build();
+        when(forecastEvaluationRepository.findById(42L)).thenReturn(java.util.Optional.of(entity));
+        when(dtoMapper.toDto(org.mockito.ArgumentMatchers.eq(entity),
+                org.mockito.ArgumentMatchers.anyBoolean()))
+                .thenReturn(null);
+
+        MvcResult first = mockMvc.perform(get("/api/forecast/42"))
+                .andExpect(status().isOk())
+                .andExpect(header().exists(HttpHeaders.ETAG))
+                .andReturn();
+        assertThat(first.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("no-cache");
+
+        mockMvc.perform(get("/api/forecast/42")
+                        .header(HttpHeaders.IF_NONE_MATCH, first.getResponse().getHeader(HttpHeaders.ETAG)))
+                .andExpect(status().isNotModified());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("The SSE stream paths are never given an ETag (they must not be buffered)")
+    void sseStreamPathsAreNeverFiltered() throws Exception {
+        // The detail endpoint is matched by a strict /api/forecast/\d+ pattern rather than a
+        // /api/forecast/* wildcard precisely so these streaming paths stay untouched. Buffering an
+        // SSE response to hash it would break the stream, so assert no ETag reaches them.
+        mockMvc.perform(get("/api/forecast/run/notifications"))
+                .andExpect(header().doesNotExist(HttpHeaders.ETAG));
+
+        mockMvc.perform(get("/api/forecast/run/1/progress"))
+                .andExpect(header().doesNotExist(HttpHeaders.ETAG));
+    }
+
     private static LocationEntity loc(Long id, String name) {
         return LocationEntity.builder()
                 .id(id)

@@ -18,10 +18,29 @@ export default defineConfig({
     //  - autoUpdate so a deploy can't strand a user on a stale shell.
     VitePWA({
       registerType: 'autoUpdate',
-      // No web-app manifest: the existing icons aren't the sizes an installable PWA needs, and
-      // this change is about load speed, not installability. Add one with proper 192/512 icons
-      // if "Add to Home Screen" is ever wanted.
-      manifest: false,
+      // Web-app manifest so the app can be installed / added to a Home Screen. Icons are the
+      // standard 192 and 512 squares generated from the logo; theme/background match the dark UI
+      // (--color-plex-bg) so the splash and status bar don't flash white on launch. Both icons are
+      // purpose "any" — a "maskable" variant would need safe-zone padding the current logo doesn't
+      // have, and a wrongly-cropped adaptive icon is worse than none.
+      // No `includeAssets`: favicon/apple-touch-icon are served on demand rather than precached.
+      // The two manifest icons (~94 KB) ARE precached — the plugin injects manifest assets into the
+      // precache and neither globIgnores nor omitting includeAssets overrides that. Accepted as the
+      // price of installability: it's a one-off per deploy, and an installable PWA wants its icons.
+      manifest: {
+        name: 'PhotoCast — AI sunrise, sunset, and aurora forecasting',
+        short_name: 'PhotoCast',
+        description: 'Sunrise, sunset, and aurora photography forecasts for your locations.',
+        start_url: '/',
+        scope: '/',
+        display: 'standalone',
+        background_color: '#181210',
+        theme_color: '#181210',
+        icons: [
+          { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+        ],
+      },
       workbox: {
         globPatterns: [
           '**/*.{css,html,woff2}',
