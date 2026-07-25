@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Load-path request hygiene (fewer/deferred boot requests)
+- **`getAllEvaluationScores` now goes through the shared `apiClient`** instead of a raw `fetch()` with a hand-attached token, so it participates in the single-flight 401→refresh retry — a token-boundary refresh no longer silently drops the Plan tab's batch scores (#19)
+- **The two long-lived SSE streams (health status + run notifications) are deferred until after first paint** via a new `useAfterFirstPaint` hook (idle-callback with a timeout fallback), so they don't compete with the critical forecast/briefing fetches during boot; `useHealthStatus` gained an `enabled` gate (#17)
+- **Aurora status is fetched once and shared** — a new `AuroraStatusProvider` wraps the authenticated app and does the single fetch + 5-minute poll + focus refetch; `AuroraBanner`, `MapView`, and `JobRunsMetricsView` all read it via the unchanged `useAuroraStatus()` hook instead of each firing their own request/poll (#18)
+- **Astro heatmap conditions load one wave earlier** — the Plan tab no longer gates the per-date `getAstroConditions` fan-out behind a separate `getAstroAvailableDates` round-trip; it fetches directly for the briefing's upcoming dates and tolerates empty responses (#21)
+
 ### Changed — /api/forecast no longer re-loads forecast_evaluation per location for the cached-only rows
 - **`getForecasts` used `EvaluationViewService.forDateRange`, which loads the latest `forecast_evaluation` row per enabled location and merges everything — but `getForecasts` already has its own latest forecast rows (from the dedup query) and only keeps the *cached-only* views.** So that whole per-location `forecast_evaluation` re-query + merge was wasted work on the map's primary endpoint, every request. A new `EvaluationViewService.cachedOnlyViewsForDateRange(start, end, types, locations)` builds the same `CACHED_EVALUATION` views from the cache alone (safe because `mergeToView` gives cached results priority, so an empty forecast map yields identical cached views), skipping the N+1 forecast query entirely and reusing the caller's already-loaded enabled locations (so no repeat `findAllEnabled`)
 - `forDateRange` is unchanged for its other caller (`BriefingEvaluationController`, the Map tab) — the per-location load + merge were extracted into shared `loadLatestForecasts` / `buildViews` helpers and `loadCachedEvaluations` now takes the caller's locations instead of re-querying them

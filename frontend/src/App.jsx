@@ -13,9 +13,11 @@ import DailyBriefing from './components/DailyBriefing.jsx';
 import HealthIndicator from './components/HealthIndicator.jsx';
 import UserSettingsModal from './components/UserSettingsModal.jsx';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
+import { AuroraStatusProvider } from './context/AuroraStatusContext.jsx';
 import { useForecasts } from './hooks/useForecasts.js';
 import { useHealthStatus } from './hooks/useHealthStatus.js';
 import { useRunNotifications } from './hooks/useRunNotifications.js';
+import useAfterFirstPaint from './hooks/useAfterFirstPaint.js';
 
 // Code-split the heavy, rarely-first-viewed subtrees so they stay out of the initial bundle:
 // the Leaflet map stack (Plan is the default tab; the map is a drill-down) and the admin-only
@@ -81,7 +83,11 @@ function AuthGate() {
   if (mustChangePassword) {
     return <ChangePasswordPage />;
   }
-  return <AppInner />;
+  return (
+    <AuroraStatusProvider>
+      <AppInner />
+    </AuroraStatusProvider>
+  );
 }
 
 /**
@@ -91,12 +97,15 @@ function AppInner() {
   const { isAdmin, logout, username, sessionDaysRemaining, token } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
   const { locations, loading, error, refresh } = useForecasts();
+  // Defer the two long-lived SSE streams until after first paint so they don't compete with the
+  // critical forecast/briefing fetches during boot.
+  const streamsReady = useAfterFirstPaint();
   const {
     status: healthStatus, degraded: healthDegraded, checkedAt: healthCheckedAt,
     build: healthBuild, services: healthServices, database: healthDatabase,
     session: healthSession, appVersion: healthAppVersion, startedAt: healthStartedAt,
-  } = useHealthStatus();
-  const { lastCompletedRun } = useRunNotifications(!!token);
+  } = useHealthStatus(streamsReady);
+  const { lastCompletedRun } = useRunNotifications(!!token && streamsReady);
   const [showRunBanner, setShowRunBanner] = useState(false);
   const [viewMode, setViewModeState] = useState(() => {
     const hash = window.location.hash.replace('#', '');
