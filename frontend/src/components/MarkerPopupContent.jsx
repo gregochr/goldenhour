@@ -42,7 +42,17 @@ function useForecastDetail(forecast) {
   const [, setTick] = useState(0);
 
   useEffect(() => {
-    if (!needsFetch || peekForecastDetail(id).cached) return undefined;
+    if (!needsFetch) return undefined;
+    // A fetch — this instance's (cancelled by an id flip) or a concurrent popup's — may have
+    // populated the cache in the commit→effect gap, after this render already committed a skeleton.
+    // Force one re-read so the skeleton can't strand until some unrelated re-render. This can't
+    // loop: a tick-only re-render leaves the effect deps [needsFetch, id] unchanged.
+    if (peekForecastDetail(id).cached) {
+      // Inline async wrapper defers the setState off the effect body
+      // (react-hooks/set-state-in-effect), matching the codebase's pattern elsewhere.
+      (async () => setTick((n) => n + 1))();
+      return undefined;
+    }
     let cancelled = false;
     getForecastDetail(id)
       .then((data) => cacheForecastDetail(id, data))
