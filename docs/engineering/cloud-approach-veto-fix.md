@@ -1,6 +1,13 @@
 # Cloud-approach veto: unsmoothed inputs drive an absolute rating ceiling
 
-**Status:** F1 and F4 implemented 2026-07-25; F2, F3, F5 outstanding
+**Status:** F1 and F4 implemented 2026-07-25 (#294). **F2 attempted and REJECTED** — refuted by the
+Copt Hill ground-truth fixture. **F3 REJECTED** — adversarially reviewed, would introduce two new
+degeneracies. **D6 (silent half-veto) found and FIXED.** D7, D8 and F5 outstanding. See §4.
+
+⚠️ **`actual_outcome` is empty — zero rows, ever.** Every rule in this document is therefore
+unvalidated, including a veto that forces rating 1–2 on ~15% of evaluations. Until outcomes exist
+or reanalysis verification lands, the correct move on any scoring rule is to change **nothing** and
+improve **observability**.
 **Raised:** 2026-07-25, from a production observation on the Map tab
 **Area:** `service/CloudPointCacheReader`, `service/DirectionalSamplingGeometry`, `service/evaluation/PromptBuilder`
 
@@ -132,7 +139,32 @@ currently duplicated in `CloudPointCacheReader:52-57` and `DirectionalSamplingGe
 
 *Cost: zero additional requests. Risk: low — strictly reduces single-cell noise on the veto's trigger.*
 
-### F2 — Require corroboration before the veto applies
+### F2 — ~~Require corroboration before the veto applies~~ **REJECTED 2026-07-25**
+
+**Attempted and reverted. The premise was wrong, and a ground-truth fixture proved it.**
+
+F2 proposed exempting the absolute ceiling when the *coned* solar-horizon low cloud reads below
+50%, on the reasoning that a 3-point average should not be vetoed by two single-point signals.
+Implemented as a computed `[BUILDING — … BOUNDED penalty …]` label, it broke exactly one test:
+`PromptBuilderCoptHillSimulationTest`. That fixture reconstructs the real Copt Hill 2026-03-11
+sunset, and its docstring records the outcome:
+
+> "The 13:45 forecast showed only **7% solar low cloud** … leading to an **optimistic 4★
+> prediction**. In reality, a cloud bank was approaching from the SW and the sunset was **~2★**."
+
+That is a **wasted trip** (predicted 4★, actual 2★), not a missed opportunity — and the 7% clear
+coned horizon was *the misleading reading*. The approach signals were correct; the horizon was
+not. F2 keys its exemption on precisely the signal that failed, so it would have lifted a
+correctly-vetoed 1–2★ case toward 3★ against a recorded 2★.
+
+**The deeper correction: F1 already addressed F2's actual rationale.** F2's argument was that "two
+un-averaged single-cell readings can veto a clear horizon". After F1 the trend is coned, so it is
+no longer single-cell. The one remaining unreliable trigger is the upwind sample — which is F3.
+The ceiling was never the defect; input noise was. Do **F3**, not F2.
+
+Kept below for the record only — do not implement without new outcome evidence.
+
+### ~~F2 (original proposal)~~
 
 `PromptBuilder:209-220`: keep the rule, but gate the **absolute ceiling** on the coned solar-horizon
 low cloud also reading ≥ 50 %. When the coned horizon is clear, demote to a bounded penalty
@@ -144,7 +176,42 @@ approach readings, the smoothed reading should not lose outright.
 
 *Cost: prompt-text change. Risk: medium — see §5.*
 
-### F3 — Anchor the upwind point at the solar horizon
+### F3 — ~~Anchor the upwind point at the solar horizon~~ **REJECTED 2026-07-25**
+
+**Adversarially reviewed across three lenses before implementation; all three said do not ship.**
+
+The narrow physics holds: observer-anchoring samples the parcel that will be over the *observer*
+at event time, so in aligned UK flow it reads the horizon field ~3.8 h early (verified with the
+repo's own spherical math — for Copt Hill the re-anchored point lands 114 km away, in the Irish
+Sea rather than the Howgill Fells). But re-anchoring introduces two degeneracies the current
+geometry structurally cannot have, because `MIN_UPWIND_DISTANCE_M`/`MAX_UPWIND_DISTANCE_M` bound
+the **leg**, never the distance from the observer:
+
+- **Self-sampling** — anti-aligned flow with a ~113 km leg puts the "upwind" point ~2.7 km from
+  the observer. The observer's own current low cloud would then be printed as the upwind sample
+  and could supply the second leg of an absolute rating veto.
+- **Far-solar collision** — exactly aligned flow with a ~113 km leg puts it at 226 km along the
+  solar azimuth, bit-identical to `FAR_SOLAR_OFFSET_METRES`. Two nominally independent signals
+  reading one grid cell.
+
+Per your model, the two sample points answer different questions — the **113 km solar horizon**
+is "is there a gap for the low sun to get through", the **observer** is "is there a canvas
+overhead to light up". Under that reading the observer-anchored upwind sample is not wrong, it is
+measuring **canvas arrival** while the prompt describes and the veto reasons about **gap closure**.
+Two legitimate signals, conflated — which is a design decision to make with data, not a geometry
+bug to patch.
+
+**Do not implement without outcome or reanalysis evidence.**
+
+### Newly found while reviewing F3
+
+| # | Defect | Status |
+|---|---|---|
+| **D6** | **Silent half-veto.** The prefetchers placed the upwind point using wind at `findNearestIndex` while the reader re-derives it from wind at `findBestIndex` (via `extractAtmosphericData`). The two disagree for ~half of all events (a 21:37 sunset → 21:00 vs 22:00), and at the 200 km cap a ~3° bearing difference crosses a 0.1° cache cell — so the lookup missed, the upwind sample came back null, and the veto lost a trigger with no error and no log. | **FIXED** — `OpenMeteoResponseParser.resolveEventWind` is now the single decider; both prefetchers call it. |
+| **D7** | **The 200 km cap voids the trajectory identity.** `MAX_UPWIND_DISTANCE_M` binds beyond ~6.9 h at 8 m/s. The nightly batch runs ~20 h ahead of a summer sunset and every T+1…T+7 slot is far past it, so for most evaluations `dist ≠ windSpeed × timeToEvent` and the sample is just "cloud 200 km upwind now" — while `PromptBuilder:204-206` asserts otherwise and the veto forces 1–2★ on it. Anchor-independent; F3 would not have helped. | Open — measure before changing. |
+| **D8** | **Grep-invisible sixth call site.** `OpenMeteoService:672-681` re-implements the upwind geometry inline via `GeoUtils.offsetPoint` and never calls `computeUpwindPoint`. It is the *live* path whenever `cloudCache` is null. Any future geometry change must include it or the cached and live paths will diverge. | Open — documented. |
+
+### ~~F3 (original proposal)~~
 
 `DirectionalSamplingGeometry.computeUpwindPoint`: offset from `computeSolarHorizonPoint(lat, lon, az)`
 rather than from `(lat, lon)`, so the geometry matches what `PromptBuilder:204-206` already tells Claude.

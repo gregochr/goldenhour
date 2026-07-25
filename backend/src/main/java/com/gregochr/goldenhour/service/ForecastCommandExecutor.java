@@ -437,22 +437,16 @@ public class ForecastCommandExecutor {
                         ? solarService.sunriseUtc(lat, lon, date)
                         : solarService.sunsetUtc(lat, lon, date);
                 OpenMeteoForecastResponse.Hourly h = cached.forecastResponse().getHourly();
-                List<String> times = h.getTime();
-                if (times != null && h.getWindDirection10m() != null
-                        && h.getWindSpeed10m() != null) {
-                    int idx = com.gregochr.goldenhour.util.TimeSlotUtils
-                            .findNearestIndex(times, eventTime);
-                    if (idx < h.getWindDirection10m().size()
-                            && idx < h.getWindSpeed10m().size()) {
-                        Integer windDir = h.getWindDirection10m().get(idx);
-                        Double windSpeed = h.getWindSpeed10m().get(idx);
-                        if (windDir != null && windSpeed != null) {
-                            double[] upwind = openMeteoService.computeUpwindPoint(
-                                    lat, lon, windDir, windSpeed, now, eventTime);
-                            if (upwind != null) {
-                                allPoints.add(upwind);
-                            }
-                        }
+                // Must resolve the steering wind exactly as CloudPointCacheReader will, or the
+                // prefetched coordinate and the looked-up one diverge and the upwind sample
+                // silently vanishes. See OpenMeteoResponseParser.resolveEventWind.
+                OpenMeteoResponseParser.EventWind wind =
+                        OpenMeteoResponseParser.resolveEventWind(h, eventTime, targetType);
+                if (wind != null) {
+                    double[] upwind = openMeteoService.computeUpwindPoint(
+                            lat, lon, wind.windFromDeg(), wind.windSpeedMs(), now, eventTime);
+                    if (upwind != null) {
+                        allPoints.add(upwind);
                     }
                 }
             }

@@ -306,4 +306,56 @@ public final class OpenMeteoResponseParser {
         }
         return bestIdx;
     }
+
+    /**
+     * The event-time steering wind used to place the upwind cloud-approach sample.
+     *
+     * @param windFromDeg wind-from bearing in degrees
+     * @param windSpeedMs wind speed in metres per second
+     */
+    public record EventWind(int windFromDeg, double windSpeedMs) {
+    }
+
+    /**
+     * Resolves the event-time wind that positions the upwind cloud-approach sample.
+     *
+     * <p><strong>This must be the single decider of that wind.</strong> The upwind point is
+     * computed twice in the pipeline — once by a prefetcher, to decide which coordinate to fetch
+     * into {@code CloudPointCache}, and again by {@code CloudPointCacheReader}, to look that
+     * coordinate back up. The lookup is a grid-snapped exact match, so if the two computations
+     * start from different wind values they produce different coordinates, the lookup misses, the
+     * upwind sample comes back {@code null}, and the cloud-approach veto silently loses one of its
+     * two triggers — with no error and no log line.
+     *
+     * <p>That is why this uses {@link TimeSlotUtils#findBestIndex} rather than
+     * {@code findNearestIndex}: the reader's wind arrives via
+     * {@link #extractAtmosphericData}, which selects its slot with {@code findBestIndex}. The two
+     * differ for roughly half of all events — for a 21:37 sunset {@code findBestIndex} takes the
+     * 21:00 slot (latest at or before the event, since the post-sunset slot is useless) while
+     * {@code findNearestIndex} takes 22:00 — and at the 200 km cap a bearing difference of about
+     * 3 degrees is enough to land in a different 0.1-degree cache cell.
+     *
+     * @param hourly     the hourly block from the forecast response
+     * @param eventTime  UTC time of the solar event
+     * @param targetType SUNRISE or SUNSET
+     * @return the steering wind, or {@code null} if unavailable at the resolved slot
+     */
+    public static EventWind resolveEventWind(OpenMeteoForecastResponse.Hourly hourly,
+            LocalDateTime eventTime, TargetType targetType) {
+        if (hourly == null || hourly.getTime() == null
+                || hourly.getWindDirection10m() == null || hourly.getWindSpeed10m() == null) {
+            return null;
+        }
+        int idx = TimeSlotUtils.findBestIndex(hourly.getTime(), eventTime, targetType);
+        if (idx < 0 || idx >= hourly.getWindDirection10m().size()
+                || idx >= hourly.getWindSpeed10m().size()) {
+            return null;
+        }
+        Integer windDir = hourly.getWindDirection10m().get(idx);
+        Double windSpeed = hourly.getWindSpeed10m().get(idx);
+        if (windDir == null || windSpeed == null) {
+            return null;
+        }
+        return new EventWind(windDir, windSpeed);
+    }
 }
