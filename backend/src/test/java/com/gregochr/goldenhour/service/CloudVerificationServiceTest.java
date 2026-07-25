@@ -29,7 +29,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -119,9 +118,13 @@ class CloudVerificationServiceTest {
     @Test
     @DisplayName("report splits veto firings by the 200 km cap — the D7 question")
     void report_splitsVetoByCap() {
-        // Same conditions, different upwind distance: one a real advection nowcast, one clamped.
-        CloudVerificationPair uncapped = pair(true, 70, 120, 240, 20);
-        CloudVerificationPair capped = pair(true, 70, 200, 240, 90);
+        // Same veto conditions, different upwind distance: one a real advection nowcast (120 km),
+        // one clamped at the cap. The uncapped sample called a genuinely blocked horizon (90%
+        // observed); the clamped one vetoed a horizon that was actually clear (20%). That is the
+        // shape that would confirm D7 — the veto tracking reality only where the trajectory
+        // identity holds.
+        CloudVerificationPair uncapped = pair(true, 70, 120, 240, 90);
+        CloudVerificationPair capped = pair(true, 70, 200, 240, 20);
         when(repository.findVerifiedPairs(FROM, TO)).thenReturn(List.of(uncapped, capped));
         when(repository.countVerifiedInWindow(FROM, TO)).thenReturn(2L);
 
