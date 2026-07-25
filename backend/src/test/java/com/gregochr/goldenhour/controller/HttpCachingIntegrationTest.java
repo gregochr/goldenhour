@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -167,6 +168,97 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
 
         mockMvc.perform(get("/api/forecast/run/1/progress"))
                 .andExpect(header().doesNotExist(HttpHeaders.ETAG));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/briefing revalidates, and two unchanged reads produce the SAME ETag")
+    void briefingIsRevalidatableAndByteStable() throws Exception {
+        // The highest-value assertion in this class. The briefing is re-derived per request (hot
+        // topics, aurora overlay); if any part of that leaked a now()-derived value the body would
+        // differ on every call, so every poll would pay the hashing cost for a guaranteed 200 and
+        // the whole optimisation would be worthless.
+        when(briefingService.getCachedBriefingForApi()).thenReturn(briefingResponse());
+
+        MvcResult first = mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(header().exists(HttpHeaders.ETAG))
+                .andReturn();
+        assertThat(first.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("no-cache");
+
+        String etag = first.getResponse().getHeader(HttpHeaders.ETAG);
+        MvcResult second = mockMvc.perform(get("/api/briefing")).andReturn();
+        assertThat(second.getResponse().getHeader(HttpHeaders.ETAG))
+                .as("an unchanged briefing must hash identically, or it can never 304")
+                .isEqualTo(etag);
+
+        mockMvc.perform(get("/api/briefing").header(HttpHeaders.IF_NONE_MATCH, etag))
+                .andExpect(status().isNotModified());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/briefing still returns 204 before the first briefing is built")
+    void briefingColdStartStillReturns204() throws Exception {
+        // ShallowEtagHeaderFilter treats any 2xx GET as eligible and would hash an empty body;
+        // the cold-start 204 (which the frontend branches on) must survive untouched.
+        when(briefingService.getCachedBriefingForApi()).thenReturn(null);
+
+        mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("The Plan tab's batch-score endpoint revalidates and 304s when unchanged")
+    void briefingEvaluateScoresRevalidates() throws Exception {
+        when(evaluationViewService.forDateRange(any(), any(), any())).thenReturn(List.of());
+
+        MvcResult first = mockMvc.perform(get("/api/briefing/evaluate/scores"))
+                .andExpect(status().isOk())
+                .andExpect(header().exists(HttpHeaders.ETAG))
+                .andReturn();
+        assertThat(first.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("no-cache");
+
+        mockMvc.perform(get("/api/briefing/evaluate/scores")
+                        .header(HttpHeaders.IF_NONE_MATCH, first.getResponse().getHeader(HttpHeaders.ETAG)))
+                .andExpect(status().isNotModified());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Reads holding personal data keep no-store and get no ETag")
+    void personalDataReadsStayNoStore() throws Exception {
+        // Encodes the exclusion decisions so a later reviewer can't quietly reverse them: the
+        // browser's on-disk HTTP cache can't be evicted from JS on logout, so user-authored text
+        // (outcome notes, travel-day notes) and home-derived data must never be stored there.
+        when(outcomeService.queryAll(any(), any())).thenReturn(List.of());
+
+        MvcResult outcomes = mockMvc.perform(get("/api/outcome/all")
+                        .param("from", "2026-01-01").param("to", "2026-01-07"))
+                .andExpect(header().doesNotExist(HttpHeaders.ETAG))
+                .andReturn();
+        assertThat(outcomes.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).contains("no-store");
+
+        MvcResult settings = mockMvc.perform(get("/api/user/settings")).andReturn();
+        assertThat(settings.getResponse().getHeader(HttpHeaders.ETAG)).isNull();
+    }
+
+    private static DailyBriefingResponse briefingResponse() {
+        return new DailyBriefingResponse(
+                LocalDateTime.of(2026, 7, 25, 4, 0),
+                "Worth a look at the coast tonight.",
+                List.of(),
+                List.of(),
+                null,
+                null,
+                false,
+                false,
+                0,
+                "SONNET",
+                List.of(),
+                List.of(),
+                null);
     }
 
     private static LocationEntity loc(Long id, String name) {

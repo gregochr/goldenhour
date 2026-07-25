@@ -40,24 +40,41 @@ public class HttpCachingConfig {
      * excluded. The one non-literal path, the lazy-detail endpoint, is matched by the strict
      * {@link #FORECAST_DETAIL_PATH} numeric-id pattern rather than by a wildcard.
      *
-     * <p>Note the deliberate omission of the outcome endpoints ({@code /api/outcome},
-     * {@code /api/outcome/all}). Enabling an ETag requires {@code Cache-Control: private, no-cache},
-     * which lets the browser persist the body to its on-disk HTTP cache (that is how a 304
-     * reconstructs the body) — and, unlike the localStorage SWR cache, the browser HTTP cache cannot
-     * be evicted from JavaScript on logout. Outcome responses carry user-authored free-text notes, so
-     * they stay on Spring Security's {@code no-store} default rather than lingering at rest on a
-     * shared machine after logout. These endpoints are small and change when the user records an
-     * outcome, so the lost revalidation saving is negligible. The remaining endpoints are
-     * system-generated forecast data, the user's own location config, and public tide/astronomical
-     * data — acceptable in the browser's private per-profile cache.
+     * <p><strong>What is in, and why.</strong> Every entry is a read the app issues on the normal
+     * load path — several on a poll and on every window focus — whose body carries only
+     * system-generated content: Claude- or template-generated forecast prose, admin-managed location
+     * config, and public tide/astronomical/space-weather data. None contains a user-authored field,
+     * and role- or user-varying bodies are safe by construction because the ETag is body-derived (a
+     * different body hashes differently, so it yields a fresh 200 rather than a 304 into someone
+     * else's response).
+     *
+     * <p><strong>What is deliberately out, and why.</strong> Enabling an ETag requires
+     * {@code Cache-Control: private, no-cache}, which lets the browser persist the body to its
+     * on-disk HTTP cache (that is how a 304 reconstructs it) — and, unlike the localStorage SWR
+     * cache, the browser HTTP cache cannot be evicted from JavaScript on logout. So anything
+     * carrying user-authored text or home-derived personal data stays on Spring Security's
+     * {@code no-store} default rather than lingering at rest on a shared machine:
+     * <ul>
+     *   <li>{@code /api/outcome}, {@code /api/outcome/all} — user-authored free-text notes.</li>
+     *   <li>{@code /api/travel-days} — carries an optional free-text note plus absence dates.</li>
+     *   <li>{@code /api/user/settings}, {@code /api/user/settings/drive-times} — home postcode /
+     *       lat-lon and home-proximity data. Also fetched at most once, so there is nothing to save.</li>
+     * </ul>
+     * Admin-only and interaction-only reads are omitted too: they pay the response-buffering cost
+     * with no repeat-fetch payoff, and every extra entry widens the surface that has to stay in
+     * sync with the SSE exclusions.
      */
     private static final Set<String> REVALIDATABLE_READ_PATHS = Set.of(
             "/api/forecast",
-            "/api/forecast/history",
-            "/api/forecast/compare",
             "/api/locations",
             "/api/tides",
-            "/api/tides/stats");
+            "/api/tides/stats",
+            "/api/briefing",
+            "/api/briefing/evaluate/scores",
+            "/api/astro/conditions",
+            "/api/astro/conditions/available-dates",
+            "/api/aurora/status",
+            "/api/nlc/sighting");
 
     /**
      * The lazy popup-detail endpoint, {@code GET /api/forecast/{id}}. Matched by a strict

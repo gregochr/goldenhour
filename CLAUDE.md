@@ -234,7 +234,9 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 `GET /api/aurora/status` (Bearer) | `GET /api/aurora/locations` (Bearer) | `GET /api/aurora/viewline` (Bearer) | `POST /api/aurora/admin/enrich-bortle` (ADMIN) | `POST /api/aurora/admin/run` (ADMIN — triggers immediate NOAA cycle) | `POST /api/aurora/admin/reset` (ADMIN)
 
 ### Briefing (Bearer / ADMIN for writes)
-`GET /api/briefing` | `POST /api/briefing/run` (ADMIN) | `GET /api/briefing/evaluate` (Bearer, SSE) | `GET /api/briefing/evaluate/cache` (Bearer) | `GET /api/briefing/evaluate/cache/timestamp` (Bearer) | `POST /api/briefing/compare-models` (ADMIN) | `GET /api/briefing/compare-models/runs` (ADMIN) | `GET /api/briefing/compare-models/results` (ADMIN)
+`GET /api/briefing` | `POST /api/briefing/run` (ADMIN) | `GET /api/briefing/evaluate/scores` (Bearer) | `DELETE /api/briefing/evaluate/cache` (ADMIN) | `POST /api/briefing/compare-models` (ADMIN) | `GET /api/briefing/compare-models/runs` (ADMIN) | `GET /api/briefing/compare-models/results` (ADMIN)
+
+> The former SSE `GET /api/briefing/evaluate` and the `/evaluate/cache[/timestamp]` GETs no longer exist — `BriefingEvaluationController` exposes only `GET /scores` and `DELETE /cache`. This matters for HTTP caching: `/api/briefing` and `/api/briefing/evaluate/scores` are ETag-revalidated (`HttpCachingConfig`), and that whitelist is exact-match precisely so it can never catch a streaming endpoint.
 
 ### Astro Conditions (Bearer)
 `GET /api/astro/conditions` | `GET /api/astro/conditions/available-dates`
