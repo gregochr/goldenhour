@@ -873,6 +873,55 @@ class EvaluationViewServiceTest {
     class ForDateRange {
 
         @Test
+        @DisplayName("queries EVERY enabled location in one call — including region-less ones")
+        void queriesEveryEnabledLocationInOneCall() {
+            // Pins the one axis the bulk-query refactor changed: the id list. Without this, a future
+            // edit that copied the sibling's `region != null` filter (getScoresForEnrichmentBulk
+            // legitimately applies it) — or otherwise truncated the list — would silently drop those
+            // locations to Source.NONE on the Plan/Map load with no test failing.
+            LocationEntity unregioned = new LocationEntity();
+            unregioned.setId(3L);
+            unregioned.setName("Orphan");
+            when(locationService.findAllEnabled())
+                    .thenReturn(List.of(bamburgh, sandsend, unregioned));
+            when(briefingEvaluationService.getCachedScores(eq(REGION_NAME), eq(DATE), eq(SUNRISE)))
+                    .thenReturn(Map.of());
+            when(briefingEvaluationService.getCachedScores(eq(REGION_NAME), eq(DATE), eq(SUNSET)))
+                    .thenReturn(Map.of());
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(
+                            anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of());
+            when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(DATE))
+                    .thenReturn(List.of());
+
+            service.forDateRange(DATE, DATE, Set.of(SUNRISE, SUNSET));
+
+            ArgumentCaptor<Collection<Long>> idsCaptor = ArgumentCaptor.captor();
+            verify(forecastEvaluationRepository, times(1))
+                    .findLatestRunPerSlotByLocationIds(
+                            idsCaptor.capture(), eq(DATE), eq(DATE));
+            // A location with no region still gets its forecast rows here — unlike the briefing
+            // fallback, this path is not region-scoped.
+            assertThat(idsCaptor.getValue()).containsExactlyInAnyOrder(1L, 2L, 3L);
+        }
+
+        @Test
+        @DisplayName("no enabled locations → no query at all (an empty IN list is invalid)")
+        void noEnabledLocations_skipsQueryEntirely() {
+            when(locationService.findAllEnabled()).thenReturn(List.of());
+            when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(DATE))
+                    .thenReturn(List.of());
+
+            List<LocationEvaluationView> views = service.forDateRange(
+                    DATE, DATE, Set.of(SUNRISE, SUNSET));
+
+            assertThat(views).isEmpty();
+            verify(forecastEvaluationRepository, never())
+                    .findLatestRunPerSlotByLocationIds(anyCollection(), any(), any());
+        }
+
+        @Test
         @DisplayName("filters out NONE-source views from results")
         void excludesNone() {
             when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
