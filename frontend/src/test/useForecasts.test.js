@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor, act } from '@testing-library/react';
 import { useForecasts } from '../hooks/useForecasts.js';
 import { writeSwrCache } from '../utils/swrCache.js';
 
@@ -323,5 +323,41 @@ describe('useForecasts', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.locations.map((l) => l.name)).toEqual(['Low Barns']);
+  });
+
+  it('shows the loading skeleton (not the empty state) when the cache holds an empty payload', () => {
+    // A prior fetch that returned nothing (fresh deploy / all-disabled roster) cached empty arrays.
+    // That cache is structurally "valid" but yields zero locations — the initial loading flag must
+    // stay true so the map shows the skeleton, not a one-frame "no forecasts loaded yet" flash.
+    writeSwrCache('forecasts:PRO_USER', { forecasts: [], locationMeta: [], outcomes: [] });
+    fetchForecasts.mockReturnValue(new Promise(() => {})); // hang so only the cache decides this tick
+    fetchLocations.mockReturnValue(new Promise(() => {}));
+
+    const { result } = renderHook(() => useForecasts());
+
+    expect(result.current.loading).toBe(true);
+    expect(result.current.locations).toEqual([]);
+  });
+
+  it('surfaces an error when a user-initiated refresh fails, keeping the stale data', async () => {
+    // First a successful load so data is on screen (hasDataRef becomes true).
+    fetchForecasts.mockResolvedValue([BAMBURGH_FORECAST]);
+    fetchLocations.mockResolvedValue([LANDSCAPE_LOCATION]);
+
+    const { result } = renderHook(() => useForecasts());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.locations.length).toBeGreaterThan(0);
+    expect(result.current.error).toBeNull();
+
+    // An explicit user-initiated refresh that fails must surface an error (unlike a silent
+    // background revalidation), while leaving the stale data in place for a retry.
+    fetchForecasts.mockRejectedValue(new Error('run reload failed'));
+    fetchLocations.mockRejectedValue(new Error('run reload failed'));
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    expect(result.current.error).toBe('run reload failed');
+    expect(result.current.locations.length).toBeGreaterThan(0);
   });
 });

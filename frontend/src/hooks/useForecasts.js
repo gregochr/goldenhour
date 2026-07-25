@@ -76,8 +76,9 @@ function readValidCache(cacheKey) {
  * and the Plan tab's location-derived enrichments paint instantly, then revalidates in the
  * background and swaps in fresh data. The cache holds the raw (JSON-serialisable) API payloads,
  * role-keyed because the forecast scores differ by role; the {@code forecastsByDate} Maps are
- * rebuilt on hydrate. A failed *revalidation* keeps the stale data on screen rather than blanking
- * it with an error.
+ * rebuilt on hydrate. A failed *background* revalidation keeps the stale data on screen rather than
+ * blanking it with an error; a failed *user-initiated* {@code refresh} (an explicit action that
+ * expects feedback) does surface the error/retry.
  *
  * @returns {{
  *   locations: Array<{name: string, lat: number, lon: number, forecastsByDate: Map, outcomes: Array}>,
@@ -94,13 +95,16 @@ export function useForecasts() {
     const cached = readValidCache(cacheKey);
     return cached ? buildLocations(cached.forecasts, cached.locationMeta, cached.outcomes) : [];
   });
-  const [loading, setLoading] = useState(() => readValidCache(cacheKey) === null);
+  // Instant paint only when the hydrated cache actually yields locations to show. An empty-but-valid
+  // cache ({forecasts:[],…} from a fresh deploy or an all-disabled roster) must still show the
+  // skeleton, never flash the "no forecasts loaded yet" empty state for a frame (see #287 review).
+  const [loading, setLoading] = useState(() => locations.length === 0);
   const [error, setError] = useState(null);
   // True once anything is on screen (cache hydrate or a successful fetch). Guards the loading flash
   // and the error path so a failed revalidation over a hydrated map keeps the stale data.
   const hasDataRef = useRef(locations.length > 0);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ userInitiated = false } = {}) => {
     setError(null);
     // Only show the skeleton when there's nothing to show yet. A revalidation over hydrated or
     // previously-loaded data stays silent, so refreshing the map never blanks it (no jar).
@@ -130,9 +134,11 @@ export function useForecasts() {
       // Best-effort: writeSwrCache silently no-ops if the payload exceeds the storage quota.
       writeSwrCache(cacheKey, { forecasts, locationMeta, outcomes });
     } catch (err) {
-      // Only surface an error when there's nothing already on screen; a failed revalidation over a
-      // hydrated / previously-loaded map should keep the stale data rather than blank it.
-      if (!hasDataRef.current) {
+      // Surface the error on a cold load (nothing on screen), or when the user explicitly asked to
+      // refresh — an explicit action (Run Forecast, drive-time change, manual re-run) expects
+      // feedback, so a failure must show an error/retry rather than silently leave stale numbers.
+      // A silent BACKGROUND revalidation failure still keeps the stale map (the intended SWR trade).
+      if (!hasDataRef.current || userInitiated) {
         setError(
           err.response?.data?.message ||
             err.message ||
@@ -144,14 +150,19 @@ export function useForecasts() {
     }
   }, [cacheKey]);
 
+  // Explicit in-app refreshes (the refresh button, post-run reloads, drive-time changes) are
+  // user-initiated: a failure surfaces an error/retry rather than silently leaving stale data.
+  const refresh = useCallback(() => load({ userInitiated: true }), [load]);
+
   useEffect(() => {
     // Invoke via an inline async function so the synchronous setState calls at
     // the top of `load` run inside the deferred async boundary rather than in
-    // the effect body itself (react-hooks/set-state-in-effect).
+    // the effect body itself (react-hooks/set-state-in-effect). The mount load is a
+    // background revalidation (not user-initiated), so a failure stays silent when cache-hydrated.
     (async () => {
       await load();
     })();
   }, [load]);
 
-  return { locations, loading, error, refresh: load };
+  return { locations, loading, error, refresh };
 }
