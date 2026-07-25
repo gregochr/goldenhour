@@ -30,7 +30,8 @@
     },
     "eslint-plugin-react": {
       "eslint": "$eslint"
-    }
+    },
+    "brace-expansion": "5.0.8"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
