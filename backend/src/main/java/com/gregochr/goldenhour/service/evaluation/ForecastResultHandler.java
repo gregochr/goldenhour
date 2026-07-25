@@ -193,8 +193,12 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                 persistBatchLog(context, outcome, parsed.date(), parsed.targetType(),
                         outcome.model(), REGEX_FALLBACK_MARKER, outcome.rawText());
             } else {
+                // Persist the raw response on the clean-success path too, not only on the regex
+                // fallback. A batch-scored slot otherwise leaves no record of what Claude returned
+                // (request_body and response_body are both null), which is what made the
+                // 2026-07-25 adjacent-location divergence impossible to diagnose after the fact.
                 persistBatchLog(context, outcome, parsed.date(), parsed.targetType(),
-                        outcome.model());
+                        outcome.model(), null, outcome.rawText());
             }
             return Optional.of(new BatchSuccess(cacheKey, result));
         } catch (Exception e) {
@@ -251,7 +255,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             BriefingEvaluationResult result = buildBluebellResult(
                     location, bluebell, parsed.date(), parsed.targetType(), regionName, modelName,
                     context != null ? context.pipelineRunId() : null);
-            persistBatchLog(context, outcome, parsed.date(), parsed.targetType(), outcome.model());
+            persistBatchLog(context, outcome, parsed.date(), parsed.targetType(),
+                    outcome.model(), null, outcome.rawText());
             return Optional.of(new BatchSuccess(cacheKey, result));
         } catch (Exception e) {
             LOG.warn("Bluebell batch: parse failed for '{}': {}",

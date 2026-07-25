@@ -127,12 +127,14 @@ class ForecastResultHandlerTest {
         assertThat(result.get().result().locationName()).isEqualTo("Castlerigg");
         assertThat(result.get().result().rating()).isEqualTo(4);
 
+        // The raw response is persisted on the clean-success path too: a batch-scored slot must
+        // leave a record of what Claude returned, or a bad score cannot be diagnosed afterwards.
         verify(jobRunService).logBatchResult(
                 eq(99L), eq("msgbatch_x"), eq("fc-42-2026-04-16-SUNRISE"),
                 eq(true), eq("SUCCESS"),
                 eq(null), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
-                eq(DATE), eq(SUNRISE), eq(null));
+                eq(DATE), eq(SUNRISE), eq(outcome.rawText()));
     }
 
     @Test

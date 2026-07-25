@@ -663,8 +663,10 @@ public class OpenMeteoService {
             int solarAzimuthDeg, LocalDateTime solarEventTime, LocalDateTime currentTime,
             TargetType targetType, int windFromDeg, double windSpeedMs, JobRunEntity jobRun) {
         try {
-            double[] solarPoint =
-                    DirectionalSamplingGeometry.computeSolarHorizonPoint(lat, lon, solarAzimuthDeg);
+            // Sample the trend across the whole solar cone rather than the centre bearing alone —
+            // isBuilding() feeds an absolute rating ceiling, so it must not turn on one grid cell.
+            List<double[]> conePoints =
+                    DirectionalSamplingGeometry.computeSolarConePoints(lat, lon, solarAzimuthDeg);
 
             // Determine if we need an upwind sample
             double[] upwindPoint = null;
@@ -678,9 +680,8 @@ public class OpenMeteoService {
                 }
             }
 
-            // Batch fetch: solar point + optional upwind point
-            List<double[]> coords = new ArrayList<>();
-            coords.add(solarPoint);
+            // Batch fetch: solar cone points + optional upwind point
+            List<double[]> coords = new ArrayList<>(conePoints);
             if (upwindPoint != null) {
                 coords.add(upwindPoint);
             }
@@ -694,12 +695,21 @@ public class OpenMeteoService {
                         durationMs, 200, null, true, null);
             }
 
-            SolarCloudTrend trend = OpenMeteoResponseParser.extractSolarTrend(
-                    responses.get(0), solarEventTime, targetType);
+            List<SolarCloudTrend> coneTrends = new ArrayList<>(conePoints.size());
+            for (int i = 0; i < conePoints.size() && i < responses.size(); i++) {
+                coneTrends.add(OpenMeteoResponseParser.extractSolarTrend(
+                        responses.get(i), solarEventTime, targetType));
+            }
+            SolarCloudTrend trend = SolarCloudTrend.average(coneTrends);
+            if (trend == null) {
+                return null;
+            }
 
             UpwindCloudSample upwind = null;
-            if (upwindPoint != null && responses.size() > 1) {
-                upwind = OpenMeteoResponseParser.extractUpwindSample(responses.get(1), solarEventTime, currentTime,
+            int upwindIndex = conePoints.size();
+            if (upwindPoint != null && responses.size() > upwindIndex) {
+                upwind = OpenMeteoResponseParser.extractUpwindSample(responses.get(upwindIndex),
+                        solarEventTime, currentTime,
                         targetType, (int) (upwindDistanceM / 1000), windFromDeg);
             }
 

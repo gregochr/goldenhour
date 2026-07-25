@@ -19,6 +19,7 @@ import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.EvaluationViewService;
+import com.gregochr.goldenhour.service.ForecastCalibrationService;
 import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.service.ForecastService;
@@ -245,4 +246,8 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected NoaaSwpcClient noaaClient;
+
+    /** Scores forecasts against recorded outcomes for {@code CalibrationController}. */
+    @MockitoBean
+    protected ForecastCalibrationService calibrationService;
 }
