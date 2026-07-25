@@ -255,6 +255,45 @@ class ForecastDtoMapperTest {
     }
 
     @Test
+    @DisplayName("toListDto() returns enhanced scores for PRO and omits the summary (fetched by id)")
+    void toListDto_proUser_enhancedScoresSummaryOmitted() {
+        ForecastEvaluationEntity entity = buildFullEntity();
+
+        ForecastListDto dto = mapper.toListDtoList(List.of(entity), false).get(0);
+
+        assertThat(dto.fierySkyPotential()).isEqualTo(82);
+        assertThat(dto.goldenHourPotential()).isEqualTo(76);
+        assertThat(dto.id()).isEqualTo(entity.getId());
+        // The big summary text is NOT shipped on the list — the popup fetches it via the detail endpoint.
+        assertThat(dto.summary()).isNull();
+        assertThat(dto.triageMessage()).isNull();
+    }
+
+    @Test
+    @DisplayName("toListDto() returns basic scores for LITE — same role gating as the fat DTO")
+    void toListDto_liteUser_basicScores() {
+        ForecastEvaluationEntity entity = buildFullEntity();
+
+        ForecastListDto dto = mapper.toListDtoList(List.of(entity), true).get(0);
+
+        assertThat(dto.fierySkyPotential()).isEqualTo(65);
+        assertThat(dto.goldenHourPotential()).isEqualTo(60);
+    }
+
+    @Test
+    @DisplayName("toListDto() carries comfort fields so the popup/hourly comfort renders without a fetch")
+    void toListDto_carriesComfortFields() {
+        ForecastEvaluationEntity entity = buildFullEntity();
+
+        ForecastListDto dto = mapper.toListDtoList(List.of(entity), false).get(0);
+
+        assertThat(dto.temperatureCelsius()).isEqualTo(12.5);
+        assertThat(dto.apparentTemperatureCelsius()).isEqualTo(9.8);
+        assertThat(dto.windSpeed()).isEqualByComparingTo(new BigDecimal("4.20"));
+        assertThat(dto.precipitationProbabilityPercent()).isEqualTo(10);
+    }
+
+    @Test
     @DisplayName("toDto() handles entity with null location gracefully")
     void toDto_nullLocation_returnsNullLocationName() {
         ForecastEvaluationEntity entity = ForecastEvaluationEntity.builder()

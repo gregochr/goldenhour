@@ -129,6 +129,126 @@ public class ForecastDtoMapper {
     }
 
     /**
+     * Maps a list of entities to slim {@link ForecastListDto} projections for the map/list load path.
+     * The heavy popup-only fields are omitted (fetched lazily per location via the detail endpoint);
+     * this carries only the marker/grouping/comfort fields plus the role-selected scores.
+     *
+     * @param entities the forecast evaluation entities
+     * @param isLiteUser true if the caller is a LITE_USER
+     * @return the slim DTOs in the same order
+     */
+    public List<ForecastListDto> toListDtoList(List<ForecastEvaluationEntity> entities,
+            boolean isLiteUser) {
+        return entities.stream()
+                .map(e -> toListDto(e, isLiteUser))
+                .toList();
+    }
+
+    /**
+     * Maps a single entity to a slim {@link ForecastListDto}. Scores are role-selected identically to
+     * {@link #toDto(ForecastEvaluationEntity, boolean)}: LITE users get basic (observer-point) scores
+     * from rich rows, others get enhanced (directional) scores. {@code summary}/{@code triageMessage}
+     * are left {@code null} — a rich row has a persisted id, so the popup fetches them via the detail
+     * endpoint rather than shipping the big text on every list row.
+     *
+     * @param entity the forecast evaluation entity
+     * @param isLiteUser true if the caller is a LITE_USER
+     * @return the slim DTO
+     */
+    private ForecastListDto toListDto(ForecastEvaluationEntity entity, boolean isLiteUser) {
+        boolean useBasic = isLiteUser && entity.getBasicFierySkyPotential() != null;
+        Integer fierySky = useBasic ? entity.getBasicFierySkyPotential() : entity.getFierySkyPotential();
+        Integer goldenHour = useBasic
+                ? entity.getBasicGoldenHourPotential() : entity.getGoldenHourPotential();
+        TriageDetails triage = TriageDetails.orEmpty(entity.getTriage());
+        return new ForecastListDto(
+                entity.getId(),
+                entity.getLocationName(),
+                entity.getLocationLat(),
+                entity.getLocationLon(),
+                entity.getTargetDate(),
+                entity.getTargetType(),
+                entity.getForecastRunAt(),
+                entity.getSolarEventTime(),
+                entity.getAzimuthDeg(),
+                entity.getRating(),
+                fierySky,
+                goldenHour,
+                triage.getReason(),
+                null,
+                null,
+                entity.getTemperatureCelsius(),
+                entity.getApparentTemperatureCelsius(),
+                entity.getWindSpeed(),
+                entity.getWindDirection(),
+                entity.getPrecipitation(),
+                entity.getPrecipitationProbabilityPercent());
+    }
+
+    /**
+     * Builds a slim {@link ForecastListDto} from a sparse cached-only view (no persisted id). Because
+     * there is no by-id detail fetch path for a sparse row, its {@code summary} and
+     * {@code triageMessage} are carried inline so the popup can still show the "why" text. Comfort
+     * fields are {@code null} (a cached-only row has no atmospherics). Scores are a single set for
+     * both roles.
+     *
+     * @param view the cached-only evaluation view
+     * @param location the resolved location
+     * @param isLiteUser true if the caller is a LITE_USER (sparse rows are role-agnostic)
+     * @return the slim DTO with a null id
+     */
+    public ForecastListDto toSparseListDto(LocationEvaluationView view, LocationEntity location,
+            boolean isLiteUser) {
+        LocalDate date = view.date();
+        TargetType type = view.targetType();
+        double lat = location.getLat();
+        double lon = location.getLon();
+
+        LocalDateTime solarEventTime = null;
+        Integer azimuthDeg = null;
+        if (date != null && type != null && type != TargetType.HOURLY) {
+            try {
+                boolean isSunrise = type == TargetType.SUNRISE;
+                solarEventTime = isSunrise
+                        ? solarService.sunriseUtc(lat, lon, date)
+                        : solarService.sunsetUtc(lat, lon, date);
+                azimuthDeg = isSunrise
+                        ? solarService.sunriseAzimuthDeg(lat, lon, date)
+                        : solarService.sunsetAzimuthDeg(lat, lon, date);
+            } catch (Exception ignored) {
+                // Graceful — leave null if calculation fails (e.g. polar edge case)
+            }
+        }
+
+        LocalDateTime forecastRunAt = view.evaluatedAt() != null
+                ? LocalDateTime.ofInstant(view.evaluatedAt(), ZoneOffset.UTC)
+                : null;
+
+        return new ForecastListDto(
+                null,
+                location.getName(),
+                BigDecimal.valueOf(lat),
+                BigDecimal.valueOf(lon),
+                date,
+                type,
+                forecastRunAt,
+                solarEventTime,
+                azimuthDeg,
+                view.rating(),
+                view.fierySkyPotential(),
+                view.goldenHourPotential(),
+                view.triageReason(),
+                view.summary(),
+                view.triageMessage(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+    }
+
+    /**
      * Per-date lunar classification, memoised across the rows of a single mapping pass.
      *
      * @param tideType the astronomical tide classification for the date

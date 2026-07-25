@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.ForecastDtoMapper;
 import com.gregochr.goldenhour.model.ForecastEvaluationDto;
+import com.gregochr.goldenhour.model.ForecastListDto;
 import com.gregochr.goldenhour.model.ForecastRunRequest;
 import com.gregochr.goldenhour.model.LocationEvaluationView;
 import com.gregochr.goldenhour.model.RunProgress;
@@ -43,6 +44,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -126,7 +128,7 @@ public class ForecastController {
      * @return evaluations ordered by target date and target type
      */
     @GetMapping
-    public List<ForecastEvaluationDto> getForecasts(Authentication auth) {
+    public List<ForecastListDto> getForecasts(Authentication auth) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         LocalDate from = today.minusDays(7);
         LocalDate horizon = today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
@@ -135,14 +137,16 @@ public class ForecastController {
         List<LocationEntity> enabled = locationService.findAllEnabled();
 
         // 1. Rich rows from forecast_evaluation — the latest run per slot (dedup at source),
-        //    fetched in one batched query for all enabled locations.
+        //    fetched in one batched query for all enabled locations. Mapped to the slim list DTO:
+        //    the heavy popup-only fields (summary text, atmospherics, tide/surge/inversion detail)
+        //    are fetched lazily per location via GET /api/forecast/{id} when a popup opens.
         List<Long> locationIds = enabled.stream()
                 .map(LocationEntity::getId)
                 .toList();
         List<com.gregochr.goldenhour.entity.ForecastEvaluationEntity> entities = locationIds.isEmpty()
                 ? List.of()
                 : repository.findLatestRunPerSlotByLocationIds(locationIds, from, horizon);
-        List<ForecastEvaluationDto> dtos = new ArrayList<>(dtoMapper.toDtoList(entities, lite));
+        List<ForecastListDto> dtos = new ArrayList<>(dtoMapper.toListDtoList(entities, lite));
 
         // 2. Cached-only rows — surfaced so the Map date strip shows future dates that the
         //    batch pipeline has scored but not yet persisted as full forecast_evaluation rows
@@ -170,9 +174,32 @@ public class ForecastController {
             if (loc == null) {
                 continue;
             }
-            dtos.add(dtoMapper.toSparseDto(view, loc, lite));
+            dtos.add(dtoMapper.toSparseListDto(view, loc, lite));
         }
         return dtos;
+    }
+
+    /**
+     * Returns the full forecast evaluation for one persisted row, fetched lazily when a map popup
+     * opens. This carries the heavy popup-only fields (the Claude {@code summary}, atmospherics,
+     * directional cloud, tide/surge/inversion detail, bluebell, golden/blue-hour windows) that the
+     * slim {@link #getForecasts} list omits.
+     *
+     * <p>Scores are role-selected identically to the list: LITE users get basic (observer-point)
+     * scores and summary, PRO/ADMIN get enhanced (directional) — so this endpoint cannot be used to
+     * bypass the freemium score gating.
+     *
+     * @param id   the forecast_evaluation id (only persisted rich rows have one; sparse cached-only
+     *             rows carry their summary inline in the list and never reach here)
+     * @param auth the current authentication context
+     * @return the full evaluation DTO
+     * @throws NoSuchElementException if no evaluation exists with that id (mapped to HTTP 404)
+     */
+    @GetMapping("/{id:\\d+}")
+    public ForecastEvaluationDto getForecastDetail(@PathVariable Long id, Authentication auth) {
+        com.gregochr.goldenhour.entity.ForecastEvaluationEntity entity = repository.findById(id)
+                .orElseThrow(() -> new NoSuchElementException("No forecast evaluation with id " + id));
+        return dtoMapper.toDto(entity, isLiteUser(auth));
     }
 
     /**

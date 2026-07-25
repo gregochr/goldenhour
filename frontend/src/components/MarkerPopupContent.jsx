@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import {
   formatEventTimeUk,
@@ -6,11 +6,68 @@ import {
   mpsToMph,
   degreesToCompass,
 } from '../utils/conversions.js';
-import { runForecast } from '../api/forecastApi.js';
+import {
+  getForecastDetail,
+  peekForecastDetail,
+  cacheForecastDetail,
+  runForecast,
+} from '../api/forecastApi.js';
 import createEventSource from '../utils/createEventSource.js';
 import { bortleLabel } from '../utils/conversions.js';
 import TideIndicator from './TideIndicator.jsx';
 import InfoTip from './InfoTip.jsx';
+
+/**
+ * Resolves the full detail object for a (slim) forecast slot with the precedence:
+ *   1. object already carries full detail (`lowCloud !== undefined`, e.g. the
+ *      admin PromptTestView pass-through) → use it as-is, never fetch;
+ *   2. rich slim row (`id != null`) → fetch (and cache, in `forecastApi`) the
+ *      detail row; render a skeleton while in flight;
+ *   3. sparse cached-only row (`id == null`) → its summary/triageMessage are
+ *      inline, so use the slot itself, never fetch.
+ *
+ * The cache lives in `forecastApi` (cleared on logout) so a broken/failed fetch
+ * is memoised as null and degrades to a header-only popup without refetching.
+ *
+ * @param {object|null} forecast - The slim forecast slot, or null.
+ * @returns {{detail: object|null, detailLoading: boolean}} Resolved detail and load state.
+ */
+function useForecastDetail(forecast) {
+  const hasInlineDetail = forecast != null && forecast.lowCloud !== undefined;
+  const id = forecast != null ? forecast.id : null;
+  const needsFetch = !hasInlineDetail && id != null;
+
+  // Re-render trigger only; detail is derived from the cache during render so it
+  // always tracks the current id (no stale carry-over when the slot changes).
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    if (!needsFetch) return undefined;
+    // A fetch — this instance's (cancelled by an id flip) or a concurrent popup's — may have
+    // populated the cache in the commit→effect gap, after this render already committed a skeleton.
+    // Force one re-read so the skeleton can't strand until some unrelated re-render. This can't
+    // loop: a tick-only re-render leaves the effect deps [needsFetch, id] unchanged.
+    if (peekForecastDetail(id).cached) {
+      // Inline async wrapper defers the setState off the effect body
+      // (react-hooks/set-state-in-effect), matching the codebase's pattern elsewhere.
+      (async () => setTick((n) => n + 1))();
+      return undefined;
+    }
+    let cancelled = false;
+    getForecastDetail(id)
+      .then((data) => cacheForecastDetail(id, data))
+      // Cache the miss as null so a failed fetch renders gracefully (header only)
+      // and does not refetch on every re-render.
+      .catch(() => cacheForecastDetail(id, null))
+      .finally(() => { if (!cancelled) setTick((n) => n + 1); });
+    return () => { cancelled = true; };
+  }, [needsFetch, id]);
+
+  if (hasInlineDetail) return { detail: forecast, detailLoading: false };
+  if (!needsFetch) return { detail: forecast, detailLoading: false };
+  const { cached, detail } = peekForecastDetail(id);
+  return cached ? { detail, detailLoading: false } : { detail: null, detailLoading: true };
+}
 
 /**
  * User-facing label for each TriageReason enum value.
@@ -26,11 +83,19 @@ const TRIAGE_REASON_LABELS = {
 /**
  * Builds the "Forecast generated" footer text. For triaged forecasts,
  * appends a note that Claude was not invoked.
+ *
+ * The timestamp and triage reason come from the slim `forecast` slot; the
+ * evaluation model is a detail-only field, so it is read from `detail` (which
+ * may be null while the detail row is still loading or after a failed fetch).
+ *
+ * @param {object} forecast - The slim forecast slot (forecastRunAt, triageReason).
+ * @param {object|null} detail - The resolved detail row (evaluationModel), or null.
  */
-function buildGeneratedFooter(forecast) {
+function buildGeneratedFooter(forecast, detail) {
   const base = formatGeneratedAtFull(forecast.forecastRunAt);
-  const model = forecast.evaluationModel && forecast.evaluationModel !== 'WILDLIFE'
-    ? forecast.evaluationModel.charAt(0) + forecast.evaluationModel.slice(1).toLowerCase()
+  const evaluationModel = detail?.evaluationModel;
+  const model = evaluationModel && evaluationModel !== 'WILDLIFE'
+    ? evaluationModel.charAt(0) + evaluationModel.slice(1).toLowerCase()
     : null;
 
   if (forecast.triageReason) {
@@ -340,6 +405,10 @@ export default function MarkerPopupContent({
   const [runProgress, setRunProgress] = useState('');
   const [forecastError, setForecastError] = useState(null);
 
+  // Header + comfort fields render instantly from the slim `forecast` prop; the
+  // heavy popup-only fields come from this lazily-resolved `detail` object.
+  const { detail, detailLoading } = useForecastDetail(forecast);
+
   /** Triggers a single-location, single-date, single-event forecast run and tracks via SSE. */
   const handleRunForecast = async () => {
     setRunningForecast(true);
@@ -379,12 +448,14 @@ export default function MarkerPopupContent({
   const onToggleExpanded = () => setIsExpanded((prev) => !prev);
 
   const isSunrise = eventType === 'SUNRISE';
-  const risingTide = forecast ? getRisingTideWarning(forecast, eventType) : null;
+  // The rising-tide warning and golden/blue-hour pills are detail-derived
+  // (nextHighTideTime + golden/blue-hour times are not in the slim payload).
+  const risingTide = detail ? getRisingTideWarning(detail, eventType) : null;
   const eventTime  = forecast ? formatEventTimeUk(forecast.solarEventTime) : null;
-  const goldenStart = forecast ? formatEventTimeUk(forecast.goldenHourStart) : null;
-  const goldenEnd   = forecast ? formatEventTimeUk(forecast.goldenHourEnd) : null;
-  const blueStart   = forecast ? formatEventTimeUk(forecast.blueHourStart) : null;
-  const blueEnd     = forecast ? formatEventTimeUk(forecast.blueHourEnd) : null;
+  const goldenStart = detail ? formatEventTimeUk(detail.goldenHourStart) : null;
+  const goldenEnd   = detail ? formatEventTimeUk(detail.goldenHourEnd) : null;
+  const blueStart   = detail ? formatEventTimeUk(detail.blueHourStart) : null;
+  const blueEnd     = detail ? formatEventTimeUk(detail.blueHourEnd) : null;
 
   const goldenPillStyle = { ...POPUP_PILL, background: 'rgba(224,165,66,0.12)', color: 'var(--color-verdict-marginal)', border: '1px solid rgba(224,165,66,0.28)', fontFamily: "'IBM Plex Mono', monospace" };
   const bluePillStyle   = { ...POPUP_PILL, background: 'rgba(124,141,214,0.12)', color: '#aab4e6', border: '1px solid rgba(124,141,214,0.28)', fontFamily: "'IBM Plex Mono', monospace" };
@@ -476,7 +547,7 @@ export default function MarkerPopupContent({
               </div>
             )}
           </div>
-          {isDustEnhanced(forecast) && (
+          {detail && isDustEnhanced(detail) && (
             <div style={{ marginBottom: '6px' }} data-testid="dust-badge">
               <span style={{
                 ...POPUP_PILL,
@@ -490,37 +561,37 @@ export default function MarkerPopupContent({
               </span>
             </div>
           )}
-          {role !== 'LITE_USER' && forecast.inversionPotential && forecast.inversionPotential !== 'NONE' && (
+          {role !== 'LITE_USER' && detail?.inversionPotential && detail.inversionPotential !== 'NONE' && (
             <div style={{ marginBottom: '6px' }} data-testid="inversion-badge">
               <span style={{
                 ...POPUP_PILL,
-                background: forecast.inversionPotential === 'STRONG'
+                background: detail.inversionPotential === 'STRONG'
                   ? 'rgba(123, 31, 162, 0.2)' : 'rgba(25, 118, 210, 0.2)',
-                color: forecast.inversionPotential === 'STRONG'
+                color: detail.inversionPotential === 'STRONG'
                   ? '#ce93d8' : '#90caf9',
-                border: `1px solid ${forecast.inversionPotential === 'STRONG'
+                border: `1px solid ${detail.inversionPotential === 'STRONG'
                   ? 'rgba(123, 31, 162, 0.4)' : 'rgba(25, 118, 210, 0.4)'}`,
               }}>
                 <span style={{ display: 'inline-block', transform: 'scaleY(-1)' }}>☁️</span>
-                {' '}{forecast.inversionPotential === 'STRONG'
+                {' '}{detail.inversionPotential === 'STRONG'
                   ? 'Strong cloud inversion — dramatic sea of clouds likely'
                   : 'Moderate cloud inversion — cloud blanket below viewpoint possible'}
               </span>
             </div>
           )}
-          {forecast.bluebellScore != null && forecast.bluebellScore >= 2 && (
+          {detail?.bluebellScore != null && detail.bluebellScore >= 2 && (
             <div style={{ marginBottom: '6px' }} data-testid="bluebell-badge">
               <span style={{
                 ...POPUP_PILL,
-                background: forecast.bluebellScore >= 4
+                background: detail.bluebellScore >= 4
                   ? 'rgba(99, 102, 241, 0.15)' : 'rgba(99, 102, 241, 0.08)',
                 color: '#a5b4fc',
-                border: `1px solid rgba(99, 102, 241, ${forecast.bluebellScore >= 4 ? '0.4' : '0.25'})`,
+                border: `1px solid rgba(99, 102, 241, ${detail.bluebellScore >= 4 ? '0.4' : '0.25'})`,
                 ...(role === 'LITE_USER' ? { opacity: 0.45, pointerEvents: 'none' } : {}),
               }}>
                 🌸 {role === 'LITE_USER'
                   ? 'Bluebell conditions — Upgrade to Pro'
-                  : `Bluebell: ${forecast.bluebellSummary ?? `${forecast.bluebellScore}/5`}`}
+                  : `Bluebell: ${detail.bluebellSummary ?? `${detail.bluebellScore}/5`}`}
               </span>
             </div>
           )}
@@ -541,7 +612,7 @@ export default function MarkerPopupContent({
               </span>
             </div>
           )}
-          {forecast?.seaState && (
+          {detail?.seaState && (
             <div style={{ marginBottom: '6px' }} data-testid="sea-state-badge">
               <span style={{
                 ...POPUP_PILL,
@@ -550,12 +621,12 @@ export default function MarkerPopupContent({
                 border: '1px solid rgba(111, 168, 176, 0.4)',
                 fontFamily: "'IBM Plex Mono', monospace",
               }}>
-                🌊 Seas {Number(forecast.significantWaveHeightMetres).toFixed(1)} m · {forecast.seaState}
+                🌊 Seas {Number(detail.significantWaveHeightMetres).toFixed(1)} m · {detail.seaState}
               </span>
             </div>
           )}
-          {forecast?.surgeTotalMetres != null
-            && (forecast.surgeRiskLevel === 'HIGH' || forecast.surgeRiskLevel === 'MODERATE') && (
+          {detail?.surgeTotalMetres != null
+            && (detail.surgeRiskLevel === 'HIGH' || detail.surgeRiskLevel === 'MODERATE') && (
             <div style={{ marginBottom: '6px' }} data-testid="surge-badge">
               <span style={{
                 ...POPUP_PILL,
@@ -564,7 +635,7 @@ export default function MarkerPopupContent({
                 border: '1px solid rgba(245, 158, 11, 0.4)',
                 fontFamily: "'IBM Plex Mono', monospace",
               }}>
-                ⚡ Surge {Number(forecast.surgeTotalMetres).toFixed(1)} m above normal
+                ⚡ Surge {Number(detail.surgeTotalMetres).toFixed(1)} m above normal
               </span>
             </div>
           )}
@@ -697,7 +768,7 @@ export default function MarkerPopupContent({
           {tideClassification && tideClassification.map((tc) => {
             const isKing = tc.isKing;
             const near = tc.nearSolarEvent;
-            const lunar = forecast?.lunarTideType;
+            const lunar = detail?.lunarTideType;
             const hasLunarData = lunar != null;
 
             // Build combined label from lunar + statistical dimensions
@@ -751,17 +822,24 @@ export default function MarkerPopupContent({
               </span>
             </div>
           )}
-          {forecast.triageReason && (
+          {forecast.triageReason ? (
+            // triageReason is a slim (header) field, so the stand-down verdict
+            // shows immediately; its message is detail-only and fills in on load.
             <StandDownBadge
               triageReason={forecast.triageReason}
-              triageMessage={forecast.triageMessage}
+              triageMessage={detail?.triageMessage}
             />
-          )}
-          {!forecast.triageReason && forecast.summary && (
-            <div style={{ fontSize: '13px', lineHeight: '1.55', fontFamily: "'Newsreader', Georgia, serif", color: 'var(--color-plex-text-secondary)', marginBottom: '8px' }}>
-              {forecast.summary}
+          ) : detailLoading ? (
+            <div data-testid="detail-skeleton" className="animate-pulse" style={{ marginBottom: '8px' }}>
+              <div style={{ height: '13px', width: '95%', borderRadius: '4px', background: 'var(--color-plex-surface-light)', marginBottom: '5px' }} />
+              <div style={{ height: '13px', width: '88%', borderRadius: '4px', background: 'var(--color-plex-surface-light)', marginBottom: '5px' }} />
+              <div style={{ height: '13px', width: '70%', borderRadius: '4px', background: 'var(--color-plex-surface-light)' }} />
             </div>
-          )}
+          ) : detail?.summary ? (
+            <div style={{ fontSize: '13px', lineHeight: '1.55', fontFamily: "'Newsreader', Georgia, serif", color: 'var(--color-plex-text-secondary)', marginBottom: '8px' }}>
+              {detail.summary}
+            </div>
+          ) : null}
           {role === 'LITE_USER' && (
             <p data-testid="upgrade-hint" style={{ fontSize: '12px', color: 'var(--color-plex-text-muted)', marginBottom: '8px' }}>
               <a href="/upgrade" style={{ color: 'var(--color-plex-text)', textDecoration: 'underline', textUnderlineOffset: '2px' }}>Upgrade to Pro</a> for Fiery Sky &amp; Golden Hour scores, storm surge analysis, and full AI analysis
@@ -888,7 +966,7 @@ export default function MarkerPopupContent({
               {/* Footer: generated at (non-admin only — admin sees it always below) */}
               {role !== 'ADMIN' && forecast?.forecastRunAt && (
                 <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: `1px solid var(--color-plex-border)`, fontSize: '10px', color: 'var(--color-plex-text-muted)' }}>
-                  {buildGeneratedFooter(forecast)}
+                  {buildGeneratedFooter(forecast, detail)}
                 </div>
               )}
             </>
@@ -924,7 +1002,7 @@ export default function MarkerPopupContent({
           {/* Footer: always visible for ADMIN */}
           {role === 'ADMIN' && forecast?.forecastRunAt && (
             <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: `1px solid var(--color-plex-border)`, fontSize: '10px', color: 'var(--color-plex-text-muted)' }}>
-              {buildGeneratedFooter(forecast)}
+              {buildGeneratedFooter(forecast, detail)}
               {tideFetchedAt && (
                 <div>Tide data fetched: {formatGeneratedAtFull(tideFetchedAt)}</div>
               )}
