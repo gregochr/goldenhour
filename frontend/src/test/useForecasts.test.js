@@ -1,12 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor, act } from '@testing-library/react';
 import { useForecasts } from '../hooks/useForecasts.js';
+import { writeSwrCache } from '../utils/swrCache.js';
 
 vi.mock('../api/forecastApi', () => ({
   fetchForecasts: vi.fn(),
   fetchLocations: vi.fn(),
   fetchAllOutcomes: vi.fn(),
 }));
+
+// useForecasts now reads the auth role to key its instant-paint cache; mock it so the hook can be
+// rendered without an AuthProvider, and so individual tests can vary the role.
+const { mockUseAuth } = vi.hoisted(() => ({ mockUseAuth: vi.fn(() => ({ role: 'PRO_USER' })) }));
+vi.mock('../context/AuthContext.jsx', () => ({ useAuth: mockUseAuth }));
 
 import { fetchForecasts, fetchLocations, fetchAllOutcomes } from '../api/forecastApi';
 
@@ -68,6 +74,10 @@ const BAMBURGH_FORECAST = {
 describe('useForecasts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Each test starts with a cold instant-paint cache so `loading` begins true and the existing
+    // `waitFor(loading === false)` assertions synchronise on the fetch, not a prior test's cache.
+    localStorage.clear();
+    mockUseAuth.mockReturnValue({ role: 'PRO_USER' });
     fetchAllOutcomes.mockResolvedValue([]);
   });
 
@@ -249,5 +259,105 @@ describe('useForecasts', () => {
     // The outcome returned within that past window is still attached to its location.
     const bamburgh = result.current.locations.find((l) => l.name === 'Bamburgh Castle');
     expect(bamburgh.outcomes.map((o) => o.id)).toEqual([1]);
+  });
+
+  it('hydrates synchronously from the role-keyed cache before the fetch resolves', async () => {
+    // Prime the cache as if a previous session had loaded this payload for this role.
+    writeSwrCache('forecasts:PRO_USER', {
+      forecasts: [BAMBURGH_FORECAST],
+      locationMeta: [LANDSCAPE_LOCATION],
+      outcomes: [],
+    });
+    // Make the live fetch hang so only the cache can supply data on the first render.
+    let resolveForecasts;
+    fetchForecasts.mockReturnValue(new Promise((r) => { resolveForecasts = r; }));
+    fetchLocations.mockResolvedValue([LANDSCAPE_LOCATION]);
+
+    const { result } = renderHook(() => useForecasts());
+
+    // Instant paint: no loading flash, and the cached location is already present this tick.
+    expect(result.current.loading).toBe(false);
+    expect(result.current.locations.map((l) => l.name)).toContain('Bamburgh Castle');
+    expect(result.current.locations[0].forecastsByDate).toBeInstanceOf(Map);
+
+    resolveForecasts([BAMBURGH_FORECAST]);
+    await waitFor(() => expect(fetchForecasts).toHaveBeenCalledTimes(1));
+  });
+
+  it('keeps the stale map on a failed revalidation instead of blanking it', async () => {
+    writeSwrCache('forecasts:PRO_USER', {
+      forecasts: [BAMBURGH_FORECAST],
+      locationMeta: [LANDSCAPE_LOCATION],
+      outcomes: [],
+    });
+    fetchForecasts.mockRejectedValue(new Error('backend down'));
+    fetchLocations.mockRejectedValue(new Error('backend down'));
+
+    const { result } = renderHook(() => useForecasts());
+
+    // Painted from cache immediately...
+    expect(result.current.locations.map((l) => l.name)).toContain('Bamburgh Castle');
+
+    // ...and the failed revalidation leaves the stale data in place, with no error surfaced.
+    await waitFor(() => expect(fetchForecasts).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBeNull();
+    expect(result.current.locations.map((l) => l.name)).toContain('Bamburgh Castle');
+  });
+
+  it('keys the cache by role so a LITE session does not read a PRO payload', async () => {
+    writeSwrCache('forecasts:PRO_USER', {
+      forecasts: [BAMBURGH_FORECAST],
+      locationMeta: [LANDSCAPE_LOCATION],
+      outcomes: [],
+    });
+    mockUseAuth.mockReturnValue({ role: 'LITE_USER' });
+    fetchForecasts.mockResolvedValue([]);
+    fetchLocations.mockResolvedValue([WILDLIFE_LOCATION]);
+
+    const { result } = renderHook(() => useForecasts());
+
+    // No cache under the LITE key → cold start (loading true), never the PRO payload.
+    expect(result.current.loading).toBe(true);
+    expect(result.current.locations).toEqual([]);
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.locations.map((l) => l.name)).toEqual(['Low Barns']);
+  });
+
+  it('shows the loading skeleton (not the empty state) when the cache holds an empty payload', () => {
+    // A prior fetch that returned nothing (fresh deploy / all-disabled roster) cached empty arrays.
+    // That cache is structurally "valid" but yields zero locations — the initial loading flag must
+    // stay true so the map shows the skeleton, not a one-frame "no forecasts loaded yet" flash.
+    writeSwrCache('forecasts:PRO_USER', { forecasts: [], locationMeta: [], outcomes: [] });
+    fetchForecasts.mockReturnValue(new Promise(() => {})); // hang so only the cache decides this tick
+    fetchLocations.mockReturnValue(new Promise(() => {}));
+
+    const { result } = renderHook(() => useForecasts());
+
+    expect(result.current.loading).toBe(true);
+    expect(result.current.locations).toEqual([]);
+  });
+
+  it('surfaces an error when a user-initiated refresh fails, keeping the stale data', async () => {
+    // First a successful load so data is on screen (hasDataRef becomes true).
+    fetchForecasts.mockResolvedValue([BAMBURGH_FORECAST]);
+    fetchLocations.mockResolvedValue([LANDSCAPE_LOCATION]);
+
+    const { result } = renderHook(() => useForecasts());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.locations.length).toBeGreaterThan(0);
+    expect(result.current.error).toBeNull();
+
+    // An explicit user-initiated refresh that fails must surface an error (unlike a silent
+    // background revalidation), while leaving the stale data in place for a retry.
+    fetchForecasts.mockRejectedValue(new Error('run reload failed'));
+    fetchLocations.mockRejectedValue(new Error('run reload failed'));
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    expect(result.current.error).toBe('run reload failed');
+    expect(result.current.locations.length).toBeGreaterThan(0);
   });
 });
