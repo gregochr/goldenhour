@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import PropTypes from 'prop-types';
 import { login as apiLogin, logout as apiLogout, changePassword as apiChangePassword, refreshAccessToken as apiRefresh } from '../api/authApi.js';
 import { clearSwrCache } from '../utils/swrCache.js';
+import { clearForecastDetailCache } from '../api/forecastApi.js';
 
 const TOKEN_KEY = 'goldenhour_token';
 const REFRESH_KEY = 'goldenhour_refresh';
@@ -83,6 +84,7 @@ export function AuthProvider({ children }) {
     localStorage.removeItem(REFRESH_EXPIRES_KEY);
     localStorage.removeItem(MARKETING_OPT_IN_KEY);
     clearSwrCache(); // drop any instant-paint cache so the next account never sees this one's data
+    clearForecastDetailCache(); // and the lazily-fetched popup detail, which is role-gated
     setToken(null);
     setRefreshToken(null);
     setRole(null);
@@ -146,6 +148,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const handleExpired = () => {
       clearSwrCache(); // session-expiry is the most common session-end path — clear cache here too, not just on logout
+      clearForecastDetailCache(); // same for the role-gated popup detail cache
       setToken(null);
       setRefreshToken(null);
       setRole(null);

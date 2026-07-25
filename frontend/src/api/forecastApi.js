@@ -3,12 +3,74 @@ import apiClient from './axiosClient.js';
 const BASE_URL = '/api';
 
 /**
+ * In-memory cache of fetched forecast-detail rows, keyed by evaluation id.
+ *
+ * The list endpoint now returns slim rows; the heavy popup-only detail is
+ * fetched lazily per id and memoised here so re-opening a popup is instant.
+ * A miss is cached as {@code null} so a broken/absent row degrades to a
+ * header-only popup without refetching on every re-render.
+ *
+ * MUST be cleared on logout/session-expiry (via {@link clearForecastDetailCache})
+ * so one account's role-gated detail is never shown to the next account on a
+ * shared browser.
+ *
+ * @type {Map<number, object|null>}
+ */
+const forecastDetailCache = new Map();
+
+/**
+ * Synchronously reads the detail cache so a popup can paint instantly on re-open.
+ *
+ * @param {number} id - The forecast evaluation primary key.
+ * @returns {{cached: boolean, detail: object|null}} Whether the id is cached and its value.
+ */
+export function peekForecastDetail(id) {
+  return forecastDetailCache.has(id)
+    ? { cached: true, detail: forecastDetailCache.get(id) }
+    : { cached: false, detail: null };
+}
+
+/**
+ * Stores a resolved detail row (or null for a miss) against its id.
+ *
+ * @param {number} id - The forecast evaluation primary key.
+ * @param {object|null} detail - The full detail row, or null for a failed/absent fetch.
+ */
+export function cacheForecastDetail(id, detail) {
+  forecastDetailCache.set(id, detail);
+}
+
+/**
+ * Empties the forecast-detail cache. Call alongside {@code clearSwrCache()} on
+ * logout and session-expiry so cached detail never leaks across accounts.
+ */
+export function clearForecastDetailCache() {
+  forecastDetailCache.clear();
+}
+
+/**
  * Fetches the T through T+5 forecast week for all configured locations.
  *
  * @returns {Promise<Array<object>>} Array of forecast evaluations.
  */
 export async function fetchForecasts() {
   const response = await apiClient.get(`${BASE_URL}/forecast`);
+  return response.data;
+}
+
+/**
+ * Fetches the full ("fat") forecast detail row for a single persisted evaluation.
+ *
+ * The list endpoint ({@link fetchForecasts}) returns slim rows; the heavy
+ * popup-only fields (tide, surge, inversion, aerosol, golden/blue-hour times,
+ * cloud layers, and the AI summary) live only here and are loaded lazily when a
+ * marker popup opens. Only persisted rich rows (non-null id) have a detail row.
+ *
+ * @param {number} id - The forecast evaluation primary key.
+ * @returns {Promise<object>} The full forecast evaluation DTO.
+ */
+export async function getForecastDetail(id) {
+  const response = await apiClient.get(`${BASE_URL}/forecast/${id}`);
   return response.data;
 }
 

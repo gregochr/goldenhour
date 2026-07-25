@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.ForecastEvaluationDto;
+import com.gregochr.goldenhour.model.ForecastListDto;
 import com.gregochr.goldenhour.model.LocationEvaluationView;
 import com.gregochr.goldenhour.model.LocationTaskSnapshot;
 import com.gregochr.goldenhour.model.LocationTaskState;
@@ -29,6 +30,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.NoSuchElementException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -85,8 +87,8 @@ class ForecastControllerTest extends AbstractControllerTest {
         when(forecastEvaluationRepository
                 .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(List.of(entity));
-        when(dtoMapper.toDtoList(any(), anyBoolean()))
-                .thenReturn(List.of(buildDto("Durham UK", 72, 80)));
+        when(dtoMapper.toListDtoList(any(), anyBoolean()))
+                .thenReturn(List.of(buildListDto("Durham UK", 72, 80)));
 
         mockMvc.perform(get("/api/forecast"))
                 .andExpect(status().isOk())
@@ -100,7 +102,7 @@ class ForecastControllerTest extends AbstractControllerTest {
         when(forecastEvaluationRepository
                 .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(List.of());
-        when(dtoMapper.toDtoList(any(), anyBoolean())).thenReturn(List.of());
+        when(dtoMapper.toListDtoList(any(), anyBoolean())).thenReturn(List.of());
 
         LocalDate futureDate = LocalDate.of(2999, 1, 3);
         LocationEvaluationView cachedView = new LocationEvaluationView(
@@ -111,15 +113,15 @@ class ForecastControllerTest extends AbstractControllerTest {
         when(evaluationViewService.cachedOnlyViewsForDateRange(
                 any(LocalDate.class), any(LocalDate.class), any(), any()))
                 .thenReturn(List.of(cachedView));
-        when(dtoMapper.toSparseDto(eq(cachedView), eq(DURHAM), anyBoolean()))
-                .thenReturn(buildDto("Durham UK", 72, 80));
+        when(dtoMapper.toSparseListDto(eq(cachedView), eq(DURHAM), anyBoolean()))
+                .thenReturn(buildListDto("Durham UK", 72, 80));
 
         mockMvc.perform(get("/api/forecast"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].locationName").value("Durham UK"))
                 .andExpect(jsonPath("$[0].fierySkyPotential").value(72));
 
-        verify(dtoMapper).toSparseDto(eq(cachedView), eq(DURHAM), anyBoolean());
+        verify(dtoMapper).toSparseListDto(eq(cachedView), eq(DURHAM), anyBoolean());
     }
 
     @Test
@@ -130,7 +132,7 @@ class ForecastControllerTest extends AbstractControllerTest {
         when(forecastEvaluationRepository
                 .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(List.of());
-        when(dtoMapper.toDtoList(any(), anyBoolean())).thenReturn(List.of());
+        when(dtoMapper.toListDtoList(any(), anyBoolean())).thenReturn(List.of());
 
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         mockMvc.perform(get("/api/forecast")).andExpect(status().isOk());
@@ -156,8 +158,8 @@ class ForecastControllerTest extends AbstractControllerTest {
         when(forecastEvaluationRepository
                 .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(List.of(entity));
-        when(dtoMapper.toDtoList(any(), anyBoolean()))
-                .thenReturn(List.of(buildDto("Durham UK", 72, 80)));
+        when(dtoMapper.toListDtoList(any(), anyBoolean()))
+                .thenReturn(List.of(buildListDto("Durham UK", 72, 80)));
 
         // Cached view for the same (loc, date, type) — should be skipped as a duplicate
         LocationEvaluationView duplicateView = new LocationEvaluationView(
@@ -179,7 +181,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     @DisplayName("GET /api/forecast returns empty and skips the repository when no locations are enabled")
     void getForecasts_noEnabledLocations_skipsRepositoryQuery() throws Exception {
         when(locationService.findAllEnabled()).thenReturn(List.of());
-        when(dtoMapper.toDtoList(any(), anyBoolean())).thenReturn(List.of());
+        when(dtoMapper.toListDtoList(any(), anyBoolean())).thenReturn(List.of());
 
         mockMvc.perform(get("/api/forecast"))
                 .andExpect(status().isOk())
@@ -188,6 +190,44 @@ class ForecastControllerTest extends AbstractControllerTest {
 
         verify(forecastEvaluationRepository, never())
                 .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/forecast/{id} returns the full evaluation DTO with the popup-only fields")
+    void getForecastDetail_returnsFullDto() throws Exception {
+        ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 20));
+        when(forecastEvaluationRepository.findById(42L)).thenReturn(Optional.of(entity));
+        when(dtoMapper.toDto(entity, false)).thenReturn(buildDto("Durham UK", 72, 80));
+
+        mockMvc.perform(get("/api/forecast/42"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.locationName").value("Durham UK"))
+                .andExpect(jsonPath("$.summary").value("Good colour potential."));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/forecast/{id} returns 404 when the evaluation does not exist")
+    void getForecastDetail_notFound_returns404() throws Exception {
+        when(forecastEvaluationRepository.findById(999L)).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/forecast/999"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("GET /api/forecast/{id} as LITE_USER passes isLiteUser=true (no freemium bypass)")
+    void getForecastDetail_asLiteUser_passesLiteFlag() throws Exception {
+        ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 20));
+        when(forecastEvaluationRepository.findById(42L)).thenReturn(Optional.of(entity));
+        when(dtoMapper.toDto(entity, true)).thenReturn(buildDto("Durham UK", 50, 55));
+
+        mockMvc.perform(get("/api/forecast/42"))
+                .andExpect(status().isOk());
+
+        verify(dtoMapper).toDto(entity, true);
     }
 
     @Test
@@ -460,11 +500,13 @@ class ForecastControllerTest extends AbstractControllerTest {
         when(forecastEvaluationRepository
                 .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(List.of());
-        when(dtoMapper.toDtoList(any(), eq(true))).thenReturn(List.of());
+        when(dtoMapper.toListDtoList(any(), eq(true))).thenReturn(List.of());
 
         mockMvc.perform(get("/api/forecast"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray());
+
+        verify(dtoMapper).toListDtoList(any(), eq(true));
     }
 
     @Test
@@ -474,11 +516,13 @@ class ForecastControllerTest extends AbstractControllerTest {
         when(forecastEvaluationRepository
                 .findLatestRunPerSlotByLocationIds(any(), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(List.of());
-        when(dtoMapper.toDtoList(any(), eq(false))).thenReturn(List.of());
+        when(dtoMapper.toListDtoList(any(), eq(false))).thenReturn(List.of());
 
         mockMvc.perform(get("/api/forecast"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray());
+
+        verify(dtoMapper).toListDtoList(any(), eq(false));
     }
 
     @Test
@@ -567,6 +611,16 @@ class ForecastControllerTest extends AbstractControllerTest {
                 .summary("Good colour potential.")
                 .solarEventTime(LocalDateTime.of(2026, 2, 20, 16, 45))
                 .build();
+    }
+
+    /** Builds a slim list DTO (what {@code GET /api/forecast} now returns). */
+    private ForecastListDto buildListDto(String locationName, int fierySky, int goldenHour) {
+        return new ForecastListDto(
+                1L, locationName, null, null,
+                LocalDate.of(2026, 2, 20), TargetType.SUNSET,
+                null, LocalDateTime.of(2026, 2, 20, 16, 45), null,
+                4, fierySky, goldenHour, null, null, null,
+                null, null, null, null, null, null);
     }
 
     @SuppressWarnings("all")
