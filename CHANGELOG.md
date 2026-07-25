@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — HTTP delivery: cache the shell short, the hashed assets forever; load Turnstile on demand
+- **Hashed build assets are now cached hard for a year (`immutable`), while `index.html` and the other unhashed root files revalidate (`no-cache`)** — Vite content-hashes every asset filename, so a changed bundle gets a new URL and can be cached permanently; the shell must revalidate so a deploy's new hashes are picked up on the next visit. Previously `index.html` inherited the same 30-day `immutable` policy as the assets via the catch-all `location /`, which could serve a stale shell for up to 30 days after a deploy. An unchanged shell is now a cheap 304, not a re-download (#24)
+- **The Cloudflare Turnstile script is loaded on demand by `TurnstileWidget` when an auth page mounts, instead of eagerly in `index.html` on every page load** — the common case is a returning, signed-in user who never sees a CAPTCHA, so the third-party request is now off the load path entirely for them. The widget already polled for `window.turnstile`, so it picks the API up as soon as the injected script finishes loading (well within its existing 10s budget) (#20)
+
 ### Changed — Load-path request hygiene (fewer/deferred boot requests)
 - **`getAllEvaluationScores` now goes through the shared `apiClient`** instead of a raw `fetch()` with a hand-attached token, so it participates in the single-flight 401→refresh retry — a token-boundary refresh no longer silently drops the Plan tab's batch scores (#19)
 - **The two long-lived SSE streams (health status + run notifications) are deferred until after first paint** via a new `useAfterFirstPaint` hook (idle-callback with a timeout fallback), so they don't compete with the critical forecast/briefing fetches during boot; `useHealthStatus` gained an `enabled` gate (#17)
