@@ -4,11 +4,21 @@
 #
 #   /Users/gregochr/goldenhour-data  ->  /home/gregochr/goldenhour-data
 #
-# WHY. Production moved from the Mac to this Ubuntu host around 2026-03-16, but
-# the bind mounts kept their /Users paths. Linux creates them happily, so it has
-# worked fine — the cost is that the production database lives somewhere nobody
-# would think to look. That confusion is not hypothetical: the same stale
-# assumption is what let the nightly backup fail unnoticed for 132 nights.
+# WHY. Linux creates /Users happily, so this has always worked — the cost is
+# that the production database lives somewhere nobody would think to look. That
+# confusion is not hypothetical: the same stale macOS assumption is what let the
+# nightly backup fail unnoticed for 132 nights.
+#
+# History, from directory timestamps on the host rather than assumption:
+#   28 Mar  /home/gregochr/goldenhour-data/postgres created and in use
+#   12 Apr 20:15  last writes to it
+#   12 Apr 20:22  /Users/gregochr/goldenhour-data created — live ever since
+# So the data started in the Linux-correct place and was moved to the
+# macOS-shaped one on 12 April, leaving the /home copy behind. This script moves
+# it back. Expect to find that stale 12-April copy still sitting at the
+# destination; the gate below refuses rather than merging two data directories
+# from different points in time, which is the one outcome worse than not
+# migrating at all. Move it aside by hand first.
 #
 # THE DANGEROUS PART, and how this avoids it.
 #   If docker-compose.yml points at a path that does not contain a database,
