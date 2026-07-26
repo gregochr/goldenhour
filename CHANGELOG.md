@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Cloud verification backfill now batches archive requests (~20x fewer calls)
+- **The first backfill run measured the problem: 24,638 evaluations left, at 2 archive calls each = ~49,000 requests.** At Open-Meteo's daily ceiling that is roughly a week of trickling, during which the capped-vs-uncapped split that answers D7 runs on a fraction of the data.
+- **The archive accepts comma-separated coordinates and returns a JSON array**, exactly like the forecast batch endpoint (verified against the live API before building). New `OpenMeteoArchiveClient` batches `BATCH_COORD_LIMIT` (20) points per request, reusing `OpenMeteoClient`'s constant and request factory so chunk size and timeouts cannot drift between the two. `backfill` now groups candidates by date and lays points out two per candidate — horizon at `2i`, observer at `2i+1` — so one request covers both claims for a whole date.
+- **~49,000 requests becomes ~2,470**, turning a multi-day trickle into a single session.
+- Failure handling preserves **positional alignment**, which is the safety-critical property: a failed chunk nulls only its own positions and the returned list always matches the requested length. A short list would silently shift every subsequent evaluation's observations onto the wrong row — swapping a gap reading for a canvas one rather than failing loudly. Tests pin length and order across chunk boundaries, partial failures, unparseable bodies, and the single-object response Open-Meteo returns for one coordinate.
+
 ### Fixed — Backup verification condemned a good backup on its first run
 - **The row-count check used `location`; the table is `locations`.** `psql` errored with "relation does not exist", `|| echo 0` swallowed it, and the result surfaced as "Restored backup has no rows in location — the dump is not usable". The restore had in fact worked perfectly: 31,072 rows in `forecast_evaluation` and 4 in `app_user` from the same dump.
 - **The real defect was the masking, not the typo.** `|| echo 0` collapsed *query failed* and *table is empty* into one indistinguishable outcome, so a mistake in the check was indistinguishable from a corrupt backup — the failure mode most likely to make you stop believing the alarm. The two are now reported separately: a non-zero `psql` exit is "could not query … the restore is incomplete or the table is missing" with the actual error text, and only a genuine zero count reports an unusable dump.
