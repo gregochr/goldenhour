@@ -1,8 +1,11 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.model.BackfillStatus;
 import com.gregochr.goldenhour.model.CloudVerificationReport;
+import com.gregochr.goldenhour.service.CloudVerificationBackfillRunner;
 import com.gregochr.goldenhour.service.CloudVerificationService;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,7 +15,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
-import java.util.Map;
 
 /**
  * REST endpoints for verifying past forecasts' cloud claims against reanalysis.
@@ -25,39 +27,55 @@ import java.util.Map;
 @RequestMapping("/api/admin/cloud-verification")
 public class CloudVerificationController {
 
-    /** Default evaluations verified per backfill call, bounding one pass's archive traffic. */
-    private static final int DEFAULT_BACKFILL_LIMIT = 200;
-
     /** Default report window in days. */
     private static final int DEFAULT_WINDOW_DAYS = 180;
 
     private final CloudVerificationService verificationService;
+    private final CloudVerificationBackfillRunner backfillRunner;
 
     /**
      * Constructs a {@code CloudVerificationController}.
      *
      * @param verificationService the service performing verification and reporting
+     * @param backfillRunner      drives the background backfill
      */
-    public CloudVerificationController(CloudVerificationService verificationService) {
+    public CloudVerificationController(CloudVerificationService verificationService,
+            CloudVerificationBackfillRunner backfillRunner) {
         this.verificationService = verificationService;
+        this.backfillRunner = backfillRunner;
     }
 
     /**
-     * Verifies a bounded batch of unverified evaluations against the archive.
+     * Starts a background backfill of every unverified evaluation, and returns immediately.
      *
-     * <p>Resumable — call repeatedly to work through the backlog. Each call verifies the oldest
-     * unverified evaluations first.
+     * <p>Asynchronous by necessity: the backlog runs to tens of thousands of evaluations, far
+     * beyond any reverse proxy's request timeout. A synchronous call returns a gateway error while
+     * the work carries on server-side, which is worse than no feedback at all. Poll
+     * {@link #backfillStatus()} for progress.
      *
-     * @param limit maximum evaluations to verify in this pass
-     * @return the number verified
+     * <p>Returns {@code 409 Conflict} if a run is already in progress — two concurrent runs would
+     * select overlapping candidates and collide on the unique evaluation id.
+     *
+     * @return {@code 202} with the starting status, or {@code 409} if already running
      */
     @PostMapping("/backfill")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, Integer>> backfill(
-            @RequestParam(required = false) Integer limit) {
-        int verified = verificationService.backfill(
-                limit != null ? limit : DEFAULT_BACKFILL_LIMIT);
-        return ResponseEntity.ok(Map.of("verified", verified));
+    public ResponseEntity<BackfillStatus> backfill() {
+        if (!backfillRunner.start()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(backfillRunner.status());
+        }
+        return ResponseEntity.accepted().body(backfillRunner.status());
+    }
+
+    /**
+     * Returns the progress of the current or most recent backfill run.
+     *
+     * @return the status snapshot
+     */
+    @GetMapping("/backfill/status")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<BackfillStatus> backfillStatus() {
+        return ResponseEntity.ok(backfillRunner.status());
     }
 
     /**

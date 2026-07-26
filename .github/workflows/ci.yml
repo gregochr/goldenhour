@@ -24,17 +24,31 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      # Tests use H2 in-memory (src/test/resources/application.yml) — no external DB needed.
-      # mvn verify also runs JaCoCo and enforces the 80% line coverage minimum.
+      # Most tests use H2 in-memory (src/test/resources/application.yml), but the five
+      # IntegrationTestBase subclasses start a Testcontainers postgres:17-alpine and run
+      # the real Flyway migrations — so this job DOES need a working Docker daemon.
+      # (ubuntu-latest ships one; a runner without Docker will fail those five classes.)
+      # mvn verify also runs JaCoCo (80% line minimum) and SpotBugs — see below.
       - name: Build, test, and verify coverage
         run: |
           chmod +x backend/mvnw
           cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress
 
-      - name: Security static analysis (FindSecBugs)
-        run: |
-          cd backend && ./mvnw compile spotbugs:check --batch-mode --no-transfer-progress
+      # NOTE: there is deliberately NO separate FindSecBugs step here.
+      # `clean verify` above already runs the identical security analysis: backend/pom.xml
+      # binds spotbugs-maven-plugin execution `spotbugs-check` to the verify phase
+      # (<goal>check</goal>), and findsecbugs-plugin:1.14.0 sits in that plugin's
+      # plugin-level <configuration>/<plugins>, which Maven applies to every invocation of
+      # the plugin — lifecycle-bound or CLI. Confirmed empirically: the emitted
+      # target/spotbugsXml.xml carries <Plugin id='com.h3xstream.findsecbugs' enabled='true'/>
+      # and the findsecbugs detector timings. A standalone
+      # `./mvnw compile spotbugs:check` step therefore added no coverage, no extra
+      # configuration and no extra detectors — only a second ~34s of checkstyle +
+      # jacoco:prepare-agent + spotbugs:spotbugs. Removed 2026-07-26.
+      # Do not re-add it: if you want stricter security analysis, change the pom
+      # (<threshold>, spotbugs-exclude.xml), not this file.
 
+      # Produced by the forked spotbugs:spotbugs run inside the verify-phase check goal.
       - name: Upload SpotBugs report
         if: always()
         uses: actions/upload-artifact@v4

@@ -113,6 +113,16 @@ public class CloudVerificationService {
     }
 
     /**
+     * Counts evaluations still awaiting verification, for backfill progress reporting.
+     *
+     * @return the number of unverified evaluations old enough for the archive
+     */
+    @Transactional(readOnly = true)
+    public long countRemaining() {
+        return repository.countUnverified(LocalDate.now(clock).minusDays(ARCHIVE_LAG_DAYS));
+    }
+
+    /**
      * Verifies every candidate sharing one date, in batched archive requests.
      *
      * <p>Points are laid out two per candidate — horizon at {@code 2i}, observer at

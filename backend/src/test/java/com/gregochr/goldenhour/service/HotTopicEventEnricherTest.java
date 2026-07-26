@@ -11,8 +11,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.mockito.junit.jupiter.MockitoSettings;
-import org.mockito.quality.Strictness;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -28,7 +26,6 @@ import static org.mockito.Mockito.when;
  * Unit tests for {@link HotTopicEventEnricher}.
  */
 @ExtendWith(MockitoExtension.class)
-@MockitoSettings(strictness = Strictness.LENIENT)
 class HotTopicEventEnricherTest {
 
     private static final LocalDate DATE = LocalDate.of(2026, 7, 4); // summer — BST is UTC+1
@@ -47,6 +44,10 @@ class HotTopicEventEnricherTest {
                 .id(1L).name("Malham").lat(54.06).lon(-2.15)
                 .region(RegionEntity.builder().id(1L).name("Yorkshire Dales").build())
                 .enabled(true).build();
+        // lenient() on the shared fixture, not on the class: each solar anchor is used by the
+        // tests for its own topic type and by no others (civilDusk only by AURORA, sunset only by
+        // DUST/SPRING_TIDE), and the location roster is unused by the null-date and empty-input
+        // cases. Strictness stays on for every stub declared inside a test method.
         lenient().when(locationRepository.findAllByEnabledTrueOrderByNameAsc())
                 .thenReturn(List.of(dales));
         // 03:43 UTC → 04:43 London (BST); 20:41 UTC → 21:41 London; 21:47 UTC → 22:47 London.

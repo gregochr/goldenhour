@@ -21,8 +21,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.mockito.junit.jupiter.MockitoSettings;
-import org.mockito.quality.Strictness;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -47,7 +45,6 @@ import static org.mockito.Mockito.when;
  * response objects, and the integration with {@link OpenMeteoClient} for API calls.
  */
 @ExtendWith(MockitoExtension.class)
-@MockitoSettings(strictness = Strictness.LENIENT)
 class OpenMeteoServiceTest {
 
     @Mock
@@ -1307,11 +1304,10 @@ class OpenMeteoServiceTest {
         OpenMeteoAirQualityResponse aq = buildAirQualityResponse(
                 List.of("2026-06-21T06:00"), List.of(5.0), List.of(10.0), List.of(0.1));
 
-        when(openMeteoClient.fetchForecast(anyDouble(), anyDouble()))
-                .thenThrow(new RuntimeException("Should not be called"));
-        when(openMeteoClient.fetchAirQuality(anyDouble(), anyDouble()))
-                .thenThrow(new RuntimeException("Should not be called"));
-
+        // No "should not be called" thenThrow tripwires here: they never fire on the passing path,
+        // so they were dead stubs that class-level leniency hid. The verify(never()) pair at the
+        // end of this test makes the same claim, and states it as a failed assertion rather than
+        // an opaque RuntimeException.
         var cache = java.util.Map.of("55.0,-1.5",
                 new com.gregochr.goldenhour.model.WeatherExtractionResult(null, forecast, aq));
 

@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.model.BackfillStatus;
 import com.gregochr.goldenhour.model.CloudVerificationBucket;
 import com.gregochr.goldenhour.model.CloudVerificationReport;
 import org.junit.jupiter.api.DisplayName;
@@ -10,10 +11,10 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -52,6 +53,55 @@ class CloudVerificationControllerTest extends AbstractControllerTest {
     }
 
     @Test
+    @DisplayName("POST backfill returns 202 immediately rather than holding the request open")
+    @WithMockUser(roles = "ADMIN")
+    void backfill_startsInBackgroundAndReturnsAccepted() throws Exception {
+        // The backlog is far longer than any proxy timeout, so the request must not wait on it.
+        when(cloudVerificationBackfillRunner.start()).thenReturn(true);
+        when(cloudVerificationBackfillRunner.status())
+                .thenReturn(BackfillStatus.started(LocalDateTime.of(2026, 7, 26, 10, 0), 24638));
+
+        mockMvc.perform(post("/api/admin/cloud-verification/backfill")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.running").value(true))
+                .andExpect(jsonPath("$.remaining").value(24638));
+
+        verify(cloudVerificationBackfillRunner).start();
+    }
+
+    @Test
+    @DisplayName("POST backfill returns 409 when a run is already in progress")
+    @WithMockUser(roles = "ADMIN")
+    void backfill_alreadyRunning_returnsConflict() throws Exception {
+        // Two concurrent runs would select overlapping candidates and collide on the unique id.
+        when(cloudVerificationBackfillRunner.start()).thenReturn(false);
+        when(cloudVerificationBackfillRunner.status())
+                .thenReturn(BackfillStatus.started(LocalDateTime.of(2026, 7, 26, 10, 0), 500));
+
+        mockMvc.perform(post("/api/admin/cloud-verification/backfill")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.running").value(true));
+    }
+
+    @Test
+    @DisplayName("GET backfill/status reports progress of the current run")
+    @WithMockUser(roles = "ADMIN")
+    void backfillStatus_reportsProgress() throws Exception {
+        when(cloudVerificationBackfillRunner.status()).thenReturn(
+                BackfillStatus.started(LocalDateTime.of(2026, 7, 26, 10, 0), 24638)
+                        .withBatch(100, 24538));
+
+        mockMvc.perform(get("/api/admin/cloud-verification/backfill/status")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.verified").value(100))
+                .andExpect(jsonPath("$.batches").value(1))
+                .andExpect(jsonPath("$.remaining").value(24538));
+    }
+
+    @Test
     @DisplayName("GET /api/admin/cloud-verification returns the veto splits for the window")
     @WithMockUser(roles = "ADMIN")
     void getReport_returnsVetoSplits() throws Exception {
@@ -68,21 +118,6 @@ class CloudVerificationControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.vetoUncapped.sampleCount").value(9))
                 .andExpect(jsonPath("$.vetoCapped.sampleCount").value(31))
                 .andExpect(jsonPath("$.byWindSunAngle[0].key").value("aligned(<45)"));
-    }
-
-    @Test
-    @DisplayName("POST backfill passes an explicit limit through and reports the count verified")
-    @WithMockUser(roles = "ADMIN")
-    void backfill_passesLimitThrough() throws Exception {
-        when(cloudVerificationService.backfill(anyInt())).thenReturn(37);
-
-        mockMvc.perform(post("/api/admin/cloud-verification/backfill")
-                .param("limit", "50")
-                .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.verified").value(37));
-
-        verify(cloudVerificationService).backfill(50);
     }
 
     @Test
