@@ -62,9 +62,15 @@ WEEKLY_KEEP=4
 DATE=$(date +%Y-%m-%d)
 DAY_OF_WEEK=$(date +%u)  # 1=Monday, 7=Sunday
 LOG_FILE="${BACKUP_DIR}/backup.log"
-# Written only on a fully successful run. backup-verify.yml reads this, so it
-# must never be touched on a failed or partial run.
+# Written only on a fully successful run — a human-readable "when did this last
+# work end to end". Note that backup-verify.yml does NOT key off this: it checks
+# the age of the newest dump itself, because verifying the artefact is stronger
+# than trusting the job's own claim to have produced one.
 MARKER_FILE="${BACKUP_DIR}/last-success"
+
+# Read by backup-verify.yml. Holds "ok <timestamp>" or "failed <timestamp>";
+# absent means off-box copying is not configured at all.
+OFFBOX_STATUS_FILE="${BACKUP_DIR}/offbox-status"
 
 # --- Setup ---
 mkdir -p "$DAILY_DIR" "$WEEKLY_DIR"
@@ -127,13 +133,29 @@ fi
 # --- Off-box copy -------------------------------------------------------------
 # Backups on the same disk as the database are one disk failure from useless.
 if [ -n "$OFFBOX_DEST" ]; then
-    if rsync -a "$DAILY_FILE" "$OFFBOX_DEST"; then
+    # BatchMode so an unattended run fails fast instead of blocking forever on a
+    # password or host-key prompt that nobody is there to answer.
+    if rsync -a -e 'ssh -o BatchMode=yes -o ConnectTimeout=15' "$DAILY_FILE" "$OFFBOX_DEST"; then
         log "Copied off-box: $OFFBOX_DEST"
+        echo "ok $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$OFFBOX_STATUS_FILE"
     else
-        die "Off-box copy to ${OFFBOX_DEST} failed — the local backup exists but is not redundant."
+        # Deliberately NOT fatal. The local backup is complete and verified at
+        # this point; losing redundancy is a lesser failure than losing the
+        # backup. The off-box target here is a Mac, which sleeps — failing the
+        # whole job every night it happens to be asleep would produce a red
+        # backup you learn to ignore, and learning to ignore it is exactly how
+        # the previous gap survived 132 nights.
+        #
+        # Not silent either: the status file below is read by backup-verify.yml,
+        # which reports broken replication as its own distinct failure.
+        log "WARNING: off-box copy to ${OFFBOX_DEST} failed — local backup is intact but not redundant."
+        echo "failed $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$OFFBOX_STATUS_FILE"
     fi
 else
     log "WARNING: OFFBOX_DEST is not set — backups exist only on this host, alongside the database."
+    # Absence of the file means "not configured", so do not leave a stale one
+    # behind if off-box copying is turned off again.
+    rm -f "$OFFBOX_STATUS_FILE"
 fi
 
 # --- Rotate -------------------------------------------------------------------
