@@ -63,13 +63,31 @@ jobs:
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
         with:
           host: 100.76.73.16
           username: gregochr
           key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: RELEASE_VERSION
           script: |
+            set -e
             cd ~/goldenhour
             mkdir -p /Users/gregochr/goldenhour-data/logs
+
+            # Back up BEFORE pulling. `docker compose pull` overwrites :latest,
+            # which is the only other handle on the outgoing build — after that
+            # there is nothing left to record, and nothing to roll back to.
+            #
+            # The script is taken from the tag being released rather than from
+            # the working copy on this host: nothing here ever runs `git pull`,
+            # so the checkout can be arbitrarily old, and a stale backup script
+            # is exactly the failure this is meant to prevent.
+            git fetch origin --tags --quiet
+            git show "${RELEASE_VERSION}:scripts/pre-release-backup.sh" > /tmp/pre-release-backup.sh
+            chmod +x /tmp/pre-release-backup.sh
+            /tmp/pre-release-backup.sh "${RELEASE_VERSION}"
+
             docker compose pull goldenhour-backend goldenhour-frontend
             docker compose up -d --no-deps goldenhour-backend goldenhour-frontend
             sleep 30
