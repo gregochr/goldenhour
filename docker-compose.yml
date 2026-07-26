@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: goldenhour
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - /Users/gregochr/goldenhour-data/postgres:/var/lib/postgresql/data
+      - /home/gregochr/goldenhour-data/postgres:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     restart: always
@@ -49,7 +49,7 @@ services:
         -Djdk.virtualThreadScheduler.maxPoolSize=256
         -Djdk.tracePinnedThreads=short
     volumes:
-      - /Users/gregochr/goldenhour-data/logs:/app/logs
+      - /home/gregochr/goldenhour-data/logs:/app/logs
     depends_on:
       goldenhour-db:
         condition: service_healthy

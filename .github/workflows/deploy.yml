@@ -73,7 +73,7 @@ jobs:
           script: |
             set -e
             cd ~/goldenhour
-            mkdir -p /Users/gregochr/goldenhour-data/logs
+            mkdir -p /home/gregochr/goldenhour-data/logs
 
             # Refuse to deploy over an active rollback pin.
             #
