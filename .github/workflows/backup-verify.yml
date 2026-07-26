@@ -1,0 +1,113 @@
+name: Backup Verification
+
+# Checks, every morning, that the nightly database backup (a) happened and
+# (b) restores. Runs on the self-hosted Docker host because that is where both
+# the backups and the Docker socket live.
+#
+# Why a separate job rather than trusting the backup script's own exit status:
+# the backup on this project failed every night from 2026-03-16 to 2026-07-26
+# and nobody found out for 132 days. It was *loaded and firing* the whole time,
+# exiting 1 into a log file nobody read. A component cannot be relied on to
+# report its own failure — so this checks from the outside, and routes through
+# the same failure-issue notifier as the rest of the scheduled jobs.
+#
+# The restore test is the point. A file existing proves almost nothing: a
+# truncated dump, a dump of an empty database, and a good backup all look like
+# a plausibly-sized .sql.gz. Only restoring it and counting rows tells you
+# whether you actually have a backup.
+
+on:
+  schedule:
+    # 08:00 UTC — after the 02:00 backup, early enough to matter that day.
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+env:
+  BACKUP_DIR: /home/gregochr/goldenhour-backups
+  # One missed night is a blip; two consecutive is a trend worth an issue.
+  MAX_AGE_HOURS: 48
+  SCRATCH_DB: backup-verify-db
+
+jobs:
+  verify:
+    name: Verify latest backup restores
+    runs-on: self-hosted
+    steps:
+      - name: Check a recent backup exists
+        run: |
+          set -euo pipefail
+
+          NEWEST="$(find "${BACKUP_DIR}/daily" -name 'goldenhour_*.sql.gz' -type f \
+                    -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
+
+          if [ -z "$NEWEST" ]; then
+            echo "::error::No backups found in ${BACKUP_DIR}/daily. The nightly backup is not running on this host."
+            exit 1
+          fi
+
+          AGE_HOURS=$(( ( $(date +%s) - $(stat -c %Y "$NEWEST") ) / 3600 ))
+          echo "Newest backup: $NEWEST (${AGE_HOURS}h old, $(du -h "$NEWEST" | cut -f1))"
+
+          if [ "$AGE_HOURS" -gt "$MAX_AGE_HOURS" ]; then
+            echo "::error::Newest backup is ${AGE_HOURS}h old (limit ${MAX_AGE_HOURS}h). The nightly backup has stopped."
+            tail -20 "${BACKUP_DIR}/backup.log" 2>/dev/null || true
+            exit 1
+          fi
+
+          echo "NEWEST=$NEWEST" >> "$GITHUB_ENV"
+
+      - name: Restore it into a scratch database and count rows
+        run: |
+          set -euo pipefail
+
+          docker rm -f "$SCRATCH_DB" >/dev/null 2>&1 || true
+          docker run -d --name "$SCRATCH_DB" \
+            -e POSTGRES_DB=goldenhour \
+            -e POSTGRES_USER=goldenhour \
+            -e POSTGRES_PASSWORD=verify-only \
+            postgres:17-alpine >/dev/null
+
+          # Query the real database rather than pg_isready — during initdb the
+          # entrypoint runs a temporary server on the unix socket, so pg_isready
+          # answers "accepting connections" before POSTGRES_DB exists. That exact
+          # race is what broke the ZAP workflow for four weeks.
+          ready=false
+          for _ in $(seq 1 60); do
+            if docker exec "$SCRATCH_DB" psql -U goldenhour -d goldenhour -c 'SELECT 1' >/dev/null 2>&1; then
+              ready=true; break
+            fi
+            sleep 2
+          done
+          [ "$ready" = true ] || { echo "::error::Scratch database never became ready."; exit 1; }
+
+          # No ON_ERROR_STOP: the dump is taken with --clean --if-exists, so
+          # restoring into an empty database legitimately emits DROP notices.
+          # The row counts below are the real gate, not psql's exit status.
+          gunzip -c "$NEWEST" | docker exec -i "$SCRATCH_DB" psql -U goldenhour -d goldenhour >/dev/null 2>&1 || true
+
+          fail=0
+          for table in forecast_evaluation location app_user; do
+            COUNT="$(docker exec "$SCRATCH_DB" psql -U goldenhour -d goldenhour -tAc \
+                     "SELECT count(*) FROM ${table}" 2>/dev/null || echo 0)"
+            echo "  ${table}: ${COUNT} rows"
+            if [ "${COUNT:-0}" -lt 1 ]; then
+              echo "::error::Restored backup has no rows in ${table} — the dump is not usable."
+              fail=1
+            fi
+          done
+          [ "$fail" -eq 0 ] || exit 1
+
+          echo "Backup restored cleanly — this is a verified backup, not just a file."
+
+      - name: Tear down scratch database
+        if: always()
+        run: docker rm -f "$SCRATCH_DB" >/dev/null 2>&1 || true
+
+  notify-failure:
+    needs: verify
+    if: failure()
+    permissions:
+      issues: write
+    uses: ./.github/workflows/ci-failure-issue.yml
+    with:
+      workflow-name: Backup Verification
