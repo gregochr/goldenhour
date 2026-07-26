@@ -40,3 +40,12 @@ jobs:
         uses: github/codeql-action/analyze@v3
         with:
           category: "/language:javascript-typescript"
+
+  notify-failure:
+    needs: codeql
+    if: failure()
+    permissions:
+      issues: write
+    uses: ./.github/workflows/ci-failure-issue.yml
+    with:
+      workflow-name: CodeQL Security Analysis
