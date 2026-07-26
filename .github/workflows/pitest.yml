@@ -33,3 +33,12 @@ jobs:
         with:
           name: pitest-report
           path: backend/target/pit-reports/
+
+  notify-failure:
+    needs: pitest
+    if: failure()
+    permissions:
+      issues: write
+    uses: ./.github/workflows/ci-failure-issue.yml
+    with:
+      workflow-name: PIT Mutation Testing
