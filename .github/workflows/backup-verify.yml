@@ -99,6 +99,38 @@ jobs:
 
           echo "Backup restored cleanly — this is a verified backup, not just a file."
 
+      # Runs after the restore test on purpose: a broken off-box copy must not
+      # stop us proving the backup itself restores.
+      - name: Check the off-box copy
+        run: |
+          set -euo pipefail
+          STATUS_FILE="${BACKUP_DIR}/offbox-status"
+
+          if [ ! -f "$STATUS_FILE" ]; then
+            echo "::warning::No off-box copy configured (OFFBOX_DEST unset in the systemd unit). Backups exist only on this host, on the same disk as the database they protect."
+            exit 0
+          fi
+
+          read -r state stamp < "$STATUS_FILE"
+          AGE_HOURS=$(( ( $(date +%s) - $(stat -c %Y "$STATUS_FILE") ) / 3600 ))
+          echo "Off-box status: ${state} (recorded ${stamp}, ${AGE_HOURS}h ago)"
+
+          # The backup script treats an off-box failure as non-fatal, so this is
+          # the only place it surfaces. Reported separately from a missing backup
+          # because they are different severities: one means no redundancy, the
+          # other means no backup.
+          if [ "$state" != "ok" ]; then
+            echo "::error::The most recent off-box copy FAILED (${stamp}). The backup exists only on the Docker host — if that disk dies, the database and its backups go together."
+            exit 1
+          fi
+
+          if [ "$AGE_HOURS" -gt "$MAX_AGE_HOURS" ]; then
+            echo "::error::Last successful off-box copy was ${AGE_HOURS}h ago (limit ${MAX_AGE_HOURS}h). Replication has stopped even though local backups are still running."
+            exit 1
+          fi
+
+          echo "Off-box copy is current — the backup exists on two machines."
+
       - name: Tear down scratch database
         if: always()
         run: docker rm -f "$SCRATCH_DB" >/dev/null 2>&1 || true
