@@ -21,22 +21,55 @@ jobs:
             > /tmp/pentest-dump.sql
           echo "Database snapshot taken: $(wc -l < /tmp/pentest-dump.sql) lines"
 
+      - name: Clear any stale pen-test stack
+        run: |
+          set -e
+          # Teardown is `if: always()`, but that does not run when a job is
+          # cancelled outright or the runner dies, which leaves the previous
+          # containers behind.
+          docker compose -p pentest -f docker-compose.pentest.yml down -v --remove-orphans >/dev/null 2>&1 || true
+          echo "Any previous pen-test stack removed"
+
       - name: Start pen test environment
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
         run: |
           set -e
+
+          # Throwaway JWT signing key for this stack, never reused and never
+          # stored. Without it the pen-test backend would inherit the production
+          # JWT_SECRET from .env, and since JwtAuthenticationFilter trusts the
+          # token's claims without a database lookup, a token minted here would
+          # authenticate against production. 48 random bytes, base64 — JwtService
+          # base64-decodes the secret and HS256 needs at least 32 bytes.
+          export PENTEST_JWT_SECRET="$(head -c 48 /dev/urandom | base64 | tr -d '\n')"
+
           docker compose -p pentest -f docker-compose.pentest.yml up -d pentest-db
 
-          # Wait for DB to be ready
+          # Wait for the DB to be ready.
+          #
+          # pg_isready is NOT sufficient here. While initdb runs, the Postgres
+          # entrypoint starts a temporary server bound only to the unix socket,
+          # so `docker exec ... pg_isready` reports "accepting connections"
+          # before POSTGRES_DB has been created. The restore below then dies
+          # with: FATAL: database "goldenhour" does not exist. Query the actual
+          # target database instead — that is only answerable once initdb has
+          # finished and the real server is up.
           echo "Waiting for pen test database..."
-          for i in $(seq 1 30); do
-            if docker exec pentest-db pg_isready -U goldenhour 2>/dev/null; then
+          db_ready=false
+          for i in $(seq 1 60); do
+            if docker exec pentest-db psql -U goldenhour -d goldenhour -c 'SELECT 1' >/dev/null 2>&1; then
+              db_ready=true
               echo "Database ready"
               break
             fi
             sleep 2
           done
+          if [ "$db_ready" != true ]; then
+            echo "::error::Pen test database never became ready — aborting."
+            docker logs pentest-db --tail 50 || true
+            exit 1
+          fi
 
           # Restore production snapshot
           docker exec -i pentest-db psql \
@@ -47,49 +80,150 @@ jobs:
           # Start backend and frontend
           docker compose -p pentest -f docker-compose.pentest.yml up -d
 
-          # Wait for backend health
+          # Wait for backend health.
+          #
+          # These loops must FAIL when they time out. Previously they fell
+          # through silently, so a target that never came up still reached the
+          # scan steps — and because those steps end in `|| true`, the whole
+          # workflow reported success having scanned nothing at all.
+          # Nothing is published to the host, so probe from inside the network
+          # rather than via localhost. A throwaway curl container is used instead
+          # of `docker exec` so this makes no assumption about which tools happen
+          # to be installed in the application images.
+          probe() {
+            docker run --rm --network pentest_default curlimages/curl:latest -sf "$1" >/dev/null 2>&1
+          }
+
           echo "Waiting for backend..."
+          backend_ready=false
           for i in $(seq 1 60); do
-            if curl -sf http://localhost:8086/actuator/health > /dev/null 2>&1; then
+            if probe http://pentest-backend:8082/actuator/health; then
+              backend_ready=true
               echo "Backend healthy"
               break
             fi
             sleep 5
           done
+          if [ "$backend_ready" != true ]; then
+            echo "::error::Backend never became healthy — ZAP would scan nothing."
+            docker logs pentest-backend --tail 100 || true
+            exit 1
+          fi
 
           # Verify frontend
           echo "Waiting for frontend..."
+          frontend_ready=false
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:8181 > /dev/null 2>&1; then
+            if probe http://pentest-frontend:80; then
+              frontend_ready=true
               echo "Frontend ready"
               break
             fi
             sleep 2
           done
+          if [ "$frontend_ready" != true ]; then
+            echo "::error::Frontend never became ready — ZAP would scan nothing."
+            docker logs pentest-frontend --tail 100 || true
+            exit 1
+          fi
 
-      - name: Run ZAP full scan — backend API
+      - name: Seed a scan user and mint a JWT
+        id: auth
+        run: |
+          set -euo pipefail
+
+          # Random password per run: nothing committed, nothing to rotate, and it
+          # dies with the container. Restricted to [A-Za-z0-9] so it needs no
+          # escaping in JSON or shell.
+          PW="$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 24)"
+
+          # htpasswd -B emits a $2y$ BCrypt hash, which Spring's
+          # BCryptPasswordEncoder accepts alongside $2a$/$2b$. Doing it in a
+          # container avoids assuming any hashing tool on the runner.
+          HASH="$(docker run --rm httpd:2-alpine htpasswd -nbBC 10 zap-scanner "$PW" | cut -d: -f2)"
+
+          # PRO_USER, deliberately not ADMIN. An active scan carrying an admin
+          # token would POST /api/forecast/run and the other admin triggers —
+          # real Claude spend and real outbound calls on every scan. PRO_USER
+          # covers the whole authenticated read surface, and scanning it also
+          # exercises the thing worth proving: that ADMIN endpoints reject a
+          # non-admin token with 403 instead of leaking.
+          #
+          # The hash is passed as a psql variable, not interpolated into the SQL:
+          # BCrypt hashes are full of '$', which an unquoted heredoc would expand
+          # as positional parameters and silently corrupt.
+          docker exec -i pentest-db psql -U goldenhour -d goldenhour \
+            -v ON_ERROR_STOP=1 -v hash="$HASH" <<'SQL'
+          DELETE FROM app_user WHERE username = 'zap-scanner';
+          INSERT INTO app_user
+            (username, password, role, enabled, created_at,
+             password_change_required, marketing_email_opt_in)
+          VALUES
+            ('zap-scanner', :'hash', 'PRO_USER', true, NOW(), false, false);
+          SQL
+
+          TOKEN="$(docker run --rm --network pentest_default curlimages/curl:latest \
+            -sf -X POST http://pentest-backend:8082/api/auth/login \
+            -H 'Content-Type: application/json' \
+            -d "{\"username\":\"zap-scanner\",\"password\":\"${PW}\"}" \
+            | grep -o '"accessToken":"[^"]*"' | cut -d'"' -f4 || true)"
+
+          if [ -z "$TOKEN" ]; then
+            echo "::error::Could not mint a JWT — the scan would run unauthenticated and prove nothing."
+            docker logs pentest-backend --tail 100 || true
+            exit 1
+          fi
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+          echo "JWT minted — scanning the authenticated surface as PRO_USER"
+
+      - name: Run ZAP API scan — authenticated backend
+        env:
+          TOKEN: ${{ steps.auth.outputs.token }}
         run: |
           set -e
-          mkdir -p zap-reports
-          docker run --rm --network host \
+          mkdir -p zap-reports zap-conf
+
+          # The bearer token goes in a config FILE, not a -z command line: the
+          # packaged scans split -z on whitespace, so a value containing
+          # "Bearer <token>" cannot survive as one argument. zap-conf is mounted
+          # separately from zap-reports and is never uploaded, so the token does
+          # not end up in a downloadable artifact.
+          cat > zap-conf/auth.prop <<PROP
+          replacer.full_list(0).description=authHeader
+          replacer.full_list(0).enabled=true
+          replacer.full_list(0).matchtype=REQ_HEADER
+          replacer.full_list(0).matchstr=Authorization
+          replacer.full_list(0).regex=false
+          replacer.full_list(0).replacement=Bearer ${TOKEN}
+          PROP
+
+          # zap-api-scan against the OpenAPI spec, not zap-full-scan against the
+          # root URL. A JSON API has no links to follow, so spidering found 6
+          # URLs and stopped — every previous "full scan" was six unauthenticated
+          # requests returning 500s. The spec gives ZAP the real endpoint list.
+          docker run --rm --network pentest_default \
             -v $(pwd)/zap-reports:/zap/wrk:rw \
+            -v $(pwd)/zap-conf:/zap/conf:ro \
             ghcr.io/zaproxy/zaproxy:stable \
-            zap-full-scan.py \
-              -t http://localhost:8086 \
+            zap-api-scan.py \
+              -t http://pentest-backend:8082/v3/api-docs \
+              -f openapi \
               -r backend-report.html \
               -x backend-report.xml \
               -J backend-report.json \
               -I \
+              -z "-configfile /zap/conf/auth.prop" \
             || true  # Don't fail workflow on findings — upload report first
 
       - name: Run ZAP baseline scan — frontend
         run: |
           set -e
-          docker run --rm --network host \
+          docker run --rm --network pentest_default \
             -v $(pwd)/zap-reports:/zap/wrk:rw \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
-              -t http://localhost:8181 \
+              -t http://pentest-frontend:80 \
               -r frontend-report.html \
               -x frontend-report.xml \
               -J frontend-report.json \
@@ -108,4 +242,15 @@ jobs:
         run: |
           docker compose -p pentest -f docker-compose.pentest.yml down -v --remove-orphans
           rm -f /tmp/pentest-dump.sql
+          # Holds the bearer token — remove it even if the scan died mid-run.
+          rm -rf zap-conf
           echo "Pen test environment destroyed"
+
+  notify-failure:
+    needs: zap-scan
+    if: failure()
+    permissions:
+      issues: write
+    uses: ./.github/workflows/ci-failure-issue.yml
+    with:
+      workflow-name: ZAP Security Scan
