@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service;
 
-import com.gregochr.goldenhour.client.OpenMeteoArchiveApi;
 import com.gregochr.goldenhour.entity.CloudVerificationEntity;
 import com.gregochr.goldenhour.model.CloudVerificationBucket;
 import com.gregochr.goldenhour.model.CloudVerificationPair;
@@ -19,7 +18,10 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Scores past forecasts' cloud claims against reanalysed cloud from Open-Meteo's archive.
@@ -53,20 +55,20 @@ public class CloudVerificationService {
     /** Wind-to-sun separation (degrees) above which cloud approaches from behind the observer. */
     private static final int OPPOSED_MIN_DEG = 135;
 
-    private final OpenMeteoArchiveApi archiveApi;
+    private final OpenMeteoArchiveClient archiveClient;
     private final CloudVerificationRepository repository;
     private final Clock clock;
 
     /**
      * Constructs the verification service.
      *
-     * @param archiveApi the Open-Meteo historical weather client
-     * @param repository verification persistence and reporting queries
-     * @param clock      UTC clock, for the archive-lag cutoff
+     * @param archiveClient batched Open-Meteo historical weather reader
+     * @param repository    verification persistence and reporting queries
+     * @param clock         UTC clock, for the archive-lag cutoff
      */
-    public CloudVerificationService(OpenMeteoArchiveApi archiveApi,
+    public CloudVerificationService(OpenMeteoArchiveClient archiveClient,
             CloudVerificationRepository repository, Clock clock) {
-        this.archiveApi = archiveApi;
+        this.archiveClient = archiveClient;
         this.repository = repository;
         this.clock = clock;
     }
@@ -90,39 +92,82 @@ public class CloudVerificationService {
             return 0;
         }
 
+        // Group by date: the archive takes one date range per request, but accepts many
+        // coordinates within it. Each candidate contributes two points (horizon + observer), so
+        // batching cuts request count by BATCH_COORD_LIMIT — the difference between a backfill
+        // that finishes in one session and one that spends days against the daily rate ceiling.
+        Map<LocalDate, List<VerificationCandidate>> byDate = candidates.stream()
+                .collect(Collectors.groupingBy(c -> c.solarEventTime().toLocalDate(),
+                        LinkedHashMap::new, Collectors.toList()));
+
         List<CloudVerificationEntity> verified = new ArrayList<>(candidates.size());
-        int failed = 0;
-        for (VerificationCandidate candidate : candidates) {
-            try {
-                verified.add(verify(candidate));
-            } catch (Exception e) {
-                failed++;
-                LOG.warn("[CLOUD VERIFY] evaluation {} failed: {}",
-                        candidate.evaluationId(), e.getMessage());
-            }
+        for (Map.Entry<LocalDate, List<VerificationCandidate>> entry : byDate.entrySet()) {
+            verified.addAll(verifyDate(entry.getKey(), entry.getValue()));
         }
         repository.saveAll(verified);
 
-        LOG.info("[CLOUD VERIFY] verified={} failed={} cutoff={} (candidates={})",
-                verified.size(), failed, cutoff, candidates.size());
+        long withData = verified.stream().filter(v -> v.getHorizonLowCloud() != null).count();
+        LOG.info("[CLOUD VERIFY] verified={} withObservations={} dates={} cutoff={}",
+                verified.size(), withData, byDate.size(), cutoff);
         return verified.size();
     }
 
     /**
-     * Verifies one candidate by reading the archive at both the horizon and observer points.
+     * Verifies every candidate sharing one date, in batched archive requests.
      *
-     * @param candidate the evaluation to verify
+     * <p>Points are laid out two per candidate — horizon at {@code 2i}, observer at
+     * {@code 2i+1} — so a single batch covers both claims for the whole date and the responses
+     * map back positionally.
+     *
+     * @param date       the shared solar-event date
+     * @param candidates candidates on that date
+     * @return one verification row per candidate, with null observations where the archive failed
+     */
+    private List<CloudVerificationEntity> verifyDate(LocalDate date,
+            List<VerificationCandidate> candidates) {
+        List<double[]> points = new ArrayList<>(candidates.size() * 2);
+        for (VerificationCandidate candidate : candidates) {
+            points.add(DirectionalSamplingGeometry.computeSolarHorizonPoint(
+                    candidate.lat(), candidate.lon(), candidate.azimuthDeg()));
+            points.add(new double[]{candidate.lat(), candidate.lon()});
+        }
+
+        List<OpenMeteoForecastResponse> responses =
+                archiveClient.fetchArchiveBatch(points, date, ARCHIVE_HOURLY);
+
+        List<CloudVerificationEntity> rows = new ArrayList<>(candidates.size());
+        for (int i = 0; i < candidates.size(); i++) {
+            VerificationCandidate candidate = candidates.get(i);
+            double[] horizon = points.get(i * 2);
+            rows.add(buildRow(candidate, horizon,
+                    responseAt(responses, i * 2), responseAt(responses, i * 2 + 1)));
+        }
+        return rows;
+    }
+
+    /**
+     * Returns the response at an index, or {@code null} if the batch came back short.
+     *
+     * @param responses the batch responses
+     * @param idx       the positional index
+     * @return the response, or {@code null}
+     */
+    private OpenMeteoForecastResponse responseAt(List<OpenMeteoForecastResponse> responses,
+            int idx) {
+        return responses == null || idx >= responses.size() ? null : responses.get(idx);
+    }
+
+    /**
+     * Builds one verification row from the two archive responses for a candidate.
+     *
+     * @param candidate       the evaluation being verified
+     * @param horizon         the sampled solar-horizon coordinate
+     * @param horizonArchive  archive response at the horizon, or {@code null}
+     * @param observerArchive archive response at the observer, or {@code null}
      * @return the verification row, with null observations where the archive had no data
      */
-    private CloudVerificationEntity verify(VerificationCandidate candidate) {
-        double[] horizon = DirectionalSamplingGeometry.computeSolarHorizonPoint(
-                candidate.lat(), candidate.lon(), candidate.azimuthDeg());
-        LocalDate date = candidate.solarEventTime().toLocalDate();
-
-        OpenMeteoForecastResponse horizonArchive = fetch(horizon[0], horizon[1], date);
-        OpenMeteoForecastResponse observerArchive =
-                fetch(candidate.lat(), candidate.lon(), date);
-
+    private CloudVerificationEntity buildRow(VerificationCandidate candidate, double[] horizon,
+            OpenMeteoForecastResponse horizonArchive, OpenMeteoForecastResponse observerArchive) {
         CloudVerificationEntity.CloudVerificationEntityBuilder builder =
                 CloudVerificationEntity.builder()
                         .forecastEvaluationId(candidate.evaluationId())
@@ -178,25 +223,6 @@ public class CloudVerificationService {
      */
     private Integer layerAt(List<Integer> values, int idx) {
         return values == null || idx < 0 || idx >= values.size() ? null : values.get(idx);
-    }
-
-    /**
-     * Fetches one day of archive data for a point, returning {@code null} on failure.
-     *
-     * @param lat  latitude
-     * @param lon  longitude
-     * @param date the date to fetch
-     * @return the archive response, or {@code null}
-     */
-    private OpenMeteoForecastResponse fetch(double lat, double lon, LocalDate date) {
-        try {
-            return archiveApi.getArchive(
-                    lat, lon, date.toString(), date.toString(), ARCHIVE_HOURLY, "UTC");
-        } catch (Exception e) {
-            LOG.warn("[CLOUD VERIFY] archive fetch failed for {},{} on {}: {}",
-                    lat, lon, date, e.getMessage());
-            return null;
-        }
     }
 
     /**

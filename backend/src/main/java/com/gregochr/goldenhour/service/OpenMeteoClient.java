@@ -673,7 +673,7 @@ public class OpenMeteoClient {
      * 181-second read hangs in production). A 30-second read timeout lets Resilience4j
      * retry and circuit-breaker react promptly instead.
      */
-    private static SimpleClientHttpRequestFactory batchRequestFactory() {
+    static SimpleClientHttpRequestFactory batchRequestFactory() {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(Duration.ofSeconds(10));
         factory.setReadTimeout(Duration.ofSeconds(30));
