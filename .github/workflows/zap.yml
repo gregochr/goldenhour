@@ -77,6 +77,21 @@ jobs:
             -f /dev/stdin < /tmp/pentest-dump.sql
           echo "Database restored"
 
+          # Pause every scheduled job in the restored copy BEFORE the backend starts.
+          #
+          # The restore carries production's scheduler_job_config rows, all ACTIVE,
+          # and DynamicSchedulerBootstrap schedules them on ApplicationReadyEvent.
+          # The pen-test backend runs SPRING_PROFILES_ACTIVE=prod with the production
+          # .env, so those jobs hold live ANTHROPIC_API_KEY and WORLDTIDES keys — a
+          # forecast or tide-refresh job firing inside the scan window spends real
+          # money and makes real outbound calls, for a stack that exists only to be
+          # attacked and is destroyed minutes later. None of it is ZAP traffic.
+          #
+          # Done in SQL rather than in the app so no production code path changes.
+          docker exec pentest-db psql -U goldenhour -d goldenhour -v ON_ERROR_STOP=1 \
+            -c "UPDATE scheduler_job_config SET status = 'PAUSED' WHERE status = 'ACTIVE'"
+          echo "Scheduled jobs paused in the pen-test copy"
+
           # Start backend and frontend
           docker compose -p pentest -f docker-compose.pentest.yml up -d
 

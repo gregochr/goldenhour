@@ -53,8 +53,17 @@ docker inspect "$PG_CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep 
 # --- Record what is running RIGHT NOW, before anything is pulled --------------
 # Must happen before `docker compose pull`, which overwrites the :latest tag and
 # destroys the only other handle on the outgoing build.
+# Two hops, deliberately. `docker inspect <container>` returns a container object,
+# which has NO RepoDigests field — that lives on the image. Asking a container for
+# it makes the Go template error, and with 2>/dev/null the error is invisible and
+# the output empty, so the guard below fired on every release and aborted the
+# deploy before `docker compose pull`. The container's .Image is the image ID,
+# which does carry RepoDigests.
 digest_of() {
-    docker inspect --format='{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}' "$1" 2>/dev/null || true
+    local container="$1" image_id
+    image_id="$(docker inspect --format='{{.Image}}' "$container" 2>/dev/null)" || return 0
+    [ -n "$image_id" ] || return 0
+    docker inspect --format='{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}' "$image_id" 2>/dev/null || true
 }
 
 PREV_BACKEND="$(digest_of "$BACKEND_CONTAINER")"

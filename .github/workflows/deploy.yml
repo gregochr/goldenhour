@@ -75,15 +75,39 @@ jobs:
             cd ~/goldenhour
             mkdir -p /Users/gregochr/goldenhour-data/logs
 
+            # Refuse to deploy over an active rollback pin.
+            #
+            # scripts/rollback.sh writes docker-compose.override.yml, which Compose
+            # auto-loads — so without this guard the `docker compose up` below would
+            # silently apply the pinned OLD digests and the release would appear to
+            # succeed while deploying nothing. Fail loudly instead: clearing the pin
+            # is a deliberate act, not something a deploy should do behind your back.
+            if [ -f docker-compose.override.yml ]; then
+              echo "ERROR: docker-compose.override.yml exists — production is pinned by a rollback." >&2
+              echo "       Deploying now would silently re-apply the pinned images." >&2
+              echo "       Remove it once you are ready to roll forward:  rm ~/goldenhour/docker-compose.override.yml" >&2
+              exit 1
+            fi
+
+            # Everything below reads from the tag being released rather than from
+            # this host's working copy, because nothing here ever runs `git pull` —
+            # the checkout can be arbitrarily old. Fetch first: without it
+            # `git show <tag>:...` fails for a tag this host has never seen, which
+            # is every tag.
+            git fetch origin --tags --quiet
+
+            # `docker compose` reads these from THIS directory, so a stale tree
+            # ships new images against months-old config. nginx.conf matters most:
+            # it is bind-mounted rather than baked into the frontend image
+            # (frontend/Dockerfile copies only /app/dist), so it is delivered here
+            # or not at all — which is why today's CSP and security headers would
+            # otherwise never have reached production.
+            git show "${RELEASE_VERSION}:nginx.conf" > nginx.conf
+            git show "${RELEASE_VERSION}:docker-compose.yml" > docker-compose.yml
+
             # Back up BEFORE pulling. `docker compose pull` overwrites :latest,
             # which is the only other handle on the outgoing build — after that
             # there is nothing left to record, and nothing to roll back to.
-            #
-            # The script is taken from the tag being released rather than from
-            # the working copy on this host: nothing here ever runs `git pull`,
-            # so the checkout can be arbitrarily old, and a stale backup script
-            # is exactly the failure this is meant to prevent.
-            git fetch origin --tags --quiet
             git show "${RELEASE_VERSION}:scripts/pre-release-backup.sh" > /tmp/pre-release-backup.sh
             chmod +x /tmp/pre-release-backup.sh
             /tmp/pre-release-backup.sh "${RELEASE_VERSION}"
@@ -92,3 +116,16 @@ jobs:
             docker compose up -d --no-deps goldenhour-backend goldenhour-frontend
             sleep 30
             docker compose ps
+
+  # Deploy was the only workflow in the repo with no failure notifier, which is
+  # the worst place to lack one: a failed deploy leaves the tag pushed, the images
+  # in GHCR and CHANGELOG updated, while production quietly keeps serving the old
+  # build. Every other signal says the release shipped.
+  notify-failure:
+    needs: [test, build-and-push, deploy]
+    if: failure()
+    permissions:
+      issues: write
+    uses: ./.github/workflows/ci-failure-issue.yml
+    with:
+      workflow-name: Deploy to Production
