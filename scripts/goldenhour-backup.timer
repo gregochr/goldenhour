@@ -1,0 +1,15 @@
+[Unit]
+Description=Run the Golden Hour PostgreSQL backup daily at 02:00
+Documentation=file:///home/gregochr/goldenhour/scripts/backup-postgres.sh
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+# The Docker host is not always up at 02:00. Without this a missed window is
+# simply skipped, and enough skipped windows look exactly like a working
+# backup right up until you need one.
+Persistent=true
+# Avoid landing exactly on the hour alongside every other cron job on the box.
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

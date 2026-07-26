@@ -1,0 +1,40 @@
+[Unit]
+# Daily PostgreSQL backup for Golden Hour.
+#
+# Replaces scripts/com.goldenhour.backup.plist, which ran on the Mac via launchd.
+# Docker moved to this host around 2026-03-16 and the plist kept firing on a
+# machine that could not see the goldenhour-db container: it exited 1 nightly
+# for 132 nights while the newest backup on disk stayed dated 16 March.
+#
+# Install on the Docker host (the box where `docker ps` lists goldenhour-db):
+#   sudo cp scripts/goldenhour-backup.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now goldenhour-backup.timer
+Description=Golden Hour PostgreSQL backup
+Documentation=file:///home/gregochr/goldenhour/scripts/backup-postgres.sh
+# Do not start before Docker is up, or the container check fails on a reboot.
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+User=gregochr
+ExecStart=/home/gregochr/goldenhour/scripts/backup-postgres.sh
+
+# Set explicitly rather than leaning on systemd populating $HOME. The script
+# would default to ${HOME}/goldenhour-backups and systemd does set HOME for
+# User=, but an implicit environment resolving differently under a scheduler
+# than in a shell is the exact shape of the bug that hid for 132 days.
+Environment=BACKUP_DIR=/home/gregochr/goldenhour-backups
+
+# Set OFFBOX_DEST to keep a second copy on separate hardware — backups sharing
+# a disk with the database are one disk failure away from useless. Point it at
+# the Mac (passwordless SSH key required for an unattended run).
+# Environment=OFFBOX_DEST=gregochr@192.168.0.101:/Users/gregochr/goldenhour-backups/daily/
+
+# A dump of a live database should never take this long; if it does, something
+# is wrong and hanging forever would look identical to success.
+TimeoutStartSec=30min
+
+[Install]
+WantedBy=multi-user.target

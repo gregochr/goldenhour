@@ -134,7 +134,13 @@ curl http://localhost:8082/actuator/health
 
 Secrets are passed as environment variables — see `docker-compose.yml` for the full list (`ANTHROPIC_API_KEY`, `JWT_SECRET`, `WORLDTIDES_API_KEY`, etc.).
 
-The H2 database is volume-mounted to `/Users/gregochr/goldenhour-data` so data persists across container restarts and is covered by Time Machine. Automated daily backups at 02:00 keep the last 7 copies.
+Production runs **PostgreSQL** (`goldenhour-db`) on the Docker host, in a named volume that persists across container restarts. (This paragraph previously described an H2 file covered by Time Machine — that has not been the production database since the Postgres migration, and relying on it as a backup story is what allowed the gap below to go unnoticed.)
+
+Backups are taken by `scripts/backup-postgres.sh`, scheduled by `goldenhour-backup.timer` **on the Docker host** — the box where `docker ps` lists `goldenhour-db`, since the script needs that container. It keeps the last 7 daily and 4 weekly compressed dumps, and writes a `last-success` marker.
+
+Set `OFFBOX_DEST` in the service unit to keep a second copy on separate hardware; without it, the backups sit on the same disk as the database they protect.
+
+`.github/workflows/backup-verify.yml` checks every morning that a recent backup exists **and restores** — it loads the newest dump into a scratch Postgres container and counts rows, then opens a GitHub issue if either check fails. This is deliberately independent of the backup job: from 2026-03-16 to 2026-07-26 the backup ran nightly on the wrong host, exited 1 into a log nobody read, and went unnoticed for 132 days. A component's own exit status is not a monitoring strategy.
 
 ---
 
