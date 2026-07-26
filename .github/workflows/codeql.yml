@@ -1,6 +1,16 @@
 name: CodeQL Security Analysis
 
 on:
+  # Scan the diff so a merge cannot silently add alerts. The weekly-only schedule this
+  # replaced meant one feature merge (the NLC scraper, 2026-07-06) added 21 alerts that
+  # nobody saw for up to 7 days. The PR check reports only alerts the PR introduces, so
+  # a pre-existing backlog never blocks an unrelated change.
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  # Kept alongside the PR trigger: a diff scan never re-examines untouched code, so this
+  # is what catches new CodeQL queries finding issues in code that has not changed.
   schedule:
     - cron: '0 2 * * MON'  # 2am UTC every Monday (before ZAP at 4am, PIT at 6am)
   workflow_dispatch:
@@ -25,7 +35,7 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: javascript-typescript, java-kotlin
-          queries: security-and-quality
+          config-file: ./.github/codeql/codeql-config.yml
 
       - name: Build backend
         run: |
@@ -43,7 +53,10 @@ jobs:
 
   notify-failure:
     needs: codeql
-    if: failure()
+    # Unattended runs only. The notifier exists because a scheduled failure reports to an
+    # empty room; a pull-request failure reports to the author, who is already looking at
+    # the check. Filing an issue for those would be noise that devalues the real alarms.
+    if: failure() && github.event_name != 'pull_request'
     permissions:
       issues: write
     uses: ./.github/workflows/ci-failure-issue.yml

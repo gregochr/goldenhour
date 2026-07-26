@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.config;
 
+import com.gregochr.goldenhour.util.LogSanitizer;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -61,7 +62,10 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, authException) -> {
-                            LOG.info("⚠ 401 {} — {}", request.getRequestURI(), authException.getMessage());
+                            // Unauthenticated path: the URI and the exception message (which quotes
+                            // the offending credential) are whatever the caller sent.
+                            LOG.info("⚠ 401 {} — {}", LogSanitizer.sanitize(request.getRequestURI()),
+                                    LogSanitizer.sanitize(authException.getMessage()));
                             response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized");
                         }))
                 .authorizeHttpRequests(auth -> auth

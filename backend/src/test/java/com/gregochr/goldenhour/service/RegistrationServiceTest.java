@@ -309,11 +309,66 @@ class RegistrationServiceTest {
     }
 
     @Test
-    @DisplayName("setPasswordAndActivate delegates to userService.activateUser")
-    void setPasswordAndActivate_delegates() {
-        registrationService.setPasswordAndActivate(1L, "MyP@ssw0rd!");
+    @DisplayName("setPasswordAndActivate resolves the user from the token and consumes it")
+    void setPasswordAndActivate_verifiedToken_activatesAndDeletesToken() {
+        EmailVerificationTokenEntity token = buildToken(42L, true, LocalDateTime.now().plusHours(12));
+        when(jwtService.hashToken("raw-token")).thenReturn("hash");
+        when(tokenRepository.findByTokenHash("hash")).thenReturn(Optional.of(token));
 
-        verify(userService).activateUser(1L, "MyP@ssw0rd!");
+        Long userId = registrationService.setPasswordAndActivate("raw-token", "MyP@ssw0rd!");
+
+        assertThat(userId).isEqualTo(42L);
+        verify(userService).activateUser(42L, "MyP@ssw0rd!");
+        verify(tokenRepository).delete(token);
+    }
+
+    @Test
+    @DisplayName("setPasswordAndActivate throws for an unknown token and activates nobody")
+    void setPasswordAndActivate_unknownToken_throws() {
+        when(jwtService.hashToken("bad-token")).thenReturn("bad-hash");
+        when(tokenRepository.findByTokenHash("bad-hash")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> registrationService.setPasswordAndActivate("bad-token", "MyP@ssw0rd!"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Invalid or expired verification token");
+        verify(userService, never()).activateUser(any(), anyString());
+    }
+
+    @Test
+    @DisplayName("setPasswordAndActivate throws when the email link was never clicked")
+    void setPasswordAndActivate_unverifiedToken_throws() {
+        EmailVerificationTokenEntity token = buildToken(42L, false, LocalDateTime.now().plusHours(12));
+        when(jwtService.hashToken("raw-token")).thenReturn("hash");
+        when(tokenRepository.findByTokenHash("hash")).thenReturn(Optional.of(token));
+
+        assertThatThrownBy(() -> registrationService.setPasswordAndActivate("raw-token", "MyP@ssw0rd!"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Invalid or expired verification token");
+        verify(userService, never()).activateUser(any(), anyString());
+    }
+
+    @Test
+    @DisplayName("setPasswordAndActivate throws for an expired token")
+    void setPasswordAndActivate_expiredToken_throws() {
+        EmailVerificationTokenEntity token = buildToken(42L, true, LocalDateTime.now().minusHours(1));
+        when(jwtService.hashToken("raw-token")).thenReturn("hash");
+        when(tokenRepository.findByTokenHash("hash")).thenReturn(Optional.of(token));
+
+        assertThatThrownBy(() -> registrationService.setPasswordAndActivate("raw-token", "MyP@ssw0rd!"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Invalid or expired verification token");
+        verify(userService, never()).activateUser(any(), anyString());
+    }
+
+    private EmailVerificationTokenEntity buildToken(Long userId, boolean verified, LocalDateTime expiresAt) {
+        return EmailVerificationTokenEntity.builder()
+                .id(1L)
+                .tokenHash("hash")
+                .userId(userId)
+                .expiresAt(expiresAt)
+                .verified(verified)
+                .createdAt(LocalDateTime.now().minusHours(1))
+                .build();
     }
 
     private AppUserEntity buildPendingUser(Long id, String username, String email) {

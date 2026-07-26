@@ -24,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -501,6 +502,36 @@ class UserServiceTest {
             assertThatThrownBy(() -> userService.activateUser(99L, "pass"))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("99");
+        }
+
+        @Test
+        @DisplayName("refuses an already-enabled account, leaving its credentials untouched")
+        void enabledAccount_throwsAndDoesNotOverwrite() {
+            AppUserEntity active = buildUser(1L, "admin", UserRole.ADMIN);
+            when(userRepository.findById(1L)).thenReturn(Optional.of(active));
+
+            assertThatThrownBy(() -> userService.activateUser(1L, "Attacker1!"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("not awaiting activation");
+
+            assertThat(active.getPassword()).isEqualTo("hashed");
+            verify(userRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("refuses a disabled account that already has a password")
+        void disabledAccountWithPassword_throws() {
+            AppUserEntity suspended = AppUserEntity.builder()
+                    .id(2L).username("bob").password("hashed").role(UserRole.LITE_USER)
+                    .enabled(false).createdAt(LocalDateTime.now()).build();
+            when(userRepository.findById(2L)).thenReturn(Optional.of(suspended));
+
+            assertThatThrownBy(() -> userService.activateUser(2L, "Attacker1!"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("not awaiting activation");
+
+            assertThat(suspended.getPassword()).isEqualTo("hashed");
+            verify(userRepository, never()).save(any());
         }
     }
 

@@ -7,6 +7,8 @@ import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.service.AuthenticationService;
 import com.gregochr.goldenhour.service.RegistrationService;
 import com.gregochr.goldenhour.service.TurnstileService;
+import com.gregochr.goldenhour.util.EmailValidator;
+import com.gregochr.goldenhour.util.LogSanitizer;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,7 +43,6 @@ public class AuthController {
     private static final Logger LOG = LoggerFactory.getLogger(AuthController.class);
 
     private static final Pattern USERNAME_PATTERN = Pattern.compile("^[a-zA-Z0-9_-]{3,30}$");
-    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
 
     private final AuthenticationService authenticationService;
     private final AppUserRepository userRepository;
@@ -164,7 +165,7 @@ public class AuthController {
                     .body(Map.of("error",
                             "Username must be 3-30 characters: letters, numbers, hyphens, or underscores"));
         }
-        if (!EMAIL_PATTERN.matcher(email.trim()).matches()) {
+        if (!EmailValidator.isValid(email)) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "Invalid email address"));
         }
@@ -185,7 +186,8 @@ public class AuthController {
 
         try {
             registrationService.register(username, email.trim(), marketingEmailOptIn);
-            LOG.info("Registration: user='{}' email='{}'", username, email.trim());
+            LOG.info("Registration: user='{}' email='{}'",
+                    LogSanitizer.sanitize(username), LogSanitizer.sanitize(email.trim()));
             return ResponseEntity.ok(Map.of(
                     "message", "Verification email sent",
                     "email", email.trim()));
@@ -248,31 +250,29 @@ public class AuthController {
     /**
      * Sets the password for a newly verified user and auto-logs them in.
      *
-     * @param body map containing {@code userId} and {@code password}
-     * @return 200 with JWT tokens (same shape as /login), or 400 if password is weak
+     * <p>The account is identified by the one-time verification token from the email link, never
+     * by a caller-supplied id: an id alone is a guessable integer, so accepting one would let an
+     * anonymous caller overwrite any account's credentials. The token is proof that the caller
+     * controls the mailbox, and {@link RegistrationService#setPasswordAndActivate} resolves the
+     * user from it.
+     *
+     * @param body map containing {@code token} and {@code password}
+     * @return 200 with JWT tokens (same shape as /login), or 400 if the token or password is rejected
      */
     @PostMapping("/set-password")
-    public ResponseEntity<Map<String, Object>> setPassword(@RequestBody Map<String, Object> body) {
-        Object userIdObj = body.get("userId");
-        String password = (String) body.get("password");
+    public ResponseEntity<Map<String, Object>> setPassword(@RequestBody Map<String, String> body) {
+        String token = body.get("token");
+        String password = body.get("password");
 
-        if (userIdObj == null || password == null || password.isBlank()) {
+        if (token == null || token.isBlank() || password == null || password.isBlank()) {
             return ResponseEntity.badRequest()
-                    .body(Map.of("error", "userId and password are required"));
+                    .body(Map.of("error", "token and password are required"));
         }
 
-        String turnstileToken = (String) body.get("turnstileToken");
+        String turnstileToken = body.get("turnstileToken");
         if (!turnstileService.verify(turnstileToken)) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "CAPTCHA verification failed. Please try again."));
-        }
-
-        Long userId;
-        try {
-            userId = Long.valueOf(userIdObj.toString());
-        } catch (NumberFormatException ex) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", "Invalid userId"));
         }
 
         String complexityError = authenticationService.validatePasswordComplexity(password);
@@ -280,8 +280,9 @@ public class AuthController {
             return ResponseEntity.badRequest().body(Map.of("error", complexityError));
         }
 
+        Long userId;
         try {
-            registrationService.setPasswordAndActivate(userId, password);
+            userId = registrationService.setPasswordAndActivate(token, password);
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
         }

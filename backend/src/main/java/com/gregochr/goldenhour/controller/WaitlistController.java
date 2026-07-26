@@ -2,6 +2,8 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.WaitlistEmailEntity;
 import com.gregochr.goldenhour.repository.WaitlistEmailRepository;
+import com.gregochr.goldenhour.util.EmailValidator;
+import com.gregochr.goldenhour.util.LogSanitizer;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,7 +15,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
 import java.util.Map;
-import java.util.regex.Pattern;
 
 /**
  * Accepts waitlist email submissions when early-access registration is full.
@@ -24,8 +25,6 @@ import java.util.regex.Pattern;
 public class WaitlistController {
 
     private static final Logger LOG = LoggerFactory.getLogger(WaitlistController.class);
-
-    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
 
     private final WaitlistEmailRepository waitlistEmailRepository;
 
@@ -40,7 +39,7 @@ public class WaitlistController {
     @PostMapping
     public ResponseEntity<Map<String, String>> submitWaitlist(@RequestBody Map<String, String> body) {
         String email = body.get("email");
-        if (email == null || email.isBlank() || !EMAIL_PATTERN.matcher(email.trim()).matches()) {
+        if (email == null || !EmailValidator.isValid(email)) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "A valid email address is required"));
         }
@@ -52,7 +51,7 @@ public class WaitlistController {
                     .submittedAt(LocalDateTime.now())
                     .build();
             waitlistEmailRepository.save(entry);
-            LOG.info("Waitlist signup: {}", trimmed);
+            LOG.info("Waitlist signup: {}", LogSanitizer.sanitize(trimmed));
         }
 
         return ResponseEntity.ok(Map.of("message", "You're on the list"));

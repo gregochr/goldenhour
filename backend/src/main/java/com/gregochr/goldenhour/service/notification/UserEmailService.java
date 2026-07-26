@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.notification;
 
+import com.gregochr.goldenhour.util.LogSanitizer;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
@@ -69,9 +70,12 @@ public class UserEmailService {
             String html = templateEngine.process("welcome-email", context);
 
             sendHtmlEmail(email, "Welcome to PhotoCast — Your Account is Ready", html);
-            LOG.info("Welcome email sent to {} for user {}", email, username);
+            LOG.info("Welcome email sent to {} for user {}",
+                    LogSanitizer.sanitize(email), LogSanitizer.sanitize(username));
         } catch (Exception ex) {
-            LOG.error("Failed to send welcome email to {} for user {}: {}", email, username, ex.getMessage());
+            LOG.error("Failed to send welcome email to {} for user {}: {}",
+                    LogSanitizer.sanitize(email), LogSanitizer.sanitize(username),
+                    LogSanitizer.sanitize(ex.getMessage()));
         }
     }
 
@@ -94,9 +98,12 @@ public class UserEmailService {
             String html = templateEngine.process("password-reset-email", context);
 
             sendHtmlEmail(email, "PhotoCast — Your Password Has Been Reset", html);
-            LOG.info("Password reset email sent to {} for user {}", email, username);
+            LOG.info("Password reset email sent to {} for user {}",
+                    LogSanitizer.sanitize(email), LogSanitizer.sanitize(username));
         } catch (Exception ex) {
-            LOG.error("Failed to send password reset email to {} for user {}: {}", email, username, ex.getMessage());
+            LOG.error("Failed to send password reset email to {} for user {}: {}",
+                    LogSanitizer.sanitize(email), LogSanitizer.sanitize(username),
+                    LogSanitizer.sanitize(ex.getMessage()));
         }
     }
 
@@ -120,10 +127,12 @@ public class UserEmailService {
             String html = templateEngine.process("verification-email", context);
 
             sendHtmlEmail(email, "PhotoCast — Verify Your Email Address", html);
-            LOG.info("Verification email sent to {} for user {}", email, username);
+            LOG.info("Verification email sent to {} for user {}",
+                    LogSanitizer.sanitize(email), LogSanitizer.sanitize(username));
         } catch (Exception ex) {
             LOG.error("Failed to send verification email to {} for user {}: {}",
-                    email, username, ex.getMessage());
+                    LogSanitizer.sanitize(email), LogSanitizer.sanitize(username),
+                    LogSanitizer.sanitize(ex.getMessage()));
         }
     }
 
@@ -144,10 +153,12 @@ public class UserEmailService {
             String html = templateEngine.process("account-deleted-email", context);
 
             sendHtmlEmail(email, "PhotoCast — Your Account Has Been Removed", html);
-            LOG.info("Account deleted email sent to {} for user {}", email, username);
+            LOG.info("Account deleted email sent to {} for user {}",
+                    LogSanitizer.sanitize(email), LogSanitizer.sanitize(username));
         } catch (Exception ex) {
             LOG.error("Failed to send account deleted email to {} for user {}: {}",
-                    email, username, ex.getMessage());
+                    LogSanitizer.sanitize(email), LogSanitizer.sanitize(username),
+                    LogSanitizer.sanitize(ex.getMessage()));
         }
     }
 

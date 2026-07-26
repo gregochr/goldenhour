@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.EmailVerificationTokenRepository;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
+import com.gregochr.goldenhour.util.LogSanitizer;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,7 +59,7 @@ public class RegistrationService {
         long nonAdminCount = userRepository.countByRoleNot(UserRole.ADMIN);
         if (nonAdminCount >= registrationProperties.getMaxUsers()) {
             LOG.info("Registration cap reached ({}/{}): rejecting username='{}'",
-                    nonAdminCount, registrationProperties.getMaxUsers(), username);
+                    nonAdminCount, registrationProperties.getMaxUsers(), LogSanitizer.sanitize(username));
             throw new RegistrationClosedException();
         }
 
@@ -69,7 +70,8 @@ public class RegistrationService {
         saveVerificationToken(rawToken, user.getId());
 
         userEmailService.sendVerificationEmail(email, username, rawToken);
-        LOG.info("Registration initiated: username='{}', email='{}'", username, email);
+        LOG.info("Registration initiated: username='{}', email='{}'",
+                LogSanitizer.sanitize(username), LogSanitizer.sanitize(email));
         return user;
     }
 
@@ -104,7 +106,8 @@ public class RegistrationService {
         saveVerificationToken(rawToken, user.getId());
 
         userEmailService.sendVerificationEmail(email, user.getUsername(), rawToken);
-        LOG.info("Verification resent: username='{}', email='{}'", user.getUsername(), email);
+        LOG.info("Verification resent: username='{}', email='{}'",
+                LogSanitizer.sanitize(user.getUsername()), LogSanitizer.sanitize(email));
     }
 
     /**
@@ -137,11 +140,31 @@ public class RegistrationService {
     /**
      * Sets the password for a verified user and activates their account.
      *
-     * @param userId      the user's primary key
+     * <p>The account is resolved from the one-time verification token rather than from a
+     * caller-supplied id — the token is the only evidence that the caller controls the mailbox
+     * the account was registered with. The token must already have been through
+     * {@link #verifyEmail(String)} (the emailed link was clicked) and is deleted here, so it
+     * cannot be replayed to reset the password a second time.
+     *
+     * @param rawToken    the raw verification token from the email link
      * @param rawPassword the plain-text password
+     * @return the primary key of the activated user
+     * @throws IllegalArgumentException if the token is unknown, unverified or expired
      */
-    public void setPasswordAndActivate(Long userId, String rawPassword) {
+    @Transactional
+    public Long setPasswordAndActivate(String rawToken, String rawPassword) {
+        String hash = jwtService.hashToken(rawToken);
+        EmailVerificationTokenEntity token = tokenRepository.findByTokenHash(hash)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid or expired verification token"));
+
+        if (!token.isVerified() || token.getExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new IllegalArgumentException("Invalid or expired verification token");
+        }
+
+        Long userId = token.getUserId();
         userService.activateUser(userId, rawPassword);
+        tokenRepository.delete(token);
+        return userId;
     }
 
     private void saveVerificationToken(String rawToken, Long userId) {
@@ -172,14 +195,15 @@ public class RegistrationService {
         saveVerificationToken(rawToken, user.getId());
 
         userEmailService.sendVerificationEmail(user.getEmail(), user.getUsername(), rawToken);
-        LOG.info("Admin resent verification: username='{}', email='{}'", user.getUsername(), user.getEmail());
+        LOG.info("Admin resent verification: username='{}', email='{}'",
+                LogSanitizer.sanitize(user.getUsername()), LogSanitizer.sanitize(user.getEmail()));
     }
 
     private AppUserEntity findPendingUserByEmail(String email) {
         return userService.listAllUsers().stream()
                 .filter(u -> email.equalsIgnoreCase(u.getEmail()))
                 .filter(u -> !u.isEnabled())
-                .filter(u -> "".equals(u.getPassword()))
+                .filter(u -> u.getPassword() != null && u.getPassword().isEmpty())
                 .findFirst()
                 .orElse(null);
     }

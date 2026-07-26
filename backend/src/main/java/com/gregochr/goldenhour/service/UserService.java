@@ -244,12 +244,19 @@ public class UserService implements UserDetailsService {
      *
      * @param userId      the user's primary key
      * @param rawPassword the plain-text password to be hashed
-     * @throws IllegalArgumentException if no user with that id exists
+     * @throws IllegalArgumentException if no user with that id exists, or the account is not
+     *                                  awaiting activation
      */
     @Transactional
     public void activateUser(Long userId, String rawPassword) {
         AppUserEntity user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
+        // Activation is only ever legitimate for a pending self-registration, the sole shape
+        // createPendingUser produces (enabled=false, empty password). Refusing anything else stops
+        // a caller who reaches this method with someone else's id from overwriting live credentials.
+        if (user.isEnabled() || !"".equals(user.getPassword())) {
+            throw new IllegalArgumentException("Account is not awaiting activation");
+        }
         user.setPassword(passwordEncoder.encode(rawPassword));
         user.setEnabled(true);
         user.setPasswordChangeRequired(false);

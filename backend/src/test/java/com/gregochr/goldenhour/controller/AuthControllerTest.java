@@ -432,14 +432,14 @@ class AuthControllerTest extends AbstractControllerTest {
     @DisplayName("POST /api/auth/set-password returns 200 with tokens for valid request")
     void setPassword_valid_returns200WithTokens() throws Exception {
         AppUserEntity user = AppUserEntity.builder()
-                .id(42L).username("newuser").password("hashed").role(UserRole.LITE_USER)
-                .enabled(true).createdAt(LocalDateTime.now()).build();
-        doNothing().when(registrationService).setPasswordAndActivate(42L, "MyP@ssw0rd!");
+                .id(42L).username("newuser").password("").role(UserRole.LITE_USER)
+                .enabled(false).createdAt(LocalDateTime.now()).build();
+        when(registrationService.setPasswordAndActivate("verify-token", "MyP@ssw0rd!")).thenReturn(42L);
         when(userRepository.findById(42L)).thenReturn(Optional.of(user));
 
         mockMvc.perform(post("/api/auth/set-password")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"userId\":42,\"password\":\"MyP@ssw0rd!\"}"))
+                        .content("{\"token\":\"verify-token\",\"password\":\"MyP@ssw0rd!\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessToken").exists())
                 .andExpect(jsonPath("$.refreshToken").exists())
@@ -450,17 +450,49 @@ class AuthControllerTest extends AbstractControllerTest {
     @DisplayName("POST /api/auth/set-password response includes termsVersion from user record")
     void setPassword_valid_includesTermsVersion() throws Exception {
         AppUserEntity user = AppUserEntity.builder()
-                .id(42L).username("newuser").password("hashed").role(UserRole.LITE_USER)
-                .enabled(true).createdAt(LocalDateTime.now())
+                .id(42L).username("newuser").password("").role(UserRole.LITE_USER)
+                .enabled(false).createdAt(LocalDateTime.now())
                 .termsVersion("April 2026").build();
-        doNothing().when(registrationService).setPasswordAndActivate(42L, "MyP@ssw0rd!");
+        when(registrationService.setPasswordAndActivate("verify-token", "MyP@ssw0rd!")).thenReturn(42L);
         when(userRepository.findById(42L)).thenReturn(Optional.of(user));
 
         mockMvc.perform(post("/api/auth/set-password")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"userId\":42,\"password\":\"MyP@ssw0rd!\"}"))
+                        .content("{\"token\":\"verify-token\",\"password\":\"MyP@ssw0rd!\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.termsVersion").value("April 2026"));
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/set-password ignores a caller-supplied userId")
+    void setPassword_userIdInBody_isNotUsedToSelectAccount() throws Exception {
+        AppUserEntity pending = AppUserEntity.builder()
+                .id(42L).username("newuser").password("").role(UserRole.LITE_USER)
+                .enabled(false).createdAt(LocalDateTime.now()).build();
+        when(registrationService.setPasswordAndActivate("verify-token", "MyP@ssw0rd!")).thenReturn(42L);
+        when(userRepository.findById(42L)).thenReturn(Optional.of(pending));
+
+        // userId 1 is the seeded ADMIN row — the token, not the body, decides whose password is set.
+        mockMvc.perform(post("/api/auth/set-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":\"1\",\"token\":\"verify-token\",\"password\":\"MyP@ssw0rd!\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("LITE_USER"));
+
+        org.mockito.Mockito.verify(userRepository, org.mockito.Mockito.never()).findById(1L);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/set-password returns 400 when the token is rejected")
+    void setPassword_rejectedToken_returns400() throws Exception {
+        when(registrationService.setPasswordAndActivate("stale-token", "MyP@ssw0rd!"))
+                .thenThrow(new IllegalArgumentException("Invalid or expired verification token"));
+
+        mockMvc.perform(post("/api/auth/set-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"stale-token\",\"password\":\"MyP@ssw0rd!\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid or expired verification token"));
     }
 
     @Test
@@ -486,19 +518,29 @@ class AuthControllerTest extends AbstractControllerTest {
     void setPassword_weakPassword_returns400() throws Exception {
         mockMvc.perform(post("/api/auth/set-password")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"userId\":42,\"password\":\"short\"}"))
+                        .content("{\"token\":\"verify-token\",\"password\":\"short\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").exists());
     }
 
     @Test
-    @DisplayName("POST /api/auth/set-password returns 400 when userId is missing")
-    void setPassword_missingUserId_returns400() throws Exception {
+    @DisplayName("POST /api/auth/set-password returns 400 when the token is missing")
+    void setPassword_missingToken_returns400() throws Exception {
         mockMvc.perform(post("/api/auth/set-password")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"password\":\"MyP@ssw0rd!\"}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").exists());
+                .andExpect(jsonPath("$.error").value("token and password are required"));
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/set-password returns 400 when the token is blank")
+    void setPassword_blankToken_returns400() throws Exception {
+        mockMvc.perform(post("/api/auth/set-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"  \",\"password\":\"MyP@ssw0rd!\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("token and password are required"));
     }
 
     @Test
@@ -619,12 +661,15 @@ class AuthControllerTest extends AbstractControllerTest {
     void setPassword_turnstileFailed_returns400() throws Exception {
         when(turnstileService.verify(any())).thenReturn(false);
 
+        // A well-formed body, so the CAPTCHA is what fails rather than the earlier presence check.
         mockMvc.perform(post("/api/auth/set-password")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"userId\":42,\"password\":\"MyP@ssw0rd!\","
+                        .content("{\"token\":\"verify-token\",\"password\":\"MyP@ssw0rd!\","
                                 + "\"turnstileToken\":\"bad-token\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("CAPTCHA verification failed. Please try again."));
+        org.mockito.Mockito.verify(registrationService, org.mockito.Mockito.never())
+                .setPasswordAndActivate(any(), any());
     }
 
     @Test

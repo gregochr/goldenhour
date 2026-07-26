@@ -34,6 +34,16 @@ import java.util.Map;
 @RequestMapping("/api/metrics")
 public class JobMetricsController {
 
+    /** Largest page size honoured; anything bigger is clamped down to this. */
+    private static final int MAX_PAGE_SIZE = 200;
+
+    /**
+     * Ceiling on rows fetched to satisfy a deep page. Run-type paging is skip-based, so the
+     * fetch grows with the page index; without a ceiling a caller could ask the DB for billions
+     * of rows (or overflow the int the service takes) with a single query string.
+     */
+    private static final int MAX_SCANNED_ROWS = 5_000;
+
     private final JobRunService jobRunService;
     private final BatchSummaryDeriver batchSummaryDeriver;
     private final ForecastDispositionService dispositionService;
@@ -56,10 +66,14 @@ public class JobMetricsController {
     /**
      * Retrieves recent job runs, optionally filtered by run type.
      *
+     * <p>A negative {@code page} or a non-positive {@code size} is rejected with 400 — there is no
+     * sensible reading of either. An oversized {@code size} is clamped to {@value #MAX_PAGE_SIZE}
+     * rather than rejected, so an over-eager UI still gets its data.
+     *
      * @param runType the run type filter (optional; e.g. VERY_SHORT_TERM, SHORT_TERM, LONG_TERM, WEATHER, TIDE)
-     * @param page    the page index (default 0)
-     * @param size    the page size (default 20)
-     * @return a page of job runs
+     * @param page    the page index (default 0, must be &gt;= 0)
+     * @param size    the page size (default 20, clamped to {@value #MAX_PAGE_SIZE})
+     * @return a page of job runs, or 400 for an unusable page index / size
      */
     @GetMapping("/job-runs")
     @PreAuthorize("hasRole('ADMIN')")
@@ -67,26 +81,45 @@ public class JobMetricsController {
             @RequestParam(required = false) String runType,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
+        if (page < 0 || size < 1) {
+            return ResponseEntity.badRequest().body("page must be >= 0 and size must be >= 1");
+        }
+        int pageSize = Math.min(size, MAX_PAGE_SIZE);
+
         try {
             List<JobRunEntity> runs;
 
             if (runType != null && !runType.isEmpty()) {
                 RunType rt = RunType.valueOf(runType.toUpperCase());
-                runs = jobRunService.getRecentRuns(rt, size * (page + 1)).stream()
-                        .skip((long) page * size)
-                        .limit(size)
+                runs = jobRunService.getRecentRuns(rt, scanLimit(page, pageSize)).stream()
+                        .skip((long) page * pageSize)
+                        .limit(pageSize)
                         .toList();
             } else {
-                runs = jobRunService.getRecentRunsAllTypes(size);
+                runs = jobRunService.getRecentRunsAllTypes(pageSize);
             }
 
             runs.forEach(run -> batchSummaryDeriver.derive(run).ifPresent(run::setBatchSummary));
 
             List<JobRunDto> content = runs.stream().map(JobRunDto::from).toList();
-            return ResponseEntity.ok(new PageImpl<>(content, PageRequest.of(page, size), runs.size()));
+            return ResponseEntity.ok(new PageImpl<>(content, PageRequest.of(page, pageSize), runs.size()));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body("Invalid run type: " + runType);
         }
+    }
+
+    /**
+     * Rows to fetch so that the requested page can be skipped to, bounded and overflow-free.
+     *
+     * <p>Computed in {@code long} arithmetic because {@code size * (page + 1)} overflows int for
+     * large page indices, which would hand the service a negative or absurd limit.
+     *
+     * @param page     the validated (non-negative) page index
+     * @param pageSize the clamped page size
+     * @return the fetch limit, never above {@value #MAX_SCANNED_ROWS}
+     */
+    private static int scanLimit(int page, int pageSize) {
+        return (int) Math.min((long) pageSize * (page + 1L), MAX_SCANNED_ROWS);
     }
 
     /**

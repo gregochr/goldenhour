@@ -31,7 +31,8 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
   const [confirmEmail, setConfirmEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [userId, setUserId] = useState(null);
+  // The verification token, not the user id, identifies the account when the password is set.
+  const [verifiedToken, setVerifiedToken] = useState(null);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -59,8 +60,8 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
     setLoading(true);
     setError('');
     try {
-      const data = await verifyEmail(token);
-      setUserId(data.userId);
+      await verifyEmail(token);
+      setVerifiedToken(token);
       setStep(STEPS.SET_PASSWORD);
     } catch (err) {
       setError(err?.response?.data?.error ?? 'Verification failed. The link may be invalid or expired.');
@@ -151,7 +152,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
     setError('');
     setLoading(true);
     try {
-      const data = await setPasswordForNewUser(userId, password, spTurnstileToken);
+      const data = await setPasswordForNewUser(verifiedToken, password, spTurnstileToken);
       completeRegistration(data);
       setStep(STEPS.SUCCESS);
     } catch (err) {

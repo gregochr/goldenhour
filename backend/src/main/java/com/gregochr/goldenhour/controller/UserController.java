@@ -6,6 +6,8 @@ import com.gregochr.goldenhour.service.PasswordResetResult;
 import com.gregochr.goldenhour.service.RegistrationService;
 import com.gregochr.goldenhour.service.UserService;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
+import com.gregochr.goldenhour.util.EmailValidator;
+import com.gregochr.goldenhour.util.LogSanitizer;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,7 +30,6 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Pattern;
 
 /**
  * REST controller for admin user management.
@@ -42,8 +43,6 @@ import java.util.regex.Pattern;
 public class UserController {
 
     private static final Logger LOG = LoggerFactory.getLogger(UserController.class);
-    private static final Pattern EMAIL_PATTERN =
-            Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
 
     private final UserService userService;
     private final UserEmailService userEmailService;
@@ -83,7 +82,7 @@ public class UserController {
                     .body(Map.of("error", "username, password, role, and email are required"));
         }
 
-        if (!EMAIL_PATTERN.matcher(email.trim()).matches()) {
+        if (!EmailValidator.isValid(email)) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "Invalid email address: " + email));
         }
@@ -143,7 +142,7 @@ public class UserController {
         if (email == null || email.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "email field required"));
         }
-        if (!EMAIL_PATTERN.matcher(email.trim()).matches()) {
+        if (!EmailValidator.isValid(email)) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "Invalid email address: " + email));
         }
@@ -254,7 +253,8 @@ public class UserController {
         }
 
         registrationService.adminResendVerification(user);
-        LOG.info("Admin resent verification email for user id={}, email={}", id, user.getEmail());
+        LOG.info("Admin resent verification email for user id={}, email={}",
+                id, LogSanitizer.sanitize(user.getEmail()));
         return ResponseEntity.ok(Map.of("message", "Verification email sent"));
     }
 

@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.config;
 
+import com.gregochr.goldenhour.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -34,7 +35,10 @@ public class RequestLoggingInterceptor implements Filter {
         }
 
         long startTime = System.currentTimeMillis();
-        LOG.info("→ {} {}", request.getMethod(), request.getRequestURI());
+        // This filter runs before Spring Security, so it logs the raw request line of callers
+        // who never authenticate — method and URI are untrusted until proven otherwise.
+        LOG.info("→ {} {}", LogSanitizer.sanitize(request.getMethod()),
+                LogSanitizer.sanitize(request.getRequestURI()));
 
         try {
             chain.doFilter(request, response);
@@ -52,7 +56,8 @@ public class RequestLoggingInterceptor implements Filter {
             } else {
                 statusLabel = "✗ " + status;
             }
-            LOG.info("← {} {} ({} ms)", statusLabel, request.getRequestURI(), duration);
+            LOG.info("← {} {} ({} ms)", statusLabel, LogSanitizer.sanitize(request.getRequestURI()),
+                    duration);
         }
     }
 }

@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.ScheduleType;
 import com.gregochr.goldenhour.entity.SchedulerJobConfigEntity;
 import com.gregochr.goldenhour.entity.SchedulerJobStatus;
 import com.gregochr.goldenhour.repository.SchedulerJobConfigRepository;
+import com.gregochr.goldenhour.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.TaskScheduler;
@@ -140,9 +141,11 @@ public class DynamicSchedulerService {
             scheduleJob(config);
         }
 
+        // jobKey is an admin request path variable and the cron arrives in the request body —
+        // both reach the log verbatim, so neither may carry line breaks into the audit trail.
         LOG.info("Updated schedule for '{}': type={}, cron={}, delay={}ms",
-                jobKey, config.getScheduleType(), config.getCronExpression(),
-                config.getFixedDelayMs());
+                LogSanitizer.sanitize(jobKey), config.getScheduleType(),
+                LogSanitizer.sanitize(config.getCronExpression()), config.getFixedDelayMs());
         return config;
     }
 
@@ -163,7 +166,7 @@ public class DynamicSchedulerService {
         config.setUpdatedAt(Instant.now());
         repository.save(config);
 
-        LOG.info("Paused job '{}'", jobKey);
+        LOG.info("Paused job '{}'", LogSanitizer.sanitize(jobKey));
         return config;
     }
 
@@ -184,7 +187,7 @@ public class DynamicSchedulerService {
         repository.save(config);
         scheduleJob(config);
 
-        LOG.info("Resumed job '{}'", jobKey);
+        LOG.info("Resumed job '{}'", LogSanitizer.sanitize(jobKey));
         return config;
     }
 
@@ -205,7 +208,7 @@ public class DynamicSchedulerService {
         }
 
         taskScheduler.schedule(wrapTarget(jobKey, target), Instant.now());
-        LOG.info("Triggered immediate run for job '{}'", jobKey);
+        LOG.info("Triggered immediate run for job '{}'", LogSanitizer.sanitize(jobKey));
     }
 
     /**
@@ -252,7 +255,8 @@ public class DynamicSchedulerService {
     void scheduleJob(SchedulerJobConfigEntity config) {
         Runnable target = jobTargets.get(config.getJobKey());
         if (target == null) {
-            LOG.warn("No registered target for job '{}' — skipping schedule", config.getJobKey());
+            LOG.warn("No registered target for job '{}' — skipping schedule",
+                    LogSanitizer.sanitize(config.getJobKey()));
             return;
         }
 
@@ -271,8 +275,8 @@ public class DynamicSchedulerService {
             }
             scheduledFutures.put(config.getJobKey(), future);
             LOG.info("Scheduled job '{}': type={}, cron={}, delay={}ms",
-                    config.getJobKey(), config.getScheduleType(),
-                    config.getCronExpression(), config.getFixedDelayMs());
+                    LogSanitizer.sanitize(config.getJobKey()), config.getScheduleType(),
+                    LogSanitizer.sanitize(config.getCronExpression()), config.getFixedDelayMs());
         } finally {
             scheduleLock.unlock();
         }
