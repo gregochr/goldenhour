@@ -73,7 +73,7 @@ jobs:
           script: |
             set -e
             cd ~/goldenhour
-            mkdir -p /Users/gregochr/goldenhour-data/logs
+            mkdir -p /home/gregochr/goldenhour-data/logs
 
             # Refuse to deploy over an active rollback pin.
             #
@@ -104,6 +104,37 @@ jobs:
             # otherwise never have reached production.
             git show "${RELEASE_VERSION}:nginx.conf" > nginx.conf
             git show "${RELEASE_VERSION}:docker-compose.yml" > docker-compose.yml
+
+            # Refuse to start Postgres against a directory that holds no database.
+            #
+            # This is the single most destructive failure available here, and it is
+            # silent: pointed at an empty or missing path, Postgres does not error —
+            # it runs initdb, starts a BRAND NEW EMPTY database, and the backend comes
+            # up healthy against it and begins writing. Every health check passes while
+            # the real data sits untouched at the old path.
+            #
+            # The compose file we just materialised from the tag decides that path, so
+            # this checks the two together, immediately after writing it and before
+            # anything starts. `-d` first because the directory itself is stat-able by
+            # this user; the contents are mode 700 uid 70, so peeking inside needs a
+            # root context, hence the throwaway container. Checking `-d` first also
+            # stops `docker run -v` from creating the very empty directory we fear.
+            PGDATA_SRC="$(grep -oE '^[[:space:]]*-[[:space:]]*[^[:space:]]+:/var/lib/postgresql/data' docker-compose.yml \
+                          | head -1 | sed 's|^[[:space:]]*-[[:space:]]*||; s|:/var/lib/postgresql/data||')"
+            # Only a bind mount (absolute path) can have this failure. A named
+            # volume is managed by Docker and never silently empty in this way, so
+            # skip rather than abort a deploy that was never at risk.
+            case "$PGDATA_SRC" in /*) PGDATA_IS_BIND=true ;; *) PGDATA_IS_BIND=false ;; esac
+            if [ "$PGDATA_IS_BIND" = true ]; then
+              if [ ! -d "$PGDATA_SRC" ] \
+                 || ! docker run --rm -v "${PGDATA_SRC}:/d:ro" alpine test -f /d/PG_VERSION 2>/dev/null; then
+                echo "ERROR: ${PGDATA_SRC} holds no Postgres data directory (no PG_VERSION)." >&2
+                echo "       Starting here would initialise an EMPTY database and report success." >&2
+                echo "       The data has probably not been migrated yet — run scripts/migrate-pgdata-path.sh." >&2
+                exit 1
+              fi
+              echo "PGDATA verified at ${PGDATA_SRC}"
+            fi
 
             # Back up BEFORE pulling. `docker compose pull` overwrites :latest,
             # which is the only other handle on the outgoing build — after that
