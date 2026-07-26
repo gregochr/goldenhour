@@ -29,7 +29,13 @@ PG_USER="${PG_USER:-goldenhour}"
 BACKUP_DIR="${BACKUP_DIR:-${HOME}/goldenhour-backups}"
 RELEASE_DIR="${BACKUP_DIR}/pre-release"
 COMPOSE_DIR="${COMPOSE_DIR:-${HOME}/goldenhour}"
-OVERRIDE_FILE="${COMPOSE_DIR}/docker-compose.rollback.yml"
+# Must be one of the names Compose auto-loads (docker-compose.override.yml /
+# compose.override.yml). This was previously docker-compose.rollback.yml, which
+# Compose ignores unless passed with -f — so the "pin" existed only for the one
+# command below that named it explicitly, and the very next bare
+# `docker compose up -d` would quietly resolve :latest back to the bad release
+# while the banner and the file on disk both still claimed production was pinned.
+OVERRIDE_FILE="${COMPOSE_DIR}/docker-compose.override.yml"
 
 # --- No argument: show what is available --------------------------------------
 if [ $# -eq 0 ]; then
@@ -108,7 +114,21 @@ docker compose stop goldenhour-backend goldenhour-frontend
 
 # --- 3. Restore -----------------------------------------------------------------
 echo "==> Restoring ${DUMP_FILE}"
-gunzip -c "$DUMP_FILE" | docker exec -i "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" >/dev/null
+# ON_ERROR_STOP + --single-transaction, both required:
+#   Without ON_ERROR_STOP, psql reports success having skipped every statement it
+#   could not apply, so a dump that restores half its tables still printed
+#   "ROLLBACK COMPLETE" and left a database that is neither the old schema nor
+#   the new one.
+#   --single-transaction then makes it all-or-nothing: on any error the database
+#   is left exactly as it was, which is recoverable, rather than half-restored,
+#   which is not.
+if ! gunzip -c "$DUMP_FILE" | docker exec -i "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" \
+        -v ON_ERROR_STOP=1 --single-transaction >/dev/null; then
+    echo "ERROR: restore failed and was rolled back — the database is unchanged." >&2
+    echo "       Production is still on the bad release. Restart the containers with:" >&2
+    echo "         docker compose start goldenhour-backend goldenhour-frontend" >&2
+    exit 1
+fi
 RESTORED_SCHEMA="$(docker exec "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -tAc \
     "SELECT COALESCE(MAX(version), 'none') FROM flyway_schema_history WHERE success" | tr -d '[:space:]')"
 echo "    schema now at ${RESTORED_SCHEMA} (expected ${SCHEMA_VERSION})"
