@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 
 /**
@@ -81,5 +82,26 @@ class MacOsToastNotificationServiceTest {
                 toastService.notify(
                         new SunsetEvaluation(null, 70, 65, "A \"beautiful\" golden sky expected."),
                         "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 3, 1)));
+    }
+
+    @Test
+    @DisplayName("escapeForAppleScript() escapes backslashes before quotes so the literal stays balanced")
+    void escapeForAppleScript_escapesBackslashBeforeQuote() {
+        // A trailing backslash would otherwise escape the closing quote of the literal
+        assertThat(MacOsToastNotificationService.escapeForAppleScript("cloud \\ \"gap\""))
+                .isEqualTo("cloud \\\\ \\\"gap\\\"");
+    }
+
+    @Test
+    @DisplayName("escapeForAppleScript() replaces newlines and control characters with spaces")
+    void escapeForAppleScript_flattensControlCharacters() {
+        assertThat(MacOsToastNotificationService.escapeForAppleScript("line one\r\nline two\ttab"))
+                .isEqualTo("line one  line two tab");
+    }
+
+    @Test
+    @DisplayName("escapeForAppleScript() renders a null summary as an empty literal")
+    void escapeForAppleScript_nullValue_returnsEmptyString() {
+        assertThat(MacOsToastNotificationService.escapeForAppleScript(null)).isEmpty();
     }
 }

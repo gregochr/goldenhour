@@ -103,13 +103,16 @@ export async function verifyEmail(token) {
 /**
  * Sets the password for a newly verified user and auto-logs them in.
  *
- * @param {number} userId - The user's ID from the verification step.
+ * The verification token identifies the account: the backend resolves the user from it, so a
+ * guessed user id cannot be used to overwrite someone else's password.
+ *
+ * @param {string} token - The verification token from the email link (same one passed to verifyEmail).
  * @param {string} password - The chosen password.
  * @param {string} turnstileToken - Cloudflare Turnstile verification token.
  * @returns {Promise<{accessToken: string, refreshToken: string, role: string, expiresAt: string}>}
  */
-export async function setPasswordForNewUser(userId, password, turnstileToken) {
-  const response = await apiClient.post(`${BASE_URL}/set-password`, { userId, password, turnstileToken });
+export async function setPasswordForNewUser(token, password, turnstileToken) {
+  const response = await apiClient.post(`${BASE_URL}/set-password`, { token, password, turnstileToken });
   return response.data;
 }
 

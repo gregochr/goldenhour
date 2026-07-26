@@ -1,0 +1,21 @@
+name: "Golden Hour CodeQL config"
+
+# Every exclusion below is non-application content. Test *code* (backend/src/test/java,
+# frontend/src/**/*.test.*) is deliberately still scanned — only fixture DATA and generated
+# output are dropped, so do not read this list as "tests are not analysed".
+paths-ignore:
+  # Maven build output — a byte-for-byte copy of backend/src/main/resources, so anything
+  # here is a duplicate alert against a source file that is already scanned.
+  - '**/target/**'
+  # Third-party dependencies; not ours to fix.
+  - '**/node_modules/**'
+  # Vite build output — generated from frontend/src, which is scanned.
+  - '**/dist/**'
+  # Scraper fixtures and canned API responses (e.g. nlc/nlcnet-live-table-*.html). These are
+  # captured third-party payloads asserted against verbatim; their defects are the point.
+  - 'backend/src/test/resources/**'
+  # Generated reference documentation (pipeline-reference.html) — rendered artefact, not shipped code.
+  - 'docs/**'
+
+queries:
+  - uses: security-and-quality

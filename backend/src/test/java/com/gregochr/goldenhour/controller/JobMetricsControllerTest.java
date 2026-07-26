@@ -19,6 +19,8 @@ import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -119,6 +121,58 @@ class JobMetricsControllerTest extends AbstractControllerTest {
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].runType").value("WEATHER"));
+    }
+
+    @Test
+    @DisplayName("GET /api/metrics/job-runs rejects a negative page index")
+    @WithMockUser(roles = "ADMIN")
+    void getJobRuns_negativePage_returnsBadRequest() throws Exception {
+        mockMvc.perform(get("/api/metrics/job-runs?page=-1")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(jobRunService);
+    }
+
+    @Test
+    @DisplayName("GET /api/metrics/job-runs rejects a non-positive page size")
+    @WithMockUser(roles = "ADMIN")
+    void getJobRuns_zeroSize_returnsBadRequest() throws Exception {
+        mockMvc.perform(get("/api/metrics/job-runs?size=0")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(jobRunService);
+    }
+
+    @Test
+    @DisplayName("GET /api/metrics/job-runs clamps an oversized page size to 200")
+    @WithMockUser(roles = "ADMIN")
+    void getJobRuns_oversizedSize_isClampedToMaxPageSize() throws Exception {
+        when(jobRunService.getRecentRunsAllTypes(200)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/metrics/job-runs?size=2000000000")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isEmpty());
+
+        verify(jobRunService).getRecentRunsAllTypes(200);
+    }
+
+    @Test
+    @DisplayName("GET /api/metrics/job-runs caps the run-type scan instead of overflowing int")
+    @WithMockUser(roles = "ADMIN")
+    void getJobRuns_hugePageAndSize_capsScanLimit() throws Exception {
+        // size * (page + 1) overflows int at these values; the clamp + long arithmetic must
+        // leave the service with a positive, bounded limit
+        when(jobRunService.getRecentRuns(eq(RunType.WEATHER), eq(5000))).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/metrics/job-runs?runType=WEATHER&page=2000000000&size=2000000000")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isEmpty());
+
+        verify(jobRunService).getRecentRuns(RunType.WEATHER, 5000);
     }
 
     @Test

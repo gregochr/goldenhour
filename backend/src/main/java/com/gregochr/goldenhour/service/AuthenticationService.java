@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.exception.InvalidCredentialsException;
 import com.gregochr.goldenhour.model.AuthTokens;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.RefreshTokenRepository;
+import com.gregochr.goldenhour.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -91,18 +92,20 @@ public class AuthenticationService {
         AppUserEntity user = userRepository.findByUsername(username).orElse(null);
 
         if (user == null || !passwordEncoder.matches(password, user.getPassword())) {
-            LOG.warn("Login failed: user='{}' — bad credentials", username);
+            LOG.warn("Login failed: user='{}' — bad credentials", LogSanitizer.sanitize(username));
             throw new InvalidCredentialsException("Invalid username or password");
         }
         if (!user.isEnabled()) {
-            LOG.warn("Login failed: user='{}' — account disabled", username);
+            LOG.warn("Login failed: user='{}' — account disabled", LogSanitizer.sanitize(username));
             throw new InvalidCredentialsException("Account is disabled");
         }
 
         user.setLastActiveAt(LocalDateTime.now());
         userRepository.save(user);
 
-        LOG.info("Login: user='{}' role={}", user.getUsername(), user.getRole());
+        // Sanitised even though it comes from the database: registration never validates the
+        // username's shape, so a stored name can still carry CRLF from the original request.
+        LOG.info("Login: user='{}' role={}", LogSanitizer.sanitize(user.getUsername()), user.getRole());
         return issueTokensFor(user);
     }
 
@@ -215,7 +218,7 @@ public class AuthenticationService {
         user.setPasswordChangeRequired(false);
         userRepository.save(user);
 
-        LOG.info("Password changed: user='{}'", username);
+        LOG.info("Password changed: user='{}'", LogSanitizer.sanitize(username));
     }
 
     /**

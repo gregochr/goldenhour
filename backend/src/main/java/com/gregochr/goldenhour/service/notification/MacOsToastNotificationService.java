@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.time.LocalDate;
+import java.util.regex.Pattern;
 
 /**
  * Shows a macOS toast notification for a forecast evaluation via {@code osascript}.
@@ -22,6 +23,15 @@ import java.time.LocalDate;
 public class MacOsToastNotificationService implements NotificationChannel {
 
     private static final Logger LOG = LoggerFactory.getLogger(MacOsToastNotificationService.class);
+
+    /**
+     * Absolute path to the interpreter. Naming the bare command would resolve it through
+     * {@code PATH}, so a directory ahead of {@code /usr/bin} could supply a different binary.
+     */
+    private static final String OSASCRIPT = "/usr/bin/osascript";
+
+    /** Control characters (CR/LF included) that would terminate the AppleScript string literal. */
+    private static final Pattern CONTROL_CHARS = Pattern.compile("\\p{Cntrl}");
 
     private final NotificationProperties properties;
 
@@ -52,12 +62,32 @@ public class MacOsToastNotificationService implements NotificationChannel {
         String title = buildTitle(evaluation, locationName, targetType, date);
         String script = String.format(
                 "display notification \"%s\" with title \"%s\"",
-                evaluation.summary().replace("\"", "\\\""), title.replace("\"", "\\\""));
+                escapeForAppleScript(evaluation.summary()), escapeForAppleScript(title));
         try {
-            Runtime.getRuntime().exec(new String[]{"osascript", "-e", script});
+            Runtime.getRuntime().exec(new String[]{OSASCRIPT, "-e", script});
         } catch (IOException e) {
             LOG.warn("macOS toast notification failed: {}", e.getMessage());
         }
+    }
+
+    /**
+     * Renders untrusted text safe to embed in a double-quoted AppleScript string literal.
+     *
+     * <p>The summary is model-generated, so it can contain anything. A stray quote, backslash or
+     * newline would close the literal early and turn the rest of the text into AppleScript the
+     * interpreter runs.
+     *
+     * @param value the raw text, may be null
+     * @return the escaped text, empty string when {@code value} is null
+     */
+    static String escapeForAppleScript(String value) {
+        if (value == null) {
+            return "";
+        }
+        // Backslashes first: escaping quotes adds backslashes, so the reverse order would
+        // re-escape those and leave the literal unbalanced.
+        String escaped = value.replace("\\", "\\\\").replace("\"", "\\\"");
+        return CONTROL_CHARS.matcher(escaped).replaceAll(" ");
     }
 
     private String buildTitle(SunsetEvaluation evaluation, String locationName,
