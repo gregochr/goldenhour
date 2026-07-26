@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service;
 
-import com.gregochr.goldenhour.client.OpenMeteoArchiveApi;
 import com.gregochr.goldenhour.entity.CloudVerificationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CloudVerificationBucket;
@@ -22,13 +21,14 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -46,7 +46,7 @@ class CloudVerificationServiceTest {
             Clock.fixed(Instant.parse("2026-05-31T09:00:00Z"), ZoneOffset.UTC);
 
     @Mock
-    private OpenMeteoArchiveApi archiveApi;
+    private OpenMeteoArchiveClient archiveClient;
 
     @Mock
     private CloudVerificationRepository repository;
@@ -55,15 +55,15 @@ class CloudVerificationServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CloudVerificationService(archiveApi, repository, CLOCK);
+        service = new CloudVerificationService(archiveClient, repository, CLOCK);
     }
 
     @Test
     @DisplayName("backfill samples the solar horizon and the observer, at the event hour")
     void backfill_samplesBothPoints() {
         when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
-        when(archiveApi.getArchive(anyDouble(), anyDouble(), anyString(), anyString(),
-                anyString(), anyString())).thenReturn(archive());
+        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
+                .thenReturn(List.of(archive(), archive()));
 
         assertThat(service.backfill(10)).isEqualTo(1);
 
@@ -85,8 +85,8 @@ class CloudVerificationServiceTest {
     @DisplayName("backfill records a row even when the archive has no data, so it is not retried")
     void backfill_archiveFailure_stillRecordsRow() {
         when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
-        when(archiveApi.getArchive(anyDouble(), anyDouble(), anyString(), anyString(),
-                anyString(), anyString())).thenThrow(new RuntimeException("503"));
+        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
+                .thenReturn(Arrays.asList(null, null));
 
         assertThat(service.backfill(10)).isEqualTo(1);
 
@@ -98,6 +98,49 @@ class CloudVerificationServiceTest {
         assertThat(row.getHorizonLowCloud()).isNull();
         assertThat(row.getObservedAt()).isNull();
         assertThat(row.getForecastEvaluationId()).isEqualTo(42L);
+    }
+
+    @Test
+    @DisplayName("backfill batches one request per date, two points per candidate, in order")
+    void backfill_batchesByDateWithHorizonThenObserver() {
+        VerificationCandidate first = candidate();
+        VerificationCandidate second = new VerificationCandidate(43L, 55.0, -2.0, 250,
+                LocalDateTime.of(2026, 5, 10, 21, 40), TargetType.SUNSET);
+        when(repository.findUnverified(any(), any())).thenReturn(List.of(first, second));
+        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
+                .thenReturn(List.of(archive(), archive(), archive(), archive()));
+
+        assertThat(service.backfill(10)).isEqualTo(2);
+
+        // Same date → exactly one batched request, not one call per point.
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<double[]>> points = ArgumentCaptor.forClass(List.class);
+        verify(archiveClient).fetchArchiveBatch(
+                points.capture(), eq(LocalDate.of(2026, 5, 10)), anyString());
+
+        // Two points per candidate, interleaved horizon-then-observer.
+        assertThat(points.getValue()).hasSize(4);
+        assertThat(points.getValue().get(1)).containsExactly(54.7753, -1.5849);
+        assertThat(points.getValue().get(3)).containsExactly(55.0, -2.0);
+        // Horizon points are offset along the azimuth, so they differ from their observers.
+        assertThat(points.getValue().get(0)[0]).isNotEqualTo(54.7753);
+        assertThat(points.getValue().get(2)[0]).isNotEqualTo(55.0);
+    }
+
+    @Test
+    @DisplayName("backfill issues one request per distinct date")
+    void backfill_separateRequestPerDate() {
+        VerificationCandidate may10 = candidate();
+        VerificationCandidate may11 = new VerificationCandidate(43L, 55.0, -2.0, 250,
+                LocalDateTime.of(2026, 5, 11, 21, 40), TargetType.SUNSET);
+        when(repository.findUnverified(any(), any())).thenReturn(List.of(may10, may11));
+        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
+                .thenReturn(List.of(archive(), archive()));
+
+        assertThat(service.backfill(10)).isEqualTo(2);
+
+        verify(archiveClient).fetchArchiveBatch(any(), eq(LocalDate.of(2026, 5, 10)), anyString());
+        verify(archiveClient).fetchArchiveBatch(any(), eq(LocalDate.of(2026, 5, 11)), anyString());
     }
 
     @Test
