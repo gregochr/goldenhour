@@ -31,13 +31,22 @@ jobs:
           restore-keys: |
             owasp-db-${{ runner.os }}-
 
+      # No continue-on-error: backend/pom.xml sets failBuildOnCVSS=7, a gate that
+      # was deliberately armed and then discarded here — the job reported success
+      # no matter what the scan found. The report upload below is `if: always()`,
+      # so a failing scan still publishes its report.
+      #
+      # The plugin version is intentionally NOT pinned in this command. It used to
+      # read `org.owasp:dependency-check-maven:12.2.1:check`, which silently drifted
+      # behind the 12.2.2 declared in backend/pom.xml: Dependabot bumps the pom but
+      # cannot see a version embedded in a shell string. Naming the prefix alone
+      # resolves the pom's version, and picks up its suppression file and threshold.
       - name: Run OWASP Dependency-Check
-        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
-          cd backend && ./mvnw org.owasp:dependency-check-maven:12.2.1:check --batch-mode --no-transfer-progress -DossindexAnalyzerEnabled=false -DnvdValidForHours=168 -DnvdApiKeyEnvironmentVariable=NVD_API_KEY
+          cd backend && ./mvnw dependency-check:check --batch-mode --no-transfer-progress -DossindexAnalyzerEnabled=false -DnvdValidForHours=168 -DnvdApiKeyEnvironmentVariable=NVD_API_KEY
 
       - name: Upload OWASP report
         if: always()
@@ -46,3 +55,12 @@ jobs:
           name: owasp-dependency-check-report
           path: backend/target/dependency-check-report.*
           retention-days: 30
+
+  notify-failure:
+    needs: owasp-dependency-check
+    if: failure()
+    permissions:
+      issues: write
+    uses: ./.github/workflows/ci-failure-issue.yml
+    with:
+      workflow-name: OWASP Dependency Check
