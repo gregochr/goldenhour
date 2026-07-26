@@ -71,16 +71,11 @@ public class OutcomeService {
     }
 
     /**
-     * Persists an observed outcome and returns the saved entity.
-     *
-     * @param outcome the outcome data received from the client
-     * @return the saved entity with its assigned database ID
-     */
-    /**
      * Validates that a score is in the 0–100 range if present.
      *
      * @param value the score to validate, or {@code null}
      * @param name  field name used in the exception message
+     * @throws IllegalArgumentException if {@code value} is outside 0–100
      */
     private void validateScore(Integer value, String name) {
         if (value != null && (value < 0 || value > 100)) {
@@ -88,6 +83,14 @@ public class OutcomeService {
         }
     }
 
+    /**
+     * Persists an observed outcome and returns the saved entity.
+     *
+     * @param outcome the outcome data received from the client
+     * @return the saved entity with its assigned database ID
+     * @throws IllegalArgumentException if either actual score is outside 0–100
+     * @throws NoSuchElementException   if no location matches {@code outcome.locationName()}
+     */
     public ActualOutcomeEntity record(ActualOutcome outcome) {
         validateScore(outcome.fierySkyActual(), "fierySkyActual");
         validateScore(outcome.goldenHourActual(), "goldenHourActual");

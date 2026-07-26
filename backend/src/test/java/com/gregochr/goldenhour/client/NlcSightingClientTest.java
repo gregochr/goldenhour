@@ -198,6 +198,120 @@ class NlcSightingClientTest {
         assertThat(reports.get(0).observer()).isEqualTo("Late Observer");
     }
 
+    // ── Malformed live-table rows degrade gracefully ────────────────────────────
+    //
+    // NLCNET is a third-party page that can change or serve junk at any time. A single bad row must
+    // cost that row only — never the whole scrape — so every case below asserts that the good row
+    // still parses. Any exception escaping parse() fails these tests outright.
+
+    private static String cell(String title, String text) {
+        return "<td title=\"" + title + "\">" + text + "</td>";
+    }
+
+    /** Builds a live-table row; the {@code Location} column is fixed so callers vary only the rest. */
+    private static String tableRow(String observer, String yy, String mm, String dd, String utStart) {
+        return "<tr>"
+                + cell("Observer", observer)
+                + cell("Location", "Kielder")
+                + cell("Country", "England")
+                + cell("yy", yy)
+                + cell("mm", mm)
+                + cell("dd", dd)
+                + cell("UT-Start", utStart)
+                + "</tr>";
+    }
+
+    private static String table(String... rows) {
+        return "<html><body><table>" + String.join("", rows) + "</table></body></html>";
+    }
+
+    /** A well-formed row: 00:17 on the 01–02 night resolves to the morning of the 2nd. */
+    private static final String GOOD_ROW = tableRow("Good Observer", "2026", "07", "01-02", "00:17");
+
+    @Test
+    @DisplayName("a year cell whose digit run overflows int skips that row, not the whole scrape")
+    void parse_yearCellOverflowsInt_rowSkipped() {
+        String html = table(tableRow("Bad Year", "99999999999", "07", "01-02", "00:17"), GOOD_ROW);
+
+        List<NlcSightingReport> reports = client.parse(html);
+
+        assertThat(reports).extracting(NlcSightingReport::observer).containsExactly("Good Observer");
+    }
+
+    @Test
+    @DisplayName("a month cell whose digit run overflows int skips that row")
+    void parse_monthCellOverflowsInt_rowSkipped() {
+        String html = table(tableRow("Bad Month", "2026", "12345678901", "01-02", "00:17"), GOOD_ROW);
+
+        List<NlcSightingReport> reports = client.parse(html);
+
+        assertThat(reports).extracting(NlcSightingReport::observer).containsExactly("Good Observer");
+    }
+
+    @Test
+    @DisplayName("a time cell of an overflowing digit run skips that row")
+    void parse_timeCellOverflowingDigitRun_rowSkipped() {
+        // The time regex reads "99999999999" as 99:99, which is not a real clock time.
+        String html = table(tableRow("Bad Time", "2026", "07", "01-02", "99999999999"), GOOD_ROW);
+
+        List<NlcSightingReport> reports = client.parse(html);
+
+        assertThat(reports).extracting(NlcSightingReport::observer).containsExactly("Good Observer");
+    }
+
+    @Test
+    @DisplayName("a garbled, digit-free time cell skips that row")
+    void parse_garbledTimeCell_rowSkipped() {
+        String html = table(tableRow("No Time", "2026", "07", "01-02", "not recorded"), GOOD_ROW);
+
+        List<NlcSightingReport> reports = client.parse(html);
+
+        assertThat(reports).extracting(NlcSightingReport::observer).containsExactly("Good Observer");
+    }
+
+    @Test
+    @DisplayName("a non-numeric day cell skips that row")
+    void parse_nonNumericDayCell_rowSkipped() {
+        String html = table(tableRow("No Day", "2026", "07", "n/a", "00:17"), GOOD_ROW);
+
+        List<NlcSightingReport> reports = client.parse(html);
+
+        assertThat(reports).extracting(NlcSightingReport::observer).containsExactly("Good Observer");
+    }
+
+    @Test
+    @DisplayName("an out-of-range date (month 13, day 40) skips that row")
+    void parse_outOfRangeDateCells_rowSkipped() {
+        String html = table(tableRow("Bad Date", "2026", "13", "40", "00:17"), GOOD_ROW);
+
+        List<NlcSightingReport> reports = client.parse(html);
+
+        assertThat(reports).extracting(NlcSightingReport::observer).containsExactly("Good Observer");
+    }
+
+    @Test
+    @DisplayName("a table of nothing but malformed rows yields an empty list, never an exception")
+    void parse_allRowsMalformed_returnsEmpty() {
+        String html = table(
+                tableRow("Bad Year", "99999999999", "07", "01-02", "00:17"),
+                tableRow("Bad Time", "2026", "07", "01-02", "99999999999"),
+                tableRow("No Day", "2026", "07", "n/a", "00:17"));
+
+        assertThat(client.parse(html)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a caption carrying an impossible date/time is skipped, not thrown on")
+    void parse_captionWithOutOfRangeDateTime_skipped() {
+        String html = page(
+                "Bad Caption from Elgin on 2026, 13, 40 from 25:99 UT.",
+                "Ken Kennedy from Dundee, Scotland on 2026, 06, 20 from 23:30 UT.");
+
+        List<NlcSightingReport> reports = client.parse(html);
+
+        assertThat(reports).extracting(NlcSightingReport::observer).containsExactly("Ken Kennedy");
+    }
+
     // ── Season-tracking URL resolution ──────────────────────────────────────────
 
     @Test

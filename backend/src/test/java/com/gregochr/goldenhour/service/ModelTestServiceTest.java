@@ -324,9 +324,9 @@ class ModelTestServiceTest {
     void resolveTargetDate_logic() {
         LocalDateTime now = LocalDateTime.of(2026, 3, 1, 14, 0);
 
-        assertThat(service.resolveTargetDate(now, TargetType.SUNSET, List.of()))
+        assertThat(service.resolveTargetDate(now, TargetType.SUNSET))
                 .isEqualTo(LocalDate.of(2026, 3, 1));
-        assertThat(service.resolveTargetDate(now, TargetType.SUNRISE, List.of()))
+        assertThat(service.resolveTargetDate(now, TargetType.SUNRISE))
                 .isEqualTo(LocalDate.of(2026, 3, 2));
     }
 

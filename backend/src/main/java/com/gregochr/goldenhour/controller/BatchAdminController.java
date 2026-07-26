@@ -148,7 +148,7 @@ public class BatchAdminController {
         BatchSubmitResult result =
                 batchEvaluationService.submitScheduledBatchForRegions(regionIds);
         if (result == null) {
-            return ResponseEntity.unprocessableEntity().build();
+            return ResponseEntity.unprocessableContent().build();
         }
         return ResponseEntity.ok(result);
     }
@@ -173,7 +173,7 @@ public class BatchAdminController {
         List<Long> regionIds = request != null ? request.regionIds() : null;
         BatchSubmitResult result = forceSubmitBatchService.submitJfdiBatch(regionIds);
         if (result == null) {
-            return ResponseEntity.unprocessableEntity().build();
+            return ResponseEntity.unprocessableContent().build();
         }
         return ResponseEntity.ok(result);
     }
@@ -213,11 +213,11 @@ public class BatchAdminController {
             ForceSubmitResult result = forceSubmitBatchService.forceSubmit(
                     request.regionId(), request.date(), targetType);
             if (result.batchId() == null) {
-                return ResponseEntity.unprocessableEntity().body(result);
+                return ResponseEntity.unprocessableContent().body(result);
             }
             return ResponseEntity.ok(result);
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.unprocessableEntity().body(
+            return ResponseEntity.unprocessableContent().body(
                     new ForceSubmitResult(null, 0, null, 0, 0, 0, List.of(e.getMessage())));
         }
     }

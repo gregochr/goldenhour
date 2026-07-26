@@ -231,17 +231,41 @@ public class NlcSightingClient {
         return cell != null ? cell.text().trim() : null;
     }
 
-    /** Parses a {@code HH:MM} / {@code HHMM} time cell into {@code [hour, minute]}, or null. */
+    /**
+     * Parses a {@code HH:MM} / {@code HHMM} time cell into {@code [hour, minute]}, or null when the
+     * cell does not match or either component is not a usable number.
+     */
     private static int[] parseTime(String text) {
         Matcher m = TIME.matcher(text);
-        return m.find() ? new int[] {Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2))} : null;
+        if (!m.find()) {
+            return null;
+        }
+        Integer hour = parseIntOrNull(m.group(1));
+        Integer minute = parseIntOrNull(m.group(2));
+        return (hour != null && minute != null) ? new int[] {hour, minute} : null;
     }
 
+    /**
+     * Returns the first capture group of {@code pattern} in {@code text} as a number, or null when
+     * the pattern does not match or the group is not a usable number.
+     */
     private static Integer firstMatch(Pattern pattern, String text) {
         Matcher m = pattern.matcher(text);
-        return m.find() ? Integer.parseInt(m.group(1)) : null;
+        return m.find() ? parseIntOrNull(m.group(1)) : null;
     }
 
+    /**
+     * Parses {@code text} as an {@code int}, yielding null rather than throwing when it is not one.
+     *
+     * <p>Every numeric read in this scraper — cell text and regex capture group alike — goes through
+     * here. The patterns above happen to bound each group to at most four digits today, but that is
+     * an invariant of the regex, not of the page: relaxing one quantifier to tolerate a changed
+     * upstream layout would otherwise let an overflowing digit run abort the whole scrape. Callers
+     * treat null as "skip this row", which is what a best-effort scraper needs.
+     *
+     * @param text the raw text to parse; must not be null
+     * @return the parsed value, or null when {@code text} is not a parseable {@code int}
+     */
     private static Integer parseIntOrNull(String text) {
         try {
             return Integer.parseInt(text.trim());
@@ -267,10 +291,15 @@ public class NlcSightingClient {
         if (location.isEmpty()) {
             return null;
         }
-        Instant reportedAt = toInstant(
-                Integer.parseInt(m.group(3)), Integer.parseInt(m.group(4)),
-                Integer.parseInt(m.group(5)), Integer.parseInt(m.group(6)),
-                Integer.parseInt(m.group(7)));
+        Integer year = parseIntOrNull(m.group(3));
+        Integer month = parseIntOrNull(m.group(4));
+        Integer day = parseIntOrNull(m.group(5));
+        Integer hour = parseIntOrNull(m.group(6));
+        Integer minute = parseIntOrNull(m.group(7));
+        if (year == null || month == null || day == null || hour == null || minute == null) {
+            return null;
+        }
+        Instant reportedAt = toInstant(year, month, day, hour, minute);
         if (reportedAt == null) {
             return null;
         }

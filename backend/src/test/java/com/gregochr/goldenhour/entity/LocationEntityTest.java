@@ -80,6 +80,17 @@ class LocationEntityTest {
         assertThat(loc.supportsTargetType(TargetType.HOURLY)).isTrue();
     }
 
+    @Test
+    @DisplayName("toString() identifies the location without touching its associations")
+    void toString_identifiesLocation() {
+        LocationEntity loc = LocationEntity.builder().id(12L).name("Durham UK").lat(54.7761).lon(-1.5733)
+                .region(RegionEntity.builder().id(3L).name("County Durham").build())
+                .build();
+
+        // Naming the region would make a log statement fetch the association; id + name must be enough.
+        assertThat(loc.toString()).isEqualTo("LocationEntity(id=12, name=Durham UK)");
+    }
+
     @Nested
     @DisplayName("hasGridCell()")
     class HasGridCellTests {

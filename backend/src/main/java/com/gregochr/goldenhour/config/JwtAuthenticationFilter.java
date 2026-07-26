@@ -100,13 +100,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     /**
-     * Updates the user's {@code lastActiveAt} timestamp if it is null or older than
-     * {@link #ACTIVITY_UPDATE_INTERVAL_MINUTES} minutes. Failures are logged but do not
-     * block the request.
-     *
-     * @param username the authenticated username
-     */
-    /**
      * Extracts the JWT token from the Authorization header, or from the {@code token}
      * query parameter for SSE paths (EventSource API cannot set HTTP headers).
      *
@@ -141,6 +134,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 || path.equals("/api/status/stream");
     }
 
+    /**
+     * Updates the user's {@code lastActiveAt} timestamp if it is null or older than
+     * {@link #ACTIVITY_UPDATE_INTERVAL_MINUTES} minutes. Failures are logged but do not
+     * block the request.
+     *
+     * @param username the authenticated username
+     */
     private void updateLastActiveIfStale(String username) {
         try {
             userRepository.findByUsername(username).ifPresent(user -> {

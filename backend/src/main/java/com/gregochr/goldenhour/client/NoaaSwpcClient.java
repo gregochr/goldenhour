@@ -378,7 +378,7 @@ public class NoaaSwpcClient {
         for (JsonNode row : root) {
             if (row.isObject()) {
                 // New NOAA format: array of objects {"time_tag": "...", "Kp": ...}
-                String timeTag = row.path("time_tag").asText("");
+                String timeTag = row.path("time_tag").asString("");
                 double kp = parseDouble(row.get("Kp"));
                 if (!Double.isNaN(kp)) {
                     parseUtcDateTime(timeTag).ifPresent(ts -> result.add(new KpReading(ts, kp)));
@@ -392,7 +392,7 @@ public class NoaaSwpcClient {
                 if (row.size() < 2) {
                     continue;
                 }
-                String timeTag = row.get(0).asText();
+                String timeTag = row.get(0).asString();
                 double kp = parseDouble(row.get(1));
                 if (!Double.isNaN(kp)) {
                     parseUtcDateTime(timeTag).ifPresent(ts -> result.add(new KpReading(ts, kp)));
@@ -423,7 +423,7 @@ public class NoaaSwpcClient {
         for (JsonNode row : root) {
             if (row.isObject()) {
                 // New NOAA format: array of objects {"time_tag": "...", "kp": ...}
-                String timeTag = row.path("time_tag").asText("");
+                String timeTag = row.path("time_tag").asString("");
                 double kp = parseDouble(row.get("kp"));
                 if (!Double.isNaN(kp)) {
                     parseUtcDateTime(timeTag)
@@ -438,7 +438,7 @@ public class NoaaSwpcClient {
                 if (row.size() < 2) {
                     continue;
                 }
-                String timeTag = row.get(0).asText();
+                String timeTag = row.get(0).asString();
                 double kp = parseDouble(row.get(1));
                 if (!Double.isNaN(kp)) {
                     parseUtcDateTime(timeTag)
@@ -463,7 +463,7 @@ public class NoaaSwpcClient {
     OvationReading parseOvation(String json, double targetLat) throws Exception {
         JsonNode root = mapper.readTree(json);
 
-        ZonedDateTime forecastTime = parseUtcDateTime(root.path("Forecast Time").asText(""))
+        ZonedDateTime forecastTime = parseUtcDateTime(root.path("Forecast Time").asString(""))
                 .orElseGet(() -> ZonedDateTime.now(ZoneOffset.UTC));
 
         int targetLatInt = (int) Math.round(targetLat);
@@ -509,7 +509,7 @@ public class NoaaSwpcClient {
             if (row.size() < 4) {
                 continue;
             }
-            String timeTag = row.get(0).asText();
+            String timeTag = row.get(0).asString();
             double bz = parseDouble(row.get(3));
             if (!Double.isNaN(bz)) {
                 bzByTime.put(timeTag, bz);
@@ -528,7 +528,7 @@ public class NoaaSwpcClient {
             if (row.size() < 3) {
                 continue;
             }
-            String timeTag = row.get(0).asText();
+            String timeTag = row.get(0).asString();
             double density = parseDouble(row.get(1));
             double speed = parseDouble(row.get(2));
             if (!Double.isNaN(density) || !Double.isNaN(speed)) {
@@ -566,10 +566,10 @@ public class NoaaSwpcClient {
         JsonNode root = mapper.readTree(json);
         List<SpaceWeatherAlert> result = new ArrayList<>();
         for (JsonNode alert : root) {
-            String type = alert.path("message_type").asText("");
-            String id = alert.path("message_id").asText("");
-            String issuedStr = alert.path("issue_datetime").asText("");
-            String message = alert.path("message").asText("");
+            String type = alert.path("message_type").asString("");
+            String id = alert.path("message_id").asString("");
+            String issuedStr = alert.path("issue_datetime").asString("");
+            String message = alert.path("message").asString("");
             ZonedDateTime issued = parseUtcDateTime(issuedStr)
                     .orElseGet(() -> ZonedDateTime.now(ZoneOffset.UTC));
             result.add(new SpaceWeatherAlert(type, id, issued, message));
@@ -598,7 +598,7 @@ public class NoaaSwpcClient {
     AuroraViewlineResponse parseViewline(String json, int threshold) throws Exception {
         JsonNode root = mapper.readTree(json);
 
-        ZonedDateTime forecastTime = parseUtcDateTime(root.path("Forecast Time").asText(""))
+        ZonedDateTime forecastTime = parseUtcDateTime(root.path("Forecast Time").asString(""))
                 .orElseGet(() -> ZonedDateTime.now(ZoneOffset.UTC));
 
         JsonNode coords = root.path("coordinates");
@@ -787,7 +787,7 @@ public class NoaaSwpcClient {
         if (node == null || node.isNull()) {
             return Double.NaN;
         }
-        String text = node.asText();
+        String text = node.asString();
         if (text.isBlank() || NOAA_NULL_SENTINEL.equals(text) || "null".equalsIgnoreCase(text)
                 || "nan".equalsIgnoreCase(text)) {
             return Double.NaN;

@@ -327,9 +327,11 @@ public class EvaluationServiceImpl implements EvaluationService {
         return e.getClass().getSimpleName();
     }
 
-    @SuppressWarnings("unchecked")
+    // Narrows a homogeneous task list to its concrete type. submit() has already proven every
+    // element has exactly that class, so casting per element can never throw — it just makes the
+    // narrowing checked instead of an unchecked blind cast that ignores the witness it was handed.
     private static <T extends EvaluationTask> List<T> castList(
             List<? extends EvaluationTask> tasks, Class<T> type) {
-        return (List<T>) tasks;
+        return tasks.stream().map(type::cast).toList();
     }
 }

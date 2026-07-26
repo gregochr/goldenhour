@@ -431,43 +431,6 @@ function EventSummaryRow({ dayLabel, es, isOpen, onToggle }) {
   );
 }
 
-// ── Event pips (tiny coloured labels inside a day cell) ───────────────────
-
-function EventPips({ allEvents, auroraActive }) { // eslint-disable-line no-unused-vars
-  const upcoming = allEvents.filter((e) => {
-    if (e.past) return false;
-    const dv = resolveRegionDisplay(e.region);
-    return dv === 'WORTH_IT' || dv === 'MAYBE';
-  });
-  if (upcoming.length === 0 && !auroraActive) return null;
-  return (
-    <div className="flex flex-wrap gap-0.5 mt-1">
-      {upcoming.map(({ es, region }) => {
-        const emoji = es.targetType === 'SUNRISE' ? '🌅' : '🌇';
-        const dv = resolveRegionDisplay(region);
-        const label = dv === 'WORTH_IT' ? 'Worth it' : 'Maybe';
-        const c = dv === 'WORTH_IT'
-          ? 'bg-green-500/30 text-green-300'
-          : 'bg-amber-500/30 text-amber-300';
-        return (
-          <span key={es.targetType} data-testid="event-pip"
-            className={`rounded px-1 font-medium ${c}`}
-            style={{ fontSize: '10px' }}>
-            {emoji} {label}
-          </span>
-        );
-      })}
-      {auroraActive && (
-        <span data-testid="event-pip"
-          className="rounded px-1 font-medium bg-indigo-500/30 text-indigo-300"
-          style={{ fontSize: '10px' }}>
-          🌌 Aurora
-        </span>
-      )}
-    </div>
-  );
-}
-
 // ── LocationSlotList (shared between mobile drill-down and heatmap drill-down) ──
 
 function LocationSlotList({ slots, driveMap, typeMap, date = null, targetType = null, onShowOnMap = null }) {  const visible = sortedSlotsByVerdict((slots || []).filter((s) => !isPoorSlot(s)));
@@ -1411,6 +1374,10 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
                     const visibleRegions = sortedRegions.filter((regionName) => {
                       const region = (es.regions || []).find((r) => r.regionName === regionName);
                       if (!region) return false;
+                      // Pinned seam, not a live filter: the quality slider was retired and qualityTier is
+                      // fixed at SHOW_ALL_TIER, so this admits every tier. Kept in step with HeatmapGrid
+                      // (same pinned prop) so restoring a slider only needs the state back, not re-threading
+                      // the filter through both views.
                       return isCellVisible(computeCellTier(region), qualityTier);
                     });
                     if (visibleRegions.length === 0) return null;

@@ -118,6 +118,25 @@ public class AppUserEntity implements UserDetails {
         return List.of(new SimpleGrantedAuthority("ROLE_" + role.name()));
     }
 
+    /**
+     * Returns whether this account may log in.
+     *
+     * <p>Written out by hand — rather than left to {@code @Getter} like every other accessor —
+     * because {@link UserDetails#isEnabled()} is a <em>default</em> method returning {@code true}.
+     * If Lombok ever stopped generating this accessor under that exact name (the field renamed,
+     * or widened from {@code boolean} to {@code Boolean}, which yields {@code getEnabled()}), the
+     * class would silently inherit the default and authenticate every disabled account. The
+     * {@code @Override} makes that a compile error instead. The two abstract accessors
+     * ({@code getUsername}, {@code getPassword}) need no such guard — dropping either fails to
+     * compile on its own.
+     *
+     * @return {@code true} if the account is enabled
+     */
+    @Override
+    public boolean isEnabled() {
+        return enabled;
+    }
+
     /** {@inheritDoc} */
     @Override
     public boolean isAccountNonExpired() {
