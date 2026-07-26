@@ -85,10 +85,20 @@ jobs:
           # The row counts below are the real gate, not psql's exit status.
           gunzip -c "$NEWEST" | docker exec -i "$SCRATCH_DB" psql -U goldenhour -d goldenhour >/dev/null 2>&1 || true
 
+          # A failed query and an empty table are different problems and must not
+          # report the same way. The first version of this swallowed psql's error
+          # with `|| echo 0`, so a mistyped table name ("location" — the table is
+          # "locations") surfaced as "no rows … the dump is not usable" and
+          # falsely condemned a perfectly good backup on its first ever run.
           fail=0
-          for table in forecast_evaluation location app_user; do
-            COUNT="$(docker exec "$SCRATCH_DB" psql -U goldenhour -d goldenhour -tAc \
-                     "SELECT count(*) FROM ${table}" 2>/dev/null || echo 0)"
+          for table in forecast_evaluation locations app_user; do
+            if ! COUNT="$(docker exec "$SCRATCH_DB" psql -U goldenhour -d goldenhour -tAc \
+                          "SELECT count(*) FROM ${table}" 2>&1)"; then
+              echo "::error::Could not query ${table} in the restored database — the restore is incomplete or the table is missing: ${COUNT}"
+              fail=1
+              continue
+            fi
+            COUNT="$(echo "$COUNT" | tr -d '[:space:]')"
             echo "  ${table}: ${COUNT} rows"
             if [ "${COUNT:-0}" -lt 1 ]; then
               echo "::error::Restored backup has no rows in ${table} — the dump is not usable."

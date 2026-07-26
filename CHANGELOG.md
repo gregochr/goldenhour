@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Backup verification condemned a good backup on its first run
+- **The row-count check used `location`; the table is `locations`.** `psql` errored with "relation does not exist", `|| echo 0` swallowed it, and the result surfaced as "Restored backup has no rows in location — the dump is not usable". The restore had in fact worked perfectly: 31,072 rows in `forecast_evaluation` and 4 in `app_user` from the same dump.
+- **The real defect was the masking, not the typo.** `|| echo 0` collapsed *query failed* and *table is empty* into one indistinguishable outcome, so a mistake in the check was indistinguishable from a corrupt backup — the failure mode most likely to make you stop believing the alarm. The two are now reported separately: a non-zero `psql` exit is "could not query … the restore is incomplete or the table is missing" with the actual error text, and only a genuine zero count reports an unusable dump.
+- The notifier behaved correctly throughout, opening a `CI: Backup Verification is failing` issue from `ubuntu-latest`. The alarm worked; the check was wrong.
+
 ### Changed — Off-box backup copy: redundancy failure is now its own signal
 - **The off-box copy no longer fails the whole backup job.** It was fatal, which sounds strict but is the wrong severity: by that point the local dump is written and integrity-checked, so a failed copy means *no redundancy*, not *no backup*. The off-box target is a Mac, which sleeps — so as written it would have gone red most nights, and a backup job that is habitually red is one you stop reading. That is precisely how the previous 132-night gap survived.
 - **Not silent instead of not fatal.** The script writes `offbox-status` (`ok`/`failed` + timestamp) and `backup-verify.yml` reports on it as a **separate check** with its own message, distinguishing "the backup exists only on the Docker host" from "there is no backup". An absent status file means off-box copying is not configured, which is a warning rather than a failure. The check runs *after* the restore test so broken replication can never stop us proving the backup restores.
