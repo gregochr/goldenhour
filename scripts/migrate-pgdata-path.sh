@@ -33,8 +33,14 @@ set -euo pipefail
 
 OLD_ROOT="${OLD_ROOT:-/Users/gregochr/goldenhour-data}"
 NEW_ROOT="${NEW_ROOT:-/home/gregochr/goldenhour-data}"
-COMPOSE_DIR="${COMPOSE_DIR:-${HOME}/goldenhour}"
-BACKUP_DIR="${BACKUP_DIR:-${HOME}/goldenhour-backups}"
+
+# Resolve defaults from the INVOKING user, not $HOME: this must run under sudo
+# (see the root check below), and under sudo $HOME is /root — which would look
+# for the compose file and the backups in the wrong place and fail confusingly.
+INVOKER="${SUDO_USER:-$(id -un)}"
+INVOKER_HOME="$(getent passwd "$INVOKER" | cut -d: -f6)"
+COMPOSE_DIR="${COMPOSE_DIR:-${INVOKER_HOME}/goldenhour}"
+BACKUP_DIR="${BACKUP_DIR:-${INVOKER_HOME}/goldenhour-backups}"
 PG_CONTAINER="${PG_CONTAINER:-goldenhour-db}"
 PG_DB="${PG_DB:-goldenhour}"
 PG_USER="${PG_USER:-goldenhour}"
@@ -46,12 +52,21 @@ say()  { echo "==> $*"; }
 die()  { echo "ERROR: $*" >&2; exit 1; }
 
 # --- Preconditions ------------------------------------------------------------
+# Must be root. A Postgres data directory is mode 700 owned by uid 70, so an
+# unprivileged user cannot even stat PG_VERSION inside it — the first version of
+# this script reported "does not look like a Postgres data directory" on a
+# perfectly good one, because it tested readability it did not have. Moving the
+# directory needs root regardless.
+if [ "$(id -u)" -ne 0 ]; then
+    die "must run as root (the data directory is mode 700, uid 70). Re-run: sudo $0 ${*:-}"
+fi
+
 command -v docker >/dev/null 2>&1 || die "docker not found — run this on the Docker host."
 [ -d "$COMPOSE_DIR" ] || die "compose directory not found: $COMPOSE_DIR"
 
 # Source must be a real PGDATA, not an empty directory someone created by accident.
 [ -f "${OLD_ROOT}/postgres/PG_VERSION" ] \
-    || die "${OLD_ROOT}/postgres does not look like a Postgres data directory (no PG_VERSION). Refusing."
+    || die "${OLD_ROOT}/postgres has no PG_VERSION even as root — it is genuinely not a Postgres data directory. Check: docker inspect ${PG_CONTAINER} --format '{{json .Mounts}}'"
 
 # Destination must not already hold data.
 if [ -e "$NEW_ROOT" ] && [ -n "$(ls -A "$NEW_ROOT" 2>/dev/null || true)" ]; then
