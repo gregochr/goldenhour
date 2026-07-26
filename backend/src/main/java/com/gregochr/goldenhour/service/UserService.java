@@ -251,10 +251,7 @@ public class UserService implements UserDetailsService {
     public void activateUser(Long userId, String rawPassword) {
         AppUserEntity user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
-        // Activation is only ever legitimate for a pending self-registration, the sole shape
-        // createPendingUser produces (enabled=false, empty password). Refusing anything else stops
-        // a caller who reaches this method with someone else's id from overwriting live credentials.
-        if (user.isEnabled() || !"".equals(user.getPassword())) {
+        if (!isAwaitingActivation(user)) {
             throw new IllegalArgumentException("Account is not awaiting activation");
         }
         user.setPassword(passwordEncoder.encode(rawPassword));
@@ -262,6 +259,22 @@ public class UserService implements UserDetailsService {
         user.setPasswordChangeRequired(false);
         userRepository.save(user);
         LOG.info("User activated: id={}, username={}", userId, user.getUsername());
+    }
+
+    /**
+     * Reports whether an account is a self-registration still waiting for its password.
+     *
+     * <p>That is the sole shape {@link #createPendingUser} produces — not enabled, and holding an
+     * empty password rather than a hash. Every other account, including one an admin created and
+     * one already activated, fails this check, which is what stops a caller who reaches
+     * {@link #activateUser} with someone else's id from overwriting live credentials.
+     *
+     * @param user the account to test
+     * @return true only if the account is awaiting activation
+     */
+    private static boolean isAwaitingActivation(AppUserEntity user) {
+        String password = user.getPassword();
+        return !user.isEnabled() && password != null && password.isEmpty();
     }
 
     /**

@@ -569,26 +569,35 @@ public class ForecastService {
     }
 
     /**
-     * Builds a {@link ForecastEvaluationEntity} from the evaluated forecast data.
+     * Publishes a per-location progress event for a task that has not failed.
      *
-     * @param location   the location entity
-     * @param lat        latitude in decimal degrees
-     * @param lon        longitude in decimal degrees
-     * @param date       the calendar date of the forecast
-     * @param type       sunrise or sunset
-     * @param daysAhead  number of days from today to {@code date}
-     * @param eventTime  UTC time of the solar event
-     * @param azimuth    solar azimuth in degrees
-     * @param data       atmospheric data (with tide fields if coastal)
-     * @param evaluation Claude's rating and summary
-     * @param model      which Claude model produced the evaluation
-     * @return the unsaved entity
+     * @param runId        the parent job run ID; {@code null} suppresses the event
+     * @param taskKey      unique key identifying the per-location task
+     * @param locationName the location the task is forecasting
+     * @param targetDate   the forecast target date, ISO-formatted
+     * @param targetType   name of the {@link TargetType} being forecast
+     * @param state        the state the task has just entered
      */
     private void publishEvent(Long runId, String taskKey, String locationName,
             String targetDate, String targetType, LocationTaskState state) {
         publishEvent(runId, taskKey, locationName, targetDate, targetType, state, null, null);
     }
 
+    /**
+     * Publishes a per-location progress event onto the SSE stream for a run.
+     *
+     * <p>Delivery is best-effort: a browser that has closed its {@code EventSource} must not
+     * fail the forecast run, so a publish failure is logged at debug level and swallowed.
+     *
+     * @param runId        the parent job run ID; {@code null} suppresses the event
+     * @param taskKey      unique key identifying the per-location task
+     * @param locationName the location the task is forecasting
+     * @param targetDate   the forecast target date, ISO-formatted
+     * @param targetType   name of the {@link TargetType} being forecast
+     * @param state        the state the task has just entered
+     * @param errorMessage failure detail, or {@code null} if the task did not fail
+     * @param failedStep   the pipeline step that failed, or {@code null} if the task did not fail
+     */
     private void publishEvent(Long runId, String taskKey, String locationName,
             String targetDate, String targetType, LocationTaskState state,
             String errorMessage, String failedStep) {
@@ -604,6 +613,25 @@ public class ForecastService {
         }
     }
 
+    /**
+     * Builds an unsaved {@link ForecastEvaluationEntity} from the evaluated forecast data.
+     *
+     * <p>Sole site at which the durable per-evaluation {@code confidence} is derived, so every
+     * persisted evaluation — scored, canned or wildlife — carries the horizon-derived value.
+     *
+     * @param location   the location entity
+     * @param lat        latitude in decimal degrees
+     * @param lon        longitude in decimal degrees
+     * @param date       the calendar date of the forecast
+     * @param type       sunrise, sunset, or {@code HOURLY} for a wildlife comfort slot
+     * @param daysAhead  number of days from today to {@code date}
+     * @param eventTime  UTC time of the solar event, or of the hour for a wildlife slot
+     * @param azimuth    solar azimuth in degrees, or {@code null} when not applicable
+     * @param data       atmospheric data (with tide fields if coastal)
+     * @param evaluation Claude's scores and summary; all-null fields for skipped and wildlife rows
+     * @param model      which Claude model produced the evaluation
+     * @return the unsaved entity
+     */
     private ForecastEvaluationEntity buildEntity(LocationEntity location, double lat, double lon,
             LocalDate date, TargetType type, int daysAhead, LocalDateTime eventTime, Integer azimuth,
             AtmosphericData data, SunsetEvaluation evaluation, EvaluationModel model) {

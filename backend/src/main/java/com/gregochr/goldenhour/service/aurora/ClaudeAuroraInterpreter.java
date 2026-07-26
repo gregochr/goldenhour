@@ -413,7 +413,7 @@ public class ClaudeAuroraInterpreter {
             // Build a name→node lookup from the response for name-based matching
             Map<String, JsonNode> byName = new java.util.LinkedHashMap<>();
             for (JsonNode node : root) {
-                String name = node.path("name").asText("");
+                String name = node.path("name").asString("");
                 if (!name.isBlank()) {
                     byName.put(name.toLowerCase(), node);
                 }
@@ -431,8 +431,8 @@ public class ClaudeAuroraInterpreter {
 
                 if (node != null) {
                     int stars = clamp(node.path("stars").asInt(1), 1, 5);
-                    String summary = node.path("summary").asText("Aurora conditions assessed");
-                    String detail = node.path("detail").asText("");
+                    String summary = node.path("summary").asString("Aurora conditions assessed");
+                    String detail = node.path("detail").asString("");
                     results.add(new AuroraForecastScore(loc, stars, level, cloud, summary, detail));
                 } else {
                     LOG.warn("Aurora response missing entry for location '{}' (index {})",

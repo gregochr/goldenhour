@@ -110,7 +110,7 @@ public class ModelTestService {
 
         // Determine target date and type
         TargetType primaryTargetType = resolveTargetType(now, allLocations);
-        LocalDate targetDate = resolveTargetDate(now, primaryTargetType, allLocations);
+        LocalDate targetDate = resolveTargetDate(now, primaryTargetType);
         List<TargetType> targetTypes = resolveTargetTypesForDate(targetDate, now, allLocations);
         Double exchangeRate = fetchExchangeRate();
 
@@ -203,7 +203,7 @@ public class ModelTestService {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         List<LocationEntity> allLocations = locationRepository.findAllByEnabledTrueOrderByNameAsc();
         TargetType primaryTargetType = resolveTargetType(now, allLocations);
-        LocalDate targetDate = resolveTargetDate(now, primaryTargetType, allLocations);
+        LocalDate targetDate = resolveTargetDate(now, primaryTargetType);
         List<TargetType> targetTypes = resolveTargetTypesForDate(targetDate, now, allLocations);
         RegionEntity region = location.getRegion();
 
@@ -280,7 +280,7 @@ public class ModelTestService {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         List<LocationEntity> allLocations = locationRepository.findAllByEnabledTrueOrderByNameAsc();
         TargetType primaryTargetType = resolveTargetType(now, allLocations);
-        LocalDate targetDate = resolveTargetDate(now, primaryTargetType, allLocations);
+        LocalDate targetDate = resolveTargetDate(now, primaryTargetType);
         List<TargetType> targetTypes = resolveTargetTypesForDate(targetDate, now, allLocations);
 
         Double exchangeRate = fetchExchangeRate();
@@ -483,11 +483,9 @@ public class ModelTestService {
      *
      * @param now           current UTC time
      * @param targetType    the resolved target type
-     * @param allLocations  all enabled locations
      * @return today if targeting today's sunset, tomorrow if targeting tomorrow's sunrise
      */
-    LocalDate resolveTargetDate(LocalDateTime now, TargetType targetType,
-            List<LocationEntity> allLocations) {
+    LocalDate resolveTargetDate(LocalDateTime now, TargetType targetType) {
         if (targetType == TargetType.SUNSET) {
             return now.toLocalDate();
         }

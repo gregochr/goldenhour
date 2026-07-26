@@ -163,7 +163,8 @@ public class BatchSummaryDeriver {
             case ParsedCustomId.Bluebell b -> b.locationId();
             case ParsedCustomId.Jfdi j -> j.locationId();
             case ParsedCustomId.ForceSubmit fs -> fs.locationId();
-            case ParsedCustomId.Aurora a -> null;
+            // Aurora ids carry an alert level and date only — there is no location to count.
+            case ParsedCustomId.Aurora ignored -> null;
         };
     }
 
