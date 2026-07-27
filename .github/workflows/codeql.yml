@@ -18,7 +18,35 @@ on:
 jobs:
   codeql:
     name: CodeQL Analysis
-    runs-on: self-hosted
+    # Deliberately ubuntu-latest, NOT self-hosted, because this is a REQUIRED status
+    # check on main.
+    #
+    # The self-hosted runner is the production host. When it is unwell — powered down,
+    # Docker wedged, runner service not restarted after a reboot — a job targeting it
+    # does not fail, it QUEUES. A required check stuck in `queued` blocks merge without
+    # ever reporting, and there is exactly one admin and zero reviewers on this repo, so
+    # nothing can clear it. That is unrecoverable in a way the other required checks are
+    # not: a red Backend or Frontend check is fixable by a commit, whereas "the runner is
+    # offline" is fixable by no commit at all. It also ties the ability to merge *any*
+    # change to the health of the box serving production, which is the coupling you least
+    # want on the day production is broken.
+    #
+    # Nothing here needs the self-hosted box. The steps are checkout, setup-java, CodeQL
+    # init, `mvnw compile -DskipTests`, analyze — no Docker, no production database, no
+    # local paths. solar-utils resolves from JitPack (backend/pom.xml declares
+    # https://jitpack.io; the "GitHub Packages" note in CLAUDE.md is stale), so no
+    # ~/.m2/settings.xml token is required. ci.yml already runs the strictly larger
+    # `./mvnw clean verify` on ubuntu-latest, which proves the build resolves there.
+    # The repo is public, so hosted minutes are free.
+    #
+    # Cost: this job was already the critical path on the PR gate at 8m35s-11m30s
+    # (measured over 7 runs) versus the backend job's ~7m, so the gate is CodeQL-bound
+    # either way. A hosted runner may be slower still — the PR that makes this change
+    # measures it.
+    runs-on: ubuntu-latest
+    # Belt and braces: converts a hung analysis into a failure a commit can respond to,
+    # rather than a check that never reports. ~3x the observed median.
+    timeout-minutes: 30
     permissions:
       security-events: write
     steps:
