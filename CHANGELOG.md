@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Cloud-verification backfill runs in the background
+- **A synchronous backfill cannot finish inside a request.** The backlog is ~24,600 evaluations; `POST /backfill?limit=500` was killed by the reverse proxy (returning an unparseable gateway page) while the work carried on server-side and committed anyway — the worst kind of feedback, since a timeout is indistinguishable from a failure.
+- **`POST /api/admin/cloud-verification/backfill` now returns `202` immediately** and works the whole backlog in the background, 100 evaluations per committed batch. Poll **`GET /api/admin/cloud-verification/backfill/status`** for `running` / `verified` / `batches` / `remaining` / `lastError`. No shell loop needed — one POST drains the queue.
+- **`409 Conflict` on a concurrent start.** Two runs would select overlapping candidates and race to insert the same `forecast_evaluation_id`, which the unique constraint rejects — turning a duplicate request into a batch of failures.
+- **The runner is deliberately a separate bean** from `CloudVerificationService`. Calling `backfill(...)` from inside that service is a self-invocation and bypasses its own proxies, so neither `@Async` nor `@Transactional` would apply — the run would block the request thread and each batch would lose its transaction. Crossing a bean boundary keeps both.
+- Stops at the first failing batch rather than grinding on: the usual cause is the archive rate-limiting, and continuing would write thousands of rows with no observations that the anti-join would then never revisit. Each batch commits independently, so a restart mid-run resumes rather than repeating.
+
+### Fixed — PIT exclusion for SkyRatingEvalTest was inside an XML comment
+- `PitExclusionDriftTest` was failing on `main`: `SkyRatingEvalTest` is tagged `prompt-regression`, but its `<param>` entry had been pasted **into the explanatory comment** above `<excludedTestClasses>` rather than into the list itself, so PIT never excluded it. Moved into the real block. This is the guard working exactly as designed — it exists because the weekly mutation run went red for four consecutive Mondays from 2026-06-29 when a tagged class escaped the list.
+
 ### Added — Integration & UI test strategy, designed against the escaped-defect record
 - **`docs/engineering/integration-test-strategy.md`.** Three strategies were drafted from competing philosophies (constraint-maximalist, ROI-pragmatist, production-first) and each was attacked by two adversarial reviewers before synthesis. Planning document only — no test, workflow or build change ships with it.
 - **The evidence base is ~37 defects that reached production**, recovered from 505 `fix:` commits and the investigation docs. The distribution is what drives every decision in the plan: 8 cross-component wiring, 8 external-contract drift, 6 cache coherence, 6 product-semantic honesty, 5 CI self-failure, 4 scheduler silent death. Almost none was a wrong computation — the class 247 unit test classes and an 80% JaCoCo gate already cover. The recurring signature is **silence**: no exception, no log line, and detection by a human running SQL against production rather than by any test.

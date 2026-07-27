@@ -22,8 +22,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.mockito.junit.jupiter.MockitoSettings;
-import org.mockito.quality.Strictness;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -36,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -48,7 +47,6 @@ import static org.mockito.Mockito.when;
  * logic without making real HTTP or Claude API calls.
  */
 @ExtendWith(MockitoExtension.class)
-@MockitoSettings(strictness = Strictness.LENIENT)
 class AuroraForecastRunServiceTest {
 
     @Mock private NoaaSwpcClient noaaClient;
@@ -69,15 +67,22 @@ class AuroraForecastRunServiceTest {
         service = new AuroraForecastRunService(noaaClient, weatherTriage,
                 claudeInterpreter, locationRepository, resultRepository, properties, solarCalculator,
                 stateCache, resultWriter);
-        when(stateCache.isSimulated()).thenReturn(false);
+        // Exactly three lenient stubs, and only because the class mixes pure-function tests with
+        // pipeline tests. isSimulated() is unused by the pure calculators (gScaleFromKp,
+        // maxKpInWindow, buildDateLabel) and by runForecast_emptyRequest_returnsEmpty, and it is
+        // re-stubbed to true by the two simulation tests. The civil dusk/dawn pair is consumed only
+        // by the code paths that resolve a dark window — computeWindowForDate, getPreview* and every
+        // runForecast* case — never by the calculators. Everything stubbed inside a test method is
+        // strict; there is no class-level leniency here.
+        lenient().when(stateCache.isSimulated()).thenReturn(false);
 
         ZoneId utc = ZoneId.of("UTC");
         LocalDate today = LocalDate.now(utc);
         // Stub solar calculator for any date requests
-        when(solarCalculator.civilDusk(eq(AuroraForecastRunService.DURHAM_LAT),
+        lenient().when(solarCalculator.civilDusk(eq(AuroraForecastRunService.DURHAM_LAT),
                 eq(AuroraForecastRunService.DURHAM_LON), any(LocalDate.class), eq(utc)))
                 .thenReturn(LocalDateTime.of(today, java.time.LocalTime.of(20, 0)));
-        when(solarCalculator.civilDawn(eq(AuroraForecastRunService.DURHAM_LAT),
+        lenient().when(solarCalculator.civilDawn(eq(AuroraForecastRunService.DURHAM_LAT),
                 eq(AuroraForecastRunService.DURHAM_LON), any(LocalDate.class), eq(utc)))
                 .thenReturn(LocalDateTime.of(today.plusDays(1), java.time.LocalTime.of(4, 0)));
     }

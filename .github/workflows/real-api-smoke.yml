@@ -25,6 +25,8 @@ jobs:
   smoke:
     name: Real API completion smoke
     runs-on: ubuntu-latest
+    outputs:
+      inconclusive: ${{ steps.inconclusive.outputs.inconclusive }}
     # Must exceed the test's own BATCH_COMPLETION_TIMEOUT (4h) plus its 5h JUnit
     # backstop, so the test decides the outcome rather than the runner killing it
     # mid-poll — a runner kill reports as a failure and loses the inconclusive
@@ -55,10 +57,12 @@ jobs:
       # from "the parse assertions passed". Annotate it loudly so a run of
       # consecutive inconclusives is visible rather than reading as healthy.
       - name: Flag inconclusive run
+        id: inconclusive
         if: always()
         run: |
           report=target/surefire-reports/TEST-com.gregochr.goldenhour.integration.ForecastBatchPipelineRealApiE2ETest.xml
           if [ -f "$report" ] && grep -q 'INCONCLUSIVE' "$report"; then
+            echo "inconclusive=true" >> "$GITHUB_OUTPUT"
             echo "::warning title=Smoke inconclusive::Anthropic did not finish the batch in time. Response parsing was NOT verified on this run."
             {
               echo "### ⚠️ Real API Smoke — inconclusive"
@@ -76,3 +80,47 @@ jobs:
           name: real-api-smoke-surefire-reports
           path: backend/target/surefire-reports/
           retention-days: 14
+
+  # A hard failure: the test ran to a verdict and the verdict was bad — Anthropic's
+  # response no longer parses, or the pipeline broke. This is a product failure and
+  # gets the standard notifier, same as deploy.yml / pitest.yml / zap.yml.
+  notify-failure:
+    needs: smoke
+    if: failure()
+    permissions:
+      issues: write
+    uses: ./.github/workflows/ci-failure-issue.yml
+    with:
+      workflow-name: Real API Smoke
+
+  # An INCONCLUSIVE run: the batch was still SUBMITTED when the test gave up, so it
+  # aborted via Assumptions.assumeTrue and JUnit recorded a *skip*. The job is green.
+  #
+  # Why notify on this at all. A green tick with a ::warning:: annotation is read by
+  # nobody. The batch API's SLA is up to 24 hours against a 4-hour test budget, so a
+  # run of consecutive inconclusives is entirely possible — and it means the
+  # completion-path parse assertions have not executed for days while the workflow
+  # kept reporting green. That is precisely the silent-failure pattern this whole
+  # test strategy exists to remove, so it has to come and find you.
+  #
+  # Why a SEPARATE job with a different workflow-name, and not `failure()` on the
+  # job above. An inconclusive is emphatically NOT a product failure and must never
+  # be reported as one — the test never got an answer to judge. The distinct name
+  # gives it its own issue title, so "Real API Smoke is failing" always means the
+  # parse broke and never means Anthropic was slow. The notifier's dedupe then turns
+  # a streak into one issue with one comment per occurrence, which is exactly the
+  # "this has now verified nothing for N days" signal; close it after the next run
+  # that actually verifies, and the next streak opens a fresh one.
+  #
+  # Why every inconclusive and not only a streak of >= 2: an earlier inconclusive run
+  # has conclusion `success`, so it is indistinguishable from a verified pass through
+  # the runs API. There is no cheap, non-fragile way to count a streak across runs —
+  # the dedupe-into-comments behaviour above is the streak counter instead.
+  notify-inconclusive:
+    needs: smoke
+    if: success() && needs.smoke.outputs.inconclusive == 'true'
+    permissions:
+      issues: write
+    uses: ./.github/workflows/ci-failure-issue.yml
+    with:
+      workflow-name: 'Real API Smoke (inconclusive — response parsing not verified)'

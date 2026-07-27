@@ -16,21 +16,37 @@ import static org.assertj.core.api.Assertions.assertThatNoException;
  */
 class MacOsToastNotificationServiceTest {
 
+    /**
+     * The disabled guard must short-circuit <em>before</em> the evaluation is dereferenced.
+     *
+     * <p>Passing {@code null} is what makes this assertion falsifiable: with the guard in place
+     * nothing touches the evaluation, but move the guard below the title/script construction —
+     * or drop it — and {@code evaluation.summary()} throws. A well-formed evaluation would make
+     * this a no-op assertion, because {@code notify} cannot throw on any valid input.
+     */
     @Test
-    @DisplayName("notify() does nothing when macOS toast notifications are disabled")
-    void notify_whenDisabled_completesWithoutException() {
+    @DisplayName("notify() returns before dereferencing the evaluation when toasts are disabled")
+    void notify_whenDisabled_returnsBeforeTouchingEvaluation() {
         NotificationProperties properties = new NotificationProperties();
         properties.getMacosToast().setEnabled(false);
         MacOsToastNotificationService toastService =
                 new MacOsToastNotificationService(properties);
 
         assertThatNoException().isThrownBy(() ->
-                toastService.notify(new SunsetEvaluation(null, 30, 40, "Moderate."),
-                        "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20)));
+                toastService.notify(null, "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20)));
     }
 
+    /**
+     * Branch-execution cover for the dual-score title path ({@code rating == null}).
+     *
+     * <p>Honest billing: {@code notify} catches the only checked exception it can raise and
+     * {@code String.format} is null-safe, so "does not throw" is not a strong claim. What this
+     * does buy is that the dual-score branch is executed at all. The command it builds is not
+     * observable from here — see {@code escapeForAppleScript} below for the assertions that
+     * actually pin the script contents.
+     */
     @Test
-    @DisplayName("notify() does not throw for Sonnet evaluation when macOS toast is enabled")
+    @DisplayName("notify() executes the dual-score title branch for a Sonnet evaluation")
     void notify_sonnetEvaluation_whenEnabled_doesNotThrow() {
         NotificationProperties properties = new NotificationProperties();
         properties.getMacosToast().setEnabled(true);
@@ -43,8 +59,14 @@ class MacOsToastNotificationServiceTest {
                         "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20)));
     }
 
+    /**
+     * Branch-execution cover for the rating title path ({@code rating != null}).
+     *
+     * <p>Same honest billing as the Sonnet case above: it proves the rating branch runs, not
+     * that the resulting notification is correct.
+     */
     @Test
-    @DisplayName("notify() does not throw for Haiku evaluation when macOS toast is enabled")
+    @DisplayName("notify() executes the rating title branch for a Haiku evaluation")
     void notify_haikuEvaluation_whenEnabled_doesNotThrow() {
         NotificationProperties properties = new NotificationProperties();
         properties.getMacosToast().setEnabled(true);
@@ -54,34 +76,6 @@ class MacOsToastNotificationServiceTest {
         assertThatNoException().isThrownBy(() ->
                 toastService.notify(new SunsetEvaluation(4, null, null, "Good conditions."),
                         "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20)));
-    }
-
-    @Test
-    @DisplayName("notify() handles SUNRISE target type without throwing")
-    void notify_sunriseTargetType_doesNotThrow() {
-        NotificationProperties properties = new NotificationProperties();
-        properties.getMacosToast().setEnabled(true);
-        MacOsToastNotificationService toastService =
-                new MacOsToastNotificationService(properties);
-
-        assertThatNoException().isThrownBy(() ->
-                toastService.notify(new SunsetEvaluation(null, 60, 55, "Decent sunrise."),
-                        "Bamburgh", TargetType.SUNRISE, LocalDate.of(2026, 3, 1)));
-    }
-
-    @Test
-    @DisplayName("notify() handles summary with double quotes without throwing")
-    void notify_summaryWithQuotes_doesNotThrow() {
-        NotificationProperties properties = new NotificationProperties();
-        properties.getMacosToast().setEnabled(true);
-        MacOsToastNotificationService toastService =
-                new MacOsToastNotificationService(properties);
-
-        // Double quotes in the summary must be escaped for osascript
-        assertThatNoException().isThrownBy(() ->
-                toastService.notify(
-                        new SunsetEvaluation(null, 70, 65, "A \"beautiful\" golden sky expected."),
-                        "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 3, 1)));
     }
 
     @Test
@@ -97,6 +91,20 @@ class MacOsToastNotificationServiceTest {
     void escapeForAppleScript_flattensControlCharacters() {
         assertThat(MacOsToastNotificationService.escapeForAppleScript("line one\r\nline two\ttab"))
                 .isEqualTo("line one  line two tab");
+    }
+
+    /**
+     * Replaces the former {@code notify_summaryWithQuotes_doesNotThrow} case, which named the
+     * escaping in its title but asserted only that no exception escaped — true whether or not the
+     * quotes were escaped at all. A model-generated summary is untrusted input, so the claim worth
+     * pinning is that the quote cannot close the AppleScript literal and start new statements.
+     */
+    @Test
+    @DisplayName("escapeForAppleScript() neutralises a quote that would close the literal early")
+    void escapeForAppleScript_quoteInSummary_cannotTerminateTheLiteral() {
+        assertThat(MacOsToastNotificationService
+                .escapeForAppleScript("nice\" with title \"pwned"))
+                .isEqualTo("nice\\\" with title \\\"pwned");
     }
 
     @Test

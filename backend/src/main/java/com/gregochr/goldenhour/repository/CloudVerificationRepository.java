@@ -44,6 +44,25 @@ public interface CloudVerificationRepository extends JpaRepository<CloudVerifica
     List<VerificationCandidate> findUnverified(@Param("cutoff") LocalDate cutoff, Limit limit);
 
     /**
+     * Counts evaluations still awaiting verification, for backfill progress reporting.
+     *
+     * <p>Mirrors {@link #findUnverified} exactly — the two must agree, or reported progress will
+     * not converge on zero.
+     *
+     * @param cutoff the newest target date the archive is expected to cover
+     * @return number of unverified evaluations at or before the cutoff
+     */
+    @Query("SELECT COUNT(e) FROM ForecastEvaluationEntity e"
+            + " WHERE e.targetDate <= :cutoff"
+            + " AND e.azimuthDeg IS NOT NULL"
+            + " AND e.solarEventTime IS NOT NULL"
+            + " AND e.directionalCloud.solarLow IS NOT NULL"
+            + " AND NOT EXISTS ("
+            + "   SELECT 1 FROM CloudVerificationEntity v"
+            + "   WHERE v.forecastEvaluationId = e.id)")
+    long countUnverified(@Param("cutoff") LocalDate cutoff);
+
+    /**
      * Pairs each verified evaluation's cloud claims with the cloud that was actually analysed.
      *
      * <p>Projects both claims the forecast makes — the gap (solar-horizon low cloud) and the

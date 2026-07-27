@@ -1,0 +1,134 @@
+package com.gregochr.goldenhour.service;
+
+import com.gregochr.goldenhour.model.BackfillStatus;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+/**
+ * Unit tests for {@link CloudVerificationBackfillRunner}.
+ *
+ * <p>{@code run()} is invoked directly here, so it executes synchronously — {@code @Async} only
+ * applies through the Spring proxy. That is deliberate: it makes the loop, the stop conditions and
+ * the status transitions assertable without timing.
+ */
+@ExtendWith(MockitoExtension.class)
+class CloudVerificationBackfillRunnerTest {
+
+    private static final Clock CLOCK =
+            Clock.fixed(Instant.parse("2026-07-26T10:00:00Z"), ZoneOffset.UTC);
+
+    @Mock
+    private CloudVerificationService verificationService;
+
+    private CloudVerificationBackfillRunner runner;
+
+    @BeforeEach
+    void setUp() {
+        runner = new CloudVerificationBackfillRunner(verificationService, CLOCK);
+    }
+
+    @Test
+    @DisplayName("run works through batches until one comes back empty")
+    void run_drainsBacklogThenStops() {
+        when(verificationService.backfill(CloudVerificationBackfillRunner.BATCH_SIZE))
+                .thenReturn(100, 100, 40, 0);
+        when(verificationService.countRemaining()).thenReturn(140L, 40L, 0L);
+
+        runner.run();
+
+        verify(verificationService, times(4))
+                .backfill(CloudVerificationBackfillRunner.BATCH_SIZE);
+        BackfillStatus status = runner.status();
+        assertThat(status.running()).isFalse();
+        assertThat(status.verified()).isEqualTo(240);
+        assertThat(status.batches()).isEqualTo(3);
+        assertThat(status.lastError()).isNull();
+        assertThat(status.finishedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("run stops at the first failing batch rather than grinding through the rest")
+    void run_stopsOnFailure() {
+        // The usual cause is the archive rate-limiting us. Continuing would write thousands of
+        // rows with no observations, which the anti-join would then never revisit.
+        when(verificationService.backfill(anyInt()))
+                .thenReturn(100)
+                .thenThrow(new RuntimeException("429 Too Many Requests"));
+
+        runner.run();
+
+        verify(verificationService, times(2)).backfill(anyInt());
+        BackfillStatus status = runner.status();
+        assertThat(status.running()).isFalse();
+        assertThat(status.verified()).isEqualTo(100);
+        assertThat(status.lastError()).contains("429");
+    }
+
+    @Test
+    @DisplayName("start refuses a second concurrent run")
+    void start_refusesConcurrentRun() {
+        // A second run would select overlapping candidates and collide on the unique
+        // forecast_evaluation_id, turning a duplicate request into a batch of failures.
+        when(verificationService.backfill(anyInt())).thenAnswer(invocation -> {
+            // While the first run is mid-flight, a second start must be refused.
+            assertThat(runner.start()).isFalse();
+            return 0;
+        });
+
+        assertThat(runner.start()).isTrue();
+        verify(verificationService, times(1)).backfill(anyInt());
+    }
+
+    @Test
+    @DisplayName("start is allowed again once the previous run has finished")
+    void start_allowedAfterCompletion() {
+        when(verificationService.backfill(anyInt())).thenReturn(0);
+
+        assertThat(runner.start()).isTrue();
+        assertThat(runner.status().running()).isFalse();
+        assertThat(runner.start()).isTrue();
+
+        verify(verificationService, times(2)).backfill(anyInt());
+    }
+
+    @Test
+    @DisplayName("a failing remaining-count degrades to unknown instead of aborting the run")
+    void run_remainingCountFailure_doesNotAbort() {
+        when(verificationService.backfill(anyInt())).thenReturn(100, 0);
+        when(verificationService.countRemaining())
+                .thenThrow(new RuntimeException("db busy"));
+
+        runner.run();
+
+        BackfillStatus status = runner.status();
+        assertThat(status.verified()).isEqualTo(100);
+        assertThat(status.remaining()).isNull();
+        assertThat(status.lastError()).isNull();
+    }
+
+    @Test
+    @DisplayName("status starts idle before any run")
+    void status_idleBeforeFirstRun() {
+        BackfillStatus status = runner.status();
+
+        assertThat(status.running()).isFalse();
+        assertThat(status.verified()).isZero();
+        assertThat(status.startedAt()).isNull();
+        verify(verificationService, never()).backfill(anyInt());
+    }
+}

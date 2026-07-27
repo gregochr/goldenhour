@@ -606,14 +606,15 @@
                             (SkyRatingEvalTest added 2026-06-27, PIT red from 2026-06-29).
                           - excludedTestClasses names the known classes explicitly, as a belt-and-
                             braces fallback that does not depend on tag filtering.
-                        Keep both. If you add a @Tag("prompt-regression") test, no change is
-                        needed here, but adding it to the list too costs nothing.
+                        Keep both. If you add a @Tag("prompt-regression") test you must add it to
+                        the list below too: PitExclusionDriftTest walks src/test/java and fails the
+                        build when a tagged class is missing from <excludedTestClasses>, or when
+                        the tag disappears from <excludedGroups>.
                     -->
                     <excludedTestClasses>
                         <param>com.gregochr.goldenhour.controller.*</param>
                         <param>com.gregochr.goldenhour.*IntegrationTest</param>
                         <param>com.gregochr.goldenhour.*IT</param>
-                        <param>com.gregochr.goldenhour.service.LocationFailureTrackingUIDemo</param>
                         <param>com.gregochr.goldenhour.service.evaluation.BestBetAuroraPromptRegressionTest</param>
                         <param>com.gregochr.goldenhour.service.evaluation.PromptRegressionTest</param>
                         <param>com.gregochr.goldenhour.eval.SkyRatingEvalTest</param>
