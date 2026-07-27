@@ -103,6 +103,27 @@ class CloudVerificationRepositoryTest {
     }
 
     @Test
+    @DisplayName("deleteBlankVerifications frees masked evaluations without touching real ones")
+    void deleteBlankVerifications_returnsEvaluationsToTheCandidatePool() {
+        ForecastEvaluationEntity blank = evaluationRepository.save(evaluation(DATE, 30, true));
+        ForecastEvaluationEntity real =
+                evaluationRepository.save(evaluation(DATE.minusDays(1), 40, true));
+        // A row written during an outage: it records an attempt but carries no observation, and
+        // because candidate selection is an anti-join it masks its evaluation permanently.
+        repository.save(verification(blank.getId(), null, null, null));
+        repository.save(verification(real.getId(), 80, 55, 40));
+
+        assertThat(repository.findUnverified(DATE.plusDays(1), Limit.of(10))).isEmpty();
+
+        assertThat(repository.deleteBlankVerifications()).isEqualTo(1);
+
+        // The blank one is a candidate again; the real one stays verified.
+        assertThat(repository.findUnverified(DATE.plusDays(1), Limit.of(10)))
+                .extracting(VerificationCandidate::evaluationId)
+                .containsExactly(blank.getId());
+    }
+
+    @Test
     @DisplayName("findVerifiedPairs projects both cloud claims and both veto triggers")
     void findVerifiedPairs_projectsClaimsAndTriggers() {
         ForecastEvaluationEntity evaluation = evaluationRepository.save(evaluation(DATE, 30, true));

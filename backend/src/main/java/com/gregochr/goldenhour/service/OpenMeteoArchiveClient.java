@@ -172,17 +172,44 @@ public class OpenMeteoArchiveClient {
     private List<OpenMeteoForecastResponse> parseArrayResponse(String json) {
         try {
             JsonNode root = objectMapper.readTree(json);
+            rejectErrorPayload(root);
             List<OpenMeteoForecastResponse> results = new ArrayList<>();
             if (root.isArray()) {
                 for (JsonNode node : root) {
+                    rejectErrorPayload(node);
                     results.add(objectMapper.treeToValue(node, OpenMeteoForecastResponse.class));
                 }
             } else {
                 results.add(objectMapper.treeToValue(root, OpenMeteoForecastResponse.class));
             }
             return results;
+        } catch (IllegalStateException e) {
+            throw e;
         } catch (Exception e) {
             throw new IllegalStateException("Failed to parse Open-Meteo archive response", e);
+        }
+    }
+
+    /**
+     * Throws if the node is Open-Meteo's error envelope rather than a weather response.
+     *
+     * <p><strong>Open-Meteo reports a rate limit as HTTP 200</strong> with the body
+     * {@code {"error": true, "reason": "Hourly API request limit exceeded."}}. Nothing about that
+     * is exceptional to the HTTP client, and it deserialises happily into an
+     * {@link OpenMeteoForecastResponse} whose {@code hourly} block is simply null — which reads
+     * downstream as "the archive has no data for this point", not "we were throttled".
+     *
+     * <p>Left undetected that is the worst possible failure: cloud verification writes a row with
+     * null observations, and because candidate selection is an anti-join, that row is treated as
+     * verified forever and never revisited. A throttled backfill would silently blank its entire
+     * remaining backlog with no error, no warning, and a clean-looking finish.
+     *
+     * @param node the parsed response node
+     */
+    private void rejectErrorPayload(JsonNode node) {
+        if (node != null && node.path("error").asBoolean(false)) {
+            String reason = node.path("reason").asText("unknown");
+            throw new IllegalStateException("Open-Meteo archive returned an error: " + reason);
         }
     }
 

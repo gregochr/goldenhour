@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.CloudVerificationEntity;
+import com.gregochr.goldenhour.model.BackfillBatch;
 import com.gregochr.goldenhour.model.CloudVerificationBucket;
 import com.gregochr.goldenhour.model.CloudVerificationPair;
 import com.gregochr.goldenhour.model.CloudVerificationReport;
@@ -80,16 +81,16 @@ public class CloudVerificationService {
      * a row — including one that found no archive data — so nothing is fetched twice.
      *
      * @param maxRows maximum evaluations to verify in this pass
-     * @return the number of evaluations verified
+     * @return counts of rows written and rows that actually carry observations
      */
     @Transactional
-    public int backfill(int maxRows) {
+    public BackfillBatch backfill(int maxRows) {
         LocalDate cutoff = LocalDate.now(clock).minusDays(ARCHIVE_LAG_DAYS);
         List<VerificationCandidate> candidates =
                 repository.findUnverified(cutoff, Limit.of(maxRows));
         if (candidates.isEmpty()) {
             LOG.info("[CLOUD VERIFY] nothing to verify at or before {}", cutoff);
-            return 0;
+            return BackfillBatch.EMPTY;
         }
 
         // Group by date: the archive takes one date range per request, but accepts many
@@ -106,10 +107,30 @@ public class CloudVerificationService {
         }
         repository.saveAll(verified);
 
-        long withData = verified.stream().filter(v -> v.getHorizonLowCloud() != null).count();
+        int withData = (int) verified.stream()
+                .filter(v -> v.getHorizonLowCloud() != null).count();
         LOG.info("[CLOUD VERIFY] verified={} withObservations={} dates={} cutoff={}",
                 verified.size(), withData, byDate.size(), cutoff);
-        return verified.size();
+        return new BackfillBatch(verified.size(), withData);
+    }
+
+    /**
+     * Deletes verification rows that carry no observations, making them candidates again.
+     *
+     * <p>A row written during an upstream outage records only that an attempt happened. Because
+     * candidate selection is an anti-join, such a row would otherwise mask that evaluation
+     * permanently. Clearing them is what makes the backfill self-healing rather than needing
+     * manual SQL after every throttled run.
+     *
+     * @return the number of blank rows removed
+     */
+    @Transactional
+    public int clearBlankVerifications() {
+        int cleared = repository.deleteBlankVerifications();
+        if (cleared > 0) {
+            LOG.info("[CLOUD VERIFY] cleared {} blank verification row(s) for re-attempt", cleared);
+        }
+        return cleared;
     }
 
     /**

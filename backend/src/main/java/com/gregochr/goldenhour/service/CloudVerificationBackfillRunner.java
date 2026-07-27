@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.model.BackfillBatch;
 import com.gregochr.goldenhour.model.BackfillStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -82,6 +83,13 @@ public class CloudVerificationBackfillRunner {
         if (!running.compareAndSet(false, true)) {
             return false;
         }
+        // Clear blanks first so a previously throttled run heals itself rather than leaving
+        // those evaluations permanently masked by the anti-join.
+        try {
+            verificationService.clearBlankVerifications();
+        } catch (Exception e) {
+            LOG.warn("[CLOUD VERIFY] could not clear blank rows before run: {}", e.getMessage());
+        }
         status.set(BackfillStatus.started(LocalDateTime.now(clock), remainingOrNull()));
         run();
         return true;
@@ -99,11 +107,20 @@ public class CloudVerificationBackfillRunner {
         String error = null;
         try {
             for (int i = 0; i < MAX_BATCHES; i++) {
-                int verified = verificationService.backfill(BATCH_SIZE);
-                if (verified == 0) {
+                BackfillBatch batch = verificationService.backfill(BATCH_SIZE);
+                if (batch.rowsWritten() == 0) {
                     break;
                 }
-                status.updateAndGet(s -> s.withBatch(verified, remainingOrNull()));
+                if (batch.isBlank()) {
+                    // Rows were written but carry no observations — the archive is throttling or
+                    // down. Stopping is the whole point: continuing would blank the rest of the
+                    // backlog, and the anti-join would never revisit any of it.
+                    error = "archive returned no observations — stopped after "
+                            + status.get().batches() + " batch(es); re-run to resume";
+                    LOG.warn("[CLOUD VERIFY] {}", error);
+                    break;
+                }
+                status.updateAndGet(s -> s.withBatch(batch.withObservations(), remainingOrNull()));
             }
         } catch (Exception e) {
             error = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();

@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — A throttled cloud-verification backfill silently blanked its own backlog
+- **Open-Meteo signals a rate limit with `HTTP 200`** and the body `{"error": true, "reason": "Hourly API request limit exceeded."}`. Nothing about that is exceptional to the HTTP client, and it deserialised happily into a response whose `hourly` block was simply null — which reads downstream as *"the archive has no data for this point"*, not *"we were throttled"*.
+- **The consequence was the worst available.** Verification rows were written carrying no observations; because candidate selection is an anti-join, every one of those rows then counted as verified **forever** and was never revisited. A throttled run would work through its entire remaining backlog writing permanent blanks, with no exception, no warning, and a clean-looking finish reporting `lastError: null`. Observed in production against a live backfill.
+- **Three fixes**, each closing a different link in that chain: the archive client now rejects the error envelope instead of parsing it as empty data; `backfill` reports rows-written *and* rows-with-observations separately (`BackfillBatch`), so "wrote 100 blanks" is distinguishable from "backlog drained"; and the runner stops on a blank batch, recording it in `lastError`, rather than grinding on.
+- **Self-healing.** Blank rows are cleared at the start of each run, so a throttled backfill repairs itself on the next POST rather than needing manual SQL. The stop-on-blank rule is what stops that from becoming a retry loop against a sustained outage.
+
 ### Fixed — Every cloud inversion read "9/10 · strong", because nothing in the pipeline measured an inversion
 
 - **Reported as "it's always 9/10 — is that hardcoded?". It was not hardcoded, but three gates stacked so that no other value could reach the screen.** The word "strong" was a string literal in `InversionHotTopicStrategy` (`topScore + "/10 · strong"`), so the fact line could not disagree with itself. The detector only admits scores ≥ 9, so 9 and 10 were the only numbers that could ever reach it. And in the STRONG band the calculator could only produce 9.0, 9.5 or 10.0, while `PromptBuilder` reported it through `Double.intValue()` — truncation, so 9.0 and 9.5 both read as 9 and only an exact 10.0 could read as 10. Two of the three reachable values collapsed onto the third.
