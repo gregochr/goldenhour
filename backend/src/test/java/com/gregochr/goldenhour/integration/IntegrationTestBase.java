@@ -4,6 +4,7 @@ import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -43,18 +44,48 @@ import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMoc
  *       {@code @DynamicPropertySource} below override H2-specific defaults
  *       (datasource, Flyway, ddl-auto) with Postgres-aware values.</li>
  * </ul>
+ *
+ * <p><strong>Why {@link DirtiesContext} is here, and why removing it breaks CI.</strong>
+ * {@code @Testcontainers} plus a {@code static} {@code @Container} field means JUnit's
+ * {@code TestcontainersExtension} owns the container's lifecycle: it stops the container
+ * in {@code afterAll} of <em>every</em> test class and restarts it in the next class's
+ * {@code beforeAll} — on a <b>new random host port</b>. Spring's context cache does not
+ * restart with it. {@code @DynamicPropertySource} is evaluated only when a context is
+ * <em>created</em>, so without this annotation a later class sharing the same context
+ * cache key is handed the cached context, still holding the previous port in
+ * {@code spring.datasource.url}, and every query fails with
+ * {@code Connection to localhost:NNNNN refused} after a 30 s Hikari timeout.
+ *
+ * <p>That was a real CI failure (2026-07-27, tag {@code v2.16.9}). It presented as
+ * flakiness because it only fires when two classes sharing a context cache key land in
+ * the same surefire fork, and {@code <forkCount>1C</forkCount>} makes that a matter of
+ * luck. Evicting the context after each class guarantees the next one re-reads the
+ * restarted container's port.
+ *
+ * <p>The obvious-looking alternative — the Testcontainers singleton pattern, dropping
+ * {@code @Testcontainers}/{@code @Container} and starting the container once from a
+ * static initialiser — was tried and <b>rejected on evidence</b>. The per-class restart
+ * is load-bearing: it is what hands each class a virgin, freshly-migrated database.
+ * Several subclasses call {@code regionRepository.deleteAll()} in {@code @AfterEach},
+ * which deletes the rows <em>Flyway seeded</em> (V31's five regions) and not merely the
+ * rows they created. With one long-lived container those deletions leak across classes
+ * and {@code HttpIntegrationTestBaseProbeTest} fails on an empty {@code regions} table.
+ * Making the singleton work would mean first teaching every subclass not to delete seed
+ * data — a larger change than the bug warrants, and not one to make while CI is red.
  */
 @SpringBootTest
 @ActiveProfiles({"test", "integration-test"})
 @Testcontainers
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Import(WireMockAnthropicClientTestConfiguration.class)
 public abstract class IntegrationTestBase {
 
     /**
      * Postgres 17-alpine container — same image as production
-     * ({@code docker-compose.yml}). Static field so the container is shared
-     * across every test class extending this base, avoiding the ~2 s startup
-     * cost per class.
+     * ({@code docker-compose.yml}). Static field, but note that this does
+     * <em>not</em> mean one container per fork: the extension stops and restarts it
+     * around every test class, which is what gives each class a clean database and
+     * why {@link DirtiesContext} above is mandatory. See the class Javadoc.
      */
     @Container
     @SuppressWarnings("resource")
