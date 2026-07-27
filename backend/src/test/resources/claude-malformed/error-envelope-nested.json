@@ -1,0 +1,13 @@
+{
+  "custom_id": "fc-42-2026-07-26-SUNSET",
+  "result": {
+    "type": "errored",
+    "error": {
+      "type": "error",
+      "error": {
+        "type": "overloaded_error",
+        "message": "Overloaded"
+      }
+    }
+  }
+}
