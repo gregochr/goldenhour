@@ -377,9 +377,10 @@ public class ForecastDataAugmentor {
 
     /**
      * Returns a copy of {@code base} with a cloud inversion score for elevated water-overlook
-     * locations. The score is computed from temperature-dew point gap, wind speed, humidity,
-     * and low cloud cover. Returns the original data unchanged if the location does not meet
-     * the elevation/water criteria.
+     * locations. The score combines surface conditions (temperature-dew point gap, wind speed,
+     * low cloud cover) with the measured temperature reversal aloft and the viewpoint's clearance
+     * of the stable layer. Returns the original data unchanged if the location does not meet the
+     * elevation/water criteria.
      *
      * @param base             atmospheric data to augment
      * @param elevationMetres  location elevation in metres, or null
@@ -393,12 +394,34 @@ public class ForecastDataAugmentor {
                 || !overlooksWater) {
             return base;
         }
-        Double score = InversionScoreCalculator.calculate(base);
+        warnIfNoVerticalProfile(base);
+        Double score = InversionScoreCalculator.calculate(base, elevationMetres);
         if (score == null) {
             return base;
         }
         LOG.debug("Inversion score for {}: {}/10", base.locationName(), score);
         return base.withInversionScore(score);
+    }
+
+    /**
+     * Warns when an inversion-eligible location arrives with no pressure-level temperature.
+     *
+     * <p>Without one the calculator caps the score below the STRONG band, so the inversion hot
+     * topic stops firing entirely. That is the right call — STRONG should not be claimed without
+     * a measured reversal — but it would otherwise be indistinguishable from a spell of genuinely
+     * poor conditions, so it is logged rather than left to be inferred from an empty strip.
+     *
+     * @param base the atmospheric data about to be scored
+     */
+    private void warnIfNoVerticalProfile(AtmosphericData base) {
+        if (base.weather() == null
+                || base.weather().temperature925hPaCelsius() != null
+                || base.weather().temperature850hPaCelsius() != null) {
+            return;
+        }
+        LOG.warn("No pressure-level temperature for inversion-eligible location {} — "
+                + "inversion score capped at {} (STRONG needs a measured reversal)",
+                base.locationName(), InversionScoreCalculator.MARGINAL_CEILING);
     }
 
     /**

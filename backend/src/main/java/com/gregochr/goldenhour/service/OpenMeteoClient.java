@@ -50,7 +50,11 @@ public class OpenMeteoClient {
             + "relative_humidity_2m,surface_pressure,shortwave_radiation,boundary_layer_height,"
             + "temperature_2m,apparent_temperature,precipitation_probability,dew_point_2m,"
             + "pressure_msl,wind_gusts_10m,"
-            + "snowfall,snow_depth,freezing_level_height";
+            + "snowfall,snow_depth,freezing_level_height,"
+            // The only vertical temperature profile the pipeline has. Without it, a cloud
+            // inversion can only be guessed at from surface readings — see
+            // InversionScoreCalculator.
+            + "temperature_925hPa,temperature_850hPa";
 
     /** Comma-separated cloud-only parameters for directional horizon sampling. */
     static final String CLOUD_ONLY_PARAMS = "cloud_cover_low,cloud_cover_mid,cloud_cover_high";

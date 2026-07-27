@@ -69,6 +69,18 @@ class OpenMeteoClientTest {
     }
 
     @Test
+    @DisplayName("FORECAST_PARAMS requests the pressure-level temperatures inversion detection needs")
+    void forecastParams_requestPressureLevelTemperatures() {
+        // The only vertical temperature profile in the pipeline. If these ever drop out of the
+        // request, InversionScoreCalculator can no longer confirm a reversal and silently caps
+        // every inversion below the STRONG band — a feature that stops working without an error.
+        assertThat(OpenMeteoClient.FORECAST_PARAMS)
+                .contains("temperature_925hPa")
+                .contains("temperature_850hPa")
+                .contains("temperature_2m");
+    }
+
+    @Test
     @DisplayName("fetchAirQuality() delegates to airQualityApi with correct parameters")
     void fetchAirQuality_delegatesToApi() {
         OpenMeteoAirQualityResponse expected = new OpenMeteoAirQualityResponse();

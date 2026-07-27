@@ -445,17 +445,58 @@ class ForecastDataAugmentorTest {
     @Test
     @DisplayName("augmentWithInversionScore() adds score for elevated water-overlook location")
     void augmentWithInversionScore_eligibleLocation_addsScore() {
+        // Saturated, calm, a well-defined deck, a +3 °C reversal at 925 hPa and a shallow stable
+        // layer the 450 m viewpoint stands above: the full 10.
         AtmosphericData base = TestAtmosphericData.builder()
                 .temperature(6.0)
                 .dewPoint(5.5)
-                .humidity(95)
+                .windSpeed(new java.math.BigDecimal("1.0"))
                 .lowCloud(30)
+                .boundaryLayerHeight(150)
+                .temperature925hPa(9.0)
                 .build();
 
         AtmosphericData result = augmentor.augmentWithInversionScore(base, 450, true);
 
-        assertThat(result.inversionScore()).isNotNull();
-        assertThat(result.inversionScore()).isGreaterThanOrEqualTo(7.0);
+        assertThat(result.inversionScore()).isEqualTo(10.0);
+    }
+
+    @Test
+    @DisplayName("augmentWithInversionScore() passes elevation through to the clearance gate")
+    void augmentWithInversionScore_elevationReachesClearanceGate() {
+        // Identical conditions, identical 900 m stable layer. The 1000 m viewpoint stands above
+        // it; the 400 m one is inside it. Only a wired-through elevation can tell them apart.
+        AtmosphericData base = TestAtmosphericData.builder()
+                .temperature(6.0)
+                .dewPoint(5.5)
+                .windSpeed(new java.math.BigDecimal("1.0"))
+                .lowCloud(30)
+                .boundaryLayerHeight(900)
+                .temperature925hPa(9.0)
+                .build();
+
+        assertThat(augmentor.augmentWithInversionScore(base, 1000, true).inversionScore())
+                .isEqualTo(10.0);
+        assertThat(augmentor.augmentWithInversionScore(base, 400, true).inversionScore())
+                .isEqualTo(InversionScoreCalculator.VETOED_CEILING);
+    }
+
+    @Test
+    @DisplayName("augmentWithInversionScore() caps below STRONG when no vertical profile exists")
+    void augmentWithInversionScore_noProfile_capsBelowStrong() {
+        AtmosphericData base = TestAtmosphericData.builder()
+                .temperature(6.0)
+                .dewPoint(5.5)
+                .windSpeed(new java.math.BigDecimal("1.0"))
+                .lowCloud(30)
+                .boundaryLayerHeight(150)
+                .build();
+
+        AtmosphericData result = augmentor.augmentWithInversionScore(base, 450, true);
+
+        assertThat(result.inversionScore())
+                .isEqualTo(InversionScoreCalculator.MARGINAL_CEILING)
+                .isLessThan(9.0);
     }
 
     @Test
@@ -511,8 +552,9 @@ class ForecastDataAugmentorTest {
         AtmosphericData base = TestAtmosphericData.builder()
                 .temperature(6.0)
                 .dewPoint(5.5)
-                .humidity(90)
                 .lowCloud(25)
+                .boundaryLayerHeight(100)
+                .temperature925hPa(9.0)
                 .build();
 
         AtmosphericData result = augmentor.augmentWithInversionScore(base, 200, true);

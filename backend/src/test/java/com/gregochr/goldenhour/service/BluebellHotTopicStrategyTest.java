@@ -484,6 +484,7 @@ class BluebellHotTopicStrategyTest {
     private static SurvivorSignals bluebellSignal(LocationEntity location, LocalDate date,
             int score, String summary) {
         return new SurvivorSignals(location, date, TargetType.SUNRISE,
-                new SurvivorSignals.Scores(null, score, summary), SurvivorSignals.Readings.EMPTY);
+                new SurvivorSignals.Scores(null, null, score, summary),
+                SurvivorSignals.Readings.EMPTY);
     }
 }

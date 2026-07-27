@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.service.DirectionalSamplingGeometry;
+import com.gregochr.goldenhour.service.InversionScoreCalculator;
 import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.PressureTrend;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
@@ -167,6 +168,12 @@ public class PromptBuilder {
             + "warms.\n"
             + "Scoring: MODERATE (7-8) → boost rating by 1 if current < 5. STRONG (9-10) → set "
             + "rating 5, emphasise in summary.\n"
+            + "MEASURED REVERSAL: when a 'Measured reversal' line is present it is the observed "
+            + "temperature difference between the surface and ~760m, and it is the evidence the "
+            + "score rests on — an inversion IS temperature rising with height. A positive value "
+            + "confirms the inversion. A negative value contradicts it: do NOT apply the rating "
+            + "boost above, and say in the summary that the cloud sits at the viewpoint rather "
+            + "than below it.\n"
             + "Non-water or low elevation: inversions have no photographic value; ignore "
             + "inversion score.\n\n"
             + "FORECAST RELIABILITY:\n"
@@ -544,17 +551,22 @@ public class PromptBuilder {
         // Cloud inversion forecast — elevated water-overlooking locations only
         Double inversionScore = data.inversionScore();
         if (isInversionLikely(inversionScore)) {
-            InversionPotential potential = InversionPotential.fromScore(inversionScore.intValue());
+            // Round, never truncate. intValue() reported a 9.5 as 9, so the whole 9.0–9.99 range
+            // collapsed onto its floor while only an exact 10.0 could ever read as 10 — which is
+            // why every inversion Claude was ever shown said "9/10".
+            int reported = (int) Math.round(inversionScore);
+            InversionPotential potential = InversionPotential.fromScore(reported);
             sb.append(String.format(
                     "%nCLOUD INVERSION FORECAST:%n"
                     + "Score: %d/10 (%s)%n"
                     + "Expected: %s%n"
                     + "Timing: Peak at event time, dissipates 1-2 hours after as surface warms.",
-                    inversionScore.intValue(),
+                    reported,
                     potential.label(),
                     potential == InversionPotential.STRONG
                             ? "Dramatic blanket below viewpoint; clear sky above"
                             : "Visible cloud layer below; light touching cloud tops"));
+            appendInversionReversal(sb, data);
         }
 
         // Bluebell left the standard prompt in Pass 3 — it has its own prompt
@@ -668,6 +680,34 @@ public class PromptBuilder {
                         && aerosol.aerosolOpticalDepth().doubleValue() > DUST_AOD_THRESHOLD)
                 || (aerosol.dustUgm3() != null
                         && aerosol.dustUgm3().doubleValue() > DUST_UGM3_THRESHOLD);
+    }
+
+    /**
+     * Appends the measured temperature reversal behind the inversion score, when one exists.
+     *
+     * <p>The score alone is a number Claude can only take on trust — and, being handed the answer,
+     * echo back. The reversal is the independent evidence underneath it: how much warmer the air
+     * at ~760 m is than the surface, which is what "inversion" means. Omitted silently when
+     * Open-Meteo returned no pressure-level temperature, since the score is already capped below
+     * the STRONG band in that case.
+     *
+     * @param sb   the prompt under construction
+     * @param data the atmospheric data at event time
+     */
+    private static void appendInversionReversal(StringBuilder sb, AtmosphericData data) {
+        if (data.comfort() == null || data.comfort().temperatureCelsius() == null) {
+            return;
+        }
+        Double reversal = InversionScoreCalculator.reversalCelsius(
+                data.weather(), data.comfort().temperatureCelsius());
+        if (reversal == null) {
+            return;
+        }
+        sb.append(String.format(
+                "%nMeasured reversal: %+.1f°C between the surface and ~760m (925 hPa) "
+                + "— positive means temperature RISES with height, which is the inversion "
+                + "itself. Weigh this over the score if the two disagree.",
+                reversal));
     }
 
     /**

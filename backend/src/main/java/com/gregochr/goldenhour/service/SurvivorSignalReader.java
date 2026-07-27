@@ -60,8 +60,12 @@ public class SurvivorSignalReader {
 
         for (ForecastScoreEntity s : forecastScoreRepository.findComponentsByType(
                 ForecastType.INVERSION.getId(), from, to)) {
-            accumulatorFor(byKey, s.getLocation(), s.getEvaluationDate(), s.getEventType())
-                    .inversion = s.getScore();
+            Accumulator acc = accumulatorFor(
+                    byKey, s.getLocation(), s.getEvaluationDate(), s.getEventType());
+            acc.inversion = s.getScore();
+            // The INVERSION row's summary is its NONE/MODERATE/STRONG classification, written by
+            // ForecastScoreWriter — so the detector can label the band instead of assuming one.
+            acc.inversionBand = s.getSummary();
         }
         for (ForecastScoreEntity s : forecastScoreRepository.findComponentsByType(
                 ForecastType.BLUEBELL.getId(), from, to)) {
@@ -94,6 +98,7 @@ public class SurvivorSignalReader {
         private final LocalDate date;
         private final TargetType eventType;
         private Integer inversion;
+        private String inversionBand;
         private Integer bluebell;
         private String bluebellSummary;
         private SurvivorAtmosphereEntity readings;
@@ -105,10 +110,12 @@ public class SurvivorSignalReader {
         }
 
         private SurvivorSignals build() {
-            SurvivorSignals.Scores scores =
-                    (inversion == null && bluebell == null && bluebellSummary == null)
-                            ? SurvivorSignals.Scores.EMPTY
-                            : new SurvivorSignals.Scores(inversion, bluebell, bluebellSummary);
+            boolean noScores = inversion == null && inversionBand == null
+                    && bluebell == null && bluebellSummary == null;
+            SurvivorSignals.Scores scores = noScores
+                    ? SurvivorSignals.Scores.EMPTY
+                    : new SurvivorSignals.Scores(
+                            inversion, inversionBand, bluebell, bluebellSummary);
             SurvivorSignals.Readings r = readings == null
                     ? SurvivorSignals.Readings.EMPTY
                     : new SurvivorSignals.Readings(

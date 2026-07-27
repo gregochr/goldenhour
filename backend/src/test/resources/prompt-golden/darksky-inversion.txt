@@ -55,6 +55,7 @@ A cloud inversion occurs when warm air sits above cooler air, creating a stable 
 Key conditions: cool water + overnight surface cooling + light winds + high humidity.
 Timing: inversions peak just before sunrise, break up 1-2 hours after as surface warms.
 Scoring: MODERATE (7-8) → boost rating by 1 if current < 5. STRONG (9-10) → set rating 5, emphasise in summary.
+MEASURED REVERSAL: when a 'Measured reversal' line is present it is the observed temperature difference between the surface and ~760m, and it is the evidence the score rests on — an inversion IS temperature rising with height. A positive value confirms the inversion. A negative value contradicts it: do NOT apply the rating boost above, and say in the summary that the cloud sits at the viewpoint rather than below it.
 Non-water or low elevation: inversions have no photographic value; ignore inversion score.
 
 FORECAST RELIABILITY:
@@ -115,7 +116,7 @@ Location: Kielder UK. SUNRISE: 2026-06-21T04:30 UTC.
 Cloud: Low 10%, Mid 50%, High 30%
 Visibility: 25,000m, Wind: 3.50 m/s (225°), Precip: 0.00mm
 Humidity: 62%, Precip probability: N/A%
-Dew point: N/A
+Dew point: 5.6°C (gap 0.4°C)
 Weather code: 3
 Boundary layer: 1200m, Shortwave: 180 W/m²
 PM2.5: 8.50µg/m³, Dust: 2.10µg/m³, AOD: 0.120
@@ -124,4 +125,5 @@ CLOUD INVERSION FORECAST:
 Score: 9/10 (Strong Cloud Inversion Potential)
 Expected: Dramatic blanket below viewpoint; clear sky above
 Timing: Peak at event time, dissipates 1-2 hours after as surface warms.
+Measured reversal: +2.4°C between the surface and ~760m (925 hPa) — positive means temperature RISES with height, which is the inversion itself. Weigh this over the score if the two disagree.
 Rate 1-5, estimate Fiery Sky Potential (0-100) and Golden Hour Potential (0-100), then summarise in exactly one sentence.

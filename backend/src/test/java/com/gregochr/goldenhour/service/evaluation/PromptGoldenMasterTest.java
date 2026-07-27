@@ -165,6 +165,11 @@ class PromptGoldenMasterTest {
                 .targetType(TargetType.SUNRISE)
                 .locationOrientation("sunrise-optimised")
                 .inversionScore(9.0)
+                // A measured +2.4 °C reversal at 925 hPa — the evidence under the score, and the
+                // only thing in the block Claude cannot simply read back off the score itself.
+                .temperature(6.0)
+                .dewPoint(5.6)
+                .temperature925hPa(8.4)
                 .build();
         assertGolden("darksky-inversion", data);
     }
