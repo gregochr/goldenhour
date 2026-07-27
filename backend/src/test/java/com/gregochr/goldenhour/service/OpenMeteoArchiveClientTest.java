@@ -117,6 +117,35 @@ class OpenMeteoArchiveClientTest {
     }
 
     @Test
+    @DisplayName("a rate-limit envelope returned as HTTP 200 is treated as failure, not empty data")
+    void fetchArchiveBatch_errorEnvelope_isNotMistakenForEmptyData() {
+        // Open-Meteo answers a rate limit with HTTP 200 and this body. Nothing about it is
+        // exceptional to the HTTP client, and it deserialises happily into a response whose
+        // hourly block is null — which downstream reads as "the archive has no data here".
+        // Undetected, a throttled backfill blanks its whole remaining backlog with no error,
+        // and the anti-join then treats every one of those rows as verified forever.
+        RestClientMocks.stubGet(restClient, String.class,
+                "{\"error\":true,\"reason\":\"Hourly API request limit exceeded.\"}");
+
+        List<OpenMeteoForecastResponse> results =
+                client.fetchArchiveBatch(coords(2), DATE, HOURLY);
+
+        // Nulls, not a parsed-but-empty response — so the caller records no observations
+        // and the runner can stop rather than grinding on.
+        assertThat(results).hasSize(2).containsOnlyNulls();
+    }
+
+    @Test
+    @DisplayName("an error envelope inside a batch array is also rejected")
+    void fetchArchiveBatch_errorEnvelopeInsideArray_isRejected() {
+        RestClientMocks.stubGet(restClient, String.class,
+                "[" + responseJson(10) + ",{\"error\":true,\"reason\":\"limit\"}]");
+
+        assertThat(client.fetchArchiveBatch(coords(2), DATE, HOURLY))
+                .hasSize(2).containsOnlyNulls();
+    }
+
+    @Test
     @DisplayName("fetchArchiveBatch returns nulls when the response body is unparseable")
     void fetchArchiveBatch_badJson_returnsNulls() {
         RestClientMocks.stubGet(restClient, String.class, "not json");

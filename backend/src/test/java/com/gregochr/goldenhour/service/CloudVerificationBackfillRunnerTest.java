@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.model.BackfillBatch;
 import com.gregochr.goldenhour.model.BackfillStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -37,6 +38,10 @@ class CloudVerificationBackfillRunnerTest {
 
     private CloudVerificationBackfillRunner runner;
 
+    private static BackfillBatch batch(int n) {
+        return new BackfillBatch(n, n);
+    }
+
     @BeforeEach
     void setUp() {
         runner = new CloudVerificationBackfillRunner(verificationService, CLOCK);
@@ -46,7 +51,7 @@ class CloudVerificationBackfillRunnerTest {
     @DisplayName("run works through batches until one comes back empty")
     void run_drainsBacklogThenStops() {
         when(verificationService.backfill(CloudVerificationBackfillRunner.BATCH_SIZE))
-                .thenReturn(100, 100, 40, 0);
+                .thenReturn(batch(100), batch(100), batch(40), BackfillBatch.EMPTY);
         when(verificationService.countRemaining()).thenReturn(140L, 40L, 0L);
 
         runner.run();
@@ -67,7 +72,7 @@ class CloudVerificationBackfillRunnerTest {
         // The usual cause is the archive rate-limiting us. Continuing would write thousands of
         // rows with no observations, which the anti-join would then never revisit.
         when(verificationService.backfill(anyInt()))
-                .thenReturn(100)
+                .thenReturn(batch(100))
                 .thenThrow(new RuntimeException("429 Too Many Requests"));
 
         runner.run();
@@ -87,7 +92,7 @@ class CloudVerificationBackfillRunnerTest {
         when(verificationService.backfill(anyInt())).thenAnswer(invocation -> {
             // While the first run is mid-flight, a second start must be refused.
             assertThat(runner.start()).isFalse();
-            return 0;
+            return BackfillBatch.EMPTY;
         });
 
         assertThat(runner.start()).isTrue();
@@ -97,7 +102,7 @@ class CloudVerificationBackfillRunnerTest {
     @Test
     @DisplayName("start is allowed again once the previous run has finished")
     void start_allowedAfterCompletion() {
-        when(verificationService.backfill(anyInt())).thenReturn(0);
+        when(verificationService.backfill(anyInt())).thenReturn(BackfillBatch.EMPTY);
 
         assertThat(runner.start()).isTrue();
         assertThat(runner.status().running()).isFalse();
@@ -109,7 +114,7 @@ class CloudVerificationBackfillRunnerTest {
     @Test
     @DisplayName("a failing remaining-count degrades to unknown instead of aborting the run")
     void run_remainingCountFailure_doesNotAbort() {
-        when(verificationService.backfill(anyInt())).thenReturn(100, 0);
+        when(verificationService.backfill(anyInt())).thenReturn(batch(100), BackfillBatch.EMPTY);
         when(verificationService.countRemaining())
                 .thenThrow(new RuntimeException("db busy"));
 
@@ -119,6 +124,47 @@ class CloudVerificationBackfillRunnerTest {
         assertThat(status.verified()).isEqualTo(100);
         assertThat(status.remaining()).isNull();
         assertThat(status.lastError()).isNull();
+    }
+
+    @Test
+    @DisplayName("run stops when a batch writes rows but gets no observations back")
+    void run_blankBatch_stopsAndRecordsError() {
+        // The silent-failure case this whole change exists for: Open-Meteo answers a rate limit
+        // with HTTP 200 and an error envelope, so rows get written carrying nothing. Continuing
+        // would blank the rest of the backlog, and the anti-join would never revisit any of it.
+        when(verificationService.backfill(anyInt()))
+                .thenReturn(batch(100))
+                .thenReturn(new BackfillBatch(100, 0))
+                .thenReturn(batch(100));
+
+        runner.run();
+
+        // Stopped at the blank batch — the third stub is never reached.
+        verify(verificationService, times(2)).backfill(anyInt());
+        BackfillStatus status = runner.status();
+        assertThat(status.running()).isFalse();
+        assertThat(status.lastError()).contains("no observations");
+    }
+
+    @Test
+    @DisplayName("start clears blank rows first so a throttled run heals itself")
+    void start_clearsBlankRowsBeforeRunning() {
+        when(verificationService.backfill(anyInt())).thenReturn(BackfillBatch.EMPTY);
+
+        runner.start();
+
+        verify(verificationService).clearBlankVerifications();
+    }
+
+    @Test
+    @DisplayName("a failing blank-clear does not prevent the run from starting")
+    void start_clearFailure_stillRuns() {
+        when(verificationService.clearBlankVerifications())
+                .thenThrow(new RuntimeException("db busy"));
+        when(verificationService.backfill(anyInt())).thenReturn(BackfillBatch.EMPTY);
+
+        assertThat(runner.start()).isTrue();
+        verify(verificationService).backfill(anyInt());
     }
 
     @Test

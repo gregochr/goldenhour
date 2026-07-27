@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.model.CloudVerificationPair;
 import com.gregochr.goldenhour.model.VerificationCandidate;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -23,8 +24,11 @@ public interface CloudVerificationRepository extends JpaRepository<CloudVerifica
      *
      * <p>Requires the fields the sampling needs — a solar azimuth and an event time to locate the
      * horizon point and the hour, and a directional reading to compare against. The anti-join
-     * makes the backfill resumable and idempotent: a row is a candidate exactly once, and a
-     * verification that found no archive data is still a row, so it is not retried forever.
+     * makes the backfill resumable and idempotent: a row is a candidate exactly once.
+     *
+     * <p>Because it is an anti-join, a row with <em>no observations</em> masks its evaluation just
+     * as effectively as a real one — so {@link #deleteBlankVerifications()} clears those before
+     * each run rather than letting an upstream outage silently retire part of the backlog.
      *
      * @param cutoff the newest target date the archive is expected to cover
      * @param limit  maximum candidates to return, bounding one backfill pass
@@ -42,6 +46,19 @@ public interface CloudVerificationRepository extends JpaRepository<CloudVerifica
             + "   WHERE v.forecastEvaluationId = e.id)"
             + " ORDER BY e.targetDate ASC, e.id ASC")
     List<VerificationCandidate> findUnverified(@Param("cutoff") LocalDate cutoff, Limit limit);
+
+    /**
+     * Deletes verification rows that carry no observations.
+     *
+     * <p>Such a row records only that an attempt was made — typically during an upstream outage or
+     * a rate limit. Since {@link #findUnverified} is an anti-join, leaving it in place would mask
+     * that evaluation permanently. Removing it returns the evaluation to the candidate pool.
+     *
+     * @return the number of rows removed
+     */
+    @Modifying
+    @Query("DELETE FROM CloudVerificationEntity v WHERE v.horizonLowCloud IS NULL")
+    int deleteBlankVerifications();
 
     /**
      * Counts evaluations still awaiting verification, for backfill progress reporting.

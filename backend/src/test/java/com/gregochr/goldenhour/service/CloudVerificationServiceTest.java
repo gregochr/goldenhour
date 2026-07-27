@@ -65,7 +65,7 @@ class CloudVerificationServiceTest {
         when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
                 .thenReturn(List.of(archive(), archive()));
 
-        assertThat(service.backfill(10)).isEqualTo(1);
+        assertThat(service.backfill(10).rowsWritten()).isEqualTo(1);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<CloudVerificationEntity>> saved =
@@ -88,7 +88,7 @@ class CloudVerificationServiceTest {
         when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
                 .thenReturn(Arrays.asList(null, null));
 
-        assertThat(service.backfill(10)).isEqualTo(1);
+        assertThat(service.backfill(10).rowsWritten()).isEqualTo(1);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<CloudVerificationEntity>> saved =
@@ -110,7 +110,7 @@ class CloudVerificationServiceTest {
         when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
                 .thenReturn(List.of(archive(), archive(), archive(), archive()));
 
-        assertThat(service.backfill(10)).isEqualTo(2);
+        assertThat(service.backfill(10).rowsWritten()).isEqualTo(2);
 
         // Same date → exactly one batched request, not one call per point.
         @SuppressWarnings("unchecked")
@@ -137,7 +137,7 @@ class CloudVerificationServiceTest {
         when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
                 .thenReturn(List.of(archive(), archive()));
 
-        assertThat(service.backfill(10)).isEqualTo(2);
+        assertThat(service.backfill(10).rowsWritten()).isEqualTo(2);
 
         verify(archiveClient).fetchArchiveBatch(any(), eq(LocalDate.of(2026, 5, 10)), anyString());
         verify(archiveClient).fetchArchiveBatch(any(), eq(LocalDate.of(2026, 5, 11)), anyString());
@@ -148,7 +148,7 @@ class CloudVerificationServiceTest {
     void backfill_appliesArchiveLagCutoff() {
         when(repository.findUnverified(any(), any())).thenReturn(List.of());
 
-        assertThat(service.backfill(10)).isZero();
+        assertThat(service.backfill(10).rowsWritten()).isZero();
 
         ArgumentCaptor<LocalDate> cutoff = ArgumentCaptor.forClass(LocalDate.class);
         verify(repository).findUnverified(cutoff.capture(), any());
