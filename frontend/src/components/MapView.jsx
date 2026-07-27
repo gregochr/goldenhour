@@ -63,6 +63,36 @@ const popupStyles = `
   .leaflet-marker-icon.photocast-marker:focus-within {
     z-index: 1000 !important;
   }
+  /* Drill-down emphasis — the map overlay opens focused on ONE location, and the user
+     should never have to hunt for the good pin. The target lifts and its neighbours recede.
+
+     Deliberately expressed in the app's OWN marker language (the 1-5 rating ramp and its
+     arcs), scaled and muted, rather than the flat coloured circles the design mock drew: a
+     second marker vocabulary that existed only inside the overlay would make a 4-star pin
+     read one way on the Map tab and another way here.
+
+     The transform lands on the inner wrapper, never on .leaflet-marker-icon itself — Leaflet
+     owns that element's transform for positioning, so scaling it would move the pin off its
+     coordinates. */
+  .leaflet-marker-icon.photocast-marker--focus {
+    z-index: 900 !important;
+  }
+  .photocast-marker--focus > div {
+    transform: scale(1.22);
+    filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.55));
+    transition: transform 0.16s ease;
+  }
+  .photocast-marker--muted > div {
+    opacity: 0.4;
+    transition: opacity 0.16s ease;
+  }
+  .photocast-marker--muted:hover > div {
+    opacity: 0.85;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .photocast-marker--focus > div,
+    .photocast-marker--muted > div { transition: none; }
+  }
 `;
 
 /**
@@ -266,8 +296,11 @@ const markerIconCache = new Map();
 /** Soft cap so a long-lived tab whose scores change daily can't grow the icon cache without bound. */
 const MARKER_ICON_CACHE_LIMIT = 2000;
 
-function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildlife = false, excludeFromCluster = false, isStandDown = false) {
-  const cacheKey = `${locationName}|${rating}|${fierySky}|${goldenHour}|${isPureWildlife ? 1 : 0}|${excludeFromCluster ? 1 : 0}|${isStandDown ? 1 : 0}`;
+function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildlife = false, excludeFromCluster = false, isStandDown = false, emphasis = null) {
+  // `emphasis` is part of the key: a DivIcon is cached by everything that determines it, and
+  // the className carries the focus/muted modifier. Omitting it would serve the Map tab's
+  // plain icon to the overlay (or worse, leak the overlay's muted icon back to the Map tab).
+  const cacheKey = `${locationName}|${rating}|${fierySky}|${goldenHour}|${isPureWildlife ? 1 : 0}|${excludeFromCluster ? 1 : 0}|${isStandDown ? 1 : 0}|${emphasis ?? '-'}`;
   const cached = markerIconCache.get(cacheKey);
   if (cached) return cached;
 
@@ -354,7 +387,7 @@ function getNextEventType(locations, date) {
 
 const ALERT_WORTHY_LEVELS = new Set(['MODERATE', 'STRONG']);
 
-function MapView({ locations, date, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null }) {
+function MapView({ locations, date, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null }) {
   const { role } = useAuth();
   const isMobile = useIsMobile();
   const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
@@ -1129,6 +1162,12 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
               const isStandDown = !isAuroraMode && !isPureWildlife && (
                 briefingScore?.triageReason != null || forecast?.triageReason != null
               );
+              // Drill-down emphasis is overlay-only: `emphasiseLocationName` is set solely by
+              // the Plan-tab map overlay, never by the Map tab (which passes the same handoff
+              // for its escape-hatch landing and must keep every pin equal).
+              const emphasis = emphasiseLocationName
+                ? (loc.name === emphasiseLocationName ? 'focus' : 'muted')
+                : null;
               const icon = makeMarkerIcon(
                 markerRating,
                 markerFiery,
@@ -1137,6 +1176,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
                 isPureWildlife,
                 isWaterfall,
                 isStandDown,
+                emphasis,
               );
 
               return (
@@ -1291,6 +1331,7 @@ MapView.propTypes = {
   handoffEventType: PropTypes.string,
   handoffFilterAction: PropTypes.string,
   handoffLocationName: PropTypes.string,
+  emphasiseLocationName: PropTypes.string,
   handoffRegion: PropTypes.string,
   handoffNonce: PropTypes.number,
   briefingScores: PropTypes.instanceOf(Map),

@@ -12,6 +12,7 @@ import NlcSightingBanner from './components/NlcSightingBanner.jsx';
 import DailyBriefing from './components/DailyBriefing.jsx';
 import HealthIndicator from './components/HealthIndicator.jsx';
 import UserSettingsModal from './components/UserSettingsModal.jsx';
+import { getSettings } from './api/settingsApi.js';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { AuroraStatusProvider } from './context/AuroraStatusContext.jsx';
 import { useForecasts } from './hooks/useForecasts.js';
@@ -129,6 +130,25 @@ function AppInner() {
   /** Seasonal features lifted from DailyBriefing, passed to MapView. */
   const [seasonalFeatures, setSeasonalFeatures] = useState([]);
   const handleSeasonalFeaturesChange = useCallback((features) => setSeasonalFeatures(features), []);
+
+  /**
+   * Home coordinates resolved from the user's saved postcode — the same pipeline that already
+   * backs the per-location drive times, reused to gate the Plan tab's "Close to home" block by
+   * distance. No new setting and no new endpoint: null simply means no postcode is saved yet, and
+   * the block hides itself. Re-read when the settings modal closes, so adding or moving a home
+   * postcode takes effect without a page reload.
+   */
+  const [homeCoords, setHomeCoords] = useState(null);
+  const loadHomeCoords = useCallback(() => {
+    getSettings()
+      .then((s) => setHomeCoords(
+        s?.homeLatitude != null && s?.homeLongitude != null
+          ? { lat: s.homeLatitude, lon: s.homeLongitude }
+          : null,
+      ))
+      .catch(() => { /* settings are optional — the block just stays hidden */ });
+  }, []);
+  useEffect(() => { loadHomeCoords(); }, [loadHomeCoords]);
 
   /** Update viewMode and sync to URL hash. */
   const setViewMode = (mode) => {
@@ -347,7 +367,7 @@ function AppInner() {
             skeleton and tolerates an empty locations list, so Best Bet / Hot Topics / regions paint
             without waiting on the forecast + locations + outcomes load. */}
         {viewMode === 'plan' && (
-          <DailyBriefing locations={visibleLocations} onShowOnMap={handleShowOnMap} onEvaluationScoresChange={handleEvaluationScoresChange} onSeasonalFeaturesChange={handleSeasonalFeaturesChange} />
+          <DailyBriefing locations={visibleLocations} homeCoords={homeCoords} onShowOnMap={handleShowOnMap} onEvaluationScoresChange={handleEvaluationScoresChange} onSeasonalFeaturesChange={handleSeasonalFeaturesChange} />
         )}
 
         {/* MAP needs the forecast/location data — keep the loading / error / empty gating here. */}
@@ -457,7 +477,7 @@ function AppInner() {
 
       {showSettings && (
         <UserSettingsModal
-          onClose={() => setShowSettings(false)}
+          onClose={() => { setShowSettings(false); loadHomeCoords(); }}
           onDriveTimesRefreshed={refresh}
         />
       )}
@@ -484,6 +504,7 @@ function AppInner() {
               handoffRegion={mapOverlay.handoff.region ?? null}
               handoffNonce={mapOverlay.nonce}
               focus={mapOverlay.focus}
+              emphasiseLocationName={mapOverlay.handoff.locationName ?? null}
               briefingScores={briefingScores}
               onForecastRun={refresh}
               seasonalFeatures={seasonalFeatures}

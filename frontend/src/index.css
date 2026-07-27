@@ -44,6 +44,11 @@
      chips. Best reuses the GO verdict green; Also good gets its own periwinkle so the two picks
      read as a matched pair rather than one green and one neutral. */
   --color-pick-also: #7C8DD6;
+
+  /* "Close to home" — the local-decision block's warm gold. Deliberately NOT --color-plex-gold
+     (which is bone, identical to ink) so the block reads as its own channel rather than chrome. */
+  --color-close-to-home: #C9A24B;
+  --color-close-to-home-light: #E4C878;
 }
 
 @layer base {
@@ -268,6 +273,41 @@
 
 .heatmap-cell-hoverable:hover {
   z-index: 40;
+}
+
+/* "Close to home" location cards — lift and warm on hover.
+   Border and background live HERE, not in the component's inline style. An inline
+   `border: 1px solid …` shorthand is a style-attribute declaration, so it outranks every
+   selector-based rule below without `!important` — the earlier version set the border inline
+   and the hover colour silently never applied. The rank-1 card is keyed off the `data-lead`
+   attribute the component already sets, so there is one source of truth for "is this the lead". */
+.cth-card {
+  border: 1px solid var(--color-plex-border);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.16);
+  transition: transform 0.12s ease, border-color 0.14s ease;
+}
+.cth-card[data-lead] {
+  border-color: rgba(201, 162, 75, 0.5);
+  background: rgba(201, 162, 75, 0.08);
+}
+.cth-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-plex-border-light);
+}
+.cth-card[data-lead]:hover {
+  border-color: rgba(201, 162, 75, 0.75);
+}
+/* Focus ring uses the block's gold (~7.1:1 on this surface) rather than --plex-border-light,
+   which measures ~1.6:1 and fails WCAG 2.2 SC 1.4.11's 3:1 for a non-text indicator. Replacing
+   the UA ring with something invisible is worse than not styling it at all. */
+.cth-card:focus-visible {
+  outline: 2px solid var(--color-close-to-home);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cth-card { transition: none; }
+  .cth-card:hover { transform: none; }
 }
 
 /* Briefing summary strip — actionable pills lift on hover */

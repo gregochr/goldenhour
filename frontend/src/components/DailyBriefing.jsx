@@ -14,6 +14,7 @@ import ProvisionalMark from './shared/ProvisionalMark.jsx';
 import { resolveConfidence, confidenceTreatment, daysOut } from '../utils/confidenceUtils.js';
 import HotTopicStrip from './HotTopicStrip.jsx';
 import BriefingSummaryStrip from './BriefingSummaryStrip.jsx';
+import CloseToHome from './CloseToHome.jsx';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
 import { computeCellTier, isCellVisible, resolveRegionDisplay } from '../utils/tierUtils.js';
 import {
@@ -909,7 +910,9 @@ const BRIEFING_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
  */
 /* eslint-enable react/prop-types */
 
-export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScoresChange, onSeasonalFeaturesChange }) {
+export default function DailyBriefing({
+  locations, homeCoords = null, onShowOnMap, onEvaluationScoresChange, onSeasonalFeaturesChange,
+}) {
   const { role } = useAuth();
   const isPro = role === 'ADMIN' || role === 'PRO_USER';
   // Role-keyed instant-paint cache: on refresh, hydrate the last briefing synchronously so Best Bet /
@@ -1317,6 +1320,22 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
         </div>
       ) : null}
 
+      {/* ── Close to home — the low-risk *local* decision ──
+          Reading order on this tab follows the user's journey: the glance (picks) → what's within
+          easy reach (here) → the conditions (hot topics) → the horizon (summary strip) → the
+          evidence (full grid). Decisions before explanations, which is why this sits above the
+          topics rather than below them. Renders nothing without a saved home postcode. */}
+      <CloseToHome
+        briefingDays={briefing.days}
+        locations={locations}
+        homeCoords={homeCoords}
+        driveMap={driveMap}
+        evaluationScores={evaluationScores}
+        todayStr={todayStr}
+        tomorrowStr={tomorrowStr}
+        onShowOnMap={onShowOnMap}
+      />
+
       {/* ── Hot Topics strip — seasonal conditions below the Best Bet cards ── */}
       {briefing.hotTopics?.length > 0 ? (
         <HotTopicStrip
@@ -1518,6 +1537,7 @@ DailyBriefing.propTypes = {
       locationType: PropTypes.string,
     }),
   ),
+  homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
   onShowOnMap: PropTypes.func,
   onEvaluationScoresChange: PropTypes.func,
   onSeasonalFeaturesChange: PropTypes.func,

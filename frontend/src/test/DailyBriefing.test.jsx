@@ -2463,6 +2463,62 @@ describe('DailyBriefing — summary strip', () => {
     expect(chips).toHaveLength(1);
     expect(chips[0].textContent).toContain('Lake District');
   });
+  // ────── Close to home ──────
+
+  describe('Close to home', () => {
+    const HOME = { lat: 54.60, lon: -3.13 };
+    // Keswick sits ~2 miles from HOME; Bamburgh ~60, so the distance gate has something to reject.
+    const NEARBY_LOCATIONS = [
+      { name: 'Keswick', lat: 54.601, lon: -3.135, regionName: 'Lake District' },
+      { name: 'Bamburgh', lat: 55.608, lon: -1.709, regionName: 'Northumberland' },
+    ];
+
+    /** The standard fixture with the Lake District's Keswick slot actually rated. */
+    function buildBriefingWithRatedKeswick() {
+      const briefing = buildBriefing();
+      const sunset = briefing.days[0].eventSummaries.find((es) => es.targetType === 'SUNSET');
+      sunset.regions[0].slots[0] = {
+        ...sunset.regions[0].slots[0], claudeRating: 4, displayVerdict: 'WORTH_IT',
+      };
+      return briefing;
+    }
+
+    it('renders nothing when no home postcode is saved', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithRatedKeswick());
+      render(<DailyBriefing locations={NEARBY_LOCATIONS} />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      expect(screen.queryByTestId('close-to-home')).toBeNull();
+    });
+
+    it('renders the nearby location once home coordinates resolve', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithRatedKeswick());
+      render(<DailyBriefing locations={NEARBY_LOCATIONS} homeCoords={HOME} />);
+      await waitFor(() => screen.getByTestId('close-to-home'));
+      const cards = screen.getAllByTestId('close-to-home-card');
+      // Bamburgh is rated too far out to qualify — proximity gates, region never does.
+      expect(cards).toHaveLength(1);
+      expect(cards[0]).toHaveTextContent('Keswick');
+    });
+
+    // Change B's reading order: the decision (picks) → the low-risk local decision (here) → the
+    // conditions (hot topics) → the horizon (summary strip). Decisions before explanations.
+    it('sits between the headline picks and the rest of the plan', async () => {
+      getDailyBriefing.mockResolvedValue({
+        ...buildBriefingWithRatedKeswick(),
+        bestBets: [{ rank: 1, headline: 'Lake District sunset', region: 'Lake District' }],
+      });
+      render(<DailyBriefing locations={NEARBY_LOCATIONS} homeCoords={HOME} />);
+      await waitFor(() => screen.getByTestId('close-to-home'));
+
+      const picks = screen.getByTestId('best-bet-banner');
+      const local = screen.getByTestId('close-to-home');
+      const strip = screen.getByTestId('briefing-summary-strip');
+      const FOLLOWS = Node.DOCUMENT_POSITION_FOLLOWING;
+
+      expect(picks.compareDocumentPosition(local) & FOLLOWS).toBeTruthy();
+      expect(local.compareDocumentPosition(strip) & FOLLOWS).toBeTruthy();
+    });
+  });
 });
 
 describe('bestConfidence (day-pill confidence aggregation)', () => {
