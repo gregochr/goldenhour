@@ -34,11 +34,18 @@ cd frontend && npm run dev
 
 ## Run Tests
 
+> **Docker must be running for any backend command that reaches the `test` phase.** Five classes extend
+> `IntegrationTestBase` and start a `postgres:17-alpine` Testcontainer (Flyway against the real production
+> engine). There is no failsafe plugin and no surefire exclusion, so they run in the ordinary `test` phase —
+> `./mvnw test` and `./mvnw clean verify` both need Docker Desktop up. With Docker stopped you get an opaque
+> `Could not find a valid Docker environment` stack trace, not a skip. `./mvnw compile` and single-class runs
+> of ordinary unit tests need no Docker.
+
 ```bash
-# Backend: all tests + coverage check
+# Backend: all tests + coverage check (needs Docker)
 cd backend && ./mvnw clean verify
 
-# Backend: tests only (no coverage)
+# Backend: tests only (no coverage) — still needs Docker
 cd backend && ./mvnw test
 
 # Frontend: unit tests (Vitest)
@@ -97,8 +104,11 @@ curl -s http://127.0.0.1:8082/api/locations \
 ## Linting & Code Quality
 
 ```bash
-# Backend: checkstyle + SpotBugs
+# Backend: checkstyle + SpotBugs (full verify — needs Docker)
 cd backend && ./mvnw clean verify
+
+# Backend: Checkstyle alone — fails fast (~15s), no Docker
+cd backend && ./mvnw checkstyle:check -q
 
 # Frontend: ESLint check
 cd frontend && npm run lint
@@ -148,9 +158,13 @@ git reset --hard origin/main
 
 ## Docker (Production)
 
+Production runs on a **Linux host** — not this Mac, and not macOS at all since ~2026-03-16. Run these
+there (SSH target in `.github/workflows/deploy.yml`), from `~/goldenhour`.
+
 ```bash
-# Build and start both containers
-docker compose build --no-cache
+# Pull the published images and start. The root docker-compose.yml has no build
+# blocks — images come from ghcr.io/gregochr/goldenhour-{backend,frontend}:latest.
+docker compose pull
 docker compose up -d
 
 # Check status
@@ -158,18 +172,29 @@ docker compose ps
 docker logs goldenhour-backend --tail 50
 docker logs goldenhour-frontend --tail 20
 
-# Restart after code changes
-docker compose build --no-cache && docker compose up -d
+# Restart onto a new release
+docker compose pull && docker compose up -d
 
 # Health check
 curl http://localhost:8082/actuator/health
 ```
 
-Data is persisted at `/Users/gregochr/goldenhour-data/goldenhour.mv.db`.
+Production data lives on that Linux host: Postgres 17 bind-mounted at
+`/home/gregochr/goldenhour-data/postgres`, application logs at `/home/gregochr/goldenhour-data/logs`.
+(Production migrated H2 → Postgres, and the old `/Users/gregochr/...` paths were an Ubuntu host wearing
+macOS-shaped clothing — moved back in #310. Backups run from a systemd timer on the same host, not
+`launchctl` on the Mac; see `scripts/backup-postgres.sh`.)
 
 ## Cloudflare Tunnel
 
+> ⚠️ **The commands below are the original macOS (Mac mini) setup and have NOT been re-verified since
+> production moved to the Linux Docker host.** `launchctl` and `/Library/Logs` do not exist on that host.
+> Establish which machine actually runs `cloudflared` today before trusting either set. On the Linux host
+> the equivalents are `systemctl status cloudflared`, `journalctl -u cloudflared -f`, and
+> `sudo systemctl restart cloudflared`.
+
 ```bash
+# --- legacy macOS host ---
 # Check the tunnel service is running
 sudo launchctl list | grep cloudflare   # should show a PID
 
