@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Two role-gating claims in CLAUDE.md that the code never enforced
+- **Documentation only. No controller, `SecurityConfig` or test changed** — both divergences were resolved as *the doc is wrong*, deliberately and after checking the intent, rather than by tightening the code to match prose nobody had verified.
+- **`GET /api/tides*` was documented under "Tides (ADMIN)"**, but `TideController` carries no `@PreAuthorize` and `SecurityConfig` gates `/api/**` at `.authenticated()` only, so any authenticated user could always read it. Bearer is the intent: tide extremes are astronomical data already surfaced in the forecast UI, and an ADMIN gate would break the app for every non-admin. Corrected, and the undocumented `GET /api/tides/stats/all` added.
+- **The roles table called `LITE_USER` "read-only forecast and outcomes"** while `POST /api/outcome` is reachable by any authenticated user. Left open on purpose: `actual_outcome` holds zero rows and observations are the scarce input to the calibration gate — the only non-self-referential accuracy measure in the project — so restricting contributors works against the table's purpose. "Read-only" now scopes explicitly to the forecast surface.
+- Surfaced by the integration test strategy work (#311), which flagged both as decisions rather than test tasks. Recorded here so the next reader finds the decision instead of re-deriving it — and because a test written against the old wording would have cemented behaviour the code never had.
+
 ### Changed — Cloud-verification backfill runs in the background
 - **A synchronous backfill cannot finish inside a request.** The backlog is ~24,600 evaluations; `POST /backfill?limit=500` was killed by the reverse proxy (returning an unparseable gateway page) while the work carried on server-side and committed anyway — the worst kind of feedback, since a timeout is indistinguishable from a failure.
 - **`POST /api/admin/cloud-verification/backfill` now returns `202` immediately** and works the whole backlog in the background, 100 evaluations per committed batch. Poll **`GET /api/admin/cloud-verification/backfill/status`** for `running` / `verified` / `batches` / `remaining` / `lastError`. No shell loop needed — one POST drains the queue.
