@@ -197,7 +197,12 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 |------|-------------|
 | `ADMIN` | All endpoints + Manage tab |
 | `PRO_USER` | Forecast, outcomes, locations, re-runs |
-| `LITE_USER` | Read-only forecast and outcomes |
+| `LITE_USER` | Read-only forecast; may also **record** outcomes (`POST /api/outcome`) |
+
+> "Read-only" scopes to the *forecast* surface, not the whole API. Recording an outcome is deliberately
+> open to any authenticated user: `actual_outcome` is the evidence base for the calibration gate, and
+> observations are the scarce input, so restricting who may contribute one works against the thing the
+> table exists for. Enforcement lives on the endpoints that *read* premium detail, not on this write.
 
 ---
 
@@ -250,8 +255,13 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 ### Scheduler (ADMIN)
 `GET /api/admin/scheduler/jobs` | `PUT /api/admin/scheduler/jobs/{jobKey}/schedule` | `POST /api/admin/scheduler/jobs/{jobKey}/pause` | `POST /api/admin/scheduler/jobs/{jobKey}/resume` | `POST /api/admin/scheduler/jobs/{jobKey}/trigger`
 
-### Tides (ADMIN)
-`GET /api/tides` | `GET /api/tides/stats`
+### Tides (Bearer)
+`GET /api/tides` | `GET /api/tides/stats` | `GET /api/tides/stats/all`
+
+> Previously documented as ADMIN, which the code never enforced — `TideController` carries no
+> `@PreAuthorize`, and `SecurityConfig` gates `/api/**` at `.authenticated()` only. Bearer is the intent,
+> not a gap: tide extremes are astronomical data already surfaced in the forecast UI, so an ADMIN gate
+> would break the app for every non-admin. The doc was wrong, not the controller.
 
 ### Push (mixed auth)
 `GET /api/push/vapid-public-key` (none) | `POST|DELETE /api/push/subscribe` (Bearer)
