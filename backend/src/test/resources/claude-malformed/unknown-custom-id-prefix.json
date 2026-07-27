@@ -1,0 +1,26 @@
+{
+  "custom_id": "xyz-42-2026-07-26-SUNSET",
+  "result": {
+    "type": "succeeded",
+    "message": {
+      "id": "msg_test_unknown_prefix",
+      "type": "message",
+      "role": "assistant",
+      "model": "claude-haiku-4-5-20251001",
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"rating\": 4, \"fiery_sky\": 72, \"golden_hour\": 68, \"summary\": \"A perfectly good evaluation that the result side will never look at.\"}"
+        }
+      ],
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "usage": {
+        "input_tokens": 500,
+        "output_tokens": 200,
+        "cache_read_input_tokens": 1000,
+        "cache_creation_input_tokens": 0
+      }
+    }
+  }
+}

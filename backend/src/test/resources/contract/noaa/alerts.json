@@ -1,0 +1,9 @@
+[
+  {
+    "product_id": "AAA",
+    "issue_datetime": "2026-07-17 11:30:00",
+    "message_id": "K05A",
+    "message_type": "A",
+    "message": "ALERT: Geomagnetic K-index of 5 (G1) - Threshold Reached"
+  }
+]

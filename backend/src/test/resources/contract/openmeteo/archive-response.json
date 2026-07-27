@@ -1,0 +1,10 @@
+{
+  "latitude": 54.775,
+  "longitude": -1.585,
+  "hourly": {
+    "time": ["2026-07-10T19:00", "2026-07-10T20:00"],
+    "cloud_cover_low": [88, 91],
+    "cloud_cover_mid": [40, 44],
+    "cloud_cover_high": [10, 12]
+  }
+}
