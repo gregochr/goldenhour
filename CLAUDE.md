@@ -55,7 +55,7 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 
 **Admin features**: User management | Expandable health status widget with live SSE service probes (mail, Claude API, Open-Meteo, tides) | Model comparison test harness (A/B/C across regions) | Prompt test harness (async, replay, comparison) | URL hash navigation | Client-side pagination | Confirmation dialog before Claude evaluation with cost estimate
 
-**Deployment**: Docker (alpine, health checks, non-root) | Cloudflare Tunnel (`photocast.online`) | H2 volume-mounted to Mac filesystem | Daily backups (keep last 7) | Persistent logs at `/home/gregochr/goldenhour-data/logs/` (volume-mounted to `/app/logs` in container; rolling `goldenhour.log` 50MB×30 days + `surge-calibration.log` 90 days)
+**Deployment**: Docker (alpine, health checks, non-root) on a **Linux host** (not macOS — production moved off the Mac ~2026-03-16) | Cloudflare Tunnel (`photocast.online`) | Postgres 17 bind-mounted at `/home/gregochr/goldenhour-data/postgres` | Daily backups (keep last 7, systemd timer) | Persistent logs at `/home/gregochr/goldenhour-data/logs/` (volume-mounted to `/app/logs` in container; rolling `goldenhour.log` 50MB×30 days + `surge-calibration.log` 90 days)
 
 ---
 
@@ -103,7 +103,7 @@ cd frontend && npm run dev
 # Trigger forecast run
 curl -X POST http://localhost:8082/api/forecast/run
 
-# Run all tests
+# Run all tests (requires Docker running — see note below)
 cd backend && ./mvnw clean verify
 
 # Prompt regression tests (requires ANTHROPIC_API_KEY)
@@ -112,6 +112,14 @@ cd backend && ANTHROPIC_API_KEY=... ./mvnw test -Pprompt-regression
 # Frontend tests
 cd frontend && npm run test
 ```
+
+**Docker must be running to run the backend test suite.** Five classes extend `IntegrationTestBase`
+(`backend/src/test/java/com/gregochr/goldenhour/integration/`) and start a `postgres:17-alpine`
+Testcontainer so the Flyway migrations run against the real production engine. There is no failsafe
+plugin and no surefire exclusion for them, so they execute in the ordinary `test` phase — `./mvnw test`
+and `./mvnw clean verify` both need Docker. With Docker stopped you get an opaque Testcontainers
+stack trace (`Could not find a valid Docker environment`), not a skip. Running the app locally does
+not need Docker (H2 file DB).
 
 Default local credentials: `admin` / `golden2026`
 
@@ -147,7 +155,7 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 
 ---
 
-## Database Migrations (V1–V127)
+## Database Migrations
 
 | Range | Key tables/changes |
 |-------|-------------------|
@@ -186,8 +194,9 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 | V97 | `evaluation_delta_log` table for empirical freshness threshold refinement |
 | V98 | `stability_snapshot` table for persisting stability state across restarts |
 | V99 | Batch observability: `custom_id`, `error_type`, `batch_id` on `api_call_log`; widen `error_message` to TEXT; partial indexes |
-| V100–V126 | (not individually listed here — `ls db/migration/ \| sort -V` for the full set) |
+| V100+ | (not individually listed here — `ls backend/src/main/resources/db/migration/ \| sort -V` for the full set) |
 | V127 | `forecast_evaluation.confidence` — durable horizon-derived per-evaluation confidence (nullable `VARCHAR(20)`, enum name); rides analytics, gates nothing |
+| **latest** | **Deliberately not written down — every number recorded here has rotted.** Read it from the tree before adding a migration: `ls backend/src/main/resources/db/migration/ \| sort -V \| tail -1` |
 
 ---
 
@@ -307,7 +316,7 @@ Read `docs/engineering/test-improvement-standards.md` before writing or modifyin
 
 ### Backend
 - Checkstyle: Javadoc on public classes/methods, no unused imports, 4-space indent, 120-char lines
-- SpotBugs: medium threshold
+- SpotBugs: `High` threshold (`<threshold>High</threshold>` in `backend/pom.xml`), FindSecBugs plugin, bound to `verify`
 - No business logic in controllers; no magic numbers; graceful error handling
 
 ### Frontend
@@ -332,22 +341,24 @@ Conventional commits: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `refactor:`
 
 ## Speeding Up the Dev Build Cycle
 
-`./mvnw clean verify` runs Checkstyle → compile → test → JaCoCo → SpotBugs → repackage — ~6–7 min. Use targeted commands instead:
+`./mvnw clean verify` runs Checkstyle → compile → test → JaCoCo → SpotBugs → repackage — ~6–7 min, and
+**needs Docker running** (the `test` phase includes the 5 `IntegrationTestBase` Testcontainers classes).
+Use targeted commands instead:
 
 ```bash
-# Compile only — catches import/signature errors in seconds
+# Compile only — catches import/signature errors in seconds        [no Docker]
 cd backend && ./mvnw compile -q
 
-# Run a single test class — fastest inner loop
+# Run a single test class — fastest inner loop   [no Docker, unless it extends IntegrationTestBase]
 cd backend && ./mvnw test -pl . -Dtest=AuroraStateCacheTest -q
 
-# Run all aurora-related tests only
+# Run all aurora-related tests only                                [no Docker]
 cd backend && ./mvnw test -Dtest="Aurora*,ClaudeAuroraInterpreter*" -q
 
-# Skip Checkstyle + SpotBugs (still runs all tests + JaCoCo)
+# Skip Checkstyle + SpotBugs (still runs all tests + JaCoCo)       [NEEDS DOCKER]
 cd backend && ./mvnw verify -Dcheckstyle.skip=true -Dspotbugs.skip=true -q
 
-# Full verify but skip clean (reuses compiled classes — shaves ~30s)
+# Full verify but skip clean (reuses compiled classes — shaves ~30s)  [NEEDS DOCKER]
 cd backend && ./mvnw verify -q
 ```
 
@@ -381,12 +392,21 @@ Exit `0` is the gate; the grep is only for reading the detail. Use the `!**/inte
 cd frontend && npm run test -- --reporter=dot   # ~90s, much faster than backend
 ```
 
-The core rule: `compile → single-class test → checkstyle:check → full verify` as a ladder. Only climb to `clean verify` when you're confident everything is clean — and gate each rung on the exit code, not on what the output appears to say.
+The core rule: `compile → single-class test → checkstyle:check → full verify` as a ladder. Only climb to `clean verify` when you're confident everything is clean — and gate each rung on the exit code, not on what the output appears to say. The first three rungs run with Docker stopped; anything that reaches the full `test` phase (`./mvnw test`, `./mvnw verify`) does not — start Docker Desktop first, or you get a Testcontainers stack trace instead of a test failure.
 
 ---
 
 ## solar-utils
 
-Shared library on GitHub Packages (`~/.m2/settings.xml` needs `read:packages` token).
+Resolved from **JitPack**, not GitHub Packages. `backend/pom.xml` declares
+`com.github.gregochr:solar-utils:2.1.0` against the single `<repository>` whose `<id>` is `github` but
+whose URL is `https://jitpack.io` — the id is misleading. No `read:packages` token is required.
 
-Public API (v1.2.0): `sunrise`, `sunset`, `civilDawn`, `civilDusk`, `solarNoon`, `dayLengthMinutes`, `sunriseAzimuth`, `sunsetAzimuth`.
+A jar is also vendored in-tree at `backend/.m2/repository/com/gregochr/solar-utils/2.1.0/` and staged by
+`backend/Dockerfile`, but its groupId is `com.gregochr` — a *different* coordinate from the one the POM
+asks for, so it cannot satisfy the dependency; the Docker build still resolves 2.1.0 from JitPack.
+Treat the vendored copy as a leftover from the pre-JitPack local-install era.
+
+Public API (v2.1.0, `com.gregochr.solarutils.SolarCalculator`): `sunrise`, `sunset`, `civilDawn`,
+`civilDusk`, `goldenHourStart`, `goldenHourEnd`, `solarNoon`, `dayLengthMinutes`, `sunriseAzimuth`,
+`sunsetAzimuth`. The jar also ships `LunarCalculator` and `MoonriseMoonsetCalculator`.
