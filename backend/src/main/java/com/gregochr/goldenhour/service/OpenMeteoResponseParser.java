@@ -95,7 +95,9 @@ public final class OpenMeteoResponseParser {
                 getDoubleValue(h.getSurfacePressure(), idx),
                 getDoubleValue(h.getSnowfall(), idx),
                 getDoubleValue(h.getSnowDepth(), idx),
-                getDoubleValue(h.getFreezingLevelHeight(), idx));
+                getDoubleValue(h.getFreezingLevelHeight(), idx),
+                getDoubleValue(h.getTemperature925hPa(), idx),
+                getDoubleValue(h.getTemperature850hPa(), idx));
 
         AerosolData aerosol = new AerosolData(
                 toDecimal(pm25Raw, PRECIP_SCALE),

@@ -109,6 +109,65 @@ class OpenMeteoServiceTest {
     }
 
     @Test
+    @DisplayName("extractAtmosphericData() reads the pressure-level temperatures at the event slot")
+    void extractAtmosphericData_readsPressureLevelTemperatures() {
+        LocalDateTime solarEvent = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
+
+        OpenMeteoForecastResponse forecast = buildForecastResponse(
+                List.of("2026-06-21T19:47", "2026-06-21T20:46", "2026-06-21T21:47"),
+                List.of(10, 20, 15), List.of(50, 60, 40), List.of(30, 40, 20),
+                List.of(25000.0, 22000.0, 28000.0),
+                List.of(4.0, 3.5, 5.0),
+                List.of(225, 245, 200),
+                List.of(0.0, 0.1, 0.0),
+                List.of(1, 3, 2),
+                List.of(65, 62, 70),
+                List.of(1100.0, 1200.0, 1000.0),
+                List.of(100.0, 180.0, 120.0));
+        // Distinct values per slot, so picking the wrong index is visible in the assertion.
+        forecast.getHourly().setTemperature925hPa(List.of(3.0, 8.4, 5.0));
+        forecast.getHourly().setTemperature850hPa(List.of(-1.0, 2.2, 0.0));
+
+        OpenMeteoAirQualityResponse airQuality = buildAirQualityResponse(
+                List.of("2026-06-21T19:47", "2026-06-21T20:46", "2026-06-21T21:47"),
+                List.of(5.0, 8.5, 6.0), List.of(1.0, 2.1, 1.5), List.of(0.08, 0.12, 0.09));
+
+        AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
+                forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
+
+        assertThat(result.weather().temperature925hPaCelsius()).isEqualTo(8.4);
+        assertThat(result.weather().temperature850hPaCelsius()).isEqualTo(2.2);
+    }
+
+    @Test
+    @DisplayName("extractAtmosphericData() leaves pressure-level temperatures null when absent")
+    void extractAtmosphericData_absentPressureLevels_areNull() {
+        LocalDateTime solarEvent = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
+
+        OpenMeteoForecastResponse forecast = buildForecastResponse(
+                List.of("2026-06-21T19:47", "2026-06-21T20:46", "2026-06-21T21:47"),
+                List.of(10, 20, 15), List.of(50, 60, 40), List.of(30, 40, 20),
+                List.of(25000.0, 22000.0, 28000.0),
+                List.of(4.0, 3.5, 5.0),
+                List.of(225, 245, 200),
+                List.of(0.0, 0.1, 0.0),
+                List.of(1, 3, 2),
+                List.of(65, 62, 70),
+                List.of(1100.0, 1200.0, 1000.0),
+                List.of(100.0, 180.0, 120.0));
+
+        OpenMeteoAirQualityResponse airQuality = buildAirQualityResponse(
+                List.of("2026-06-21T19:47", "2026-06-21T20:46", "2026-06-21T21:47"),
+                List.of(5.0, 8.5, 6.0), List.of(1.0, 2.1, 1.5), List.of(0.08, 0.12, 0.09));
+
+        AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
+                forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
+
+        assertThat(result.weather().temperature925hPaCelsius()).isNull();
+        assertThat(result.weather().temperature850hPaCelsius()).isNull();
+    }
+
+    @Test
     @DisplayName("extractAtmosphericData() selects exact timestamp match")
     void extractAtmosphericData_exactTimestampMatch_selectsCorrectSlot() {
         LocalDateTime solarEvent = LocalDateTime.of(2026, 2, 20, 7, 30, 0);

@@ -108,6 +108,36 @@ class SurvivorSignalReaderTest {
     }
 
     @Test
+    @DisplayName("the INVERSION row's summary is exposed as the inversion band")
+    void inversionRow_summaryBecomesBand() {
+        // ForecastScoreWriter stores the NONE/MODERATE/STRONG classification in the summary
+        // column; the inversion detector labels its fact line from it rather than assuming STRONG.
+        LocationEntity loc = location(4L);
+        stubInversion(List.of(score(ForecastType.INVERSION, loc, 10, "STRONG")));
+        stubBluebell(List.of());
+        stubReadings(List.of());
+
+        SurvivorSignals s = reader().read(FROM, TO).get(0);
+
+        assertThat(s.scores().inversion()).isEqualTo(10);
+        assertThat(s.scores().inversionBand()).isEqualTo("STRONG");
+    }
+
+    @Test
+    @DisplayName("an INVERSION row with no summary yields a null band, not an empty composite")
+    void inversionRow_nullSummaryYieldsNullBand() {
+        LocationEntity loc = location(5L);
+        stubInversion(List.of(score(ForecastType.INVERSION, loc, 9, null)));
+        stubBluebell(List.of());
+        stubReadings(List.of());
+
+        SurvivorSignals s = reader().read(FROM, TO).get(0);
+
+        assertThat(s.scores().inversion()).isEqualTo(9);
+        assertThat(s.scores().inversionBand()).isNull();
+    }
+
+    @Test
     @DisplayName("empty surfaces → empty result")
     void emptySurfaces_emptyResult() {
         stubInversion(List.of());

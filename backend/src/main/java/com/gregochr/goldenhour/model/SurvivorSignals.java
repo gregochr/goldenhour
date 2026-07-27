@@ -37,13 +37,17 @@ public record SurvivorSignals(
      * not written for the key (ineligible location, out of season, or eval not yet returned).
      *
      * @param inversion       cloud inversion score 0–10, or null
+     * @param inversionBand   the inversion row's stored classification (NONE/MODERATE/STRONG), or
+     *                        null — rides the INVERSION row's {@code summary} column, so rows
+     *                        written before it was plumbed through read as null
      * @param bluebell        bluebell conditions score 1–5, or null
      * @param bluebellSummary the bluebell component's prose clause, or null
      */
-    public record Scores(Integer inversion, Integer bluebell, String bluebellSummary) {
+    public record Scores(Integer inversion, String inversionBand, Integer bluebell,
+            String bluebellSummary) {
 
         /** The all-absent scores, used for a key that has only readings. */
-        public static final Scores EMPTY = new Scores(null, null, null);
+        public static final Scores EMPTY = new Scores(null, null, null, null);
     }
 
     /**

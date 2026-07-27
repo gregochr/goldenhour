@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Objects;
+import java.util.Locale;
 
 /**
  * Detects cloud inversion hot topics by reading the survivor surface ({@code forecast_score}).
@@ -57,6 +57,9 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
      * (7–8) and below never fire the topic.
      */
     static final int STRONG_SCORE_INCLUSIVE = 9;
+
+    /** Band label used when a row carries no stored classification (see {@code bandLabel}). */
+    private static final String DEFAULT_BAND_LABEL = "strong";
 
     /** The italic "how to use it" cue on the enriched fact line. */
     private static final String INVERSION_NOTE =
@@ -109,26 +112,47 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
     }
 
     /**
-     * Attaches the inversion fact line — the strong-band likelihood score (the strongest of the
-     * day's qualifying rows). The inversion-layer <em>altitude</em> is deliberately omitted: the
+     * Attaches the inversion fact line — the likelihood score and band of the strongest of the
+     * day's qualifying rows. The inversion-layer <em>altitude</em> is deliberately omitted: the
      * pipeline scores inversion likelihood (0–10) but never computes a layer height, so a metres
      * figure would be fabricated. The score band is the honest headline.
+     *
+     * <p>The band is read from the row, not assumed. It used to be the hardcoded literal
+     * {@code "strong"}, which made the fact line unfalsifiable — the strip could not render any
+     * other word, so a reader had no way to tell a genuine STRONG from a mislabelled one.
      *
      * @param topic   the day's base topic
      * @param dayRows that day's strong-inversion rows
      * @return the topic enriched with the strength fact (unchanged if no row carries a score)
      */
     private HotTopic attachFacts(HotTopic topic, List<SurvivorSignals> dayRows) {
-        Integer topScore = dayRows.stream()
-                .map(s -> s.scores().inversion())
-                .filter(Objects::nonNull)
-                .max(Integer::compareTo)
+        SurvivorSignals top = dayRows.stream()
+                .filter(s -> s.scores().inversion() != null)
+                .max(Comparator.comparingInt((SurvivorSignals s) -> s.scores().inversion()))
                 .orElse(null);
-        if (topScore == null) {
+        if (top == null) {
             return topic;
         }
-        List<HotTopicFact> facts = List.of(
-                HotTopicFact.metric("inversion", topScore + "/10 · strong"));
-        return topic.withScience(facts, INVERSION_NOTE);
+        String value = top.scores().inversion() + "/10 · " + bandLabel(top.scores().inversionBand());
+        return topic.withScience(
+                List.of(HotTopicFact.metric("inversion", value)), INVERSION_NOTE);
+    }
+
+    /**
+     * Renders the stored band for the fact line, lower-cased to sit inside the running text.
+     *
+     * <p>Falls back to {@value #DEFAULT_BAND_LABEL} when the row carries no band: rows written
+     * before the classification was plumbed through the survivor surface have a null summary, and
+     * the detector only admits scores at or above {@link #STRONG_SCORE_INCLUSIVE} — which is the
+     * strong band — so that is the honest default rather than a guess.
+     *
+     * @param storedBand the row's stored classification, or null
+     * @return the lower-cased band label
+     */
+    private static String bandLabel(String storedBand) {
+        if (storedBand == null || storedBand.isBlank()) {
+            return DEFAULT_BAND_LABEL;
+        }
+        return storedBand.trim().toLowerCase(Locale.ROOT);
     }
 }

@@ -49,6 +49,9 @@ public final class TestAtmosphericData {
     private Integer precipProbability = null;
     private Double dewPoint = null;
     private Double pressure = 1013.25;
+    /** Null by default — most tests have no vertical profile, matching an Open-Meteo omission. */
+    private Double temperature925hPa = null;
+    private Double temperature850hPa = null;
     private DirectionalCloudData directionalCloud = null;
     private TideSnapshot tide = null;
     private CloudApproachData cloudApproach = null;
@@ -194,6 +197,16 @@ public final class TestAtmosphericData {
         return this;
     }
 
+    public TestAtmosphericData temperature925hPa(Double val) {
+        this.temperature925hPa = val;
+        return this;
+    }
+
+    public TestAtmosphericData temperature850hPa(Double val) {
+        this.temperature850hPa = val;
+        return this;
+    }
+
     public TestAtmosphericData directionalCloud(DirectionalCloudData val) {
         this.directionalCloud = val;
         return this;
@@ -270,7 +283,7 @@ public final class TestAtmosphericData {
                 new CloudData(lowCloud, midCloud, highCloud),
                 new WeatherData(visibility, windSpeed, windDirection,
                         precipitation, humidity, weatherCode, shortwaveRadiation, dewPoint, pressure,
-                        null, null, null),
+                        null, null, null, temperature925hPa, temperature850hPa),
                 new AerosolData(pm25, dust, aod, boundaryLayerHeight),
                 new ComfortData(temperature, apparentTemperature, precipProbability),
                 directionalCloud, tide, cloudApproach, mistTrend,

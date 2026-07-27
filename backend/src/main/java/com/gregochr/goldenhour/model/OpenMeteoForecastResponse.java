@@ -93,5 +93,13 @@ public class OpenMeteoForecastResponse {
 
         @JsonProperty("freezing_level_height")
         private List<Double> freezingLevelHeight;
+
+        /** Temperature at the 925 hPa pressure level (≈ 760 m) — the inversion-detection level. */
+        @JsonProperty("temperature_925hPa")
+        private List<Double> temperature925hPa;
+
+        /** Temperature at the 850 hPa pressure level (≈ 1500 m) — deeper fallback level. */
+        @JsonProperty("temperature_850hPa")
+        private List<Double> temperature850hPa;
     }
 }

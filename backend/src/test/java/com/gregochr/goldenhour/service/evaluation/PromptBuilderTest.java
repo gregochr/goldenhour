@@ -1222,6 +1222,10 @@ public class PromptBuilderTest {
                 .doesNotContain("300m+ elevation")
                 .contains("Inversion score 7-8")
                 .contains("Inversion score 9-10")
+                // A negative reversal must override the "STRONG → set rating 5" instruction,
+                // otherwise the score can never be contradicted by the evidence beneath it.
+                .contains("MEASURED REVERSAL")
+                .contains("do NOT apply the rating boost")
                 .contains("sea of clouds");
     }
 
@@ -1270,6 +1274,96 @@ public class PromptBuilderTest {
         assertThat(message)
                 .contains("Score: 10/10")
                 .contains("Strong Cloud Inversion Potential");
+    }
+
+    @Test
+    @DisplayName("inversion score 9.5 is reported as 10 — rounded, not truncated")
+    void buildUserMessage_inversionScore_roundsUpNotTruncates() {
+        // The reported score used to come from Double.intValue(), which truncates: the whole
+        // 9.0–9.99 range collapsed onto 9 while only an exact 10.0 could ever read as 10, so
+        // every inversion Claude saw said "9/10".
+        AtmosphericData data = TestAtmosphericData.builder()
+                .inversionScore(9.5)
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("Score: 10/10")
+                .doesNotContain("Score: 9/10");
+    }
+
+    @Test
+    @DisplayName("inversion score 7.4 rounds down to 7, 7.5 rounds up to 8")
+    void buildUserMessage_inversionScore_roundsToNearest() {
+        assertThat(promptBuilder.buildUserMessage(
+                TestAtmosphericData.builder().inversionScore(7.4).build()))
+                .contains("Score: 7/10");
+        assertThat(promptBuilder.buildUserMessage(
+                TestAtmosphericData.builder().inversionScore(7.5).build()))
+                .contains("Score: 8/10");
+    }
+
+    @Test
+    @DisplayName("rounding also drives the band: 8.5 reports STRONG, not MODERATE")
+    void buildUserMessage_inversionScore_roundingDrivesBand() {
+        // fromScore() reads the same rounded value, so the label can never contradict the number.
+        AtmosphericData data = TestAtmosphericData.builder()
+                .inversionScore(8.5)
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("Score: 9/10")
+                .contains("Strong Cloud Inversion Potential")
+                .doesNotContain("Moderate Cloud Inversion Potential");
+    }
+
+    @Test
+    @DisplayName("the measured reversal is stated alongside the inversion score")
+    void buildUserMessage_inversion_statesMeasuredReversal() {
+        // The score is a number Claude is handed and can only echo. The reversal is the
+        // independent evidence under it — surface 6.0 °C, 925 hPa 8.4 °C → +2.4 °C.
+        AtmosphericData data = TestAtmosphericData.builder()
+                .inversionScore(9.0)
+                .temperature(6.0)
+                .temperature925hPa(8.4)
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("Measured reversal: +2.4°C")
+                .contains("925 hPa")
+                .contains("Weigh this over the score if the two disagree");
+    }
+
+    @Test
+    @DisplayName("a negative reversal is stated with its sign, not hidden")
+    void buildUserMessage_inversion_statesNegativeReversal() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .inversionScore(7.0)
+                .temperature(6.0)
+                .temperature925hPa(2.5)
+                .build();
+
+        assertThat(promptBuilder.buildUserMessage(data)).contains("Measured reversal: -3.5°C");
+    }
+
+    @Test
+    @DisplayName("no pressure-level data omits the reversal line rather than inventing one")
+    void buildUserMessage_inversion_noProfileOmitsReversal() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .inversionScore(9.0)
+                .temperature(6.0)
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("CLOUD INVERSION FORECAST:")
+                .doesNotContain("Measured reversal");
     }
 
     @Test

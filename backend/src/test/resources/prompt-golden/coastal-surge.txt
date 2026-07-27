@@ -55,6 +55,7 @@ A cloud inversion occurs when warm air sits above cooler air, creating a stable 
 Key conditions: cool water + overnight surface cooling + light winds + high humidity.
 Timing: inversions peak just before sunrise, break up 1-2 hours after as surface warms.
 Scoring: MODERATE (7-8) → boost rating by 1 if current < 5. STRONG (9-10) → set rating 5, emphasise in summary.
+MEASURED REVERSAL: when a 'Measured reversal' line is present it is the observed temperature difference between the surface and ~760m, and it is the evidence the score rests on — an inversion IS temperature rising with height. A positive value confirms the inversion. A negative value contradicts it: do NOT apply the rating boost above, and say in the summary that the cloud sits at the viewpoint rather than below it.
 Non-water or low elevation: inversions have no photographic value; ignore inversion score.
 
 FORECAST RELIABILITY:

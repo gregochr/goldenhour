@@ -17,6 +17,13 @@ import java.math.BigDecimal;
  * @param snowfallCm                snowfall in the preceding hour in centimetres, or null
  * @param snowDepthMetres           depth of snow lying on the ground in metres, or null
  * @param freezingLevelMetres       altitude of the 0 °C isotherm in metres above sea level, or null
+ * @param temperature925hPaCelsius  temperature at the 925 hPa pressure level (≈ 760 m) in °C, or
+ *                                  null — with {@code temperature2m} this is the only vertical
+ *                                  profile the pipeline has, and the only way to tell a genuine
+ *                                  temperature inversion from surface conditions that merely
+ *                                  resemble one
+ * @param temperature850hPaCelsius  temperature at the 850 hPa pressure level (≈ 1500 m) in °C, or
+ *                                  null — a deeper, more conservative fallback for the same check
  */
 public record WeatherData(
         int visibilityMetres,
@@ -30,5 +37,7 @@ public record WeatherData(
         Double pressureHpa,
         Double snowfallCm,
         Double snowDepthMetres,
-        Double freezingLevelMetres) {
+        Double freezingLevelMetres,
+        Double temperature925hPaCelsius,
+        Double temperature850hPaCelsius) {
 }

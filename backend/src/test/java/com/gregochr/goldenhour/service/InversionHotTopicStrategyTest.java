@@ -63,14 +63,23 @@ class InversionHotTopicStrategyTest {
         return topic.facts().stream().filter(f -> key.equals(f.key())).findFirst().orElseThrow();
     }
 
-    /** A SUNRISE survivor composite carrying an inversion score and nothing else. */
+    /**
+     * A SUNRISE survivor composite carrying an inversion score and the STRONG band — the shape
+     * the writer produces for any row this detector admits.
+     */
     private static SurvivorSignals signal(LocalDate date, String regionName, int inversion) {
-        return signalAt(date, regionName, inversion, TargetType.SUNRISE);
+        return signalAt(date, regionName, inversion, "STRONG", TargetType.SUNRISE);
     }
 
-    /** A survivor composite for a specific solar event, carrying an inversion score. */
+    /** A SUNRISE survivor composite with an explicit stored band (null = legacy row). */
+    private static SurvivorSignals signalBanded(LocalDate date, String regionName, int inversion,
+            String band) {
+        return signalAt(date, regionName, inversion, band, TargetType.SUNRISE);
+    }
+
+    /** A survivor composite for a specific solar event, carrying an inversion score and band. */
     private static SurvivorSignals signalAt(LocalDate date, String regionName, int inversion,
-            TargetType eventType) {
+            String band, TargetType eventType) {
         LocationEntity location = new LocationEntity();
         if (regionName != null) {
             RegionEntity region = new RegionEntity();
@@ -78,7 +87,7 @@ class InversionHotTopicStrategyTest {
             location.setRegion(region);
         }
         return new SurvivorSignals(location, date, eventType,
-                new SurvivorSignals.Scores(inversion, null, null),
+                new SurvivorSignals.Scores(inversion, band, null, null),
                 SurvivorSignals.Readings.EMPTY);
     }
 
@@ -121,6 +130,60 @@ class InversionHotTopicStrategyTest {
         when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(
                 signal(FROM, "The Lake District", 9),
                 signal(FROM, "The Lake District", 10)));
+        stubAhead(FROM);
+
+        HotTopic topic = strategy.detect(FROM, TO).get(0);
+
+        assertThat(factWithKey(topic, "inversion").value()).isEqualTo("10/10 · strong");
+    }
+
+    @Test
+    @DisplayName("the band on the fact line is the row's stored classification, not a literal")
+    void detect_factLine_bandComesFromTheRow() {
+        // A row scored 9 but classified MODERATE by the evaluation must read "moderate". The band
+        // used to be the hardcoded string "strong", so the fact line could not disagree with
+        // itself and a mislabelled row was indistinguishable from a genuine one.
+        when(survivorSignalReader.read(FROM, TO))
+                .thenReturn(List.of(signalBanded(FROM, "The Lake District", 9, "MODERATE")));
+        stubAhead(FROM);
+
+        HotTopic topic = strategy.detect(FROM, TO).get(0);
+
+        assertThat(factWithKey(topic, "inversion").value()).isEqualTo("9/10 · moderate");
+    }
+
+    @Test
+    @DisplayName("a row with no stored band falls back to the strong label")
+    void detect_factLine_nullBandFallsBackToStrong() {
+        // Rows written before the band was plumbed through the survivor surface carry a null
+        // summary; the detector only admits the STRONG band, so that is the honest default.
+        when(survivorSignalReader.read(FROM, TO))
+                .thenReturn(List.of(signalBanded(FROM, "The Lake District", 9, null)));
+        stubAhead(FROM);
+
+        HotTopic topic = strategy.detect(FROM, TO).get(0);
+
+        assertThat(factWithKey(topic, "inversion").value()).isEqualTo("9/10 · strong");
+    }
+
+    @Test
+    @DisplayName("a blank stored band falls back to the strong label")
+    void detect_factLine_blankBandFallsBackToStrong() {
+        when(survivorSignalReader.read(FROM, TO))
+                .thenReturn(List.of(signalBanded(FROM, "The Lake District", 9, "   ")));
+        stubAhead(FROM);
+
+        HotTopic topic = strategy.detect(FROM, TO).get(0);
+
+        assertThat(factWithKey(topic, "inversion").value()).isEqualTo("9/10 · strong");
+    }
+
+    @Test
+    @DisplayName("the band shown is the top-scoring row's, not another row's")
+    void detect_factLine_bandTracksTopScoringRow() {
+        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(
+                signalBanded(FROM, "The Lake District", 9, "MODERATE"),
+                signalBanded(FROM, "The Lake District", 10, "STRONG")));
         stubAhead(FROM);
 
         HotTopic topic = strategy.detect(FROM, TO).get(0);
@@ -208,7 +271,7 @@ class InversionHotTopicStrategyTest {
         // dropped up front: a sea of clouds is a dawn event, so this-morning's inversion must not
         // linger into the evening on the strength of the still-future sunset.
         when(survivorSignalReader.read(FROM, TO))
-                .thenReturn(List.of(signalAt(FROM, "The North York Moors", 9, TargetType.SUNSET)));
+                .thenReturn(List.of(signalAt(FROM, "The North York Moors", 9, "STRONG", TargetType.SUNSET)));
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
     }
@@ -218,8 +281,8 @@ class InversionHotTopicStrategyTest {
     void detect_mixedRows_onlySunriseCounts() {
         when(survivorSignalReader.read(FROM, TO))
                 .thenReturn(List.of(
-                        signalAt(FROM, "Sunset Region", 9, TargetType.SUNSET),
-                        signalAt(FROM, "Sunrise Region", 9, TargetType.SUNRISE)));
+                        signalAt(FROM, "Sunset Region", 9, "STRONG", TargetType.SUNSET),
+                        signalAt(FROM, "Sunrise Region", 9, "STRONG", TargetType.SUNRISE)));
         stubAhead(FROM);
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
