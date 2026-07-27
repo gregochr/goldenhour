@@ -47,10 +47,10 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 |---|---|
 | API | Spring Boot 4, Spring WebClient |
 | AI evaluation | Claude (Haiku / Sonnet / Opus) via Anthropic Java SDK |
-| Solar times | [solar-utils](https://github.com/gregochr/solar-utils) v1.2.0 (GitHub Packages) |
+| Solar times | [solar-utils](https://github.com/gregochr/solar-utils) v2.1.0 (JitPack) |
 | Weather data | Open-Meteo Forecast + Air Quality / CAMS APIs (free, no key) |
 | Tide data | WorldTides API v3 (coastal locations, weekly refresh) |
-| Database | H2 file database + Flyway migrations (V1-V67) |
+| Database | PostgreSQL 17 in production; H2 for local dev and tests. Flyway migrations (V1–V129) |
 | Security | Spring Security 7, stateless JWT (JJWT 0.12.6), Cloudflare Turnstile |
 | Frontend | React 19, Vite, Tailwind CSS v4, Leaflet |
 | Deployment | Docker + Cloudflare Tunnel (no open router ports) |
@@ -121,7 +121,7 @@ curl -X POST http://localhost:8082/api/forecast/run \
 
 ## Running with Docker (production)
 
-The production stack runs both services as Docker containers with H2 persisted to the Mac filesystem and exposed publicly via Cloudflare Tunnel.
+The production stack runs both services as Docker containers on a **Linux host**, backed by PostgreSQL 17 bind-mounted at `/home/gregochr/goldenhour-data/postgres`, and exposed publicly via Cloudflare Tunnel. (It ran H2 on a Mac until the Postgres migration; nothing in production has used H2 since.)
 
 ```bash
 # Build and start
@@ -134,7 +134,7 @@ curl http://localhost:8082/actuator/health
 
 Secrets are passed as environment variables — see `docker-compose.yml` for the full list (`ANTHROPIC_API_KEY`, `JWT_SECRET`, `WORLDTIDES_API_KEY`, etc.).
 
-Production runs **PostgreSQL** (`goldenhour-db`) on the Docker host, in a named volume that persists across container restarts. (This paragraph previously described an H2 file covered by Time Machine — that has not been the production database since the Postgres migration, and relying on it as a backup story is what allowed the gap below to go unnoticed.)
+Production runs **PostgreSQL** (`goldenhour-db`) on the Docker host, on a **bind mount** at `/home/gregochr/goldenhour-data/postgres` — not a named volume, and `docker-compose.yml` declares no top-level `volumes:` block at all. The distinction matters for backups: the data is a directory on the host you can read directly, so `docker volume ls` will not show it. (This paragraph previously described an H2 file covered by Time Machine — that has not been the production database since the Postgres migration, and relying on it as a backup story is what allowed the gap below to go unnoticed.)
 
 Backups are taken by `scripts/backup-postgres.sh`, scheduled by `goldenhour-backup.timer` **on the Docker host** — the box where `docker ps` lists `goldenhour-db`, since the script needs that container. It keeps the last 7 daily and 4 weekly compressed dumps, and writes a `last-success` marker.
 
