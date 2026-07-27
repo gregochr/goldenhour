@@ -1,0 +1,10 @@
+{
+  "latitude": 55.6,
+  "longitude": -1.7,
+  "hourly": {
+    "time": ["2026-07-26T19:00", "2026-07-26T20:00"],
+    "wave_height": [1.24, 1.31],
+    "swell_wave_height": [0.82, 0.87],
+    "wave_direction": [48, 52]
+  }
+}

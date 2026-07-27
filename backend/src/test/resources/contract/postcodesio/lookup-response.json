@@ -1,0 +1,11 @@
+{
+  "status": 200,
+  "result": {
+    "postcode": "DH1 3LE",
+    "latitude": 54.7679,
+    "longitude": -1.5719,
+    "admin_district": "County Durham",
+    "admin_ward": "Elvet and Gilesgate",
+    "parish": "Durham, unparished area"
+  }
+}

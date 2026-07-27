@@ -1,0 +1,11 @@
+{
+  "Observation Time": "2026-07-17T11:55:00Z",
+  "Forecast Time": "2026-07-17T12:25:00Z",
+  "Data Format": "[Longitude, Latitude, Aurora]",
+  "coordinates": [
+    [0, 55, 42],
+    [1, 55, 38],
+    [0, 56, 61],
+    [0, 54, 12]
+  ]
+}
