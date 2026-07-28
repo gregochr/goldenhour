@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — `release.sh` refuses to tag with un-promoted release notes
+- **`release.sh` tags but never touches `CHANGELOG.md`, so `[Unreleased]` drifted silently.** Between v2.15.4 and v2.17.0 that meant 83 entries across 13 releases piled under one heading, and untangling them afterwards needed a git-archaeology pass over the file's own history.
+- **It now guards instead of drifting.** Two checks, run against the **target commit** rather than the working tree (the tag ships whatever `CHANGELOG.md` looks like at that commit): it refuses if `[Unreleased]` still holds entries, naming the count and the exact promotion steps; and it refuses if there is no `## [vX.Y.Z]` section for the version being tagged — which catches notes promoted under the wrong version number, the failure the first check alone would wave through.
+- Deliberately a guard, not an action: `main` requires a PR, so the script cannot commit the promotion itself. Making the release *impossible* to cut with stale notes is the part that actually holds.
+
 ## [v2.17.0] - 2026-07-28
 
 ### Fixed — Cloud verification compared unlike things, then measured the difference as forecast error (V130)

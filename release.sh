@@ -14,6 +14,8 @@
 #   - verifies target is reachable from main
 #   - shows commits between last tag and target for review
 #   - confirms tag doesn't already exist
+#   - refuses to tag while CHANGELOG's [Unreleased] still holds entries,
+#     and refuses if nothing is documented for the version being tagged
 #   - prompts for confirmation before pushing
 #
 # Usage: ./release.sh
@@ -106,6 +108,60 @@ if git rev-parse "v$VERSION" >/dev/null 2>&1; then
     echo "  git tag -d v$VERSION && git push origin :refs/tags/v$VERSION"
     exit 1
 fi
+
+# 7.5. CHANGELOG guard
+#
+# release.sh only ever tags — it cannot commit the promotion itself, because main
+# requires a PR. So it guards instead: without this, [Unreleased] silently accumulates
+# across releases and every set of release notes becomes indistinguishable from the
+# next. That is exactly what happened between v2.15.4 and v2.17.0 — 83 entries across
+# 13 releases piled under one heading, and untangling them afterwards needed a
+# git-archaeology pass over the file's own history.
+#
+# Checked against the TARGET COMMIT, not the working tree: the tag ships whatever
+# CHANGELOG.md looks like at that commit.
+
+CHANGELOG_AT_TARGET=$(git show "$TARGET_SHA:CHANGELOG.md" 2>/dev/null || true)
+if [[ -z "$CHANGELOG_AT_TARGET" ]]; then
+    echo "Error: no CHANGELOG.md at $TARGET"
+    exit 1
+fi
+
+UNRELEASED_BODY=$(printf '%s\n' "$CHANGELOG_AT_TARGET" | awk '
+    /^## \[Unreleased\]/ { inside = 1; next }
+    /^## \[/            { inside = 0 }
+    inside && NF          { print }
+' || true)
+
+if [[ -n "$UNRELEASED_BODY" ]]; then
+    ENTRY_COUNT=$(printf '%s\n' "$UNRELEASED_BODY" | grep -c '^### ' || true)
+    echo ""
+    echo "Error: CHANGELOG.md still has ${ENTRY_COUNT:-0} entr(y/ies) under [Unreleased]."
+    echo ""
+    echo "Promote them to this release before tagging, or they will be attributed to"
+    echo "whichever release happens to be cut next:"
+    echo ""
+    echo "  1. git checkout -b docs/changelog-v$VERSION"
+    echo "  2. In CHANGELOG.md, change:  ## [Unreleased]"
+    echo "                          to:  ## [Unreleased]"
+    echo "                               "
+    echo "                               ## [v$VERSION] - $(date +%Y-%m-%d)"
+    echo "  3. Open a PR, merge it, then re-run ./release.sh against the merged commit."
+    echo ""
+    exit 1
+fi
+
+if ! printf '%s\n' "$CHANGELOG_AT_TARGET" | grep -q "^## \[v$VERSION\]"; then
+    echo ""
+    echo "Error: CHANGELOG.md has no '## [v$VERSION]' section at the target commit."
+    echo ""
+    echo "[Unreleased] is empty, so the notes were either never written or promoted"
+    echo "under a different version number. Check the heading matches v$VERSION."
+    echo ""
+    exit 1
+fi
+
+echo "CHANGELOG: [Unreleased] is empty and v$VERSION is documented."
 
 # 8. Optional tag message
 read -p "Tag message (one-liner, optional, blank for default): " MESSAGE
