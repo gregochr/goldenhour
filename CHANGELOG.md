@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — "Last calculated" was unreadable once it aged past a day
+- **Reported as "this last calculated field is rubbish to read with hours as the only unit".** Correct: `formatCalcTime` stopped at an unbounded hours tier, so a drive-time stamp left alone for a month read **"744h ago"** — a number nobody converts at a glance.
+- **It was survivable for the briefing and not for this stamp.** The briefing regenerates every 8–10 hours, so its age rarely leaves the hours tier. Drive times only moved when a user pressed the button (until the nightly job in V133), so months were routine.
+- **The logic existed twice** — `formatAge` in `DailyBriefing.jsx` and `formatCalcTime` in `UserSettingsModal.jsx` — and both terminated at hours. They had already drifted cosmetically: `"just now"` vs `"Just now"`, `"5m ago"` vs `"5 min ago"`. Now one `formatRelativeAge` in `utils/relativeTime.js`, with both wordings preserved behind a `verbose` flag rather than standardised away: each is pinned by a test and neither is wrong, and what mattered was that the **tiers** stop being duplicated.
+- **Days are floored, not rounded** — 35 hours reads "1d ago", not "2d ago". An elapsed-time stamp must never claim more time has passed than actually has.
+- **No weeks or months tier, deliberately.** "45d ago" needs no conversion; "1mo ago" quietly hides anything from 30 to 60 days, and this stamp exists precisely to show that something has gone stale.
+- Mutation-verified: reverting to the unbounded-hours behaviour turns exactly the two days-tier tests red.
+
 ### Fixed — Bluebell scoring asked one precipitation reading to mean two different things
 
 - **Found by auditing the other hot topics after the cloud-inversion fix**, for the same defect class. The hardcoding half was clean everywhere — inversion's literal `"strong"` was the only fact value in all 14 strategies that did not interpolate real data, and the other `intValue()` truncations are on metres and counts where nothing is lost. The *double-count* half was not.

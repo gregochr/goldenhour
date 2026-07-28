@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import Modal from './shared/Modal';
 import { getSettings, lookupPostcode, saveHome, refreshDriveTimes } from '../api/settingsApi';
+import { formatRelativeAge } from '../utils/relativeTime.js';
 
 const ROLE_LABELS = {
   ADMIN: { text: 'Admin', cls: 'bg-red-900/40 border-red-500/50 text-red-300' },
@@ -125,15 +126,9 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
   const normalise = (pc) => (pc || '').replace(/\s+/g, '').toLowerCase();
   const postcodeChanged = hasHome && normalise(settings.homePostcode) !== normalise(driveTimesPostcode);
 
-  const formatCalcTime = (iso) => {
-    if (!iso || now == null) return null;
-    const d = new Date(iso.endsWith('Z') ? iso : iso + 'Z');
-    const mins = Math.round((now - d.getTime()) / 60000);
-    if (mins < 1) return 'Just now';
-    if (mins < 60) return `${mins} min ago`;
-    const hrs = Math.round(mins / 60);
-    return `${hrs}h ago`;
-  };
+  // Verbose style ("Just now" / "5 min ago"); tiers live in the shared helper, which adds the
+  // days tier this stamp needs — it only moved on a button press, so "744h ago" was reachable.
+  const formatCalcTime = (iso) => (now == null ? null : formatRelativeAge(iso, { verbose: true, now }));
 
   // Blocking spinner during drive time refresh
   if (refreshing) {

@@ -22,6 +22,7 @@ import {
   msToMph, formatDriveDuration, formatTime, getEventTime, isEventPast,
 } from '../utils/briefingDisplay.js';
 import { formatTideHighlight, isTravelDate } from '../utils/conversions.js';
+import { formatRelativeAge } from '../utils/relativeTime.js';
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -72,15 +73,11 @@ function Chevron({ open, className = '' }) {  return (
 
 // ── Pure helpers ─────────────────────────────────────────────────────────────
 
+// Compact style ("just now" / "5m ago"); tiers live in the shared helper. The briefing
+// regenerates every 8-10h so the days tier is an anomaly signal here rather than routine — a
+// stamp reading "2d ago" means the pipeline has stopped, which is worth reading as alarming.
 function formatAge(isoString) {
-  if (!isoString) return '';
-  const generated = new Date(isoString + 'Z');
-  const now = new Date();
-  const diffMin = Math.round((now - generated) / 60000);
-  if (diffMin < 1) return 'just now';
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHrs = Math.round(diffMin / 60);
-  return `${diffHrs}h ago`;
+  return formatRelativeAge(isoString) ?? '';
 }
 
 function getVerdictCounts(es) {
