@@ -63,7 +63,7 @@ class CloudVerificationServiceTest {
     void backfill_samplesBothPoints() {
         when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
         when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(List.of(archive(), archive()));
+                .thenReturn(List.of(archive(), archive(), archive(), archive()));
 
         assertThat(service.backfill(10).rowsWritten()).isEqualTo(1);
 
@@ -86,7 +86,7 @@ class CloudVerificationServiceTest {
     void backfill_archiveFailure_stillRecordsRow() {
         when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
         when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(Arrays.asList(null, null));
+                .thenReturn(Arrays.asList(null, null, null, null));
 
         assertThat(service.backfill(10).rowsWritten()).isEqualTo(1);
 
@@ -108,7 +108,8 @@ class CloudVerificationServiceTest {
                 LocalDateTime.of(2026, 5, 10, 21, 40), TargetType.SUNSET);
         when(repository.findUnverified(any(), any())).thenReturn(List.of(first, second));
         when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(List.of(archive(), archive(), archive(), archive()));
+                .thenReturn(List.of(archive(), archive(), archive(), archive(),
+                        archive(), archive(), archive(), archive()));
 
         assertThat(service.backfill(10).rowsWritten()).isEqualTo(2);
 
@@ -118,13 +119,14 @@ class CloudVerificationServiceTest {
         verify(archiveClient).fetchArchiveBatch(
                 points.capture(), eq(LocalDate.of(2026, 5, 10)), anyString());
 
-        // Two points per candidate, interleaved horizon-then-observer.
-        assertThat(points.getValue()).hasSize(4);
-        assertThat(points.getValue().get(1)).containsExactly(54.7753, -1.5849);
-        assertThat(points.getValue().get(3)).containsExactly(55.0, -2.0);
-        // Horizon points are offset along the azimuth, so they differ from their observers.
+        // Four points per candidate: the three solar-cone bearings, then the observer. The cone
+        // matters because the forecast's own solar reading is a 3-point average.
+        assertThat(points.getValue()).hasSize(8);
+        assertThat(points.getValue().get(3)).containsExactly(54.7753, -1.5849);
+        assertThat(points.getValue().get(7)).containsExactly(55.0, -2.0);
+        // Cone bearings are offset along the azimuth, so they differ from their observer.
         assertThat(points.getValue().get(0)[0]).isNotEqualTo(54.7753);
-        assertThat(points.getValue().get(2)[0]).isNotEqualTo(55.0);
+        assertThat(points.getValue().get(4)[0]).isNotEqualTo(55.0);
     }
 
     @Test
@@ -135,7 +137,8 @@ class CloudVerificationServiceTest {
                 LocalDateTime.of(2026, 5, 11, 21, 40), TargetType.SUNSET);
         when(repository.findUnverified(any(), any())).thenReturn(List.of(may10, may11));
         when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(List.of(archive(), archive()));
+                .thenReturn(List.of(archive(), archive(), archive(), archive(),
+                        archive(), archive(), archive(), archive()));
 
         assertThat(service.backfill(10).rowsWritten()).isEqualTo(2);
 
@@ -176,9 +179,12 @@ class CloudVerificationServiceTest {
         assertThat(report.vetoFired().sampleCount()).isEqualTo(2);
         assertThat(report.vetoUncapped().sampleCount()).isEqualTo(1);
         assertThat(report.vetoCapped().sampleCount()).isEqualTo(1);
-        // The uncapped one was genuinely blocked; the capped one had a clear horizon.
-        assertThat(report.vetoUncapped().gapActuallyBlocked()).isEqualTo(1);
-        assertThat(report.vetoCapped().gapActuallyOpen()).isEqualTo(1);
+        // Offset-immune: the uncapped sample saw a genuinely cloudy horizon (90%), the clamped one
+        // vetoed a clear one (20%). The separation is what survives the reanalysis baseline's
+        // systematic offset — an absolute threshold on either bucket alone would not.
+        assertThat(report.vetoUncapped().meanObservedGapLow()).isEqualTo(90.0);
+        assertThat(report.vetoCapped().meanObservedGapLow()).isEqualTo(20.0);
+        assertThat(report.capSeparation()).isEqualTo(70.0);
     }
 
     @Test

@@ -50,6 +50,10 @@ public class CloudVerificationService {
     /** Hourly variables requested from the archive — the same three layers the forecast uses. */
     private static final String ARCHIVE_HOURLY = "cloud_cover_low,cloud_cover_mid,cloud_cover_high";
 
+    /** Archive points sampled per evaluation: the three solar-cone bearings plus the observer. */
+    private static final int POINTS_PER_CANDIDATE =
+            DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT + 1;
+
     /** Wind-to-sun separation (degrees) below which cloud approaches from the sun's direction. */
     private static final int ALIGNED_MAX_DEG = 45;
 
@@ -156,9 +160,13 @@ public class CloudVerificationService {
      */
     private List<CloudVerificationEntity> verifyDate(LocalDate date,
             List<VerificationCandidate> candidates) {
-        List<double[]> points = new ArrayList<>(candidates.size() * 2);
+        // POINTS_PER_CANDIDATE laid out as: the three solar-cone bearings, then the observer.
+        // The cone matters — the forecast's own solar reading is a 3-point average, so sampling a
+        // single centre point here would compare an average against a spot reading and attribute
+        // the difference to forecast error.
+        List<double[]> points = new ArrayList<>(candidates.size() * POINTS_PER_CANDIDATE);
         for (VerificationCandidate candidate : candidates) {
-            points.add(DirectionalSamplingGeometry.computeSolarHorizonPoint(
+            points.addAll(DirectionalSamplingGeometry.computeSolarConePoints(
                     candidate.lat(), candidate.lon(), candidate.azimuthDeg()));
             points.add(new double[]{candidate.lat(), candidate.lon()});
         }
@@ -169,9 +177,16 @@ public class CloudVerificationService {
         List<CloudVerificationEntity> rows = new ArrayList<>(candidates.size());
         for (int i = 0; i < candidates.size(); i++) {
             VerificationCandidate candidate = candidates.get(i);
-            double[] horizon = points.get(i * 2);
-            rows.add(buildRow(candidate, horizon,
-                    responseAt(responses, i * 2), responseAt(responses, i * 2 + 1)));
+            int base = i * POINTS_PER_CANDIDATE;
+            List<OpenMeteoForecastResponse> cone = new ArrayList<>(
+                    DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT);
+            for (int c = 0; c < DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT; c++) {
+                cone.add(responseAt(responses, base + c));
+            }
+            // Centre bearing is the representative coordinate recorded on the row.
+            double[] centre = points.get(base + 1);
+            rows.add(buildRow(candidate, centre, cone,
+                    responseAt(responses, base + DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT)));
         }
         return rows;
     }
@@ -189,26 +204,91 @@ public class CloudVerificationService {
     }
 
     /**
-     * Builds one verification row from the two archive responses for a candidate.
+     * Builds one verification row from a candidate's archive responses.
+     *
+     * <p>The horizon layers are averaged across the solar cone, mirroring how the forecast's own
+     * {@code solarLow} reading is produced. Comparing a coned forecast value against a single-point
+     * observation would charge the sampling difference to forecast error.
      *
      * @param candidate       the evaluation being verified
-     * @param horizon         the sampled solar-horizon coordinate
-     * @param horizonArchive  archive response at the horizon, or {@code null}
+     * @param centre          the centre-bearing coordinate, recorded as representative
+     * @param coneArchives    archive responses at the three cone bearings; entries may be null
      * @param observerArchive archive response at the observer, or {@code null}
      * @return the verification row, with null observations where the archive had no data
      */
-    private CloudVerificationEntity buildRow(VerificationCandidate candidate, double[] horizon,
-            OpenMeteoForecastResponse horizonArchive, OpenMeteoForecastResponse observerArchive) {
+    private CloudVerificationEntity buildRow(VerificationCandidate candidate, double[] centre,
+            List<OpenMeteoForecastResponse> coneArchives,
+            OpenMeteoForecastResponse observerArchive) {
         CloudVerificationEntity.CloudVerificationEntityBuilder builder =
                 CloudVerificationEntity.builder()
                         .forecastEvaluationId(candidate.evaluationId())
-                        .horizonSampleLat(horizon[0])
-                        .horizonSampleLon(horizon[1])
+                        .horizonSampleLat(centre[0])
+                        .horizonSampleLon(centre[1])
                         .verifiedAt(LocalDateTime.now(clock));
 
-        applyLayers(builder, horizonArchive, candidate, true);
+        applyConedHorizon(builder, coneArchives, candidate);
         applyLayers(builder, observerArchive, candidate, false);
         return builder.build();
+    }
+
+    /**
+     * Averages the cone's archive readings onto the horizon columns.
+     *
+     * <p>Averages over whichever bearings returned data, so a partly-failed cone still yields a
+     * usable reading rather than none. If no bearing returned data the horizon columns stay null,
+     * which is what marks the row blank and returns it to the candidate pool on the next run.
+     *
+     * @param builder      the row under construction
+     * @param coneArchives responses at the cone bearings; entries may be null
+     * @param candidate    the candidate being verified
+     */
+    private void applyConedHorizon(CloudVerificationEntity.CloudVerificationEntityBuilder builder,
+            List<OpenMeteoForecastResponse> coneArchives, VerificationCandidate candidate) {
+        int lowSum = 0;
+        int midSum = 0;
+        int highSum = 0;
+        int count = 0;
+        LocalDateTime observedAt = null;
+
+        for (OpenMeteoForecastResponse archive : coneArchives) {
+            if (archive == null || archive.getHourly() == null
+                    || archive.getHourly().getTime() == null
+                    || archive.getHourly().getTime().isEmpty()) {
+                continue;
+            }
+            OpenMeteoForecastResponse.Hourly hourly = archive.getHourly();
+            int idx = TimeSlotUtils.findBestIndex(
+                    hourly.getTime(), candidate.solarEventTime(), candidate.targetType());
+            Integer low = layerAt(hourly.getCloudCoverLow(), idx);
+            if (low == null) {
+                continue;
+            }
+            lowSum += low;
+            midSum += orZero(layerAt(hourly.getCloudCoverMid(), idx));
+            highSum += orZero(layerAt(hourly.getCloudCoverHigh(), idx));
+            count++;
+            if (observedAt == null) {
+                observedAt = LocalDateTime.parse(hourly.getTime().get(idx));
+            }
+        }
+
+        if (count == 0) {
+            return;
+        }
+        builder.horizonLowCloud(lowSum / count)
+                .horizonMidCloud(midSum / count)
+                .horizonHighCloud(highSum / count)
+                .observedAt(observedAt);
+    }
+
+    /**
+     * Returns the value, or zero when absent, for summing a layer that may not be reported.
+     *
+     * @param value the layer reading
+     * @return the value or zero
+     */
+    private int orZero(Integer value) {
+        return value == null ? 0 : value;
     }
 
     /**
@@ -220,7 +300,7 @@ public class CloudVerificationService {
      * @param builder   the verification row under construction
      * @param archive   the archive response, or {@code null} if the fetch failed
      * @param candidate the candidate being verified
-     * @param isHorizon true to write the horizon columns, false for the observer columns
+     * @param isHorizon retained for the horizon path; the observer path passes false
      */
     private void applyLayers(CloudVerificationEntity.CloudVerificationEntityBuilder builder,
             OpenMeteoForecastResponse archive, VerificationCandidate candidate,
@@ -290,13 +370,40 @@ public class CloudVerificationService {
                         fired.stream().filter(p -> !p.upwindCapped()).toList()),
                 CloudVerificationBucket.of("VETO_CAPPED",
                         fired.stream().filter(CloudVerificationPair::upwindCapped).toList()),
-                windSunBuckets(fired));
+                windSunBuckets(fired),
+                null,
+                null);
+        report = new CloudVerificationReport(
+                report.from(), report.to(), report.verifiedCount(), report.overall(),
+                report.vetoFired(), report.vetoNotFired(), report.vetoUncapped(),
+                report.vetoCapped(), report.byWindSunAngle(),
+                separation(report.vetoFired(), report.vetoNotFired()),
+                separation(report.vetoUncapped(), report.vetoCapped()));
 
         LOG.info("[CLOUD VERIFY] window={}..{} verified={} vetoFired={} "
-                + "gapActuallyOpenWhenVetoed={} gapActuallyBlockedWhenVetoed={}",
+                + "vetoSeparation={} capSeparation={}",
                 from, to, report.verifiedCount(), fired.size(),
-                report.vetoFired().gapActuallyOpen(), report.vetoFired().gapActuallyBlocked());
+                report.vetoSeparation(), report.capSeparation());
         return report;
+    }
+
+    /**
+     * Returns the difference in mean observed horizon cloud between two buckets.
+     *
+     * <p>The offset-immune statistic. Each bucket's absolute mean carries the reanalysis baseline's
+     * systematic offset from the forecast model; the difference between two buckets does not,
+     * because that offset applies equally to both.
+     *
+     * @param a the bucket expected to be cloudier if the signal is real
+     * @param b the comparison bucket
+     * @return a's mean observed horizon cloud minus b's, or {@code null} if either is unavailable
+     */
+    private Double separation(CloudVerificationBucket a, CloudVerificationBucket b) {
+        if (a == null || b == null
+                || a.meanObservedGapLow() == null || b.meanObservedGapLow() == null) {
+            return null;
+        }
+        return Math.round((a.meanObservedGapLow() - b.meanObservedGapLow()) * 100.0) / 100.0;
     }
 
     /**
