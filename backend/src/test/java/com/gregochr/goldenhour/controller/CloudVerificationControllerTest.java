@@ -114,7 +114,8 @@ class CloudVerificationControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.verifiedCount").value(120))
                 .andExpect(jsonPath("$.vetoFired.sampleCount").value(40))
-                .andExpect(jsonPath("$.vetoFired.gapActuallyOpen").value(11))
+                .andExpect(jsonPath("$.vetoSeparation").value(23.6))
+                .andExpect(jsonPath("$.capSeparation").value(8.0))
                 .andExpect(jsonPath("$.vetoUncapped.sampleCount").value(9))
                 .andExpect(jsonPath("$.vetoCapped.sampleCount").value(31))
                 .andExpect(jsonPath("$.byWindSunAngle[0].key").value("aligned(<45)"));
@@ -137,18 +138,18 @@ class CloudVerificationControllerTest extends AbstractControllerTest {
     private CloudVerificationReport report() {
         // Shape of the D7 answer: the veto tracks reality when uncapped, not when clamped.
         CloudVerificationBucket overall =
-                new CloudVerificationBucket("ALL", 120, -4.2, 18.6, 3.1, 30, 55);
+                new CloudVerificationBucket("ALL", 120, -4.2, 18.6, 3.1, 55.0, 59.2);
         CloudVerificationBucket fired =
-                new CloudVerificationBucket("VETO_FIRED", 40, -12.0, 26.0, 2.0, 11, 22);
+                new CloudVerificationBucket("VETO_FIRED", 40, -12.0, 26.0, 2.0, 62.0, 74.0);
         CloudVerificationBucket notFired =
-                new CloudVerificationBucket("VETO_NOT_FIRED", 80, -0.4, 14.9, 3.6, 19, 33);
+                new CloudVerificationBucket("VETO_NOT_FIRED", 80, -0.4, 14.9, 3.6, 50.0, 50.4);
         CloudVerificationBucket uncapped =
-                new CloudVerificationBucket("VETO_UNCAPPED", 9, -2.0, 11.0, 1.5, 1, 7);
+                new CloudVerificationBucket("VETO_UNCAPPED", 9, -2.0, 11.0, 1.5, 78.0, 80.0);
         CloudVerificationBucket capped =
-                new CloudVerificationBucket("VETO_CAPPED", 31, -15.0, 30.0, 2.2, 10, 15);
+                new CloudVerificationBucket("VETO_CAPPED", 31, -15.0, 30.0, 2.2, 57.0, 72.0);
         CloudVerificationBucket aligned =
-                new CloudVerificationBucket("aligned(<45)", 18, -19.0, 33.0, 2.4, 8, 6);
-        return new CloudVerificationReport(FROM, TO, 120, overall, fired, notFired,
-                uncapped, capped, List.of(aligned));
+                new CloudVerificationBucket("aligned(<45)", 18, -19.0, 33.0, 2.4, 55.0, 74.0);
+        return new CloudVerificationReport(FROM, TO, 120L, overall, fired, notFired,
+                uncapped, capped, List.of(aligned), 23.6, 8.0);
     }
 }

@@ -11,6 +11,12 @@ import java.util.List;
  * <em>cloud</em> against reanalysis — so it works retroactively over every evaluation already in
  * the database, and it works while {@code actual_outcome} is still empty.
  *
+ * <p><strong>Read the separations, not the absolute numbers.</strong> The reanalysis baseline sits
+ * systematically below the forecast model — measured at ~15pp at the observer and ~25pp at the
+ * horizon, and flat across forecast horizons, which is a model offset rather than forecast error.
+ * Any single bucket's mean therefore carries that offset. Differences between buckets do not,
+ * because it applies to all of them equally.
+ *
  * <p>The buckets are chosen to answer the specific open questions about the cloud-approach veto:
  * <ul>
  *   <li>{@code vetoFired} vs {@code vetoNotFired} — when the veto forced a 1–2★, was the horizon
@@ -32,6 +38,12 @@ import java.util.List;
  * @param vetoUncapped    veto-fired pairs whose upwind sample was below the 200 km cap
  * @param vetoCapped      veto-fired pairs whose upwind sample sat at the cap
  * @param byWindSunAngle  veto-fired pairs bucketed by wind-to-sun separation
+ * @param vetoSeparation  mean observed horizon cloud in {@code vetoFired} minus
+ *                        {@code vetoNotFired}. Positive means vetoed slots really were cloudier,
+ *                        i.e. the veto discriminates. Near zero means it fires on nothing real.
+ * @param capSeparation   the same measure for {@code vetoUncapped} minus {@code vetoCapped}.
+ *                        Positive means the veto only tracks reality below the 200 km cap — the
+ *                        D7 signature.
  */
 public record CloudVerificationReport(
         LocalDate from,
@@ -42,7 +54,9 @@ public record CloudVerificationReport(
         CloudVerificationBucket vetoNotFired,
         CloudVerificationBucket vetoUncapped,
         CloudVerificationBucket vetoCapped,
-        List<CloudVerificationBucket> byWindSunAngle) {
+        List<CloudVerificationBucket> byWindSunAngle,
+        Double vetoSeparation,
+        Double capSeparation) {
 
     /**
      * Compact constructor — defensive copy to satisfy SpotBugs EI_EXPOSE_REP.
@@ -56,6 +70,8 @@ public record CloudVerificationReport(
      * @param vetoUncapped   uncapped veto-fired metrics
      * @param vetoCapped     capped veto-fired metrics
      * @param byWindSunAngle per-alignment metrics
+     * @param vetoSeparation fired-minus-not-fired observed cloud
+     * @param capSeparation  uncapped-minus-capped observed cloud
      */
     public CloudVerificationReport {
         byWindSunAngle = byWindSunAngle == null ? List.of() : List.copyOf(byWindSunAngle);

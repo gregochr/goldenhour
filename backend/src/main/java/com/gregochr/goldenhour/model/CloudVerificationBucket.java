@@ -6,25 +6,28 @@ import java.util.List;
  * Forecast-vs-observed cloud accuracy for one group of {@link CloudVerificationPair}s.
  *
  * <p>Reports the gap and the canvas separately, because they fail differently and a single blended
- * error would hide both. The counts at the end are the actionable ones:
- * <ul>
- *   <li>{@code gapActuallyOpen} — the forecast's blocker never materialised. Within a
- *       veto-fired bucket this is the count of skies the veto suppressed that were, in fact,
- *       clear at the horizon: the direct measure of the veto over-firing.</li>
- *   <li>{@code gapActuallyBlocked} — the horizon really did close. Within a veto-fired bucket
- *       this is the veto earning its keep.</li>
- * </ul>
+ * error would hide both.
  *
- * <p>Thresholds are the system's own, taken from the scoring prompt rather than invented here:
- * low cloud above 60% is "blocked", below 20% is "strong light penetration".
+ * <p><strong>Deliberately no absolute thresholds.</strong> An earlier version counted observations
+ * either side of the prompt's own 20% / 60% cuts. That was invalid: the reanalysis baseline reads
+ * systematically lower than the forecast model — measured at ~15pp at the observer and ~25pp at the
+ * horizon, and <em>flat across forecast horizons</em>, which is the signature of a model offset
+ * rather than forecast error. Against a baseline shifted by that much, a fixed cut mislabels: a
+ * horizon genuinely at 60% reads nearer 40% and counts as "open". The counts were biased toward
+ * finding the forecast at fault.
+ *
+ * <p>What survives that offset is <em>comparison between buckets</em>. The offset applies equally
+ * to all of them, so it cancels in a difference. Hence {@code meanObservedGapLow}: on its own it is
+ * not interpretable in absolute terms, but the gap between two buckets is.
  *
  * @param key                 the group this bucket describes
  * @param sampleCount         number of verified forecasts in the group
  * @param meanGapError        signed mean of (forecast − observed) horizon low cloud
  * @param meanAbsGapError     mean absolute horizon low cloud error, in percentage points
  * @param meanCanvasError     signed mean of (forecast − observed) canvas strength
- * @param gapActuallyOpen     count where observed horizon low cloud was ≤ 20%
- * @param gapActuallyBlocked  count where observed horizon low cloud was ≥ 60%
+ * @param meanForecastGapLow  mean forecast solar-horizon low cloud (%)
+ * @param meanObservedGapLow  mean reanalysis solar-horizon low cloud (%) — compare between
+ *                            buckets, never against an absolute threshold
  */
 public record CloudVerificationBucket(
         String key,
@@ -32,14 +35,8 @@ public record CloudVerificationBucket(
         Double meanGapError,
         Double meanAbsGapError,
         Double meanCanvasError,
-        int gapActuallyOpen,
-        int gapActuallyBlocked) {
-
-    /** Observed low cloud (%) at or below which the sun demonstrably had a gap. */
-    private static final int GAP_OPEN_MAX_PERCENT = 20;
-
-    /** Observed low cloud (%) at or above which the horizon was demonstrably blocked. */
-    private static final int GAP_BLOCKED_MIN_PERCENT = 60;
+        Double meanForecastGapLow,
+        Double meanObservedGapLow) {
 
     /** Decimal places retained on reported errors. */
     private static final double ROUNDING_SCALE = 100.0;
@@ -53,7 +50,7 @@ public record CloudVerificationBucket(
      */
     public static CloudVerificationBucket of(String key, List<CloudVerificationPair> pairs) {
         if (pairs == null || pairs.isEmpty()) {
-            return new CloudVerificationBucket(key, 0, null, null, null, 0, 0);
+            return new CloudVerificationBucket(key, 0, null, null, null, null, null);
         }
 
         int gapSum = 0;
@@ -61,8 +58,10 @@ public record CloudVerificationBucket(
         int gapCount = 0;
         int canvasSum = 0;
         int canvasCount = 0;
-        int open = 0;
-        int blocked = 0;
+        int forecastSum = 0;
+        int forecastCount = 0;
+        int observedSum = 0;
+        int observedCount = 0;
 
         for (CloudVerificationPair pair : pairs) {
             Integer gapError = pair.gapError();
@@ -76,13 +75,13 @@ public record CloudVerificationBucket(
                 canvasSum += canvasError;
                 canvasCount++;
             }
-            Integer observedGap = pair.observedGapLow();
-            if (observedGap != null) {
-                if (observedGap <= GAP_OPEN_MAX_PERCENT) {
-                    open++;
-                } else if (observedGap >= GAP_BLOCKED_MIN_PERCENT) {
-                    blocked++;
-                }
+            if (pair.forecastGapLow() != null) {
+                forecastSum += pair.forecastGapLow();
+                forecastCount++;
+            }
+            if (pair.observedGapLow() != null) {
+                observedSum += pair.observedGapLow();
+                observedCount++;
             }
         }
 
@@ -92,8 +91,8 @@ public record CloudVerificationBucket(
                 gapCount == 0 ? null : round((double) gapSum / gapCount),
                 gapCount == 0 ? null : round((double) gapAbsSum / gapCount),
                 canvasCount == 0 ? null : round((double) canvasSum / canvasCount),
-                open,
-                blocked);
+                forecastCount == 0 ? null : round((double) forecastSum / forecastCount),
+                observedCount == 0 ? null : round((double) observedSum / observedCount));
     }
 
     /**
