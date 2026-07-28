@@ -14,7 +14,9 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -36,6 +38,9 @@ class CloudVerificationBackfillRunnerTest {
     @Mock
     private CloudVerificationService verificationService;
 
+    @Mock
+    private DynamicSchedulerService dynamicSchedulerService;
+
     private CloudVerificationBackfillRunner runner;
 
     private static BackfillBatch batch(int n) {
@@ -44,7 +49,8 @@ class CloudVerificationBackfillRunnerTest {
 
     @BeforeEach
     void setUp() {
-        runner = new CloudVerificationBackfillRunner(verificationService, CLOCK);
+        runner = new CloudVerificationBackfillRunner(
+                verificationService, dynamicSchedulerService, CLOCK);
     }
 
     @Test
@@ -165,6 +171,65 @@ class CloudVerificationBackfillRunnerTest {
 
         assertThat(runner.start()).isTrue();
         verify(verificationService).backfill(anyInt());
+    }
+
+    @Test
+    @DisplayName("a scheduled tick takes a bounded slice, leaving the rest for the next hour")
+    void runScheduled_stopsAtTheBatchCeiling() {
+        // The whole point of the schedule: ~25k evaluations at four sample points each is far more
+        // than an hour's archive allowance, so a tick must yield rather than drain.
+        when(verificationService.backfill(anyInt())).thenReturn(batch(100));
+
+        runner.runScheduled();
+
+        verify(verificationService, times(CloudVerificationBackfillRunner.SCHEDULED_BATCHES_PER_RUN))
+                .backfill(anyInt());
+        assertThat(runner.status().running()).isFalse();
+        assertThat(runner.status().verified())
+                .isEqualTo(100 * CloudVerificationBackfillRunner.SCHEDULED_BATCHES_PER_RUN);
+    }
+
+    @Test
+    @DisplayName("a scheduled tick clears blanks first, so a throttled tick heals on the next one")
+    void runScheduled_clearsBlanksFirst() {
+        when(verificationService.backfill(anyInt())).thenReturn(BackfillBatch.EMPTY);
+
+        runner.runScheduled();
+
+        verify(verificationService).clearBlankVerifications();
+    }
+
+    @Test
+    @DisplayName("a scheduled tick is a no-op once the backlog is clear")
+    void runScheduled_emptyBacklog_stopsImmediately() {
+        when(verificationService.backfill(anyInt())).thenReturn(BackfillBatch.EMPTY);
+
+        runner.runScheduled();
+
+        // One probe, not twelve — leaving the job enabled costs nothing.
+        verify(verificationService, times(1)).backfill(anyInt());
+    }
+
+    @Test
+    @DisplayName("a scheduled tick defers to a manual run already in progress")
+    void runScheduled_whileRunning_skips() {
+        when(verificationService.backfill(anyInt())).thenAnswer(invocation -> {
+            runner.runScheduled();
+            return BackfillBatch.EMPTY;
+        });
+
+        assertThat(runner.start()).isTrue();
+        // The nested tick was refused, so only the manual run's batch executed.
+        verify(verificationService, times(1)).backfill(anyInt());
+    }
+
+    @Test
+    @DisplayName("registerJob wires the tick to the scheduler under its job key")
+    void registerJob_registersTarget() {
+        runner.registerJob();
+
+        verify(dynamicSchedulerService)
+                .registerJobTarget(eq("cloud_verification_backfill"), any());
     }
 
     @Test

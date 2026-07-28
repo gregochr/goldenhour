@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.model.BackfillBatch;
 import com.gregochr.goldenhour.model.BackfillStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import jakarta.annotation.PostConstruct;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
@@ -39,10 +40,22 @@ public class CloudVerificationBackfillRunner {
     /** Evaluations per committed batch — small enough to bound a transaction, big enough to batch. */
     static final int BATCH_SIZE = 100;
 
-    /** Safety stop, so a bug that never drains the queue cannot loop forever. */
+    /** Safety stop for a manual run, so a bug that never drains the queue cannot loop forever. */
     static final int MAX_BATCHES = 1000;
 
+    /**
+     * Batches attempted per scheduled tick.
+     *
+     * <p>Sized to sit inside Open-Meteo's hourly allowance rather than to finish quickly. Each
+     * batch is 100 evaluations at four sample points, chunked 20 to a request — about 20 requests.
+     * A dozen batches is therefore ~240 requests an hour, which walks ~25k evaluations down over
+     * roughly a day unattended. Overshooting is not harmful (a throttled batch stops the tick and
+     * is cleared on the next one), but it wastes an hour's progress, so this errs low.
+     */
+    static final int SCHEDULED_BATCHES_PER_RUN = 12;
+
     private final CloudVerificationService verificationService;
+    private final DynamicSchedulerService dynamicSchedulerService;
     private final Clock clock;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -52,13 +65,49 @@ public class CloudVerificationBackfillRunner {
     /**
      * Constructs the runner.
      *
-     * @param verificationService the service performing each batch
-     * @param clock               UTC clock for run timestamps
+     * @param verificationService     the service performing each batch
+     * @param dynamicSchedulerService  scheduler the hourly tick registers with
+     * @param clock                   UTC clock for run timestamps
      */
     public CloudVerificationBackfillRunner(CloudVerificationService verificationService,
-            Clock clock) {
+            DynamicSchedulerService dynamicSchedulerService, Clock clock) {
         this.verificationService = verificationService;
+        this.dynamicSchedulerService = dynamicSchedulerService;
         this.clock = clock;
+    }
+
+    /**
+     * Registers the hourly backfill tick with the dynamic scheduler.
+     */
+    @PostConstruct
+    void registerJob() {
+        dynamicSchedulerService.registerJobTarget(
+                "cloud_verification_backfill", this::runScheduled);
+    }
+
+    /**
+     * One scheduled tick: works a bounded slice of the backlog, then yields until the next hour.
+     *
+     * <p>Exists because the backlog cannot be drained in a single pass. Roughly 25,000 evaluations
+     * at four archive points each is ~5,000 requests — far beyond an hour's allowance — so an
+     * unbounded run simply burns the quota, hits a blank batch and stops. Ticking hourly turns that
+     * into steady unattended progress instead of something a person has to sit and re-trigger.
+     *
+     * <p>A no-op once the backlog is clear: the first batch finds no candidates and returns
+     * immediately, so leaving the job enabled costs nothing.
+     */
+    void runScheduled() {
+        if (!running.compareAndSet(false, true)) {
+            LOG.info("[CLOUD VERIFY] scheduled tick skipped — a run is already in progress");
+            return;
+        }
+        try {
+            verificationService.clearBlankVerifications();
+        } catch (Exception e) {
+            LOG.warn("[CLOUD VERIFY] could not clear blank rows before tick: {}", e.getMessage());
+        }
+        status.set(BackfillStatus.started(LocalDateTime.now(clock), remainingOrNull()));
+        runBounded(SCHEDULED_BATCHES_PER_RUN);
     }
 
     /**
@@ -104,9 +153,19 @@ public class CloudVerificationBackfillRunner {
      */
     @Async("forecastExecutor")
     void run() {
+        runBounded(MAX_BATCHES);
+    }
+
+    /**
+     * Works through the backlog for at most {@code maxBatches} committed batches.
+     *
+     * @param maxBatches the batch ceiling for this run
+     */
+    @Async("forecastExecutor")
+    void runBounded(int maxBatches) {
         String error = null;
         try {
-            for (int i = 0; i < MAX_BATCHES; i++) {
+            for (int i = 0; i < maxBatches; i++) {
                 BackfillBatch batch = verificationService.backfill(BATCH_SIZE);
                 if (batch.rowsWritten() == 0) {
                     break;
