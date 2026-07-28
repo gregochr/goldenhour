@@ -188,6 +188,76 @@ class ForecastTaskCollectorTest {
                 any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any());
     }
 
+    // ── Out-of-season canopy sites (the triage fork) ──────────────────────────
+    // The sky triage asks sky questions. For a wood the honest answers are inverted, so letting
+    // it run selects exactly wrongly: triaged OUT on the misty overcast morning it wants, passed
+    // THROUGH on the clear day it does not — where it would then be rated for fiery-sky potential
+    // it structurally cannot have. Until the woodland prompt exists, submit nothing.
+
+    @Test
+    @DisplayName("Out of season, a canopy site produces NO task at all — not a sky task")
+    void outOfSeasonWoodland_producesNoTask() {
+        LocationEntity loc = buildWoodlandLocation("Houghall Woods", 54.76, -1.56, true);
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY, Verdict.GO, loc.getName());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        stubModels();
+        stubPrefetchSuccess(loc);
+        // Out of season: no bluebell condition score on the payload, and triage passed it
+        // (a clear day) — which before this change meant it went to the SKY bucket.
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(loc, TODAY, 0));
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        assertThat(result.nearInland()).as("no sky task for a canopy site").isEmpty();
+        assertThat(result.nearCoastal()).isEmpty();
+        assertThat(result.farInland()).isEmpty();
+        assertThat(result.farCoastal()).isEmpty();
+        assertThat(result.bluebell()).as("and no bluebell task out of season").isEmpty();
+        assertThat(result.totalSize()).isZero();
+    }
+
+    @Test
+    @DisplayName("A wood with no bluebells at all is still kept out of the sky lane")
+    void woodlandWithoutBluebell_producesNoTask() {
+        LocationEntity loc = buildWoodlandLocation("A Gorge", 54.0, -2.0, false);
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY, Verdict.GO, loc.getName());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        stubModels();
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(loc, TODAY, 0));
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        assertThat(result.totalSize()).isZero();
+    }
+
+    // Allen Banks is the case that must NOT be caught: a wood that also has an aspect has a
+    // horizon, so its sky evaluation is the one that decides whether to drive there.
+    @Test
+    @DisplayName("A wood that ALSO has an open type keeps its sky task")
+    void woodlandWithAspect_keepsSkyTask() {
+        LocationEntity loc = buildInlandLocation("Allen Banks", 54.97, -2.31);
+        loc.setLocationType(Set.of(LocationType.WOODLAND, LocationType.LANDSCAPE));
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY, Verdict.GO, loc.getName());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        stubModels();
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(loc, TODAY, 0));
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        assertThat(result.nearInland()).hasSize(1);
+    }
+
     @Test
     @DisplayName("collectScheduledBatches: in-season WOODLAND → bluebell bucket only, no sky bucket")
     void collectScheduledBatches_inSeasonWoodland_bluebellBucketOnly() {
@@ -1417,6 +1487,20 @@ class ForecastTaskCollectorTest {
         return new ForecastPreEvalResult(true, "cloud", null, null, loc, TODAY,
                 TargetType.SUNRISE, EVENT_TIME, 60, 0,
                 EvaluationModel.HAIKU, Set.of(), "k", null);
+    }
+
+    /**
+     * Builds a canopy location as V134 types them: WOODLAND, optionally with BLUEBELL alongside.
+     * No open-sky type, so {@code isWoodlandOnly()} is true.
+     */
+    private LocationEntity buildWoodlandLocation(String name, double lat, double lon,
+            boolean alsoBluebell) {
+        LocationEntity location = buildInlandLocation(name, lat, lon);
+        location.setLocationType(alsoBluebell
+                ? Set.of(LocationType.WOODLAND, LocationType.BLUEBELL)
+                : Set.of(LocationType.WOODLAND));
+        location.setBluebellExposure(BluebellExposure.WOODLAND);
+        return location;
     }
 
     private LocationEntity buildBluebellLocation(String name, double lat, double lon,
