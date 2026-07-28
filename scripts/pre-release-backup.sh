@@ -66,6 +66,21 @@ digest_of() {
     docker inspect --format='{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}' "$image_id" 2>/dev/null || true
 }
 
+# Flyway stores `version` as VARCHAR, so MAX(version) compares it as text: with
+# V99 and V134 both applied, MAX() returns '99'. That is not cosmetic. This
+# number is the manifest's answer to point 3 above — whether undoing a release
+# needs the dump restored or only the images re-pinned — and it fails in the
+# dangerous direction, understating how far the schema has moved. It printed 99
+# during the v2.17.2 release with production actually on 130, and it had been
+# wrong since V100 landed. Order by the numeric version instead; installed_rank
+# breaks ties. The same idiom is already used correctly in
+# IntegrationTestBaseSmokeTest.
+SCHEMA_VERSION_SQL="SELECT COALESCE((
+    SELECT version FROM flyway_schema_history
+    WHERE success AND version IS NOT NULL
+    ORDER BY CAST(SUBSTRING(version, '^[0-9]+') AS INTEGER) DESC, installed_rank DESC
+    LIMIT 1), 'none')"
+
 PREV_BACKEND="$(digest_of "$BACKEND_CONTAINER")"
 PREV_FRONTEND="$(digest_of "$FRONTEND_CONTAINER")"
 
@@ -78,7 +93,7 @@ if [ -z "$PREV_BACKEND" ] || [ -z "$PREV_FRONTEND" ]; then
 fi
 
 SCHEMA_VERSION="$(docker exec "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -tAc \
-    "SELECT COALESCE(MAX(version), 'none') FROM flyway_schema_history WHERE success" 2>/dev/null \
+    "$SCHEMA_VERSION_SQL" 2>/dev/null \
     | tr -d '[:space:]' || echo 'unknown')"
 
 log "outgoing backend:  ${PREV_BACKEND}"

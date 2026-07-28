@@ -37,6 +37,19 @@ COMPOSE_DIR="${COMPOSE_DIR:-${HOME}/goldenhour}"
 # while the banner and the file on disk both still claimed production was pinned.
 OVERRIDE_FILE="${COMPOSE_DIR}/docker-compose.override.yml"
 
+# See the long note in pre-release-backup.sh. Flyway's `version` is VARCHAR, so
+# MAX(version) sorts as text and returns '99' when V134 is applied. Here that
+# mattered more than in the backup script: both readings below were wrong the
+# SAME way, so they agreed with each other and every check passed — while the
+# ROLLBACK PLAN banner showed identical before/after versions and told the
+# operator the restore was schema-neutral at exactly the moment they were
+# deciding whether to discard production data.
+SCHEMA_VERSION_SQL="SELECT COALESCE((
+    SELECT version FROM flyway_schema_history
+    WHERE success AND version IS NOT NULL
+    ORDER BY CAST(SUBSTRING(version, '^[0-9]+') AS INTEGER) DESC, installed_rank DESC
+    LIMIT 1), 'none')"
+
 # --- No argument: show what is available --------------------------------------
 if [ $# -eq 0 ]; then
     echo "Releases with a rollback point:"
@@ -72,7 +85,7 @@ DUMP_FILE="${RELEASE_DIR}/$(field dump)"
 gzip -t "$DUMP_FILE" || { echo "ERROR: dump fails its integrity check — do NOT roll back to it." >&2; exit 1; }
 
 CURRENT_SCHEMA="$(docker exec "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -tAc \
-    "SELECT COALESCE(MAX(version), 'none') FROM flyway_schema_history WHERE success" 2>/dev/null | tr -d '[:space:]' || echo unknown)"
+    "$SCHEMA_VERSION_SQL" 2>/dev/null | tr -d '[:space:]' || echo unknown)"
 
 # --- Show the plan before doing any of it -------------------------------------
 cat <<PLAN
@@ -130,7 +143,7 @@ if ! gunzip -c "$DUMP_FILE" | docker exec -i "$PG_CONTAINER" psql -U "$PG_USER" 
     exit 1
 fi
 RESTORED_SCHEMA="$(docker exec "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -tAc \
-    "SELECT COALESCE(MAX(version), 'none') FROM flyway_schema_history WHERE success" | tr -d '[:space:]')"
+    "$SCHEMA_VERSION_SQL" | tr -d '[:space:]')"
 echo "    schema now at ${RESTORED_SCHEMA} (expected ${SCHEMA_VERSION})"
 
 # --- 4. Pin the old digests and start ------------------------------------------
