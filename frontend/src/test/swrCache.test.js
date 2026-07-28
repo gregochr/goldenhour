@@ -1,6 +1,33 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { readSwrCache, writeSwrCache, clearSwrCache } from '../utils/swrCache.js';
 
+/**
+ * Makes `setItem` reject, spying on whichever object actually owns it.
+ *
+ * <p>The owner differs by Node major version, and getting it wrong fails silently rather than
+ * loudly — which is how the "storage rejects" test below spent its life green without ever
+ * exercising a rejection. Under CI's Node 22 the global `localStorage` is jsdom's `Storage`
+ * instance and `setItem` lives on `Storage.prototype`; under Node 23+ a built-in global
+ * `localStorage` shadows jsdom's and carries its own `setItem`. A spy on the wrong object never
+ * intercepts, `writeSwrCache` succeeds, and the assertions quietly describe nothing.
+ *
+ * <p>Every caller therefore also asserts the spy was actually called, so vacuity is impossible
+ * in either environment rather than merely unlikely.
+ *
+ * @param {string} [name] the DOMException-style error name to throw
+ * @returns {import('vitest').MockInstance} the spy, for restore + call assertions
+ */
+function rejectSetItem(name = 'QuotaExceededError') {
+  const owner = Object.prototype.hasOwnProperty.call(localStorage, 'setItem')
+    ? localStorage
+    : (Object.getPrototypeOf(localStorage) ?? Storage.prototype);
+  return vi.spyOn(owner, 'setItem').mockImplementation(() => {
+    const err = new Error('exceeded the quota');
+    err.name = name;
+    throw err;
+  });
+}
+
 describe('swrCache', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -57,16 +84,9 @@ describe('swrCache', () => {
     expect(localStorage.getItem('goldenhour_token')).toBe('keep-me');
   });
 
-  // NB: this must spy on `localStorage` itself, not `Storage.prototype`. Under this test
-  // environment localStorage is a plain object carrying its own `setItem`, so a prototype spy
-  // never intercepts and the "rejection" never happens — which is how this test previously
-  // passed without exercising the path it names. The assertions below would hold for any
-  // implementation, so the spy target is the whole test.
   it('write is a no-op (no throw) when storage rejects', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
-      throw new Error('QuotaExceeded');
-    });
+    const spy = rejectSetItem();
     try {
       expect(() => writeSwrCache('briefing:PRO_USER', { v: 1 })).not.toThrow();
       expect(spy).toHaveBeenCalled();
@@ -108,12 +128,11 @@ describe('swrCache', () => {
   it('reports whether the write landed, so a dropped cache is representable', () => {
     expect(writeSwrCache('briefing:PRO_USER', { v: 1 })).toBe(true);
 
-    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
-      const e = new Error('exceeded the quota'); e.name = 'QuotaExceededError'; throw e;
-    });
+    const spy = rejectSetItem();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       expect(writeSwrCache('briefing:LITE_USER', { v: 2 })).toBe(false);
+      expect(spy).toHaveBeenCalled();
       // Observable at all — before this, a quota failure was indistinguishable from a first visit.
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0][0]).toContain('QuotaExceededError');
@@ -127,12 +146,11 @@ describe('swrCache', () => {
   it('does not leave the previous generation behind when a refresh write fails', () => {
     writeSwrCache('briefing:PRO_USER', { generation: 'old' });
 
-    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
-      const e = new Error('exceeded the quota'); e.name = 'QuotaExceededError'; throw e;
-    });
+    const spy = rejectSetItem();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       expect(writeSwrCache('briefing:PRO_USER', { generation: 'new' })).toBe(false);
+      expect(spy).toHaveBeenCalled();
     } finally {
       spy.mockRestore();
       warn.mockRestore();
