@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.17.2] - 2026-07-28
+
 ### Fixed — #347 put canopy sites back in the sky lane, and let their verdicts vote in the sky roll-up
 - **Found by a retrospective adversarial review of #347/#348**, which were merged before the rule that batch/prompt/scoring/triage changes get one. Both defects are **real and confirmed in code**, and neither has reached production: prod is on **V130**, so V131–V134 have never run and no location is typed `WOODLAND` yet. They would have landed on the next deploy.
 - **`hasColourTypes()` is the shared gate for the SKY prompt** — `ForecastCommandExecutor`, `ForceSubmitBatchService`, `ModelTestService` and `PromptTestService` all filter on it. #347 added `|| contains(WOODLAND)` to it, which silently undid V132: those woods had been removed from the sky lane by losing `LANDSCAPE`, and this put them straight back. Every engine would have sent them to the fiery-sky prompt — the **opposite** of what #347's own commit message claimed (*"deliberately no rating and no model call"*). The arm is reverted; woods reach the briefing through `BriefingService.isColourLocation`, a deliberately separate predicate. *"Is this a briefing candidate"* and *"may this go to the sky prompt"* are different questions, and conflating them caused the leak.
