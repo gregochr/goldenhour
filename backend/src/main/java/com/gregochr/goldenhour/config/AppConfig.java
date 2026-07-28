@@ -194,8 +194,9 @@ public class AppConfig {
     /**
      * Proxy for the Open-Meteo Historical Weather (archive) API backed by {@link RestClient}.
      *
-     * <p>Serves reanalysed past weather, used to score old forecasts against what actually
-     * happened without needing a recorded human observation.
+     * <p>Serves ERA5 reanalysis — a reconstruction of past weather that assimilates observations
+     * unavailable when the original forecast was issued. Independent enough to score a forecast
+     * against, but still a model field rather than a measurement.
      *
      * @return a typed proxy implementing {@link OpenMeteoArchiveApi}
      */

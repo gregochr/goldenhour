@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Call the verification baseline what it is: reanalysis, not observation
+- **The cloud-verification docs overstated their own evidence.** They described ERA5 as "the cloud that actually occurred" and "what actually happened". ERA5 is a *model reconstruction* that assimilates observations — genuinely independent of the forecast under test, since it uses data unavailable when that forecast was issued, but a model field nonetheless. Nobody measured "37% low cloud at this point at 21:00".
+- **Why the distinction has teeth:** where ERA5 and the forecast model share a bias — low stratocumulus, marine layers, orographic cloud over the Pennines are the classic cases — the comparison *flatters* the forecast, and errors both make in the same direction are invisible. A disagreement should be read as "the forecast differs from a better-informed model", not "the forecast was wrong". It says nothing whatever about whether a sunset looked good; that still needs recorded outcomes.
+- Corrected in `CLAUDE.md`, `OpenMeteoArchiveApi`, `CloudVerificationPair` and `AppConfig`. Also brings the `CLAUDE.md` entry up to date with #312 and #333, which it still contradicted: the backfill endpoint no longer takes `?limit=` (it is async), and "every attempt writes a row, so no retry storms" is now the opposite of the truth — blank rows are cleared and retried.
+
 ### Fixed — A throttled cloud-verification backfill silently blanked its own backlog
 - **Open-Meteo signals a rate limit with `HTTP 200`** and the body `{"error": true, "reason": "Hourly API request limit exceeded."}`. Nothing about that is exceptional to the HTTP client, and it deserialised happily into a response whose `hourly` block was simply null — which reads downstream as *"the archive has no data for this point"*, not *"we were throttled"*.
 - **The consequence was the worst available.** Verification rows were written carrying no observations; because candidate selection is an anti-join, every one of those rows then counted as verified **forever** and was never revisited. A throttled run would work through its entire remaining backlog writing permanent blanks, with no exception, no warning, and a clean-looking finish reporting `lastError: null`. Observed in production against a live backfill.

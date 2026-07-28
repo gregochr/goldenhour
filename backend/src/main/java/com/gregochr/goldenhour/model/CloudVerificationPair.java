@@ -5,7 +5,8 @@ import com.gregochr.goldenhour.entity.TargetType;
 import java.time.LocalDate;
 
 /**
- * One past forecast's cloud claims paired with the analysed cloud that actually occurred.
+ * One past forecast's cloud claims paired with the analysed (reanalysis) cloud for the same
+ * point and hour.
  *
  * <p>The forecast makes two separable claims, and this pairs both:
  * <ul>
