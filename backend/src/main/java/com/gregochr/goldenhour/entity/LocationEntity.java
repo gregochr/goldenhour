@@ -258,10 +258,21 @@ public class LocationEntity {
         if (locationType == null || locationType.isEmpty()) {
             return true;
         }
+        // WOODLAND is deliberately ABSENT. This predicate is the shared gate for the SKY prompt —
+        // ForecastCommandExecutor, ForceSubmitBatchService, ModelTestService and PromptTestService
+        // all filter on it — and a location under a canopy has no sky to forecast. #347 added
+        // WOODLAND here, which silently undid V132: those woods had been removed from the sky lane
+        // by losing LANDSCAPE, and this put them straight back, so every engine would have sent
+        // them to the fiery-sky prompt on clear mornings. That is the opposite of what #347's own
+        // commit message claimed ("deliberately no rating and no model call").
+        //
+        // Woods reach the BRIEFING through a different predicate — BriefingService.isColourLocation
+        // — which admits WOODLAND year-round on purpose. Keeping the two separate is the point:
+        // "is this a candidate for the briefing" and "may this go to the sky prompt" are different
+        // questions, and conflating them is what caused the leak.
         return locationType.contains(LocationType.LANDSCAPE)
                 || locationType.contains(LocationType.SEASCAPE)
-                || locationType.contains(LocationType.WATERFALL)
-                || locationType.contains(LocationType.WOODLAND);
+                || locationType.contains(LocationType.WATERFALL);
     }
 
     /**
