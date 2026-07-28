@@ -57,14 +57,101 @@ describe('swrCache', () => {
     expect(localStorage.getItem('goldenhour_token')).toBe('keep-me');
   });
 
+  // NB: this must spy on `localStorage` itself, not `Storage.prototype`. Under this test
+  // environment localStorage is a plain object carrying its own `setItem`, so a prototype spy
+  // never intercepts and the "rejection" never happens — which is how this test previously
+  // passed without exercising the path it names. The assertions below would hold for any
+  // implementation, so the spy target is the whole test.
   it('write is a no-op (no throw) when storage rejects', () => {
-    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
       throw new Error('QuotaExceeded');
     });
     try {
       expect(() => writeSwrCache('briefing:PRO_USER', { v: 1 })).not.toThrow();
+      expect(spy).toHaveBeenCalled();
     } finally {
       spy.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  // ── Quota blindness ────────────────────────────────────────────────────────
+  // The two callers write ~1.3 MB (briefing) and a larger forecasts payload. iOS Safari caps
+  // localStorage near 5 MB and commonly accounts for it as UTF-16, so the pair can exceed the
+  // budget on the device the instant-paint feature exists for. These pin the three behaviours
+  // that make that failure survivable and visible instead of silent and sticky.
+
+  it('evicts a stale entry rather than leaving it to occupy the budget', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-07-24T08:00:00Z'));
+      writeSwrCache('briefing:PRO_USER', { v: 1 });
+      expect(localStorage.getItem('photocast_swr:briefing:PRO_USER')).not.toBeNull();
+
+      // 13h later, beyond a 12h window: the read is a miss AND the bytes are released, so the
+      // other cache is not starved by an entry this reader has already refused to use.
+      vi.setSystemTime(new Date('2026-07-24T21:00:00Z'));
+      expect(readSwrCache('briefing:PRO_USER', 12 * 60 * 60 * 1000)).toBeNull();
+      expect(localStorage.getItem('photocast_swr:briefing:PRO_USER')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('evicts a corrupt entry on read', () => {
+    localStorage.setItem('photocast_swr:briefing:PRO_USER', JSON.stringify({ no: 'ts field' }));
+    expect(readSwrCache('briefing:PRO_USER')).toBeNull();
+    expect(localStorage.getItem('photocast_swr:briefing:PRO_USER')).toBeNull();
+  });
+
+  it('reports whether the write landed, so a dropped cache is representable', () => {
+    expect(writeSwrCache('briefing:PRO_USER', { v: 1 })).toBe(true);
+
+    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      const e = new Error('exceeded the quota'); e.name = 'QuotaExceededError'; throw e;
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(writeSwrCache('briefing:LITE_USER', { v: 2 })).toBe(false);
+      // Observable at all — before this, a quota failure was indistinguishable from a first visit.
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain('QuotaExceededError');
+      expect(warn.mock.calls[0][0]).toContain('briefing:LITE_USER');
+    } finally {
+      spy.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it('does not leave the previous generation behind when a refresh write fails', () => {
+    writeSwrCache('briefing:PRO_USER', { generation: 'old' });
+
+    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      const e = new Error('exceeded the quota'); e.name = 'QuotaExceededError'; throw e;
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(writeSwrCache('briefing:PRO_USER', { generation: 'new' })).toBe(false);
+    } finally {
+      spy.mockRestore();
+      warn.mockRestore();
+    }
+
+    // The caller believes it just refreshed this key. Serving the superseded copy on the next
+    // load would be worse than a cold start, and it would keep starving the other cache.
+    expect(readSwrCache('briefing:PRO_USER')).toBeNull();
+  });
+
+  it('names a non-serialisable value as a caller bug, not a storage condition', () => {
+    const cyclic = { a: 1 };
+    cyclic.self = cyclic;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(writeSwrCache('briefing:PRO_USER', cyclic)).toBe(false);
+      expect(warn.mock.calls[0][0]).toContain('could not serialise');
+    } finally {
+      warn.mockRestore();
     }
   });
 });

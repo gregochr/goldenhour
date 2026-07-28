@@ -58,8 +58,18 @@ apiClient.interceptors.response.use(
     // First 401 triggers the refresh; concurrent 401s await the same promise.
     refreshPromise = refreshAccessToken(storedRefresh)
       .then((data) => {
-        localStorage.setItem(TOKEN_KEY, data.accessToken);
-        if (data.refreshToken) localStorage.setItem(REFRESH_KEY, data.refreshToken);
+        // Persisting the new tokens is guarded separately from the refresh call itself. A
+        // storage failure here (quota, private mode) would otherwise be caught by the .catch()
+        // below, which cannot tell it from a rejected refresh — so it would clear the tokens and
+        // fire session-expired, logging the user out at the exact moment the server had just
+        // issued them a valid token. The refresh succeeded; a failure to cache it is not an auth
+        // failure, and the in-memory retry below still carries the new token.
+        try {
+          localStorage.setItem(TOKEN_KEY, data.accessToken);
+          if (data.refreshToken) localStorage.setItem(REFRESH_KEY, data.refreshToken);
+        } catch (err) {
+          console.warn(`[auth] token refreshed but could not be persisted: ${err?.name ?? err}`);
+        }
         // Notify AuthContext so its in-memory token stays in sync with localStorage.
         // Long-lived consumers keyed on the AuthContext token (e.g. the health SSE
         // stream) otherwise stay bound to the now-expired token until a page reload.
