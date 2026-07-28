@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.17.1] - 2026-07-28
+
+### Changed — CHANGELOG's `[Unreleased]` split into the 13 releases it actually shipped in
+- **`release.sh` tags but never touched `CHANGELOG.md`**, so every entry since v2.15.4 had accumulated under one `[Unreleased]` heading — 83 entries across 13 releases. The heading was false, and v2.17.0's release notes were indistinguishable from v2.16.2's.
+- Attribution was mechanical rather than guesswork: each entry was added by exactly one commit, and each commit falls in exactly one tag range, so `git log -p -- CHANGELOG.md` plus `git rev-list <prev>..<tag>` maps entry → release. All 83 matched; none were ambiguous. Entry text is untouched — the 1,839 non-heading lines are identical before and after, verified as a set.
+
 ### Changed — `release.sh` refuses to tag with un-promoted release notes
 - **`release.sh` tags but never touches `CHANGELOG.md`, so `[Unreleased]` drifted silently.** Between v2.15.4 and v2.17.0 that meant 83 entries across 13 releases piled under one heading, and untangling them afterwards needed a git-archaeology pass over the file's own history.
 - **It now guards instead of drifting.** Two checks, run against the **target commit** rather than the working tree (the tag ships whatever `CHANGELOG.md` looks like at that commit): it refuses if `[Unreleased]` still holds entries, naming the count and the exact promotion steps; and it refuses if there is no `## [vX.Y.Z]` section for the version being tagged — which catches notes promoted under the wrong version number, the failure the first check alone would wave through.
