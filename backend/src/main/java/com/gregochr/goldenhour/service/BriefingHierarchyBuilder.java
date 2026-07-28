@@ -16,6 +16,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Builds the day → event summary → region hierarchy for the daily briefing.
@@ -44,6 +45,13 @@ public class BriefingHierarchyBuilder {
      */
     public List<BriefingDay> buildDays(List<BriefingSlot> allSlots,
             List<LocationEntity> locations, List<LocalDate> dates) {
+        // Names of canopy sites, so the region roll-up can exclude them. Built here because
+        // buildDays already has the roster and BriefingSlot carries no subject of its own.
+        Set<String> canopyNames = locations.stream()
+                .filter(LocationEntity::isWoodlandOnly)
+                .map(LocationEntity::getName)
+                .collect(java.util.stream.Collectors.toSet());
+
         // Build location-to-region map
         Map<String, String> locationToRegion = new LinkedHashMap<>();
         for (LocationEntity loc : locations) {
@@ -61,7 +69,7 @@ public class BriefingHierarchyBuilder {
                         .toList();
 
                 BriefingEventSummary summary = buildEventSummary(eventType, eventSlots,
-                        locationToRegion);
+                        locationToRegion, canopyNames);
                 eventSummaries.add(summary);
             }
             days.add(new BriefingDay(date, eventSummaries));
@@ -88,17 +96,18 @@ public class BriefingHierarchyBuilder {
      * @param eventType        the solar event type
      * @param slots            slots for this date and event type
      * @param locationToRegion map of location name to region name (null for unregioned)
+     * @param canopyNames      names of woodland-only sites, excluded from the region verdict vote
      * @return the event summary with region rollups
      */
     BriefingEventSummary buildEventSummary(TargetType eventType, List<BriefingSlot> slots,
-            Map<String, String> locationToRegion) {
+            Map<String, String> locationToRegion, Set<String> canopyNames) {
         RegionGroupingUtils.GroupResult<BriefingSlot> grouped =
                 RegionGroupingUtils.groupByRegion(slots,
                         slot -> locationToRegion.get(slot.locationName()));
 
         List<BriefingRegion> regions = new ArrayList<>();
         for (Map.Entry<String, List<BriefingSlot>> entry : grouped.grouped().entrySet()) {
-            regions.add(buildRegion(entry.getKey(), entry.getValue()));
+            regions.add(buildRegion(entry.getKey(), entry.getValue(), canopyNames));
         }
 
         return new BriefingEventSummary(eventType, regions, grouped.unregioned());
@@ -111,13 +120,29 @@ public class BriefingHierarchyBuilder {
      * @param slots      the location slots within this region
      * @return the region rollup with verdict, summary, and tide highlights
      */
-    BriefingRegion buildRegion(String regionName, List<BriefingSlot> slots) {
-        Verdict verdict = verdictEvaluator.rollUpVerdict(slots);
+    BriefingRegion buildRegion(String regionName, List<BriefingSlot> slots,
+            Set<String> canopyNames) {
+        // The region verdict answers "is this region worth a trip for the SKY at this event", so
+        // only sky slots may vote. A woodland slot's GO is computed on inverted polarity — it
+        // means heavy cloud and mist — and rollUpVerdict fires GO at 20% of viable slots, so a
+        // single overcast wood could carry a region to "Worth it" and the summary sentence would
+        // then read "Clear at N of M locations" while counting it. Two opposite meanings of GO
+        // were being averaged.
+        //
+        // Woods are not lost: they keep their own slot, verdict and flags in the drill-down. They
+        // simply do not vote on a question they are not answering. A region with nothing BUT
+        // canopy slots falls back to them rather than having no verdict at all.
+        List<BriefingSlot> skySlots = slots.stream()
+                .filter(s -> !canopyNames.contains(s.locationName()))
+                .toList();
+        List<BriefingSlot> votingSlots = skySlots.isEmpty() ? slots : skySlots;
+
+        Verdict verdict = verdictEvaluator.rollUpVerdict(votingSlots);
         List<String> tideHighlights = verdictEvaluator.buildTideHighlights(slots);
-        String summary = verdictEvaluator.buildRegionSummary(verdict, slots, tideHighlights);
+        String summary = verdictEvaluator.buildRegionSummary(verdict, votingSlots, tideHighlights);
 
         // Representative comfort: average of GO slots, falling back to all slots
-        List<BriefingSlot> repSlots = slots.stream()
+        List<BriefingSlot> repSlots = votingSlots.stream()
                 .filter(s -> s.verdict() == Verdict.GO)
                 .toList();
         if (repSlots.isEmpty()) {

@@ -54,7 +54,7 @@ class BriefingHierarchyBuilderTest {
                     slot("Durham", Verdict.GO));
 
             BriefingEventSummary summary = builder.buildEventSummary(
-                    TargetType.SUNSET, slots, locationToRegion);
+                    TargetType.SUNSET, slots, locationToRegion, Set.of());
 
             assertThat(summary.targetType()).isEqualTo(TargetType.SUNSET);
             assertThat(summary.regions()).hasSize(1);
@@ -111,7 +111,7 @@ class BriefingHierarchyBuilderTest {
                     slotWithComfort("A", Verdict.GO, 10.0, 7.0, 5.0, 0),
                     slotWithComfort("B", Verdict.GO, 12.0, 9.0, 3.0, 1),
                     slotWithComfort("C", Verdict.STANDDOWN, 20.0, 18.0, 1.0, 95));
-            BriefingRegion region = builder.buildRegion("Test", slots);
+            BriefingRegion region = builder.buildRegion("Test", slots, Set.of());
 
             assertThat(region.regionTemperatureCelsius()).isEqualTo(11.0);
             assertThat(region.regionApparentTemperatureCelsius()).isEqualTo(8.0);
@@ -124,7 +124,7 @@ class BriefingHierarchyBuilderTest {
             List<BriefingSlot> slots = List.of(
                     slotWithComfort("A", Verdict.STANDDOWN, 8.0, 5.0, 6.0, 61),
                     slotWithComfort("B", Verdict.STANDDOWN, 10.0, 7.0, 4.0, 63));
-            BriefingRegion region = builder.buildRegion("Test", slots);
+            BriefingRegion region = builder.buildRegion("Test", slots, Set.of());
 
             assertThat(region.regionTemperatureCelsius()).isEqualTo(9.0);
             assertThat(region.regionWindSpeedMs()).isEqualTo(5.0);
@@ -137,7 +137,7 @@ class BriefingHierarchyBuilderTest {
                     slotWithComfort("A", Verdict.GO, 8.0, 5.0, 5.0, 0),
                     slotWithComfort("B", Verdict.GO, 10.0, 7.0, 5.0, 3),
                     slotWithComfort("C", Verdict.GO, 12.0, 9.0, 5.0, 80));
-            BriefingRegion region = builder.buildRegion("Test", slots);
+            BriefingRegion region = builder.buildRegion("Test", slots, Set.of());
 
             // Sorted by temp: A(8), B(10), C(12) — middle index 1 → weatherCode=3
             assertThat(region.regionWeatherCode()).isEqualTo(3);
@@ -151,7 +151,7 @@ class BriefingHierarchyBuilderTest {
                             new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
                                     null, null, null, BigDecimal.ONE, 0, 0),
                             BriefingSlot.TideInfo.NONE, List.of(), null));
-            BriefingRegion region = builder.buildRegion("Test", slots);
+            BriefingRegion region = builder.buildRegion("Test", slots, Set.of());
 
             assertThat(region.regionTemperatureCelsius()).isNull();
             assertThat(region.regionApparentTemperatureCelsius()).isNull();
@@ -186,5 +186,76 @@ class BriefingHierarchyBuilderTest {
                 .enabled(true)
                 .createdAt(LocalDateTime.now())
                 .build();
+    }
+
+    @org.junit.jupiter.api.Nested
+    @DisplayName("Canopy slots must not vote in the sky region roll-up")
+    class CanopyRollUpTests {
+
+        /** A woodland GO: computed on inverted polarity — it means heavy cloud and mist. */
+        private BriefingSlot canopyGo(String name) {
+            return new BriefingSlot(name, LocalDateTime.of(2026, 10, 12, 7, 30), Verdict.GO,
+                    new BriefingSlot.WeatherConditions(95, java.math.BigDecimal.ZERO, 3000, 95,
+                            9.0, 8.0, 3, java.math.BigDecimal.ONE, 85, 20),
+                    BriefingSlot.TideInfo.NONE, List.of("Mist", "Soft even light"), null);
+        }
+
+        private BriefingSlot skyStanddown(String name) {
+            return new BriefingSlot(name, LocalDateTime.of(2026, 10, 12, 7, 30), Verdict.STANDDOWN,
+                    new BriefingSlot.WeatherConditions(95, java.math.BigDecimal.ZERO, 3000, 95,
+                            9.0, 8.0, 3, java.math.BigDecimal.ONE, 85, 20),
+                    BriefingSlot.TideInfo.NONE, List.of(), "Heavy cloud");
+        }
+
+        // rollUpVerdict fires GO at 20% of viable slots, so one overcast wood could carry a whole
+        // region to "Worth it" — and buildRegionSummary would then say "Clear at 1 of 5 locations"
+        // while counting a slot that is GO *because* it is overcast.
+        @Test
+        @DisplayName("One canopy GO does not carry a region of sky stand-downs")
+        void canopyGoDoesNotCarryTheRegion() {
+            List<BriefingSlot> slots = List.of(
+                    canopyGo("Houghall Woods"),
+                    skyStanddown("Penshaw"), skyStanddown("Marsden"),
+                    skyStanddown("Souter"), skyStanddown("Tynemouth"));
+
+            BriefingRegion contaminated = builder.buildRegion("Tyne and Wear", slots, Set.of());
+            BriefingRegion clean = builder.buildRegion(
+                    "Tyne and Wear", slots, Set.of("Houghall Woods"));
+
+            assertThat(contaminated.verdict())
+                    .as("premise: without the partition the wood drags the region up")
+                    .isEqualTo(Verdict.GO);
+            assertThat(clean.verdict())
+                    .as("with it, the region reports what the sky is actually doing")
+                    .isEqualTo(Verdict.STANDDOWN);
+            assertThat(clean.summary()).doesNotContain("Clear at");
+        }
+
+        @Test
+        @DisplayName("The wood keeps its own slot and verdict — it is excluded from the vote, not dropped")
+        void canopySlotIsRetained() {
+            List<BriefingSlot> slots = List.of(canopyGo("Houghall Woods"), skyStanddown("Penshaw"));
+
+            BriefingRegion region = builder.buildRegion(
+                    "Tyne and Wear", slots, Set.of("Houghall Woods"));
+
+            assertThat(region.slots()).hasSize(2);
+            assertThat(region.slots()).anySatisfy(s -> {
+                assertThat(s.locationName()).isEqualTo("Houghall Woods");
+                assertThat(s.verdict()).isEqualTo(Verdict.GO);
+                assertThat(s.flags()).contains("Mist");
+            });
+        }
+
+        @Test
+        @DisplayName("A region of nothing but woods falls back to them rather than having no verdict")
+        void allCanopyRegionFallsBack() {
+            List<BriefingSlot> slots = List.of(canopyGo("Houghall Woods"), canopyGo("Plessey Woods"));
+
+            BriefingRegion region = builder.buildRegion("Durham", slots,
+                    Set.of("Houghall Woods", "Plessey Woods"));
+
+            assertThat(region.verdict()).isEqualTo(Verdict.GO);
+        }
     }
 }
