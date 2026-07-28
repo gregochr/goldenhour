@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Cloud verification backfills itself hourly instead of needing a terminal session (V131)
+- **The backlog cannot be drained in one pass.** ~25,000 evaluations at four archive sample points each is roughly 5,000 requests, far beyond Open-Meteo's hourly allowance. Observed in production: an unbounded run managed 13 batches (~1,250 evaluations) before the limit bit, stopped correctly — and then waited for a human to re-trigger it. Clearing the backlog that way meant sitting at a terminal re-POSTing for a day.
+- **New `cloud_verification_backfill` scheduled job** takes a bounded slice each hour (12 batches ≈ 1,200 evaluations ≈ 240 requests) and yields. A full backlog clears in about a day unattended. Registered with the DB-backed `DynamicSchedulerService`, so it can be paused, triggered or rescheduled from Manage → Operations → Scheduler like every other job.
+- Runs at **:20 past** — clear of the top-of-hour jobs, and a little after Open-Meteo's hourly allowance resets, so a tick throttled last hour starts with its quota back.
+- **Cheap to leave enabled.** Once the backlog is clear the first batch finds no candidates and returns immediately. New evaluations become verifiable as they age past the ~6-day archive lag, so the job keeps the dataset current rather than needing a re-run after each forecast cycle.
+- The manual `POST /backfill` is unchanged and still drains as far as it can; the scheduled tick defers to it if one is already running.
+
 ### Fixed — The instant-paint cache could fail silently on the device it exists for
 - **The two SWR caches are large and the budget is shared.** The briefing measures **1.28 MB** raw (~2.6 MB as UTF-16, ~52% of iOS Safari's ~5 MB `localStorage` ceiling) and `useForecasts` writes a second, modelled-larger payload alongside it. When the pair exceeds quota, `localStorage.setItem` throws — and `writeSwrCache` swallowed it into a bare `catch`.
 - **The failure was structurally invisible.** A quota drop was indistinguishable from a first visit, a cold cache and a private-mode session. There is no telemetry anywhere in `frontend/src` (grep for sentry/posthog/analytics/reportError/navigator.storage returns nothing), so nobody could tell whether it was *already happening in production* — on mobile, in the field, which is exactly where instant paint earns its keep.
