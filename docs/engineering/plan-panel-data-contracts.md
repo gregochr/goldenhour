@@ -151,7 +151,8 @@ In priority order.
    block. The FK already exists (V47).
 3. **Make `RADIUS_MILES` server-side configurable**, which is the precondition for ever making it
    a user setting without a client release.
-4. *(Separate concern, larger win — see Section 7.)* Trim the briefing payload.
+4. *(Separate concern. Measured since this was written and demoted — see Section 7.)* Trim the
+   briefing payload.
 
 ## Section 6 — the strongest argument against this decision
 
@@ -169,15 +170,46 @@ pressure has been felt once already. The counter is that the removal went the *o
 codebase chose to keep the shared snapshot shared — and that reversing it is a much larger
 decision than this document is scoped to make.
 
-## Section 7 — the adjacent finding, possibly worth more than the question
+## Section 7 — the adjacent finding: MEASURED, and it was not what this document predicted
 
-The briefing payload is dominated by the slot tree: **4 dates × 2 event types × N regions × M
-slots**. The 4 dates are verified (`BriefingService.java:387`); region and slot counts vary with
-the production roster, so the total size is an **estimate, not a measurement** — a research agent
-modelled it at roughly 770 KB uncompressed, which has not been independently confirmed and should
-be measured against production before anyone acts on it.
+> **Corrected 2026-07-28.** This section originally called a payload trim *"likely a bigger and
+> cheaper win than restructuring contracts"* on the strength of a research agent's ~770 KB
+> estimate, while flagging that estimate as unverified. It has now been measured against
+> production, and **the prediction was wrong**: the payload is roughly twice that raw, and almost
+> irrelevant on the wire. The original wording is left described rather than deleted, because the
+> useful lesson is that the number the document told you to measure is exactly the number that
+> overturned its recommendation.
 
-What *is* verified is the shape of the waste:
+**Production ground truth** (`daily_briefing_cache`, 2026-07-28): **1,338,649 bytes raw**, from
+**242 enabled locations across 7 regions** — 242 × 4 dates × 2 event types = **1,936 slots**, at
+~691 bytes each. The 4 dates are `BriefingService.java:387`.
+
+**Why the trim is not the win it looked like.** Gzip is on in production for `application/json`
+(`application-prod.yml:162-165`), and this payload is highly repetitive:
+
+| | Measured |
+|---|---|
+| Raw | 1.28 MB |
+| **Gzipped — the actual wire cost** | **~133 KB** (~10×) |
+| `JSON.parse` (desktop Chrome) | 5.2 ms |
+| Re-`stringify` for the SWR cache | 4.4 ms |
+| `localStorage.setItem` | 10.3 ms |
+| **Total main-thread per fetch** | **19.9 ms** |
+
+Two things fall out that the estimate hid. First, **the wire cost was never the problem** — 133 KB
+is under two main JS bundles, on a payload fetched once per mount and then ETag-revalidated to a
+304. Second, **only a quarter of the client cost is the payload at all**; the remaining ~15 ms is
+the SWR cache re-serialising and synchronously writing the object that was just parsed
+(`swrCache.js:41-46`, called at `DailyBriefing.jsx:1046`). *That* is the cheap win, and it is not
+a payload-shape problem.
+
+The genuinely material size finding is a **quota** one, not a bandwidth one: at ~2.6 MB of UTF-16
+the briefing alone takes ~52% of iOS Safari's ~5 MB `localStorage` budget, before `useForecasts`
+writes its own (larger, modelled ~2.0 MB) payload. If the pair exceeds quota, `writeSwrCache`
+swallows the error silently and instant paint is dead on the field device, invisibly. That is
+tracked separately from this document.
+
+What *is* verified about the shape of the waste, and still stands:
 
 - The **only** panel that needs the whole slot tree is the full briefing grid — and it is
   **collapsed by default** and does not render on a fresh session
@@ -188,10 +220,29 @@ What *is* verified is the shape of the waste:
   panel wanting a clock time must walk into the slot tree to find one
   (`briefingDisplay.js:159`).
 
-So the Plan tab ships a large slot tree on every cold load, mostly to satisfy a panel that is
-usually not rendered. **Measure it first**, then consider a summary-shaped payload with the slot
-tree fetched on grid expansion. That is likely a bigger and cheaper win than restructuring
-contracts.
+So the Plan tab does ship a large slot tree on every cold load, mostly to satisfy a panel that is
+usually not rendered — and a summary-shaped payload with the slot tree fetched on grid expansion
+is still the right *shape*. But it is now a **low-priority** change, not the headline win: it
+would save ~133 KB of gzipped transfer and ~5 ms of parse, against a real risk of the summary and
+the grid disagreeing (Section 3). Do it for tidiness, not for speed.
+
+**Where the server cost actually is**, established while measuring the above: every
+`GET /api/briefing` runs `applyBestBetFallback(BriefingHonestyFilter.apply(reEnrichVerdicts(...)))`
+(`BriefingService.java:271-275`) — a DB query, a full walk *and reallocation* of all 1,936 slots
+(the records are immutable, so `enrichWithCachedScores` rebuilds the tree), a second walk for the
+honesty filter, ~1.3 MB of serialization, and only then does `ShallowEtagHeaderFilter` buffer and
+hash it. A shallow ETag saves bandwidth, never server work: **on a 304 all of it has happened and
+is discarded.** `HotTopicAggregator` additionally runs 13 strategies' `detect()` per request with
+no cache (`HotTopicAggregator.java:57-71`).
+
+That is the real cost centre — but **instrument the five phases before caching any of it**. No
+measurement has isolated which of the query, the two walks, the topic fan-out or the serialization
+dominates, and the caching design has sharp edges (request-time London date feeds the confidence
+horizon; two of four `cache.set` sites publish no invalidation event; a region *rename* blanks the
+grid through name-keyed lookups). In particular **do not** cache serialized bytes and hand-roll
+the ETag: dropping `/api/briefing` from `REVALIDATABLE_READ_PATHS` to avoid double-hashing
+silently reverts the response to `no-store` (`HttpCachingConfig.java:148-152`), killing the 304
+outright — a bandwidth regression that every existing test would pass.
 
 ## Section 8 — what was NOT researched
 
