@@ -24,16 +24,18 @@ describe('ViewToggle', () => {
     expect(screen.getByRole('button', { name: 'Manage' })).toBeInTheDocument();
   });
 
-  it('highlights the active view with gold underline', () => {
+  it('raises the active segment and leaves the others flat', () => {
     const onChange = vi.fn();
     render(<ViewToggle value="map" onChange={onChange} isAdmin={true} />);
 
     const mapButton = screen.getByRole('button', { name: 'Map' });
     const planButton = screen.getByRole('button', { name: 'Plan' });
 
-    expect(mapButton).toHaveClass('text-plex-gold');
-    expect(mapButton).toHaveClass('border-plex-gold');
-    expect(planButton).not.toHaveClass('text-plex-gold');
+    expect(mapButton).toHaveClass('bg-plex-surface-light');
+    expect(mapButton).toHaveClass('text-plex-text');
+    expect(mapButton).toHaveAttribute('aria-current', 'page');
+    expect(planButton).not.toHaveClass('bg-plex-surface-light');
+    expect(planButton).not.toHaveAttribute('aria-current');
   });
 
   it('calls onChange with new view value when button is clicked', () => {
@@ -44,14 +46,24 @@ describe('ViewToggle', () => {
     expect(onChange).toHaveBeenCalledWith('manage');
   });
 
-  it('active button has gold text, inactive has secondary text', () => {
+  it('mutes inactive segments', () => {
     const onChange = vi.fn();
     render(<ViewToggle value="manage" onChange={onChange} isAdmin={true} />);
 
     const planButton = screen.getByRole('button', { name: 'Plan' });
     const manageButton = screen.getByRole('button', { name: 'Manage' });
 
-    expect(manageButton).toHaveClass('text-plex-gold');
-    expect(planButton).toHaveClass('text-plex-text-secondary');
+    expect(manageButton).toHaveClass('text-plex-text');
+    expect(planButton).toHaveClass('text-plex-text-muted');
+  });
+
+  // The leading glyphs are decoration; if they leaked into the accessible name, every
+  // getByRole('button', { name: 'Plan' }) query in the suite (and every screen reader) would
+  // read "◉ Plan" instead.
+  it('keeps the decorative glyph out of the accessible name', () => {
+    render(<ViewToggle value="plan" onChange={vi.fn()} isAdmin={true} />);
+
+    expect(screen.getByRole('button', { name: 'Plan' })).toHaveTextContent('◉');
+    expect(screen.queryByRole('button', { name: '◉ Plan' })).not.toBeInTheDocument();
   });
 });
