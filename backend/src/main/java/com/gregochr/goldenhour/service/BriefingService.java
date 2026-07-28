@@ -51,6 +51,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.HashSet;
 
 
 /**
@@ -648,6 +649,20 @@ public class BriefingService {
         // Request-time "today" so the confidence horizon stays fresh when a briefing built
         // yesterday is served today (this method runs on both the build and the serve paths).
         LocalDate today = LocalDate.now(clock.withZone(LONDON));
+        // Canopy rosters, resolved ONCE per call rather than per slot. This runs on every serve
+        // of the briefing over ~1,900 slots, so a lookup inside the loop would be ~1,900 queries
+        // per request. Keyed by name because BriefingSlot carries no location id — the same key
+        // the briefing's own roll-up joins on.
+        Set<String> canopyOnlyNames = new HashSet<>();
+        Set<String> canopyBluebellNames = new HashSet<>();
+        for (LocationEntity loc : locationService.findAllEnabled()) {
+            if (loc.isWoodlandOnly()) {
+                canopyOnlyNames.add(loc.getName());
+                if (loc.getLocationType().contains(LocationType.BLUEBELL)) {
+                    canopyBluebellNames.add(loc.getName());
+                }
+            }
+        }
         List<BriefingDay> enrichedDays = new ArrayList<>(days.size());
         for (BriefingDay day : days) {
             List<BriefingEventSummary> enrichedEvents = new ArrayList<>();
@@ -689,8 +704,22 @@ public class BriefingService {
                     // Derive the quiet confidence channel from horizon + rating spread/coverage.
                     // Zero-coverage regions yield null (unknown), which reads as provisional.
                     int daysAhead = (int) (day.date().toEpochDay() - today.toEpochDay());
+                    // Coverage denominator counts only slots that COULD carry a rating. A
+                    // canopy site has no sky evaluation by construction (the collector submits
+                    // no sky task for it), so leaving it in rosterSize would make every
+                    // wood-heavy region look permanently under-covered — ConfidenceDeriver's
+                    // thin-coverage rule would downgrade the whole region a band every day,
+                    // including the landscape sites in it that have nothing to do with woods.
+                    // A structurally unscoreable slot is not missing coverage.
+                    boolean bloomOn = bluebellSeason.isActive(day.date());
+                    long scoreableRoster = enrichedSlots.stream()
+                            .filter(slot -> !canopyOnlyNames.contains(slot.locationName())
+                                    // In season a canopy bluebell site IS scored, by the
+                                    // bluebell prompt, so it counts toward coverage.
+                                    || (bloomOn && canopyBluebellNames.contains(slot.locationName())))
+                            .count();
                     Confidence confidence = ConfidenceDeriver.derive(
-                            daysAhead, stats, enrichedSlots.size());
+                            daysAhead, stats, (int) scoreableRoster);
                     enrichedRegions.add(new BriefingRegion(
                             region.regionName(), region.verdict(), region.summary(),
                             region.tideHighlights(), enrichedSlots,

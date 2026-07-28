@@ -13,6 +13,7 @@ const CATEGORY_DISPLAY = [
   { key: 'EVALUATED',                  label: 'Evaluated',          tone: 'text-green-400' },
   { key: 'SKIPPED_HARD_CONSTRAINT',    label: 'Hard constraint',    tone: 'text-orange-400' },
   { key: 'SKIPPED_TRIAGED',            label: 'Triaged',            tone: 'text-yellow-400' },
+  { key: 'SKIPPED_NO_PROMPT',          label: 'No prompt',          tone: 'text-orange-400' },
   { key: 'SKIPPED_CACHED',             label: 'Cached',             tone: 'text-blue-400' },
   { key: 'SKIPPED_PAST_DATE',          label: 'Past date',          tone: 'text-plex-text-muted' },
   { key: 'SKIPPED_STABILITY',          label: 'Stability gate',     tone: 'text-purple-400' },

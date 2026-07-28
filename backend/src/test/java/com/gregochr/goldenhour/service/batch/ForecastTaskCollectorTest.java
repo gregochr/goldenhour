@@ -217,6 +217,12 @@ class ForecastTaskCollectorTest {
         assertThat(result.farCoastal()).isEmpty();
         assertThat(result.bluebell()).as("and no bluebell task out of season").isEmpty();
         assertThat(result.totalSize()).isZero();
+
+        // The category must not be SKIPPED_TRIAGED: these candidates PASSED triage, and
+        // conflating them would report slots as triaged that were never triaged at all.
+        assertThat(result.dispositions())
+                .extracting(CandidateDisposition::category)
+                .containsExactly(DispositionCategory.SKIPPED_NO_PROMPT);
     }
 
     @Test

@@ -336,6 +336,7 @@ public class ForecastTaskCollector {
         List<EvaluationTask.Forecast> bluebell = new ArrayList<>();
 
         int skippedTriage = 0;
+        int skippedWoodland = 0;
         int skippedStability = 0;
         int skippedError = 0;
         int includedNear = 0;
@@ -389,9 +390,10 @@ public class ForecastTaskCollector {
                             candidate.targetType());
                     dispositions.add(new CandidateDisposition(
                             candidate.location().getId(), candidate.location().getName(),
-                            candidate.date(), candidate.targetType(), preEval.daysAhead(),
-                            DispositionCategory.SKIPPED_TRIAGED,
+                            candidate.date(), candidate.targetType(), candidateDaysAhead,
+                            DispositionCategory.SKIPPED_NO_PROMPT,
                             "Canopy site — no sky evaluation; awaiting the woodland prompt"));
+                    skippedWoodland++;
                     continue;
                 }
 
@@ -537,11 +539,14 @@ public class ForecastTaskCollector {
         }
 
         int totalIncluded = includedNear + includedFar + includedBluebell;
+        // Every skip is named, so included + skipped reconciles against the candidate count. A
+        // category missing from this line makes the cycle summary silently stop adding up.
         LOG.warn("[BATCH DIAG] Triage complete — {} included (near={}, far={}, bluebell={}, "
-                        + "forced={}), {} skipped (triage={}, stability={}, error={})",
+                        + "forced={}), {} skipped (triage={}, stability={}, error={}, "
+                        + "canopy-no-prompt={})",
                 totalIncluded, includedNear, includedFar, includedBluebell, includedForced,
-                skippedTriage + skippedStability + skippedError,
-                skippedTriage, skippedStability, skippedError);
+                skippedTriage + skippedStability + skippedError + skippedWoodland,
+                skippedTriage, skippedStability, skippedError, skippedWoodland);
         LOG.info("[BATCH ELIG] {}", agg.formatSummary());
 
         if (totalIncluded == 0) {
