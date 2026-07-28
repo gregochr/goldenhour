@@ -122,7 +122,7 @@ class InversionScoreCalculatorTest {
                 new com.gregochr.goldenhour.model.WeatherData(
                         25000, new BigDecimal("3.50"), 225,
                         BigDecimal.ZERO, 62, 3,
-                        new BigDecimal("180.00"), null, 1013.25, null, null, null, null, null),
+                        new BigDecimal("180.00"), null, 1013.25, null, null, null, null, null, null),
                 null, null, null, null, null, null, null, null, null, null, null, null,
                 null, null, null);
         assertThat(score(data)).isNull();

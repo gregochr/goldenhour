@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.BluebellConditionScore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -374,6 +375,110 @@ class BluebellConditionServiceTest {
                 .build();
 
         assertThat(service.score(data, BluebellExposure.OPEN_FELL).goldenHourLight()).isTrue();
+    }
+
+    // ── Two precipitation readings, not one ─────────────────────────────────
+
+    @Nested
+    @DisplayName("postRain reads the preceding hours, dryNow the event hour")
+    class PrecipitationWindow {
+
+        /** Mist + calm + soft light held true, so only the precipitation terms vary. */
+        private TestAtmosphericData woodlandBase() {
+            return TestAtmosphericData.builder()
+                    .visibility(1500)
+                    .windSpeed(new BigDecimal("1.50"))
+                    .lowCloud(70).midCloud(80).highCloud(60);
+        }
+
+        @Test
+        @DisplayName("rained earlier and dry now — both flags true, the combination that was "
+                + "unreachable")
+        void rainedEarlierAndDryNow_bothFlagsTrue() {
+            // 2mm over the preceding 6h freshens the flowers; 0mm at the event makes it shootable.
+            // Both flags used to read the same slot through >= 0.5 and < 0.2, so this was
+            // arithmetically impossible however the weather actually behaved.
+            AtmosphericData data = woodlandBase()
+                    .precedingPrecipitationMm(2.0)
+                    .precipitation(BigDecimal.ZERO)
+                    .build();
+
+            BluebellConditionScore score = service.score(data, BluebellExposure.WOODLAND);
+
+            assertThat(score.postRain()).isTrue();
+            assertThat(score.dryNow()).isTrue();
+        }
+
+        @Test
+        @DisplayName("that combination reaches 10/10 — the top of the scale is now attainable")
+        void rainedEarlierAndDryNow_reachesTen() {
+            AtmosphericData data = woodlandBase()
+                    .precedingPrecipitationMm(2.0)
+                    .precipitation(BigDecimal.ZERO)
+                    .build();
+
+            // misty 3 + calm 2 + softLight 2.5 + postRain 1.5 + dryNow 1.0 = 10.0
+            assertThat(service.score(data, BluebellExposure.WOODLAND).overall()).isEqualTo(10);
+        }
+
+        @Test
+        @DisplayName("still raining at the event — post-rain credit kept, dryNow withheld")
+        void rainedEarlierAndStillRaining_dryNowFalse() {
+            AtmosphericData data = woodlandBase()
+                    .precedingPrecipitationMm(2.0)
+                    .precipitation(new BigDecimal("1.20"))
+                    .build();
+
+            BluebellConditionScore score = service.score(data, BluebellExposure.WOODLAND);
+
+            assertThat(score.postRain()).isTrue();
+            assertThat(score.dryNow()).isFalse();
+        }
+
+        @Test
+        @DisplayName("dry spell — no post-rain credit, but dryNow still applies")
+        void noRecentRain_postRainFalseDryNowTrue() {
+            AtmosphericData data = woodlandBase()
+                    .precedingPrecipitationMm(0.0)
+                    .precipitation(BigDecimal.ZERO)
+                    .build();
+
+            BluebellConditionScore score = service.score(data, BluebellExposure.WOODLAND);
+
+            assertThat(score.postRain()).isFalse();
+            assertThat(score.dryNow()).isTrue();
+        }
+
+        @Test
+        @DisplayName("the 0.2-0.5mm dip is gone — light drizzle no longer scores below steady rain")
+        void drizzle_noLongerScoresBelowSteadyRain() {
+            // Held at the same 2mm preceding total, the score must fall (or hold) as event-time
+            // precipitation rises. It used to dip: 0.0mm scored 9, 0.3mm scored 8, 2.0mm scored 9.
+            int dry = service.score(woodlandBase().precedingPrecipitationMm(2.0)
+                    .precipitation(BigDecimal.ZERO).build(), BluebellExposure.WOODLAND).overall();
+            int drizzle = service.score(woodlandBase().precedingPrecipitationMm(2.0)
+                    .precipitation(new BigDecimal("0.30")).build(),
+                    BluebellExposure.WOODLAND).overall();
+            int steady = service.score(woodlandBase().precedingPrecipitationMm(2.0)
+                    .precipitation(new BigDecimal("2.00")).build(),
+                    BluebellExposure.WOODLAND).overall();
+
+            assertThat(drizzle).isLessThanOrEqualTo(dry);
+            assertThat(steady).isLessThanOrEqualTo(drizzle);
+        }
+
+        @Test
+        @DisplayName("no preceding window falls back to the event slot rather than losing the flag")
+        void nullPrecedingWindow_fallsBackToEventSlot() {
+            // Open-Meteo omitted precipitation: degrade to the old single-reading behaviour
+            // instead of silently withholding post-rain credit from every location.
+            AtmosphericData data = woodlandBase()
+                    .precedingPrecipitationMm(null)
+                    .precipitation(new BigDecimal("1.00"))
+                    .build();
+
+            assertThat(service.score(data, BluebellExposure.WOODLAND).postRain()).isTrue();
+        }
     }
 
     @Test

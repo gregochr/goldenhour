@@ -52,6 +52,8 @@ public final class TestAtmosphericData {
     /** Null by default — most tests have no vertical profile, matching an Open-Meteo omission. */
     private Double temperature925hPa = null;
     private Double temperature850hPa = null;
+    /** Null by default — the preceding-hours window is absent unless a test sets it. */
+    private Double precedingPrecipitationMm = null;
     private DirectionalCloudData directionalCloud = null;
     private TideSnapshot tide = null;
     private CloudApproachData cloudApproach = null;
@@ -207,6 +209,11 @@ public final class TestAtmosphericData {
         return this;
     }
 
+    public TestAtmosphericData precedingPrecipitationMm(Double val) {
+        this.precedingPrecipitationMm = val;
+        return this;
+    }
+
     public TestAtmosphericData directionalCloud(DirectionalCloudData val) {
         this.directionalCloud = val;
         return this;
@@ -283,7 +290,8 @@ public final class TestAtmosphericData {
                 new CloudData(lowCloud, midCloud, highCloud),
                 new WeatherData(visibility, windSpeed, windDirection,
                         precipitation, humidity, weatherCode, shortwaveRadiation, dewPoint, pressure,
-                        null, null, null, temperature925hPa, temperature850hPa),
+                        null, null, null, temperature925hPa, temperature850hPa,
+                        precedingPrecipitationMm),
                 new AerosolData(pm25, dust, aod, boundaryLayerHeight),
                 new ComfortData(temperature, apparentTemperature, precipProbability),
                 directionalCloud, tide, cloudApproach, mistTrend,

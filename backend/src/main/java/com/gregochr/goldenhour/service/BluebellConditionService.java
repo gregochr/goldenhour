@@ -15,6 +15,15 @@ import java.util.List;
  * external API calls. Scoring weights differ by {@link BluebellExposure}: WOODLAND
  * prefers soft overcast light and mist; OPEN_FELL prefers calm wind and golden
  * hour directional light.
+ *
+ * <p><b>Two precipitation readings, not one.</b> {@code postRain} (rain freshened the flowers)
+ * comes from the hours <em>before</em> the event; {@code dryNow} (comfortable to shoot) from the
+ * event hour. Both once read the same instantaneous value through mutually unsatisfiable
+ * thresholds — {@code >= 0.5} and {@code < 0.2} — so they could never both be true. Three
+ * consequences, all now gone: the nominal 10/10 was unreachable (real ceiling 9), the summary's
+ * "post-rain freshness" clause was dead code in production, and the score dipped
+ * non-monotonically across the 0.2–0.5 mm gap where neither flag fired, making light drizzle
+ * score worse than steady rain.
  */
 @Service
 public class BluebellConditionService {
@@ -34,7 +43,10 @@ public class BluebellConditionService {
     /** Average cloud cover threshold below which "golden hour light" is flagged. */
     static final double GOLDEN_HOUR_CLOUD_THRESHOLD = 40.0;
 
-    /** Precipitation proxy threshold for "post-rain freshness", in mm. */
+    /**
+     * Precipitation threshold for "post-rain freshness", in mm, read over the hours
+     * <em>preceding</em> the event — see {@code postRain} in {@link #score}.
+     */
     static final double POST_RAIN_THRESHOLD_MM = 0.5;
 
     /** Precipitation threshold below which conditions are "dry now", in mm. */
@@ -73,7 +85,12 @@ public class BluebellConditionService {
         boolean calm = windKmh < WIND_CALM_THRESHOLD_KMH;
         boolean softLight = avgCloud > SOFT_LIGHT_CLOUD_THRESHOLD;
         boolean goldenHourLight = avgCloud < GOLDEN_HOUR_CLOUD_THRESHOLD;
-        boolean postRain = precipMm >= POST_RAIN_THRESHOLD_MM;
+        // postRain reads the hours BEFORE the event; dryNow reads the event hour itself. Both used
+        // to read this one instantaneous value, with thresholds (>= 0.5 and < 0.2) that cannot be
+        // satisfied together — so "it rained earlier and it is dry now", the combination the
+        // scoring most wants to reward, was unreachable and 10/10 could never be scored.
+        Double precedingMm = data.weather().precedingPrecipitationMm();
+        boolean postRain = (precedingMm != null ? precedingMm : precipMm) >= POST_RAIN_THRESHOLD_MM;
         boolean dryNow = precipMm < DRY_NOW_THRESHOLD_MM;
 
         int overall = calculateScore(misty, calm, softLight, goldenHourLight,

@@ -24,6 +24,11 @@ import java.math.BigDecimal;
  *                                  resemble one
  * @param temperature850hPaCelsius  temperature at the 850 hPa pressure level (≈ 1500 m) in °C, or
  *                                  null — a deeper, more conservative fallback for the same check
+ * @param precedingPrecipitationMm   total precipitation over the hours before the event slot, or
+ *                                  null when the hourly array is unavailable. Distinct from
+ *                                  {@code precipitationMm}, which is the event hour alone: rained
+ *                                  earlier and dry now are different times, and one instantaneous
+ *                                  reading cannot express both
  */
 public record WeatherData(
         int visibilityMetres,
@@ -39,5 +44,6 @@ public record WeatherData(
         Double snowDepthMetres,
         Double freezingLevelMetres,
         Double temperature925hPaCelsius,
-        Double temperature850hPaCelsius) {
+        Double temperature850hPaCelsius,
+        Double precedingPrecipitationMm) {
 }
