@@ -17,6 +17,7 @@ export const LOCATION_TYPE_ICONS = {
   LANDSCAPE: '🏔️',
   WILDLIFE: '🐾',
   SEASCAPE: '🌊',
+  WOODLAND: '🌳',
   WATERFALL: '💧',
 };
 

@@ -358,6 +358,7 @@ const LOCATION_TYPE_LABELS = {
   LANDSCAPE:  { label: 'Landscape', emoji: '🏔️' },
   WILDLIFE:   { label: 'Wildlife',  emoji: '🐾' },
   SEASCAPE:   { label: 'Seascape',  emoji: '🌊' },
+  WOODLAND:   { label: 'Woodland',  emoji: '🌳' },
   WATERFALL:  { label: 'Waterfall', emoji: '💦' },
 };
 

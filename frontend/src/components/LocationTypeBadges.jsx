@@ -11,6 +11,7 @@ const LOCATION_TYPE_META = {
   LANDSCAPE:  { emoji: '🏔️', label: 'Landscape' },
   WILDLIFE:   { emoji: '🐾', label: 'Wildlife' },
   SEASCAPE:   { emoji: '🌊', label: 'Seascape' },
+  WOODLAND:   { emoji: '🌳', label: 'Woodland' },
   WATERFALL:  { emoji: '💦', label: 'Waterfall' },
 };
 
