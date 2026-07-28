@@ -128,13 +128,17 @@ public class LocationService {
                 && !request.solarEventTypes().isEmpty()
                 ? new HashSet<>(request.solarEventTypes())
                 : new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET));
-        LocationType locationType = request.locationType() != null
-                ? request.locationType() : LocationType.LANDSCAPE;
+        Set<LocationType> locationTypes = request.locationTypes() != null
+                && !request.locationTypes().isEmpty()
+                ? new HashSet<>(request.locationTypes())
+                : new HashSet<>(Set.of(LocationType.LANDSCAPE));
         Set<TideType> tideTypes = request.tideTypes() != null
                 ? new HashSet<>(request.tideTypes()) : new HashSet<>();
 
-        // Force empty set when not SEASCAPE
-        if (locationType != LocationType.SEASCAPE) {
+        // Force empty set when not SEASCAPE. Tested with contains() rather than equality:
+        // a site can be coastal AND something else (a wooded clifftop is [SEASCAPE, WOODLAND]),
+        // and an equality test would strip the tides off every such location.
+        if (!locationTypes.contains(LocationType.SEASCAPE)) {
             tideTypes = new HashSet<>();
         }
 
@@ -145,7 +149,7 @@ public class LocationService {
                 .lat(request.lat())
                 .lon(request.lon())
                 .solarEventType(solarEventTypes)
-                .locationType(new HashSet<>(Set.of(locationType)))
+                .locationType(locationTypes)
                 .tideType(tideTypes)
                 .region(region)
                 .bortleClass(request.bortleClass())
@@ -165,7 +169,7 @@ public class LocationService {
 
         LOG.info("Added location '{}' ({}, {}) — type={}, solar={}, tide={}",
                 saved.getName(), saved.getLat(), saved.getLon(),
-                locationType, solarEventTypes, tideTypes);
+                locationTypes, solarEventTypes, tideTypes);
         return saved;
     }
 
@@ -215,8 +219,15 @@ public class LocationService {
             location.setSolarEventType(new HashSet<>(request.solarEventTypes()));
         }
 
-        if (request.locationType() != null) {
-            location.setLocationType(new HashSet<>(Set.of(request.locationType())));
+        if (request.locationTypes() != null) {
+            if (request.locationTypes().isEmpty()) {
+                // Reject rather than ignore. Silently keeping the old types would hide a UI that
+                // had let every chip be deselected, and silently writing an empty set would drop
+                // the location out of every evaluation lane at once — invisible until nothing
+                // was ever forecast for it again.
+                throw new IllegalArgumentException("A location must have at least one type");
+            }
+            location.setLocationType(new HashSet<>(request.locationTypes()));
         }
 
         if (request.tideTypes() != null) {
@@ -226,6 +237,19 @@ public class LocationService {
             } else {
                 location.setTideType(new HashSet<>(request.tideTypes()));
             }
+        }
+
+        // A type change ALONE must still enforce "no tides unless SEASCAPE". The block above only
+        // runs when the caller supplied tideTypes, so a partial update that drops SEASCAPE without
+        // mentioning tides used to leave them behind — and isCoastal() is defined as a non-empty
+        // tide set, so the now-inland location stayed coastal forever: billed WorldTides fetches,
+        // and BriefingSlotBuilder overriding its verdict to STANDDOWN on a tide alignment it can
+        // never satisfy. Scoped to requests that actually changed the types, because running it
+        // unconditionally would blank any legacy non-SEASCAPE row carrying tide preferences on an
+        // edit that never touched types.
+        if (request.locationTypes() != null
+                && !location.getLocationType().contains(LocationType.SEASCAPE)) {
+            location.setTideType(new HashSet<>());
         }
 
         if (request.regionId() != null) {

@@ -21,6 +21,7 @@ const SOLAR_EVENT_TYPES = [
 const LOCATION_TYPES = [
   { value: 'LANDSCAPE', label: 'Landscape', emoji: '🏔️' },
   { value: 'SEASCAPE', label: 'Seascape', emoji: '🌊' },
+  { value: 'WOODLAND', label: 'Woodland', emoji: '🌳' },
   { value: 'WILDLIFE', label: 'Wildlife', emoji: '🐾' },
   { value: 'WATERFALL', label: 'Waterfall', emoji: '💦' },
 ];
@@ -121,25 +122,39 @@ TideToggleChips.propTypes = {
 };
 
 /**
- * Emoji chip group for location type (single-select).
+ * Emoji chip group for location types (multi-select).
+ *
+ * A location can legitimately be more than one thing — a wooded clifftop is both SEASCAPE and
+ * WOODLAND, and the two route to different evaluation lanes. This was single-select while the
+ * entity stored a set, so opening any location for edit collapsed its types to one.
  *
  * @param {object} props
- * @param {string} props.selected - Active type value, e.g. 'SEASCAPE'.
- * @param {function} [props.onChange] - Called with new value on click (omit for read-only).
+ * @param {Array<string>} props.selected - Currently selected type values, e.g. ['SEASCAPE'].
+ * @param {function} [props.onChange] - Called with the new array (omit for read-only).
  * @param {boolean} [props.readOnly=false] - Disable interaction.
  */
 function LocationTypeChips({ selected, onChange, readOnly = false }) {
+  function toggle(value) {
+    if (readOnly || !onChange) return;
+    const isSelected = selected.includes(value);
+    // A location with no type routes to no evaluation lane at all, so the last chip is sticky —
+    // the same rule TideToggleChips uses, and the backend rejects an empty set regardless.
+    if (isSelected && selected.length <= 1) return;
+    onChange(isSelected ? selected.filter((v) => v !== value) : [...selected, value]);
+  }
+
   return (
     <div className="inline-flex gap-0.5 whitespace-nowrap" data-testid="location-type-chips">
       {LOCATION_TYPES.map((lt) => {
-        const isOn = lt.value === selected;
+        const isOn = selected.includes(lt.value);
         return (
           <button
             key={lt.value}
             type="button"
             title={lt.label}
+            aria-pressed={isOn}
             disabled={readOnly}
-            onClick={() => { if (!readOnly && onChange) onChange(lt.value); }}
+            onClick={() => toggle(lt.value)}
             className={`text-sm leading-none px-0.5 py-0.5 rounded transition-colors ${
               isOn
                 ? 'opacity-100 cursor-default'
@@ -158,7 +173,7 @@ function LocationTypeChips({ selected, onChange, readOnly = false }) {
 }
 
 LocationTypeChips.propTypes = {
-  selected: PropTypes.string.isRequired,
+  selected: PropTypes.arrayOf(PropTypes.string).isRequired,
   onChange: PropTypes.func,
   readOnly: PropTypes.bool,
 };
@@ -231,15 +246,18 @@ function formatSolarEventType(types) {
 }
 
 /**
- * Extracts the first enum value from a set/array.
+ * Normalises a location's type set for editing, falling back to LANDSCAPE.
  *
- * @param {Array<string>} set - The set of enum values.
- * @param {string} fallback - Fallback value.
- * @returns {string} The first value or the fallback.
+ * <p>Deliberately keeps every value. The predecessor of this helper returned {@code set[0]},
+ * which silently discarded the rest — and because the set arrives from a Java HashSet, which
+ * element survived was not even stable between requests.
+ *
+ * @param {Array<string>} types - The stored type values.
+ * @returns {Array<string>} A copy of the types, or ['LANDSCAPE'] when absent.
  */
-function firstOrDefault(set, fallback) {
-  if (!set || set.length === 0) return fallback;
-  return set[0];
+function typesOrDefault(types) {
+  if (!Array.isArray(types) || types.length === 0) return ['LANDSCAPE'];
+  return [...types];
 }
 
 /**
@@ -268,7 +286,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
   const [manualLat, setManualLat] = useState('');
   const [manualLon, setManualLon] = useState('');
   const [addSolarEventTypes, setAddSolarEventTypes] = useState(['SUNRISE', 'SUNSET']);
-  const [addLocationType, setAddLocationType] = useState('LANDSCAPE');
+  const [addLocationTypes, setAddLocationTypes] = useState(['LANDSCAPE']);
   const [addTideTypes, setAddTideTypes] = useState([]);
   const [addRegionId, setAddRegionId] = useState('');
   const [enrichmentData, setEnrichmentData] = useState(null);
@@ -346,7 +364,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
     setManualLat('');
     setManualLon('');
     setAddSolarEventTypes(['SUNRISE', 'SUNSET']);
-    setAddLocationType('LANDSCAPE');
+    setAddLocationTypes(['LANDSCAPE']);
     setAddTideTypes([]);
     setAddRegionId('');
     setEnrichmentData(null);
@@ -363,7 +381,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
       lat: String(loc.lat),
       lon: String(loc.lon),
       solarEventTypes: Array.isArray(loc.solarEventType) ? [...loc.solarEventType] : ['SUNRISE', 'SUNSET'],
-      locationType: firstOrDefault(loc.locationType, 'LANDSCAPE'),
+      locationTypes: typesOrDefault(loc.locationType),
       tideTypes: Array.isArray(loc.tideType) ? [...loc.tideType] : [],
       regionId: loc.region?.id ? String(loc.region.id) : '',
     });
@@ -389,8 +407,14 @@ export default function LocationManagementView({ onLocationsChanged }) {
   function handleEditChange(field, value) {
     setEditValues((prev) => {
       const next = { ...prev, [field]: value };
-      if (field === 'locationType') {
-        next.tideTypes = value === 'SEASCAPE' ? ['HIGH', 'MID', 'LOW'] : [];
+      if (field === 'locationTypes') {
+        const wasCoastal = (prev.locationTypes || []).includes('SEASCAPE');
+        const isCoastal = value.includes('SEASCAPE');
+        // Only re-seed on an actual coastal transition. Rewriting on every change would wipe a
+        // curated tide preference the moment an unrelated chip (say WOODLAND) was added to a
+        // coastal site.
+        if (isCoastal && !wasCoastal) next.tideTypes = ['HIGH', 'MID', 'LOW'];
+        else if (!isCoastal) next.tideTypes = [];
       }
       return next;
     });
@@ -411,8 +435,13 @@ export default function LocationManagementView({ onLocationsChanged }) {
       setEditError('Longitude must be between -180 and 180.');
       return;
     }
-    if (editValues.locationType === 'SEASCAPE' && (!editValues.tideTypes || editValues.tideTypes.length === 0)) {
+    const editIsCoastal = editValues.locationTypes.includes('SEASCAPE');
+    if (editIsCoastal && (!editValues.tideTypes || editValues.tideTypes.length === 0)) {
       setEditError('Coastal locations require at least one tide preference (High, Mid, or Low).');
+      return;
+    }
+    if (editValues.locationTypes.length === 0) {
+      setEditError('A location must have at least one type.');
       return;
     }
     setEditSaving(true);
@@ -423,8 +452,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
         lat: parsedLat,
         lon: parsedLon,
         solarEventTypes: editValues.solarEventTypes,
-        locationType: editValues.locationType,
-        tideTypes: editValues.locationType === 'SEASCAPE' ? editValues.tideTypes : [],
+        locationTypes: editValues.locationTypes,
+        tideTypes: editIsCoastal ? editValues.tideTypes : [],
         regionId: editValues.regionId ? Number(editValues.regionId) : null,
       });
       await refreshLocations();
@@ -473,7 +502,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
   }
 
   function handleAddReviewConfirm() {
-    if (addLocationType === 'SEASCAPE' && (!addTideTypes || addTideTypes.length === 0)) {
+    const addIsCoastal = addLocationTypes.includes('SEASCAPE');
+    if (addIsCoastal && (!addTideTypes || addTideTypes.length === 0)) {
       setError('Coastal locations require at least one tide preference (High, Mid, or Low).');
       return;
     }
@@ -492,8 +522,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
         lon,
         displayName: `${lat.toFixed(4)}, ${lon.toFixed(4)}`,
         solarEventTypes: addSolarEventTypes,
-        locationType: addLocationType,
-        tideTypes: addLocationType === 'SEASCAPE' ? addTideTypes : [],
+        locationTypes: addLocationTypes,
+        tideTypes: addIsCoastal ? addTideTypes : [],
         regionId: addRegionId ? Number(addRegionId) : null,
       });
     } else {
@@ -505,8 +535,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
         lon: geocodeResult.lon,
         displayName: geocodeResult.displayName,
         solarEventTypes: addSolarEventTypes,
-        locationType: addLocationType,
-        tideTypes: addLocationType === 'SEASCAPE' ? addTideTypes : [],
+        locationTypes: addLocationTypes,
+        tideTypes: addIsCoastal ? addTideTypes : [],
         regionId: addRegionId ? Number(addRegionId) : null,
         bortleClass: enrichmentData?.bortleClass ?? null,
         skyBrightnessSqm: enrichmentData?.skyBrightnessSqm ?? null,
@@ -528,7 +558,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         lat: confirmData.lat,
         lon: confirmData.lon,
         solarEventTypes: confirmData.solarEventTypes,
-        locationType: confirmData.locationType,
+        locationTypes: confirmData.locationTypes,
         tideTypes: confirmData.tideTypes,
         regionId: confirmData.regionId,
         bortleClass: confirmData.bortleClass,
@@ -560,14 +590,14 @@ export default function LocationManagementView({ onLocationsChanged }) {
     });
   }
 
-  // Auto-set tide when location type changes
-  function handleAddLocationTypeChange(value) {
-    setAddLocationType(value);
-    if (value === 'SEASCAPE') {
-      setAddTideTypes(['HIGH', 'MID', 'LOW']);
-    } else {
-      setAddTideTypes([]);
-    }
+  // Seed tide preferences on an actual coastal transition, not on every type change — adding
+  // WOODLAND to a coastal site must not reset a curated tide preference.
+  function handleAddLocationTypesChange(next) {
+    const wasCoastal = addLocationTypes.includes('SEASCAPE');
+    const isCoastal = next.includes('SEASCAPE');
+    setAddLocationTypes(next);
+    if (isCoastal && !wasCoastal) setAddTideTypes(['HIGH', 'MID', 'LOW']);
+    else if (!isCoastal) setAddTideTypes([]);
   }
 
   const inlineInputClass = 'w-full bg-plex-surface-light border border-plex-border rounded px-1.5 py-0.5 text-xs text-plex-text focus:outline-none focus:ring-1 focus:ring-plex-gold';
@@ -753,8 +783,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
                               </td>
                               <td className="py-2" data-testid="inline-edit-type">
                                 <LocationTypeChips
-                                  selected={editValues.locationType}
-                                  onChange={(val) => handleEditChange('locationType', val)}
+                                  selected={editValues.locationTypes}
+                                  onChange={(next) => handleEditChange('locationTypes', next)}
                                 />
                               </td>
                               <td className="py-2">
@@ -780,7 +810,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                 <TideToggleChips
                                   selected={editValues.tideTypes}
                                   onChange={(next) => setEditValues((prev) => ({ ...prev, tideTypes: next }))}
-                                  disabled={editValues.locationType !== 'SEASCAPE'}
+                                  disabled={!editValues.locationTypes.includes('SEASCAPE')}
                                 />
                               </td>
                               <td className="py-2 text-plex-text-secondary text-xs" data-testid={`bortle-edit-${loc.id}`}>
@@ -837,7 +867,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                 {loc.lat.toFixed(3)}, {loc.lon.toFixed(3)}
                               </td>
                               <td className="py-2">
-                                <LocationTypeChips selected={(loc.locationType && loc.locationType[0]) || 'LANDSCAPE'} readOnly />
+                                <LocationTypeChips selected={typesOrDefault(loc.locationType)} readOnly />
                               </td>
                               <td className="py-2 text-plex-text-secondary text-xs">
                                 {loc.region?.name || '—'}
@@ -1145,8 +1175,9 @@ export default function LocationManagementView({ onLocationsChanged }) {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label htmlFor="add-solar-event-type-chips" className={labelClass}>Solar Event Type</label>
-              <div id="add-solar-event-type-chips" className="py-1.5" data-testid="add-solar-event-type">
+              <span id="add-solar-event-type-label" className={labelClass}>Solar Event Type</span>
+              <div id="add-solar-event-type-chips" role="group" aria-labelledby="add-solar-event-type-label"
+                   className="py-1.5" data-testid="add-solar-event-type">
                 <SolarToggleChips
                   selected={addSolarEventTypes}
                   onChange={setAddSolarEventTypes}
@@ -1154,26 +1185,28 @@ export default function LocationManagementView({ onLocationsChanged }) {
               </div>
             </div>
             <div>
-              <label htmlFor="add-location-type" className={labelClass}>Location Type</label>
-              <select
-                id="add-location-type"
-                className={selectClass}
-                value={addLocationType}
-                onChange={(e) => handleAddLocationTypeChange(e.target.value)}
-                data-testid="add-location-type"
-              >
-                {LOCATION_TYPES.map((lt) => (
-                  <option key={lt.value} value={lt.value}>{lt.label}</option>
-                ))}
-              </select>
+              <span id="add-location-type-label" className={labelClass}>
+                Location Type <span className="text-plex-text-muted">(one or more)</span>
+              </span>
+              <div id="add-location-type" role="group" aria-labelledby="add-location-type-label"
+                   className="py-1.5" data-testid="add-location-type">
+                <LocationTypeChips
+                  selected={addLocationTypes}
+                  onChange={handleAddLocationTypesChange}
+                />
+              </div>
+              <p className="text-xs text-plex-text-muted mt-0.5">
+                {formatLocationType(addLocationTypes)}
+              </p>
             </div>
             <div>
-              <label htmlFor="add-tide-type-chips" className={labelClass}>Tide Preference</label>
-              <div id="add-tide-type-chips" className="py-1.5" data-testid="add-tide-type">
+              <span id="add-tide-type-label" className={labelClass}>Tide Preference</span>
+              <div id="add-tide-type-chips" role="group" aria-labelledby="add-tide-type-label"
+                   className="py-1.5" data-testid="add-tide-type">
                 <TideToggleChips
                   selected={addTideTypes}
                   onChange={setAddTideTypes}
-                  disabled={addLocationType !== 'SEASCAPE'}
+                  disabled={!addLocationTypes.includes('SEASCAPE')}
                 />
               </div>
             </div>
@@ -1242,7 +1275,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
               <div className="flex justify-between">
                 <span className="text-plex-text-secondary">Type</span>
                 <span className="text-plex-text">
-                  {LOCATION_TYPES.find((lt) => lt.value === confirmData.locationType)?.label ?? confirmData.locationType}
+                  {formatLocationType(confirmData.locationTypes)}
                 </span>
               </div>
               <div className="flex justify-between">

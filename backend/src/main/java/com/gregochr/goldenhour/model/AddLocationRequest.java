@@ -13,7 +13,9 @@ import java.util.Set;
  * @param lat                latitude in decimal degrees
  * @param lon                longitude in decimal degrees
  * @param solarEventTypes    which solar events to evaluate (defaults to [SUNRISE, SUNSET])
- * @param locationType       photography type (LANDSCAPE, SEASCAPE, or WILDLIFE)
+ * @param locationTypes      photography types, e.g. [SEASCAPE, WOODLAND] (defaults to [LANDSCAPE]).
+ *                           A set, not a scalar — a site can be both a wood and a landscape, and
+ *                           the two route to different evaluation lanes
  * @param tideTypes          tide preferences (only relevant for SEASCAPE; empty set = not coastal)
  * @param regionId           optional region ID to associate with the location
  * @param bortleClass        auto-detected Bortle class (nullable)
@@ -29,7 +31,7 @@ public record AddLocationRequest(
         double lat,
         double lon,
         Set<SolarEventType> solarEventTypes,
-        LocationType locationType,
+        Set<LocationType> locationTypes,
         Set<TideType> tideTypes,
         Long regionId,
         Integer bortleClass,
@@ -43,6 +45,7 @@ public record AddLocationRequest(
     /** Compact canonical constructor — defensive copy of mutable sets. */
     public AddLocationRequest {
         solarEventTypes = solarEventTypes == null ? Set.of() : Set.copyOf(solarEventTypes);
+        locationTypes = locationTypes == null ? Set.of() : Set.copyOf(locationTypes);
         tideTypes = tideTypes == null ? Set.of() : Set.copyOf(tideTypes);
     }
 }

@@ -166,7 +166,7 @@ class LocationServiceTest {
 
         AddLocationRequest request = new AddLocationRequest(
                 "Bamburgh", 55.6, -1.7, Set.of(SolarEventType.SUNSET),
-                LocationType.SEASCAPE, Set.of(TideType.HIGH, TideType.MID, TideType.LOW), null,
+                Set.of(LocationType.SEASCAPE), Set.of(TideType.HIGH, TideType.MID, TideType.LOW), null,
                 null, null, null, null, null, null, null);
 
         locationService.add(request);
@@ -182,7 +182,7 @@ class LocationServiceTest {
 
         AddLocationRequest request = new AddLocationRequest(
                 "Durham", 54.7753, -1.5849, Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET),
-                LocationType.LANDSCAPE, Set.of(TideType.HIGH), null,
+                Set.of(LocationType.LANDSCAPE), Set.of(TideType.HIGH), null,
                 null, null, null, null, null, null, null);
 
         locationService.add(request);
@@ -352,7 +352,7 @@ class LocationServiceTest {
         when(tideService.hasStoredExtremes(1L)).thenReturn(false);
 
         UpdateLocationRequest request = new UpdateLocationRequest(
-                null, null, null, null, LocationType.SEASCAPE,
+                null, null, null, null, Set.of(LocationType.SEASCAPE),
                 Set.of(TideType.HIGH, TideType.MID, TideType.LOW), null);
         locationService.update(1L, request);
 
@@ -374,10 +374,141 @@ class LocationServiceTest {
         when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         UpdateLocationRequest request = new UpdateLocationRequest(
-                null, null, null, null, LocationType.LANDSCAPE, Set.of(TideType.HIGH), null);
+                null, null, null, null, Set.of(LocationType.LANDSCAPE), Set.of(TideType.HIGH), null);
         locationService.update(1L, request);
 
         assertThat(existing.getTideType()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("add() keeps every type, and keeps tides when a coastal site is also something else")
+    void add_seascapeCombinedWithAnotherType_keepsTypesAndTides() {
+        // add() is where the equality->contains() swap actually happened: update() already read
+        // contains() before this change. Captures the built entity rather than asserting against a
+        // save() stub, because a stub would pass under either behaviour.
+        when(locationRepository.existsByName("Wooded Clifftop")).thenReturn(false);
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        locationService.add(new AddLocationRequest(
+                "Wooded Clifftop", 55.0, -1.4, Set.of(SolarEventType.SUNRISE),
+                Set.of(LocationType.SEASCAPE, LocationType.WOODLAND),
+                Set.of(TideType.HIGH), null, null, null, null, null, null, null, null));
+
+        ArgumentCaptor<LocationEntity> captor = ArgumentCaptor.forClass(LocationEntity.class);
+        verify(locationRepository).save(captor.capture());
+        assertThat(captor.getValue().getLocationType())
+                .as("both types must be persisted — the scalar contract kept only one")
+                .containsExactlyInAnyOrder(LocationType.SEASCAPE, LocationType.WOODLAND);
+        assertThat(captor.getValue().getTideType())
+                .as("an equality test against Set.of(SEASCAPE) would strip these")
+                .containsExactly(TideType.HIGH);
+    }
+
+    @Test
+    @DisplayName("update() clears tide preferences when a type change alone drops SEASCAPE")
+    void update_typeChangeAloneDropsSeascape_clearsTides() {
+        // Reclassifying a coastal site inland without mentioning tides must not leave it coastal:
+        // isCoastal() is a non-empty tide set, so stale tides mean billed WorldTides fetches and
+        // unsatisfiable tide-alignment stand-downs for an inland location.
+        LocationEntity existing = buildEntity("Was Coastal", 55.6, -1.7);
+        existing.setLocationType(new java.util.HashSet<>(Set.of(LocationType.SEASCAPE)));
+        existing.setTideType(new java.util.HashSet<>(Set.of(TideType.HIGH, TideType.LOW)));
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        locationService.update(1L, new UpdateLocationRequest(
+                null, null, null, null, Set.of(LocationType.LANDSCAPE), null, null));
+
+        assertThat(existing.getTideType()).isEmpty();
+        verify(tideService, never()).fetchAndStoreTideExtremes(any());
+    }
+
+    @Test
+    @DisplayName("update() preserves every type in the set, not just the first")
+    void update_multipleTypes_keepsAllOfThem() {
+        // The defect this pins: locationType was a scalar on the request, expanded with
+        // Set.of(...) into a full replace. Editing a wood typed [LANDSCAPE, WOODLAND] — even to
+        // change only its name — dropped WOODLAND and put it back on sky scoring. Which element
+        // survived was arbitrary: the set arrives from a HashSet, whose order is not stable.
+        LocationEntity existing = buildEntity("Bluebell Wood", 54.5, -2.0);
+        existing.setLocationType(new java.util.HashSet<>(Set.of(
+                LocationType.LANDSCAPE, LocationType.WOODLAND)));
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        locationService.update(1L, new UpdateLocationRequest(
+                "Bluebell Wood Renamed", null, null, null,
+                Set.of(LocationType.LANDSCAPE, LocationType.WOODLAND), null, null));
+
+        assertThat(existing.getLocationType())
+                .as("both types must survive an edit — under the scalar contract one was dropped")
+                .containsExactlyInAnyOrder(LocationType.LANDSCAPE, LocationType.WOODLAND);
+    }
+
+    @Test
+    @DisplayName("update() keeps tide preferences when a coastal site is also something else")
+    void update_seascapeCombinedWithAnotherType_keepsTides() {
+        // Equality against SEASCAPE would strip the tides off a wooded clifftop.
+        LocationEntity existing = buildEntity("Wooded Clifftop", 55.0, -1.4);
+        existing.setLocationType(new java.util.HashSet<>(Set.of(LocationType.SEASCAPE)));
+        existing.setTideType(new java.util.HashSet<>(Set.of(TideType.HIGH)));
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        locationService.update(1L, new UpdateLocationRequest(
+                null, null, null, null,
+                Set.of(LocationType.SEASCAPE, LocationType.WOODLAND),
+                Set.of(TideType.HIGH, TideType.LOW), null));
+
+        assertThat(existing.getTideType()).containsExactlyInAnyOrder(TideType.HIGH, TideType.LOW);
+    }
+
+    @Test
+    @DisplayName("update() rejects an empty type set rather than untyping the location")
+    void update_emptyTypeSet_throwsIllegalArgumentException() {
+        LocationEntity existing = buildEntity("Durham", 54.7, -1.5);
+        existing.setLocationType(new java.util.HashSet<>(Set.of(LocationType.LANDSCAPE)));
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> locationService.update(1L, new UpdateLocationRequest(
+                null, null, null, null, Set.of(), null, null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("at least one type");
+        assertThat(existing.getLocationType()).containsExactly(LocationType.LANDSCAPE);
+    }
+
+    @Test
+    @DisplayName("update() leaves types untouched when locationTypes is absent")
+    void update_nullTypeSet_leavesTypesUnchanged() {
+        LocationEntity existing = buildEntity("Durham", 54.7, -1.5);
+        existing.setLocationType(new java.util.HashSet<>(Set.of(
+                LocationType.LANDSCAPE, LocationType.WOODLAND)));
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        locationService.update(1L, new UpdateLocationRequest(
+                "Renamed", null, null, null, null, null, null));
+
+        assertThat(existing.getLocationType())
+                .containsExactlyInAnyOrder(LocationType.LANDSCAPE, LocationType.WOODLAND);
+    }
+
+    @Test
+    @DisplayName("update() leaves tide preferences untouched when tideTypes is absent")
+    void update_nullTideTypes_leavesTidesUnchanged() {
+        // The record used to coerce a null tideTypes to Set.of() in its canonical constructor,
+        // which made the "!= null" guard in update() permanently true — so a caller that simply
+        // omitted the field had a coastal location's tide preferences wiped instead of left alone.
+        LocationEntity existing = buildEntity("Bamburgh", 55.6, -1.7);
+        existing.setLocationType(new java.util.HashSet<>(Set.of(LocationType.SEASCAPE)));
+        existing.setTideType(new java.util.HashSet<>(Set.of(TideType.HIGH, TideType.LOW)));
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        locationService.update(1L, new UpdateLocationRequest(
+                "Bamburgh Beach", null, null, null, null, null, null));
+
+        assertThat(existing.getTideType()).containsExactlyInAnyOrder(TideType.HIGH, TideType.LOW);
     }
 
     @Test
@@ -781,7 +912,7 @@ class LocationServiceTest {
         AddLocationRequest request = new AddLocationRequest(
                 "Latrigg", 54.6124, -3.1179,
                 Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET),
-                LocationType.LANDSCAPE, Set.of(), null,
+                Set.of(LocationType.LANDSCAPE), Set.of(), null,
                 3, 21.72, 368, 54.611, -3.121, true, false);
 
         locationService.add(request);
@@ -807,7 +938,7 @@ class LocationServiceTest {
 
         AddLocationRequest request = new AddLocationRequest(
                 "Valley", 54.0, -3.0,
-                Set.of(SolarEventType.SUNRISE), LocationType.LANDSCAPE,
+                Set.of(SolarEventType.SUNRISE), Set.of(LocationType.LANDSCAPE),
                 Set.of(), null, null, null, null, null, null, true, false);
 
         locationService.add(request);
@@ -826,7 +957,7 @@ class LocationServiceTest {
 
         AddLocationRequest request = new AddLocationRequest(
                 "Pier", 54.0, -3.0,
-                Set.of(SolarEventType.SUNSET), LocationType.SEASCAPE,
+                Set.of(SolarEventType.SUNSET), Set.of(LocationType.SEASCAPE),
                 Set.of(TideType.HIGH), null, null, null, null, null, null, false, true);
 
         locationService.add(request);
@@ -845,7 +976,7 @@ class LocationServiceTest {
 
         AddLocationRequest request = new AddLocationRequest(
                 "Null Test", 54.0, -2.0,
-                Set.of(SolarEventType.SUNRISE), LocationType.LANDSCAPE,
+                Set.of(SolarEventType.SUNRISE), Set.of(LocationType.LANDSCAPE),
                 Set.of(), null, null, null, null, null, null, null, null);
 
         locationService.add(request);

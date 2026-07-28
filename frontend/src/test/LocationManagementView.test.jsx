@@ -33,6 +33,13 @@ const MOCK_SEASCAPE_LOCATIONS = [
   { id: 2, name: 'Berwick-Upon-Tweed', lat: 55.77, lon: -2.00, enabled: true, solarEventType: ['SUNRISE', 'SUNSET'], locationType: ['SEASCAPE'], tideType: ['HIGH'] },
 ];
 
+const MOCK_MULTITYPE_LOCATIONS = [
+  {
+    id: 3, name: 'Bluebell Wood', lat: 54.5, lon: -2.0, enabled: true,
+    solarEventType: ['SUNRISE'], locationType: ['LANDSCAPE', 'WOODLAND'], tideType: [],
+  },
+];
+
 const MOCK_REGIONS = [
   { id: 1, name: 'North East', enabled: true },
   { id: 2, name: 'Lake District', enabled: true },
@@ -327,7 +334,7 @@ describe('LocationManagementView', () => {
         lat: 54.77,
         lon: -1.58,
         solarEventTypes: ['SUNRISE', 'SUNSET'],
-        locationType: 'LANDSCAPE',
+        locationTypes: ['LANDSCAPE'],
         tideTypes: [],
         regionId: null,
       });
@@ -336,6 +343,91 @@ describe('LocationManagementView', () => {
     await waitFor(() => {
       expect(onChanged).toHaveBeenCalled();
     });
+  });
+
+  it('editing a multi-typed location keeps every type, not just the first', async () => {
+    // The data-loss bug: the editor collapsed locationType to set[0] on open and the backend
+    // full-replaced from that scalar, so renaming a wood typed [LANDSCAPE, WOODLAND] silently
+    // dropped WOODLAND and put it back on sky scoring.
+    updateLocation.mockResolvedValue({});
+    fetchLocations.mockResolvedValue(MOCK_MULTITYPE_LOCATIONS);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId('edit-location-3')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('edit-location-3'));
+
+    fireEvent.change(screen.getByTestId('inline-edit-name'), { target: { value: 'Bluebell Wood Renamed' } });
+    fireEvent.click(screen.getByTestId('inline-edit-save'));
+
+    await waitFor(() => {
+      expect(updateLocation).toHaveBeenCalledWith(3, expect.objectContaining({
+        name: 'Bluebell Wood Renamed',
+        locationTypes: expect.arrayContaining(['LANDSCAPE', 'WOODLAND']),
+      }));
+    });
+    expect(updateLocation.mock.calls[0][1].locationTypes).toHaveLength(2);
+  });
+
+  it('opening a multi-typed location shows every type chip as selected', async () => {
+    fetchLocations.mockResolvedValue(MOCK_MULTITYPE_LOCATIONS);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId('edit-location-3')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('edit-location-3'));
+
+    expect(screen.getByTestId('type-chip-LANDSCAPE')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('type-chip-WOODLAND')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('type-chip-SEASCAPE')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('the last remaining type chip cannot be deselected', async () => {
+    updateLocation.mockResolvedValue({});
+    fetchLocations.mockResolvedValue(MOCK_LOCATIONS);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId('edit-location-1')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('edit-location-1'));
+
+    // Durham is [LANDSCAPE] only — clicking its sole chip must not untype it.
+    fireEvent.click(screen.getByTestId('type-chip-LANDSCAPE'));
+    expect(screen.getByTestId('type-chip-LANDSCAPE')).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(screen.getByTestId('inline-edit-save'));
+    await waitFor(() => {
+      expect(updateLocation).toHaveBeenCalledWith(1, expect.objectContaining({
+        locationTypes: ['LANDSCAPE'],
+      }));
+    });
+  });
+
+  it('adding a non-coastal type to a coastal site keeps its tide preferences', async () => {
+    // Re-seeding tides on every type change would wipe a curated preference the moment an
+    // unrelated chip was added.
+    updateLocation.mockResolvedValue({});
+    fetchLocations.mockResolvedValue(MOCK_SEASCAPE_LOCATIONS);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId('edit-location-2')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('edit-location-2'));
+
+    fireEvent.click(screen.getByTestId('type-chip-WOODLAND'));
+    fireEvent.click(screen.getByTestId('inline-edit-save'));
+
+    await waitFor(() => {
+      expect(updateLocation).toHaveBeenCalledWith(2, expect.objectContaining({
+        locationTypes: expect.arrayContaining(['SEASCAPE', 'WOODLAND']),
+        tideTypes: ['HIGH'],
+      }));
+    });
+  });
+
+  it('offers Woodland as a selectable type', async () => {
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId('edit-location-1')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('edit-location-1'));
+
+    expect(screen.getByTestId('type-chip-WOODLAND')).toBeInTheDocument();
+    expect(screen.getByTestId('type-chip-WOODLAND')).toHaveAttribute('title', 'Woodland');
   });
 
   it('Save error shows inline below the row', async () => {
@@ -506,7 +598,7 @@ describe('LocationManagementView', () => {
     expect(screen.queryByTestId('inline-edit-error')).not.toBeInTheDocument();
   });
 
-  it('add (manual): shows error when SEASCAPE selected with no tide preferences', async () => {
+  it('add (manual): a coastal site with seeded tides passes review without error', async () => {
     geocodePlace.mockRejectedValue(new Error('Not found'));
     render(<LocationManagementView onLocationsChanged={() => {}} />);
 
@@ -528,18 +620,22 @@ describe('LocationManagementView', () => {
     fireEvent.change(screen.getByTestId('manual-lat-input'), { target: { value: '55.6' } });
     fireEvent.change(screen.getByTestId('manual-lon-input'), { target: { value: '-1.7' } });
 
-    // Select SEASCAPE — this auto-selects all three tide types
-    fireEvent.change(screen.getByTestId('add-location-type'), { target: { value: 'SEASCAPE' } });
+    // Select SEASCAPE — this auto-selects all three tide types. The type control is a
+    // multi-select chip group, so LANDSCAPE is deselected explicitly afterwards.
+    fireEvent.click(screen.getByTestId('type-chip-SEASCAPE'));
+    fireEvent.click(screen.getByTestId('type-chip-LANDSCAPE'));
 
-    // Deselect HIGH and MID chips (LOW is last and can't be deselected in practice,
-    // but we can deselect the first two to reach 1 selected)
-    // This tests the happy path: with any tide preference, no error
+    // Selecting SEASCAPE seeds all three tide types, so the coastal validation must pass.
     fireEvent.click(screen.getByTestId('review-confirm-btn'));
 
-    // Should proceed to confirm step (no validation error)
+    // Assert POSITIVELY that review advanced. The previous version only asserted the absence of
+    // an error via an exact-match queryByText against a prefix of the real message
+    // ('...tide preference' vs the rendered '...tide preference (High, Mid, or Low).'), so it
+    // returned null whether or not the error was on screen and could never fail.
     await waitFor(() => {
-      expect(screen.queryByText('Coastal locations require at least one tide preference')).not.toBeInTheDocument();
+      expect(screen.getByTestId('confirm-save-btn')).toBeInTheDocument();
     });
+    expect(screen.queryByText(/Coastal locations require at least one tide preference/)).not.toBeInTheDocument();
   });
 
   // --- Bortle column tests ---
