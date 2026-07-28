@@ -45,6 +45,17 @@ public enum DispositionCategory {
      * rain, or sun blocked at the horizon. The reason string is captured in
      * the disposition's {@code detail} field.
      */
+    /**
+     * Structurally ineligible for the prompt this lane submits — not a triage rejection.
+     *
+     * <p>Today this is a canopy site out of bluebell season: it passes triage perfectly well, but
+     * the sky prompt cannot say anything true about a location with no sky, and the woodland
+     * prompt does not exist yet. Distinct from {@link #SKIPPED_TRIAGED}, which means the weather
+     * was judged and found wanting — conflating them would report slots as triaged that were
+     * never triaged at all.
+     */
+    SKIPPED_NO_PROMPT,
+
     SKIPPED_TRIAGED,
 
     /**

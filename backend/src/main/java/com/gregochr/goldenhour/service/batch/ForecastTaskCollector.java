@@ -336,6 +336,7 @@ public class ForecastTaskCollector {
         List<EvaluationTask.Forecast> bluebell = new ArrayList<>();
 
         int skippedTriage = 0;
+        int skippedWoodland = 0;
         int skippedStability = 0;
         int skippedError = 0;
         int includedNear = 0;
@@ -370,6 +371,32 @@ public class ForecastTaskCollector {
                         && preEval.atmosphericData().bluebellConditionScore() != null;
                 boolean woodlandOnly = bluebellInSeason
                         && candidate.location().getBluebellExposure() == BluebellExposure.WOODLAND;
+
+                // A canopy site never belongs in the sky lane, in or out of season. The sky
+                // triage asks sky questions — is there too much cloud, is visibility poor — and
+                // for a wood the honest answers are inverted, so letting it run produces exactly
+                // the wrong selection: a wood is triaged OUT on the misty overcast morning it
+                // wants, and passed THROUGH on the clear day it does not, where it would then be
+                // rated for fiery-sky potential it structurally cannot have.
+                //
+                // Until the woodland prompt exists, the right answer is to submit nothing rather
+                // than the wrong prompt. The grid still shows a verdict for these sites — the
+                // deterministic one from WoodlandVerdictEvaluator — so they stay visible; they
+                // just carry no Claude rating or prose yet.
+                if (candidate.location().isWoodlandOnly() && !woodlandOnly) {
+                    LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=WOODLAND_NO_PROMPT "
+                                    + "(canopy site, no sky evaluation)",
+                            candidate.location().getName(), candidate.date(),
+                            candidate.targetType());
+                    dispositions.add(new CandidateDisposition(
+                            candidate.location().getId(), candidate.location().getName(),
+                            candidate.date(), candidate.targetType(), candidateDaysAhead,
+                            DispositionCategory.SKIPPED_NO_PROMPT,
+                            "Canopy site — no sky evaluation; awaiting the woodland prompt"));
+                    skippedWoodland++;
+                    continue;
+                }
+
                 // Woodland bluebell sites in season are evaluated by the bluebell prompt ALONE,
                 // so the colour triage verdict does not gate them (bright overcast — ideal for a
                 // bluebell carpet — would otherwise stand them down as a poor sky). Every other
@@ -512,11 +539,14 @@ public class ForecastTaskCollector {
         }
 
         int totalIncluded = includedNear + includedFar + includedBluebell;
+        // Every skip is named, so included + skipped reconciles against the candidate count. A
+        // category missing from this line makes the cycle summary silently stop adding up.
         LOG.warn("[BATCH DIAG] Triage complete — {} included (near={}, far={}, bluebell={}, "
-                        + "forced={}), {} skipped (triage={}, stability={}, error={})",
+                        + "forced={}), {} skipped (triage={}, stability={}, error={}, "
+                        + "canopy-no-prompt={})",
                 totalIncluded, includedNear, includedFar, includedBluebell, includedForced,
-                skippedTriage + skippedStability + skippedError,
-                skippedTriage, skippedStability, skippedError);
+                skippedTriage + skippedStability + skippedError + skippedWoodland,
+                skippedTriage, skippedStability, skippedError, skippedWoodland);
         LOG.info("[BATCH ELIG] {}", agg.formatSummary());
 
         if (totalIncluded == 0) {
@@ -673,6 +703,11 @@ public class ForecastTaskCollector {
 
         for (ForecastCandidate candidate : candidates) {
             try {
+                // Canopy sites never belong in the sky lane. Unconditional here, unlike the
+                // scheduled loop's guard: this path has no bluebell bucket to route them to.
+                if (candidate.location().isWoodlandOnly()) {
+                    continue;
+                }
                 ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
                         candidate.location(), candidate.date(), candidate.targetType(),
                         candidate.location().getTideType(), model, false, null,

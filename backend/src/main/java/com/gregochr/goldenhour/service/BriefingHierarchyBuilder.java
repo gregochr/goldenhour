@@ -16,7 +16,6 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Builds the day → event summary → region hierarchy for the daily briefing.
@@ -45,13 +44,6 @@ public class BriefingHierarchyBuilder {
      */
     public List<BriefingDay> buildDays(List<BriefingSlot> allSlots,
             List<LocationEntity> locations, List<LocalDate> dates) {
-        // Names of canopy sites, so the region roll-up can exclude them. Built here because
-        // buildDays already has the roster and BriefingSlot carries no subject of its own.
-        Set<String> canopyNames = locations.stream()
-                .filter(LocationEntity::isWoodlandOnly)
-                .map(LocationEntity::getName)
-                .collect(java.util.stream.Collectors.toSet());
-
         // Build location-to-region map
         Map<String, String> locationToRegion = new LinkedHashMap<>();
         for (LocationEntity loc : locations) {
@@ -69,7 +61,7 @@ public class BriefingHierarchyBuilder {
                         .toList();
 
                 BriefingEventSummary summary = buildEventSummary(eventType, eventSlots,
-                        locationToRegion, canopyNames);
+                        locationToRegion);
                 eventSummaries.add(summary);
             }
             days.add(new BriefingDay(date, eventSummaries));
@@ -96,18 +88,17 @@ public class BriefingHierarchyBuilder {
      * @param eventType        the solar event type
      * @param slots            slots for this date and event type
      * @param locationToRegion map of location name to region name (null for unregioned)
-     * @param canopyNames      names of woodland-only sites, excluded from the region verdict vote
      * @return the event summary with region rollups
      */
     BriefingEventSummary buildEventSummary(TargetType eventType, List<BriefingSlot> slots,
-            Map<String, String> locationToRegion, Set<String> canopyNames) {
+            Map<String, String> locationToRegion) {
         RegionGroupingUtils.GroupResult<BriefingSlot> grouped =
                 RegionGroupingUtils.groupByRegion(slots,
                         slot -> locationToRegion.get(slot.locationName()));
 
         List<BriefingRegion> regions = new ArrayList<>();
         for (Map.Entry<String, List<BriefingSlot>> entry : grouped.grouped().entrySet()) {
-            regions.add(buildRegion(entry.getKey(), entry.getValue(), canopyNames));
+            regions.add(buildRegion(entry.getKey(), entry.getValue()));
         }
 
         return new BriefingEventSummary(eventType, regions, grouped.unregioned());
@@ -120,8 +111,7 @@ public class BriefingHierarchyBuilder {
      * @param slots      the location slots within this region
      * @return the region rollup with verdict, summary, and tide highlights
      */
-    BriefingRegion buildRegion(String regionName, List<BriefingSlot> slots,
-            Set<String> canopyNames) {
+    BriefingRegion buildRegion(String regionName, List<BriefingSlot> slots) {
         // The region verdict answers "is this region worth a trip for the SKY at this event", so
         // only sky slots may vote. A woodland slot's GO is computed on inverted polarity — it
         // means heavy cloud and mist — and rollUpVerdict fires GO at 20% of viable slots, so a
@@ -133,7 +123,7 @@ public class BriefingHierarchyBuilder {
         // simply do not vote on a question they are not answering. A region with nothing BUT
         // canopy slots falls back to them rather than having no verdict at all.
         List<BriefingSlot> skySlots = slots.stream()
-                .filter(s -> !canopyNames.contains(s.locationName()))
+                .filter(s -> !s.canopy())
                 .toList();
         List<BriefingSlot> votingSlots = skySlots.isEmpty() ? slots : skySlots;
 
