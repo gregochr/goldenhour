@@ -57,6 +57,16 @@ public record DailyBriefingResponse(
      * @param generatedAt         UTC generation timestamp
      * @param headline            one-line summary
      * @param days                per-day briefing data
+     * <p><strong>Defaults {@code bestBetStatus} to {@code null} — do not use it to rebuild an
+     * existing response.</strong> Two consumers switch on that field and both fail silently when
+     * it is absent: {@code BriefingService.applyBestBetFallback} returns early unless the status is
+     * {@code FAILED}, so the serve-time fallback never fires; and the frontend renders its "from an
+     * earlier forecast" warning on {@code bestBetStatus === 'FAILED'}, so the staleness cue never
+     * appears. Nothing throws and no test that ignores the field notices. This constructor is
+     * retained for the many call sites that legitimately build a response from scratch with no
+     * status yet; anything copying or overlaying an existing response must pass all 13 components
+     * (or use {@link #withDays}).
+     *
      * @param bestBets            best-bet picks
      * @param auroraTonight       tonight's aurora summary or null
      * @param auroraTomorrow      tomorrow's aurora summary or null

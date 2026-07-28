@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Measured the briefing payload, and the architecture doc's prediction was wrong
+- **`plan-panel-data-contracts.md` called a payload trim "likely a bigger and cheaper win than restructuring contracts"**, on the strength of a research agent's ~770 KB estimate that the document itself flagged as unverified and told the reader to measure. Measured against production: the estimate was low, and the recommendation was wrong.
+- **Ground truth**: `daily_briefing_cache` is **1,338,649 bytes raw** — 242 enabled locations across 7 regions, 1,936 slots at ~691 bytes each.
+- **But gzip is on for `application/json`** (`application-prod.yml:162-165`) and the payload is highly repetitive, so the wire cost is **~133 KB**, under two main JS bundles, on a response that is ETag-revalidated to a 304 thereafter. Client cost measured in a browser: `JSON.parse` **5.2 ms**.
+- **Only a quarter of the client cost is the payload.** Of 19.9 ms per fetch, ~15 ms is the SWR cache re-serialising and synchronously writing the object just parsed (`swrCache.js:41-46`). That is the cheap win, and it is not a payload-shape problem.
+- **The real size finding is a quota one, not a bandwidth one**: at ~2.6 MB of UTF-16 the briefing alone takes ~52% of iOS Safari's ~5 MB `localStorage` budget before the (larger) forecasts cache is written. Tracked separately.
+- **The server cost is real and stands**: every `GET /api/briefing` runs a DB query, a full walk *and reallocation* of all 1,936 slots, a second walk for the honesty filter, and ~1.3 MB of serialization — then `ShallowEtagHeaderFilter` buffers and hashes it. A shallow ETag saves bandwidth, never server work, so **a 304 discards all of it**. `HotTopicAggregator` adds 13 uncached `detect()` calls per request.
+- **Recorded as "instrument before caching"**, with the sharp edges named (request-time London date feeds the confidence horizon; two of four `cache.set` sites publish no invalidation event; a region *rename* blanks the grid through name-keyed lookups) — and one explicit do-not: caching serialized bytes and hand-rolling the ETag would drop `/api/briefing` from `REVALIDATABLE_READ_PATHS`, silently reverting to `no-store` and killing the 304, a regression every existing test would pass.
+
+### Fixed — The aurora overlay dropped `bestBetStatus`, silently disabling two features
+- **Found while instrumenting the briefing serve path for performance work, not by a bug report** — which is the point. Nothing threw, nothing logged, and every existing test passed.
+- **`getCachedBriefing` overlays live aurora and hot topics** onto the persisted briefing so simulation toggles take effect without a full refresh. When the live values differ it rebuilds the response — and did so through the **12-arg convenience constructor**, which delegates with `bestBetStatus = null`. It was the *only* production site that dropped it; `BriefingService:344`, `:490`, `:505`, `:515` and `BriefingHonestyFilter:116` all pass it explicitly.
+- **Two consumers switch on that field, and both failed silently.** `applyBestBetFallback` returns early unless the status is `FAILED`, so the serve-time fallback never fired and the user saw the honest empty state instead of the last good pick. And `DailyBriefing.jsx:1300` renders the "from an earlier forecast" warning on `bestBetStatus === 'FAILED'`, so the staleness cue never appeared — under a comment reading *"Switch on the explicit bestBetStatus, not an inferred empty array"*, describing a guarantee the backend was not upholding.
+- **Both went dark on exactly the requests that reach the rebuild branch** — whenever aurora is live or a hot-topic simulation is toggled, which is the moment the fallback exists for.
+- **The existing tests missed it structurally**: their live aurora equals the cached value, so the overlay short-circuits at the `Objects.equals` early return and never rebuilds. The new test forces the rebuild with a differing live summary. **Verified by mutation** — reverting the one-line fix turns it red and nothing else in the 6,025-test suite notices.
+- Also documents the trap on the 12-arg constructor: safe for building a response from scratch with no status yet, wrong for copying or overlaying an existing one.
+
 ## [v2.17.1] - 2026-07-28
 
 ### Changed — CHANGELOG's `[Unreleased]` split into the 13 releases it actually shipped in
