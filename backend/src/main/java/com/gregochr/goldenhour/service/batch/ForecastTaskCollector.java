@@ -703,6 +703,11 @@ public class ForecastTaskCollector {
 
         for (ForecastCandidate candidate : candidates) {
             try {
+                // Canopy sites never belong in the sky lane. Unconditional here, unlike the
+                // scheduled loop's guard: this path has no bluebell bucket to route them to.
+                if (candidate.location().isWoodlandOnly()) {
+                    continue;
+                }
                 ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
                         candidate.location(), candidate.date(), candidate.targetType(),
                         candidate.location().getTideType(), model, false, null,

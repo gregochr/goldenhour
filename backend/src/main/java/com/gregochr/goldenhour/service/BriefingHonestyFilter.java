@@ -157,7 +157,14 @@ final class BriefingHonestyFilter {
         //
         // This filter is failure-defence — its whole premise is "we expected Claude coverage and
         // did not get it". A canopy slot never expected any.
-        long scoreable = r.slots().stream().filter(s -> !s.canopy()).count();
+        // Same predicate as the confidence denominator in BriefingService: a slot counts when it
+        // COULD carry a rating, not merely when it is not canopy. An in-season canopy bluebell
+        // site is scored by the bluebell prompt, so excluding it would put it in the numerator
+        // (scoredLocationCount) and not the denominator — a ratio above 1, silently disabling the
+        // lightly-evaluated warning in the class whose whole job is not overstating coverage.
+        long scoreable = r.slots().stream()
+                .filter(s -> !(s.canopy() && s.claudeRating() == null))
+                .count();
         if (scoreable == 0) {
             return r;
         }

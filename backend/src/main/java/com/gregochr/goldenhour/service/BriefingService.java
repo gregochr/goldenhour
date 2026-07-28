@@ -665,7 +665,14 @@ public class BriefingService {
                             .toList();
                     BriefingRatingStats.Stats stats = BriefingRatingStats.compute(
                             ratingEntries, region.regionName(), day.date(), es.targetType());
-                    if (stats.isEmpty()) {
+                    // Only warn about zero coverage where coverage was actually expected. An
+                    // all-canopy region has none by construction and the honesty filter now
+                    // passes it through untouched, so logging it here would fire per region per
+                    // event on EVERY serve — drowning the line an operator greps for a genuine
+                    // overnight batch failure, and asserting a rewrite that no longer happens.
+                    boolean anyScoreable = enrichedSlots.stream()
+                            .anyMatch(slot -> !(slot.canopy() && slot.claudeRating() == null));
+                    if (stats.isEmpty() && anyScoreable) {
                         LOG.info("[ZERO COVERAGE] region={} date={} target={} "
                                         + "briefingVerdict={} scoredCount=0 "
                                         + "(honesty filter will rewrite at API read time — "
@@ -690,19 +697,16 @@ public class BriefingService {
                     // Zero-coverage regions yield null (unknown), which reads as provisional.
                     int daysAhead = (int) (day.date().toEpochDay() - today.toEpochDay());
                     // Coverage denominator counts only slots that COULD carry a rating. A
-                    // canopy site has no sky evaluation by construction (the collector submits
-                    // no sky task for it), so leaving it in rosterSize would make every
-                    // wood-heavy region look permanently under-covered — ConfidenceDeriver's
-                    // thin-coverage rule would downgrade the whole region a band every day,
-                    // including the landscape sites in it that have nothing to do with woods.
-                    // A structurally unscoreable slot is not missing coverage.
-                    // Coverage denominator counts only slots that COULD carry a rating. A canopy
-                    // slot has no sky evaluation by construction, so leaving it in rosterSize
-                    // would make a wood-bearing region look permanently under-covered and
-                    // downgrade its confidence a band every day — including for the sky
-                    // locations in it. A structurally unscoreable slot is not missing coverage.
+                    // canopy slot is excluded from the sky batch, so counting it would report a
+                    // permanent, unfixable shortfall and downgrade a wood-bearing region's
+                    // confidence a band every day — including for the sky locations in it.
+                    //
+                    // Keyed on what the slot actually carries, NOT on "is it canopy": an
+                    // in-season canopy bluebell site IS scored, by the bluebell prompt, so it
+                    // belongs in both numerator and denominator. Testing the rating rather than
+                    // the season means the two never disagree, and needs no roster or clock.
                     long scoreableRoster = enrichedSlots.stream()
-                            .filter(slot -> !slot.canopy())
+                            .filter(slot -> !(slot.canopy() && slot.claudeRating() == null))
                             .count();
                     Confidence confidence = ConfidenceDeriver.derive(
                             daysAhead, stats, (int) scoreableRoster);

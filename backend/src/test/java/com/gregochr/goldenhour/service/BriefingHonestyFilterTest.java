@@ -200,6 +200,43 @@ class BriefingHonestyFilterTest {
         assertThat(out.lightlyEvaluated()).isFalse();
     }
 
+    // An in-season canopy bluebell site IS scored — by the bluebell prompt, not the sky one — so
+    // it belongs in BOTH numerator and denominator. Keying the denominator on "is it canopy"
+    // rather than "did it get a rating" put it in the numerator only, pushing the ratio above 1
+    // and silently disabling the lightly-evaluated warning. This is the case that was unpinned.
+    @Test
+    @DisplayName("A scored canopy slot counts toward coverage, so the ratio cannot exceed 1")
+    void scoredCanopySlotCountsTowardCoverage() {
+        // 4 sky slots (batch failed, none scored) + 2 canopy slots scored by the bluebell prompt.
+        List<BriefingSlot> mixed = new java.util.ArrayList<>(goSlots(4));
+        mixed.add(canopySlot("Houghall Woods", Verdict.GO)
+                .withClaudeScores(4, 70, 65, "Bluebells under soft light"));
+        mixed.add(canopySlot("Plessey Woods", Verdict.GO)
+                .withClaudeScores(3, 60, 55, "Workable"));
+        BriefingRegion region = new BriefingRegion(
+                "Tyne and Wear", Verdict.GO, "Clear at 6 of 6 locations", List.of(), mixed,
+                14.0, 13.0, 4.5, 3, "gloss", "detail", DisplayVerdict.WORTH_IT, 2);
+
+        BriefingRegion out = firstRegion(
+                BriefingHonestyFilter.apply(wrapAsResponse(TargetType.SUNRISE, region), 0.5));
+
+        // 2 scored of 6 scoreable = 33%, below 0.5 → the warning must still fire. Excluding the
+        // scored canopy slots would give 2 of 4 = 50% and suppress it.
+        assertThat(out.lightlyEvaluated())
+                .as("a scored canopy slot must not inflate the coverage ratio")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("The canopy flag survives withClaudeScores")
+    void canopyFlagSurvivesScoring() {
+        BriefingSlot scored = canopySlot("Houghall Woods", Verdict.GO)
+                .withClaudeScores(4, 70, 65, "summary");
+        assertThat(scored.canopy())
+                .as("a copy that drops the flag restores the ambiguity it exists to remove")
+                .isTrue();
+    }
+
     // ── Lightly-evaluated tier (0 < coverage < minCoverageRatio) ────────────────
 
     @Test
