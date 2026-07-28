@@ -49,6 +49,9 @@ public final class OpenMeteoResponseParser {
     /** Number of hours before and after the event to sample for pressure tendency. */
     private static final int PRESSURE_TREND_HOURS = 3;
 
+    /** Hours before the event slot summed for "did it rain in the run-up?". */
+    private static final int PRECEDING_PRECIP_HOURS = 6;
+
     private OpenMeteoResponseParser() {
     }
 
@@ -97,7 +100,8 @@ public final class OpenMeteoResponseParser {
                 getDoubleValue(h.getSnowDepth(), idx),
                 getDoubleValue(h.getFreezingLevelHeight(), idx),
                 getDoubleValue(h.getTemperature925hPa(), idx),
-                getDoubleValue(h.getTemperature850hPa(), idx));
+                getDoubleValue(h.getTemperature850hPa(), idx),
+                extractPrecedingPrecipitationMm(h, idx));
 
         AerosolData aerosol = new AerosolData(
                 toDecimal(pm25Raw, PRECIP_SCALE),
@@ -120,6 +124,40 @@ public final class OpenMeteoResponseParser {
                 null,  // tide — populated later for coastal locations
                 null,  // cloudApproach — populated later if directional data available
                 mistTrend, pressureTrend);
+    }
+
+    /**
+     * Sums precipitation over the {@value #PRECEDING_PRECIP_HOURS} hours before the event slot.
+     *
+     * <p>Answers a different question from the event-slot {@code precipitation} reading: "did it
+     * rain in the run-up?" rather than "is it raining now?". Bluebell scoring wants both — rain
+     * earlier freshens the flowers and ground cover, dry at event time makes it shootable — and
+     * a single instantaneous value cannot express that combination, since a slot cannot be both
+     * wet and dry. The event hour itself is excluded so the two readings stay independent.
+     *
+     * @param h        the hourly forecast arrays from Open-Meteo
+     * @param eventIdx the slot index corresponding to the solar event time
+     * @return total mm over the preceding window, or {@code null} if precipitation is unavailable
+     *         or the event slot is the first hour in the array (no preceding hours to sum)
+     */
+    static Double extractPrecedingPrecipitationMm(OpenMeteoForecastResponse.Hourly h,
+            int eventIdx) {
+        List<Double> precip = h.getPrecipitation();
+        if (precip == null || precip.isEmpty()) {
+            return null;
+        }
+        int from = Math.max(0, eventIdx - PRECEDING_PRECIP_HOURS);
+        if (from >= eventIdx) {
+            return null;
+        }
+        double total = 0.0;
+        for (int i = from; i < eventIdx && i < precip.size(); i++) {
+            Double value = precip.get(i);
+            if (value != null) {
+                total += value;
+            }
+        }
+        return total;
     }
 
     /**

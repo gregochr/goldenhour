@@ -168,6 +168,48 @@ class OpenMeteoServiceTest {
     }
 
     @Test
+    @DisplayName("extractPrecedingPrecipitationMm() sums the hours before the event, excluding it")
+    void extractPrecedingPrecipitation_sumsPrecedingHoursOnly() {
+        OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
+        // index:            0    1    2    3     4(event)  5
+        h.setPrecipitation(List.of(0.5, 1.0, 0.0, 2.0, 9.9, 4.0));
+
+        // Event at index 4: sums indices 0-3 = 3.5. The event hour's own 9.9 must NOT be included
+        // — that is the dryNow reading, and counting it here would recreate the coupling.
+        assertThat(OpenMeteoResponseParser.extractPrecedingPrecipitationMm(h, 4))
+                .isEqualTo(3.5);
+    }
+
+    @Test
+    @DisplayName("extractPrecedingPrecipitationMm() honours the 6-hour window")
+    void extractPrecedingPrecipitation_windowIsSixHours() {
+        OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
+        // Index 0 is 100mm and sits 7 hours before the event at index 7 — outside the window.
+        h.setPrecipitation(List.of(100.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0));
+
+        assertThat(OpenMeteoResponseParser.extractPrecedingPrecipitationMm(h, 7))
+                .isEqualTo(6.0);
+    }
+
+    @Test
+    @DisplayName("extractPrecedingPrecipitationMm() returns null at the start of the array")
+    void extractPrecedingPrecipitation_noPrecedingHours_returnsNull() {
+        OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
+        h.setPrecipitation(List.of(1.0, 2.0));
+
+        // No hours precede index 0, so there is no window — null, not a misleading 0.0.
+        assertThat(OpenMeteoResponseParser.extractPrecedingPrecipitationMm(h, 0)).isNull();
+    }
+
+    @Test
+    @DisplayName("extractPrecedingPrecipitationMm() returns null when precipitation is absent")
+    void extractPrecedingPrecipitation_nullArray_returnsNull() {
+        OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
+
+        assertThat(OpenMeteoResponseParser.extractPrecedingPrecipitationMm(h, 5)).isNull();
+    }
+
+    @Test
     @DisplayName("extractAtmosphericData() selects exact timestamp match")
     void extractAtmosphericData_exactTimestampMatch_selectsCorrectSlot() {
         LocalDateTime solarEvent = LocalDateTime.of(2026, 2, 20, 7, 30, 0);

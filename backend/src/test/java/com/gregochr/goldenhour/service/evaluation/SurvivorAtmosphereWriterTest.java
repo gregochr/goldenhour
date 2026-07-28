@@ -62,7 +62,7 @@ class SurvivorAtmosphereWriterTest {
 
     private static WeatherData weather() {
         return new WeatherData(20000, new BigDecimal("3.2"), 180, BigDecimal.ZERO, 88, 1,
-                new BigDecimal("120"), 9.0, 1015.0, null, 0.04, 850.0, null, null);
+                new BigDecimal("120"), 9.0, 1015.0, null, 0.04, 850.0, null, null, null);
     }
 
     private static AerosolData aerosol() {
