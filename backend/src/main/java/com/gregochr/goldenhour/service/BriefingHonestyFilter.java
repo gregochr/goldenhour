@@ -149,11 +149,22 @@ final class BriefingHonestyFilter {
      */
     private static BriefingRegion rewriteRegionByCoverage(BriefingRegion r,
             double minCoverageRatio) {
+        // Canopy slots can never carry a Claude rating — they are deliberately excluded from the
+        // sky batch — so they must not count toward the coverage this filter measures. Without
+        // this, a region of woods reads as zero-coverage and gets the failure message below, which
+        // would be a lie twice over: nothing failed, and a per-location forecast DOES exist (the
+        // deterministic woodland verdict). It would also erase those verdicts every single day.
+        //
+        // This filter is failure-defence — its whole premise is "we expected Claude coverage and
+        // did not get it". A canopy slot never expected any.
+        long scoreable = r.slots().stream().filter(s -> !s.canopy()).count();
+        if (scoreable == 0) {
+            return r;
+        }
         if (r.scoredLocationCount() == 0) {
             return fullRewrite(r);
         }
-        int total = r.slots().size();
-        if (total > 0 && r.scoredLocationCount() < minCoverageRatio * total) {
+        if (r.scoredLocationCount() < minCoverageRatio * scoreable) {
             return r.withLightlyEvaluated();
         }
         return r;

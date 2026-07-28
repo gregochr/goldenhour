@@ -231,8 +231,8 @@ public class BriefingSlotBuilder {
                 lowCloud, precip, visibility, humidity, temp, apparentTemp, weatherCode, windSpeed,
                 midCloud, highCloud);
 
-        return new BriefingSlot(loc.getName(), solarTime, verdict, weather,
-                BriefingSlot.TideInfo.NONE, flags, standdownReason);
+        return BriefingSlot.canopySlot(loc.getName(), solarTime, verdict, weather,
+                flags, standdownReason);
     }
 
     /**

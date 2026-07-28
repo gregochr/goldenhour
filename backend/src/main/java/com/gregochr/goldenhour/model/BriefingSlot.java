@@ -25,6 +25,14 @@ import java.util.List;
  * @param claudeSummary       cached Claude prose summary, or null
  * @param displayVerdict      unified colour/label signal; never null, recomputed whenever
  *                            {@code claudeRating} changes (see {@link #withClaudeScores})
+ * @param canopy              {@code true} when this slot's verdict was produced by
+ *                            {@code WoodlandVerdictEvaluator} rather than the sky chain, i.e. the
+ *                            location is under a canopy. The two evaluators have <b>opposite
+ *                            polarity</b> — a woodland GO means heavy cloud and mist — so a
+ *                            {@link Verdict} alone is ambiguous and every consumer that aggregates
+ *                            or explains slots needs to know which question was answered. Also
+ *                            marks the slot as structurally unable to carry a Claude rating, since
+ *                            canopy sites are excluded from the sky batch.
  * @param claudeHeadline      4-9 word Claude-authored card header (Gate 2 redesign), or null
  *                            when no Claude evaluation has been performed or the result
  *                            pre-dates the headline field
@@ -42,7 +50,8 @@ public record BriefingSlot(
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer goldenHourPotential,
         @JsonInclude(JsonInclude.Include.NON_NULL) String claudeSummary,
         DisplayVerdict displayVerdict,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String claudeHeadline) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) String claudeHeadline,
+        boolean canopy) {
 
     public BriefingSlot {
         flags = List.copyOf(flags);
@@ -65,7 +74,30 @@ public record BriefingSlot(
             String standdownReason) {
         this(locationName, solarEventTime, verdict, weather, tide, flags,
                 standdownReason, null, null, null, null,
-                DisplayVerdict.resolve(null, verdict), null);
+                DisplayVerdict.resolve(null, verdict), null, false);
+    }
+
+    /**
+     * Builds a slot whose verdict came from the woodland evaluator.
+     *
+     * <p>A named factory rather than a boolean at a call site, so the one place that produces
+     * canopy slots cannot silently stop marking them — which would restore the ambiguity this
+     * flag exists to remove.
+     *
+     * @param locationName    human-readable location name
+     * @param solarEventTime  UTC time of the solar event
+     * @param verdict         the woodland verdict (opposite polarity to a sky verdict)
+     * @param weather         weather conditions at the observer point
+     * @param flags           woodland-worded flag strings
+     * @param standdownReason primary reason for STANDDOWN, null otherwise
+     * @return a canopy-marked slot carrying no tide facts
+     */
+    public static BriefingSlot canopySlot(String locationName, LocalDateTime solarEventTime,
+            Verdict verdict, WeatherConditions weather, List<String> flags,
+            String standdownReason) {
+        return new BriefingSlot(locationName, solarEventTime, verdict, weather, TideInfo.NONE,
+                flags, standdownReason, null, null, null, null,
+                DisplayVerdict.resolve(null, verdict), null, true);
     }
 
     /**
@@ -98,7 +130,7 @@ public record BriefingSlot(
             Integer goldenHour, String summary, String headline) {
         return new BriefingSlot(locationName, solarEventTime, verdict, weather, tide,
                 flags, standdownReason, rating, fierySky, goldenHour, summary,
-                DisplayVerdict.resolve(rating, verdict), headline);
+                DisplayVerdict.resolve(rating, verdict), headline, canopy);
     }
 
     /**

@@ -54,7 +54,7 @@ class BriefingHierarchyBuilderTest {
                     slot("Durham", Verdict.GO));
 
             BriefingEventSummary summary = builder.buildEventSummary(
-                    TargetType.SUNSET, slots, locationToRegion, Set.of());
+                    TargetType.SUNSET, slots, locationToRegion);
 
             assertThat(summary.targetType()).isEqualTo(TargetType.SUNSET);
             assertThat(summary.regions()).hasSize(1);
@@ -111,7 +111,7 @@ class BriefingHierarchyBuilderTest {
                     slotWithComfort("A", Verdict.GO, 10.0, 7.0, 5.0, 0),
                     slotWithComfort("B", Verdict.GO, 12.0, 9.0, 3.0, 1),
                     slotWithComfort("C", Verdict.STANDDOWN, 20.0, 18.0, 1.0, 95));
-            BriefingRegion region = builder.buildRegion("Test", slots, Set.of());
+            BriefingRegion region = builder.buildRegion("Test", slots);
 
             assertThat(region.regionTemperatureCelsius()).isEqualTo(11.0);
             assertThat(region.regionApparentTemperatureCelsius()).isEqualTo(8.0);
@@ -124,7 +124,7 @@ class BriefingHierarchyBuilderTest {
             List<BriefingSlot> slots = List.of(
                     slotWithComfort("A", Verdict.STANDDOWN, 8.0, 5.0, 6.0, 61),
                     slotWithComfort("B", Verdict.STANDDOWN, 10.0, 7.0, 4.0, 63));
-            BriefingRegion region = builder.buildRegion("Test", slots, Set.of());
+            BriefingRegion region = builder.buildRegion("Test", slots);
 
             assertThat(region.regionTemperatureCelsius()).isEqualTo(9.0);
             assertThat(region.regionWindSpeedMs()).isEqualTo(5.0);
@@ -137,7 +137,7 @@ class BriefingHierarchyBuilderTest {
                     slotWithComfort("A", Verdict.GO, 8.0, 5.0, 5.0, 0),
                     slotWithComfort("B", Verdict.GO, 10.0, 7.0, 5.0, 3),
                     slotWithComfort("C", Verdict.GO, 12.0, 9.0, 5.0, 80));
-            BriefingRegion region = builder.buildRegion("Test", slots, Set.of());
+            BriefingRegion region = builder.buildRegion("Test", slots);
 
             // Sorted by temp: A(8), B(10), C(12) — middle index 1 → weatherCode=3
             assertThat(region.regionWeatherCode()).isEqualTo(3);
@@ -151,7 +151,7 @@ class BriefingHierarchyBuilderTest {
                             new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
                                     null, null, null, BigDecimal.ONE, 0, 0),
                             BriefingSlot.TideInfo.NONE, List.of(), null));
-            BriefingRegion region = builder.buildRegion("Test", slots, Set.of());
+            BriefingRegion region = builder.buildRegion("Test", slots);
 
             assertThat(region.regionTemperatureCelsius()).isNull();
             assertThat(region.regionApparentTemperatureCelsius()).isNull();
@@ -194,10 +194,10 @@ class BriefingHierarchyBuilderTest {
 
         /** A woodland GO: computed on inverted polarity — it means heavy cloud and mist. */
         private BriefingSlot canopyGo(String name) {
-            return new BriefingSlot(name, LocalDateTime.of(2026, 10, 12, 7, 30), Verdict.GO,
+            return BriefingSlot.canopySlot(name, LocalDateTime.of(2026, 10, 12, 7, 30), Verdict.GO,
                     new BriefingSlot.WeatherConditions(95, java.math.BigDecimal.ZERO, 3000, 95,
                             9.0, 8.0, 3, java.math.BigDecimal.ONE, 85, 20),
-                    BriefingSlot.TideInfo.NONE, List.of("Mist", "Soft even light"), null);
+                    List.of("Mist", "Soft even light"), null);
         }
 
         private BriefingSlot skyStanddown(String name) {
@@ -218,9 +218,16 @@ class BriefingHierarchyBuilderTest {
                     skyStanddown("Penshaw"), skyStanddown("Marsden"),
                     skyStanddown("Souter"), skyStanddown("Tynemouth"));
 
-            BriefingRegion contaminated = builder.buildRegion("Tyne and Wear", slots, Set.of());
-            BriefingRegion clean = builder.buildRegion(
-                    "Tyne and Wear", slots, Set.of("Houghall Woods"));
+            // The premise: strip the canopy marker and the wood votes again — which is exactly
+            // what the sky roll-up saw for every wood before this flag existed.
+            List<BriefingSlot> unmarked = slots.stream()
+                    .map(sl -> sl.canopy()
+                            ? new BriefingSlot(sl.locationName(), sl.solarEventTime(), sl.verdict(),
+                                    sl.weather(), sl.tide(), sl.flags(), sl.standdownReason())
+                            : sl)
+                    .toList();
+            BriefingRegion contaminated = builder.buildRegion("Tyne and Wear", unmarked);
+            BriefingRegion clean = builder.buildRegion("Tyne and Wear", slots);
 
             assertThat(contaminated.verdict())
                     .as("premise: without the partition the wood drags the region up")
@@ -236,8 +243,7 @@ class BriefingHierarchyBuilderTest {
         void canopySlotIsRetained() {
             List<BriefingSlot> slots = List.of(canopyGo("Houghall Woods"), skyStanddown("Penshaw"));
 
-            BriefingRegion region = builder.buildRegion(
-                    "Tyne and Wear", slots, Set.of("Houghall Woods"));
+            BriefingRegion region = builder.buildRegion("Tyne and Wear", slots);
 
             assertThat(region.slots()).hasSize(2);
             assertThat(region.slots()).anySatisfy(s -> {
@@ -252,8 +258,7 @@ class BriefingHierarchyBuilderTest {
         void allCanopyRegionFallsBack() {
             List<BriefingSlot> slots = List.of(canopyGo("Houghall Woods"), canopyGo("Plessey Woods"));
 
-            BriefingRegion region = builder.buildRegion("Durham", slots,
-                    Set.of("Houghall Woods", "Plessey Woods"));
+            BriefingRegion region = builder.buildRegion("Durham", slots);
 
             assertThat(region.verdict()).isEqualTo(Verdict.GO);
         }

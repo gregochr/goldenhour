@@ -137,6 +137,69 @@ class BriefingHonestyFilterTest {
         assertThat(BriefingHonestyFilter.apply(null)).isNull();
     }
 
+    // ── Canopy slots are not missing coverage ──────────────────────────────────
+    // This filter is failure-defence: its premise is "we expected Claude coverage and did not get
+    // it". A canopy slot is deliberately excluded from the sky batch, so it never expected any.
+    // Counting it would make a wood-bearing region read as zero-coverage and receive the failure
+    // message — a lie twice over, since nothing failed and a per-location forecast DOES exist
+    // (the deterministic woodland verdict) — and would erase those verdicts daily.
+
+    private static BriefingSlot canopySlot(String name, Verdict verdict) {
+        return BriefingSlot.canopySlot(
+                name, LocalDateTime.of(TODAY, java.time.LocalTime.of(7, 30)),
+                verdict, null, List.of("Mist", "Soft even light"), null);
+    }
+
+    @Test
+    @DisplayName("An all-canopy region is passed through, not blanked as a failure")
+    void allCanopyRegion_isNotBlanked() {
+        BriefingRegion woods = new BriefingRegion(
+                "Durham", Verdict.GO, "Clear at 2 of 2 locations", List.of(),
+                List.of(canopySlot("Houghall Woods", Verdict.GO),
+                        canopySlot("Plessey Woods", Verdict.GO)),
+                11.0, 10.0, 2.0, 3, null, null, DisplayVerdict.WORTH_IT, 0);
+        DailyBriefingResponse response = wrapAsResponse(TargetType.SUNRISE, woods);
+
+        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(response, 0.5));
+
+        assertThat(out.slots()).as("woodland verdicts survive").hasSize(2);
+        assertThat(out.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+        assertThat(out.summary()).isNotEqualTo(BriefingHonestyFilter.REPLACEMENT_SUMMARY);
+        assertThat(out.verdictLabel()).isNotEqualTo(BriefingHonestyFilter.VERDICT_LABEL);
+    }
+
+    @Test
+    @DisplayName("A genuine batch failure is still blanked — the defence is not disabled")
+    void skyRegionWithZeroCoverage_isStillBlanked() {
+        BriefingRegion failed = new BriefingRegion(
+                "Northumberland", Verdict.GO, "Clear at 4 of 4 locations", List.of(), goSlots(4),
+                14.0, 13.0, 4.5, 3, "gloss", "detail", DisplayVerdict.WORTH_IT, 0);
+        DailyBriefingResponse response = wrapAsResponse(TargetType.SUNSET, failed);
+
+        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(response, 0.5));
+
+        assertThat(out.summary()).isEqualTo(BriefingHonestyFilter.REPLACEMENT_SUMMARY);
+        assertThat(out.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+    }
+
+    @Test
+    @DisplayName("Coverage is measured against scoreable slots only, so a wood cannot dilute it")
+    void canopySlotsDoNotDiluteCoverage() {
+        // 2 sky slots, both scored, plus 2 woods. Against 4 that is 50% and would flag
+        // lightly-evaluated; against the 2 scoreable slots it is full coverage.
+        List<BriefingSlot> mixed = new java.util.ArrayList<>(goSlots(2));
+        mixed.add(canopySlot("Houghall Woods", Verdict.GO));
+        mixed.add(canopySlot("Plessey Woods", Verdict.GO));
+        BriefingRegion region = new BriefingRegion(
+                "Tyne and Wear", Verdict.GO, "Clear at 2 of 4 locations", List.of(), mixed,
+                14.0, 13.0, 4.5, 3, "gloss", "detail", DisplayVerdict.WORTH_IT, 2);
+        DailyBriefingResponse response = wrapAsResponse(TargetType.SUNRISE, region);
+
+        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(response, 0.5));
+
+        assertThat(out.lightlyEvaluated()).isFalse();
+    }
+
     // ── Lightly-evaluated tier (0 < coverage < minCoverageRatio) ────────────────
 
     @Test

@@ -51,7 +51,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.HashSet;
 
 
 /**
@@ -649,20 +648,6 @@ public class BriefingService {
         // Request-time "today" so the confidence horizon stays fresh when a briefing built
         // yesterday is served today (this method runs on both the build and the serve paths).
         LocalDate today = LocalDate.now(clock.withZone(LONDON));
-        // Canopy rosters, resolved ONCE per call rather than per slot. This runs on every serve
-        // of the briefing over ~1,900 slots, so a lookup inside the loop would be ~1,900 queries
-        // per request. Keyed by name because BriefingSlot carries no location id — the same key
-        // the briefing's own roll-up joins on.
-        Set<String> canopyOnlyNames = new HashSet<>();
-        Set<String> canopyBluebellNames = new HashSet<>();
-        for (LocationEntity loc : locationService.findAllEnabled()) {
-            if (loc.isWoodlandOnly()) {
-                canopyOnlyNames.add(loc.getName());
-                if (loc.getLocationType().contains(LocationType.BLUEBELL)) {
-                    canopyBluebellNames.add(loc.getName());
-                }
-            }
-        }
         List<BriefingDay> enrichedDays = new ArrayList<>(days.size());
         for (BriefingDay day : days) {
             List<BriefingEventSummary> enrichedEvents = new ArrayList<>();
@@ -711,12 +696,13 @@ public class BriefingService {
                     // thin-coverage rule would downgrade the whole region a band every day,
                     // including the landscape sites in it that have nothing to do with woods.
                     // A structurally unscoreable slot is not missing coverage.
-                    boolean bloomOn = bluebellSeason.isActive(day.date());
+                    // Coverage denominator counts only slots that COULD carry a rating. A canopy
+                    // slot has no sky evaluation by construction, so leaving it in rosterSize
+                    // would make a wood-bearing region look permanently under-covered and
+                    // downgrade its confidence a band every day — including for the sky
+                    // locations in it. A structurally unscoreable slot is not missing coverage.
                     long scoreableRoster = enrichedSlots.stream()
-                            .filter(slot -> !canopyOnlyNames.contains(slot.locationName())
-                                    // In season a canopy bluebell site IS scored, by the
-                                    // bluebell prompt, so it counts toward coverage.
-                                    || (bloomOn && canopyBluebellNames.contains(slot.locationName())))
+                            .filter(slot -> !slot.canopy())
                             .count();
                     Confidence confidence = ConfidenceDeriver.derive(
                             daysAhead, stats, (int) scoreableRoster);
