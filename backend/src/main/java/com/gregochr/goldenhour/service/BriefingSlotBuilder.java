@@ -1,7 +1,6 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
@@ -20,7 +19,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.Set;
 import java.util.Optional;
 
 /**
@@ -130,7 +128,7 @@ public class BriefingSlotBuilder {
         // stand-down for a sunset and the ideal under a canopy. Routing here rather than branching
         // inside BriefingVerdictEvaluator keeps one polarity per class — see
         // WoodlandVerdictEvaluator's class javadoc for the four rules that flip.
-        if (isWoodlandOnly(loc)) {
+        if (loc.isWoodlandOnly()) {
             return buildWoodlandSlot(loc, solarTime, lowCloud, midCloud, highCloud, precip,
                     visibility, humidity, temp, apparentTemp, weatherCode, windSpeed);
         }
@@ -205,27 +203,6 @@ public class BriefingSlotBuilder {
 
         return new BriefingSlot(loc.getName(), solarTime, verdict, weather, tideInfo, flags,
                 standdownReason);
-    }
-
-    /**
-     * True when this location is judged by woodland rules rather than sky rules.
-     *
-     * <p>Deliberately <em>woodland-only</em>: a site carrying both WOODLAND and a genuine open
-     * type (Allen Banks is a wood that also has an aspect) keeps the sky chain, because it has a
-     * horizon to forecast and the sky verdict is the one that decides whether to drive there.
-     * Only a site whose <em>sole</em> subject is under canopy gets the inverted rules.
-     *
-     * @param loc the location
-     * @return true if WOODLAND is present and no open-sky colour type is
-     */
-    private boolean isWoodlandOnly(LocationEntity loc) {
-        Set<LocationType> types = loc.getLocationType();
-        if (types == null || !types.contains(LocationType.WOODLAND)) {
-            return false;
-        }
-        return !types.contains(LocationType.LANDSCAPE)
-                && !types.contains(LocationType.SEASCAPE)
-                && !types.contains(LocationType.WATERFALL);
     }
 
     /**
