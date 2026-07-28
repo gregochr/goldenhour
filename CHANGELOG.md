@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — editing a location silently dropped all but one of its types
+- **The entity has always stored a set; the request carried a scalar.** `AddLocationRequest` and `UpdateLocationRequest` took a single `LocationType`, and `LocationService` expanded it with `Set.of(...)` — a full replace. Opening a location in the admin editor reduced its types to `set[0]`, and saving persisted that. **Editing only a location's name dropped every other type.**
+- **Which type survived was arbitrary.** The set arrives from a Java `HashSet`, whose iteration order is not stable — so the same location could lose a different type on a different day.
+- **Already live, independent of woodland.** Production carries 263 type rows across 242 locations, so roughly **21 locations hold two or more types** today. It also took tide preferences with it: the editor keys its tide rules off the collapsed scalar, so a `[SEASCAPE, WOODLAND]` site collapsing the wrong way was sent `tideTypes: []`.
+- **And it undoes the woodland work on contact.** Dropping `WOODLAND` from one of the 15 woods puts it straight back on sky scoring — the thing V132 and #349 existed to stop.
+- Both records now take `Set<LocationType>`, matching their own `solarEventTypes`/`tideTypes` siblings. An **empty set is rejected**, not ignored: silently keeping the old types would hide a broken UI, and silently writing an empty set would drop the location out of every evaluation lane at once — invisible until nothing was ever forecast for it again.
+- **Two further defects found on the way.** `UpdateLocationRequest` coerced a null `tideTypes` to `Set.of()` in its canonical constructor, making the `!= null` guard in `update()` permanently true — so a caller that merely *omitted* the field had a coastal location's tide preferences **wiped** rather than left alone, the exact opposite of the "null = don't change" contract the record documents. And the SEASCAPE test is now `contains()` rather than equality, so a wooded clifftop keeps its tides.
+- Tide seeding fires only on an actual coastal transition; re-seeding on every change would wipe a curated preference the moment an unrelated chip was added.
+- Every new test was **mutation-checked**: restoring the `set[0]` collapse, the null→empty coercion, the always-reseed and dropping the last-chip guard each fail exactly the tests that pin them.
+
+### Added — the frontend learns about WOODLAND
+- `grep -ri woodland frontend/src` returned **nothing** outside test fixtures. Five display maps enumerate location types and none listed it, so the 15 woods arriving with the v2.17.2 deploy had no icon, no badge, no popup label and no map filter.
+- **The map filter was the damaging one.** `LOCATION_TYPE_LABELS` drives both the chip row *and*, through `activeTypeFilters`, the filter predicate — so a type absent from that map can never be a member of the active set, and a location carrying only that type matched nothing. Selecting **any** Subject chip made every woodland-only site vanish, with no chip that could bring it back. That reads as *"those locations are missing"*, not *"those locations are filtered out"*.
+- Deliberately **not** changed: the type *predicates* in `PromptTestView`, `ModelTestView` and `JobRunsMetricsView` omit WOODLAND on purpose, mirroring the backend's `hasColourTypes()` — a wood must not appear in a colour-model test roster. Nor `MarkerPopupContent`'s `"Bluebell:"` label, which is gated on `bluebellScore` and genuinely describes bluebell conditions; a woodland line belongs with the woodland prompt, when there is a woodland score to show.
+
 ## [v2.17.2] - 2026-07-28
 
 ### Fixed — #347 put canopy sites back in the sky lane, and let their verdicts vote in the sky roll-up
