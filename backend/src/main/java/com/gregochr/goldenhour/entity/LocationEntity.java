@@ -238,7 +238,8 @@ public class LocationEntity {
         }
         return locationType.contains(LocationType.LANDSCAPE)
                 || locationType.contains(LocationType.SEASCAPE)
-                || locationType.contains(LocationType.WATERFALL);
+                || locationType.contains(LocationType.WATERFALL)
+                || locationType.contains(LocationType.WOODLAND);
     }
 
     /**

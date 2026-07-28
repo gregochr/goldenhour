@@ -597,6 +597,8 @@ public class BriefingService {
         if (location.getLocationType().isEmpty()) {
             return true;
         }
+        // WOODLAND counts as year-round (V134): a wood has a subject in October, it just is not
+        // the sky. BLUEBELL alone does not — that is a seasonal display, not a place to stand.
         boolean hasYearRoundColourType = location.getLocationType().stream()
                 .anyMatch(t -> t != LocationType.WILDLIFE && t != LocationType.BLUEBELL);
         if (hasYearRoundColourType) {

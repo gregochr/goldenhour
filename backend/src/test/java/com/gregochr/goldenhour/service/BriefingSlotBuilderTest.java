@@ -56,7 +56,8 @@ class BriefingSlotBuilderTest {
     void setUp() {
         slotBuilder = new BriefingSlotBuilder(solarService, locationService,
                 new TideFactDeriver(tideService, lunarPhaseService, solarService),
-                new BriefingVerdictEvaluator());
+                new BriefingVerdictEvaluator(),
+                new WoodlandVerdictEvaluator());
     }
 
     /** Wraps one tide curve as a dual-window result; the briefing path ignores the widened one. */
@@ -75,6 +76,86 @@ class BriefingSlotBuilderTest {
                         LocalDateTime.of(2026, 3, 25, 18, 30),
                         LocalDateTime.of(2026, 3, 25, 17, 30),
                         LocalDateTime.of(2026, 3, 25, 18, 0)));
+    }
+
+    @Nested
+    @DisplayName("Woodland routing in buildSlot")
+    class WoodlandRoutingTests {
+
+        private static final LocalDateTime SOLAR_TIME = LocalDateTime.of(2026, 10, 12, 7, 30);
+
+        private LocationEntity woodLoc(LocationType... types) {
+            return LocationEntity.builder()
+                    .id(20L).name("Houghall Woods").lat(54.76).lon(-1.56)
+                    .locationType(Set.of(types))
+                    .tideType(Set.of())
+                    .solarEventType(Set.of())
+                    .enabled(true)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+        }
+
+        /** Heavy overcast with mist — a woodland GO and a sky STANDDOWN. */
+        private OpenMeteoForecastResponse mistyOvercast() {
+            OpenMeteoForecastResponse f = buildForecastResponse();
+            f.getHourly().getCloudCoverLow().replaceAll(ignored -> 95);
+            f.getHourly().getCloudCoverMid().replaceAll(ignored -> 85);
+            f.getHourly().getVisibility().replaceAll(ignored -> 3000.0);
+            return f;
+        }
+
+        private BriefingSlot build(LocationEntity loc, OpenMeteoForecastResponse forecast) {
+            // No stubSolarWindow() here: the woodland branch returns before the tide lookup that
+            // consumes it, which is itself the point — a wood is never coastal.
+            when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            return slotBuilder.buildSlot(
+                    new BriefingSlotBuilder.LocationWeather(loc, forecast),
+                    SOLAR_TIME.toLocalDate(), TargetType.SUNRISE);
+        }
+
+        @Test
+        @DisplayName("A woodland-only site takes the woodland rules — misty overcast is GO, not STANDDOWN")
+        void woodlandOnly_takesWoodlandRules() {
+            BriefingSlot slot = build(woodLoc(LocationType.WOODLAND, LocationType.BLUEBELL),
+                    mistyOvercast());
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.verdict()).isEqualTo(Verdict.GO);
+            assertThat(slot.flags()).contains("Mist", "Soft even light");
+        }
+
+        @Test
+        @DisplayName("The same weather at a LANDSCAPE site still stands down — the fork is per-location")
+        void skySiteUnaffected() {
+            BriefingSlot slot = build(woodLoc(LocationType.LANDSCAPE), mistyOvercast());
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.verdict()).isEqualTo(Verdict.STANDDOWN);
+        }
+
+        // Allen Banks is the real case: a wood that also has an aspect. It has a horizon to
+        // forecast, so the sky verdict is the one that decides whether to drive there.
+        @Test
+        @DisplayName("A wood that ALSO has an open type keeps the sky chain")
+        void woodlandPlusLandscape_keepsSkyRules() {
+            BriefingSlot slot = build(woodLoc(LocationType.WOODLAND, LocationType.LANDSCAPE),
+                    mistyOvercast());
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.verdict()).isEqualTo(Verdict.STANDDOWN);
+        }
+
+        @Test
+        @DisplayName("A woodland slot carries no tide facts — a wood is not coastal")
+        void woodlandCarriesNoTideData() {
+            BriefingSlot slot = build(woodLoc(LocationType.WOODLAND), mistyOvercast());
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.tide()).isEqualTo(BriefingSlot.TideInfo.NONE);
+            assertThat(slot.tide().tideState()).isNull();
+            assertThat(slot.tide().tideAligned()).isFalse();
+        }
     }
 
     @Nested

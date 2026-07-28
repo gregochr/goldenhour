@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
@@ -19,6 +20,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Set;
 import java.util.Optional;
 
 /**
@@ -40,6 +42,7 @@ public class BriefingSlotBuilder {
     private final LocationService locationService;
     private final TideFactDeriver tideFactDeriver;
     private final BriefingVerdictEvaluator verdictEvaluator;
+    private final WoodlandVerdictEvaluator woodlandVerdictEvaluator;
 
     /**
      * Constructs a {@code BriefingSlotBuilder}.
@@ -48,14 +51,17 @@ public class BriefingSlotBuilder {
      * @param locationService   service for location metadata (coastal checks)
      * @param tideFactDeriver   the single seam for deriving tide facts
      * @param verdictEvaluator  evaluator for slot verdicts and flag generation
+     * @param woodlandVerdictEvaluator evaluator for canopy locations, whose polarity is inverted
      */
     public BriefingSlotBuilder(SolarService solarService, LocationService locationService,
             TideFactDeriver tideFactDeriver,
-            BriefingVerdictEvaluator verdictEvaluator) {
+            BriefingVerdictEvaluator verdictEvaluator,
+            WoodlandVerdictEvaluator woodlandVerdictEvaluator) {
         this.solarService = solarService;
         this.locationService = locationService;
         this.tideFactDeriver = tideFactDeriver;
         this.verdictEvaluator = verdictEvaluator;
+        this.woodlandVerdictEvaluator = woodlandVerdictEvaluator;
     }
 
     /**
@@ -119,6 +125,15 @@ public class BriefingSlotBuilder {
                 ? h.getWeatherCode().get(idx) : null;
         BigDecimal windSpeed = BigDecimal.valueOf(h.getWindSpeed10m().get(idx))
                 .setScale(DECIMAL_SCALE, RoundingMode.HALF_UP);
+
+        // A wood is judged by different rules, because the two subjects invert: flat overcast is a
+        // stand-down for a sunset and the ideal under a canopy. Routing here rather than branching
+        // inside BriefingVerdictEvaluator keeps one polarity per class — see
+        // WoodlandVerdictEvaluator's class javadoc for the four rules that flip.
+        if (isWoodlandOnly(loc)) {
+            return buildWoodlandSlot(loc, solarTime, lowCloud, midCloud, highCloud, precip,
+                    visibility, humidity, temp, apparentTemp, weatherCode, windSpeed);
+        }
 
         // Extract low cloud for 3 hours leading into the event (earliest first)
         List<Integer> lowCloudTrend = extractLowCloudTrend(h, idx);
@@ -190,6 +205,57 @@ public class BriefingSlotBuilder {
 
         return new BriefingSlot(loc.getName(), solarTime, verdict, weather, tideInfo, flags,
                 standdownReason);
+    }
+
+    /**
+     * True when this location is judged by woodland rules rather than sky rules.
+     *
+     * <p>Deliberately <em>woodland-only</em>: a site carrying both WOODLAND and a genuine open
+     * type (Allen Banks is a wood that also has an aspect) keeps the sky chain, because it has a
+     * horizon to forecast and the sky verdict is the one that decides whether to drive there.
+     * Only a site whose <em>sole</em> subject is under canopy gets the inverted rules.
+     *
+     * @param loc the location
+     * @return true if WOODLAND is present and no open-sky colour type is
+     */
+    private boolean isWoodlandOnly(LocationEntity loc) {
+        Set<LocationType> types = loc.getLocationType();
+        if (types == null || !types.contains(LocationType.WOODLAND)) {
+            return false;
+        }
+        return !types.contains(LocationType.LANDSCAPE)
+                && !types.contains(LocationType.SEASCAPE)
+                && !types.contains(LocationType.WATERFALL);
+    }
+
+    /**
+     * Builds a slot for a canopy location, using {@link WoodlandVerdictEvaluator}.
+     *
+     * <p>Shares the {@link BriefingSlot} shape and the {@link Verdict} enum with the sky path — only
+     * the rules and the flag wording differ, so everything downstream (roll-ups, the grid, the
+     * drill-down) needs no knowledge of the fork. Tide data is not derived: a wood is not coastal,
+     * and a tide fact on a woodland card would be noise.
+     */
+    private BriefingSlot buildWoodlandSlot(LocationEntity loc, LocalDateTime solarTime,
+            int lowCloud, int midCloud, int highCloud, BigDecimal precip, int visibility,
+            int humidity, Double temp, Double apparentTemp, Integer weatherCode,
+            BigDecimal windSpeed) {
+        WoodlandVerdictEvaluator.WoodlandMetrics metrics =
+                new WoodlandVerdictEvaluator.WoodlandMetrics(
+                        lowCloud, midCloud, visibility, precip, windSpeed);
+
+        Verdict verdict = woodlandVerdictEvaluator.determineVerdict(metrics);
+        List<String> flags = woodlandVerdictEvaluator.buildFlags(metrics);
+        String standdownReason = verdict == Verdict.STANDDOWN
+                ? woodlandVerdictEvaluator.deriveStanddownReason(metrics)
+                : null;
+
+        BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
+                lowCloud, precip, visibility, humidity, temp, apparentTemp, weatherCode, windSpeed,
+                midCloud, highCloud);
+
+        return new BriefingSlot(loc.getName(), solarTime, verdict, weather,
+                BriefingSlot.TideInfo.NONE, flags, standdownReason);
     }
 
     /**
