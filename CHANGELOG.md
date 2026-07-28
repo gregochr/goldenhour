@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Map legend names the product, not the model
+- The map's bottom legend read **"★ Claude-scored locations shown"**, naming the vendor behind the scoring rather than the thing the user is looking at. It now reads **"★ PhotoCast-scored locations shown"**.
+- Which model produced a score is an implementation detail that has already changed more than once (Haiku/Sonnet/Opus per run type, and the batch near/far split). The legend's job is to distinguish scored pins from unscored ones, and that distinction is stable regardless of what runs underneath.
+- The `data-testid` moved with it (`claude-scored-legend` → `photocast-scored-legend`) so the hook does not outlive the label it names. Nothing referenced either string, so no tests or other call sites changed.
+- Copy elsewhere that names Claude *because the topic is the model* — the Manage tab's model selection, cost estimates, health probes — is deliberately untouched.
+
 ### Changed — one source of truth for location types, and two harnesses that had drifted from it
 
 - **The type map lived in five copies**, and adding WOODLAND cost five hand-edits to keep them in step. `MapView.LOCATION_TYPE_LABELS`, `LocationTypeBadges.LOCATION_TYPE_META`, `MarkerPopupContent.POPUP_LOC_TYPE_META`, `briefingDisplay.LOCATION_TYPE_ICONS` and `LocationManagementView.LOCATION_TYPES` now all derive from `utils/locationTypes.js`.

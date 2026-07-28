@@ -1269,19 +1269,19 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
           </div>
         )}
 
-        {/* Legend: show when Claude-scored pins are visible */}
+        {/* Legend: show when PhotoCast-scored pins are visible */}
         {!isAuroraMode && !isAstroMode && briefingScores.size > 0 && (() => {
           const suffix = `|${date}|${eventType}|`;
           for (const key of briefingScores.keys()) {
             if (key.includes(suffix)) {
               return (
                 <div
-                  data-testid="claude-scored-legend"
+                  data-testid="photocast-scored-legend"
                   className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[1000] bg-plex-surface/80 backdrop-blur-sm
                     text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30"
                   style={{ fontSize: '11px' }}
                 >
-                  ★ Claude-scored locations shown
+                  ★ PhotoCast-scored locations shown
                 </div>
               );
             }
