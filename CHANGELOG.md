@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — The aurora overlay dropped `bestBetStatus`, silently disabling two features
+- **Found while instrumenting the briefing serve path for performance work, not by a bug report** — which is the point. Nothing threw, nothing logged, and every existing test passed.
+- **`getCachedBriefing` overlays live aurora and hot topics** onto the persisted briefing so simulation toggles take effect without a full refresh. When the live values differ it rebuilds the response — and did so through the **12-arg convenience constructor**, which delegates with `bestBetStatus = null`. It was the *only* production site that dropped it; `BriefingService:344`, `:490`, `:505`, `:515` and `BriefingHonestyFilter:116` all pass it explicitly.
+- **Two consumers switch on that field, and both failed silently.** `applyBestBetFallback` returns early unless the status is `FAILED`, so the serve-time fallback never fired and the user saw the honest empty state instead of the last good pick. And `DailyBriefing.jsx:1300` renders the "from an earlier forecast" warning on `bestBetStatus === 'FAILED'`, so the staleness cue never appeared — under a comment reading *"Switch on the explicit bestBetStatus, not an inferred empty array"*, describing a guarantee the backend was not upholding.
+- **Both went dark on exactly the requests that reach the rebuild branch** — whenever aurora is live or a hot-topic simulation is toggled, which is the moment the fallback exists for.
+- **The existing tests missed it structurally**: their live aurora equals the cached value, so the overlay short-circuits at the `Objects.equals` early return and never rebuilds. The new test forces the rebuild with a differing live summary. **Verified by mutation** — reverting the one-line fix turns it red and nothing else in the 6,025-test suite notices.
+- Also documents the trap on the 12-arg constructor: safe for building a response from scratch with no status yet, wrong for copying or overlaying an existing one.
+
 ## [v2.17.1] - 2026-07-28
 
 ### Changed — CHANGELOG's `[Unreleased]` split into the 13 releases it actually shipped in

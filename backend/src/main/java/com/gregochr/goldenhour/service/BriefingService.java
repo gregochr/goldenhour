@@ -240,11 +240,19 @@ public class BriefingService {
                     && Objects.equals(cached.hotTopics(), liveTopics)) {
                 return cached;
             }
+            // bestBetStatus MUST be carried through. This rebuild overlays live aurora and hot
+            // topics; it is not a new verdict on the best-bet advisor, so dropping the status
+            // silently disables two things that switch on it — the serve-time fallback in
+            // applyBestBetFallback (which returns early unless the status is FAILED) and the
+            // frontend's "from an earlier forecast" chip. Both would go dark on exactly the
+            // requests that reach this branch, i.e. whenever aurora is live or a hot-topic
+            // simulation is toggled. The 12-arg convenience constructor defaults it to null,
+            // which is why this passes all 13 explicitly.
             return new DailyBriefingResponse(
                     cached.generatedAt(), cached.headline(), cached.days(), cached.bestBets(),
                     liveTonight, liveTomorrow, cached.stale(), cached.partialFailure(),
                     cached.failedLocationCount(), cached.bestBetModel(),
-                    liveTopics, cached.seasonalFeatures());
+                    liveTopics, cached.seasonalFeatures(), cached.bestBetStatus());
         } catch (Exception e) {
             LOG.warn("Aurora overlay failed — returning briefing without live aurora: {}",
                     e.getMessage());

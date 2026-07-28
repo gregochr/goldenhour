@@ -300,6 +300,40 @@ class BriefingServiceTest {
             assertThat(api.bestBets()).isEmpty();
         }
 
+        /**
+         * Regression guard. The aurora/hot-topic overlay in {@code getCachedBriefing} rebuilds the
+         * response, and it used to do so through the 12-arg convenience constructor, which defaults
+         * {@code bestBetStatus} to null. Nothing threw: the fallback below simply stopped firing
+         * (it returns early unless the status is FAILED) and the frontend's "from an earlier
+         * forecast" chip stopped rendering — on precisely the requests that reach this branch, i.e.
+         * whenever aurora is live or a hot-topic simulation is toggled.
+         *
+         * <p>The other tests in this class miss it because their live aurora/topics equal the
+         * cached ones, so the overlay short-circuits before rebuilding. This one forces the rebuild
+         * by returning a live aurora summary that differs from the cached (null) one.
+         */
+        @Test
+        @DisplayName("Aurora overlay rebuild preserves bestBetStatus → fallback still fires")
+        void auroraOverlayRebuild_preservesBestBetStatus() {
+            refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult.failed());
+            // Differs from the cached (null) summary, so the overlay takes the rebuild branch
+            // rather than the Objects.equals early return.
+            when(auroraSummaryBuilder.buildAuroraTonightCached()).thenReturn(
+                    new AuroraTonightSummary(null, 5.0, 3, 7, List.of(),
+                            420.0, "Waxing Gibbous", 62.0, true, "GOOD", "21:10", "04:55"));
+            when(bestBetFallbackService.findFreshFallback()).thenReturn(List.of(fallbackPick()));
+
+            DailyBriefingResponse api = briefingService.getCachedBriefingForApi();
+
+            assertThat(api.auroraTonight()).as("overlay must have rebuilt").isNotNull();
+            assertThat(api.bestBetStatus())
+                    .as("status must survive the overlay rebuild")
+                    .isEqualTo(com.gregochr.goldenhour.model.BestBetStatus.FAILED);
+            assertThat(api.bestBets())
+                    .as("fallback fires only if the status survived")
+                    .hasSize(1);
+        }
+
         @Test
         @DisplayName("SUCCESS_NO_PICKS (honest decline) → fallback NOT consulted, empty preserved")
         void honestDecline_doesNotConsultFallback() {
