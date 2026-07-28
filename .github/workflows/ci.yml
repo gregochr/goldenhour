@@ -9,15 +9,81 @@ on:
 
 jobs:
 
+  # ── Docs-only detection ──────────────────────────────────────────────────────
+  # A CHANGELOG or docs/ change cannot break a test, so running the full suite for
+  # one costs ~8 minutes to prove nothing.
+  #
+  # The obvious approach — `paths-ignore` on the trigger — is a TRAP here. Branch
+  # protection requires "Backend — Build, Test & Coverage" and "Frontend — Lint,
+  # Test & Build" to REPORT. A workflow filtered out by path never runs, so those
+  # checks never report, and the PR sits BLOCKED forever with no way to satisfy it.
+  #
+  # So the jobs always run and always report; only their expensive STEPS are
+  # skipped. A docs-only PR still shows both checks green, in seconds.
+  #
+  # Fail-safe by construction: every ambiguous case (not a PR, empty diff, any
+  # non-doc path, any error) yields docs_only=false and the full suite runs. The
+  # only route to skipping is an explicit, non-empty, entirely-documentation diff.
+  changes:
+    name: Detect docs-only change
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.detect.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: detect
+        name: Classify the diff
+        run: |
+          set -euo pipefail
+          # push to main and workflow_call (the deploy path) ALWAYS run in full —
+          # a release must be verified whatever it happens to contain.
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "Event is ${{ github.event_name }}, not pull_request — running the full suite."
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          BASE='${{ github.event.pull_request.base.sha }}'
+          HEAD='${{ github.event.pull_request.head.sha }}'
+          CHANGED=$(git diff --name-only "$BASE" "$HEAD" || true)
+
+          if [ -z "$CHANGED" ]; then
+            echo "Empty diff — running the full suite rather than guessing."
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Changed files:"
+          echo "$CHANGED" | sed 's/^/  /'
+
+          # Documentation is *.md anywhere, or anything under docs/. Deliberately
+          # narrow: .github/workflows/** is code, and so is everything else.
+          NON_DOC=$(echo "$CHANGED" | grep -vE '(^docs/|\.md$)' || true)
+
+          if [ -z "$NON_DOC" ]; then
+            echo "Documentation only — the suite proves nothing here, skipping it."
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Non-documentation paths present:"
+            echo "$NON_DOC" | sed 's/^/  /'
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # ── Backend ──────────────────────────────────────────────────────────────────
   backend:
+    needs: changes
     name: Backend — Build, Test & Coverage
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.docs_only != 'true'
 
       - name: Set up JDK 21
+        if: needs.changes.outputs.docs_only != 'true'
         uses: actions/setup-java@v4
         with:
           java-version: '21'
@@ -30,6 +96,7 @@ jobs:
       # (ubuntu-latest ships one; a runner without Docker will fail those five classes.)
       # mvn verify also runs JaCoCo (80% line minimum) and SpotBugs — see below.
       - name: Build, test, and verify coverage
+        if: needs.changes.outputs.docs_only != 'true'
         run: |
           chmod +x backend/mvnw
           cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress
@@ -50,28 +117,38 @@ jobs:
 
       # Produced by the forked spotbugs:spotbugs run inside the verify-phase check goal.
       - name: Upload SpotBugs report
-        if: always()
+        if: always() && needs.changes.outputs.docs_only != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: spotbugs-report
           path: backend/target/spotbugsXml.xml
 
       - name: Upload JaCoCo coverage report
-        if: always()
+        if: always() && needs.changes.outputs.docs_only != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-report
           path: backend/target/site/jacoco/
 
+      - name: Documentation-only change — suite skipped
+        if: needs.changes.outputs.docs_only == 'true'
+        run: |
+          echo "Every changed path is documentation (*.md or docs/**)."
+          echo "The suite was skipped deliberately — see the 'Detect docs-only change' job."
+          echo "This check reports success so branch protection is satisfied."
+
   # ── Frontend ─────────────────────────────────────────────────────────────────
   frontend:
+    needs: changes
     name: Frontend — Lint, Test & Build
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.docs_only != 'true'
 
       - name: Set up Node 22
+        if: needs.changes.outputs.docs_only != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -79,19 +156,31 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
+        if: needs.changes.outputs.docs_only != 'true'
         run: cd frontend && npm ci
 
       - name: Lint
+        if: needs.changes.outputs.docs_only != 'true'
         run: cd frontend && npm run lint
 
       - name: Unit tests (Vitest)
+        if: needs.changes.outputs.docs_only != 'true'
         run: cd frontend && npm test
 
       - name: OWASP Dependency Audit (frontend)
+        if: needs.changes.outputs.docs_only != 'true'
         run: cd frontend && npm audit --audit-level=high
 
       - name: Build
+        if: needs.changes.outputs.docs_only != 'true'
         run: cd frontend && npm run build
+
+      - name: Documentation-only change — suite skipped
+        if: needs.changes.outputs.docs_only == 'true'
+        run: |
+          echo "Every changed path is documentation (*.md or docs/**)."
+          echo "The suite was skipped deliberately — see the 'Detect docs-only change' job."
+          echo "This check reports success so branch protection is satisfied."
 
   # ── Playwright E2E ───────────────────────────────────────────────────────────
   # E2E tests require a live Spring Boot backend (Open-Meteo + Claude + DB).
