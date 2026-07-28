@@ -175,44 +175,94 @@ class BriefingServiceTest {
     @DisplayName("Colour location filter")
     class ColourFilterTests {
 
-        @Test
-        @DisplayName("LANDSCAPE location is colour")
-        void landscape() {
-            LocationEntity loc = LocationEntity.builder()
+        /** Inside the Apr 18 - May 18 window. */
+        private static final LocalDate IN_SEASON = LocalDate.of(2026, 5, 1);
+        /** Outside it, and the same date as the fixed test clock. */
+        private static final LocalDate OUT_OF_SEASON = LocalDate.of(2026, 1, 15);
+
+        private LocationEntity typed(LocationType... types) {
+            return LocationEntity.builder()
                     .name("Test").lat(55).lon(-1)
-                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .locationType(Set.of(types))
                     .build();
-            assertThat(briefingService.isColourLocation(loc)).isTrue();
+        }
+
+        @Test
+        @DisplayName("LANDSCAPE location is colour, in or out of season")
+        void landscape() {
+            LocationEntity loc = typed(LocationType.LANDSCAPE);
+            assertThat(briefingService.isColourLocation(loc, OUT_OF_SEASON)).isTrue();
+            assertThat(briefingService.isColourLocation(loc, IN_SEASON)).isTrue();
         }
 
         @Test
         @DisplayName("Pure WILDLIFE location is excluded")
         void wildlife() {
-            LocationEntity loc = LocationEntity.builder()
-                    .name("Test").lat(55).lon(-1)
-                    .locationType(Set.of(LocationType.WILDLIFE))
-                    .build();
-            assertThat(briefingService.isColourLocation(loc)).isFalse();
+            assertThat(briefingService.isColourLocation(typed(LocationType.WILDLIFE), IN_SEASON))
+                    .isFalse();
         }
 
         @Test
         @DisplayName("Mixed WILDLIFE + SEASCAPE location is included")
         void mixed() {
-            LocationEntity loc = LocationEntity.builder()
-                    .name("Test").lat(55).lon(-1)
-                    .locationType(Set.of(LocationType.WILDLIFE, LocationType.SEASCAPE))
-                    .build();
-            assertThat(briefingService.isColourLocation(loc)).isTrue();
+            LocationEntity loc = typed(LocationType.WILDLIFE, LocationType.SEASCAPE);
+            assertThat(briefingService.isColourLocation(loc, OUT_OF_SEASON)).isTrue();
         }
 
         @Test
         @DisplayName("Empty location type defaults to colour")
         void emptyType() {
-            LocationEntity loc = LocationEntity.builder()
-                    .name("Test").lat(55).lon(-1)
-                    .locationType(Set.of())
-                    .build();
-            assertThat(briefingService.isColourLocation(loc)).isTrue();
+            assertThat(briefingService.isColourLocation(typed(), OUT_OF_SEASON)).isTrue();
+        }
+
+        // ── The season gate ────────────────────────────────────────────────
+        // BLUEBELL is not a colour type in its own right: an enclosed wood has no horizon, so
+        // outside the bloom there is nothing for a sunrise forecast to be about. Before this,
+        // the check admitted anything that was not WILDLIFE, so woods like Houghall were briefed
+        // in July.
+
+        @Test
+        @DisplayName("Bluebell-only wood is a candidate during the bloom")
+        void bluebellOnly_inSeason() {
+            assertThat(briefingService.isColourLocation(typed(LocationType.BLUEBELL), IN_SEASON))
+                    .isTrue();
+        }
+
+        @Test
+        @DisplayName("Bluebell-only wood drops out once the bloom is over")
+        void bluebellOnly_outOfSeason() {
+            assertThat(briefingService.isColourLocation(typed(LocationType.BLUEBELL), OUT_OF_SEASON))
+                    .isFalse();
+        }
+
+        @Test
+        @DisplayName("A bluebell site that is ALSO landscape stays year-round (Roseberry Topping)")
+        void bluebellPlusLandscape_isYearRound() {
+            LocationEntity loc = typed(LocationType.BLUEBELL, LocationType.LANDSCAPE);
+            assertThat(briefingService.isColourLocation(loc, IN_SEASON)).isTrue();
+            assertThat(briefingService.isColourLocation(loc, OUT_OF_SEASON)).isTrue();
+        }
+
+        @Test
+        @DisplayName("Season boundaries are inclusive at both ends")
+        void seasonBoundariesInclusive() {
+            LocationEntity wood = typed(LocationType.BLUEBELL);
+            assertThat(briefingService.isColourLocation(wood, LocalDate.of(2026, 4, 18)))
+                    .as("first day of the window").isTrue();
+            assertThat(briefingService.isColourLocation(wood, LocalDate.of(2026, 5, 18)))
+                    .as("last day of the window").isTrue();
+            assertThat(briefingService.isColourLocation(wood, LocalDate.of(2026, 4, 17)))
+                    .as("day before").isFalse();
+            assertThat(briefingService.isColourLocation(wood, LocalDate.of(2026, 5, 19)))
+                    .as("day after").isFalse();
+        }
+
+        @Test
+        @DisplayName("WILDLIFE + BLUEBELL is seasonal, not year-round — wildlife is not a colour type")
+        void wildlifePlusBluebell() {
+            LocationEntity loc = typed(LocationType.WILDLIFE, LocationType.BLUEBELL);
+            assertThat(briefingService.isColourLocation(loc, IN_SEASON)).isTrue();
+            assertThat(briefingService.isColourLocation(loc, OUT_OF_SEASON)).isFalse();
         }
     }
 
