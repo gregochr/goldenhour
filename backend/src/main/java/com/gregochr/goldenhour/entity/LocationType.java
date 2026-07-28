@@ -22,5 +22,18 @@ public enum LocationType {
     WATERFALL,
 
     /** Known bluebell site — scored for bluebell conditions during season (April–May). */
-    BLUEBELL
+    BLUEBELL,
+
+    /**
+     * Under a canopy: the sky is not in the frame.
+     *
+     * <p>Structural and year-round, unlike {@link #BLUEBELL}, which is a seasonal subject that
+     * happens to occur in woods. A site can be both (an enclosed bluebell wood), or one without
+     * the other — Rannerdale Knotts is BLUEBELL on an open fell; a gorge is WOODLAND with no
+     * bluebells. Keeping them apart is what lets a wood be forecast in October.
+     *
+     * <p>Routes verdicts to {@code WoodlandVerdictEvaluator} instead of the sky chain, because the
+     * two invert: flat overcast is a stand-down for a sunset and the ideal for a canopy.
+     */
+    WOODLAND
 }
