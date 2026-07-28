@@ -381,8 +381,14 @@ public class BriefingService {
         long briefingStart = System.currentTimeMillis();
         JobRunEntity jobRun = jobRunService.startRun(RunType.BRIEFING, false, null);
 
+        LocalDate today = LocalDate.now(clock.withZone(LONDON));
+        List<LocalDate> dates = List.of(today, today.plusDays(1), today.plusDays(2), today.plusDays(3));
+
+        // Candidacy is tested across the whole briefed window, not just today: a bluebell site
+        // whose bloom opens in two days belongs in a briefing that already covers that day, and
+        // one whose bloom ends tomorrow should stay until it does.
         List<LocationEntity> colourLocations = locationService.findAllEnabled().stream()
-                .filter(this::isColourLocation)
+                .filter(loc -> dates.stream().anyMatch(d -> isColourLocation(loc, d)))
                 .toList();
 
         if (colourLocations.isEmpty()) {
@@ -390,9 +396,6 @@ public class BriefingService {
             jobRunService.completeRun(jobRun, 0, 0);
             return;
         }
-
-        LocalDate today = LocalDate.now(clock.withZone(LONDON));
-        List<LocalDate> dates = List.of(today, today.plusDays(1), today.plusDays(2), today.plusDays(3));
 
         int succeeded = 0;
         int failed = 0;
@@ -565,17 +568,42 @@ public class BriefingService {
     }
 
     /**
-     * Determines whether a location is a colour photography location (not pure wildlife).
+     * Determines whether a location is a candidate for the colour (sunrise/sunset) briefing on the
+     * given date.
+     *
+     * <p>A location qualifies on either of two grounds:
+     * <ul>
+     *   <li>it carries a <b>year-round colour type</b> — LANDSCAPE, SEASCAPE or WATERFALL; or</li>
+     *   <li>it is a <b>BLUEBELL site and the bloom is on</b>, which is a seasonal candidacy that
+     *       expires with the window.</li>
+     * </ul>
+     *
+     * <p>The seasonal clause is the point. BLUEBELL is not a colour type in its own right: an
+     * enclosed wood has no horizon, so outside the bloom there is nothing for a sunrise forecast
+     * to be about. Before this, the check admitted anything that was not WILDLIFE, so every
+     * bluebell wood was a year-round candidate and sites like Houghall Woods were briefed in July.
+     * The former {@code bluebell_evaluate_year_round} flag existed to subtract exactly that
+     * over-inclusion; it is gone (V132), because "is this wood worth an out-of-season trip" is
+     * already answered by whether the site also carries LANDSCAPE.
+     *
+     * <p>A location with no types at all still qualifies — an untyped location is treated as a
+     * plain colour location rather than silently dropped from the briefing.
      *
      * @param location the location to check
-     * @return true if the location has at least one colour type (LANDSCAPE, SEASCAPE, WATERFALL)
+     * @param date     the date being briefed, tested against the bluebell {@link SeasonalWindow}
+     * @return true if the location is a colour candidate on that date
      */
-    boolean isColourLocation(LocationEntity location) {
+    boolean isColourLocation(LocationEntity location, LocalDate date) {
         if (location.getLocationType().isEmpty()) {
             return true;
         }
-        return location.getLocationType().stream()
-                .anyMatch(t -> t != LocationType.WILDLIFE);
+        boolean hasYearRoundColourType = location.getLocationType().stream()
+                .anyMatch(t -> t != LocationType.WILDLIFE && t != LocationType.BLUEBELL);
+        if (hasYearRoundColourType) {
+            return true;
+        }
+        return location.getLocationType().contains(LocationType.BLUEBELL)
+                && bluebellSeason.isActive(date);
     }
 
     /**
