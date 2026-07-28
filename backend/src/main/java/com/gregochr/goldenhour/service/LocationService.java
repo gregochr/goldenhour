@@ -239,6 +239,19 @@ public class LocationService {
             }
         }
 
+        // A type change ALONE must still enforce "no tides unless SEASCAPE". The block above only
+        // runs when the caller supplied tideTypes, so a partial update that drops SEASCAPE without
+        // mentioning tides used to leave them behind — and isCoastal() is defined as a non-empty
+        // tide set, so the now-inland location stayed coastal forever: billed WorldTides fetches,
+        // and BriefingSlotBuilder overriding its verdict to STANDDOWN on a tide alignment it can
+        // never satisfy. Scoped to requests that actually changed the types, because running it
+        // unconditionally would blank any legacy non-SEASCAPE row carrying tide preferences on an
+        // edit that never touched types.
+        if (request.locationTypes() != null
+                && !location.getLocationType().contains(LocationType.SEASCAPE)) {
+            location.setTideType(new HashSet<>());
+        }
+
         if (request.regionId() != null) {
             location.setRegion(resolveRegion(request.regionId()));
         }

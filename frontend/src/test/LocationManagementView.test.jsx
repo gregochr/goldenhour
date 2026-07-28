@@ -598,7 +598,7 @@ describe('LocationManagementView', () => {
     expect(screen.queryByTestId('inline-edit-error')).not.toBeInTheDocument();
   });
 
-  it('add (manual): shows error when SEASCAPE selected with no tide preferences', async () => {
+  it('add (manual): a coastal site with seeded tides passes review without error', async () => {
     geocodePlace.mockRejectedValue(new Error('Not found'));
     render(<LocationManagementView onLocationsChanged={() => {}} />);
 
@@ -625,15 +625,17 @@ describe('LocationManagementView', () => {
     fireEvent.click(screen.getByTestId('type-chip-SEASCAPE'));
     fireEvent.click(screen.getByTestId('type-chip-LANDSCAPE'));
 
-    // Deselect HIGH and MID chips (LOW is last and can't be deselected in practice,
-    // but we can deselect the first two to reach 1 selected)
-    // This tests the happy path: with any tide preference, no error
+    // Selecting SEASCAPE seeds all three tide types, so the coastal validation must pass.
     fireEvent.click(screen.getByTestId('review-confirm-btn'));
 
-    // Should proceed to confirm step (no validation error)
+    // Assert POSITIVELY that review advanced. The previous version only asserted the absence of
+    // an error via an exact-match queryByText against a prefix of the real message
+    // ('...tide preference' vs the rendered '...tide preference (High, Mid, or Low).'), so it
+    // returned null whether or not the error was on screen and could never fail.
     await waitFor(() => {
-      expect(screen.queryByText('Coastal locations require at least one tide preference')).not.toBeInTheDocument();
+      expect(screen.getByTestId('confirm-save-btn')).toBeInTheDocument();
     });
+    expect(screen.queryByText(/Coastal locations require at least one tide preference/)).not.toBeInTheDocument();
   });
 
   // --- Bortle column tests ---

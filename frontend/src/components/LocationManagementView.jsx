@@ -1175,8 +1175,9 @@ export default function LocationManagementView({ onLocationsChanged }) {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label htmlFor="add-solar-event-type-chips" className={labelClass}>Solar Event Type</label>
-              <div id="add-solar-event-type-chips" className="py-1.5" data-testid="add-solar-event-type">
+              <span id="add-solar-event-type-label" className={labelClass}>Solar Event Type</span>
+              <div id="add-solar-event-type-chips" role="group" aria-labelledby="add-solar-event-type-label"
+                   className="py-1.5" data-testid="add-solar-event-type">
                 <SolarToggleChips
                   selected={addSolarEventTypes}
                   onChange={setAddSolarEventTypes}
@@ -1184,10 +1185,11 @@ export default function LocationManagementView({ onLocationsChanged }) {
               </div>
             </div>
             <div>
-              <label htmlFor="add-location-type" className={labelClass}>
+              <span id="add-location-type-label" className={labelClass}>
                 Location Type <span className="text-plex-text-muted">(one or more)</span>
-              </label>
-              <div id="add-location-type" className="py-1.5" data-testid="add-location-type">
+              </span>
+              <div id="add-location-type" role="group" aria-labelledby="add-location-type-label"
+                   className="py-1.5" data-testid="add-location-type">
                 <LocationTypeChips
                   selected={addLocationTypes}
                   onChange={handleAddLocationTypesChange}
@@ -1198,8 +1200,9 @@ export default function LocationManagementView({ onLocationsChanged }) {
               </p>
             </div>
             <div>
-              <label htmlFor="add-tide-type-chips" className={labelClass}>Tide Preference</label>
-              <div id="add-tide-type-chips" className="py-1.5" data-testid="add-tide-type">
+              <span id="add-tide-type-label" className={labelClass}>Tide Preference</span>
+              <div id="add-tide-type-chips" role="group" aria-labelledby="add-tide-type-label"
+                   className="py-1.5" data-testid="add-tide-type">
                 <TideToggleChips
                   selected={addTideTypes}
                   onChange={setAddTideTypes}

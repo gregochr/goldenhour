@@ -381,6 +381,49 @@ class LocationServiceTest {
     }
 
     @Test
+    @DisplayName("add() keeps every type, and keeps tides when a coastal site is also something else")
+    void add_seascapeCombinedWithAnotherType_keepsTypesAndTides() {
+        // add() is where the equality->contains() swap actually happened: update() already read
+        // contains() before this change. Captures the built entity rather than asserting against a
+        // save() stub, because a stub would pass under either behaviour.
+        when(locationRepository.existsByName("Wooded Clifftop")).thenReturn(false);
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        locationService.add(new AddLocationRequest(
+                "Wooded Clifftop", 55.0, -1.4, Set.of(SolarEventType.SUNRISE),
+                Set.of(LocationType.SEASCAPE, LocationType.WOODLAND),
+                Set.of(TideType.HIGH), null, null, null, null, null, null, null, null));
+
+        ArgumentCaptor<LocationEntity> captor = ArgumentCaptor.forClass(LocationEntity.class);
+        verify(locationRepository).save(captor.capture());
+        assertThat(captor.getValue().getLocationType())
+                .as("both types must be persisted — the scalar contract kept only one")
+                .containsExactlyInAnyOrder(LocationType.SEASCAPE, LocationType.WOODLAND);
+        assertThat(captor.getValue().getTideType())
+                .as("an equality test against Set.of(SEASCAPE) would strip these")
+                .containsExactly(TideType.HIGH);
+    }
+
+    @Test
+    @DisplayName("update() clears tide preferences when a type change alone drops SEASCAPE")
+    void update_typeChangeAloneDropsSeascape_clearsTides() {
+        // Reclassifying a coastal site inland without mentioning tides must not leave it coastal:
+        // isCoastal() is a non-empty tide set, so stale tides mean billed WorldTides fetches and
+        // unsatisfiable tide-alignment stand-downs for an inland location.
+        LocationEntity existing = buildEntity("Was Coastal", 55.6, -1.7);
+        existing.setLocationType(new java.util.HashSet<>(Set.of(LocationType.SEASCAPE)));
+        existing.setTideType(new java.util.HashSet<>(Set.of(TideType.HIGH, TideType.LOW)));
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        locationService.update(1L, new UpdateLocationRequest(
+                null, null, null, null, Set.of(LocationType.LANDSCAPE), null, null));
+
+        assertThat(existing.getTideType()).isEmpty();
+        verify(tideService, never()).fetchAndStoreTideExtremes(any());
+    }
+
+    @Test
     @DisplayName("update() preserves every type in the set, not just the first")
     void update_multipleTypes_keepsAllOfThem() {
         // The defect this pins: locationType was a scalar on the request, expanded with
