@@ -84,7 +84,9 @@ if [[ "$CURRENT" != "none" ]]; then
     git log "$CURRENT".."$TARGET_SHA" --oneline --reverse
 else
     echo "No previous tag found. Showing recent commits up to target:"
-    git log "$TARGET_SHA" --oneline --reverse | head -20
+    # `| head` has the same SIGPIPE-under-pipefail hazard as the grep below; -n caps
+    # the output at the source instead of killing the writer mid-stream.
+    git log "$TARGET_SHA" --oneline --reverse -n 20
 fi
 echo ""
 
@@ -151,7 +153,20 @@ if [[ -n "$UNRELEASED_BODY" ]]; then
     exit 1
 fi
 
-if ! printf '%s\n' "$CHANGELOG_AT_TARGET" | grep -q "^## \[v$VERSION\]"; then
+# NOTE: a here-string, deliberately NOT `printf ... | grep -q`.
+#
+# `grep -q` exits the moment it matches. With `set -o pipefail` (line 23) and a
+# CHANGELOG this size, printf is still writing hundreds of KB when grep leaves, takes
+# SIGPIPE, and exits 141 — so the pipeline reports failure even though grep MATCHED.
+# The guard then insists the section is missing when it is present.
+#
+# The failure is inverted and self-concealing: the EARLIER the heading appears, the
+# more data printf has left to write and the more reliably it breaks. A new release
+# sits at the top of the file, so this fired on every correctly-promoted CHANGELOG and
+# would have passed only if the notes were buried at the bottom. It cost a release
+# cycle on v2.17.2. The `[Unreleased]` check above is immune only because awk reads its
+# input to completion.
+if ! grep -q "^## \[v$VERSION\]" <<< "$CHANGELOG_AT_TARGET"; then
     echo ""
     echo "Error: CHANGELOG.md has no '## [v$VERSION]' section at the target commit."
     echo ""
