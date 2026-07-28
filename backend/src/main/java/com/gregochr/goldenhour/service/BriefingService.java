@@ -431,6 +431,16 @@ public class BriefingService {
                     if (!lw.location().supportsTargetType(eventType)) {
                         continue;
                     }
+                    // A wood is briefed at dawn only. Mist forms overnight and burns off through
+                    // the morning, so the hours after sunrise are when a canopy location is at its
+                    // best — and it is then nearly flat from mid-morning until dusk. Scoring a
+                    // sunset column for it would manufacture a "best evening hour" that the
+                    // subject does not have. The column is left empty rather than filled with
+                    // fiction. (findBestIndex already samples at or just after sunrise, so the
+                    // hour itself needs no adjustment.)
+                    if (lw.location().isWoodlandOnly() && eventType != TargetType.SUNRISE) {
+                        continue;
+                    }
                     OpenMeteoForecastResponse horizonForecast =
                             horizonData.getForLocation(lw.location().getId(), eventType);
                     BriefingSlot slot = slotBuilder.buildSlot(lw, date, eventType,

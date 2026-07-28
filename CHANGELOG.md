@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Woods are briefed at dawn only
+- **Mist forms overnight and burns off through the morning**, so a canopy location is at its best in the hours after sunrise and nearly flat from mid-morning until dusk. Scoring a sunset column for a wood manufactures a "best evening hour" the subject does not have, so the column is now left empty rather than filled with fiction.
+- **The sampled hour needed no change.** `TimeSlotUtils.findBestIndex` already picks the slot at or just *after* sunrise for SUNRISE targets (`diffSeconds <= 0`, nearest), which is inside the dawn window. Shifting it further would have been inventing a preference with nothing to justify it.
+- **`isWoodlandOnly` moved onto `LocationEntity`**, beside `supportsTargetType`, now that two callers need the same answer — the verdict fork in `BriefingSlotBuilder` and the event filter in `BriefingService`. It is a fact about the location, not about either caller.
+- Applies only to **woodland-only** sites: a wood that also carries an open type (Allen Banks) keeps both events, because it has a horizon.
+
 ### Added — Woods are judged by woodland rules, not sky rules (V134)
 - **Four sky rules fire on exactly the morning a woodland photographer sets an alarm for.** `low cloud > 80` → STANDDOWN *"Heavy cloud"*; `mid cloud ≥ 80` → STANDDOWN *"Overcast"*; `visibility < 5 km` → STANDDOWN *"Poor visibility"*; `humidity > 90` → flag *"Mist risk"*. Under a canopy those read: even light, the softbox you wanted, mist — the reason to be there — and mist *hoped for*, not risked. **This is an inverted polarity, not a threshold disagreement.**
 - **New `WoodlandVerdictEvaluator`, a sibling of `BriefingVerdictEvaluator` rather than a branch inside it.** Putting woodland polarity in the class that defines sky polarity would mean every future verdict rule has to be reasoned about twice with opposite signs, in one place, forever. A second class costs one file and buys a single sign per file.

@@ -222,6 +222,41 @@ class BriefingServiceTest {
         // the check admitted anything that was not WILDLIFE, so woods like Houghall were briefed
         // in July.
 
+        // ── Dawn window (V134 follow-up) ──────────────────────────────────
+        // Mist forms overnight and burns off through the morning, so a wood is at its best in the
+        // hours after sunrise and nearly flat from mid-morning to dusk. Scoring a sunset column
+        // would manufacture a "best evening hour" the subject does not have.
+
+        @Test
+        @DisplayName("A woodland-only site is briefed at dawn only")
+        void woodlandOnly_isDawnOnly() {
+            LocationEntity wood = LocationEntity.builder()
+                    .name("Houghall Woods").lat(54.76).lon(-1.56)
+                    .locationType(Set.of(LocationType.WOODLAND, LocationType.BLUEBELL))
+                    .build();
+            assertThat(wood.isWoodlandOnly()).isTrue();
+        }
+
+        @Test
+        @DisplayName("A wood that also has an aspect keeps both events — it has a horizon")
+        void woodlandWithAspect_keepsBothEvents() {
+            LocationEntity allenBanks = LocationEntity.builder()
+                    .name("Allen Banks").lat(54.97).lon(-2.31)
+                    .locationType(Set.of(LocationType.WOODLAND, LocationType.LANDSCAPE))
+                    .build();
+            assertThat(allenBanks.isWoodlandOnly()).isFalse();
+        }
+
+        @Test
+        @DisplayName("A site with no WOODLAND type is never woodland-only")
+        void nonWoodlandIsNeverWoodlandOnly() {
+            LocationEntity seascape = LocationEntity.builder()
+                    .name("Bamburgh").lat(55.6).lon(-1.7)
+                    .locationType(Set.of(LocationType.SEASCAPE))
+                    .build();
+            assertThat(seascape.isWoodlandOnly()).isFalse();
+        }
+
         @Test
         @DisplayName("Bluebell-only wood is a candidate during the bloom")
         void bluebellOnly_inSeason() {

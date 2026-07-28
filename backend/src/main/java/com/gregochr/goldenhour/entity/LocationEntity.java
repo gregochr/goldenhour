@@ -205,6 +205,28 @@ public class LocationEntity {
      * @param targetType the target type to check
      * @return true if this location supports the given target type
      */
+    /**
+     * True when this location's only photographic subject sits under a canopy.
+     *
+     * <p>Distinct from merely carrying {@link LocationType#WOODLAND}: a wood that also has an open
+     * aspect (Allen Banks) has a horizon to forecast, so it keeps the sky treatment. Only a site
+     * whose <em>sole</em> subject is under canopy is woodland-only.
+     *
+     * <p>Lives here rather than in a service because it is a fact about the location, and two
+     * callers now need the same answer — the verdict fork in {@code BriefingSlotBuilder} and the
+     * event filter in {@code BriefingService}.
+     *
+     * @return true if WOODLAND is present and no open-sky colour type is
+     */
+    public boolean isWoodlandOnly() {
+        if (locationType == null || !locationType.contains(LocationType.WOODLAND)) {
+            return false;
+        }
+        return !locationType.contains(LocationType.LANDSCAPE)
+                && !locationType.contains(LocationType.SEASCAPE)
+                && !locationType.contains(LocationType.WATERFALL);
+    }
+
     public boolean supportsTargetType(TargetType targetType) {
         if (solarEventType == null || solarEventType.isEmpty()
                 || solarEventType.contains(SolarEventType.ALLDAY)) {
