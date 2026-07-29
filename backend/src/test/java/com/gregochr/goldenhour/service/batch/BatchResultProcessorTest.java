@@ -181,7 +181,7 @@ class BatchResultProcessorTest {
 
         processor.processResults(batch);
 
-        verify(forecastResultHandler).flushCacheKey(
+        verify(forecastResultHandler).mergeCacheKey(
                 eq("Lake District|2026-04-07|SUNRISE"), eq(List.of(parsed)));
         ArgumentCaptor<ForecastBatchEntity> captor =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);
@@ -322,8 +322,8 @@ class BatchResultProcessorTest {
     }
 
     @Test
-    @DisplayName("FORECAST: two responses in different cache keys → flushCacheKey called twice")
-    void forecast_twoCacheKeys_flushedSeparately() {
+    @DisplayName("FORECAST: two responses in different cache keys → mergeCacheKey called twice")
+    void forecast_twoCacheKeys_mergedSeparately() {
         stubBatchService();
         ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
         LocationEntity loc1 = buildLocationWithRegion(10L, "Castlerigg", "Lake District");
@@ -353,15 +353,15 @@ class BatchResultProcessorTest {
 
         processor.processResults(batch);
 
-        verify(forecastResultHandler).flushCacheKey(
+        verify(forecastResultHandler).mergeCacheKey(
                 eq("Lake District|2026-04-07|SUNRISE"), eq(List.of(res1)));
-        verify(forecastResultHandler).flushCacheKey(
+        verify(forecastResultHandler).mergeCacheKey(
                 eq("North East|2026-04-07|SUNRISE"), eq(List.of(res2)));
     }
 
     @Test
     @DisplayName("FORECAST retry batch → recovered results routed through mergeCacheKey, "
-            + "NEVER flushCacheKey (so the region's other locations are preserved)")
+            + "NEVER the destructive flush (so the region's other locations survive)")
     void forecast_retryBatch_mergesInsteadOfFlushing() {
         stubBatchService();
         ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);

@@ -306,13 +306,24 @@ public class BatchResultProcessor {
         // batch holds the whole region and replaces. Parsing, api_call_log, token
         // accounting and status are identical for both — only the terminal cache
         // write differs, keyed on the batch's retry flag.
-        boolean merge = batch.isRetry();
+        // ALWAYS merge, never replace — including for a first-attempt batch.
+        //
+        // The cache key is per REGION (region|date|event) but buckets are per BATCH, and a single
+        // region's slots routinely land in more than one batch: coastal and inland are split
+        // per-location (isCoastal is a per-slot tide test), and bluebell is its own bucket.
+        // writeFromBatch rebuilds the entry from ONLY the incoming batch's results and replaces
+        // both the cache and cached_evaluation.results_json wholesale, so whichever batch finished
+        // second silently deleted the first's locations from the region.
+        //
+        // Three production regions mix coastal and inland enabled locations — Northumberland
+        // 33/43, The North Yorkshire Coast 16/9, Tyne and Wear 2/9 — so one half of each has been
+        // discarded on every cycle.
+        //
+        // Merging costs a stale location lingering in a region entry until that key ages out;
+        // replacing costs a paid-for evaluation. The retry path has merged for exactly this reason
+        // since it was written.
         for (Map.Entry<String, List<BriefingEvaluationResult>> entry : byKey.entrySet()) {
-            if (merge) {
-                forecastResultHandler.mergeCacheKey(entry.getKey(), entry.getValue());
-            } else {
-                forecastResultHandler.flushCacheKey(entry.getKey(), entry.getValue());
-            }
+            forecastResultHandler.mergeCacheKey(entry.getKey(), entry.getValue());
         }
         // Bluebell results always merge: the mini-batch holds only a region's bluebell sites, so
         // overlaying them preserves the region's sky locations. The bluebell merge additionally
