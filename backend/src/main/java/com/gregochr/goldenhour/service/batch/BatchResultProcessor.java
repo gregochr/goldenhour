@@ -41,6 +41,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -133,6 +134,7 @@ public class BatchResultProcessor {
         // region cache entry, never replaced — a bluebell mini-batch carries only the bluebell
         // sites of a region, so a replace would wipe that region's sky locations.
         Map<String, List<BriefingEvaluationResult>> bluebellByKey = new HashMap<>();
+        Map<String, List<BriefingEvaluationResult>> woodlandByKey = new HashMap<>();
         int succeeded = 0;
         int errored = 0;
         long totalInput = 0;
@@ -222,12 +224,17 @@ public class BatchResultProcessor {
 
                 ForecastIdentity identity;
                 boolean isBluebell = false;
+                boolean isWoodland = false;
                 switch (parsed) {
                     case ParsedCustomId.Forecast f ->
                         identity = new ForecastIdentity(f.locationId(), f.date(), f.targetType());
                     case ParsedCustomId.Bluebell b -> {
                         identity = new ForecastIdentity(b.locationId(), b.date(), b.targetType());
                         isBluebell = true;
+                    }
+                    case ParsedCustomId.Woodland w -> {
+                        identity = new ForecastIdentity(w.locationId(), w.date(), w.targetType());
+                        isWoodland = true;
                     }
                     case ParsedCustomId.Jfdi j ->
                         identity = new ForecastIdentity(j.locationId(), j.date(), j.targetType());
@@ -268,15 +275,27 @@ public class BatchResultProcessor {
                 ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                         customId, text, tokens, model);
 
-                var success = isBluebell
-                        ? forecastResultHandler.parseBluebellBatchResponse(
-                                location, identity, outcome, context)
-                        : forecastResultHandler.parseBatchResponse(
-                                location, identity, outcome, context);
+                Optional<BatchSuccess> success;
+                if (isBluebell) {
+                    success = forecastResultHandler.parseBluebellBatchResponse(
+                            location, identity, outcome, context);
+                } else if (isWoodland) {
+                    success = forecastResultHandler.parseWoodlandBatchResponse(
+                            location, identity, outcome, context);
+                } else {
+                    success = forecastResultHandler.parseBatchResponse(
+                            location, identity, outcome, context);
+                }
                 if (success.isPresent()) {
                     BatchSuccess hit = success.get();
-                    Map<String, List<BriefingEvaluationResult>> sink =
-                            isBluebell ? bluebellByKey : byKey;
+                    Map<String, List<BriefingEvaluationResult>> sink;
+                    if (isBluebell) {
+                        sink = bluebellByKey;
+                    } else if (isWoodland) {
+                        sink = woodlandByKey;
+                    } else {
+                        sink = byKey;
+                    }
                     sink.computeIfAbsent(hit.cacheKey(), k -> new ArrayList<>())
                             .add(hit.result());
                     succeeded++;
@@ -331,11 +350,17 @@ public class BatchResultProcessor {
         for (Map.Entry<String, List<BriefingEvaluationResult>> entry : bluebellByKey.entrySet()) {
             forecastResultHandler.mergeBluebellCacheKey(entry.getKey(), entry.getValue());
         }
+        // Woodland results merge for the same reason: the mini-batch holds only a region's canopy
+        // sites, so overlaying preserves its sky locations.
+        for (Map.Entry<String, List<BriefingEvaluationResult>> entry : woodlandByKey.entrySet()) {
+            forecastResultHandler.mergeWoodlandCacheKey(entry.getKey(), entry.getValue());
+        }
 
         LOG.info("Forecast batch complete: batchId={}, {} succeeded, {} errored, {} cache keys written "
-                        + "({} sky + {} bluebell)",
+                        + "({} sky + {} bluebell + {} woodland)",
                 batch.getAnthropicBatchId(), succeeded, errored,
-                byKey.size() + bluebellByKey.size(), byKey.size(), bluebellByKey.size());
+                byKey.size() + bluebellByKey.size() + woodlandByKey.size(),
+                byKey.size(), bluebellByKey.size(), woodlandByKey.size());
 
         batch.setSucceededCount(succeeded);
         batch.setErroredCount(errored);

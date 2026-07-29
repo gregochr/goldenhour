@@ -160,7 +160,7 @@ class ScheduledBatchEvaluationServiceTest {
                 false))
                 .thenReturn(new ScheduledBatchTasks(
                         List.of(nearInlandTask), List.of(nearCoastalTask),
-                        List.of(), List.of(), List.of(), List.of()));
+                        List.of(), List.of(), List.of(), List.of(), List.of()));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
                 ArgumentMatchers.isNull()))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_x", 1));
@@ -187,7 +187,8 @@ class ScheduledBatchEvaluationServiceTest {
                 NightlyEligibilityPolicy.INSTANCE,
                 false))
                 .thenReturn(new ScheduledBatchTasks(
-                        List.of(), List.of(), List.of(), List.of(),
+                        List.of(), List.of(), List.of(),
+                        List.of(), List.of(),
                         List.of(bluebellTask), List.of()));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
                 ArgumentMatchers.isNull()))
@@ -232,7 +233,7 @@ class ScheduledBatchEvaluationServiceTest {
                 false))
                 .thenReturn(new ScheduledBatchTasks(
                         List.of(nearInlandTask), List.of(nearCoastalTask),
-                        List.of(), List.of(), List.of(),
+                        List.of(), List.of(), List.of(), List.of(),
                         List.of(evaluatedDispo, triagedDispo)));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
                 ArgumentMatchers.isNull()))
@@ -282,7 +283,8 @@ class ScheduledBatchEvaluationServiceTest {
                 NightlyEligibilityPolicy.INSTANCE,
                 false))
                 .thenReturn(new ScheduledBatchTasks(
-                        List.of(), List.of(), List.of(), List.of(), List.of(),
+                        List.of(), List.of(), List.of(),
+                        List.of(), List.of(), List.of(),
                         List.of(cached1, cached2)));
         when(jobRunService.startDispositionAnchorRun(2)).thenReturn(555L);
 
@@ -316,7 +318,8 @@ class ScheduledBatchEvaluationServiceTest {
                 NightlyEligibilityPolicy.INSTANCE,
                 false))
                 .thenReturn(new ScheduledBatchTasks(
-                        List.of(nearInlandTask), List.of(), List.of(), List.of(), List.of(),
+                        List.of(nearInlandTask), List.of(), List.of(),
+                        List.of(), List.of(), List.of(),
                         List.of(dispo)));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED),
                 ArgumentMatchers.isNull()))

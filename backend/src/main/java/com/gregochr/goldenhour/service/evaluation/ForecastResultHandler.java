@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.BluebellEvaluation;
+import com.gregochr.goldenhour.model.WoodlandEvaluation;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TideContext;
@@ -317,6 +318,100 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      */
     public void mergeBluebellCacheKey(String cacheKey, List<BriefingEvaluationResult> results) {
         briefingEvaluationService.mergeBluebellFromBatch(cacheKey, results);
+    }
+
+    /**
+     * Merges a woodland mini-batch's results into the region's cache entry.
+     *
+     * <p>Merges rather than flushes for the same reason bluebell does: the woodland batch holds
+     * only a region's canopy sites, so replacing the entry would drop its sky locations. Unlike
+     * bluebell there is no recombination to do — a canopy site has no sky result to fold back
+     * into, by construction.
+     *
+     * @param cacheKey region cache key
+     * @param results  the canopy locations for that cache key
+     */
+    public void mergeWoodlandCacheKey(String cacheKey, List<BriefingEvaluationResult> results) {
+        briefingEvaluationService.mergeBluebellFromBatch(cacheKey, results);
+    }
+
+    /**
+     * Parses a woodland-prompt batch response into a cache-keyed result.
+     *
+     * <p>Mirrors {@link #parseBluebellBatchResponse}: no sky evaluation exists behind a canopy
+     * slot, so the combiner runs over a woodland-only context, the {@code SkyVisitor} abstains,
+     * and {@code WoodlandVisitor} supplies the sole component. The serving payload carries no
+     * 0-100 potentials — the woodland summary and headline are the user-facing prose.
+     *
+     * @param location the canopy location
+     * @param parsed   the identity decoded from the custom id
+     * @param outcome  the raw Claude batch outcome
+     * @param context  the result context (pipeline run, logging)
+     * @return the cache-keyed success, or empty when the response failed or could not be parsed
+     */
+    public Optional<BatchSuccess> parseWoodlandBatchResponse(LocationEntity location,
+            ForecastIdentity parsed, ClaudeBatchOutcome outcome, ResultContext context) {
+
+        String regionName = location.getRegion() != null
+                ? location.getRegion().getName() : location.getName();
+        String cacheKey = CacheKeyFactory.build(regionName, parsed.date(), parsed.targetType());
+
+        if (!outcome.succeeded()) {
+            persistBatchLog(context, outcome, parsed.date(), parsed.targetType(), null);
+            return Optional.empty();
+        }
+
+        try {
+            WoodlandEvaluation woodland =
+                    parser.parseWoodlandEvaluation(outcome.rawText(), objectMapper);
+            if (woodland.rating() == null) {
+                throw new IllegalStateException("woodland response omitted the rating");
+            }
+            String modelName = outcome.model() != null ? outcome.model().name() : "UNKNOWN";
+            BriefingEvaluationResult result = buildWoodlandResult(
+                    location, woodland, parsed.date(), parsed.targetType(), regionName, modelName,
+                    context != null ? context.pipelineRunId() : null);
+            persistBatchLog(context, outcome, parsed.date(), parsed.targetType(),
+                    outcome.model(), null, outcome.rawText());
+            return Optional.of(new BatchSuccess(cacheKey, result));
+        } catch (Exception e) {
+            LOG.warn("Woodland batch: parse failed for '{}': {}",
+                    outcome.customId(), e.getMessage());
+            LOG.warn("Woodland batch: raw response for '{}': {}",
+                    outcome.customId(), outcome.rawText());
+            ClaudeBatchOutcome parseFailure = ClaudeBatchOutcome.failure(
+                    outcome.customId(), "PARSE_FAILED", "parse_error", e.getMessage());
+            persistBatchLog(context, parseFailure, parsed.date(), parsed.targetType(), null);
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Builds the {@link BriefingEvaluationResult} for a woodland-prompt evaluation.
+     *
+     * <p>No tide context is derived: {@code isWoodlandOnly()} excludes SEASCAPE, so a canopy site
+     * has no tide preference to score and the tide visitor would abstain regardless.
+     */
+    private BriefingEvaluationResult buildWoodlandResult(LocationEntity location,
+            WoodlandEvaluation woodland, LocalDate date, TargetType targetType, String regionName,
+            String modelName, Long pipelineRunId) {
+        RatingCombiner.CombinedRating combined = ratingCombiner.combine(
+                location, new VisitorContext(null, null, null, woodland));
+        Integer safeRating = RatingValidator.validateRating(
+                combined.rating(), regionName, date, targetType, location.getName(), modelName);
+
+        try {
+            forecastScoreWriter.writeComponents(
+                    location, date, targetType, combined.components(), pipelineRunId);
+        } catch (Exception e) {
+            LOG.error("forecast_score woodland dual-write FAILED for component key "
+                    + "(location={}, date={}, event={}); evaluation proceeds unaffected: {}",
+                    location.getName(), date, targetType, e.getMessage(), e);
+        }
+
+        return new BriefingEvaluationResult(
+                location.getName(), safeRating, null, null, woodland.summary(),
+                null, null, woodland.headline());
     }
 
     @Override

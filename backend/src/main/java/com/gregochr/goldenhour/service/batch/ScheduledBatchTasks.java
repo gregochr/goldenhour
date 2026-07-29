@@ -42,6 +42,10 @@ import java.util.List;
  * @param farInland    far-term inland tasks
  * @param farCoastal   far-term coastal tasks
  * @param bluebell     in-season bluebell-prompt tasks (empty out of season)
+ * @param woodland     year-round woodland-prompt tasks for canopy sites out of bluebell season.
+ *                     Mutually exclusive with {@code bluebell} per slot — a canopy site is in
+ *                     one bucket or the other, never both, which is what keeps each bucket
+ *                     homogeneous and its system prompt cached
  * @param dispositions per-candidate outcome trail (EVALUATED + every SKIPPED_*)
  */
 public record ScheduledBatchTasks(
@@ -50,6 +54,7 @@ public record ScheduledBatchTasks(
         List<EvaluationTask.Forecast> farInland,
         List<EvaluationTask.Forecast> farCoastal,
         List<EvaluationTask.Forecast> bluebell,
+        List<EvaluationTask.Forecast> woodland,
         List<CandidateDisposition> dispositions) {
 
     /**
@@ -57,7 +62,7 @@ public record ScheduledBatchTasks(
      */
     public static ScheduledBatchTasks empty() {
         return new ScheduledBatchTasks(
-                List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
     }
 
     /**
@@ -66,14 +71,14 @@ public record ScheduledBatchTasks(
     public boolean isEmpty() {
         return nearInland.isEmpty() && nearCoastal.isEmpty()
                 && farInland.isEmpty() && farCoastal.isEmpty()
-                && bluebell.isEmpty();
+                && bluebell.isEmpty() && woodland.isEmpty();
     }
 
     /**
-     * @return total task count across all five buckets.
+     * @return total task count across all six buckets.
      */
     public int totalSize() {
         return nearInland.size() + nearCoastal.size()
-                + farInland.size() + farCoastal.size() + bluebell.size();
+                + farInland.size() + farCoastal.size() + bluebell.size() + woodland.size();
     }
 }
