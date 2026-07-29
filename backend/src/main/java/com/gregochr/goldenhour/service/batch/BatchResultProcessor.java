@@ -41,6 +41,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -133,6 +134,7 @@ public class BatchResultProcessor {
         // region cache entry, never replaced — a bluebell mini-batch carries only the bluebell
         // sites of a region, so a replace would wipe that region's sky locations.
         Map<String, List<BriefingEvaluationResult>> bluebellByKey = new HashMap<>();
+        Map<String, List<BriefingEvaluationResult>> woodlandByKey = new HashMap<>();
         int succeeded = 0;
         int errored = 0;
         long totalInput = 0;
@@ -222,12 +224,17 @@ public class BatchResultProcessor {
 
                 ForecastIdentity identity;
                 boolean isBluebell = false;
+                boolean isWoodland = false;
                 switch (parsed) {
                     case ParsedCustomId.Forecast f ->
                         identity = new ForecastIdentity(f.locationId(), f.date(), f.targetType());
                     case ParsedCustomId.Bluebell b -> {
                         identity = new ForecastIdentity(b.locationId(), b.date(), b.targetType());
                         isBluebell = true;
+                    }
+                    case ParsedCustomId.Woodland w -> {
+                        identity = new ForecastIdentity(w.locationId(), w.date(), w.targetType());
+                        isWoodland = true;
                     }
                     case ParsedCustomId.Jfdi j ->
                         identity = new ForecastIdentity(j.locationId(), j.date(), j.targetType());
@@ -268,15 +275,27 @@ public class BatchResultProcessor {
                 ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                         customId, text, tokens, model);
 
-                var success = isBluebell
-                        ? forecastResultHandler.parseBluebellBatchResponse(
-                                location, identity, outcome, context)
-                        : forecastResultHandler.parseBatchResponse(
-                                location, identity, outcome, context);
+                Optional<BatchSuccess> success;
+                if (isBluebell) {
+                    success = forecastResultHandler.parseBluebellBatchResponse(
+                            location, identity, outcome, context);
+                } else if (isWoodland) {
+                    success = forecastResultHandler.parseWoodlandBatchResponse(
+                            location, identity, outcome, context);
+                } else {
+                    success = forecastResultHandler.parseBatchResponse(
+                            location, identity, outcome, context);
+                }
                 if (success.isPresent()) {
                     BatchSuccess hit = success.get();
-                    Map<String, List<BriefingEvaluationResult>> sink =
-                            isBluebell ? bluebellByKey : byKey;
+                    Map<String, List<BriefingEvaluationResult>> sink;
+                    if (isBluebell) {
+                        sink = bluebellByKey;
+                    } else if (isWoodland) {
+                        sink = woodlandByKey;
+                    } else {
+                        sink = byKey;
+                    }
                     sink.computeIfAbsent(hit.cacheKey(), k -> new ArrayList<>())
                             .add(hit.result());
                     succeeded++;
@@ -310,14 +329,16 @@ public class BatchResultProcessor {
         //
         // The cache key is per REGION (region|date|event) but buckets are per BATCH, and a single
         // region's slots routinely land in more than one batch: coastal and inland are split
-        // per-location (isCoastal is a per-slot tide test), and bluebell is its own bucket.
-        // writeFromBatch rebuilds the entry from ONLY the incoming batch's results and replaces
-        // both the cache and cached_evaluation.results_json wholesale, so whichever batch finished
-        // second silently deleted the first's locations from the region.
+        // per-location (isCoastal is a per-slot tide test), and bluebell and woodland are their own
+        // buckets. writeFromBatch rebuilds the entry from ONLY the incoming batch's results and
+        // replaces both the cache and cached_evaluation.results_json wholesale, so whichever batch
+        // finished second silently deleted the first's locations from the region.
         //
-        // Three production regions mix coastal and inland enabled locations — Northumberland
-        // 33/43, The North Yorkshire Coast 16/9, Tyne and Wear 2/9 — so one half of each has been
-        // discarded on every cycle.
+        // That was already live before the woodland lane existed: three production regions mix
+        // coastal and inland locations (Northumberland 33/43, The North Yorkshire Coast 16/9,
+        // Tyne and Wear 2/9), so one of the two halves was being discarded on every cycle. The
+        // woodland bucket would simply have been its most visible victim, being the ONLY output a
+        // canopy site produces.
         //
         // Merging costs a stale location lingering in a region entry until that key ages out;
         // replacing costs a paid-for evaluation. The retry path has merged for exactly this reason
@@ -331,11 +352,17 @@ public class BatchResultProcessor {
         for (Map.Entry<String, List<BriefingEvaluationResult>> entry : bluebellByKey.entrySet()) {
             forecastResultHandler.mergeBluebellCacheKey(entry.getKey(), entry.getValue());
         }
+        // Woodland results merge for the same reason: the mini-batch holds only a region's canopy
+        // sites, so overlaying preserves its sky locations.
+        for (Map.Entry<String, List<BriefingEvaluationResult>> entry : woodlandByKey.entrySet()) {
+            forecastResultHandler.mergeWoodlandCacheKey(entry.getKey(), entry.getValue());
+        }
 
         LOG.info("Forecast batch complete: batchId={}, {} succeeded, {} errored, {} cache keys written "
-                        + "({} sky + {} bluebell)",
+                        + "({} sky + {} bluebell + {} woodland)",
                 batch.getAnthropicBatchId(), succeeded, errored,
-                byKey.size() + bluebellByKey.size(), byKey.size(), bluebellByKey.size());
+                byKey.size() + bluebellByKey.size() + woodlandByKey.size(),
+                byKey.size(), bluebellByKey.size(), woodlandByKey.size());
 
         batch.setSucceededCount(succeeded);
         batch.setErroredCount(errored);

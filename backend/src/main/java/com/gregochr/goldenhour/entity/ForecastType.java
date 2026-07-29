@@ -55,7 +55,17 @@ public enum ForecastType {
      * a standalone signal, not a combiner peer. The inversion hot topic reads
      * it off {@code forecast_score} and fires at the STRONG band (score &ge; 9).
      */
-    INVERSION(6L, "Cloud Inversion Forecast", 10);
+    INVERSION(6L, "Cloud Inversion Forecast", 10),
+
+    /**
+     * Woodland conditions score — own prompt, year-round, for locations under canopy.
+     *
+     * <p>A combiner peer like {@link #SKY} and {@link #BLUEBELL}, and for a woodland-only
+     * location it is usually the <em>only</em> peer present: such a site produces no sky score
+     * by design, because {@code LocationEntity.hasColourTypes()} excludes WOODLAND from the
+     * sky-prompt gate. The combined rating is then simply the woodland rating.
+     */
+    WOODLAND(7L, "Woodland Forecast", 5);
 
     private final long id;
     private final String displayName;

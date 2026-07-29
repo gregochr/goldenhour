@@ -32,6 +32,7 @@ public class BatchRequestFactory {
     private final PromptBuilder inlandBuilder;
     private final CoastalPromptBuilder coastalBuilder;
     private final BluebellPromptBuilder bluebellBuilder;
+    private final WoodlandPromptBuilder woodlandBuilder;
 
     /**
      * Constructs the factory.
@@ -39,13 +40,16 @@ public class BatchRequestFactory {
      * @param inlandBuilder   builder for inland (non-tidal) locations
      * @param coastalBuilder  builder for coastal (tidal) locations
      * @param bluebellBuilder builder for the dedicated bluebell-conditions prompt
+     * @param woodlandBuilder builder for the year-round woodland-conditions prompt
      */
     public BatchRequestFactory(@Qualifier("promptBuilder") PromptBuilder inlandBuilder,
             CoastalPromptBuilder coastalBuilder,
-            BluebellPromptBuilder bluebellBuilder) {
+            BluebellPromptBuilder bluebellBuilder,
+            WoodlandPromptBuilder woodlandBuilder) {
         this.inlandBuilder = inlandBuilder;
         this.coastalBuilder = coastalBuilder;
         this.bluebellBuilder = bluebellBuilder;
+        this.woodlandBuilder = woodlandBuilder;
     }
 
     /**
@@ -126,6 +130,49 @@ public class BatchRequestFactory {
                                         .build()))
                         .outputConfig(bluebellBuilder.buildOutputConfig())
                         .addUserMessage(bluebellBuilder.buildUserMessage(data))
+                        .build())
+                .build();
+    }
+
+    /**
+     * Builds a batch request for a single woodland-conditions evaluation task.
+     *
+     * <p>Uses the standalone {@link WoodlandPromptBuilder}. Woodland tasks form their own
+     * homogeneous bucket for the same reason bluebell does — the system prompt only caches
+     * across requests that share it, so interleaving woodland with sky or bluebell requests in
+     * one batch would cost a cache miss on every boundary.
+     *
+     * <p>Unlike the bluebell request this has no precondition on {@code data}: the woodland
+     * builder derives its deterministic hint from the atmospheric data it is handed, so there is
+     * no augmentor step a caller can forget.
+     *
+     * @param customId  the Anthropic custom ID (produced via {@link CustomIdFactory#forWoodland})
+     * @param model     the evaluation model to invoke
+     * @param data      the atmospheric data for the slot
+     * @param maxTokens Anthropic {@code maxTokens} for this request
+     * @return a fully formed batch request ready for submission
+     */
+    public BatchCreateParams.Request buildWoodlandRequest(
+            String customId,
+            EvaluationModel model,
+            AtmosphericData data,
+            int maxTokens) {
+        Objects.requireNonNull(customId, "customId");
+        Objects.requireNonNull(model, "model");
+        Objects.requireNonNull(data, "data");
+
+        return BatchCreateParams.Request.builder()
+                .customId(customId)
+                .params(BatchCreateParams.Request.Params.builder()
+                        .model(model.getModelId())
+                        .maxTokens(maxTokens)
+                        .systemOfTextBlockParams(List.of(
+                                TextBlockParam.builder()
+                                        .text(woodlandBuilder.getSystemPrompt())
+                                        .cacheControl(CacheControlEphemeral.builder().build())
+                                        .build()))
+                        .outputConfig(woodlandBuilder.buildOutputConfig())
+                        .addUserMessage(woodlandBuilder.buildUserMessage(data))
                         .build())
                 .build();
     }

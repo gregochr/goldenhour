@@ -1,6 +1,8 @@
 package com.gregochr.goldenhour.service.batch;
 
 import com.gregochr.goldenhour.entity.BluebellExposure;
+import com.gregochr.goldenhour.entity.LocationType;
+import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastStability;
@@ -116,6 +118,7 @@ public class ForecastTaskCollector {
     private final int forceEvalCap;
 
     private final java.time.Clock clock;
+    private final SeasonalWindow bluebellSeason;
 
     private final BatchWeatherPrefetcher batchWeatherPrefetcher;
     private final ForceEvalHeadlineSelector forceEvalHeadlineSelector;
@@ -140,6 +143,9 @@ public class ForecastTaskCollector {
      * @param minPrefetchSuccessRatio   minimum prefetch ratio to proceed (scheduled path)
      * @param forceEvalCap              max force-evaluated headline candidates per cycle
      * @param clock                     UTC clock supplying "now" and (via London) "today"
+     * @param bluebellSeason               the configured bluebell season window, tested
+     *                                     directly so the woodland/bluebell fork does not
+     *                                     hang off an augmentor side effect
      */
     public ForecastTaskCollector(LocationService locationService,
             BriefingService briefingService,
@@ -157,7 +163,8 @@ public class ForecastTaskCollector {
             double minPrefetchSuccessRatio,
             @Value("${photocast.batch.force-eval-cap:6}")
             int forceEvalCap,
-            java.time.Clock clock) {
+            java.time.Clock clock,
+            SeasonalWindow bluebellSeason) {
         this.locationService = locationService;
         this.briefingService = briefingService;
         this.briefingEvaluationService = briefingEvaluationService;
@@ -173,6 +180,7 @@ public class ForecastTaskCollector {
         this.minPrefetchSuccessRatio = minPrefetchSuccessRatio;
         this.forceEvalCap = forceEvalCap;
         this.clock = clock;
+        this.bluebellSeason = bluebellSeason;
 
         // Instance-scoped assembly seams, wired from this collector's own dependency
         // fields so they share the exact collaborator instances (important for the
@@ -283,7 +291,8 @@ public class ForecastTaskCollector {
             LOG.warn("[BATCH DIAG] Forecast batch: no evaluable locations found after "
                     + "task collection, skipping submission");
             return new ScheduledBatchTasks(
-                    List.of(), List.of(), List.of(), List.of(), List.of(), List.copyOf(dispositions));
+                    List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                    List.copyOf(dispositions));
         }
 
         LOG.info("Forecast batch: {} candidate task(s) — bulk pre-fetching weather",
@@ -298,7 +307,8 @@ public class ForecastTaskCollector {
             LOG.error("Forecast batch: weather pre-fetch returned 0/{} locations "
                     + "— aborting (likely Open-Meteo outage)", uniqueLocationCount);
             return new ScheduledBatchTasks(
-                    List.of(), List.of(), List.of(), List.of(), List.of(), List.copyOf(dispositions));
+                    List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                    List.copyOf(dispositions));
         }
         if (successRatio < minPrefetchSuccessRatio) {
             LOG.error("Forecast batch: weather pre-fetch too degraded — {}/{} locations "
@@ -307,7 +317,8 @@ public class ForecastTaskCollector {
                     String.format("%.2f", successRatio),
                     String.format("%.2f", minPrefetchSuccessRatio));
             return new ScheduledBatchTasks(
-                    List.of(), List.of(), List.of(), List.of(), List.of(), List.copyOf(dispositions));
+                    List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                    List.copyOf(dispositions));
         }
         if (prefetchedWeather.size() < uniqueLocationCount) {
             LOG.warn("Forecast batch: weather pre-fetch partial — {}/{} locations fetched, "
@@ -334,15 +345,16 @@ public class ForecastTaskCollector {
         List<EvaluationTask.Forecast> farInland = new ArrayList<>();
         List<EvaluationTask.Forecast> farCoastal = new ArrayList<>();
         List<EvaluationTask.Forecast> bluebell = new ArrayList<>();
+        List<EvaluationTask.Forecast> woodland = new ArrayList<>();
 
         int skippedTriage = 0;
-        int skippedWoodland = 0;
         int skippedStability = 0;
         int skippedError = 0;
         int includedNear = 0;
         int includedFar = 0;
         int includedForced = 0;
         int includedBluebell = 0;
+        int includedWoodland = 0;
         EligibilityAggregator agg = new EligibilityAggregator();
 
         // Best-bet headline contenders that would otherwise be stability-gated.
@@ -363,14 +375,42 @@ public class ForecastTaskCollector {
                         candidate.location(), candidate.date(), candidate.targetType(),
                         candidate.location().getTideType(), nearTermModel, false, null,
                         prefetchedWeather, cloudCache);
-                // A non-null bluebell condition score is the in-season-bluebell-site signal
-                // (the augmentor only populates it for a BLUEBELL site with an exposure, in
-                // season). Null out of season → every branch below is a no-op, so the gate is
-                // dormant and behaviour is unchanged.
-                boolean bluebellInSeason = preEval.atmosphericData() != null
+                // Season is tested DIRECTLY against the configured window. It used to be
+                // inferred from a non-null bluebell condition score, which is a three-way
+                // conjunction the augmentor evaluates (in season AND typed BLUEBELL AND exposure
+                // set). A bluebell site whose exposure column was null therefore read as
+                // out-of-season, and once the woodland lane exists that routes it to the WOODLAND
+                // prompt in the middle of May — the wrong prompt, silently. Production has no
+                // such rows today; one admin edit would create one.
+                // The bluebell lane is gated on the condition score being PRESENT, not on the
+                // season alone. That is deliberate and load-bearing: BluebellPromptBuilder throws
+                // without one, and the augmentor populates it under a three-way conjunction (in
+                // season AND typed BLUEBELL AND exposure set). Routing on anything broader than
+                // what the augmentor actually populated would submit a task the builder cannot
+                // build.
+                boolean bluebellScored = preEval.atmosphericData() != null
                         && preEval.atmosphericData().bluebellConditionScore() != null;
-                boolean woodlandOnly = bluebellInSeason
+                boolean canopySite = candidate.location().isWoodlandOnly();
+
+                // ...but the season is ALSO tested directly, purely so a misconfiguration is
+                // visible. Before the woodland lane existed, a BLUEBELL site with a null exposure
+                // simply got no bluebell evaluation. Now it silently falls through to the woodland
+                // prompt in the middle of May instead. Routing it there is the right fail-soft — a
+                // wood is still a wood, and the alternative is nothing — but it must not be quiet.
+                // Production has no such rows today; one admin edit would create one.
+                if (bluebellSeason.isActive(candidate.date())
+                        && candidate.location().getLocationType() != null
+                        && candidate.location().getLocationType().contains(LocationType.BLUEBELL)
+                        && candidate.location().getBluebellExposure() == null) {
+                    LOG.warn("[BATCH DIAG] {} is a BLUEBELL site in season with no "
+                                    + "bluebell_exposure set — it will take the woodland lane "
+                                    + "instead. Set its exposure to restore bluebell scoring.",
+                            candidate.location().getName());
+                }
+
+                boolean bluebellWoodInSeason = bluebellScored
                         && candidate.location().getBluebellExposure() == BluebellExposure.WOODLAND;
+                boolean woodlandTask = canopySite && !bluebellWoodInSeason;
 
                 // A canopy site never belongs in the sky lane, in or out of season. The sky
                 // triage asks sky questions — is there too much cloud, is visibility poor — and
@@ -379,29 +419,19 @@ public class ForecastTaskCollector {
                 // wants, and passed THROUGH on the clear day it does not, where it would then be
                 // rated for fiery-sky potential it structurally cannot have.
                 //
-                // Until the woodland prompt exists, the right answer is to submit nothing rather
-                // than the wrong prompt. The grid still shows a verdict for these sites — the
-                // deterministic one from WoodlandVerdictEvaluator — so they stay visible; they
-                // just carry no Claude rating or prose yet.
-                if (candidate.location().isWoodlandOnly() && !woodlandOnly) {
-                    LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=WOODLAND_NO_PROMPT "
-                                    + "(canopy site, no sky evaluation)",
-                            candidate.location().getName(), candidate.date(),
-                            candidate.targetType());
-                    dispositions.add(new CandidateDisposition(
-                            candidate.location().getId(), candidate.location().getName(),
-                            candidate.date(), candidate.targetType(), candidateDaysAhead,
-                            DispositionCategory.SKIPPED_NO_PROMPT,
-                            "Canopy site — no sky evaluation; awaiting the woodland prompt"));
-                    skippedWoodland++;
-                    continue;
-                }
+                // A canopy site now HAS a prompt of its own, so it is routed rather than
+                // dropped: the woodland lane out of bluebell season, the bluebell lane in it.
+                // What has not changed is that it never enters the sky lane.
 
                 // Woodland bluebell sites in season are evaluated by the bluebell prompt ALONE,
                 // so the colour triage verdict does not gate them (bright overcast — ideal for a
                 // bluebell carpet — would otherwise stand them down as a poor sky). Every other
                 // candidate still respects the triage verdict.
-                if (preEval.triaged() && !woodlandOnly) {
+                // The woodland lane needs the same exemption for the same reason, and it is not
+                // optional: sky triage stands a slot down at >80% low cloud and <5 km visibility,
+                // which are precisely the overcast and the mist a wood wants. Without this the
+                // feature is born inverted — every good woodland morning triaged out.
+                if (preEval.triaged() && !bluebellWoodInSeason && !woodlandTask) {
                     LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=TRIAGED ({})",
                             candidate.location().getName(), candidate.date(),
                             candidate.targetType(), preEval.triageReason());
@@ -463,7 +493,24 @@ public class ForecastTaskCollector {
                             candidate.targetType(), e.getMessage(), e);
                 }
 
-                if (woodlandOnly) {
+                if (woodlandTask) {
+                    // Canopy site out of bluebell season: ONE woodland task, no sky task. Its own
+                    // homogeneous bucket, so the woodland system prompt caches across the batch.
+                    woodland.add(woodlandTaskFor(candidate, decision, preEval));
+                    includedWoodland++;
+                    agg.recordIncluded(daysAhead, stability);
+                    if (forced) {
+                        includedForced++;
+                    }
+                    dispositions.add(includeDisposition(candidate, daysAhead, forced));
+                    LOG.warn("[BATCH DIAG] INCLUDE {} | date={} event={} | tier=woodland "
+                                    + "type=canopy{}",
+                            candidate.location().getName(), candidate.date(),
+                            candidate.targetType(), forced ? " (forced)" : "");
+                    continue;
+                }
+
+                if (bluebellWoodInSeason) {
                     // Bluebell-only: ONE bluebell task, no sky task, no colour bucket (the OQ3
                     // exposure rule makes the bluebell score the rating for woodland).
                     bluebell.add(bluebellTaskFor(candidate, decision, preEval));
@@ -507,7 +554,7 @@ public class ForecastTaskCollector {
                 // bluebell task (golden light flatters fell and flowers alike, so the combiner
                 // averages the two). The bluebell result recombines with the sky at the
                 // cache-merge step (C3b).
-                boolean openFellPaired = bluebellInSeason
+                boolean openFellPaired = bluebellScored
                         && candidate.location().getBluebellExposure()
                                 == BluebellExposure.OPEN_FELL;
                 if (openFellPaired) {
@@ -538,25 +585,26 @@ public class ForecastTaskCollector {
             }
         }
 
-        int totalIncluded = includedNear + includedFar + includedBluebell;
+        int totalIncluded = includedNear + includedFar + includedBluebell + includedWoodland;
         // Every skip is named, so included + skipped reconciles against the candidate count. A
         // category missing from this line makes the cycle summary silently stop adding up.
         LOG.warn("[BATCH DIAG] Triage complete — {} included (near={}, far={}, bluebell={}, "
-                        + "forced={}), {} skipped (triage={}, stability={}, error={}, "
-                        + "canopy-no-prompt={})",
-                totalIncluded, includedNear, includedFar, includedBluebell, includedForced,
-                skippedTriage + skippedStability + skippedError + skippedWoodland,
-                skippedTriage, skippedStability, skippedError, skippedWoodland);
+                        + "woodland={}, forced={}), {} skipped (triage={}, stability={}, "
+                        + "error={})",
+                totalIncluded, includedNear, includedFar, includedBluebell, includedWoodland,
+                includedForced, skippedTriage + skippedStability + skippedError,
+                skippedTriage, skippedStability, skippedError);
         LOG.info("[BATCH ELIG] {}", agg.formatSummary());
 
         if (totalIncluded == 0) {
             LOG.info("Forecast batch: no evaluable locations after triage, skipping submission");
             return new ScheduledBatchTasks(
-                    List.of(), List.of(), List.of(), List.of(), List.of(), List.copyOf(dispositions));
+                    List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                    List.copyOf(dispositions));
         }
 
         return new ScheduledBatchTasks(nearInland, nearCoastal, farInland, farCoastal,
-                bluebell, List.copyOf(dispositions));
+                bluebell, woodland, List.copyOf(dispositions));
     }
 
     /**
@@ -587,6 +635,21 @@ public class ForecastTaskCollector {
                 decision.model(), preEval.atmosphericData(),
                 EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
                 EvaluationTask.Forecast.PromptKind.BLUEBELL);
+    }
+
+    /**
+     * Builds a {@link EvaluationTask.Forecast.PromptKind#WOODLAND} task for a canopy candidate out
+     * of bluebell season, reusing the same atmospheric data and eligibility model as the sky path.
+     * Needs no augmentor precondition — the woodland builder derives its deterministic hint from
+     * the atmospheric data it is handed.
+     */
+    private static EvaluationTask.Forecast woodlandTaskFor(ForecastCandidate candidate,
+            EligibilityDecision decision, ForecastPreEvalResult preEval) {
+        return new EvaluationTask.Forecast(
+                candidate.location(), candidate.date(), candidate.targetType(),
+                decision.model(), preEval.atmosphericData(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
+                EvaluationTask.Forecast.PromptKind.WOODLAND);
     }
 
     /** Builds the EVALUATED / FORCE_EVALUATED disposition for an included candidate. */

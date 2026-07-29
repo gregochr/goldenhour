@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideStatisticalSize;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.service.WoodlandVerdictEvaluator;
 import com.gregochr.goldenhour.model.BluebellConditionScore;
 import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 import com.gregochr.goldenhour.model.TideRiskLevel;
@@ -89,7 +90,8 @@ class PromptGoldenMasterTest {
     /** Real assembly seam under test — real builders, no mocks. */
     private final BatchRequestFactory factory =
             new BatchRequestFactory(new PromptBuilder(), new CoastalPromptBuilder(),
-                    new BluebellPromptBuilder());
+                    new BluebellPromptBuilder(),
+                    new WoodlandPromptBuilder(new WoodlandVerdictEvaluator()));
 
     @Test
     @DisplayName("inland landscape: base builder, no location-fact blocks")

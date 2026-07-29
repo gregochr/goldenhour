@@ -2,6 +2,8 @@ package com.gregochr.goldenhour.service.batch;
 
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.BluebellExposure;
+import com.gregochr.goldenhour.model.SeasonalWindow;
+import java.time.MonthDay;
 import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastStability;
@@ -79,6 +81,11 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class ForecastTaskCollectorTest {
 
+    /** April 10 - May 20: matches the production bluebell window shape. */
+    private static final SeasonalWindow BLUEBELL_SEASON =
+            new SeasonalWindow(MonthDay.of(4, 10), MonthDay.of(5, 20), "BLUEBELL");
+
+
     // Fixed date + clock so "today" is deterministic (previously flaked in the 23:00-24:00 UTC
     // window when the test's UTC today diverged from the collector's Europe/London today).
     private static final LocalDate TODAY = LocalDate.of(2026, 1, 15);
@@ -125,7 +132,8 @@ class ForecastTaskCollectorTest {
                 forecastService, stabilityClassifier, modelSelectionService,
                 openMeteoService, solarService, freshnessResolver,
                 stabilitySnapshotProvider, survivorAtmosphereWriter, travelDayService,
-                MIN_PREFETCH_RATIO, 0, CLOCK);
+                MIN_PREFETCH_RATIO, 0, CLOCK,
+                BLUEBELL_SEASON);
         // Default freshness threshold (matches UNSETTLED-equivalent default in legacy code)
         lenient().when(freshnessResolver.maxAgeFor(any())).thenReturn(Duration.ofHours(6));
     }
@@ -192,11 +200,12 @@ class ForecastTaskCollectorTest {
     // The sky triage asks sky questions. For a wood the honest answers are inverted, so letting
     // it run selects exactly wrongly: triaged OUT on the misty overcast morning it wants, passed
     // THROUGH on the clear day it does not — where it would then be rated for fiery-sky potential
-    // it structurally cannot have. Until the woodland prompt exists, submit nothing.
+    // it structurally cannot have. A canopy site therefore never enters the sky lane; since the
+    // woodland prompt landed it goes to the WOODLAND bucket instead of nowhere.
 
     @Test
-    @DisplayName("Out of season, a canopy site produces NO task at all — not a sky task")
-    void outOfSeasonWoodland_producesNoTask() {
+    @DisplayName("Out of season, a canopy site produces a WOODLAND task and never a sky task")
+    void outOfSeasonWoodland_producesWoodlandTaskOnly() {
         LocationEntity loc = buildWoodlandLocation("Houghall Woods", 54.76, -1.56, true);
         DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY, Verdict.GO, loc.getName());
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
@@ -216,18 +225,23 @@ class ForecastTaskCollectorTest {
         assertThat(result.farInland()).isEmpty();
         assertThat(result.farCoastal()).isEmpty();
         assertThat(result.bluebell()).as("and no bluebell task out of season").isEmpty();
-        assertThat(result.totalSize()).isZero();
 
-        // The category must not be SKIPPED_TRIAGED: these candidates PASSED triage, and
-        // conflating them would report slots as triaged that were never triaged at all.
+        // The point of the change: exactly one task, in the woodland bucket, carrying the
+        // woodland prompt kind. Its own bucket is what keeps the woodland system prompt cached.
+        assertThat(result.woodland()).hasSize(1);
+        assertThat(result.woodland().get(0).promptKind())
+                .isEqualTo(EvaluationTask.Forecast.PromptKind.WOODLAND);
+        assertThat(result.woodland().get(0).location().getName()).isEqualTo("Houghall Woods");
+        assertThat(result.totalSize()).isEqualTo(1);
+
         assertThat(result.dispositions())
                 .extracting(CandidateDisposition::category)
-                .containsExactly(DispositionCategory.SKIPPED_NO_PROMPT);
+                .containsExactly(DispositionCategory.EVALUATED);
     }
 
     @Test
-    @DisplayName("A wood with no bluebells at all is still kept out of the sky lane")
-    void woodlandWithoutBluebell_producesNoTask() {
+    @DisplayName("A wood with no bluebells at all takes the woodland lane, not the sky lane")
+    void woodlandWithoutBluebell_producesWoodlandTask() {
         LocationEntity loc = buildWoodlandLocation("A Gorge", 54.0, -2.0, false);
         DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY, Verdict.GO, loc.getName());
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
@@ -240,7 +254,10 @@ class ForecastTaskCollectorTest {
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
 
-        assertThat(result.totalSize()).isZero();
+        assertThat(result.nearInland()).isEmpty();
+        assertThat(result.bluebell()).isEmpty();
+        assertThat(result.woodland()).hasSize(1);
+        assertThat(result.totalSize()).isEqualTo(1);
     }
 
     // Allen Banks is the case that must NOT be caught: a wood that also has an aspect has a

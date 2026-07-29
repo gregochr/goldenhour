@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service.evaluation;
 
 import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.model.BluebellEvaluation;
+import com.gregochr.goldenhour.model.WoodlandEvaluation;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -64,6 +65,40 @@ class SunsetEvaluationParserTest {
         assertThat(result.rating()).isEqualTo(4);
         assertThat(result.summary()).isEqualTo("Soft even light if they're in flower.");
         assertThat(result.headline()).isEqualTo("Bright overcast over the carpet");
+    }
+
+    @Test
+    @DisplayName("parseWoodlandEvaluation() parses rating, summary and headline (strict JSON)")
+    void parseWoodlandEvaluation_strictJson_parsesAllFields() {
+        WoodlandEvaluation result = parser.parseWoodlandEvaluation(
+                "{\"rating\": 5, \"summary\": \"Mist through the trunks with a low sun.\","
+                + " \"headline\": \"Shafts through the beeches at dawn\"}",
+                new ObjectMapper());
+
+        assertThat(result.rating()).isEqualTo(5);
+        assertThat(result.summary()).isEqualTo("Mist through the trunks with a low sun.");
+        assertThat(result.headline()).isEqualTo("Shafts through the beeches at dawn");
+    }
+
+    @Test
+    @DisplayName("parseWoodlandEvaluation() salvages an unescaped quote, as bluebell does")
+    void parseWoodlandEvaluation_unescapedQuote_salvagesRatingAndSummary() {
+        // The two subject prompts share one strict-then-salvage implementation precisely so this
+        // path cannot drift between them; the shared method is what this asserts.
+        WoodlandEvaluation result = parser.parseWoodlandEvaluation(
+                "{\"rating\": 3, \"summary\": \"Flat light, the \"green desert\" of midsummer.\"}",
+                new ObjectMapper());
+
+        assertThat(result.rating()).isEqualTo(3);
+        assertThat(result.summary()).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("parseWoodlandEvaluation() names woodland, not bluebell, when it cannot recover")
+    void parseWoodlandEvaluation_unrecoverable_namesTheRightSubject() {
+        assertThatThrownBy(() -> parser.parseWoodlandEvaluation("not json at all", new ObjectMapper()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("woodland");
     }
 
     @Test
