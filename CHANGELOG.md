@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the nightly cycle could never reach T+3, so a whole eligibility tier was dead code
+
+- **`NightlyEligibilityPolicy` provides a T+3 SETTLED tier. Production has never once used it.** Measured over 14 days and 28 cycles: **zero** candidates at `days_ahead = 3`.
+- **The cause is that the briefing is read a day after it is written.** Since V103 retired the standalone `daily_briefing` cron, the briefing is refreshed only at the *tail* of a pipeline cycle. The 01:00 nightly therefore consumes the briefing the previous afternoon's intraday cycle left behind, whose first date is by then yesterday — dropped by `BriefingCandidateCollector` as `PAST_DATE`. A four-date window `[D…D+3]` arrives at the next nightly as `[D−1…D+2]` and reaches only **T+2**.
+- **The data shows the mechanism, not just the symptom.** The same 14 days recorded **5,684 candidates at `days_ahead = -1`** — one full quarter of every nightly candidate set spent on a date that had already happened — while the 14:00 intraday cycle showed **no `-1` bucket at all**, because it reads a briefing built the same morning. Two cycles, same code, opposite results, exactly as the ageing explanation predicts.
+- **The window is now five dates**, so it still covers T+3 after ageing overnight. The fifth date is never rendered — `DailyBriefing.jsx` caps the grid at six solar events — and costs one extra region × event round of briefing gloss (~14 calls, ~£0.02 per refresh). It exists purely to survive the overnight gap.
+- **The wasted `-1` quarter is left alone deliberately.** Past-date slots are dropped before any API call, so they cost disposition rows and nothing else. Reclaiming them means moving the briefing refresh to the *head* of the cycle, which doubles gloss and best-bet spend and risks serving a gloss-less briefing for the hours until the tail refresh lands — a change that belongs with the pipeline's sequencing, not here.
+- Confirmable in production with the same query that found it: `SELECT days_ahead, count(*) FROM forecast_run_disposition WHERE created_at >= now() - interval '14 days' GROUP BY days_ahead`. A `days_ahead = 3` row appearing is the fix landing.
+
 ### Added — `GET /api/briefing/close-to-home`, the Close to home derivation moved server-side
 - **The join is why it was worth doing.** The client matched briefing slots to the locations roster by NAME, so renaming a location silently emptied the panel for every user inside the radius. This joins on `locationId`, falling back to the name only for cached payloads written before that field existed.
 - **Its own contract, unlike its Plan-tab neighbours.** The other panels are views of the same shared forecast snapshot and ride one `GET /api/briefing`, because two panels fetching independently can disagree about the same location. This one answers a different question about *differently owned* data — the caller's home postcode and their own drive times — which is the only thing that earns a separate endpoint.
