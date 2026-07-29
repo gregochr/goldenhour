@@ -272,12 +272,19 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
 
     /**
      * Writes a finalised group of batch results to {@code cached_evaluation} via the
-     * existing {@link BriefingEvaluationService#writeFromBatch} entry point. Called
-     * once per cache key after the orchestrator finishes streaming.
+     * existing {@link BriefingEvaluationService#writeFromBatch} entry point.
+     *
+     * @deprecated REPLACES the region's whole cache entry with {@code results}. That is only safe
+     *     when the caller owns every location in the region for that date and event, and no caller
+     *     does: coastal/inland are split per-location across separate batches, and bluebell is its
+     *     own bucket, so whichever finished second deleted the first's locations. Use
+     *     {@link #mergeCacheKey} instead. Retained only so the destructive behaviour stays
+     *     directly testable.
      *
      * @param cacheKey region cache key
      * @param results  all locations in that cache key for this batch
      */
+    @Deprecated
     public void flushCacheKey(String cacheKey, List<BriefingEvaluationResult> results) {
         briefingEvaluationService.writeFromBatch(cacheKey, results);
     }
@@ -345,8 +352,12 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
 
         persistSyncLog(context, outcome, task);
         if (task.writeTarget() == EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE) {
+            // Merge, not replace. The cache key is per REGION and this is ONE location's result;
+            // writeFromBatch would rebuild the region's entry from this single result and delete
+            // every other location in it. Same defect as the batch path, and worse here because
+            // the incoming set is a single row rather than a whole bucket.
             String cacheKey = CacheKeyFactory.build(regionName, task.date(), task.targetType());
-            briefingEvaluationService.writeFromBatch(cacheKey, List.of(result));
+            briefingEvaluationService.mergeFromBatch(cacheKey, List.of(result));
         }
 
         // Carry the result's rating into the payload so forecast_evaluation (written by

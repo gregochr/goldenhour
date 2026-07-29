@@ -419,7 +419,9 @@ class ForecastResultHandlerTest {
     }
 
     @Test
-    @DisplayName("flushCacheKey delegates to BriefingEvaluationService.writeFromBatch")
+    @DisplayName("flushCacheKey still delegates to writeFromBatch — it is the destructive path, "
+            + "deprecated and no longer called by production")
+    @SuppressWarnings("deprecation")
     void flushCacheKey_delegatesToBriefingService() {
         BriefingEvaluationResult res =
                 new BriefingEvaluationResult("Castlerigg", 4, 70, 65, "X");
@@ -578,7 +580,7 @@ class ForecastResultHandlerTest {
                 task, outcome, ResultContext.forSync(99L, BatchTriggerSource.ADMIN));
 
         assertThat(result).isInstanceOf(EvaluationResult.Scored.class);
-        verify(briefingEvaluationService).writeFromBatch(
+        verify(briefingEvaluationService).mergeFromBatch(
                 eq("Lake District|2026-04-16|SUNRISE"),
                 org.mockito.ArgumentMatchers.<List<BriefingEvaluationResult>>any());
         verify(jobRunService).logAnthropicApiCall(
@@ -680,7 +682,7 @@ class ForecastResultHandlerTest {
                 task, outcome, ResultContext.forSync(null, BatchTriggerSource.ADMIN));
 
         assertThat(result).isInstanceOf(EvaluationResult.Scored.class);
-        verify(briefingEvaluationService).writeFromBatch(any(), any());
+        verify(briefingEvaluationService).mergeFromBatch(any(), any());
         verifyNoInteractions(jobRunService);
     }
 

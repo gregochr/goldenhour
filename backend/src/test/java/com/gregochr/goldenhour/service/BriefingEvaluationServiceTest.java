@@ -72,6 +72,63 @@ class BriefingEvaluationServiceTest {
     private static final String REGION = "Northumberland";
     private static final ZoneId UK_ZONE = ZoneId.of("Europe/London");
 
+    @Nested
+    @DisplayName("Region entry survives multiple batches writing the same key")
+    class MultiBatchSameKey {
+
+        private static final String KEY = REGION + "|2026-03-30|SUNRISE";
+
+        /**
+         * The defect this pins. The cache key is per REGION, but a region's slots routinely land in
+         * more than one batch — coastal and inland are split per-location, and bluebell is its own
+         * bucket. Three production regions mix coastal and inland enabled locations, so whichever
+         * batch finished second was deleting the other half of the region on every cycle.
+         */
+        @Test
+        @DisplayName("a second batch merging the same key keeps the first batch's locations")
+        void secondBatchDoesNotDeleteTheFirst() {
+            service.mergeFromBatch(KEY, List.of(
+                    new BriefingEvaluationResult("Bamburgh", 4, 70, 65, "Coastal.")));
+
+            service.mergeFromBatch(KEY, List.of(
+                    new BriefingEvaluationResult("Penshaw Monument", 3, 60, 55, "Inland.")));
+
+            assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNRISE))
+                    .containsOnlyKeys("Bamburgh", "Penshaw Monument");
+        }
+
+        @Test
+        @DisplayName("the destructive write is what loses them — proving the defect was real")
+        void writeFromBatchDeletesThePriorLocations() {
+            service.mergeFromBatch(KEY, List.of(
+                    new BriefingEvaluationResult("Bamburgh", 4, 70, 65, "Coastal.")));
+
+            service.writeFromBatch(KEY, List.of(
+                    new BriefingEvaluationResult("Penshaw Monument", 3, 60, 55, "Inland.")));
+
+            // Bamburgh is gone — a paid-for evaluation deleted by a batch that never carried it.
+            // This is why production must never call writeFromBatch.
+            assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNRISE))
+                    .containsOnlyKeys("Penshaw Monument");
+        }
+
+        @Test
+        @DisplayName("a re-evaluated location is overwritten, not duplicated")
+        void mergeOverwritesByLocationName() {
+            service.mergeFromBatch(KEY, List.of(
+                    new BriefingEvaluationResult("Penshaw Monument", 2, 30, 25, "Old.")));
+
+            service.mergeFromBatch(KEY, List.of(
+                    new BriefingEvaluationResult("Penshaw Monument", 4, 70, 65, "New.")));
+
+            Map<String, BriefingEvaluationResult> scores =
+                    service.getCachedScores(REGION, DATE, TargetType.SUNRISE);
+            assertThat(scores).containsOnlyKeys("Penshaw Monument");
+            assertThat(scores.get("Penshaw Monument").rating()).isEqualTo(4);
+            assertThat(scores.get("Penshaw Monument").summary()).isEqualTo("New.");
+        }
+    }
+
     @BeforeEach
     void setUp() {
         service = new BriefingEvaluationService(
