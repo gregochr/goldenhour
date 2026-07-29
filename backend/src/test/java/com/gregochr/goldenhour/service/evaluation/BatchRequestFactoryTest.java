@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideStatisticalSize;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.service.WoodlandVerdictEvaluator;
 import com.gregochr.goldenhour.model.BluebellConditionScore;
 import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 import com.gregochr.goldenhour.model.TideRiskLevel;
@@ -26,6 +27,7 @@ class BatchRequestFactoryTest {
     private PromptBuilder inlandBuilder;
     private CoastalPromptBuilder coastalBuilder;
     private BluebellPromptBuilder bluebellBuilder;
+    private WoodlandPromptBuilder woodlandBuilder;
     private BatchRequestFactory factory;
 
     @BeforeEach
@@ -33,7 +35,9 @@ class BatchRequestFactoryTest {
         inlandBuilder = new PromptBuilder();
         coastalBuilder = new CoastalPromptBuilder();
         bluebellBuilder = new BluebellPromptBuilder();
-        factory = new BatchRequestFactory(inlandBuilder, coastalBuilder, bluebellBuilder);
+        woodlandBuilder = new WoodlandPromptBuilder(new WoodlandVerdictEvaluator());
+        factory = new BatchRequestFactory(inlandBuilder, coastalBuilder, bluebellBuilder,
+                woodlandBuilder);
     }
 
     @Test

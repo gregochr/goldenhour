@@ -104,7 +104,16 @@ public sealed interface EvaluationTask
             /** The standard colour (fiery-sky / golden-hour) evaluation. */
             SKY,
             /** The dedicated bluebell-conditions evaluation. */
-            BLUEBELL
+            BLUEBELL,
+            /**
+             * The year-round woodland-conditions evaluation, for locations under canopy.
+             *
+             * <p>Mutually exclusive with {@link #BLUEBELL} for a given slot: a canopy site in
+             * bluebell season is evaluated by the bluebell prompt, out of season by the woodland
+             * prompt, never both. Keeping them exclusive is what keeps each batch bucket
+             * homogeneous, which is what lets the system prompt stay cached.
+             */
+            WOODLAND
         }
 
         public Forecast {
@@ -142,8 +151,12 @@ public sealed interface EvaluationTask
         public String taskKey() {
             // SKY keeps the historic id (no suffix) so existing keys are byte-identical; a
             // BLUEBELL task for the same slot is disambiguated by its suffix.
-            return location.getId() + "/" + date + "/" + targetType.name()
-                    + (promptKind == PromptKind.BLUEBELL ? "/BLUEBELL" : "");
+            String suffix = switch (promptKind) {
+                case SKY -> "";
+                case BLUEBELL -> "/BLUEBELL";
+                case WOODLAND -> "/WOODLAND";
+            };
+            return location.getId() + "/" + date + "/" + targetType.name() + suffix;
         }
     }
 

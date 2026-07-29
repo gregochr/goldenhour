@@ -45,6 +45,20 @@ public sealed interface ParsedCustomId {
     }
 
     /**
+     * A woodland custom ID from the year-round woodland lane. Carries the same identity as
+     * {@link Forecast} but signals that the response was produced by the dedicated woodland
+     * prompt. A canopy site produces a woodland ID out of bluebell season and a {@link Bluebell}
+     * one in season — never both for the same slot.
+     *
+     * @param locationId database ID of the location
+     * @param date       forecast date
+     * @param targetType SUNRISE, SUNSET, or HOURLY
+     */
+    record Woodland(Long locationId, LocalDate date, TargetType targetType)
+            implements ParsedCustomId {
+    }
+
+    /**
      * A JFDI custom ID.
      *
      * @param locationId database ID of the location

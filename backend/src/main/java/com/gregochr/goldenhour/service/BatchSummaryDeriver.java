@@ -161,6 +161,7 @@ public class BatchSummaryDeriver {
         return switch (parsed) {
             case ParsedCustomId.Forecast f -> f.locationId();
             case ParsedCustomId.Bluebell b -> b.locationId();
+            case ParsedCustomId.Woodland w -> w.locationId();
             case ParsedCustomId.Jfdi j -> j.locationId();
             case ParsedCustomId.ForceSubmit fs -> fs.locationId();
             // Aurora ids carry an alert level and date only — there is no location to count.

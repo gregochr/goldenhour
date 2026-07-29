@@ -139,16 +139,17 @@ public class EvaluationServiceImpl implements EvaluationService {
             BatchTriggerSource trigger, Long pipelineRunId, boolean isRetry) {
         List<BatchCreateParams.Request> requests = new ArrayList<>(tasks.size());
         for (EvaluationTask.Forecast task : tasks) {
-            if (task.promptKind() == EvaluationTask.Forecast.PromptKind.BLUEBELL) {
-                String customId = CustomIdFactory.forBluebell(
-                        task.location().getId(), task.date(), task.targetType());
-                requests.add(batchRequestFactory.buildBluebellRequest(
-                        customId, task.model(), task.data(), task.model().getMaxTokens()));
-            } else {
-                String customId = CustomIdFactory.forForecast(
-                        task.location().getId(), task.date(), task.targetType());
-                requests.add(batchRequestFactory.buildForecastRequest(
-                        customId, task.model(), task.data(), task.model().getMaxTokens()));
+            Long locationId = task.location().getId();
+            switch (task.promptKind()) {
+                case BLUEBELL -> requests.add(batchRequestFactory.buildBluebellRequest(
+                        CustomIdFactory.forBluebell(locationId, task.date(), task.targetType()),
+                        task.model(), task.data(), task.model().getMaxTokens()));
+                case WOODLAND -> requests.add(batchRequestFactory.buildWoodlandRequest(
+                        CustomIdFactory.forWoodland(locationId, task.date(), task.targetType()),
+                        task.model(), task.data(), task.model().getMaxTokens()));
+                case SKY -> requests.add(batchRequestFactory.buildForecastRequest(
+                        CustomIdFactory.forForecast(locationId, task.date(), task.targetType()),
+                        task.model(), task.data(), task.model().getMaxTokens()));
             }
         }
         BatchSubmitResult result = batchSubmissionService.submit(

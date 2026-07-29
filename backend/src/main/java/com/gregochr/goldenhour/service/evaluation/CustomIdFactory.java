@@ -40,6 +40,7 @@ public final class CustomIdFactory {
 
     private static final String PREFIX_FORECAST = "fc-";
     private static final String PREFIX_BLUEBELL = "bb-";
+    private static final String PREFIX_WOODLAND = "wd-";
     private static final String PREFIX_JFDI = "jfdi-";
     private static final String PREFIX_FORCE = "force-";
     private static final String PREFIX_AURORA = "au-";
@@ -86,6 +87,26 @@ public final class CustomIdFactory {
         Objects.requireNonNull(date, "date");
         Objects.requireNonNull(targetType, "targetType");
         return validate(PREFIX_BLUEBELL + locationId + "-" + date + "-" + targetType.name());
+    }
+
+    /**
+     * Builds a woodland custom ID, signalling that the response was produced by the year-round
+     * woodland prompt and must be parsed/combined via the woodland path rather than the colour
+     * path. Same length class as the bluebell prefix, so the 64-char Anthropic limit is no
+     * tighter here than it already was.
+     *
+     * @param locationId database ID of the location
+     * @param date       forecast date
+     * @param targetType SUNRISE, SUNSET, or HOURLY
+     * @return an ID of the form {@code "wd-{locationId}-{date}-{targetType}"}
+     * @throws IllegalArgumentException if the resulting ID exceeds the Anthropic 64-char
+     *                                  limit or contains invalid characters
+     */
+    public static String forWoodland(Long locationId, LocalDate date, TargetType targetType) {
+        Objects.requireNonNull(locationId, "locationId");
+        Objects.requireNonNull(date, "date");
+        Objects.requireNonNull(targetType, "targetType");
+        return validate(PREFIX_WOODLAND + locationId + "-" + date + "-" + targetType.name());
     }
 
     /**
@@ -173,6 +194,9 @@ public final class CustomIdFactory {
         if (customId.startsWith(PREFIX_BLUEBELL)) {
             return parseBluebell(customId);
         }
+        if (customId.startsWith(PREFIX_WOODLAND)) {
+            return parseWoodland(customId);
+        }
         if (customId.startsWith(PREFIX_FORECAST)) {
             return parseForecast(customId);
         }
@@ -192,6 +216,12 @@ public final class CustomIdFactory {
         TailParts tail = extractDateAndTarget(customId, PREFIX_FORECAST);
         Long locationId = parseLocationId(tail.before(), customId);
         return new ParsedCustomId.Forecast(locationId, tail.date(), tail.targetType());
+    }
+
+    private static ParsedCustomId.Woodland parseWoodland(String customId) {
+        TailParts tail = extractDateAndTarget(customId, PREFIX_WOODLAND);
+        Long locationId = parseLocationId(tail.before(), customId);
+        return new ParsedCustomId.Woodland(locationId, tail.date(), tail.targetType());
     }
 
     private static ParsedCustomId.Bluebell parseBluebell(String customId) {
