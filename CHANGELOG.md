@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — CI never ran on a stacked PR, and the silence looked like a pass
+- **`pull_request: branches: [main]` means "only PRs whose BASE is main".** A stacked PR — one opened against another feature branch so a large change can be reviewed and rolled back in pieces — never matches it, so neither `ci.yml` nor `codeql.yml` ran.
+- **And nothing else caught it**, because branch protection's required checks apply to `main`: a PR targeting any other branch has no required checks either. The result is a merge path where *nothing runs and nothing objects*.
+- That is how **#361**, a prompt/batching change, merged into its parent branch with **zero CI**. Nothing broke — the branch had been verified locally first, and the combined result went green on #360 before reaching main — but the gate was *silent*, not satisfied, and on the PR page those look identical.
+- Both triggers are now unfiltered by base branch. The cost is one extra run when a stacked PR is later retargeted at main; the alternative is an ungated merge path. The `push` triggers stay pinned to `main`, so branch pushes do not double up.
+
 ### Changed — Map legend names the product, not the model
 - The map's bottom legend read **"★ Claude-scored locations shown"**, naming the vendor behind the scoring rather than the thing the user is looking at. It now reads **"★ PhotoCast-scored locations shown"**.
 - Which model produced a score is an implementation detail that has already changed more than once (Haiku/Sonnet/Opus per run type, and the batch near/far split). The legend's job is to distinguish scored pins from unscored ones, and that distinction is stable regardless of what runs underneath.

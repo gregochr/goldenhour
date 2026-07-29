@@ -3,8 +3,22 @@ name: CI
 on:
   push:
     branches: [main]
+  # NO `branches:` filter here, deliberately.
+  #
+  # It used to read `branches: [main]`, which means "only PRs whose BASE is main". A stacked
+  # PR — one opened against another feature branch so a large change can be reviewed and
+  # rolled back in pieces — never matches, so CI never runs on it. And because branch
+  # protection's required checks apply to `main`, a PR targeting anything else has no
+  # required checks either: it merges green with nothing having run.
+  #
+  # That is exactly how #361 (a prompt/batching change) merged into its parent branch in
+  # July 2026 with zero CI. Nothing broke, because the branch had been verified locally
+  # first — but the gate was silent, not satisfied, and silence is indistinguishable from
+  # a pass on the PR page.
+  #
+  # Unfiltered, CI runs for a PR against any base. The cost is one extra run when a stacked
+  # PR is later retargeted at main; the alternative is an ungated merge path.
   pull_request:
-    branches: [main]
   workflow_call:
 
 jobs:

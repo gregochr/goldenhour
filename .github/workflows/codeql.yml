@@ -5,8 +5,9 @@ on:
   # replaced meant one feature merge (the NLC scraper, 2026-07-06) added 21 alerts that
   # nobody saw for up to 7 days. The PR check reports only alerts the PR introduces, so
   # a pre-existing backlog never blocks an unrelated change.
+  # Unfiltered by base branch, for the same reason as ci.yml: `branches: [main]` silently
+  # skips stacked PRs, which is precisely when a diff scan is still wanted.
   pull_request:
-    branches: [main]
   push:
     branches: [main]
   # Kept alongside the PR trigger: a diff scan never re-examines untouched code, so this
