@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — a `docker compose pull` between releases could abort the next deploy
+- **`pre-release-backup.sh` reads the outgoing images' `RepoDigest` off the running containers**, so a rollback can pin exact builds rather than `:latest`. On 2026-07-29 that read came back **empty** and aborted the v2.17.3 deploy: `could not read image digests (backend='' ...)`. The trigger was a `docker compose pull` run between releases, which moved `:latest`.
+- **The mechanism is deliberately not asserted.** It could not be reproduced cleanly afterwards — the host runs the containerd image store, where the image ID and repo digest are the same value, and the displaced image later showed its `RepoDigests` intact. So this guards the *symptom*: whatever the cause, an empty read stops a release, and the digest is reliably knowable at exactly one moment — just after the deploy that started the container.
+- `scripts/record-deployed-images.sh` writes that digest to a ledger after each successful deploy, and `digest_of()` falls back to it. **The fallback returns a digest only when the ledger's recorded image ID still equals the running one**, so it is a checkable claim about the image actually running rather than an assumption about the last one. On a mismatch the backup aborts exactly as it does today — a manifest pinning the wrong build is worse than no manifest.
+- Recording is **non-fatal throughout**: it runs after the new images are live, so a failure there would report a healthy deploy as broken. A missing ledger costs only the *next* release its fallback.
+- Verified against the live production host: ledger write, recovery from a simulated empty read, and the mismatch guard rejecting a tampered ledger.
+
 ## [v2.17.3] - 2026-07-29
 
 ### Added — a wood finally gets its own rating, year-round

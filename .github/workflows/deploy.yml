@@ -148,6 +148,19 @@ jobs:
             sleep 30
             docker compose ps
 
+            # Record what is now running, while its digest is still readable.
+            #
+            # A RepoDigest survives only until a newer :latest displaces the image,
+            # at which point Docker drops it and the NEXT release cannot build a
+            # rollback manifest. This is the one moment the digest is knowable, so
+            # capture it. Non-fatal by design: the release has already succeeded by
+            # the time this runs, and a missing ledger costs only the next release's
+            # fallback, not this one's success.
+            git show "${RELEASE_VERSION}:scripts/record-deployed-images.sh" \
+              > /tmp/record-deployed-images.sh
+            chmod +x /tmp/record-deployed-images.sh
+            /tmp/record-deployed-images.sh || true
+
   # Deploy was the only workflow in the repo with no failure notifier, which is
   # the worst place to lack one: a failed deploy leaves the tag pushed, the images
   # in GHCR and CHANGELOG updated, while production quietly keeps serving the old
