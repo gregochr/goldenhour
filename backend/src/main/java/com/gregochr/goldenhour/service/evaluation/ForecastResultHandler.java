@@ -277,10 +277,10 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      *
      * @deprecated REPLACES the region's whole cache entry with {@code results}. That is only safe
      *     when the caller owns every location in the region for that date and event, and no caller
-     *     does: coastal/inland are split per-location across separate batches, and bluebell is its
-     *     own bucket, so whichever finished second deleted the first's locations. Use
-     *     {@link #mergeCacheKey} instead. Retained only so the destructive behaviour stays
-     *     directly testable.
+     *     does: coastal/inland are split per-location across separate batches, and bluebell and
+     *     woodland are their own buckets, so whichever finished second deleted the first's
+     *     locations. Use {@link #mergeCacheKey} instead. Retained only so the destructive
+     *     behaviour stays directly testable.
      *
      * @param cacheKey region cache key
      * @param results  all locations in that cache key for this batch
@@ -332,7 +332,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * @param results  the canopy locations for that cache key
      */
     public void mergeWoodlandCacheKey(String cacheKey, List<BriefingEvaluationResult> results) {
-        briefingEvaluationService.mergeBluebellFromBatch(cacheKey, results);
+        briefingEvaluationService.mergeWoodlandFromBatch(cacheKey, results);
     }
 
     /**

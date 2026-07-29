@@ -329,14 +329,16 @@ public class BatchResultProcessor {
         //
         // The cache key is per REGION (region|date|event) but buckets are per BATCH, and a single
         // region's slots routinely land in more than one batch: coastal and inland are split
-        // per-location (isCoastal is a per-slot tide test), and bluebell is its own bucket.
-        // writeFromBatch rebuilds the entry from ONLY the incoming batch's results and replaces
-        // both the cache and cached_evaluation.results_json wholesale, so whichever batch finished
-        // second silently deleted the first's locations from the region.
+        // per-location (isCoastal is a per-slot tide test), and bluebell and woodland are their own
+        // buckets. writeFromBatch rebuilds the entry from ONLY the incoming batch's results and
+        // replaces both the cache and cached_evaluation.results_json wholesale, so whichever batch
+        // finished second silently deleted the first's locations from the region.
         //
-        // Three production regions mix coastal and inland enabled locations — Northumberland
-        // 33/43, The North Yorkshire Coast 16/9, Tyne and Wear 2/9 — so one half of each has been
-        // discarded on every cycle.
+        // That was already live before the woodland lane existed: three production regions mix
+        // coastal and inland locations (Northumberland 33/43, The North Yorkshire Coast 16/9,
+        // Tyne and Wear 2/9), so one of the two halves was being discarded on every cycle. The
+        // woodland bucket would simply have been its most visible victim, being the ONLY output a
+        // canopy site produces.
         //
         // Merging costs a stale location lingering in a region entry until that key ages out;
         // replacing costs a paid-for evaluation. The retry path has merged for exactly this reason
