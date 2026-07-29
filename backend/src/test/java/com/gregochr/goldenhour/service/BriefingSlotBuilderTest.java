@@ -115,6 +115,26 @@ class BriefingSlotBuilderTest {
         }
 
         @Test
+        @DisplayName("BOTH producers stamp the location id — the constructor cannot enforce it")
+        void bothProducers_stampLocationId() {
+            // The id-less constructor still exists (59 test call sites use it), so nothing at
+            // compile time stops a producer quietly dropping the id and reinstating the
+            // name-string join Close to home is trying to leave behind. This is that guard.
+            BriefingSlot canopy = build(woodLoc(LocationType.WOODLAND, LocationType.BLUEBELL),
+                    mistyOvercast());
+            assertThat(canopy.canopy()).isTrue();
+            assertThat(canopy.locationId())
+                    .as("the woodland producer must stamp the id")
+                    .isEqualTo(20L);
+
+            BriefingSlot sky = build(woodLoc(LocationType.LANDSCAPE), buildForecastResponse());
+            assertThat(sky.canopy()).isFalse();
+            assertThat(sky.locationId())
+                    .as("the sky producer must stamp the id")
+                    .isEqualTo(20L);
+        }
+
+        @Test
         @DisplayName("A woodland-only site takes the woodland rules — misty overcast is GO, not STANDDOWN")
         void woodlandOnly_takesWoodlandRules() {
             BriefingSlot slot = build(woodLoc(LocationType.WOODLAND, LocationType.BLUEBELL),
