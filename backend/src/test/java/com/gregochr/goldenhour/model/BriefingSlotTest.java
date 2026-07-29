@@ -21,6 +21,66 @@ class BriefingSlotTest {
                     20, BigDecimal.ZERO, 15000, 70, 10.0, 8.0, 0, BigDecimal.ONE, 30, 40);
 
     @Nested
+    @DisplayName("locationId — the FK join Close to home needs")
+    class LocationIdTests {
+
+        @Test
+        @DisplayName("the 7-arg form leaves it null, so 59 existing call sites keep working")
+        void sevenArgForm_leavesIdNull() {
+            BriefingSlot slot = new BriefingSlot(
+                    "Durham", EVENT_TIME, Verdict.GO, WEATHER,
+                    BriefingSlot.TideInfo.NONE, List.of("Clear"), null);
+
+            assertThat(slot.locationId()).isNull();
+            assertThat(slot.locationName()).isEqualTo("Durham");
+        }
+
+        @Test
+        @DisplayName("the 8-arg form carries it")
+        void eightArgForm_carriesId() {
+            BriefingSlot slot = new BriefingSlot(
+                    42L, "Durham", EVENT_TIME, Verdict.GO, WEATHER,
+                    BriefingSlot.TideInfo.NONE, List.of("Clear"), null);
+
+            assertThat(slot.locationId()).isEqualTo(42L);
+        }
+
+        @Test
+        @DisplayName("canopySlot carries it too")
+        void canopySlot_carriesId() {
+            BriefingSlot slot = BriefingSlot.canopySlot(
+                    7L, "Houghall Woods", EVENT_TIME, Verdict.GO, WEATHER,
+                    List.of("Mist"), null);
+
+            assertThat(slot.locationId()).isEqualTo(7L);
+            assertThat(slot.canopy()).isTrue();
+        }
+
+        @Test
+        @DisplayName("withClaudeScores preserves it — a wither is where an id quietly goes missing")
+        void withClaudeScores_preservesId() {
+            BriefingSlot slot = new BriefingSlot(
+                    42L, "Durham", EVENT_TIME, Verdict.GO, WEATHER,
+                    BriefingSlot.TideInfo.NONE, List.of("Clear"), null)
+                    .withClaudeScores(4, 70, 65, "Nice", "Headline");
+
+            assertThat(slot.locationId()).isEqualTo(42L);
+            assertThat(slot.claudeRating()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("canopy withClaudeScores preserves both the id and the canopy flag")
+        void withClaudeScores_preservesIdOnCanopySlot() {
+            BriefingSlot slot = BriefingSlot.canopySlot(
+                    7L, "Houghall Woods", EVENT_TIME, Verdict.GO, WEATHER, List.of("Mist"), null)
+                    .withClaudeScores(5, null, null, "Mist through the trunks.");
+
+            assertThat(slot.locationId()).isEqualTo(7L);
+            assertThat(slot.canopy()).isTrue();
+        }
+    }
+
+    @Nested
     @DisplayName("Convenience constructor (7-arg)")
     class ConvenienceConstructorTests {
 

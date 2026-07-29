@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — `BriefingSlot.locationId`, so the briefing can be joined on the FK instead of the name
+- **Close to home matches briefing slots to the locations roster by NAME string.** Rename a location in the admin UI and the block silently empties for every user inside the radius — no error, no empty state, the location simply stops existing as far as proximity is concerned. The FK has been available since **V47**; the briefing DTO just never carried it.
+- Documented in `plan-panel-data-contracts.md` Section 5 as *"the FK already exists"* — which understates it. `BriefingSlot` is serialised into `daily_briefing_cache`, so this is a **payload-contract change**, not a lookup swap.
+- **Nullable on purpose.** Every payload written before this field existed deserialises with a null id, and those entries keep being served until their key ages out. Consumers must treat the id as an *upgrade* on the name — prefer it when present, fall back to the name when absent — rather than a replacement.
+- Both producers (`BriefingSlotBuilder`'s sky and canopy paths) already held the `LocationEntity`, so both now stamp `loc.getId()`. The id-less constructor is retained because **59 test call sites** use it, which means nothing at compile time stops a producer quietly dropping the id and reinstating the name join — so a test pins it instead.
+- Mutation-checked: removing the id from either producer fails `bothProducers_stampLocationId`; dropping it in `withClaudeScores` fails both wither tests. A wither is exactly where an id goes quietly missing.
+- Forward-compatibility pinned directly: a legacy JSON payload with no `locationId` deserialises to null rather than throwing (otherwise the briefing would 500 for every cached region the moment this shipped), and a null id is omitted from the serialised payload rather than written as `null`.
+
 ### Fixed — a `docker compose pull` between releases could abort the next deploy
 - **`pre-release-backup.sh` reads the outgoing images' `RepoDigest` off the running containers**, so a rollback can pin exact builds rather than `:latest`. On 2026-07-29 that read came back **empty** and aborted the v2.17.3 deploy: `could not read image digests (backend='' ...)`. The trigger was a `docker compose pull` run between releases, which moved `:latest`.
 - **The mechanism is deliberately not asserted.** It could not be reproduced cleanly afterwards — the host runs the containerd image store, where the image ID and repo digest are the same value, and the displaced image later showed its `RepoDigests` intact. So this guards the *symptom*: whatever the cause, an empty read stops a release, and the digest is reliably knowable at exactly one moment — just after the deploy that started the container.

@@ -201,7 +201,8 @@ public class BriefingSlotBuilder {
                 tideResult.lunarTideType(), tideResult.lunarPhase(),
                 tideResult.moonAtPerigee());
 
-        return new BriefingSlot(loc.getName(), solarTime, verdict, weather, tideInfo, flags,
+        return new BriefingSlot(loc.getId(), loc.getName(), solarTime, verdict, weather,
+                tideInfo, flags,
                 standdownReason);
     }
 
@@ -231,7 +232,7 @@ public class BriefingSlotBuilder {
                 lowCloud, precip, visibility, humidity, temp, apparentTemp, weatherCode, windSpeed,
                 midCloud, highCloud);
 
-        return BriefingSlot.canopySlot(loc.getName(), solarTime, verdict, weather,
+        return BriefingSlot.canopySlot(loc.getId(), loc.getName(), solarTime, verdict, weather,
                 flags, standdownReason);
     }
 

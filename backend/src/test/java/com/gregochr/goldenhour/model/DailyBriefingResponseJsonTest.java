@@ -24,6 +24,64 @@ class DailyBriefingResponseJsonTest {
 
     private static final LocalDateTime GENERATED_AT = LocalDateTime.of(2026, 4, 15, 4, 0);
 
+    // ── locationId: forward-compatible with cached payloads ───────────────────
+
+    @Test
+    @DisplayName("a payload written BEFORE locationId existed still deserialises, with a null id")
+    void deserialize_legacyPayloadWithoutLocationId_yieldsNullId() throws Exception {
+        // This is the rollover case, and it is not hypothetical: daily_briefing_cache holds
+        // payloads serialised by the previous build, and they keep being served until their key
+        // ages out. If an unknown-to-them field made deserialisation throw, the briefing would
+        // 500 for every cached region the moment this shipped.
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        String legacy = """
+                {
+                  "locationName": "Durham",
+                  "solarEventTime": "2026-04-22T06:00:00",
+                  "verdict": "GO",
+                  "flags": ["Clear"],
+                  "standdownReason": null,
+                  "displayVerdict": "WORTH_IT",
+                  "canopy": false
+                }
+                """;
+
+        BriefingSlot slot = mapper.readValue(legacy, BriefingSlot.class);
+
+        assertThat(slot.locationId())
+                .as("absent id must read as null, not blow up")
+                .isNull();
+        assertThat(slot.locationName()).isEqualTo("Durham");
+        assertThat(slot.verdict()).isEqualTo(Verdict.GO);
+    }
+
+    @Test
+    @DisplayName("locationId round-trips when present")
+    void roundTrip_locationIdSurvives() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        BriefingSlot original = new BriefingSlot(
+                42L, "Durham", LocalDateTime.of(2026, 4, 22, 6, 0), Verdict.GO,
+                null, BriefingSlot.TideInfo.NONE, List.of("Clear"), null);
+
+        BriefingSlot restored = mapper.readValue(
+                mapper.writeValueAsString(original), BriefingSlot.class);
+
+        assertThat(restored.locationId()).isEqualTo(42L);
+    }
+
+    @Test
+    @DisplayName("a null locationId is omitted from JSON, so payloads do not grow a null field")
+    void serialize_nullLocationId_omitted() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        BriefingSlot slot = new BriefingSlot(
+                "Durham", LocalDateTime.of(2026, 4, 22, 6, 0), Verdict.GO,
+                null, BriefingSlot.TideInfo.NONE, List.of("Clear"), null);
+
+        JsonNode node = mapper.readTree(mapper.writeValueAsString(slot));
+
+        assertThat(node.has("locationId")).isFalse();
+    }
+
     // ── bestBets always serialised ────────────────────────────────────────────
 
     @Test

@@ -12,6 +12,19 @@ import java.util.List;
 /**
  * One location x one solar event assessment in the daily briefing.
  *
+ * @param locationId          database id of the location, or {@code null}.
+ *
+ *                            <p>Nullable on purpose. This record is serialised into
+ *                            {@code daily_briefing_cache}, so every payload written before this
+ *                            field existed deserialises with a null id — and those entries stay
+ *                            served until their key ages out. Consumers must therefore treat the
+ *                            id as an <em>upgrade</em> on the name, not a replacement: prefer it
+ *                            when present, fall back to {@code locationName} when it is not.
+ *
+ *                            <p>It exists because matching slots to the locations roster by NAME
+ *                            is the join Close to home currently makes, and renaming a location
+ *                            silently empties that block for every user in radius. The FK has been
+ *                            available since V47; the briefing DTO simply never carried it.
  * @param locationName        human-readable location name
  * @param solarEventTime      UTC time of the sunrise or sunset
  * @param verdict             GO, MARGINAL, or STANDDOWN
@@ -38,6 +51,7 @@ import java.util.List;
  *                            pre-dates the headline field
  */
 public record BriefingSlot(
+        @JsonInclude(JsonInclude.Include.NON_NULL) Long locationId,
         String locationName,
         LocalDateTime solarEventTime,
         Verdict verdict,
@@ -72,7 +86,31 @@ public record BriefingSlot(
     public BriefingSlot(String locationName, LocalDateTime solarEventTime, Verdict verdict,
             WeatherConditions weather, TideInfo tide, List<String> flags,
             String standdownReason) {
-        this(locationName, solarEventTime, verdict, weather, tide, flags,
+        this(null, locationName, solarEventTime, verdict, weather, tide, flags, standdownReason);
+    }
+
+    /**
+     * Convenience constructor carrying the location id — the form production should use.
+     *
+     * <p>The id-less overload above is retained for tests and for any caller that genuinely has
+     * only a name. Production has exactly two slot producers, both in {@code BriefingSlotBuilder}
+     * and both holding the {@code LocationEntity}, and
+     * {@code BriefingSlotBuilderLocationIdTest} pins that they use this form — the constructor
+     * cannot enforce it, so a test does.
+     *
+     * @param locationId      database id of the location
+     * @param locationName    human-readable location name
+     * @param solarEventTime  UTC time of the sunrise or sunset
+     * @param verdict         GO, MARGINAL, or STANDDOWN
+     * @param weather         weather conditions at the observer point
+     * @param tide            tide data for coastal locations
+     * @param flags           human-readable flag strings
+     * @param standdownReason primary reason for STANDDOWN verdict, null for GO/MARGINAL
+     */
+    public BriefingSlot(Long locationId, String locationName, LocalDateTime solarEventTime,
+            Verdict verdict, WeatherConditions weather, TideInfo tide, List<String> flags,
+            String standdownReason) {
+        this(locationId, locationName, solarEventTime, verdict, weather, tide, flags,
                 standdownReason, null, null, null, null,
                 DisplayVerdict.resolve(null, verdict), null, false);
     }
@@ -95,8 +133,27 @@ public record BriefingSlot(
     public static BriefingSlot canopySlot(String locationName, LocalDateTime solarEventTime,
             Verdict verdict, WeatherConditions weather, List<String> flags,
             String standdownReason) {
-        return new BriefingSlot(locationName, solarEventTime, verdict, weather, TideInfo.NONE,
-                flags, standdownReason, null, null, null, null,
+        return canopySlot(null, locationName, solarEventTime, verdict, weather, flags,
+                standdownReason);
+    }
+
+    /**
+     * Builds a canopy slot carrying the location id — the form production should use.
+     *
+     * @param locationId      database id of the location
+     * @param locationName    human-readable location name
+     * @param solarEventTime  UTC time of the solar event
+     * @param verdict         the woodland verdict (opposite polarity to a sky verdict)
+     * @param weather         weather conditions at the observer point
+     * @param flags           woodland-worded flag strings
+     * @param standdownReason primary reason for STANDDOWN, null otherwise
+     * @return a canopy-marked slot carrying no tide facts
+     */
+    public static BriefingSlot canopySlot(Long locationId, String locationName,
+            LocalDateTime solarEventTime, Verdict verdict, WeatherConditions weather,
+            List<String> flags, String standdownReason) {
+        return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather,
+                TideInfo.NONE, flags, standdownReason, null, null, null, null,
                 DisplayVerdict.resolve(null, verdict), null, true);
     }
 
@@ -128,7 +185,7 @@ public record BriefingSlot(
      */
     public BriefingSlot withClaudeScores(Integer rating, Integer fierySky,
             Integer goldenHour, String summary, String headline) {
-        return new BriefingSlot(locationName, solarEventTime, verdict, weather, tide,
+        return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
                 flags, standdownReason, rating, fierySky, goldenHour, summary,
                 DisplayVerdict.resolve(rating, verdict), headline, canopy);
     }
