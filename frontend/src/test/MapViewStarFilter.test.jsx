@@ -623,6 +623,60 @@ describe('MapView filter behaviour — stand-down hide/show', () => {
     fireEvent.click(screen.getByTestId('star-filter-standdown'));
     expect(visibleCount()).toBe(2);
   });
+
+  // The two score sources genuinely disagree: EvaluationViewService.mergeToView prefers a cached
+  // evaluation, while /api/forecast returns the latest run per slot. So a slot can hold a live
+  // cached rating AND a superseded triaged forecast row. Reading triage from both sources let the
+  // stale row veto the rating — and since the veto runs before the star threshold, the marker was
+  // unreachable at any quality setting while every other surface still showed it as "Worth it".
+  it('a briefing rating wins over a superseded triaged forecast row', () => {
+    const loc = {
+      name: 'CachedScoreStaleTriage', lat: 55.5, lon: -1.7,
+      id: 43,
+      forecastsByDate: new Map([[TODAY, {
+        sunset: { rating: null, triageReason: 'HEAVY_CLOUD', solarEventTime: `${TODAY}T18:00:00` },
+        sunrise: { rating: null, triageReason: 'HEAVY_CLOUD', solarEventTime: `${TODAY}T06:00:00` },
+      }]]),
+      locationType: ['LANDSCAPE'],
+    };
+    const briefingScores = new Map([
+      [`Region|${TODAY}|SUNSET|CachedScoreStaleTriage`, { rating: 4, summary: 'Worth it' }],
+    ]);
+    renderMap({ locations: [...makeLocations([4]), loc], briefingScores });
+    expect(visibleCount()).toBe(2);
+    // It is genuinely not a stand-down, so the pill has nothing to reveal.
+    expect(screen.getByTestId('star-filter-standdown')).toBeDisabled();
+  });
+
+  it('the mirror case: a forecast rating wins over a triaged briefing score', () => {
+    // The rule has to be symmetric. Fixing only "briefing rating beats forecast triage" would
+    // leave the mirror image, and MarkerPopupContent already resolved this direction the other
+    // way — which is how a scored medallion came to open a "Stand-down" popup.
+    const loc = {
+      name: 'ForecastScoredBriefingTriaged', lat: 55.7, lon: -1.7,
+      id: 45,
+      forecastsByDate: new Map([[TODAY, {
+        sunset: { rating: 4, solarEventTime: `${TODAY}T18:00:00` },
+        sunrise: { rating: 4, solarEventTime: `${TODAY}T06:00:00` },
+      }]]),
+      locationType: ['LANDSCAPE'],
+    };
+    const briefingScores = new Map([
+      [`Region|${TODAY}|SUNSET|ForecastScoredBriefingTriaged`, { triageReason: 'HEAVY_CLOUD' }],
+    ]);
+    renderMap({ locations: [...makeLocations([4]), loc], briefingScores });
+    expect(visibleCount()).toBe(2);
+    expect(screen.getByTestId('star-filter-standdown')).toBeDisabled();
+  });
+
+  // Guards the fallback half of the rule: with no briefing score at all, the forecast row is
+  // still authoritative, so a genuine triage must keep hiding the marker.
+  it('still stands down on the forecast row when there is no briefing score', () => {
+    renderMap({ locations: [...makeLocations([4]), makeStandDownLocation()] });
+    expect(visibleCount()).toBe(1);
+    fireEvent.click(screen.getByTestId('star-filter-standdown'));
+    expect(visibleCount()).toBe(2);
+  });
 });
 
 describe('MapView filter behaviour — unrated (non-stand-down)', () => {

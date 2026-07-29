@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — a superseded triage row could veto a live rating and empty the map
+
+- **The two score sources disagree by design, and the map read both.** `/api/briefing/evaluate/scores` prefers a cached evaluation (`EvaluationViewService.mergeToView` step 1) while `/api/forecast` returns the latest run per slot, so one slot can hold a live cached rating *and* a superseded triaged forecast row. `MapView` ORed `triageReason` across both, so the stale row won.
+- **The veto ran before the quality filter**, so no setting could recover the marker: `isStandDownLocation` is the first predicate in the rating filter and returns `showStandDown`, which is off by default. A 4★ location vanished from the map while the Plan grid, Best Bet and the map-peek narrative all still read "Worth it" — the narrative path never consults `triageReason` at all.
+- **The rule is now symmetric**, in a shared `resolveStandDown` (`utils/standDown.js`): **a rating from either source beats a `triageReason` from the other.** That makes it the exact complement of the rating lookup — a slot stands down precisely when `briefingScore?.rating ?? forecast?.rating` is null and something triaged it. An asymmetric fix would have corrected one direction and left the mirror image.
+- **`MarkerPopupContent` shared the helper too**, because it answered the same question a third way: its forecast branch consulted only `forecast.triageReason`, so once the marker was fixed a scored medallion would have opened a popup reading "Stand-down". Marker and popup now derive rating and verdict identically.
+- **Deliberately not diagnosed here:** this makes the map self-consistent, but whether a given empty map is *this* bug or genuinely triaged data is a question for the payload, not the code.
+
+### Fixed — the map overlay's drill-down emphasis had never worked
+
+- **`makeMarkerIcon` computed the `focus`/`muted` modifier, folded it into the icon cache key, and then built every `DivIcon` with a bare `photocast-marker` class.** The `.photocast-marker--focus` / `--muted` rules in `popupStyles` matched nothing, so the "lift the target, recede its neighbours" treatment shipped inert in v2.17.0 — no error, no warning, no test.
+- **Making it live exposed a second bug**, so the modifier is now gated on the target surviving the filters. Nothing relaxes the star or stand-down thresholds for a handoff, so drilling into a spot the filter hides left *every* remaining marker muted at 40% opacity in deference to a pin that was not on the map.
+- New `MapViewMarkerEmphasis.test.jsx` asserts on the className handed to `L.divIcon` — the only observable the behaviour depends on, and one every existing map test stubs away.
+
+### Fixed — a test that failed for two hours every night
+
+- `NlcSightingBanner`'s "Xh ago" test derived its fixture as "two hours ago" from the real clock, so between 00:00 and 01:59 local that landed on the previous calendar day and `formatReportedAt` correctly returned "yesterday HH:MM". The component was right; the test now owns its clock.
+
 ### Fixed — editing a location silently dropped all but one of its types
 - **The entity has always stored a set; the request carried a scalar.** `AddLocationRequest` and `UpdateLocationRequest` took a single `LocationType`, and `LocationService` expanded it with `Set.of(...)` — a full replace. Opening a location in the admin editor reduced its types to `set[0]`, and saving persisted that. **Editing only a location's name dropped every other type.**
 - **Which type survived was arbitrary.** The set arrives from a Java `HashSet`, whose iteration order is not stable — so the same location could lose a different type on a different day.
