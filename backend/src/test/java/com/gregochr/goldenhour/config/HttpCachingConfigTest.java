@@ -83,6 +83,11 @@ class HttpCachingConfigTest {
         "/api/travel-days",
         "/api/user/settings",
         "/api/user/settings/drive-times",
+        // Close to home is derived from the caller's home postcode and their own drive times.
+        // It sits UNDER /api/briefing, which IS revalidated — so this entry is the one that
+        // proves the whitelist's exact-match semantics are doing real work here, not just in
+        // principle.
+        "/api/briefing/close-to-home",
     })
     @DisplayName("Personal-data reads are never ETag-filtered")
     void personalDataPathsAreNeverFiltered(String path) {

@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — `GET /api/briefing/close-to-home`, the Close to home derivation moved server-side
+- **The join is why it was worth doing.** The client matched briefing slots to the locations roster by NAME, so renaming a location silently emptied the panel for every user inside the radius. This joins on `locationId`, falling back to the name only for cached payloads written before that field existed.
+- **Its own contract, unlike its Plan-tab neighbours.** The other panels are views of the same shared forecast snapshot and ride one `GET /api/briefing`, because two panels fetching independently can disagree about the same location. This one answers a different question about *differently owned* data — the caller's home postcode and their own drive times — which is the only thing that earns a separate endpoint.
+- **Never ETag-revalidated**, and now pinned: an ETag forces `Cache-Control: private, no-cache`, which persists the body to a browser HTTP cache JavaScript cannot evict on logout. `HttpCachingConfigTest.personalDataPathsAreNeverFiltered` gained this path — it sits *under* `/api/briefing`, which **is** revalidated, so it is the entry that proves the whitelist's exact-match semantics do real work rather than just reading well.
+- **Structured, not prose.** Day chips, formatted times and the breadcrumb sentence stay on the client; the endpoint returns the facts they are built from. The logic needed one home, the wording did not.
+- **The freshness concern turned out not to exist.** The client preferred a separately-fetched evaluation-score map over the payload's own `claudeRating`, which looked like a merge worth reproducing. `BriefingService.getCachedBriefingForApi` already runs `enrichWithCachedScores` on the **serve** path from the same `getCachedScores` source, so taking the enriched payload yields exactly the ratings the Plan grid shows.
+- `RADIUS_MILES` is now `photocast.close-to-home.radius-miles` — the precondition for it ever becoming a user setting, which a client constant made impossible.
+- Mutation-checked: joining on name only, dropping the radius gate, and removing the card cap each fail their own test.
+
+### Fixed — `GeoUtils.distanceMiles`
+- Great-circle distance in **miles**, deliberately not the metres used elsewhere in that class: the only caller is a user-facing "22 miles" radius, and converting at the boundary puts a unit change between the configured number and the comparison — which is where a factor-of-1.6 bug hides.
+
 ### Added — `BriefingSlot.locationId`, so the briefing can be joined on the FK instead of the name
 - **Close to home matches briefing slots to the locations roster by NAME string.** Rename a location in the admin UI and the block silently empties for every user inside the radius — no error, no empty state, the location simply stops existing as far as proximity is concerned. The FK has been available since **V47**; the briefing DTO just never carried it.
 - Documented in `plan-panel-data-contracts.md` Section 5 as *"the FK already exists"* — which understates it. `BriefingSlot` is serialised into `daily_briefing_cache`, so this is a **payload-contract change**, not a lookup swap.

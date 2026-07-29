@@ -1,0 +1,106 @@
+package com.gregochr.goldenhour.controller;
+
+import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.CloseToHomeResponse;
+import com.gregochr.goldenhour.model.UserSettingsResponse;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.web.servlet.MockMvc;
+
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/**
+ * Integration tests for {@link CloseToHomeController}.
+ *
+ * <p>The controller's whole job is to hand the service the RIGHT caller's home and id, so that is
+ * what these assert — plus the two properties that make this endpoint different from its Plan-tab
+ * neighbours: it requires authentication, and it returns an empty panel rather than an error when
+ * the caller has set no home.
+ */
+class CloseToHomeControllerTest extends AbstractControllerTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    private static UserSettingsResponse settingsWithHome(Double lat, Double lon) {
+        return new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
+                lat == null ? null : "DH1 3LE", lat, lon,
+                lat == null ? null : "Durham, County Durham",
+                Instant.parse("2026-04-01T10:00:00Z"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/briefing/close-to-home returns the panel")
+    void closeToHome_returnsPanel() throws Exception {
+        when(settingsService.getSettings(any())).thenReturn(settingsWithHome(54.7753, -1.5849));
+        when(settingsService.getUserId(any())).thenReturn(7L);
+        when(closeToHomeService.build(any(), any(), any())).thenReturn(
+                new CloseToHomeResponse(22, 3, List.of(new CloseToHomeResponse.Card(
+                        1L, "Penshaw Monument", "Tyne and Wear", LocalDate.of(2026, 4, 22),
+                        TargetType.SUNSET, LocalDateTime.of(2026, 4, 22, 19, 30), 4, 9, 25,
+                        null, true)),
+                        new CloseToHomeResponse.Breadcrumb(true, LocalDate.of(2026, 4, 22),
+                                TargetType.SUNSET, "Penshaw Monument", 4, "Good light", null,
+                                null)));
+
+        mockMvc.perform(get("/api/briefing/close-to-home"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.radiusMiles").value(22))
+                .andExpect(jsonPath("$.cards[0].locationId").value(1))
+                .andExpect(jsonPath("$.cards[0].locationName").value("Penshaw Monument"))
+                .andExpect(jsonPath("$.cards[0].lead").value(true))
+                .andExpect(jsonPath("$.breadcrumb.worthIt").value(true));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("passes THIS caller's home and id to the service, not a default")
+    void closeToHome_passesCallersOwnHomeAndId() throws Exception {
+        when(settingsService.getSettings(any())).thenReturn(settingsWithHome(54.7753, -1.5849));
+        when(settingsService.getUserId(any())).thenReturn(7L);
+        when(closeToHomeService.build(any(), any(), any()))
+                .thenReturn(CloseToHomeResponse.empty(22, 3));
+
+        mockMvc.perform(get("/api/briefing/close-to-home")).andExpect(status().isOk());
+
+        // Per-user data: handing the service the wrong id would serve one user another's
+        // home-area forecast, which is the failure mode this endpoint's whole design guards.
+        verify(closeToHomeService).build(eq(7L), eq(54.7753), eq(-1.5849));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("no home set returns an empty panel, not an error")
+    void closeToHome_noHome_returnsEmptyPanel() throws Exception {
+        when(settingsService.getSettings(any())).thenReturn(settingsWithHome(null, null));
+        when(settingsService.getUserId(any())).thenReturn(7L);
+        when(closeToHomeService.build(any(), any(), any()))
+                .thenReturn(CloseToHomeResponse.empty(22, 3));
+
+        mockMvc.perform(get("/api/briefing/close-to-home"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.cards").isEmpty())
+                .andExpect(jsonPath("$.breadcrumb.worthIt").value(false));
+    }
+
+    @Test
+    @DisplayName("requires authentication — it is per-user data")
+    void closeToHome_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(get("/api/briefing/close-to-home"))
+                .andExpect(status().isUnauthorized());
+    }
+}
