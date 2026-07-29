@@ -17,6 +17,7 @@ import { bortleLabel } from '../utils/conversions.js';
 import TideIndicator from './TideIndicator.jsx';
 import InfoTip from './InfoTip.jsx';
 import { resolveStandDown } from '../utils/standDown.js';
+import { LOCATION_TYPE_META, DISPLAY_TYPES } from '../utils/locationTypes.js';
 
 /**
  * Resolves the full detail object for a (slim) forecast slot with the precedence:
@@ -174,14 +175,6 @@ const POPUP_PILL = {
   display: 'inline-flex', alignItems: 'center', gap: '4px',
   fontSize: '11px', padding: '2px 8px', borderRadius: '999px',
   fontWeight: '600',
-};
-
-const POPUP_LOC_TYPE_META = {
-  LANDSCAPE:  { emoji: '🏔️', label: 'Landscape' },
-  WILDLIFE:   { emoji: '🐾', label: 'Wildlife' },
-  SEASCAPE:   { emoji: '🌊', label: 'Seascape' },
-  WOODLAND:   { emoji: '🌳', label: 'Woodland' },
-  WATERFALL:  { emoji: '💦', label: 'Waterfall' },
 };
 
 const POPUP_SOLAR_EVENT_META = {
@@ -462,7 +455,7 @@ export default function MarkerPopupContent({
   const goldenPillStyle = { ...POPUP_PILL, background: 'rgba(224,165,66,0.12)', color: 'var(--color-verdict-marginal)', border: '1px solid rgba(224,165,66,0.28)', fontFamily: "'IBM Plex Mono', monospace" };
   const bluePillStyle   = { ...POPUP_PILL, background: 'rgba(124,141,214,0.12)', color: '#aab4e6', border: '1px solid rgba(124,141,214,0.28)', fontFamily: "'IBM Plex Mono', monospace" };
 
-  const locTypes    = (location.locationType ?? []).filter((t) => POPUP_LOC_TYPE_META[t]);
+  const locTypes    = (location.locationType ?? []).filter((t) => DISPLAY_TYPES.includes(t));
   const solarTypes  = (location.solarEventType ?? []).filter((t) => POPUP_SOLAR_EVENT_META[t]);
   const coastalTides = (location.tideType ?? []).filter((t) => POPUP_TIDE_META[t]);
 
@@ -875,7 +868,7 @@ export default function MarkerPopupContent({
               {locTypes.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
                   {locTypes.map((t) => {
-                    const m = POPUP_LOC_TYPE_META[t];
+                    const m = LOCATION_TYPE_META[t];
                     return (
                       <span key={t} style={{ ...POPUP_PILL, borderRadius: '6px', background: 'var(--color-plex-surface-light)', color: 'var(--color-plex-text)', border: '1px solid var(--color-plex-border-light)' }}>
                         {m.emoji} {m.label}
@@ -1045,7 +1038,7 @@ export default function MarkerPopupContent({
           ? Boolean(emptySunriseTime || emptySunsetTime)
           : Boolean(emptyEventTime);
 
-        const locTypeLabel = locTypes.map((t) => POPUP_LOC_TYPE_META[t]?.label).filter(Boolean).join(' · ');
+        const locTypeLabel = locTypes.map((t) => LOCATION_TYPE_META[t]?.label).filter(Boolean).join(' · ');
         const subParts = [locTypeLabel, location.regionName].filter(Boolean);
 
         const hasAuroraChip = location.bortleClass != null;

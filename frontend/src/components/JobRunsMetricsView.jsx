@@ -16,6 +16,7 @@ import JobRunsGrid from './JobRunsGrid';
 import RunProgressPanel from './RunProgressPanel';
 import AuroraForecastModal from './AuroraForecastModal';
 import AuroraSimulateModal from './AuroraSimulateModal';
+import { isSkyPromptCandidate } from '../utils/locationTypes.js';
 
 /** Human-readable labels for optimisation strategies shown in the run confirmation dialog. */
 const STRATEGY_LABELS = {
@@ -62,11 +63,16 @@ function formatSlotDate(dateStr, index) {
   return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 }
 
-/** Returns true if the location has LANDSCAPE, SEASCAPE, or WATERFALL (or no types — defaults to colour). */
+/**
+ * Returns true if the location may go to the SKY prompt.
+ *
+ * <p>This panel previews which locations a colour RUN will touch, so the predicate it mirrors is
+ * `LocationEntity.hasColourTypes()` — the gate those engines filter on — and NOT the briefing's
+ * own candidacy test. The two deliberately disagree about WOODLAND: a wood is a briefing
+ * candidate but has no sky to forecast.
+ */
 function hasColourTypes(loc) {
-  const types = loc.locationType || [];
-  if (types.length === 0) return true;
-  return types.includes('LANDSCAPE') || types.includes('SEASCAPE') || types.includes('WATERFALL');
+  return isSkyPromptCandidate(loc.locationType);
 }
 
 /** Returns true if the location is pure-wildlife only (WILDLIFE but no colour types). */

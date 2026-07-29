@@ -9,6 +9,7 @@ import ConfirmDialog from './shared/ConfirmDialog.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
 import Modal from './shared/Modal.jsx';
 import MarkerPopupContent from './MarkerPopupContent';
+import { isSkyPromptCandidate } from '../utils/locationTypes.js';
 
 const USD_TO_GBP = 0.79;
 const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, OPUS: 0.008 };
@@ -61,9 +62,7 @@ const PromptTestView = () => {
         setLocations(locs);
         const colour = locs.filter((loc) => {
           if (loc.enabled === false) return false;
-          const types = loc.locationType || [];
-          if (types.length === 0) return true;
-          return types.includes('LANDSCAPE') || types.includes('SEASCAPE');
+          return isSkyPromptCandidate(loc.locationType);
         });
         setColourLocationCount(colour.length);
       })

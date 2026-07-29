@@ -1,0 +1,94 @@
+/**
+ * Single source of truth for `LocationType` presentation and classification.
+ *
+ * <p>This lived in five copies: `MapView.LOCATION_TYPE_LABELS`,
+ * `LocationTypeBadges.LOCATION_TYPE_META`, `MarkerPopupContent.POPUP_LOC_TYPE_META`,
+ * `briefingDisplay.LOCATION_TYPE_ICONS` and `LocationManagementView.LOCATION_TYPES`, plus three
+ * open-coded type predicates. Adding WOODLAND cost five hand-edits that nothing forced you to
+ * make, and the copies had already drifted — `briefingDisplay` used 💧 for WATERFALL where the
+ * other four used 💦, and the five did not agree on ordering.
+ *
+ * <p>The drift is silent by construction: every consumer either filters unknown types out or
+ * falls back to the raw enum name, so a missing constant renders as nothing rather than throwing.
+ *
+ * <p>Keep this in step with `backend/.../entity/LocationType.java`.
+ */
+
+/**
+ * Display metadata for every backend `LocationType` constant.
+ *
+ * <p>Order is the display order used everywhere a full list is rendered.
+ */
+export const LOCATION_TYPE_META = {
+  LANDSCAPE: { label: 'Landscape', emoji: '🏔️' },
+  WILDLIFE:  { label: 'Wildlife',  emoji: '🐾' },
+  SEASCAPE:  { label: 'Seascape',  emoji: '🌊' },
+  WOODLAND:  { label: 'Woodland',  emoji: '🌳' },
+  WATERFALL: { label: 'Waterfall', emoji: '💦' },
+  BLUEBELL:  { label: 'Bluebell',  emoji: '🌸' },
+};
+
+/** Every type, in display order. */
+export const LOCATION_TYPES = Object.keys(LOCATION_TYPE_META);
+
+/**
+ * Types shown as a permanent chip or badge.
+ *
+ * <p>BLUEBELL is deliberately absent, and this is the one place the distinction is enforced: a
+ * bluebell site is a seasonal *subject*, not a kind of place, so a year-round badge would assert
+ * a display that is only true for a few weeks. The map already treats it that way — it renders a
+ * BLUEBELL filter chip only while `seasonalFeatures` reports the bloom is on. WOODLAND is present
+ * because it is a structural, year-round fact about the site.
+ *
+ * <p>BLUEBELL still has metadata above, so it gets a proper label wherever it *is* surfaced (the
+ * map's seasonal chip, the filter summary) rather than reading as a raw enum name.
+ */
+export const DISPLAY_TYPES = ['LANDSCAPE', 'WILDLIFE', 'SEASCAPE', 'WOODLAND', 'WATERFALL'];
+
+/**
+ * Types whose subject is the sky, and which may therefore go to the sky prompt.
+ *
+ * <p>Mirrors `LocationEntity.hasColourTypes()`. WOODLAND is deliberately ABSENT: a location under
+ * a canopy has no sky to forecast. The backend records why — #347 added WOODLAND to that
+ * predicate and silently undid V132, putting the woods straight back into the fiery-sky prompt on
+ * clear mornings.
+ */
+export const SKY_SUBJECT_TYPES = ['LANDSCAPE', 'SEASCAPE', 'WATERFALL'];
+
+/** Emoji-only lookup, for the compact grid rows that have no room for a label. */
+export const LOCATION_TYPE_ICONS = Object.fromEntries(
+  Object.entries(LOCATION_TYPE_META).map(([type, { emoji }]) => [type, emoji]),
+);
+
+/**
+ * Human label for a type, falling back to the raw enum name.
+ *
+ * <p>The fallback is deliberate: a backend constant this build has never heard of should read as
+ * an unfamiliar word rather than vanish, so the gap is visible instead of silent.
+ *
+ * @param {string} type - a `LocationType` enum name.
+ * @returns {string} the display label, or the input unchanged when unknown.
+ */
+export function locationTypeLabel(type) {
+  return LOCATION_TYPE_META[type]?.label ?? type;
+}
+
+/**
+ * Whether a location may be sent to the SKY prompt (the sunrise/sunset colour forecast).
+ *
+ * <p>Mirrors `LocationEntity.hasColourTypes()`, the gate `ForecastCommandExecutor`,
+ * `ForceSubmitBatchService`, `ModelTestService` and `PromptTestService` all filter on — including
+ * its rule that an untyped location counts.
+ *
+ * <p>Not interchangeable with the briefing's own candidacy test: "may this go to the sky prompt?"
+ * and "is this a candidate for the briefing?" have different answers for a wood, and conflating
+ * them is the bug the backend records at `LocationEntity.hasColourTypes()`.
+ *
+ * @param {string[]|null|undefined} types - the location's `locationType` array.
+ * @returns {boolean} true when the location has a sky subject.
+ */
+export function isSkyPromptCandidate(types) {
+  const list = types ?? [];
+  if (list.length === 0) return true;
+  return list.some((t) => SKY_SUBJECT_TYPES.includes(t));
+}

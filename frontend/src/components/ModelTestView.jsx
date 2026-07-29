@@ -7,6 +7,7 @@ import useConfirmDialog from '../hooks/useConfirmDialog.js';
 import ConfirmDialog from './shared/ConfirmDialog.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
 import Modal from './shared/Modal.jsx';
+import { isSkyPromptCandidate } from '../utils/locationTypes.js';
 
 /**
  * Model comparison test view — triggers A/B/C tests and displays results.
@@ -53,9 +54,7 @@ const ModelTestView = () => {
       const rep = enabledLocs
         .filter((loc) => {
           if (!loc.region || loc.region.id !== region.id) return false;
-          const types = loc.locationType || [];
-          if (types.length === 0) return true;
-          return types.includes('LANDSCAPE') || types.includes('SEASCAPE');
+          return isSkyPromptCandidate(loc.locationType);
         })
         .sort((a, b) => a.name.localeCompare(b.name))[0];
       if (rep) {
@@ -149,9 +148,7 @@ const ModelTestView = () => {
   const eligibleLocations = allLocations
     .filter((loc) => loc.enabled !== false)
     .filter((loc) => {
-      const types = loc.locationType || [];
-      if (types.length === 0) return true;
-      return types.includes('LANDSCAPE') || types.includes('SEASCAPE');
+      return isSkyPromptCandidate(loc.locationType);
     })
     .filter((loc) => loc.region)
     .sort((a, b) => a.name.localeCompare(b.name));
