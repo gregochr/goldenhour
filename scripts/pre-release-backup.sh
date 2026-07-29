@@ -38,6 +38,8 @@ BACKUP_DIR="${BACKUP_DIR:-${HOME}/goldenhour-backups}"
 # the dump you want after a regression that took a fortnight to notice.
 RELEASE_DIR="${BACKUP_DIR}/pre-release"
 BACKEND_CONTAINER="${BACKEND_CONTAINER:-goldenhour-backend}"
+# Written by scripts/record-deployed-images.sh after each successful deploy.
+LEDGER="${DEPLOYED_IMAGES_LEDGER:-${HOME}/goldenhour-data/deployed-images.json}"
 FRONTEND_CONTAINER="${FRONTEND_CONTAINER:-goldenhour-frontend}"
 
 DUMP_FILE="${RELEASE_DIR}/goldenhour_pre-${RELEASE_VERSION}.sql.gz"
@@ -60,26 +62,65 @@ docker inspect "$PG_CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep 
 # deploy before `docker compose pull`. The container's .Image is the image ID,
 # which does carry RepoDigests.
 digest_of() {
-    local container="$1" image_id
+    local container="$1" image_id digest
     image_id="$(docker inspect --format='{{.Image}}' "$container" 2>/dev/null)" || return 0
     [ -n "$image_id" ] || return 0
-    docker inspect --format='{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}' "$image_id" 2>/dev/null || true
+    digest="$(docker inspect --format='{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}' \
+        "$image_id" 2>/dev/null || true)"
+    if [ -n "$digest" ]; then
+        printf '%s' "$digest"
+        return 0
+    fi
+    # The image is running but reports no RepoDigest. Observed once, on
+    # 2026-07-29, after a `docker compose pull` between releases moved :latest —
+    # it aborted that deploy with `backend=''`. The precise condition is NOT
+    # asserted here: it is image-store-dependent (this host uses the containerd
+    # snapshotter) and could not be reproduced cleanly afterwards.
+    #
+    # Either way the container is fine and only the registry reference is
+    # missing, so fall back to the ledger written by the deploy that started it.
+    ledger_digest "$container" "$image_id"
 }
 
-# Flyway stores `version` as VARCHAR, so MAX(version) compares it as text: with
-# V99 and V134 both applied, MAX() returns '99'. That is not cosmetic. This
-# number is the manifest's answer to point 3 above — whether undoing a release
-# needs the dump restored or only the images re-pinned — and it fails in the
-# dangerous direction, understating how far the schema has moved. It printed 99
-# during the v2.17.2 release with production actually on 130, and it had been
-# wrong since V100 landed. Order by the numeric version instead; installed_rank
-# breaks ties. The same idiom is already used correctly in
-# IntegrationTestBaseSmokeTest.
-SCHEMA_VERSION_SQL="SELECT COALESCE((
-    SELECT version FROM flyway_schema_history
-    WHERE success AND version IS NOT NULL
-    ORDER BY CAST(SUBSTRING(version, '^[0-9]+') AS INTEGER) DESC, installed_rank DESC
-    LIMIT 1), 'none')"
+# Returns the recorded RepoDigest for a container, but ONLY when the ledger's
+# image ID still matches the one actually running. An image ID is a content
+# hash, so that match is what makes the recorded digest a checkable claim about
+# THIS image rather than a guess about a previous one. On any mismatch it
+# returns nothing and the caller aborts, exactly as it would have without a
+# ledger — a manifest pointing at the wrong build is worse than no manifest.
+ledger_digest() {
+    local container="$1" running_id="$2"
+    [ -f "$LEDGER" ] || return 0
+    command -v python3 >/dev/null 2>&1 || return 0
+    # stdout is the digest (empty when unusable); any explanation goes to stderr.
+    CONTAINER="$container" RUNNING_ID="$running_id" LEDGER="$LEDGER" python3 - <<'PYEOF'
+import json, os, sys
+
+container = os.environ["CONTAINER"]
+try:
+    with open(os.environ["LEDGER"]) as fh:
+        entry = json.load(fh).get("containers", {}).get(container)
+except Exception as exc:
+    print(f"[pre-release-backup] ledger unreadable ({exc})", file=sys.stderr)
+    sys.exit(0)
+
+if not entry:
+    print(f"[pre-release-backup] ledger has no record for {container}", file=sys.stderr)
+    sys.exit(0)
+
+if entry.get("imageId") != os.environ["RUNNING_ID"]:
+    print(
+        f"[pre-release-backup] ledger for {container} records a DIFFERENT image "
+        "than the one running — ignoring it rather than pinning the wrong build.",
+        file=sys.stderr,
+    )
+    sys.exit(0)
+
+print(f"[pre-release-backup] {container}: image carries no RepoDigest (displaced by a "
+      "newer :latest); recovered from the deploy ledger.", file=sys.stderr)
+sys.stdout.write(entry.get("repoDigest", ""))
+PYEOF
+}
 
 PREV_BACKEND="$(digest_of "$BACKEND_CONTAINER")"
 PREV_FRONTEND="$(digest_of "$FRONTEND_CONTAINER")"
