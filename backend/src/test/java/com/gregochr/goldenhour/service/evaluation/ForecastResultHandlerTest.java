@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.BluebellEvaluation;
+import com.gregochr.goldenhour.model.WoodlandEvaluation;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TideContext;
@@ -27,6 +28,7 @@ import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler.Forecast
 import com.gregochr.goldenhour.service.evaluation.visitor.BluebellVisitor;
 import com.gregochr.goldenhour.service.evaluation.visitor.ComponentScore;
 import com.gregochr.goldenhour.service.evaluation.visitor.RatingCombiner;
+import com.gregochr.goldenhour.service.evaluation.visitor.WoodlandVisitor;
 import com.gregochr.goldenhour.service.evaluation.visitor.SkyVisitor;
 import com.gregochr.goldenhour.service.evaluation.visitor.TideVisitor;
 import ch.qos.logback.classic.Level;
@@ -92,7 +94,8 @@ class ForecastResultHandlerTest {
                 briefingEvaluationService,
                 jobRunService, objectMapper,
                 new RatingCombiner(List.of(
-                        new SkyVisitor(), new TideVisitor(), new BluebellVisitor())),
+                        new SkyVisitor(), new TideVisitor(), new BluebellVisitor(),
+                        new WoodlandVisitor())),
                 forecastDataAugmentor, forecastScoreWriter, parser);
     }
 
@@ -135,6 +138,69 @@ class ForecastResultHandlerTest {
                 eq(null), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
                 eq(DATE), eq(SUNRISE), eq(outcome.rawText()));
+    }
+
+    @Test
+    @DisplayName("parseWoodlandBatchResponse: woodland rating stands alone and is filed under "
+            + "WOODLAND, not BLUEBELL")
+    void parseWoodlandBatchResponse_filesUnderWoodlandType() {
+        LocationEntity location = canopyLocation(53L, "Bluebell Wood", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "wd-53-2026-04-16-SUNRISE",
+                "{\"rating\":5,\"summary\":\"Mist through the trunks with a low sun.\","
+                        + "\"headline\":\"Shafts through the beeches\"}",
+                new TokenUsage(300, 80, 0, 900),
+                EvaluationModel.HAIKU);
+        when(parser.parseWoodlandEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new WoodlandEvaluation(
+                        5, "Mist through the trunks with a low sun.", "Shafts through the beeches"));
+
+        ResultContext context = ResultContext.forBatch(
+                99L, "msgbatch_wd", BatchTriggerSource.SCHEDULED);
+        Optional<BatchSuccess> result = handler.parseWoodlandBatchResponse(
+                location, identity, outcome, context);
+
+        assertThat(result).isPresent();
+        BriefingEvaluationResult r = result.get().result();
+        assertThat(result.get().cacheKey()).isEqualTo("Lake District|2026-04-16|SUNRISE");
+        assertThat(r.rating()).isEqualTo(5);
+        // No sky scores behind a canopy slot — there is no sky evaluation to derive them from.
+        assertThat(r.fierySkyPotential()).isNull();
+        assertThat(r.goldenHourPotential()).isNull();
+        assertThat(r.summary()).isEqualTo("Mist through the trunks with a low sun.");
+        assertThat(r.headline()).isEqualTo("Shafts through the beeches");
+
+        // Provenance is the point: this location is ALSO typed BLUEBELL, so filing the component
+        // under BLUEBELL would look right and make the two subjects indistinguishable.
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ComponentScore>> captor = ArgumentCaptor.forClass(List.class);
+        verify(forecastScoreWriter).writeComponents(
+                eq(location), eq(DATE), eq(SUNRISE), captor.capture(), eq(null));
+        assertThat(captor.getValue())
+                .singleElement()
+                .satisfies(c -> {
+                    assertThat(c.type()).isEqualTo(ForecastType.WOODLAND);
+                    assertThat(c.score()).isEqualTo(5);
+                });
+        verify(forecastScoreWriter, never()).write(any(), any(), any(), any(), anyList(), any());
+    }
+
+    @Test
+    @DisplayName("parseWoodlandBatchResponse: a response with no rating is dropped, not defaulted")
+    void parseWoodlandBatchResponse_missingRating_returnsEmpty() {
+        LocationEntity location = canopyLocation(53L, "Bluebell Wood", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "wd-53-2026-04-16-SUNRISE", "{\"summary\":\"no rating here\"}",
+                new TokenUsage(300, 80, 0, 900), EvaluationModel.HAIKU);
+        when(parser.parseWoodlandEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new WoodlandEvaluation(null, "no rating here", null));
+
+        assertThat(handler.parseWoodlandBatchResponse(location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_wd", BatchTriggerSource.SCHEDULED)))
+                .isEmpty();
+        verify(forecastScoreWriter, never()).writeComponents(any(), any(), any(), anyList(), any());
     }
 
     @Test
@@ -419,7 +485,9 @@ class ForecastResultHandlerTest {
     }
 
     @Test
-    @DisplayName("flushCacheKey delegates to BriefingEvaluationService.writeFromBatch")
+    @DisplayName("flushCacheKey still delegates to writeFromBatch — it is the destructive path, "
+            + "deprecated and no longer called by production")
+    @SuppressWarnings("deprecation")
     void flushCacheKey_delegatesToBriefingService() {
         BriefingEvaluationResult res =
                 new BriefingEvaluationResult("Castlerigg", 4, 70, 65, "X");
@@ -578,7 +646,7 @@ class ForecastResultHandlerTest {
                 task, outcome, ResultContext.forSync(99L, BatchTriggerSource.ADMIN));
 
         assertThat(result).isInstanceOf(EvaluationResult.Scored.class);
-        verify(briefingEvaluationService).writeFromBatch(
+        verify(briefingEvaluationService).mergeFromBatch(
                 eq("Lake District|2026-04-16|SUNRISE"),
                 org.mockito.ArgumentMatchers.<List<BriefingEvaluationResult>>any());
         verify(jobRunService).logAnthropicApiCall(
@@ -680,7 +748,7 @@ class ForecastResultHandlerTest {
                 task, outcome, ResultContext.forSync(null, BatchTriggerSource.ADMIN));
 
         assertThat(result).isInstanceOf(EvaluationResult.Scored.class);
-        verify(briefingEvaluationService).writeFromBatch(any(), any());
+        verify(briefingEvaluationService).mergeFromBatch(any(), any());
         verifyNoInteractions(jobRunService);
     }
 
@@ -703,6 +771,18 @@ class ForecastResultHandlerTest {
     private LocationEntity woodlandBluebellLocation(long id, String name, String regionName) {
         LocationEntity loc = locationWithRegion(id, name, regionName);
         loc.setLocationType(java.util.Set.of(LocationType.BLUEBELL));
+        loc.setBluebellExposure(BluebellExposure.WOODLAND);
+        return loc;
+    }
+
+    /**
+     * The production shape of a wood: typed WOODLAND <em>and</em> BLUEBELL, with no sky type. All
+     * 15 real canopy sites look like this, which is why {@code isWoodlandOnly()} is true for them
+     * and both canopy visitors apply.
+     */
+    private LocationEntity canopyLocation(long id, String name, String regionName) {
+        LocationEntity loc = locationWithRegion(id, name, regionName);
+        loc.setLocationType(java.util.Set.of(LocationType.WOODLAND, LocationType.BLUEBELL));
         loc.setBluebellExposure(BluebellExposure.WOODLAND);
         return loc;
     }

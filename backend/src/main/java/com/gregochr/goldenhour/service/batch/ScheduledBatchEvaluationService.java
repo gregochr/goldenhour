@@ -411,6 +411,15 @@ public class ScheduledBatchEvaluationService {
             cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
             logBatchBreakdown(tasks.bluebell(), "bluebell");
         }
+        // Woodland mini-batch: same homogeneity argument as bluebell, but year-round. A canopy
+        // site is in exactly one of these two buckets on any given date, never both, so neither
+        // batch is ever diluted by the other's system prompt.
+        if (!tasks.woodland().isEmpty()) {
+            EvaluationHandle h = evaluationService.submit(
+                    tasks.woodland(), BatchTriggerSource.SCHEDULED, pipelineRunId);
+            cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
+            logBatchBreakdown(tasks.woodland(), "woodland");
+        }
 
         // Persist the cycle's per-candidate accounting UNCONDITIONALLY. This is
         // the single chokepoint every forecast submission path funnels through
@@ -421,12 +430,12 @@ public class ScheduledBatchEvaluationService {
 
         if (!tasks.isEmpty()) {
             LOG.info("Forecast batch split: near-term {} ({}i + {}c), far-term {} ({}i + {}c), "
-                            + "bluebell {}, total {} requests, pipelineRunId={}",
+                            + "bluebell {}, woodland {}, total {} requests, pipelineRunId={}",
                     tasks.nearInland().size() + tasks.nearCoastal().size(),
                     tasks.nearInland().size(), tasks.nearCoastal().size(),
                     tasks.farInland().size() + tasks.farCoastal().size(),
                     tasks.farInland().size(), tasks.farCoastal().size(),
-                    tasks.bluebell().size(),
+                    tasks.bluebell().size(), tasks.woodland().size(),
                     tasks.totalSize(), pipelineRunId);
         }
     }

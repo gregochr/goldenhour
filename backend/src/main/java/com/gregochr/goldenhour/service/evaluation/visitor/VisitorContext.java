@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.evaluation.visitor;
 import com.gregochr.goldenhour.model.BluebellEvaluation;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TideContext;
+import com.gregochr.goldenhour.model.WoodlandEvaluation;
 
 /**
  * The inputs a {@link Visitor} reads to produce its score, threaded through
@@ -25,9 +26,14 @@ import com.gregochr.goldenhour.model.TideContext;
  * @param bluebell   the bluebell evaluation for an in-season bluebell site, or {@code null} when
  *                   the location is not a bluebell site or is out of season. A {@code null} means
  *                   the bluebell visitor abstains.
+ * @param woodland   the woodland evaluation for a canopy site out of bluebell season, or
+ *                   {@code null}. Held separately from {@link #bluebell()} rather than sharing a
+ *                   slot, because every canopy site in production is ALSO typed BLUEBELL — a
+ *                   shared slot would let {@code BluebellVisitor.appliesTo} claim a woodland
+ *                   response and record it under the wrong {@code ForecastType}.
  */
 public record VisitorContext(SunsetEvaluation evaluation, TideContext tide,
-                             BluebellEvaluation bluebell) {
+                             BluebellEvaluation bluebell, WoodlandEvaluation woodland) {
 
     /**
      * Convenience constructor for the sky+tide case (no bluebell slice) — the shape every
@@ -37,6 +43,18 @@ public record VisitorContext(SunsetEvaluation evaluation, TideContext tide,
      * @param tide       the re-derived tide context, or null
      */
     public VisitorContext(SunsetEvaluation evaluation, TideContext tide) {
-        this(evaluation, tide, null);
+        this(evaluation, tide, null, null);
+    }
+
+    /**
+     * Convenience constructor for the sky+tide+bluebell case — the shape Pass 3 callers use.
+     *
+     * @param evaluation the sky evaluation (may be null)
+     * @param tide       the re-derived tide context, or null
+     * @param bluebell   the bluebell evaluation, or null
+     */
+    public VisitorContext(SunsetEvaluation evaluation, TideContext tide,
+            BluebellEvaluation bluebell) {
+        this(evaluation, tide, bluebell, null);
     }
 }

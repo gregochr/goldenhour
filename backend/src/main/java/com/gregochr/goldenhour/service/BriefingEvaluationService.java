@@ -303,6 +303,35 @@ public class BriefingEvaluationService {
     }
 
     /**
+     * Merges woodland mini-batch results into the region cache entry.
+     *
+     * <p>A plain overlay, deliberately NOT the bluebell recombination. {@code recombineBluebell}
+     * averages the incoming rating into a prior sky entry whenever one carries a
+     * {@code fierySkyPotential}, and returns that sky entry's summary, headline and 0-100
+     * potentials. For a canopy site that is doubly wrong: it would average a woodland rating with
+     * a sky rating for a location with no sky in the frame, and throw the woodland prose away in
+     * favour of sky narrative. A prior sky entry for a canopy site should not exist, but the
+     * force-submit path does not filter on {@code hasColourTypes()}, so it can.
+     *
+     * @param cacheKey         region cache key
+     * @param woodlandResults  the canopy locations for that key
+     */
+    public void mergeWoodlandFromBatch(String cacheKey,
+            List<BriefingEvaluationResult> woodlandResults) {
+        CachedEvaluation prior = cache.get(cacheKey);
+        ConcurrentHashMap<String, BriefingEvaluationResult> merged = new ConcurrentHashMap<>();
+        if (prior != null) {
+            merged.putAll(prior.results());
+        } else {
+            merged.putAll(loadResultsFromDb(cacheKey));
+        }
+        woodlandResults.forEach(r -> merged.put(r.locationName(), r));
+        Instant now = Instant.now();
+        cache.put(cacheKey, new CachedEvaluation(merged, now));
+        persistToDb(cacheKey, merged, "BATCH");
+    }
+
+    /**
      * Recombines a bluebell result with a prior cache entry: averages the rating onto the sky
      * narrative for OPEN_FELL (a prior sky-scored entry exists), or returns the bluebell result
      * unchanged for WOODLAND (no prior sky entry). Package-private for direct unit testing.

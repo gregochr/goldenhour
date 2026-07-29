@@ -11,6 +11,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The `data-testid` moved with it (`claude-scored-legend` → `photocast-scored-legend`) so the hook does not outlive the label it names. Nothing referenced either string, so no tests or other call sites changed.
 - Copy elsewhere that names Claude *because the topic is the model* — the Manage tab's model selection, cost estimates, health probes — is deliberately untouched.
 
+### Fixed — a region's cache entry was replaced by whichever batch finished last
+- **The cache key is per REGION; the buckets are per BATCH.** `isCoastal` is a per-*location* tide test, so a region holding both coastal and inland sites emits tasks into two different sky batches carrying the **same** cache key. `writeFromBatch` rebuilds the entry from only the incoming batch's results and replaces both the in-memory cache and `cached_evaluation.results_json` wholesale — `persistToDb` does a straight `setResultsJson`, no merge. Whichever batch finished second silently deleted the first's locations.
+- **Live in production, and not new.** Three regions mix coastal and inland enabled locations — Northumberland **33/43**, The North Yorkshire Coast **16/9**, Tyne and Wear **2/9** — so one half of each has been discarded on every cycle since the coastal/inland split was introduced. The paid-for evaluations were made, written, and then thrown away.
+- **The sync path was worse.** `handleSyncResult` passed `writeFromBatch` a *single* result, so one location's evaluation replaced its entire region.
+- **Always merge now, on both paths.** `mergeFromBatch` already overlays per location name onto the prior entry (falling back to the DB) — it is what the retry path has used for exactly this reason since it was written. Merging costs a stale location lingering in a region entry until that key ages out; replacing costs a paid-for evaluation. The trade is not close.
+- `flushCacheKey` is deprecated with the reason on it, and retained **only** so the destructive behaviour stays directly testable — the new tests pin both directions: two merges on one key keep both locations, and `writeFromBatch` on the same key demonstrably loses the first. The defect is proven, not just the fix.
+- Found by an adversarial review of unrelated work; five of seven review lenses landed on it independently.
+
 ### Changed — one source of truth for location types, and two harnesses that had drifted from it
 
 - **The type map lived in five copies**, and adding WOODLAND cost five hand-edits to keep them in step. `MapView.LOCATION_TYPE_LABELS`, `LocationTypeBadges.LOCATION_TYPE_META`, `MarkerPopupContent.POPUP_LOC_TYPE_META`, `briefingDisplay.LOCATION_TYPE_ICONS` and `LocationManagementView.LOCATION_TYPES` now all derive from `utils/locationTypes.js`.

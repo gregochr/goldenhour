@@ -20,7 +20,7 @@ import { isTravelDate } from '../utils/conversions.js';
 import { fitBoundsKey } from '../utils/fitBoundsKey.js';
 import { buildBriefingScoreIndex, lookupBriefingScore } from '../utils/briefingScoreIndex.js';
 import { resolveStandDown } from '../utils/standDown.js';
-import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel } from '../utils/locationTypes.js';
+import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel, SKY_SUBJECT_TYPES } from '../utils/locationTypes.js';
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 
 // Override Leaflet popup width + scrolling.
@@ -817,7 +817,13 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
     const types = loc.locationType ?? [];
     const isPureWildlife = types.length > 0 && types.every((t) => t === 'WILDLIFE');
     const isWaterfall = types.includes('WATERFALL');
-    return { forecast, hourlyData, isPureWildlife, isWaterfall };
+    // A canopy site's rating answers a different question from every other pin's. Excluded from
+    // cluster averages for the same reason WATERFALL is: a wood rated 5 on a flat overcast misty
+    // evening would drag its cluster's grey→gold ramp toward gold on precisely the nights the sky
+    // is at its worst. The two are ORed into one flag because the cluster only asks "does this
+    // score mean sky colour", and for both the answer is no.
+    const excludeFromSkyCluster = isWaterfall || !types.some((t) => SKY_SUBJECT_TYPES.includes(t));
+    return { forecast, hourlyData, isPureWildlife, isWaterfall, excludeFromSkyCluster };
   }
 
   // Active (non-default) filters drive the collapsed pill summary and its highlight.
@@ -1158,7 +1164,8 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
             animate
           >
             {visibleLocations.map((loc) => {
-              const { forecast, hourlyData, isPureWildlife, isWaterfall } = getContentProps(loc);
+              const { forecast, hourlyData, isPureWildlife, isWaterfall, excludeFromSkyCluster }
+                = getContentProps(loc);
               const locAuroraScore = isAuroraMode ? (auroraScores[loc.name] ?? null) : null;
               // Look up briefing evaluation score for this location (if any)
               const briefingScore = !isAuroraMode ? lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType) : null;
@@ -1190,7 +1197,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
                 markerGolden,
                 loc.name,
                 isPureWildlife,
-                isWaterfall,
+                excludeFromSkyCluster,
                 isStandDown,
                 emphasis,
               );

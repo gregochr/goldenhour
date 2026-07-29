@@ -47,6 +47,50 @@ class CustomIdFactoryTest {
     }
 
     @Test
+    void forWoodlandProducesExpectedFormat() {
+        assertThat(CustomIdFactory.forWoodland(42L, DATE, TargetType.SUNRISE))
+                .isEqualTo("wd-42-2026-04-16-SUNRISE");
+    }
+
+    @Test
+    void parseWoodlandReturnsStructuredRecord() {
+        ParsedCustomId parsed = CustomIdFactory.parse("wd-42-2026-04-16-SUNRISE");
+        assertThat(parsed).isInstanceOf(ParsedCustomId.Woodland.class);
+        ParsedCustomId.Woodland w = (ParsedCustomId.Woodland) parsed;
+        assertThat(w.locationId()).isEqualTo(42L);
+        assertThat(w.date()).isEqualTo(DATE);
+        assertThat(w.targetType()).isEqualTo(TargetType.SUNRISE);
+    }
+
+    @Test
+    void forWoodlandRoundTripsThroughParse() {
+        // The round trip IS the lane: the prompt kind is not carried anywhere else across the
+        // async batch boundary, so a woodland response that parsed back as a forecast would be
+        // fed to the sky parser and scored against a rubric its prompt never used.
+        String id = CustomIdFactory.forWoodland(7L, DATE, TargetType.SUNSET);
+        ParsedCustomId parsed = CustomIdFactory.parse(id);
+        assertThat(parsed).isInstanceOf(ParsedCustomId.Woodland.class);
+        assertThat(((ParsedCustomId.Woodland) parsed).locationId()).isEqualTo(7L);
+        assertThat(((ParsedCustomId.Woodland) parsed).targetType()).isEqualTo(TargetType.SUNSET);
+    }
+
+    @Test
+    void woodlandAndBluebellIdsAreDistinguishable() {
+        // Both are canopy lanes for the same site on different dates; if their prefixes collided
+        // a bluebell response would be parsed as woodland and land under the wrong ForecastType.
+        assertThat(CustomIdFactory.parse(CustomIdFactory.forWoodland(1L, DATE, TargetType.SUNRISE)))
+                .isNotInstanceOf(ParsedCustomId.Bluebell.class);
+        assertThat(CustomIdFactory.parse(CustomIdFactory.forBluebell(1L, DATE, TargetType.SUNRISE)))
+                .isNotInstanceOf(ParsedCustomId.Woodland.class);
+    }
+
+    @Test
+    void forWoodlandRejectsNullArguments() {
+        assertThatNullPointerException()
+                .isThrownBy(() -> CustomIdFactory.forWoodland(null, DATE, TargetType.SUNRISE));
+    }
+
+    @Test
     void forBluebellRejectsNullArguments() {
         assertThatNullPointerException()
                 .isThrownBy(() -> CustomIdFactory.forBluebell(null, DATE, TargetType.SUNRISE));

@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.evaluation;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.model.BluebellEvaluation;
+import com.gregochr.goldenhour.model.WoodlandEvaluation;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import org.springframework.stereotype.Component;
 
@@ -141,6 +142,39 @@ public class SunsetEvaluationParser {
      *                                  a rating and summary
      */
     public BluebellEvaluation parseBluebellEvaluation(String text, ObjectMapper mapper) {
+        RatingSummaryHeadline r = parseRatingSummaryHeadline(text, mapper, "bluebell");
+        return new BluebellEvaluation(r.rating(), r.summary(), r.headline());
+    }
+
+    /**
+     * Parses Claude's woodland-conditions response.
+     *
+     * <p>Same contract and same salvage behaviour as
+     * {@link #parseBluebellEvaluation(String, ObjectMapper)} — the two prompts return an
+     * identical JSON shape — but yields a {@link WoodlandEvaluation} so the two subjects stay
+     * distinguishable all the way to {@code forecast_score}.
+     *
+     * @param text   the raw text returned by Claude for a woodland evaluation
+     * @param mapper Jackson mapper for JSON parsing
+     * @return the parsed woodland evaluation
+     * @throws IllegalArgumentException if neither strict parsing nor the regex fallback recovers
+     *                                  a rating and summary
+     */
+    public WoodlandEvaluation parseWoodlandEvaluation(String text, ObjectMapper mapper) {
+        RatingSummaryHeadline r = parseRatingSummaryHeadline(text, mapper, "woodland");
+        return new WoodlandEvaluation(r.rating(), r.summary(), r.headline());
+    }
+
+    /** The shape both subject prompts return: a 1-5 rating, a summary, an optional headline. */
+    private record RatingSummaryHeadline(Integer rating, String summary, String headline) {
+    }
+
+    /**
+     * Shared strict-then-salvage parse for the subject prompts. Factored out when the woodland
+     * prompt arrived so the salvage path cannot drift between the two.
+     */
+    private RatingSummaryHeadline parseRatingSummaryHeadline(String text, ObjectMapper mapper,
+            String subject) {
         String cleaned = text.trim()
                 .replaceAll("(?s)^```(?:json)?\\s*", "")
                 .replaceAll("(?s)\\s*```$", "")
@@ -150,18 +184,19 @@ public class SunsetEvaluationParser {
             Integer rating = node.has("rating") ? node.get("rating").asInt() : null;
             String summary = node.get("summary").stringValue();
             String headline = node.has("headline") ? node.get("headline").stringValue() : null;
-            return new BluebellEvaluation(rating, summary, headline);
+            return new RatingSummaryHeadline(rating, summary, headline);
         } catch (Exception jsonException) {
             Matcher ratingMatcher = RATING_PATTERN.matcher(text);
             String summary = extractField(SUMMARY_PATTERN, SUMMARY_PATTERN_SALVAGE, text);
             if (summary == null) {
                 throw new IllegalArgumentException(
-                        "Failed to parse bluebell evaluation response: " + text, jsonException);
+                        "Failed to parse " + subject + " evaluation response: " + text,
+                        jsonException);
             }
             Integer rating = ratingMatcher.find() ? Integer.parseInt(ratingMatcher.group(1)) : null;
             Matcher headlineMatcher = HEADLINE_PATTERN.matcher(text);
             String headline = headlineMatcher.find() ? headlineMatcher.group(1) : null;
-            return new BluebellEvaluation(rating, summary, headline);
+            return new RatingSummaryHeadline(rating, summary, headline);
         }
     }
 

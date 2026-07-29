@@ -1,6 +1,8 @@
 package com.gregochr.goldenhour.service.batch;
 
 import com.gregochr.goldenhour.config.FreshnessProperties;
+import com.gregochr.goldenhour.model.SeasonalWindow;
+import java.time.MonthDay;
 import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -55,6 +57,11 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class CollectForecastTasksCachedGateTest {
 
+    /** April 10 - May 20: matches the production bluebell window shape. */
+    private static final SeasonalWindow BLUEBELL_SEASON =
+            new SeasonalWindow(MonthDay.of(4, 10), MonthDay.of(5, 20), "BLUEBELL");
+
+
     @Mock private LocationService locationService;
     @Mock private BriefingService briefingService;
     @Mock private BriefingEvaluationService briefingEvaluationService;
@@ -92,7 +99,8 @@ class CollectForecastTasksCachedGateTest {
                 briefingEvaluationService, forecastService, stabilityClassifier,
                 modelSelectionService, openMeteoService, solarService,
                 freshnessResolver, stabilitySnapshotProvider, survivorAtmosphereWriter,
-                travelDayService, 0.5, 0, CLOCK);
+                travelDayService, 0.5, 0, CLOCK,
+                BLUEBELL_SEASON);
     }
 
     @SuppressWarnings("unchecked")

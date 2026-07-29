@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideStatisticalSize;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.service.WoodlandVerdictEvaluator;
 import com.gregochr.goldenhour.model.BluebellConditionScore;
 import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 import com.gregochr.goldenhour.model.TideRiskLevel;
@@ -26,6 +27,7 @@ class BatchRequestFactoryTest {
     private PromptBuilder inlandBuilder;
     private CoastalPromptBuilder coastalBuilder;
     private BluebellPromptBuilder bluebellBuilder;
+    private WoodlandPromptBuilder woodlandBuilder;
     private BatchRequestFactory factory;
 
     @BeforeEach
@@ -33,7 +35,9 @@ class BatchRequestFactoryTest {
         inlandBuilder = new PromptBuilder();
         coastalBuilder = new CoastalPromptBuilder();
         bluebellBuilder = new BluebellPromptBuilder();
-        factory = new BatchRequestFactory(inlandBuilder, coastalBuilder, bluebellBuilder);
+        woodlandBuilder = new WoodlandPromptBuilder(new WoodlandVerdictEvaluator());
+        factory = new BatchRequestFactory(inlandBuilder, coastalBuilder, bluebellBuilder,
+                woodlandBuilder);
     }
 
     @Test
@@ -190,6 +194,59 @@ class BatchRequestFactoryTest {
         // Default Anthropic ephemeral TTL (~5 min) — never override here. If a future
         // change adds .ttl(...) the call must be deliberate.
         assertThat(cacheControl.get().ttl()).isEmpty();
+    }
+
+    @Test
+    void woodlandRequestUsesWoodlandSystemPromptByteForByte() {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+
+        BatchCreateParams.Request request = factory.buildWoodlandRequest(
+                "wd-1-2026-11-16-SUNRISE", EvaluationModel.HAIKU, data, 1024);
+
+        String system = request.params().system().get().asTextBlockParams().get(0).text();
+        assertThat(system).isEqualTo(woodlandBuilder.getSystemPrompt());
+    }
+
+    @Test
+    void woodlandSystemBlockCarriesEphemeralCacheControl() {
+        // Without cache_control the woodland bucket pays full input price on every request in the
+        // batch. The bucket exists to be cached; this is the flag that makes it so.
+        AtmosphericData data = TestAtmosphericData.builder().build();
+
+        BatchCreateParams.Request request = factory.buildWoodlandRequest(
+                "wd-1-2026-11-16-SUNRISE", EvaluationModel.HAIKU, data, 1024);
+
+        var textBlock = request.params().system().get().asTextBlockParams().get(0);
+        assertThat(textBlock.cacheControl()).isPresent();
+    }
+
+    @Test
+    void woodlandSystemPromptIsIdenticalAcrossRequests() {
+        // The cache prefix is shared only if it is byte-identical. Two woodland requests built
+        // from different atmospheric data must still carry the same system text — anything
+        // location-specific leaking into the system block would give every request its own
+        // prefix and silently cost full price on all of them.
+        AtmosphericData a = TestAtmosphericData.builder().build();
+        AtmosphericData b = TestAtmosphericData.builder().tide(coastalTide()).build();
+
+        String first = factory.buildWoodlandRequest("wd-1-2026-11-16-SUNRISE",
+                EvaluationModel.HAIKU, a, 1024)
+                .params().system().get().asTextBlockParams().get(0).text();
+        String second = factory.buildWoodlandRequest("wd-2-2026-12-01-SUNSET",
+                EvaluationModel.HAIKU, b, 1024)
+                .params().system().get().asTextBlockParams().get(0).text();
+
+        assertThat(first).isEqualTo(second);
+    }
+
+    @Test
+    void woodlandBluebellAndSkySystemPromptsAreAllDistinct() {
+        // Three distinct prefixes means three buckets that must stay homogeneous. If any two were
+        // equal the bucketing would be pointless; if any two were ACCIDENTALLY equal the two
+        // subjects would be scored by one rubric.
+        assertThat(woodlandBuilder.getSystemPrompt())
+                .isNotEqualTo(bluebellBuilder.getSystemPrompt())
+                .isNotEqualTo(inlandBuilder.getSystemPrompt());
     }
 
     @Test
