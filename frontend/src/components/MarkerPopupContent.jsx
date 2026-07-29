@@ -16,6 +16,7 @@ import createEventSource from '../utils/createEventSource.js';
 import { bortleLabel } from '../utils/conversions.js';
 import TideIndicator from './TideIndicator.jsx';
 import InfoTip from './InfoTip.jsx';
+import { resolveStandDown } from '../utils/standDown.js';
 
 /**
  * Resolves the full detail object for a (slim) forecast slot with the precedence:
@@ -465,6 +466,13 @@ export default function MarkerPopupContent({
   const solarTypes  = (location.solarEventType ?? []).filter((t) => POPUP_SOLAR_EVENT_META[t]);
   const coastalTides = (location.tideType ?? []).filter((t) => POPUP_TIDE_META[t]);
 
+  // The popup must agree with its own marker. MapView decides both of these from the same two
+  // sources via the same helper; deriving them independently here is what let a 4★ medallion open
+  // a popup reading "Stand-down" — the briefing score carried a live rating while the latest
+  // forecast row was a superseded triage.
+  const popupRating = briefingScore?.rating ?? forecast?.rating ?? null;
+  const popupStandDown = resolveStandDown(briefingScore, forecast);
+
   return (
     <div style={{ fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
 
@@ -538,12 +546,12 @@ export default function MarkerPopupContent({
       ) : forecast ? (
         <>
           <div style={{ marginBottom: '6px' }}>
-            {forecast.rating != null && (
+            {popupRating != null && (
               <div style={{ fontSize: '16px', letterSpacing: '2px', marginBottom: '4px' }}>
-                <span style={{ color: 'var(--color-verdict-marginal)' }}>{'★'.repeat(forecast.rating)}</span>
-                <span style={{ color: 'var(--color-plex-text-muted)' }}>{'☆'.repeat(5 - forecast.rating)}</span>
+                <span style={{ color: 'var(--color-verdict-marginal)' }}>{'★'.repeat(popupRating)}</span>
+                <span style={{ color: 'var(--color-plex-text-muted)' }}>{'☆'.repeat(5 - popupRating)}</span>
                 <span style={{ fontSize: '12px', color: 'var(--color-plex-text-muted)', fontFamily: "'IBM Plex Mono', monospace", marginLeft: '8px', letterSpacing: 0 }}>
-                  {forecast.rating}/5
+                  {popupRating}/5
                 </span>
               </div>
             )}
@@ -823,12 +831,12 @@ export default function MarkerPopupContent({
               </span>
             </div>
           )}
-          {forecast.triageReason ? (
+          {popupStandDown ? (
             // triageReason is a slim (header) field, so the stand-down verdict
             // shows immediately; its message is detail-only and fills in on load.
             <StandDownBadge
-              triageReason={forecast.triageReason}
-              triageMessage={detail?.triageMessage}
+              triageReason={forecast.triageReason ?? briefingScore?.triageReason}
+              triageMessage={detail?.triageMessage ?? briefingScore?.triageMessage}
             />
           ) : detailLoading ? (
             <div data-testid="detail-skeleton" className="animate-pulse" style={{ marginBottom: '8px' }}>

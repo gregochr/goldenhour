@@ -80,8 +80,18 @@ describe('NlcSightingBanner', () => {
   });
 
   it('shows the relative "Xh ago" report label', () => {
-    renderBanner(activeSighting());
-    expect(screen.getByText(/Sighting · 2h ago/i)).toBeInTheDocument();
+    // Pin the clock. `activeSighting()` derives reportedAt as "two hours ago" from the real one,
+    // so on any run between 00:00 and 01:59 local that lands on the previous calendar day and
+    // formatReportedAt correctly returns "yesterday HH:MM" instead. The component was right and
+    // the test was wrong: this assertion is about the same-day branch, so it has to own the time.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-07-15T12:00:00'));
+    try {
+      renderBanner(activeSighting());
+      expect(screen.getByText(/Sighting · 2h ago/i)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('shows the observer location and source', () => {

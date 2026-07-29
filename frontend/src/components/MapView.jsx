@@ -19,6 +19,7 @@ import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { isTravelDate } from '../utils/conversions.js';
 import { fitBoundsKey } from '../utils/fitBoundsKey.js';
 import { buildBriefingScoreIndex, lookupBriefingScore } from '../utils/briefingScoreIndex.js';
+import { resolveStandDown } from '../utils/standDown.js';
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 
 // Override Leaflet popup width + scrolling.
@@ -331,7 +332,10 @@ function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildli
 
   const icon = L.divIcon({
     html,
-    className: 'photocast-marker',
+    // The emphasis modifier has to land on the class, not just the cache key — without it the
+    // `.photocast-marker--focus` / `--muted` rules in popupStyles match nothing and the overlay's
+    // drill-down highlight is inert.
+    className: emphasis ? `photocast-marker photocast-marker--${emphasis}` : 'photocast-marker',
     iconSize: [44, 44],
     iconAnchor: [22, 22],
     rating: rating,
@@ -668,7 +672,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
     const dayData = loc.forecastsByDate.get(date);
     const solarType = eventType === 'SUNRISE' ? 'sunrise' : 'sunset';
     const forecast = dayData?.[solarType];
-    return briefingScore?.triageReason != null || forecast?.triageReason != null;
+    return resolveStandDown(briefingScore, forecast);
   }, [eventType, date, briefingScoreIndex]);
 
   /** Get the forecast rating for a location on the current date/event. */
@@ -751,6 +755,14 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
     showStandDown, showUnrated, minStars, driveTimeFilter, userDriveTimes,
     darkSkyFilter, focus, isAstroMode,
   ]);
+
+  // The emphasis target, but only when it survived the filter pipeline — see the marker render.
+  const emphasisTarget = useMemo(() => (
+    emphasiseLocationName != null
+      && visibleLocations.some((l) => l.name === emphasiseLocationName)
+      ? emphasiseLocationName
+      : null
+  ), [emphasiseLocationName, visibleLocations]);
 
   // Best aurora location — highest-starred entry from current aurora scores.
   const bestAuroraLocation = useMemo(() => {
@@ -1160,14 +1172,18 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
               const markerGolden = (!isAuroraMode && role !== 'LITE_USER')
                 ? (briefingScore?.goldenHourPotential ?? forecast?.goldenHourPotential ?? null)
                 : null;
-              const isStandDown = !isAuroraMode && !isPureWildlife && (
-                briefingScore?.triageReason != null || forecast?.triageReason != null
-              );
+              const isStandDown = !isAuroraMode && !isPureWildlife
+                && resolveStandDown(briefingScore, forecast);
               // Drill-down emphasis is overlay-only: `emphasiseLocationName` is set solely by
               // the Plan-tab map overlay, never by the Map tab (which passes the same handoff
               // for its escape-hatch landing and must keep every pin equal).
-              const emphasis = emphasiseLocationName
-                ? (loc.name === emphasiseLocationName ? 'focus' : 'muted')
+              //
+              // Gated on the target actually surviving the filters. Nothing relaxes the star or
+              // stand-down thresholds for a handoff, so a drill-down to a 2-star spot on a 3-star
+              // map leaves no pin to focus — and muting every remaining marker would dim the whole
+              // overlay to 40% in deference to a pin that is not there.
+              const emphasis = emphasisTarget
+                ? (loc.name === emphasisTarget ? 'focus' : 'muted')
                 : null;
               const icon = makeMarkerIcon(
                 markerRating,
