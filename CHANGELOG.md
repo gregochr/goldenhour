@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.17.3] - 2026-07-29
+
+### Added — a wood finally gets its own rating, year-round
+- **A canopy site out of bluebell season produced no Claude task at all.** It reached `DispositionCategory.SKIPPED_NO_PROMPT`, whose text read *"awaiting the woodland prompt"*, and showed a deterministic verdict with no rating for ~10.5 months of the year. This is that prompt.
+- **Its polarity is the inverse of the sky prompt, deliberately.** Heavy overcast is *good* — a softbox over the whole wood. Broken cloud with the sun behind it is the *worst* case, dapple no exposure holds. Mist is the prize, and fog thick enough to resolve nothing is marked down. Strong wind is a **safety** matter, not an aesthetic one. It reports low+mid **combined** cover rather than the sky prompt's low/mid/high average, because high cirrus does not soften light at ground level — averaging reports 56% for a canopy that is in fact fully overcast.
+- **Season-aware, and honest about what it cannot see.** Spring translucent green → summer flat dark → autumn peak → winter bare graphics, hedging *leaf state* the way the bluebell prompt hedges bloom: the date is known, the wood's condition on the day is not. Recent rain is an input (`precedingPrecipitationMm`, already feeding the bluebell `postRain` flag) bounded to the *hours* before the slot — the right window for wet-bark saturation — and the prompt is told that bound so it cannot infer a lush or drought-stricken wood it was never shown. A null prints `not available`, not `0.00`; those are different claims.
+- **One lane per slot, never both.** Bluebell in season, woodland out of it. That exclusivity is what keeps each batch bucket homogeneous, which is what keeps its system prompt **cached** — the app's largest cost. Pinned by tests: the woodland system block carries ephemeral `cache_control`, is byte-identical across requests built from different atmospheric data, and is distinct from both the bluebell and sky prompts.
+- **The triage exemption is not optional.** Sky triage stands a slot down at >80% low cloud and <5 km visibility — precisely the overcast and the mist a wood wants. Without it the feature would be born inverted, triaged out on every good woodland morning.
+- **Separate `WoodlandEvaluation` and `WoodlandVisitor` despite an identical JSON shape**, because every canopy site in production is *also* typed `BLUEBELL` with an exposure: `BluebellVisitor.appliesTo()` matches all 15, so a shared carrier would file a woodland response as a `BLUEBELL` component. The rating would look right and the provenance would be a lie.
+- Adds **V135** (seeds `forecast_type` id 7, insert-only). Adversarially reviewed: 19 findings raised, 7 confirmed, 12 refuted; the largest is released separately above.
+
 ### Fixed — CI never ran on a stacked PR, and the silence looked like a pass
 - **`pull_request: branches: [main]` means "only PRs whose BASE is main".** A stacked PR — one opened against another feature branch so a large change can be reviewed and rolled back in pieces — never matches it, so neither `ci.yml` nor `codeql.yml` ran.
 - **And nothing else caught it**, because branch protection's required checks apply to `main`: a PR targeting any other branch has no required checks either. The result is a merge path where *nothing runs and nothing objects*.
