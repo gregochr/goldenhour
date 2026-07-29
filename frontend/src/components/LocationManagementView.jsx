@@ -11,6 +11,7 @@ import usePagination from '../hooks/usePagination.js';
 import SortableHeader from './shared/SortableHeader.jsx';
 import useSortAndFilter from '../hooks/useSortAndFilter.js';
 import Modal from './shared/Modal.jsx';
+import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel } from '../utils/locationTypes.js';
 
 const SOLAR_EVENT_TYPES = [
   { value: 'SUNRISE', label: 'Sunrise', emoji: '🌅' },
@@ -18,13 +19,8 @@ const SOLAR_EVENT_TYPES = [
   { value: 'ALLDAY', label: 'All Day', emoji: '☀️' },
 ];
 
-const LOCATION_TYPES = [
-  { value: 'LANDSCAPE', label: 'Landscape', emoji: '🏔️' },
-  { value: 'SEASCAPE', label: 'Seascape', emoji: '🌊' },
-  { value: 'WOODLAND', label: 'Woodland', emoji: '🌳' },
-  { value: 'WILDLIFE', label: 'Wildlife', emoji: '🐾' },
-  { value: 'WATERFALL', label: 'Waterfall', emoji: '💦' },
-];
+/** Assignable types, derived so a new backend constant needs no edit here. */
+const LOCATION_TYPES = DISPLAY_TYPES.map((value) => ({ value, ...LOCATION_TYPE_META[value] }));
 
 const TIDE_TYPES = [
   { value: 'HIGH', label: 'H', fullLabel: 'High' },
@@ -40,10 +36,7 @@ const TIDE_TYPES = [
  */
 function formatLocationType(types) {
   if (!types || types.length === 0) return 'Landscape';
-  return types.map((t) => {
-    const found = LOCATION_TYPES.find((lt) => lt.value === t);
-    return found ? found.label : t;
-  }).join(', ');
+  return types.map(locationTypeLabel).join(', ');
 }
 
 /**

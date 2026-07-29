@@ -1,18 +1,11 @@
 import React from 'react';
 import PropTypes from 'prop-types';
+import { LOCATION_TYPE_META, DISPLAY_TYPES } from '../utils/locationTypes.js';
 
 const SOLAR_EVENT_TYPE_META = {
   SUNRISE: { emoji: '🌅', label: 'Sunrise' },
   SUNSET:  { emoji: '🌇', label: 'Sunset' },
   ALLDAY:  { emoji: '☀️', label: 'All Day' },
-};
-
-const LOCATION_TYPE_META = {
-  LANDSCAPE:  { emoji: '🏔️', label: 'Landscape' },
-  WILDLIFE:   { emoji: '🐾', label: 'Wildlife' },
-  SEASCAPE:   { emoji: '🌊', label: 'Seascape' },
-  WOODLAND:   { emoji: '🌳', label: 'Woodland' },
-  WATERFALL:  { emoji: '💦', label: 'Waterfall' },
 };
 
 const TIDE_TYPE_META = {
@@ -50,9 +43,8 @@ export default function LocationTypeBadges({ solarEventType = [], locationType =
           </span>
         );
       })}
-      {locationType.map((type) => {
+      {locationType.filter((t) => DISPLAY_TYPES.includes(t)).map((type) => {
         const meta = LOCATION_TYPE_META[type];
-        if (!meta) return null;
         return (
           <span
             key={type}

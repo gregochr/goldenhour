@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — one source of truth for location types, and two harnesses that had drifted from it
+
+- **The type map lived in five copies**, and adding WOODLAND cost five hand-edits to keep them in step. `MapView.LOCATION_TYPE_LABELS`, `LocationTypeBadges.LOCATION_TYPE_META`, `MarkerPopupContent.POPUP_LOC_TYPE_META`, `briefingDisplay.LOCATION_TYPE_ICONS` and `LocationManagementView.LOCATION_TYPES` now all derive from `utils/locationTypes.js`.
+- **They had already drifted.** `briefingDisplay` used 💧 for WATERFALL where the other four used 💦, and no two of the five agreed on ordering. Deriving the icon lookup from the metadata makes that unrepresentable rather than merely fixed.
+- **The drift was silent by construction**, which is why it survived: every consumer either filters unknown types out or falls back to the raw enum name, so a missing constant renders as nothing and never throws. A test now asserts the metadata covers every backend `LocationType`.
+- **Two harnesses were excluding waterfall locations.** `ModelTestView` (two sites) and `PromptTestView` tested `LANDSCAPE || SEASCAPE` and omitted WATERFALL, so a waterfall location could not be picked in the model-comparison or prompt-test rosters even though `LocationEntity.hasColourTypes()` — the gate the backend engines actually filter on — admits it. All three predicates now call the shared `isSkyPromptCandidate`, which mirrors that gate exactly, including its rule that an untyped location counts. **This widens both rosters**; it aligns them with the backend and with what #355's own notes said they already did.
+- **`isSkyPromptCandidate` is deliberately not the briefing's candidacy test.** "May this go to the sky prompt?" and "is this a candidate for the briefing?" have different answers for a wood, and conflating them is the bug the backend records at `LocationEntity.hasColourTypes()`. The module says so where someone would reach for the wrong one.
+- **BLUEBELL has metadata but no permanent chip or badge** (`DISPLAY_TYPES`): a bluebell site is a seasonal *subject*, not a kind of place, so a year-round badge would assert a display that is true for a few weeks. The map already worked this way — a BLUEBELL chip appears only while the bloom is on. It still gets a proper label wherever it *is* surfaced.
+- Behaviour-preserving otherwise, and verified so: the WOODLAND filter-chip tests from #355 still fail if WOODLAND is dropped from the shared list.
+
 ### Fixed — a superseded triage row could veto a live rating and empty the map
 
 - **The two score sources disagree by design, and the map read both.** `/api/briefing/evaluate/scores` prefers a cached evaluation (`EvaluationViewService.mergeToView` step 1) while `/api/forecast` returns the latest run per slot, so one slot can hold a live cached rating *and* a superseded triaged forecast row. `MapView` ORed `triageReason` across both, so the stale row won.

@@ -20,6 +20,7 @@ import { isTravelDate } from '../utils/conversions.js';
 import { fitBoundsKey } from '../utils/fitBoundsKey.js';
 import { buildBriefingScoreIndex, lookupBriefingScore } from '../utils/briefingScoreIndex.js';
 import { resolveStandDown } from '../utils/standDown.js';
+import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel } from '../utils/locationTypes.js';
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 
 // Override Leaflet popup width + scrolling.
@@ -358,13 +359,11 @@ function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildli
  * @param {Array<{name: string, lat: number, lon: number, forecastsByDate: Map}>} props.locations
  * @param {string|null} props.date - The target date (YYYY-MM-DD) to display ratings for.
  */
-const LOCATION_TYPE_LABELS = {
-  LANDSCAPE:  { label: 'Landscape', emoji: '🏔️' },
-  WILDLIFE:   { label: 'Wildlife',  emoji: '🐾' },
-  SEASCAPE:   { label: 'Seascape',  emoji: '🌊' },
-  WOODLAND:   { label: 'Woodland',  emoji: '🌳' },
-  WATERFALL:  { label: 'Waterfall', emoji: '💦' },
-};
+/**
+ * Subject filter chips, in display order. BLUEBELL is excluded here because it gets its own
+ * season-gated chip below — see DISPLAY_TYPES for why that distinction is deliberate.
+ */
+const MAP_FILTER_CHIPS = DISPLAY_TYPES.map((type) => [type, LOCATION_TYPE_META[type]]);
 
 /**
  * Determines whether the next solar event is sunrise or sunset based on the
@@ -828,7 +827,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
     || driveTimeFilter > 0 || darkSkyFilter;
   const filterSummaryParts = [STAR_THRESHOLD_LABELS[minStars]];
   activeTypeFilters.forEach((t) => filterSummaryParts.push(
-    LOCATION_TYPE_LABELS[t]?.label ?? (t === 'BLUEBELL' ? 'Bluebell' : t),
+    locationTypeLabel(t),
   ));
   if (driveTimeFilter > 0) {
     filterSummaryParts.push(driveTimeFilter < 60 ? `≤${driveTimeFilter}m` : `≤${driveTimeFilter / 60}h`);
@@ -970,7 +969,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
             <div className="flex flex-col gap-1.5">
               <span className="text-[11px] uppercase tracking-wide text-plex-text-muted font-semibold">Subject</span>
               <div className="flex items-center gap-2 flex-wrap">
-                {Object.entries(LOCATION_TYPE_LABELS).map(([type, { label, emoji }]) => (
+                {MAP_FILTER_CHIPS.map(([type, { label, emoji }]) => (
                   <button
                     key={type}
                     onClick={() => toggleTypeFilter(type)}

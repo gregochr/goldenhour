@@ -12,14 +12,13 @@ export const VERDICT_ORDER = { GO: 0, MARGINAL: 1, STANDDOWN: 2 };
 /** Sort order for the unified display signal, used for region rollups. */
 export const DISPLAY_ORDER = { WORTH_IT: 0, MAYBE: 1, STAND_DOWN: 2, AWAITING: 3 };
 
-/** Location type icon lookup. */
-export const LOCATION_TYPE_ICONS = {
-  LANDSCAPE: '🏔️',
-  WILDLIFE: '🐾',
-  SEASCAPE: '🌊',
-  WOODLAND: '🌳',
-  WATERFALL: '💧',
-};
+/**
+ * Location type icon lookup.
+ *
+ * <p>Re-exported rather than redeclared. This copy had drifted: it used 💧 for WATERFALL where
+ * the map, the popup, the badges and the admin list all used 💦.
+ */
+export { LOCATION_TYPE_ICONS } from './locationTypes.js';
 
 /** Window past the solar event during which it still counts as current. */
 export const AFTERGLOW_MS = 30 * 60 * 1000;
