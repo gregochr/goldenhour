@@ -17,10 +17,16 @@ import { render, screen, fireEvent } from '@testing-library/react';
 
 // ── Leaflet / react-leaflet stubs ────────────────────────────────────────────
 
+// Capture the options of every DivIcon MapView builds — excludeFromCluster is only observable
+// there, and it is what markerUtils.createClusterIcon filters on.
+const divIconCalls = [];
 vi.mock('leaflet', () => {
   const icon = () => ({});
-  const divIcon = () => ({});
-  return { default: { icon, divIcon }, icon, divIcon };
+  const divIcon = (options) => {
+    divIconCalls.push(options);
+    return { options };
+  };
+  return { default: { icon, divIcon, point: (x, y) => ({ x, y }) }, icon, divIcon };
 });
 
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
@@ -87,6 +93,9 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   localStorage.clear();
+  // Deliberately NOT cleared: makeMarkerIcon memoises in a module-level markerIconCache, so a
+  // location's DivIcon is built once for the whole file. Resetting here would empty the capture
+  // and the assertions below would silently find nothing.
 });
 
 function forecasts(rating = 4) {
@@ -98,9 +107,12 @@ function forecasts(rating = 4) {
   ]);
 }
 
+// Distinct ratings so each marker's DivIcon options are identifiable — the options carry the
+// rating but not the location name, and adding a name purely for tests would be production code
+// bent to the test's shape.
 const LOCATIONS = [
-  { name: 'Fell Top', lat: 55.0, lon: -1.7, forecastsByDate: forecasts(4), locationType: ['LANDSCAPE'] },
-  { name: 'Bluebell Wood', lat: 55.1, lon: -1.7, forecastsByDate: forecasts(4), locationType: ['WOODLAND'] },
+  { name: 'Fell Top', lat: 55.0, lon: -1.7, forecastsByDate: forecasts(3), locationType: ['LANDSCAPE'] },
+  { name: 'Bluebell Wood', lat: 55.1, lon: -1.7, forecastsByDate: forecasts(5), locationType: ['WOODLAND'] },
   { name: 'Wooded Clifftop', lat: 55.2, lon: -1.7, forecastsByDate: forecasts(4), locationType: ['SEASCAPE', 'WOODLAND'] },
 ];
 
@@ -152,5 +164,23 @@ describe('MapView Subject filter — WOODLAND', () => {
     fireEvent.click(screen.getByRole('button', { name: /Seascape/ }));
     fireEvent.click(screen.getByRole('button', { name: /Woodland/ }));
     expect(visibleCount()).toBe(2);
+  });
+});
+
+describe('MapView cluster averages — canopy sites are excluded', () => {
+  it('a woodland-only site is excluded from the sky cluster average', () => {
+    // Same rule WATERFALL already has. A wood rated 5 on a flat overcast misty evening would drag
+    // its cluster's grey->gold ramp toward gold on exactly the nights the sky is at its worst.
+    renderMap();
+    const wood = divIconCalls.find((o) => o.rating === 5);   // Bluebell Wood, WOODLAND only
+    expect(wood).toBeDefined();
+    expect(wood.excludeFromCluster).toBe(true);
+  });
+
+  it('a sky-typed site is still included', () => {
+    renderMap();
+    const fell = divIconCalls.find((o) => o.rating === 3);   // Fell Top, LANDSCAPE
+    expect(fell).toBeDefined();
+    expect(fell.excludeFromCluster).toBe(false);
   });
 });
