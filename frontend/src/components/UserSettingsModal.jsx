@@ -13,10 +13,25 @@ const ROLE_LABELS = {
 /**
  * Settings modal — user profile, home postcode, and drive time management.
  */
+/**
+ * Slider fallback when the user has never chosen a radius. Display only — the value is not sent
+ * unless the user actually moves the control, so the server keeps deciding what null means.
+ */
+const DEFAULT_RADIUS_MILES = 22;
+
 export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [postcode, setPostcode] = useState('');
+  // Null until settings load, then the saved value or the 22-mile default. Kept separate from
+  // the postcode's lookup/save cycle because the radius can be changed on its own.
+  // Null until settings load. NOT defaulted to 22 here: a client-side default gets written back
+  // on the next save and would silently override a server-configured one for a user who never
+  // touched the slider.
+  const [radius, setRadius] = useState(null);
+  const [radiusSaving, setRadiusSaving] = useState(false);
+  const [radiusError, setRadiusError] = useState(false);
+  const [radiusChosen, setRadiusChosen] = useState(false);
   const [lookupResult, setLookupResult] = useState(null);
   const [lookupError, setLookupError] = useState(null);
   const [lookingUp, setLookingUp] = useState(false);
@@ -37,6 +52,12 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
       const data = await getSettings();
       setSettings(data);
       if (data.homePostcode) setPostcode(data.homePostcode);
+      setRadius(data.localRadiusMiles ?? DEFAULT_RADIUS_MILES);
+      // Whether the value came from the SERVER or is just the slider's display fallback. Without
+      // this the first postcode save wrote 22 into the column V136 deliberately leaves NULL,
+      // converting "never chosen" into "chose 22" and overriding the server-side default for a
+      // user who never touched the slider.
+      setRadiusChosen(data.localRadiusMiles != null);
       if (data.driveTimesCalculatedAt && data.homePostcode) {
         setDriveTimesPostcode(data.homePostcode);
       }
@@ -81,13 +102,48 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
     if (!lookupResult) return;
     setSaving(true);
     try {
-      const updated = await saveHome(lookupResult.postcode, lookupResult.latitude, lookupResult.longitude);
+      // null when the user has never chosen one, so the column stays NULL and the server keeps
+      // deciding what the default means.
+      const updated = await saveHome(lookupResult.postcode, lookupResult.latitude,
+        lookupResult.longitude, radiusChosen ? radius : null);
       setSettings(updated);
       setLookupResult(null);
     } catch {
       // Save failed — leave lookup result visible for retry
     } finally {
       setSaving(false);
+    }
+  };
+
+  /**
+   * Persists the radius on its own.
+   *
+   * Requires a saved home, because the radius is measured FROM it — the field is disabled without
+   * one. Sends the stored postcode back unchanged rather than inventing a radius-only endpoint:
+   * the two settings belong to the same record and the same screen.
+   */
+  const handleRadiusCommit = async (next) => {
+    if (!settings?.homePostcode || settings.homeLatitude == null) return;
+    // Moving the slider IS choosing.
+    setRadiusChosen(true);
+    setRadiusSaving(true);
+    setRadiusError(false);
+    try {
+      const updated = await saveHome(settings.homePostcode, settings.homeLatitude,
+        settings.homeLongitude, next);
+      // Merge rather than replace: saveHome's response carries no resolved place name (it does
+      // not geocode), so assigning it wholesale blanked the "Durham, County Durham" line the
+      // user was looking at.
+      setSettings((prev) => ({ ...prev, ...updated, homePlaceName: updated?.homePlaceName
+        ?? prev?.homePlaceName }));
+      // Trust the server's echo over the local value — it clamps to 10-50.
+      if (updated?.localRadiusMiles != null) setRadius(updated.localRadiusMiles);
+    } catch {
+      // Surfaced, not swallowed. A silent failure left the slider showing a value that was never
+      // persisted, so the setting looked applied and the panel disagreed with it.
+      setRadiusError(true);
+    } finally {
+      setRadiusSaving(false);
     }
   };
 
@@ -243,6 +299,65 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
                   </button>
                 </div>
               )}
+
+              {/* Local radius — directly beneath the postcode it is measured from. */}
+              <div className="mt-4" data-testid="settings-local-radius">
+                <label
+                  htmlFor="local-radius"
+                  className="block text-sm text-plex-text mb-1"
+                >
+                  Local radius
+                  <span className="text-plex-text-muted ml-2 text-xs">
+                    How far counts as close to home.
+                  </span>
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    id="local-radius"
+                    type="range"
+                    min="10"
+                    max="50"
+                    step="2"
+                    value={radius ?? DEFAULT_RADIUS_MILES}
+                    // NOT disabled while saving: toggling disabled mid-interaction blurs the
+                    // slider and drops the keyboard focus a user is still arrow-keying with.
+                    disabled={!isPro || !settings?.homePostcode}
+                    onChange={(e) => setRadius(Number(e.target.value))}
+                    // Commit on release, not on every drag frame: the slider spans 21 stops and
+                    // a PUT per stop would hammer the endpoint for one decision.
+                    onMouseUp={(e) => handleRadiusCommit(Number(e.target.value))}
+                    onTouchEnd={(e) => handleRadiusCommit(Number(e.target.value))}
+                    onKeyUp={(e) => handleRadiusCommit(Number(e.target.value))}
+                    className="flex-1"
+                    data-testid="settings-radius-slider"
+                  />
+                  <span
+                    className="font-mono text-sm text-plex-text w-16 text-right"
+                    data-testid="settings-radius-value"
+                  >
+                    {radius ?? DEFAULT_RADIUS_MILES} miles
+                  </span>
+                  {/* Feedback WITHOUT disabling the slider: toggling `disabled` mid-interaction
+                      blurs the control and drops the focus of a user still arrow-keying it. */}
+                  <span
+                    className="font-mono text-xs text-plex-text-muted w-12"
+                    aria-live="polite"
+                    data-testid="settings-radius-status"
+                  >
+                    {radiusSaving ? 'Saving…' : ''}
+                  </span>
+                </div>
+                {!settings?.homePostcode && (
+                  <p className="text-xs text-plex-text-muted mt-1">
+                    Set a home postcode first — the radius is measured from it.
+                  </p>
+                )}
+                {radiusError && (
+                  <p className="text-xs text-red-400 mt-1" data-testid="settings-radius-error">
+                    Could not save the radius. Try again.
+                  </p>
+                )}
+              </div>
             </div>
           </section>
 

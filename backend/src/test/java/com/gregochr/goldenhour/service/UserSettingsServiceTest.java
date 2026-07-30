@@ -68,6 +68,59 @@ class UserSettingsServiceTest {
     }
 
     @Test
+    @DisplayName("saveHome persists the local radius alongside the home it is measured from")
+    void saveHome_persistsLocalRadius() {
+        stubAuth();
+        AppUserEntity user = buildUser();
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+
+        service.saveHome(auth, new SaveHomeRequest("DH1 3LE", 54.7761, -1.5733, 30));
+
+        ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+        verify(userRepository).save(captor.capture());
+        assertThat(captor.getValue().getLocalRadiusMiles()).isEqualTo(30);
+    }
+
+    @Test
+    @DisplayName("a null radius leaves the stored one alone — it is not a reset")
+    void saveHome_nullRadiusLeavesStoredValue() {
+        // The client omits the field when only the postcode changed. Treating that as "set to
+        // default" would silently undo a radius the user had deliberately widened.
+        stubAuth();
+        AppUserEntity user = buildUser();
+        user.setLocalRadiusMiles(40);
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+
+        service.saveHome(auth, new SaveHomeRequest("DH1 3LE", 54.7761, -1.5733, null));
+
+        ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+        verify(userRepository).save(captor.capture());
+        assertThat(captor.getValue().getLocalRadiusMiles()).isEqualTo(40);
+    }
+
+    @Test
+    @DisplayName("an out-of-range radius is CLAMPED, not rejected and not honoured")
+    void saveHome_clampsRadiusToBounds() {
+        // It arrives from a slider whose bounds the client enforces, so out-of-range means a stale
+        // client or a direct API call. Honouring 500 miles would make "close to home" meaningless;
+        // rejecting would fail a save whose postcode part was perfectly valid.
+        stubAuth();
+        AppUserEntity user = buildUser();
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+
+        // Asserted on the entity after each call rather than via a captor: both saves mutate the
+        // SAME user instance, so a captor would hold two references to one object and report the
+        // final state twice.
+        service.saveHome(auth, new SaveHomeRequest("DH1 3LE", 54.7761, -1.5733, 500));
+        assertThat(user.getLocalRadiusMiles())
+                .isEqualTo(UserSettingsService.MAX_LOCAL_RADIUS_MILES);
+
+        service.saveHome(auth, new SaveHomeRequest("DH1 3LE", 54.7761, -1.5733, 1));
+        assertThat(user.getLocalRadiusMiles())
+                .isEqualTo(UserSettingsService.MIN_LOCAL_RADIUS_MILES);
+    }
+
+    @Test
     @DisplayName("getSettings returns profile with no home location")
     void getSettings_noHome_returnsNullFields() {
         stubAuth();
@@ -136,7 +189,7 @@ class UserSettingsServiceTest {
         AppUserEntity user = buildUser();
         when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
 
-        service.saveHome(auth, new SaveHomeRequest("DH1 3LE", 54.7761, -1.5733));
+        service.saveHome(auth, new SaveHomeRequest("DH1 3LE", 54.7761, -1.5733, null));
 
         ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
         verify(userRepository).save(captor.capture());
@@ -246,7 +299,7 @@ class UserSettingsServiceTest {
         when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
 
         UserSettingsResponse response = service.saveHome(auth,
-                new SaveHomeRequest("NE1 4ST", 54.9738, -1.6131));
+                new SaveHomeRequest("NE1 4ST", 54.9738, -1.6131, null));
 
         assertThat(response.homePostcode()).isEqualTo("NE1 4ST");
         assertThat(response.username()).isEqualTo(USERNAME);

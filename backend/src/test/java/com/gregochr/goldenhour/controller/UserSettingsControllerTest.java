@@ -40,7 +40,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         when(settingsService.getSettings(any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
                         "DH1 3LE", 54.7761, -1.5733, "Durham, County Durham",
-                        Instant.parse("2026-04-01T10:00:00Z")));
+                        null, Instant.parse("2026-04-01T10:00:00Z")));
 
         mockMvc.perform(get("/api/user/settings"))
                 .andExpect(status().isOk())
@@ -78,7 +78,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void saveHome_returnsUpdatedSettings() throws Exception {
         when(settingsService.saveHome(any(), any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                        "DH1 3LE", 54.7761, -1.5733, null, null));
+                        "DH1 3LE", 54.7761, -1.5733, null, null, null));
 
         mockMvc.perform(put("/api/user/settings/home")
                         .contentType(MediaType.APPLICATION_JSON)

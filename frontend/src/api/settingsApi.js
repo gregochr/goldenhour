@@ -26,10 +26,14 @@ export async function lookupPostcode(postcode) {
  * @param {string} postcode
  * @param {number} latitude
  * @param {number} longitude
+ * @param {number|null} [localRadiusMiles] Close to home radius in miles, or null to leave the
+ *        stored value alone — omitting it is not a reset.
  * @returns {Promise<Object>} UserSettingsResponse
  */
-export async function saveHome(postcode, latitude, longitude) {
-  const response = await apiClient.put(`${BASE_URL}/home`, { postcode, latitude, longitude });
+export async function saveHome(postcode, latitude, longitude, localRadiusMiles = null) {
+  const response = await apiClient.put(`${BASE_URL}/home`, {
+    postcode, latitude, longitude, localRadiusMiles,
+  });
   return response.data;
 }
 
