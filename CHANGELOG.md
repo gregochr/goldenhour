@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.17.4] - 2026-07-31
+
 ### Fixed — the forecast prompt clears Haiku's cache floor by 5%, and nothing recorded it
 
 - **Anthropic's minimum cacheable prefix is model-dependent and not monotonic**: 1,024 tokens on Sonnet, **4,096 on Haiku 4.5**. Below it, a request carrying `cache_control` does not error or warn — it returns `cache_creation_input_tokens: 0` and pays the full input rate forever. `BATCH_FAR_TERM` is Haiku (V92), so every T+2/T+3 evaluation depends on clearing that number.
