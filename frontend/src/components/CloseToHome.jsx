@@ -1,8 +1,9 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import PropTypes from 'prop-types';
 import InfoTip from './InfoTip.jsx';
-import { buildCloseToHome } from '../utils/closeToHome.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
+import { LOCATION_TYPE_ICONS, locationTypeLabel } from '../utils/locationTypes.js';
+import { formatEventTimeUk } from '../utils/conversions.js';
 
 /** Accent for the whole block — its own warm gold, distinct from the bone `--color-plex-gold`. */
 const GOLD = 'var(--color-close-to-home)';
@@ -21,6 +22,60 @@ function starBadgeStyle(rating) {
   if (rating >= 4) return { background: 'rgba(138,174,114,0.22)', color: '#b6d49e' };
   if (rating >= 3) return { background: 'rgba(224,165,66,0.20)', color: '#f0cd8a' };
   return { background: 'rgba(200,69,47,0.20)', color: '#f0a08e' };
+}
+
+/** Sunrise rises in marginal amber, sunset falls in dust orange — the window header's leading mark. */
+function eventMark(targetType) {
+  return targetType === 'SUNRISE'
+    ? { glyph: '↑', colour: 'var(--color-marginal)' }
+    : { glyph: '↓', colour: 'var(--color-dust)' };
+}
+
+/**
+ * `Tomorrow sunrise` / `Thursday sunset` — the window's own label.
+ *
+ * The server sends the date and event; the wording is the client's job, which is why the endpoint
+ * returns facts rather than prose.
+ */
+function windowLabel(dateStr, targetType, todayStr, tomorrowStr) {
+  const word = targetType === 'SUNRISE' ? 'sunrise' : 'sunset';
+  if (dateStr === todayStr) return `Today ${word}`;
+  if (dateStr === tomorrowStr) return `Tomorrow ${word}`;
+  const d = new Date(`${dateStr}T00:00:00`);
+  return `${d.toLocaleDateString('en-GB', { weekday: 'long' })} ${word}`;
+}
+
+/**
+ * `05:09` in UK local time from a UTC ISO date-time, or null.
+ *
+ * Routed through the shared formatter rather than slicing the string. Slicing renders raw UTC,
+ * which is an hour early for the whole of BST — the same event then showed two different times on
+ * one screen, because the Plan tab's drill-down list already used this formatter.
+ */
+function timeOf(iso) {
+  return formatEventTimeUk(iso);
+}
+
+/**
+ * The breadcrumb's one plain sentence.
+ *
+ * The endpoint supplies the FACTS — worthIt, the leading location, the dominant stand-down cause —
+ * and the wording is assembled here. That split is deliberate: the logic needed one home on the
+ * server, the copy did not, and putting user-facing English in Java buys nothing.
+ */
+function breadcrumbReason(breadcrumb, todayStr, tomorrowStr) {
+  if (!breadcrumb?.date) return 'No upcoming sunrise or sunset to assess.';
+  if (breadcrumb.worthIt) {
+    return breadcrumb.topHeadline
+      || breadcrumb.topSummary
+      || `${breadcrumb.topLocationName} leads the local options at ${breadcrumb.topRating}★.`;
+  }
+  const when = breadcrumb.date === todayStr || breadcrumb.date === tomorrowStr
+    ? windowLabel(breadcrumb.date, breadcrumb.targetType, todayStr, tomorrowStr).toLowerCase()
+    : `on ${windowLabel(breadcrumb.date, breadcrumb.targetType, todayStr, tomorrowStr)}`;
+  return breadcrumb.dominantReason
+    ? `${breadcrumb.dominantReason} nearby — nothing within reach is worth the trip ${when}.`
+    : `Nothing within reach is worth the trip ${when}.`;
 }
 
 /* eslint-disable react/prop-types */
@@ -51,38 +106,36 @@ function TravelLine({ driveMinutes, distanceMiles }) {
  * </ol>
  *
  * <p>Renders nothing when no home postcode is saved, or when nothing at all sits within the
- * radius — see {@link buildCloseToHome}.
+ * radius. The derivation lives on the server ({@code GET /api/briefing/close-to-home}) so the
+ * proximity join can use the location FK rather than a name string — renaming a location used to
+ * empty this block silently for every user in range.
  *
- * @param {Object}   props
- * @param {Array}    props.briefingDays     briefing.days
- * @param {Array}    props.locations        enabled locations (name, lat, lon, regionName)
- * @param {?Object}  props.homeCoords       {lat, lon} from the saved postcode, or null
- * @param {?Map}     props.driveMap         location name → drive minutes (per user)
- * @param {?Map}     props.evaluationScores "region|date|targetType|location" → {rating, …}
- * @param {string}   props.todayStr         today's ISO date
- * @param {string}   props.tomorrowStr      tomorrow's ISO date
- * @param {?Function} props.onShowOnMap     (date, targetType, locationName) → open the map focused
+ * @param {Object}    props
+ * @param {?Object}   props.panel        the endpoint payload, or null while loading / when unset
+ * @param {string}    props.todayStr     today's ISO date, for "Today"/"Tomorrow" wording
+ * @param {string}    props.tomorrowStr  tomorrow's ISO date
+ * @param {?Function} props.onShowOnMap  (date, targetType, locationName) → open the map focused
  */
 export default function CloseToHome({
-  briefingDays,
-  locations,
-  homeCoords = null,
-  driveMap = null,
-  evaluationScores = null,
+  panel = null,
   todayStr,
   tomorrowStr,
+  isPro = false,
   onShowOnMap = null,
 }) {
-  // Horizon-aware, not day-scoped: recomputes only when the payload, roster or postcode changes.
-  const model = useMemo(() => buildCloseToHome({
-    briefingDays, locations, homeCoords, evaluationScores, driveMap, todayStr, tomorrowStr,
-  }), [briefingDays, locations, homeCoords, evaluationScores, driveMap, todayStr, tomorrowStr]);
+  if (!panel) return null;
+  const model = panel;
 
-  if (!model) return null;
+  const { radiusMiles, horizonDays, windows = [], breadcrumb } = model;
+  if (windows.length === 0 && !breadcrumb?.date) return null;
 
-  const { radiusMiles, horizonDays, cards, multiDay, breadcrumb } = model;
-  const countLine = cards.length > 0
-    ? `${cards.length} within reach · next ${horizonDays} days`
+  // The busiest single window, NOT the sum. Each window holds at most one entry per location, so
+  // summing counted a location once per window it qualified in — five locations across three
+  // windows read "15 within reach" under a heading that says "within 22 miles of home".
+  const reach = windows.reduce((n, w) => Math.max(n, w.withinReach), 0);
+  const countLine = windows.length > 0
+    ? `${reach} within reach · ${windows.length} window${windows.length === 1 ? '' : 's'}`
+      + ` · next ${horizonDays} days`
     : `None within reach · next ${horizonDays} days`;
 
   return (
@@ -167,10 +220,10 @@ export default function CloseToHome({
           >
             {breadcrumb.worthIt ? '◎ Worth it' : '○ Stay in'}
           </span>
-          {breadcrumb.eventLabel && (
+          {breadcrumb.date && (
             <span className="font-mono text-plex-text-secondary" style={{ fontSize: '11px' }}>
-              {breadcrumb.eventLabel}
-              {breadcrumb.eventTime && ` · ${breadcrumb.eventTime}`}
+              {windowLabel(breadcrumb.date, breadcrumb.targetType, todayStr, tomorrowStr)}
+              {timeOf(breadcrumb.eventTime) && ` · ${timeOf(breadcrumb.eventTime)}`}
             </span>
           )}
         </div>
@@ -179,7 +232,7 @@ export default function CloseToHome({
           className="text-plex-text-secondary"
           style={{ flex: 1, minWidth: '220px', fontSize: '12.5px', lineHeight: 1.5 }}
         >
-          {breadcrumb.reason}
+          {breadcrumbReason(breadcrumb, todayStr, tomorrowStr)}
         </p>
 
         {breadcrumb.nextWindow && (
@@ -200,7 +253,10 @@ export default function CloseToHome({
               className="font-mono text-plex-text-secondary"
               style={{ fontSize: '10.5px', marginTop: '2px' }}
             >
-              {breadcrumb.nextWindow.detail}
+              {windowLabel(breadcrumb.nextWindow.date, breadcrumb.nextWindow.targetType,
+                todayStr, tomorrowStr)}
+              {timeOf(breadcrumb.nextWindow.eventTime)
+                && ` ${timeOf(breadcrumb.nextWindow.eventTime)}`}
               {formatDriveDuration(breadcrumb.nextWindow.driveMinutes)
                 && ` · 🚗 ${formatDriveDuration(breadcrumb.nextWindow.driveMinutes)}`}
             </div>
@@ -208,104 +264,196 @@ export default function CloseToHome({
         )}
       </div>
 
-      {/* ── Part 2 · best nearby across the horizon (hidden when nothing qualifies) ── */}
-      {cards.length > 0 && (
-        <div
-          data-testid="close-to-home-cards"
-          className="grid grid-cols-1 min-[900px]:grid-cols-4"
-          style={{ gap: '8px', padding: '0 16px 14px' }}
-        >
-          {cards.map((card) => (
-            <button
-              key={card.key}
-              type="button"
-              data-testid="close-to-home-card"
-              data-lead={card.lead || undefined}
-              onClick={() => onShowOnMap?.(card.date, card.targetType, card.locationName)}
-              // Border, radius and background live in the .cth-card CSS keyed on data-lead —
-              // an inline border shorthand would outrank the hover rule and kill the affordance.
-              className="cth-card flex flex-col text-left"
-              style={{ gap: '5px', padding: '10px 11px' }}
+      {/* ── Part 2 · nearby locations, GROUPED BY EVENT WINDOW ──
+          A flat list never said which event a card was for, and a sunrise-only suggestion is an
+          easy dismissal when the same region's sunset is the Best Bet. The window header carries
+          day, event and time, so no per-card day chip is needed. */}
+      {windows.map((w) => {
+        const mark = eventMark(w.targetType);
+        const time = timeOf(w.eventTime);
+        return (
+          <div key={`${w.date}|${w.targetType}`} data-testid="cth-window" style={{ margin: '0 16px 12px' }}>
+            {/* Window header */}
+            <div
+              className="flex items-center flex-wrap"
+              style={{ gap: '10px', paddingBottom: '7px' }}
             >
-              <span className="flex items-center justify-between" style={{ gap: '8px' }}>
-                <span className="text-plex-text" style={{ fontSize: '12.5px', fontWeight: 600 }}>
-                  {card.locationName}
-                </span>
-                <span
-                  data-testid="close-to-home-stars"
-                  className="font-mono whitespace-nowrap"
-                  style={{
-                    fontSize: '10.5px',
-                    fontWeight: 600,
-                    padding: '2px 6px',
-                    borderRadius: '5px',
-                    ...starBadgeStyle(card.rating),
-                  }}
-                >
-                  {card.rating.toFixed(1)}★
-                </span>
+              <span
+                data-testid="cth-window-label"
+                className="font-mono"
+                style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--color-plex-text)' }}
+              >
+                <span style={{ color: mark.colour }}>{mark.glyph}</span>{' '}
+                {windowLabel(w.date, w.targetType, todayStr, tomorrowStr)}
+                {time && ` · ${time}`}
               </span>
 
-              {/* Day chip only when the result set actually spans more than one day. */}
-              {multiDay && (
-                <span
-                  data-testid="close-to-home-day-chip"
-                  className="font-mono uppercase"
-                  style={{ fontSize: '10px', fontWeight: 600, letterSpacing: '0.05em', color: GOLD }}
-                >
-                  {card.dayChip}
+              {w.bestRating != null && (
+                <span className="font-mono text-plex-text-secondary" style={{ fontSize: '10.5px' }}>
+                  best {w.bestRating.toFixed(1)}★
                 </span>
               )}
 
-              {/* The location's actual region — the honesty label, never a filter. Kept at
-                  --ink-2 (text-secondary) after a WCAG audit; --ink-3 measures 3.55:1 at this
-                  size and fails AA. Do not lower it. */}
-              {card.regionName && (
+              {/* The signal the region-level grid structurally cannot show: the region stands down
+                  for this window while a nearby spot still rates well on its own. */}
+              {w.notInBriefing && (
                 <span
-                  data-testid="close-to-home-region"
-                  className="font-mono text-plex-text-secondary"
-                  style={{ fontSize: '10.5px' }}
+                  data-testid="cth-flag-not-in-briefing"
+                  className="font-mono uppercase"
+                  title={`${w.flaggedRegionName} is Stand down for this window region-wide, but `
+                    + 'these locations still rate well individually.'}
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    letterSpacing: '0.04em',
+                    color: 'var(--color-close-to-home-light)',
+                    background: 'rgba(201,162,75,0.14)',
+                    boxShadow: 'inset 0 0 0 1px rgba(201,162,75,0.38)',
+                    borderRadius: '5px',
+                    padding: '3px 8px',
+                    cursor: 'help',
+                  }}
                 >
-                  {card.regionName}
+                  Not in the briefing
+                </span>
+              )}
+
+              {w.sameWindowAsBestBet && (
+                <span
+                  data-testid="cth-flag-same-as-best-bet"
+                  className="font-mono uppercase"
+                  // The pick's REGION is Pro content: the banner above is isPro-gated and LITE
+                  // sees a blurred placeholder instead. Naming it here would hand over the very
+                  // fact that placeholder exists to withhold. The chip itself stays — "this
+                  // window also holds the Best Bet" is not identifying.
+                  title={isPro
+                    ? `The Best Bet for this window is ${w.bestBetRegionName} — going local `
+                      + 'is not a compromise.'
+                    : 'The Best Bet falls in this window too — going local is not a compromise.'}
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    letterSpacing: '0.04em',
+                    color: 'var(--color-close-to-home-light)',
+                    background: 'rgba(201,162,75,0.14)',
+                    boxShadow: 'inset 0 0 0 1px rgba(201,162,75,0.38)',
+                    borderRadius: '5px',
+                    padding: '3px 8px',
+                    cursor: 'help',
+                  }}
+                >
+                  Same window as best bet
                 </span>
               )}
 
               <span
-                className="flex items-center flex-wrap font-mono text-plex-text-secondary"
-                style={{ fontSize: '10.5px', gap: '7px' }}
-              >
-                <TravelLine driveMinutes={card.driveMinutes} distanceMiles={card.distanceMiles} />
-                {card.tideLabel && (
-                  <span style={{ color: 'var(--color-tide)' }}>🌊 {card.tideLabel}</span>
-                )}
+                aria-hidden="true"
+                style={{ flex: 1, height: '1px', background: 'var(--color-plex-border)' }}
+              />
+              <span className="font-mono text-plex-text-secondary" style={{ fontSize: '10.5px' }}>
+                {w.withinReach} within reach
               </span>
+            </div>
 
-              <span className="font-mono" style={{ fontSize: '10px', color: 'var(--color-tide)' }}>
-                ◍ Open on map →
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
+            {/* Grid sized to the group's card count, so a single-card window renders one
+                quarter-width card rather than stretching the full width. */}
+            <div
+              data-testid="cth-window-cards"
+              // Sizing lives in the .cth-window-grid class rule, gated on a min-width query; only
+              // the count comes through inline as a custom property. Inline grid-template-columns
+              // would win at every viewport and squeeze four cards into ~72px each on a phone.
+              className="cth-window-grid"
+              style={{ '--cth-cards': w.cards.length }}
+            >
+              {w.cards.map((card) => (
+                <button
+                  key={`${card.locationId ?? card.locationName}`}
+                  type="button"
+                  data-testid="close-to-home-card"
+                  data-lead={card.lead || undefined}
+                  onClick={() => onShowOnMap?.(w.date, w.targetType, card.locationName)}
+                  // Border/radius/background live in .cth-card CSS keyed on data-lead — an inline
+                  // border shorthand would outrank the hover rule and kill the affordance.
+                  className="cth-card flex flex-col text-left"
+                  style={{ gap: '5px', padding: '10px 11px' }}
+                >
+                  <span className="flex items-center justify-between" style={{ gap: '8px' }}>
+                    <span
+                      className="text-plex-text flex items-center"
+                      style={{ fontSize: '12.5px', fontWeight: 600, gap: '5px' }}
+                    >
+                      {/* Subject icons, the same vocabulary the map and admin use. */}
+                      {(card.locationTypes ?? []).map((t) => (
+                        <span key={t} title={locationTypeLabel(t)} aria-label={locationTypeLabel(t)}>
+                          {LOCATION_TYPE_ICONS[t] ?? ''}
+                        </span>
+                      ))}
+                      {card.locationName}
+                    </span>
+                    <span
+                      data-testid="close-to-home-stars"
+                      className="font-mono whitespace-nowrap"
+                      style={{
+                        fontSize: '10.5px',
+                        fontWeight: 600,
+                        padding: '2px 6px',
+                        borderRadius: '5px',
+                        ...starBadgeStyle(card.rating),
+                      }}
+                    >
+                      {card.rating.toFixed(1)}★
+                    </span>
+                  </span>
+
+                  {/* The location's actual region — the honesty label, never a filter. Kept at
+                      --ink-2 (text-secondary) after a WCAG audit; --ink-3 measures 3.55:1 at this
+                      size and fails AA. Do not lower it. */}
+                  {card.regionName && (
+                    <span
+                      data-testid="close-to-home-region"
+                      className="font-mono text-plex-text-secondary"
+                      style={{ fontSize: '10.5px' }}
+                    >
+                      {card.regionName}
+                    </span>
+                  )}
+
+                  <span
+                    className="flex items-center flex-wrap font-mono text-plex-text-secondary"
+                    style={{ fontSize: '10.5px', gap: '7px' }}
+                  >
+                    <TravelLine
+                      driveMinutes={card.driveMinutes}
+                      distanceMiles={card.distanceMiles}
+                    />
+                    {card.tideLabel && (
+                      <span style={{ color: 'var(--color-tide)' }}>🌊 {card.tideLabel}</span>
+                    )}
+                  </span>
+
+                  <span className="font-mono" style={{ fontSize: '10px', color: 'var(--color-tide)' }}>
+                    ◍ Open on map →
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+
     </div>
   );
 }
 
 CloseToHome.propTypes = {
-  briefingDays: PropTypes.arrayOf(PropTypes.shape({
-    date: PropTypes.string,
-    eventSummaries: PropTypes.array,
-  })),
-  locations: PropTypes.arrayOf(PropTypes.shape({
-    name: PropTypes.string,
-    lat: PropTypes.number,
-    lon: PropTypes.number,
-    regionName: PropTypes.string,
-  })),
-  homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
-  driveMap: PropTypes.instanceOf(Map),
-  evaluationScores: PropTypes.instanceOf(Map),
+  panel: PropTypes.shape({
+    radiusMiles: PropTypes.number,
+    horizonDays: PropTypes.number,
+    windows: PropTypes.array,
+    breadcrumb: PropTypes.object,
+  }),
   todayStr: PropTypes.string.isRequired,
   tomorrowStr: PropTypes.string.isRequired,
+  isPro: PropTypes.bool,
   onShowOnMap: PropTypes.func,
 };

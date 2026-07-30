@@ -1,7 +1,6 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.model.CloseToHomeResponse;
-import com.gregochr.goldenhour.model.UserSettingsResponse;
 import com.gregochr.goldenhour.service.CloseToHomeService;
 import com.gregochr.goldenhour.service.UserSettingsService;
 import org.springframework.security.core.Authentication;
@@ -57,10 +56,11 @@ public class CloseToHomeController {
      */
     @GetMapping("/close-to-home")
     public CloseToHomeResponse closeToHome(Authentication auth) {
-        UserSettingsResponse settings = userSettingsService.getSettings(auth);
+        // getHomeLocation, NOT getSettings: the latter geocodes the postcode through an uncached
+        // third-party client to produce a place name this endpoint never uses, and the panel
+        // refetches on every briefing change.
+        UserSettingsService.HomeLocation home = userSettingsService.getHomeLocation(auth);
         return closeToHomeService.build(
-                userSettingsService.getUserId(auth),
-                settings.homeLatitude(),
-                settings.homeLongitude());
+                home.userId(), home.latitude(), home.longitude(), home.radiusMiles());
     }
 }

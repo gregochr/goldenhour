@@ -1121,6 +1121,84 @@ describe('MarkerPopupContent', () => {
     });
   });
 
+  describe('superseded triage row (forecast triaged, briefingScore live)', () => {
+    // The shape that produced the reported bug: /api/forecast returns a triage row (Claude was
+    // never called, so every score is null) while the briefing cache holds a live batch
+    // evaluation. #356 coalesced the RATING across both sources but left the score bars, the
+    // summary and the footer reading only `forecast` — so the popup showed 4 stars above an
+    // absent score block and a footer insisting Claude had not evaluated it.
+    const TRIAGED_FORECAST = {
+      ...BASE_FORECAST,
+      rating: null,
+      fierySkyPotential: null,
+      goldenHourPotential: null,
+      summary: null,
+      triageReason: 'HIGH_CLOUD',
+    };
+
+    const LIVE_SCORE = {
+      rating: 4,
+      fierySkyPotential: 72,
+      goldenHourPotential: 58,
+      summary: 'Clear low cloud and excellent visibility.',
+      triageReason: null,
+      triageMessage: null,
+    };
+
+    /** The score bars and the generated-at footer both live behind the details toggle. */
+    function renderExpanded(overrides) {
+      renderPopup(overrides);
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
+    }
+
+    it('renders score bars from briefingScore when the forecast row is triaged', () => {
+      renderExpanded({ role: 'PRO_USER', forecast: TRIAGED_FORECAST, briefingScore: LIVE_SCORE });
+
+      expect(screen.getByText('Fiery Sky')).toBeInTheDocument();
+      expect(screen.getByText('Golden Hour')).toBeInTheDocument();
+      // Values must come from the briefing score, not render as the null placeholder.
+      expect(screen.getByText('72')).toBeInTheDocument();
+      expect(screen.getByText('58')).toBeInTheDocument();
+    });
+
+    it('shows the rating and the score bars from the same source', () => {
+      // The specific contradiction reported: a 4-star medallion over an empty score block.
+      renderExpanded({ role: 'PRO_USER', forecast: TRIAGED_FORECAST, briefingScore: LIVE_SCORE });
+
+      expect(screen.getByText('4/5')).toBeInTheDocument();
+      expect(screen.getByText('Fiery Sky')).toBeInTheDocument();
+    });
+
+    it('suppresses the "not evaluated by Claude" footer when a live evaluation supersedes triage', () => {
+      renderExpanded({ role: 'PRO_USER', forecast: TRIAGED_FORECAST, briefingScore: LIVE_SCORE });
+
+      expect(screen.queryByText(/not evaluated by Claude/)).not.toBeInTheDocument();
+      expect(screen.getByText(/Forecast generated:/)).toBeInTheDocument();
+    });
+
+    it('falls back to the briefing summary when the detail row carries none', () => {
+      renderPopup({ role: 'PRO_USER', forecast: TRIAGED_FORECAST, briefingScore: LIVE_SCORE });
+
+      expect(screen.getByText('Clear low cloud and excellent visibility.')).toBeInTheDocument();
+    });
+
+    it('still reports the triage disclaimer when nothing supersedes it', () => {
+      // Guard the other direction: a genuinely triaged slot with no live score must keep saying
+      // so, otherwise this fix would silently hide every real stand-down.
+      renderExpanded({ role: 'PRO_USER', forecast: TRIAGED_FORECAST, briefingScore: null });
+
+      expect(screen.getByText(/not evaluated by Claude/)).toBeInTheDocument();
+      expect(screen.queryByText('Fiery Sky')).not.toBeInTheDocument();
+    });
+
+    it('keeps score bars hidden from LITE users even when a briefing score exists', () => {
+      renderExpanded({ role: 'LITE_USER', forecast: TRIAGED_FORECAST, briefingScore: LIVE_SCORE });
+
+      expect(screen.queryByText('Fiery Sky')).not.toBeInTheDocument();
+      expect(screen.queryByText('72')).not.toBeInTheDocument();
+    });
+  });
+
   describe('drive time badge', () => {
     describe('forecast branch', () => {
       it('renders drive-time-badge when driveMinutes is a positive number', () => {

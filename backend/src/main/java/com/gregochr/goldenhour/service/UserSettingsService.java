@@ -32,6 +32,12 @@ import static org.springframework.http.HttpStatus.TOO_MANY_REQUESTS;
 @Service
 public class UserSettingsService {
 
+    /** Narrowest useful radius; below this almost nothing qualifies outside a city. */
+    public static final int MIN_LOCAL_RADIUS_MILES = 10;
+
+    /** Widest before "close to home" stops meaning it — a 50-mile radius is a 60-minute drive. */
+    public static final int MAX_LOCAL_RADIUS_MILES = 50;
+
     private static final Logger LOG = LoggerFactory.getLogger(UserSettingsService.class);
 
     /** Minimum interval between drive time refreshes (30 minutes). */
@@ -69,6 +75,36 @@ public class UserSettingsService {
     }
 
     /**
+     * The caller's home coordinates and radius, WITHOUT resolving the place name.
+     *
+     * <p>{@link #getSettings} geocodes the postcode through {@code PostcodesIoClient} purely to
+     * produce a human-readable place name for the Settings screen, and that lookup is uncached.
+     * Close to home needs only the numbers, and its panel refetches whenever the briefing or the
+     * home settings change — so routing it through {@code getSettings} put an uncached
+     * third-party HTTP call on a Plan-tab render path and threw the result away.
+     *
+     * @param auth the authenticated user
+     * @return the caller's home location and radius
+     */
+    public HomeLocation getHomeLocation(Authentication auth) {
+        AppUserEntity user = getUser(auth);
+        return new HomeLocation(user.getId(), user.getHomeLatitude(), user.getHomeLongitude(),
+                user.getLocalRadiusMiles());
+    }
+
+    /**
+     * A caller's home, as Close to home needs it.
+     *
+     * @param userId        the user's id, for their drive times
+     * @param latitude      home latitude, or null when no postcode is saved
+     * @param longitude     home longitude, or null when no postcode is saved
+     * @param radiusMiles   the chosen radius, or null to use the default
+     */
+    public record HomeLocation(Long userId, Double latitude, Double longitude,
+            Integer radiusMiles) {
+    }
+
+    /**
      * Validates and geocodes a UK postcode without persisting.
      *
      * @param postcode the postcode to look up
@@ -92,6 +128,13 @@ public class UserSettingsService {
         user.setHomePostcode(request.postcode());
         user.setHomeLatitude(request.latitude());
         user.setHomeLongitude(request.longitude());
+        if (request.localRadiusMiles() != null) {
+            // Clamped rather than rejected: this arrives from a slider whose bounds the client
+            // already enforces, so an out-of-range value means a stale client or a direct API
+            // call, and silently honouring 500 miles would make "close to home" meaningless.
+            user.setLocalRadiusMiles(Math.clamp(request.localRadiusMiles(),
+                    MIN_LOCAL_RADIUS_MILES, MAX_LOCAL_RADIUS_MILES));
+        }
         userRepository.save(user);
         LOG.info("User '{}' saved home location: {} ({}, {})",
                 user.getUsername(), request.postcode(), request.latitude(), request.longitude());
@@ -165,6 +208,7 @@ public class UserSettingsService {
                 user.getHomeLatitude(),
                 user.getHomeLongitude(),
                 placeName,
+                user.getLocalRadiusMiles(),
                 user.getDriveTimesCalculatedAt());
     }
 }
