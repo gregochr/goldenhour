@@ -13,14 +13,24 @@ const ROLE_LABELS = {
 /**
  * Settings modal — user profile, home postcode, and drive time management.
  */
+/**
+ * Slider fallback when the user has never chosen a radius. Display only — the value is not sent
+ * unless the user actually moves the control, so the server keeps deciding what null means.
+ */
+const DEFAULT_RADIUS_MILES = 22;
+
 export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [postcode, setPostcode] = useState('');
   // Null until settings load, then the saved value or the 22-mile default. Kept separate from
   // the postcode's lookup/save cycle because the radius can be changed on its own.
-  const [radius, setRadius] = useState(22);
+  // Null until settings load. NOT defaulted to 22 here: a client-side default gets written back
+  // on the next save and would silently override a server-configured one for a user who never
+  // touched the slider.
+  const [radius, setRadius] = useState(null);
   const [radiusSaving, setRadiusSaving] = useState(false);
+  const [radiusError, setRadiusError] = useState(false);
   const [lookupResult, setLookupResult] = useState(null);
   const [lookupError, setLookupError] = useState(null);
   const [lookingUp, setLookingUp] = useState(false);
@@ -41,7 +51,7 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
       const data = await getSettings();
       setSettings(data);
       if (data.homePostcode) setPostcode(data.homePostcode);
-      if (data.localRadiusMiles != null) setRadius(data.localRadiusMiles);
+      setRadius(data.localRadiusMiles ?? DEFAULT_RADIUS_MILES);
       if (data.driveTimesCalculatedAt && data.homePostcode) {
         setDriveTimesPostcode(data.homePostcode);
       }
@@ -107,12 +117,17 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
   const handleRadiusCommit = async (next) => {
     if (!settings?.homePostcode || settings.homeLatitude == null) return;
     setRadiusSaving(true);
+    setRadiusError(false);
     try {
       const updated = await saveHome(settings.homePostcode, settings.homeLatitude,
         settings.homeLongitude, next);
       setSettings(updated);
+      // Trust the server's echo over the local value — it clamps to 10-50.
+      if (updated?.localRadiusMiles != null) setRadius(updated.localRadiusMiles);
     } catch {
-      // Save failed — the slider keeps the attempted value so the user can retry.
+      // Surfaced, not swallowed. A silent failure left the slider showing a value that was never
+      // persisted, so the setting looked applied and the panel disagreed with it.
+      setRadiusError(true);
     } finally {
       setRadiusSaving(false);
     }
@@ -289,8 +304,10 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
                     min="10"
                     max="50"
                     step="2"
-                    value={radius}
-                    disabled={!isPro || !settings?.homePostcode || radiusSaving}
+                    value={radius ?? DEFAULT_RADIUS_MILES}
+                    // NOT disabled while saving: toggling disabled mid-interaction blurs the
+                    // slider and drops the keyboard focus a user is still arrow-keying with.
+                    disabled={!isPro || !settings?.homePostcode}
                     onChange={(e) => setRadius(Number(e.target.value))}
                     // Commit on release, not on every drag frame: the slider spans 21 stops and
                     // a PUT per stop would hammer the endpoint for one decision.
@@ -304,12 +321,17 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
                     className="font-mono text-sm text-plex-text w-16 text-right"
                     data-testid="settings-radius-value"
                   >
-                    {radius} miles
+                    {radius ?? DEFAULT_RADIUS_MILES} miles
                   </span>
                 </div>
                 {!settings?.homePostcode && (
                   <p className="text-xs text-plex-text-muted mt-1">
                     Set a home postcode first — the radius is measured from it.
+                  </p>
+                )}
+                {radiusError && (
+                  <p className="text-xs text-red-400 mt-1" data-testid="settings-radius-error">
+                    Could not save the radius. Try again.
                   </p>
                 )}
               </div>

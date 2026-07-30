@@ -463,3 +463,21 @@
 .date-field::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
 }
+
+/* Close to home — window card grid.
+   Single column on phones, then one column per card up to four, capped so a one-card window
+   renders quarter-width rather than stretching. Kept in CSS rather than inline because an inline
+   grid-template-columns applies at EVERY viewport and would squeeze four cards into ~72px each on
+   a 375px screen. */
+.cth-window-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 900px) {
+  .cth-window-grid {
+    grid-template-columns: repeat(var(--cth-cards, 1), minmax(0, 1fr));
+    max-width: calc(var(--cth-cards, 1) * 25%);
+  }
+}

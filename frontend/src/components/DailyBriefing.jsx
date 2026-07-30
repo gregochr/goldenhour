@@ -910,6 +910,7 @@ const BRIEFING_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 export default function DailyBriefing({
   locations, homeCoords = null, onShowOnMap, onEvaluationScoresChange, onSeasonalFeaturesChange,
+  homeSettingsVersion = 0,
 }) {
   const { role } = useAuth();
   const isPro = role === 'ADMIN' || role === 'PRO_USER';
@@ -950,6 +951,11 @@ export default function DailyBriefing({
   // never ride the shared payload, because that one is ETag-revalidated and per-user data cannot
   // be allowed into a browser cache JavaScript cannot clear on logout.
   const [closeToHome, setCloseToHome] = useState(null);
+  // Refetched whenever the briefing does, and whenever the user's home settings change.
+  //
+  // A bare [] dep list looked right and was not: the panel is derived from the home postcode AND
+  // the local radius, both editable in Settings, so a user who widened their radius saw the block
+  // keep its old contents until a full reload — the setting appeared to do nothing.
   useEffect(() => {
     let cancelled = false;
     getCloseToHome()
@@ -957,7 +963,7 @@ export default function DailyBriefing({
       // A failure here must not take the Plan tab down with it — the panel simply does not render.
       .catch(() => { if (!cancelled) setCloseToHome(null); });
     return () => { cancelled = true; };
-  }, []);
+  }, [briefing, homeSettingsVersion]);
 
   // Astro conditions: per-date scores keyed by locationName
   const [astroScoresByDate, setAstroScoresByDate] = useState({}); // { date: { locName: score } }
@@ -1538,6 +1544,7 @@ export default function DailyBriefing({
 }
 
 DailyBriefing.propTypes = {
+  homeSettingsVersion: PropTypes.number,
   locations: PropTypes.arrayOf(
     PropTypes.shape({
       name: PropTypes.string.isRequired,

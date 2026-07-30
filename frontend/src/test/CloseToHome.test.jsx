@@ -74,6 +74,17 @@ function panel(overrides = {}) {
   };
 }
 
+/**
+ * The UK-local time a UTC instant should render as, computed via Intl rather than the component's
+ * own formatter — otherwise the assertion would be tautological. Solar times are stored UTC, so
+ * through BST every one of them is an hour ahead of its raw string.
+ */
+function ukTime(isoUtc) {
+  return new Date(`${isoUtc}Z`).toLocaleTimeString('en-GB', {
+    hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London',
+  });
+}
+
 function renderBlock(p = panel(), props = {}) {
   return render(
     <CloseToHome panel={p} todayStr={TODAY} tomorrowStr={TOMORROW} {...props} />,
@@ -99,7 +110,8 @@ describe('CloseToHome', () => {
   it('groups cards under a header naming day, event and time', () => {
     // The flat list this replaced never said which event a card was for.
     renderBlock();
-    expect(screen.getByTestId('cth-window-label')).toHaveTextContent(/Tomorrow sunrise · 05:09/);
+    expect(screen.getByTestId('cth-window-label'))
+      .toHaveTextContent(`Tomorrow sunrise · ${ukTime(`${TOMORROW}T05:09:00`)}`);
   });
 
   it('renders windows chronologically, not by rating', () => {
@@ -129,6 +141,18 @@ describe('CloseToHome', () => {
   it('labels a distant window by weekday rather than Today/Tomorrow', () => {
     renderBlock(panel({ windows: [eventWindow(LATER, 'SUNSET', [card('A', 4)])] }));
     expect(screen.getByTestId('cth-window-label').textContent).not.toMatch(/Today|Tomorrow/);
+  });
+
+  it('renders event times in UK local, not raw UTC', () => {
+    // Solar times are stored UTC. Slicing the ISO string rendered them an hour early for the whole
+    // of BST, and the Plan tab's drill-down list — which already converted — then showed the SAME
+    // event at a different time on the same screen.
+    const iso = `${TOMORROW}T19:52:00`;
+    renderBlock(panel({
+      windows: [eventWindow(TOMORROW, 'SUNSET', [card('A', 4)], { eventTime: iso })],
+    }));
+
+    expect(screen.getByTestId('cth-window-label')).toHaveTextContent(ukTime(iso));
   });
 
   // ── the two signal flags ──────────────────────────────────────────────────
@@ -266,6 +290,6 @@ describe('CloseToHome', () => {
 
     const next = screen.getByTestId('close-to-home-next-window');
     expect(next).toHaveTextContent("St Mary's Lighthouse");
-    expect(next).toHaveTextContent(/Tomorrow sunrise 05:15/);
+    expect(next).toHaveTextContent(`Tomorrow sunrise ${ukTime(`${TOMORROW}T05:15:00`)}`);
   });
 });

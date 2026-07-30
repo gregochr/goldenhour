@@ -101,7 +101,7 @@ class CloseToHomeServiceTest {
         for (WindowSpec spec : specs) {
             BriefingRegion region = new BriefingRegion(spec.regionName(), spec.regionVerdict(),
                     "Summary", List.of(), spec.slots(), 10.5, 8.0, 3.2, 1, null, null,
-                    DisplayVerdict.WORTH_IT, spec.slots().size());
+                    spec.regionDisplayVerdict(), spec.slots().size());
             byDate.computeIfAbsent(spec.date(), d -> new java.util.ArrayList<>())
                     .add(new BriefingEventSummary(spec.targetType(), List.of(region), List.of()));
         }
@@ -115,7 +115,13 @@ class CloseToHomeServiceTest {
     }
 
     private record WindowSpec(LocalDate date, TargetType targetType, String regionName,
-            Verdict regionVerdict, List<BriefingSlot> slots) {
+            Verdict regionVerdict, DisplayVerdict regionDisplayVerdict, List<BriefingSlot> slots) {
+
+        /** The ordinary case: the cell the user sees reads WORTH_IT. */
+        WindowSpec(LocalDate date, TargetType targetType, String regionName, Verdict verdict,
+                List<BriefingSlot> slots) {
+            this(date, targetType, regionName, verdict, DisplayVerdict.WORTH_IT, slots);
+        }
     }
 
     private static BriefingSlot slotAt(Long id, String name, Integer rating, LocalDate date,
@@ -429,8 +435,12 @@ class CloseToHomeServiceTest {
         // Stand down for the window while Angel of the North individually rates 4.
         LocationEntity a = loc(1L, "Angel of the North", 54.80, -1.58, "Tyne and Wear");
         when(locationService.findAllEnabled()).thenReturn(List.of(a));
+        // The region's DISPLAY verdict is what the grid renders and what the flag now reads.
+        // Setting only the triage verdict — as this fixture first did — described a state the
+        // serve path cannot produce, so the test passed against code that was wrong.
         givenWindows(List.of(new WindowSpec(TODAY, TargetType.SUNRISE, "Tyne and Wear",
-                Verdict.STANDDOWN, List.of(slotAt(1L, "Angel of the North", 4, TODAY, 5)))),
+                Verdict.STANDDOWN, DisplayVerdict.STAND_DOWN,
+                List.of(slotAt(1L, "Angel of the North", 4, TODAY, 5)))),
                 List.of());
 
         CloseToHomeResponse.Window w = service.build(1L, HOME_LAT, HOME_LON).windows().get(0);
@@ -460,7 +470,9 @@ class CloseToHomeServiceTest {
         // than parsing the pick's back into a date — BestBet carries no date.
         LocationEntity a = loc(1L, "Alpha", 54.80, -1.58, "Durham");
         when(locationService.findAllEnabled()).thenReturn(List.of(a));
-        BestBet pick = new BestBet(1, "Headline", "Detail", "sunset", "Tyne and Wear",
+        // Joined on the date-bearing event id, not the display label — the labels are baked at
+        // briefing BUILD time and go stale by a civil day after midnight.
+        BestBet pick = new BestBet(1, "Headline", "Detail", TODAY + "_sunset", "Tyne and Wear",
                 null, null, "Today", "sunset", "21:19", null, List.of());
         givenWindows(List.of(new WindowSpec(TODAY, TargetType.SUNSET, "Durham", Verdict.GO,
                 List.of(slotAt(1L, "Alpha", 4, TODAY, 21)))), List.of(pick));
@@ -476,13 +488,104 @@ class CloseToHomeServiceTest {
     void noBestBetFlagOnDifferentEvent() {
         LocationEntity a = loc(1L, "Alpha", 54.80, -1.58, "Durham");
         when(locationService.findAllEnabled()).thenReturn(List.of(a));
-        BestBet pick = new BestBet(1, "H", "D", "sunrise", "Tyne and Wear",
+        BestBet pick = new BestBet(1, "H", "D", TODAY + "_sunrise", "Tyne and Wear",
                 null, null, "Today", "sunrise", "05:09", null, List.of());
         givenWindows(List.of(new WindowSpec(TODAY, TargetType.SUNSET, "Durham", Verdict.GO,
                 List.of(slotAt(1L, "Alpha", 4, TODAY, 21)))), List.of(pick));
 
         assertThat(service.build(1L, HOME_LAT, HOME_LON).windows().get(0).sameWindowAsBestBet())
                 .isFalse();
+    }
+
+    @Test
+    @DisplayName("a STALE day label does not misfire the Best Bet flag — the join is on the date")
+    void staleDayLabelDoesNotMisfireBestBetFlag() {
+        // dayName is baked at briefing BUILD time. Between midnight and the next pipeline run it
+        // is a civil day behind, so a label comparison put the chip on TOMORROW's window and took
+        // it off the one that actually was the Best Bet. The event id carries the real date.
+        LocationEntity a = loc(1L, "Alpha", 54.80, -1.58, "Durham");
+        when(locationService.findAllEnabled()).thenReturn(List.of(a));
+        BestBet stalePick = new BestBet(1, "H", "D", TODAY + "_sunset", "Tyne and Wear",
+                null, null, "Yesterday", "sunset", "21:19", null, List.of());
+
+        givenWindows(List.of(new WindowSpec(TODAY, TargetType.SUNSET, "Durham", Verdict.GO,
+                List.of(slotAt(1L, "Alpha", 4, TODAY, 21)))), List.of(stalePick));
+
+        // The label says "Yesterday" and the date says today. The date wins.
+        assertThat(service.build(1L, HOME_LAT, HOME_LON).windows().get(0).sameWindowAsBestBet())
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("an aurora pick never flags a sunrise/sunset window")
+    void auroraPickNeverFlagsASolarWindow() {
+        LocationEntity a = loc(1L, "Alpha", 54.80, -1.58, "Durham");
+        when(locationService.findAllEnabled()).thenReturn(List.of(a));
+        BestBet aurora = new BestBet(1, "H", "D", TODAY + "_aurora", "Northumberland",
+                null, null, "Today", "aurora", "after dark", null, List.of());
+
+        givenWindows(List.of(new WindowSpec(TODAY, TargetType.SUNSET, "Durham", Verdict.GO,
+                List.of(slotAt(1L, "Alpha", 4, TODAY, 21)))), List.of(aurora));
+
+        assertThat(service.build(1L, HOME_LAT, HOME_LON).windows().get(0).sameWindowAsBestBet())
+                .isFalse();
+    }
+
+    @Test
+    @DisplayName("no flag when the grid cell itself does not read stand-down")
+    void noFlagWhenDisplayVerdictIsHealthy() {
+        // The inverse of notInBriefingFlag: triage said STANDDOWN but live ratings lifted the cell
+        // to WORTH_IT, so the user sees a healthy region and the chip must not contradict it.
+        LocationEntity a = loc(1L, "Alpha", 54.80, -1.58, "Durham");
+        when(locationService.findAllEnabled()).thenReturn(List.of(a));
+        givenWindows(List.of(new WindowSpec(TODAY, TargetType.SUNRISE, "Durham",
+                Verdict.STANDDOWN, DisplayVerdict.WORTH_IT,
+                List.of(slotAt(1L, "Alpha", 4, TODAY, 5)))), List.of());
+
+        assertThat(service.build(1L, HOME_LAT, HOME_LON).windows().get(0).notInBriefing()).isFalse();
+    }
+
+    // ── the breadcrumb's next-window ordering ─────────────────────────────────
+
+    @Test
+    @DisplayName("nextWindow tiebreaks on RATING within an event, not on per-location solar time")
+    void nextWindowTiebreaksOnRatingWithinAnEvent() {
+        // The rule the deleted client suite documented as a shipped bug: keying on the
+        // per-location solarEventTime makes the rating tiebreak unreachable, because two
+        // locations never share a sunrise to the minute. The EVENT is the key.
+        LocationEntity early = loc(1L, "Early Poor", 54.80, -1.58, "Durham");
+        LocationEntity late = loc(2L, "Later Better", 54.81, -1.58, "Durham");
+        when(locationService.findAllEnabled()).thenReturn(List.of(early, late));
+
+        BriefingSlot earlySlot = new BriefingSlot(1L, "Early Poor", TODAY.atTime(5, 12),
+                Verdict.GO, null, BriefingSlot.TideInfo.NONE, List.of(), null)
+                .withClaudeScores(3, null, null, "s");
+        BriefingSlot lateSlot = new BriefingSlot(2L, "Later Better", TODAY.atTime(5, 15),
+                Verdict.GO, null, BriefingSlot.TideInfo.NONE, List.of(), null)
+                .withClaudeScores(5, null, null, "s");
+        givenWindows(List.of(new WindowSpec(TODAY, TargetType.SUNRISE, "Durham", Verdict.GO,
+                List.of(earlySlot, lateSlot))), List.of());
+
+        assertThat(service.build(1L, HOME_LAT, HOME_LON).breadcrumb().nextWindow().locationName())
+                .as("the better-rated spot at the same event wins, despite the later solar time")
+                .isEqualTo("Later Better");
+    }
+
+    @Test
+    @DisplayName("nextWindow picks the SOONEST event first, before rating")
+    void nextWindowPrefersTheSoonestEvent() {
+        LocationEntity a = loc(1L, "Alpha", 54.80, -1.58, "Durham");
+        when(locationService.findAllEnabled()).thenReturn(List.of(a));
+        givenWindows(List.of(
+                new WindowSpec(TODAY.plusDays(1), TargetType.SUNSET, "Durham", Verdict.GO,
+                        List.of(slotAt(1L, "Alpha", 5, TODAY.plusDays(1), 21))),
+                new WindowSpec(TODAY, TargetType.SUNRISE, "Durham", Verdict.GO,
+                        List.of(slotAt(1L, "Alpha", 3, TODAY, 5)))),
+                List.of());
+
+        // The 5★ is later; the soonest qualifying window is what a user can act on tonight.
+        assertThat(service.build(1L, HOME_LAT, HOME_LON).breadcrumb().nextWindow().date())
+                .isEqualTo(TODAY);
     }
 
     // ── location types, for the card icons ────────────────────────────────────

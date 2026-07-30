@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import InfoTip from './InfoTip.jsx';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { LOCATION_TYPE_ICONS, locationTypeLabel } from '../utils/locationTypes.js';
+import { formatEventTimeUk } from '../utils/conversions.js';
 
 /** Accent for the whole block — its own warm gold, distinct from the bone `--color-plex-gold`. */
 const GOLD = 'var(--color-close-to-home)';
@@ -44,9 +45,15 @@ function windowLabel(dateStr, targetType, todayStr, tomorrowStr) {
   return `${d.toLocaleDateString('en-GB', { weekday: 'long' })} ${word}`;
 }
 
-/** `05:09` from an ISO local date-time, or null. */
+/**
+ * `05:09` in UK local time from a UTC ISO date-time, or null.
+ *
+ * Routed through the shared formatter rather than slicing the string. Slicing renders raw UTC,
+ * which is an hour early for the whole of BST — the same event then showed two different times on
+ * one screen, because the Plan tab's drill-down list already used this formatter.
+ */
 function timeOf(iso) {
-  return iso ? String(iso).slice(11, 16) : null;
+  return formatEventTimeUk(iso);
 }
 
 /**
@@ -121,7 +128,10 @@ export default function CloseToHome({
   const { radiusMiles, horizonDays, windows = [], breadcrumb } = model;
   if (windows.length === 0 && !breadcrumb?.date) return null;
 
-  const reach = windows.reduce((n, w) => n + w.withinReach, 0);
+  // The busiest single window, NOT the sum. Each window holds at most one entry per location, so
+  // summing counted a location once per window it qualified in — five locations across three
+  // windows read "15 within reach" under a heading that says "within 22 miles of home".
+  const reach = windows.reduce((n, w) => Math.max(n, w.withinReach), 0);
   const countLine = windows.length > 0
     ? `${reach} within reach · ${windows.length} window${windows.length === 1 ? '' : 's'}`
       + ` · next ${horizonDays} days`
@@ -342,12 +352,11 @@ export default function CloseToHome({
                 quarter-width card rather than stretching the full width. */}
             <div
               data-testid="cth-window-cards"
-              className="grid grid-cols-1"
-              style={{
-                gap: '8px',
-                gridTemplateColumns: `repeat(${w.cards.length}, minmax(0, 1fr))`,
-                maxWidth: `${w.cards.length * 25}%`,
-              }}
+              // Sizing lives in the .cth-window-grid class rule, gated on a min-width query; only
+              // the count comes through inline as a custom property. Inline grid-template-columns
+              // would win at every viewport and squeeze four cards into ~72px each on a phone.
+              className="cth-window-grid"
+              style={{ '--cth-cards': w.cards.length }}
             >
               {w.cards.map((card) => (
                 <button
