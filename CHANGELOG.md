@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — release.sh promotes the CHANGELOG itself, instead of printing instructions for it
+
+- **The guard was right; making it a dead end was the mistake.** `release.sh` refused to tag while `[Unreleased]` held entries — correctly, since the alternative is 83 entries piling under one heading across 13 releases, which is what happened between v2.15.4 and v2.17.0. But it then printed a three-step recipe for a hand-made PR, so every release became two, and that PR's edit sat exactly where feature branches write their own entries. #371 conflicted on `CHANGELOG.md` for precisely this reason and had to be resolved by hand.
+- **The stated reason it couldn't automate this was false.** The comment read *"it cannot commit the promotion itself, because main requires a PR"* — but `enforce_admins` is `false` on the branch protection, so an admin can push straight to `main`. The script now goes through a PR anyway, deliberately: a release tool whose normal operating mode is bypassing branch protection makes that protection decorative for every other change too. The bypass stays available and stays manual.
+- **A planned `codeql.yml` change turned out to be unnecessary, which is the more useful finding.** CodeQL is a required check with no docs-only fast path, so a CHANGELOG-only PR looked like it would wait ~5 minutes on it. It doesn't: the required `CodeQL` context is published by the **github-advanced-security app**, not by the `CodeQL Analysis` workflow job, and it reports `neutral` in ~2s for a diff touching no analysable code. Measured on #372 — merged at 23:23:50Z while the job ran on until 23:25:25Z, 95 seconds *past* the merge. The workflow was never on the gate's critical path, and no workflow changed.
+- **Three refusals, because a promotion that silently does the wrong thing is worse than one that stops.** It will not promote when the chosen target is not `main` HEAD (the commit would land on top, leaving the tag pointing at unpromoted notes — the exact outcome the guard exists to prevent); it aborts if the heading fails to insert; and it aborts unless the rewrite adds **exactly 2 lines and removes 0**, so a rewrite that moved entry text can never reach a tag.
+- Verified by replaying it against the v2.17.4 promotion: the generated rewrite reproduces the hand-made #372 diff **byte-for-byte**. Edge cases covered — absent `[Unreleased]` heading, duplicate headings (inserts once), mutated entry text (line-count guard refuses), missing/unauthenticated `gh`, pre-existing promotion branch, PR closed unmerged, and a bounded 15-minute wait that leaves the branch pushed rather than hanging.
+
 ## [v2.17.4] - 2026-07-31
 
 ### Fixed — the forecast prompt clears Haiku's cache floor by 5%, and nothing recorded it
