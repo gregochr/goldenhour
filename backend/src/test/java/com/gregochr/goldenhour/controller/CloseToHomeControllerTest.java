@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CloseToHomeResponse;
 import com.gregochr.goldenhour.model.UserSettingsResponse;
@@ -13,6 +14,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -48,21 +50,28 @@ class CloseToHomeControllerTest extends AbstractControllerTest {
     void closeToHome_returnsPanel() throws Exception {
         when(settingsService.getSettings(any())).thenReturn(settingsWithHome(54.7753, -1.5849));
         when(settingsService.getUserId(any())).thenReturn(7L);
+        CloseToHomeResponse.Card card = new CloseToHomeResponse.Card(
+                1L, "Penshaw Monument", "Tyne and Wear", Set.of(LocationType.SEASCAPE),
+                4, 9, 25, null, true);
+        CloseToHomeResponse.Window window = new CloseToHomeResponse.Window(
+                LocalDate.of(2026, 4, 22), TargetType.SUNSET,
+                LocalDateTime.of(2026, 4, 22, 19, 30), 4, 2,
+                true, "Tyne and Wear", true, "Tyne and Wear", List.of(card));
         when(closeToHomeService.build(any(), any(), any())).thenReturn(
-                new CloseToHomeResponse(22, 3, List.of(new CloseToHomeResponse.Card(
-                        1L, "Penshaw Monument", "Tyne and Wear", LocalDate.of(2026, 4, 22),
-                        TargetType.SUNSET, LocalDateTime.of(2026, 4, 22, 19, 30), 4, 9, 25,
-                        null, true)),
+                new CloseToHomeResponse(22, 3, List.of(window),
                         new CloseToHomeResponse.Breadcrumb(true, LocalDate.of(2026, 4, 22),
-                                TargetType.SUNSET, "Penshaw Monument", 4, "Good light", null,
-                                null)));
+                                TargetType.SUNSET, LocalDateTime.of(2026, 4, 22, 19, 30),
+                                "Penshaw Monument", 4, "Good light", null, null, null)));
 
         mockMvc.perform(get("/api/briefing/close-to-home"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.radiusMiles").value(22))
-                .andExpect(jsonPath("$.cards[0].locationId").value(1))
-                .andExpect(jsonPath("$.cards[0].locationName").value("Penshaw Monument"))
-                .andExpect(jsonPath("$.cards[0].lead").value(true))
+                .andExpect(jsonPath("$.windows[0].targetType").value("SUNSET"))
+                .andExpect(jsonPath("$.windows[0].notInBriefing").value(true))
+                .andExpect(jsonPath("$.windows[0].sameWindowAsBestBet").value(true))
+                .andExpect(jsonPath("$.windows[0].cards[0].locationName").value("Penshaw Monument"))
+                .andExpect(jsonPath("$.windows[0].cards[0].locationTypes[0]").value("SEASCAPE"))
+                .andExpect(jsonPath("$.windows[0].cards[0].lead").value(true))
                 .andExpect(jsonPath("$.breadcrumb.worthIt").value(true));
     }
 
@@ -93,7 +102,7 @@ class CloseToHomeControllerTest extends AbstractControllerTest {
 
         mockMvc.perform(get("/api/briefing/close-to-home"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.cards").isEmpty())
+                .andExpect(jsonPath("$.windows").isEmpty())
                 .andExpect(jsonPath("$.breadcrumb.worthIt").value(false));
     }
 

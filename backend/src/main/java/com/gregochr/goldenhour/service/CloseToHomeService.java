@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
@@ -21,6 +22,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -53,8 +55,11 @@ import java.util.Set;
 @Service
 public class CloseToHomeService {
 
-    /** Cards shown. Rating-ordered, so this is a "top N", not a sample. */
-    static final int MAX_CARDS = 4;
+    /** Cards per WINDOW. Rating-ordered, so this is a "top N" within the window, not a sample. */
+    static final int MAX_CARDS_PER_WINDOW = 4;
+
+    /** Windows shown, so the block stays a glance rather than a list. */
+    static final int MAX_WINDOWS = 3;
 
     /** Forecast horizon drawn from, in distinct forecast days. */
     static final int HORIZON_DAYS = 3;
@@ -63,6 +68,9 @@ public class CloseToHomeService {
     private static final long AFTERGLOW_MINUTES = 30;
 
     private static final ZoneId UTC = ZoneId.of("UTC");
+
+    /** Day labels are UK-local, matching how the Best Bet's dayName was built. */
+    private static final ZoneId LONDON = ZoneId.of("Europe/London");
 
     private final BriefingService briefingService;
     private final LocationService locationService;
@@ -135,19 +143,11 @@ public class CloseToHomeService {
         Map<Long, Integer> driveMinutes = userId == null
                 ? Map.of() : driveTimeResolver.getAllMinutes(userId);
 
-        List<Candidate> ranked = rank(nearby);
-        List<CloseToHomeResponse.Card> cards = new ArrayList<>(ranked.size());
-        for (int i = 0; i < ranked.size(); i++) {
-            Candidate c = ranked.get(i);
-            cards.add(new CloseToHomeResponse.Card(
-                    c.locationId(), c.locationName(), c.regionName(), c.date(), c.targetType(),
-                    c.eventTime(), c.rating(), (int) Math.round(c.distanceMiles()),
-                    c.locationId() == null ? null : driveMinutes.get(c.locationId()),
-                    c.tideLabel(), i == 0));
-        }
+        List<CloseToHomeResponse.Window> windows =
+                buildWindows(nearby, driveMinutes, briefing.bestBets(), today());
 
-        return new CloseToHomeResponse(radiusMiles, HORIZON_DAYS, cards,
-                buildBreadcrumb(briefing.days(), nearby));
+        return new CloseToHomeResponse(radiusMiles, HORIZON_DAYS, windows,
+                buildBreadcrumb(briefing.days(), nearby, driveMinutes));
     }
 
     // ── collection ────────────────────────────────────────────────────────────
@@ -173,11 +173,11 @@ public class CloseToHomeService {
             }
             for (BriefingEventSummary es : events) {
                 for (BriefingRegion region : es.regions()) {
-                    collectSlots(out, region.slots(), region.regionName(), day.date(),
-                            es.targetType(), byId, byName, homeLat, homeLon);
+                    collectSlots(out, region.slots(), region.regionName(), region.verdict(),
+                            day.date(), es.targetType(), byId, byName, homeLat, homeLon);
                 }
                 // Unregioned slots count too: a location without a region is still within reach.
-                collectSlots(out, es.unregioned(), null, day.date(), es.targetType(),
+                collectSlots(out, es.unregioned(), null, null, day.date(), es.targetType(),
                         byId, byName, homeLat, homeLon);
             }
         }
@@ -185,8 +185,9 @@ public class CloseToHomeService {
     }
 
     private void collectSlots(List<Candidate> out, List<BriefingSlot> slots, String briefingRegion,
-            LocalDate date, TargetType targetType, Map<Long, LocationEntity> byId,
-            Map<String, LocationEntity> byName, double homeLat, double homeLon) {
+            Verdict briefingRegionVerdict, LocalDate date, TargetType targetType,
+            Map<Long, LocationEntity> byId, Map<String, LocationEntity> byName,
+            double homeLat, double homeLon) {
         for (BriefingSlot slot : slots) {
             // Prefer the FK; fall back to the name only for cached payloads written before
             // BriefingSlot carried an id. Those keep being served until their key ages out, so
@@ -208,48 +209,149 @@ public class CloseToHomeService {
                     // the "St Mary's Lighthouse / Northumberland" honesty label. Shown, not
                     // filtered on.
                     loc.getRegion() != null ? loc.getRegion().getName() : briefingRegion,
+                    loc.getLocationType(),
                     date, targetType, slot.solarEventTime(), miles, slot.claudeRating(),
                     isPoor(slot), slot.standdownReason(), slot.claudeHeadline(),
-                    slot.claudeSummary(), tideLabel(slot)));
+                    slot.claudeSummary(), tideLabel(slot), briefingRegion, briefingRegionVerdict));
         }
     }
 
     // ── ranking ───────────────────────────────────────────────────────────────
 
     /**
-     * Best slot per location, then best overall, capped.
+     * Groups qualifying candidates into event windows, per the handoff's selection rules.
      *
-     * <p>The tiebreak is on (date, targetType) — the EVENT — not the per-location solar time.
-     * Keying on the solar time would make the rating tiebreak unreachable, because two locations
-     * never share a sunrise to the minute.
+     * <p>Order matters and is not interchangeable: windows go CHRONOLOGICALLY because the user is
+     * deciding <em>when</em> to go out, while cards WITHIN a window go by rating because at that
+     * point they have already chosen the when and are choosing the where.
+     *
+     * <p>Distance gates but never sorts. It is shown on every card, so letting it also weight the
+     * order would double-count it — an explicit product decision. The closest location can and
+     * should rank second when something further out rates better.
      */
-    private List<Candidate> rank(List<Candidate> candidates) {
-        Map<String, Candidate> best = new HashMap<>();
-        for (Candidate c : candidates) {
-            if (!qualifies(c)) {
-                continue;
-            }
-            Candidate prev = best.get(c.locationName());
-            boolean better = prev == null
-                    || c.rating() > prev.rating()
-                    || (c.rating().equals(prev.rating())
-                        && eventKey(c).compareTo(eventKey(prev)) < 0);
-            if (better) {
-                best.put(c.locationName(), c);
+    private List<CloseToHomeResponse.Window> buildWindows(List<Candidate> nearby,
+            Map<Long, Integer> driveMinutes, List<BestBet> bestBets, LocalDate today) {
+        Map<String, List<Candidate>> byWindow = new LinkedHashMap<>();
+        for (Candidate c : nearby) {
+            if (qualifies(c)) {
+                byWindow.computeIfAbsent(eventKey(c), k -> new ArrayList<>()).add(c);
             }
         }
-        return best.values().stream()
-                .sorted(Comparator.comparing(Candidate::rating).reversed()
-                        .thenComparing(CloseToHomeService::eventKey)
-                        .thenComparing(Candidate::locationName))
-                .limit(MAX_CARDS)
+
+        List<CloseToHomeResponse.Window> windows = byWindow.values().stream()
+                .sorted(Comparator.comparing((List<Candidate> g) -> g.get(0).date())
+                        .thenComparing(g -> g.get(0).targetType()))
+                .limit(MAX_WINDOWS)
+                .map(group -> toWindow(group, driveMinutes, bestBets, today))
                 .toList();
+
+        // Exactly one lead card in the whole block: rank 1 of the FIRST window. Applied here
+        // rather than inside toWindow because "first window" is only knowable once they are
+        // ordered, and a lead per window would make the accent meaningless.
+        if (windows.isEmpty()) {
+            return windows;
+        }
+        return markLead(windows);
+    }
+
+    private CloseToHomeResponse.Window toWindow(List<Candidate> group,
+            Map<Long, Integer> driveMinutes, List<BestBet> bestBets, LocalDate today) {
+        List<Candidate> sorted = group.stream()
+                .sorted(Comparator.comparing(Candidate::rating).reversed()
+                        .thenComparing(Candidate::locationName))
+                .toList();
+        Candidate first = sorted.get(0);
+
+        List<CloseToHomeResponse.Card> cards = sorted.stream()
+                .limit(MAX_CARDS_PER_WINDOW)
+                .map(c -> new CloseToHomeResponse.Card(
+                        c.locationId(), c.locationName(), c.regionName(), c.locationTypes(),
+                        c.rating(), (int) Math.round(c.distanceMiles()),
+                        c.locationId() == null ? null : driveMinutes.get(c.locationId()),
+                        c.tideLabel(), false))
+                .toList();
+
+        // NOT IN THE BRIEFING — the signal the region-level grid structurally cannot show. The
+        // region stands down for this window as a whole, yet a nearby location still rates well
+        // individually. Computed from the region verdict carried alongside each slot, never
+        // hardcoded.
+        String flaggedRegion = sorted.stream()
+                .filter(c -> c.briefingRegionVerdict() == Verdict.STANDDOWN)
+                .map(Candidate::briefingRegionName)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+
+        BestBet match = matchingBestBet(bestBets, first.date(), first.targetType(), today);
+
+        return new CloseToHomeResponse.Window(
+                first.date(), first.targetType(), first.eventTime(),
+                first.rating(), group.size(),
+                flaggedRegion != null, flaggedRegion,
+                match != null, match == null ? null : match.region(),
+                cards);
+    }
+
+    private static List<CloseToHomeResponse.Window> markLead(
+            List<CloseToHomeResponse.Window> windows) {
+        CloseToHomeResponse.Window head = windows.get(0);
+        if (head.cards().isEmpty()) {
+            return windows;
+        }
+        List<CloseToHomeResponse.Card> cards = new ArrayList<>(head.cards());
+        CloseToHomeResponse.Card top = cards.get(0);
+        cards.set(0, new CloseToHomeResponse.Card(top.locationId(), top.locationName(),
+                top.regionName(), top.locationTypes(), top.rating(), top.distanceMiles(),
+                top.driveMinutes(), top.tideLabel(), true));
+        List<CloseToHomeResponse.Window> out = new ArrayList<>(windows);
+        out.set(0, new CloseToHomeResponse.Window(head.date(), head.targetType(), head.eventTime(),
+                head.bestRating(), head.withinReach(), head.notInBriefing(),
+                head.flaggedRegionName(), head.sameWindowAsBestBet(), head.bestBetRegionName(),
+                cards));
+        return out;
+    }
+
+    /**
+     * Finds the Best Bet occupying this window, if any.
+     *
+     * <p>{@link BestBet} carries {@code dayName} and {@code eventType} for display but no date, so
+     * this GENERATES the same labels for the window and compares, rather than parsing the pick's
+     * back into a date. Within a briefing horizon of a few days a weekday name is unambiguous, and
+     * generating avoids a parser that would silently stop matching if the label format changed.
+     */
+    private static BestBet matchingBestBet(List<BestBet> bestBets, LocalDate date,
+            TargetType targetType, LocalDate today) {
+        if (bestBets == null) {
+            return null;
+        }
+        String wantDay = dayName(date, today);
+        String wantEvent = targetType.name().toLowerCase(java.util.Locale.ROOT);
+        return bestBets.stream()
+                .filter(b -> wantDay.equals(b.dayName()) && wantEvent.equals(b.eventType()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /** Mirrors {@code BestBetFallbackService.dayName} so the labels compare like for like. */
+    private static String dayName(LocalDate date, LocalDate today) {
+        if (date.equals(today)) {
+            return "Today";
+        }
+        if (date.equals(today.plusDays(1))) {
+            return "Tomorrow";
+        }
+        return date.getDayOfWeek().getDisplayName(
+                java.time.format.TextStyle.FULL, java.util.Locale.ENGLISH);
+    }
+
+    private LocalDate today() {
+        return LocalDate.now(clock.withZone(LONDON));
     }
 
     // ── breadcrumb ────────────────────────────────────────────────────────────
 
     private CloseToHomeResponse.Breadcrumb buildBreadcrumb(List<BriefingDay> days,
-            List<Candidate> nearby) {
+            List<Candidate> nearby, Map<Long, Integer> driveMinutes) {
         NextEvent next = findNextEvent(days);
         if (next == null) {
             return CloseToHomeResponse.Breadcrumb.none();
@@ -257,16 +359,39 @@ public class CloseToHomeService {
         List<Candidate> forNext = nearby.stream()
                 .filter(c -> c.date().equals(next.date()) && c.targetType() == next.targetType())
                 .toList();
+        LocalDateTime nextTime = forNext.stream()
+                .map(Candidate::eventTime).filter(Objects::nonNull).findFirst().orElse(null);
+
+        // The soonest local window worth leaving the house for — the hope that keeps a user
+        // coming back on a stay-in night. Chronological FIRST, then best-rated within that event.
+        // The event is the primary key deliberately: two locations never share a solar time to the
+        // minute, so keying on the per-location time would make the rating term unreachable.
+        Candidate window = nearby.stream()
+                .filter(this::qualifies)
+                .sorted(Comparator.comparing(CloseToHomeService::eventKey)
+                        .thenComparing(Comparator.comparing(Candidate::rating).reversed())
+                        .thenComparing(Candidate::locationName))
+                .findFirst()
+                .orElse(null);
+        CloseToHomeResponse.NextWindow nextWindow = window == null ? null
+                : new CloseToHomeResponse.NextWindow(
+                        window.locationId(), window.locationName(), window.rating(),
+                        window.date(), window.targetType(), window.eventTime(),
+                        window.locationId() == null ? null : driveMinutes.get(window.locationId()));
+
         Candidate top = forNext.stream()
                 .filter(this::qualifies)
                 .max(Comparator.comparing(Candidate::rating))
                 .orElse(null);
         if (top != null) {
             return new CloseToHomeResponse.Breadcrumb(true, next.date(), next.targetType(),
-                    top.locationName(), top.rating(), top.headline(), top.summary(), null);
+                    nextTime, top.locationName(), top.rating(), top.headline(), top.summary(),
+                    null, nextWindow);
         }
+        // Deliberately does NOT name the best nearby location here. An earlier iteration surfaced
+        // one at 1.8 stars on a bad night, which undercut the stay-in verdict it sat beside.
         return new CloseToHomeResponse.Breadcrumb(false, next.date(), next.targetType(),
-                null, null, null, null, dominantReason(forNext));
+                nextTime, null, null, null, null, dominantReason(forNext), nextWindow);
     }
 
     /** The most common stand-down reason nearby, so the client can name a cause. */
@@ -365,10 +490,11 @@ public class CloseToHomeService {
     // ── internals ─────────────────────────────────────────────────────────────
 
     private record Candidate(
-            Long locationId, String locationName, String regionName, LocalDate date,
-            TargetType targetType, LocalDateTime eventTime, double distanceMiles, Integer rating,
-            boolean poor, String standdownReason, String headline, String summary,
-            String tideLabel) {
+            Long locationId, String locationName, String regionName,
+            java.util.Set<com.gregochr.goldenhour.entity.LocationType> locationTypes,
+            LocalDate date, TargetType targetType, LocalDateTime eventTime, double distanceMiles,
+            Integer rating, boolean poor, String standdownReason, String headline, String summary,
+            String tideLabel, String briefingRegionName, Verdict briefingRegionVerdict) {
     }
 
     private record NextEvent(LocalDate date, TargetType targetType) {

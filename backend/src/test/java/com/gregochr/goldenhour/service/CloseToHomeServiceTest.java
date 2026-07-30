@@ -1,6 +1,9 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LocationType;
+import com.gregochr.goldenhour.model.BestBet;
+import java.util.Set;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingDay;
@@ -92,6 +95,38 @@ class CloseToHomeServiceTest {
                 .withClaudeScores(rating, null, null, "Summary for " + name);
     }
 
+    /** Builds a briefing with one event summary per (date, targetType) supplied. */
+    private void givenWindows(List<WindowSpec> specs, List<BestBet> bestBets) {
+        Map<LocalDate, List<BriefingEventSummary>> byDate = new java.util.LinkedHashMap<>();
+        for (WindowSpec spec : specs) {
+            BriefingRegion region = new BriefingRegion(spec.regionName(), spec.regionVerdict(),
+                    "Summary", List.of(), spec.slots(), 10.5, 8.0, 3.2, 1, null, null,
+                    DisplayVerdict.WORTH_IT, spec.slots().size());
+            byDate.computeIfAbsent(spec.date(), d -> new java.util.ArrayList<>())
+                    .add(new BriefingEventSummary(spec.targetType(), List.of(region), List.of()));
+        }
+        List<BriefingDay> days = byDate.entrySet().stream()
+                .map(e -> new BriefingDay(e.getKey(), e.getValue()))
+                .toList();
+        when(briefingService.getCachedBriefingForApi()).thenReturn(
+                new DailyBriefingResponse(LocalDateTime.of(2026, 4, 22, 4, 0), "Headline",
+                        days, bestBets, null, null, false, false, 0, "Opus",
+                        List.of(), List.of()));
+    }
+
+    private record WindowSpec(LocalDate date, TargetType targetType, String regionName,
+            Verdict regionVerdict, List<BriefingSlot> slots) {
+    }
+
+    private static BriefingSlot slotAt(Long id, String name, Integer rating, LocalDate date,
+            int hour) {
+        return new BriefingSlot(id, name, date.atTime(hour, 15), Verdict.GO,
+                new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70, 10.0, 8.0, 0,
+                        BigDecimal.ONE, 30, 40),
+                BriefingSlot.TideInfo.NONE, List.of(), null)
+                .withClaudeScores(rating, null, null, "Summary");
+    }
+
     private void givenBriefing(BriefingSlot... slots) {
         BriefingRegion region = new BriefingRegion("Tyne and Wear", Verdict.GO,
                 "Clear nearby", List.of(), List.of(slots), 10.5, 8.0, 3.2, 1, null, null,
@@ -104,6 +139,11 @@ class CloseToHomeServiceTest {
                         null, null, false, false, 0, "Opus", List.of(), List.of()));
     }
 
+    /** Every card across every window, for assertions about selection rather than grouping. */
+    private static List<CloseToHomeResponse.Card> cardsOf(CloseToHomeResponse r) {
+        return r.windows().stream().flatMap(w -> w.cards().stream()).toList();
+    }
+
     // ── the home gate ─────────────────────────────────────────────────────────
 
     @Test
@@ -111,7 +151,7 @@ class CloseToHomeServiceTest {
     void noHome_returnsEmptyPanel() {
         CloseToHomeResponse r = service.build(1L, null, null);
 
-        assertThat(r.cards()).isEmpty();
+        assertThat(r.windows()).isEmpty();
         assertThat(r.breadcrumb().worthIt()).isFalse();
         assertThat(r.radiusMiles()).isEqualTo(22);
     }
@@ -128,7 +168,7 @@ class CloseToHomeServiceTest {
         CloseToHomeResponse r = service.build(1L, HOME_LAT, HOME_LON);
 
         // Bamburgh is the better forecast and is still excluded — proximity gates, rating sorts.
-        assertThat(r.cards()).singleElement()
+        assertThat(cardsOf(r)).singleElement()
                 .satisfies(c -> assertThat(c.locationName()).isEqualTo("Penshaw Monument"));
     }
 
@@ -138,7 +178,7 @@ class CloseToHomeServiceTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(nearLoc()));
         givenBriefing(slot(1L, "Penshaw Monument", 4, Verdict.GO));
 
-        assertThat(service.build(1L, HOME_LAT, HOME_LON).cards().get(0).distanceMiles())
+        assertThat(cardsOf(service.build(1L, HOME_LAT, HOME_LON)).get(0).distanceMiles())
                 .isBetween(8, 11);
     }
 
@@ -154,8 +194,8 @@ class CloseToHomeServiceTest {
 
         CloseToHomeResponse r = service.build(1L, HOME_LAT, HOME_LON);
 
-        assertThat(r.cards()).hasSize(1);
-        assertThat(r.cards().get(0).locationId()).isEqualTo(1L);
+        assertThat(cardsOf(r)).hasSize(1);
+        assertThat(cardsOf(r).get(0).locationId()).isEqualTo(1L);
     }
 
     @Test
@@ -166,7 +206,7 @@ class CloseToHomeServiceTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(nearLoc()));
         givenBriefing(slot(null, "Penshaw Monument", 4, Verdict.GO));
 
-        assertThat(service.build(1L, HOME_LAT, HOME_LON).cards()).hasSize(1);
+        assertThat(cardsOf(service.build(1L, HOME_LAT, HOME_LON))).hasSize(1);
     }
 
     // ── qualification and ranking ─────────────────────────────────────────────
@@ -177,7 +217,7 @@ class CloseToHomeServiceTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(nearLoc()));
         givenBriefing(slot(1L, "Penshaw Monument", null, Verdict.GO));
 
-        assertThat(service.build(1L, HOME_LAT, HOME_LON).cards()).isEmpty();
+        assertThat(cardsOf(service.build(1L, HOME_LAT, HOME_LON))).isEmpty();
     }
 
     @Test
@@ -189,7 +229,7 @@ class CloseToHomeServiceTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(nearLoc()));
         givenBriefing(slot(1L, "Penshaw Monument", 2, Verdict.GO));
 
-        assertThat(service.build(1L, HOME_LAT, HOME_LON).cards()).isEmpty();
+        assertThat(cardsOf(service.build(1L, HOME_LAT, HOME_LON))).isEmpty();
     }
 
     @Test
@@ -201,7 +241,7 @@ class CloseToHomeServiceTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(nearLoc()));
         givenBriefing(slot(1L, "Penshaw Monument", 4, Verdict.STANDDOWN));
 
-        assertThat(service.build(1L, HOME_LAT, HOME_LON).cards()).hasSize(1);
+        assertThat(cardsOf(service.build(1L, HOME_LAT, HOME_LON))).hasSize(1);
     }
 
     @Test
@@ -210,7 +250,7 @@ class CloseToHomeServiceTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(nearLoc()));
         givenBriefing(slot(1L, "Penshaw Monument", null, Verdict.STANDDOWN));
 
-        assertThat(service.build(1L, HOME_LAT, HOME_LON).cards()).isEmpty();
+        assertThat(cardsOf(service.build(1L, HOME_LAT, HOME_LON))).isEmpty();
     }
 
     @Test
@@ -223,10 +263,10 @@ class CloseToHomeServiceTest {
 
         CloseToHomeResponse r = service.build(1L, HOME_LAT, HOME_LON);
 
-        assertThat(r.cards()).extracting(CloseToHomeResponse.Card::locationName)
+        assertThat(cardsOf(r)).extracting(CloseToHomeResponse.Card::locationName)
                 .containsExactly("Bravo", "Alpha");
-        assertThat(r.cards().get(0).lead()).isTrue();
-        assertThat(r.cards().get(1).lead()).isFalse();
+        assertThat(cardsOf(r).get(0).lead()).isTrue();
+        assertThat(cardsOf(r).get(1).lead()).isFalse();
     }
 
     @Test
@@ -241,8 +281,8 @@ class CloseToHomeServiceTest {
                 slot(3L, "C", 5, Verdict.GO), slot(4L, "D", 5, Verdict.GO),
                 slot(5L, "E", 5, Verdict.GO));
 
-        assertThat(service.build(1L, HOME_LAT, HOME_LON).cards())
-                .hasSize(CloseToHomeService.MAX_CARDS);
+        assertThat(cardsOf(service.build(1L, HOME_LAT, HOME_LON)))
+                .hasSize(CloseToHomeService.MAX_CARDS_PER_WINDOW);
     }
 
     // ── the honesty label ─────────────────────────────────────────────────────
@@ -255,7 +295,7 @@ class CloseToHomeServiceTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(nearLoc()));
         givenBriefing(slot(1L, "Penshaw Monument", 4, Verdict.GO));
 
-        assertThat(service.build(1L, HOME_LAT, HOME_LON).cards().get(0).regionName())
+        assertThat(cardsOf(service.build(1L, HOME_LAT, HOME_LON)).get(0).regionName())
                 .isEqualTo("Tyne and Wear");
     }
 
@@ -304,7 +344,7 @@ class CloseToHomeServiceTest {
         givenBriefing(slot(1L, "Penshaw Monument", 4, Verdict.GO));
         when(driveTimeResolver.getAllMinutes(7L)).thenReturn(Map.of(1L, 25));
 
-        assertThat(service.build(7L, HOME_LAT, HOME_LON).cards().get(0).driveMinutes())
+        assertThat(cardsOf(service.build(7L, HOME_LAT, HOME_LON)).get(0).driveMinutes())
                 .isEqualTo(25);
     }
 
@@ -314,7 +354,150 @@ class CloseToHomeServiceTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(nearLoc()));
         givenBriefing(slot(1L, "Penshaw Monument", 4, Verdict.GO));
 
-        assertThat(service.build(1L, HOME_LAT, HOME_LON).cards().get(0).driveMinutes()).isNull();
+        assertThat(cardsOf(service.build(1L, HOME_LAT, HOME_LON)).get(0).driveMinutes()).isNull();
+    }
+
+    // ── window grouping: the redesign's whole point ───────────────────────────
+
+    @Test
+    @DisplayName("cards are GROUPED by event window, chronologically, not flattened")
+    void windowsAreChronological() {
+        // The flat list this replaces never said which event a card was for. Windows go
+        // chronologically because the user is deciding WHEN; cards inside go by rating.
+        LocationEntity a = loc(1L, "Alpha", 54.80, -1.58, "Durham");
+        when(locationService.findAllEnabled()).thenReturn(List.of(a));
+        givenWindows(List.of(
+                new WindowSpec(TODAY.plusDays(1), TargetType.SUNSET, "Durham", Verdict.GO,
+                        List.of(slotAt(1L, "Alpha", 5, TODAY.plusDays(1), 21))),
+                new WindowSpec(TODAY, TargetType.SUNRISE, "Durham", Verdict.GO,
+                        List.of(slotAt(1L, "Alpha", 3, TODAY, 5)))),
+                List.of());
+
+        CloseToHomeResponse r = service.build(1L, HOME_LAT, HOME_LON);
+
+        // The 5-star sunset is LATER, so it comes second. Rating does not reorder windows.
+        assertThat(r.windows()).hasSize(2);
+        assertThat(r.windows().get(0).targetType()).isEqualTo(TargetType.SUNRISE);
+        assertThat(r.windows().get(0).date()).isEqualTo(TODAY);
+        assertThat(r.windows().get(1).targetType()).isEqualTo(TargetType.SUNSET);
+    }
+
+    @Test
+    @DisplayName("SUNRISE and SUNSET windows both appear — never sunrise-only")
+    void bothEventTypesEligible() {
+        // A 05:09 sunrise is an easy dismissal when it is the only thing offered. The handoff
+        // requires both event types compete so an early alarm can be weighed against an evening.
+        LocationEntity a = loc(1L, "Alpha", 54.80, -1.58, "Durham");
+        when(locationService.findAllEnabled()).thenReturn(List.of(a));
+        givenWindows(List.of(
+                new WindowSpec(TODAY, TargetType.SUNRISE, "Durham", Verdict.GO,
+                        List.of(slotAt(1L, "Alpha", 4, TODAY, 5))),
+                new WindowSpec(TODAY, TargetType.SUNSET, "Durham", Verdict.GO,
+                        List.of(slotAt(1L, "Alpha", 4, TODAY, 21)))),
+                List.of());
+
+        assertThat(service.build(1L, HOME_LAT, HOME_LON).windows())
+                .extracting(CloseToHomeResponse.Window::targetType)
+                .containsExactly(TargetType.SUNRISE, TargetType.SUNSET);
+    }
+
+    @Test
+    @DisplayName("exactly ONE lead card in the whole block — rank 1 of the first window")
+    void onlyOneLeadAcrossAllWindows() {
+        LocationEntity a = loc(1L, "Alpha", 54.80, -1.58, "Durham");
+        when(locationService.findAllEnabled()).thenReturn(List.of(a));
+        givenWindows(List.of(
+                new WindowSpec(TODAY, TargetType.SUNRISE, "Durham", Verdict.GO,
+                        List.of(slotAt(1L, "Alpha", 4, TODAY, 5))),
+                new WindowSpec(TODAY, TargetType.SUNSET, "Durham", Verdict.GO,
+                        List.of(slotAt(1L, "Alpha", 5, TODAY, 21)))),
+                List.of());
+
+        CloseToHomeResponse r = service.build(1L, HOME_LAT, HOME_LON);
+
+        // A lead per window would make the gold accent meaningless.
+        assertThat(cardsOf(r)).filteredOn(CloseToHomeResponse.Card::lead).hasSize(1);
+        assertThat(r.windows().get(0).cards().get(0).lead()).isTrue();
+    }
+
+    // ── the two window flags ──────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("NOT IN THE BRIEFING when the region stands down but a local spot still rates")
+    void notInBriefingFlag() {
+        // The signal the region-level grid structurally cannot show: Tyne and Wear averages
+        // Stand down for the window while Angel of the North individually rates 4.
+        LocationEntity a = loc(1L, "Angel of the North", 54.80, -1.58, "Tyne and Wear");
+        when(locationService.findAllEnabled()).thenReturn(List.of(a));
+        givenWindows(List.of(new WindowSpec(TODAY, TargetType.SUNRISE, "Tyne and Wear",
+                Verdict.STANDDOWN, List.of(slotAt(1L, "Angel of the North", 4, TODAY, 5)))),
+                List.of());
+
+        CloseToHomeResponse.Window w = service.build(1L, HOME_LAT, HOME_LON).windows().get(0);
+
+        assertThat(w.notInBriefing()).isTrue();
+        assertThat(w.flaggedRegionName()).isEqualTo("Tyne and Wear");
+    }
+
+    @Test
+    @DisplayName("no NOT IN THE BRIEFING flag when the region itself is fine")
+    void noFlagWhenRegionIsGo() {
+        LocationEntity a = loc(1L, "Alpha", 54.80, -1.58, "Durham");
+        when(locationService.findAllEnabled()).thenReturn(List.of(a));
+        givenWindows(List.of(new WindowSpec(TODAY, TargetType.SUNRISE, "Durham", Verdict.GO,
+                List.of(slotAt(1L, "Alpha", 4, TODAY, 5)))), List.of());
+
+        CloseToHomeResponse.Window w = service.build(1L, HOME_LAT, HOME_LON).windows().get(0);
+
+        assertThat(w.notInBriefing()).isFalse();
+        assertThat(w.flaggedRegionName()).isNull();
+    }
+
+    @Test
+    @DisplayName("SAME WINDOW AS BEST BET when the day and event match the current pick")
+    void sameWindowAsBestBetFlag() {
+        // Matched by GENERATING the Best Bet's dayName/eventType labels for the window rather
+        // than parsing the pick's back into a date — BestBet carries no date.
+        LocationEntity a = loc(1L, "Alpha", 54.80, -1.58, "Durham");
+        when(locationService.findAllEnabled()).thenReturn(List.of(a));
+        BestBet pick = new BestBet(1, "Headline", "Detail", "sunset", "Tyne and Wear",
+                null, null, "Today", "sunset", "21:19", null, List.of());
+        givenWindows(List.of(new WindowSpec(TODAY, TargetType.SUNSET, "Durham", Verdict.GO,
+                List.of(slotAt(1L, "Alpha", 4, TODAY, 21)))), List.of(pick));
+
+        CloseToHomeResponse.Window w = service.build(1L, HOME_LAT, HOME_LON).windows().get(0);
+
+        assertThat(w.sameWindowAsBestBet()).isTrue();
+        assertThat(w.bestBetRegionName()).isEqualTo("Tyne and Wear");
+    }
+
+    @Test
+    @DisplayName("no SAME WINDOW flag when the Best Bet is a different event")
+    void noBestBetFlagOnDifferentEvent() {
+        LocationEntity a = loc(1L, "Alpha", 54.80, -1.58, "Durham");
+        when(locationService.findAllEnabled()).thenReturn(List.of(a));
+        BestBet pick = new BestBet(1, "H", "D", "sunrise", "Tyne and Wear",
+                null, null, "Today", "sunrise", "05:09", null, List.of());
+        givenWindows(List.of(new WindowSpec(TODAY, TargetType.SUNSET, "Durham", Verdict.GO,
+                List.of(slotAt(1L, "Alpha", 4, TODAY, 21)))), List.of(pick));
+
+        assertThat(service.build(1L, HOME_LAT, HOME_LON).windows().get(0).sameWindowAsBestBet())
+                .isFalse();
+    }
+
+    // ── location types, for the card icons ────────────────────────────────────
+
+    @Test
+    @DisplayName("cards carry the location's subject types for the icons")
+    void cardsCarryLocationTypes() {
+        LocationEntity a = LocationEntity.builder()
+                .id(1L).name("Alpha").lat(54.80).lon(-1.58).enabled(true)
+                .locationType(Set.of(LocationType.SEASCAPE, LocationType.WATERFALL)).build();
+        when(locationService.findAllEnabled()).thenReturn(List.of(a));
+        givenBriefing(slot(1L, "Alpha", 4, Verdict.GO));
+
+        assertThat(cardsOf(service.build(1L, HOME_LAT, HOME_LON)).get(0).locationTypes())
+                .containsExactlyInAnyOrder(LocationType.SEASCAPE, LocationType.WATERFALL);
     }
 
     // ── configuration ─────────────────────────────────────────────────────────
@@ -331,7 +514,7 @@ class CloseToHomeServiceTest {
         CloseToHomeResponse r = wide.build(1L, HOME_LAT, HOME_LON);
 
         assertThat(r.radiusMiles()).isEqualTo(100);
-        assertThat(r.cards()).extracting(CloseToHomeResponse.Card::locationName)
+        assertThat(cardsOf(r)).extracting(CloseToHomeResponse.Card::locationName)
                 .containsExactly("Bamburgh", "Penshaw Monument");
     }
 }
