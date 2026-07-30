@@ -498,6 +498,30 @@ class CloseToHomeServiceTest {
     }
 
     @Test
+    @DisplayName("a RUNNER-UP pick does not flag the window — only rank 1 is the Best Bet")
+    void runnerUpPickDoesNotFlagTheWindow() {
+        // The banner directly above labels rank 2 "ALSO GOOD". Flagging it here would have the two
+        // screens contradict each other, and "going local is not a compromise" is untrue when
+        // rank 1 is a different window entirely.
+        LocationEntity a = loc(1L, "Alpha", 54.80, -1.58, "Durham");
+        when(locationService.findAllEnabled()).thenReturn(List.of(a));
+        BestBet rank1 = new BestBet(1, "H", "D", TODAY.plusDays(2) + "_sunset", "Northumberland",
+                null, null, "Saturday", "sunset", "21:19", null, List.of());
+        BestBet rank2 = new BestBet(2, "H", "D", TODAY + "_sunrise", "Durham",
+                null, null, "Today", "sunrise", "05:09", null, List.of());
+
+        givenWindows(List.of(new WindowSpec(TODAY, TargetType.SUNRISE, "Durham", Verdict.GO,
+                List.of(slotAt(1L, "Alpha", 4, TODAY, 5)))), List.of(rank1, rank2));
+
+        CloseToHomeResponse.Window w = service.build(1L, HOME_LAT, HOME_LON).windows().get(0);
+
+        assertThat(w.sameWindowAsBestBet())
+                .as("rank 2 occupies this window, but it is not the Best Bet")
+                .isFalse();
+        assertThat(w.bestBetRegionName()).isNull();
+    }
+
+    @Test
     @DisplayName("a STALE day label does not misfire the Best Bet flag — the join is on the date")
     void staleDayLabelDoesNotMisfireBestBetFlag() {
         // dayName is baked at briefing BUILD time. Between midnight and the next pipeline run it
@@ -601,6 +625,127 @@ class CloseToHomeServiceTest {
 
         assertThat(cardsOf(service.build(1L, HOME_LAT, HOME_LON)).get(0).locationTypes())
                 .containsExactlyInAnyOrder(LocationType.SEASCAPE, LocationType.WATERFALL);
+    }
+
+    // ── tide labels: ported from the deleted client suite, whose rule I got wrong ─────
+
+    @Test
+    @DisplayName("a king tide is named even when the tide state is unknown")
+    void kingTideNamedWithoutState() {
+        // The first port gated king/spring on a non-null tideState and silently dropped them.
+        assertThat(tideLabelFor(tideInfo(null, false, true, false))).isEqualTo("king tide");
+    }
+
+    @Test
+    @DisplayName("a spring tide is named even when the tide state is unknown")
+    void springTideNamedWithoutState() {
+        assertThat(tideLabelFor(tideInfo(null, false, false, true))).isEqualTo("spring tide");
+    }
+
+    @Test
+    @DisplayName("a plain tide state is named only when it MATCHES the location's preference")
+    void plainStateOnlyWhenAligned() {
+        assertThat(tideLabelFor(tideInfo("HIGH", true, false, false)))
+                .isEqualTo("high tide");
+    }
+
+    @Test
+    @DisplayName("a MISMATCHED tide is not advertised — worse than saying nothing")
+    void mismatchedTideNotNamed() {
+        // A low-tide location sitting at high water read "high tide", advertising the very state
+        // it is not wanted at.
+        assertThat(tideLabelFor(tideInfo("HIGH", false, false, false))).isNull();
+    }
+
+    @Test
+    @DisplayName("king outranks spring, and both outrank the plain state")
+    void kingOutranksSpring() {
+        assertThat(tideLabelFor(tideInfo("HIGH", true, true, true))).isEqualTo("king tide");
+    }
+
+    private static BriefingSlot.TideInfo tideInfo(String state, boolean aligned,
+            boolean king, boolean spring) {
+        return new BriefingSlot.TideInfo(state, aligned, null, null, king, spring,
+                null, null, null);
+    }
+
+    private String tideLabelFor(BriefingSlot.TideInfo tide) {
+        LocationEntity a = loc(1L, "Coastal", 54.80, -1.58, "Durham");
+        when(locationService.findAllEnabled()).thenReturn(List.of(a));
+        BriefingSlot slot = new BriefingSlot(1L, "Coastal", TODAY.atTime(21, 0), Verdict.GO,
+                null, tide, List.of(), null).withClaudeScores(4, null, null, "s");
+        givenBriefing(slot);
+        return cardsOf(service.build(1L, HOME_LAT, HOME_LON)).get(0).tideLabel();
+    }
+
+    // ── caps and counts ───────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("at most 3 windows, keeping the SOONEST three")
+    void windowsCappedAtThree() {
+        LocationEntity a = loc(1L, "Alpha", 54.80, -1.58, "Durham");
+        when(locationService.findAllEnabled()).thenReturn(List.of(a));
+        givenWindows(List.of(
+                new WindowSpec(TODAY, TargetType.SUNRISE, "D", Verdict.GO,
+                        List.of(slotAt(1L, "Alpha", 4, TODAY, 5))),
+                new WindowSpec(TODAY, TargetType.SUNSET, "D", Verdict.GO,
+                        List.of(slotAt(1L, "Alpha", 4, TODAY, 21))),
+                new WindowSpec(TODAY.plusDays(1), TargetType.SUNRISE, "D", Verdict.GO,
+                        List.of(slotAt(1L, "Alpha", 4, TODAY.plusDays(1), 5))),
+                new WindowSpec(TODAY.plusDays(1), TargetType.SUNSET, "D", Verdict.GO,
+                        List.of(slotAt(1L, "Alpha", 5, TODAY.plusDays(1), 21)))),
+                List.of());
+
+        List<CloseToHomeResponse.Window> w = service.build(1L, HOME_LAT, HOME_LON).windows();
+
+        // The 5-star window is fourth chronologically and is dropped: the block is a glance at
+        // what is SOON, not a ranked list of the horizon.
+        assertThat(w).hasSize(3);
+        assertThat(w.get(0).date()).isEqualTo(TODAY);
+        assertThat(w).extracting(CloseToHomeResponse.Window::bestRating).doesNotContain(5);
+    }
+
+    @Test
+    @DisplayName("withinReach counts everything that qualified, not just the carded four")
+    void withinReachCountsBeforeTheCap() {
+        // The header reads this number under "within N miles of home", so it must describe the
+        // radius, not the card cap.
+        List<LocationEntity> locs = new java.util.ArrayList<>();
+        List<BriefingSlot> slots = new java.util.ArrayList<>();
+        for (int i = 1; i <= 6; i++) {
+            locs.add(loc(i, "L" + i, 54.80 + i * 0.001, -1.58, "Durham"));
+            slots.add(slotAt((long) i, "L" + i, 4, TODAY, 5));
+        }
+        when(locationService.findAllEnabled()).thenReturn(locs);
+        givenWindows(List.of(new WindowSpec(TODAY, TargetType.SUNRISE, "D", Verdict.GO, slots)),
+                List.of());
+
+        CloseToHomeResponse.Window w = service.build(1L, HOME_LAT, HOME_LON).windows().get(0);
+
+        assertThat(w.cards()).hasSize(4);
+        assertThat(w.withinReach()).isEqualTo(6);
+    }
+
+    // ── the breadcrumb's event time ───────────────────────────────────────────
+
+    @Test
+    @DisplayName("the next event still carries a time when nothing in radius is briefed for it")
+    void breadcrumbTimeSurvivesAnEmptyRadius() {
+        // Taking the time only from in-radius candidates left it null exactly when the block
+        // matters most, so the breadcrumb read "Tomorrow sunrise" with no time beside it.
+        LocationEntity far = loc(2L, "Bamburgh", 55.6090, -1.7099, "Northumberland");
+        when(locationService.findAllEnabled()).thenReturn(List.of(nearLoc(), far));
+        givenWindows(List.of(
+                new WindowSpec(TODAY, TargetType.SUNRISE, "Northumberland", Verdict.GO,
+                        List.of(slotAt(2L, "Bamburgh", 5, TODAY, 5))),
+                new WindowSpec(TODAY, TargetType.SUNSET, "Durham", Verdict.GO,
+                        List.of(slotAt(1L, "Penshaw Monument", 4, TODAY, 21)))),
+                List.of());
+
+        CloseToHomeResponse.Breadcrumb b = service.build(1L, HOME_LAT, HOME_LON).breadcrumb();
+
+        assertThat(b.eventTime()).as("time comes from the briefing, not only from in-radius slots")
+                .isNotNull();
     }
 
     // ── configuration ─────────────────────────────────────────────────────────

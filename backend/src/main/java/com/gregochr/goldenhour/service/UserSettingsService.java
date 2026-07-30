@@ -75,6 +75,36 @@ public class UserSettingsService {
     }
 
     /**
+     * The caller's home coordinates and radius, WITHOUT resolving the place name.
+     *
+     * <p>{@link #getSettings} geocodes the postcode through {@code PostcodesIoClient} purely to
+     * produce a human-readable place name for the Settings screen, and that lookup is uncached.
+     * Close to home needs only the numbers, and its panel refetches whenever the briefing or the
+     * home settings change — so routing it through {@code getSettings} put an uncached
+     * third-party HTTP call on a Plan-tab render path and threw the result away.
+     *
+     * @param auth the authenticated user
+     * @return the caller's home location and radius
+     */
+    public HomeLocation getHomeLocation(Authentication auth) {
+        AppUserEntity user = getUser(auth);
+        return new HomeLocation(user.getId(), user.getHomeLatitude(), user.getHomeLongitude(),
+                user.getLocalRadiusMiles());
+    }
+
+    /**
+     * A caller's home, as Close to home needs it.
+     *
+     * @param userId        the user's id, for their drive times
+     * @param latitude      home latitude, or null when no postcode is saved
+     * @param longitude     home longitude, or null when no postcode is saved
+     * @param radiusMiles   the chosen radius, or null to use the default
+     */
+    public record HomeLocation(Long userId, Double latitude, Double longitude,
+            Integer radiusMiles) {
+    }
+
+    /**
      * Validates and geocodes a UK postcode without persisting.
      *
      * @param postcode the postcode to look up

@@ -69,9 +69,6 @@ public class CloseToHomeService {
 
     private static final ZoneId UTC = ZoneId.of("UTC");
 
-    /** Day labels are UK-local, matching how the Best Bet's dayName was built. */
-    private static final ZoneId LONDON = ZoneId.of("Europe/London");
-
     private final BriefingService briefingService;
     private final LocationService locationService;
     private final DriveTimeResolver driveTimeResolver;
@@ -363,13 +360,14 @@ public class CloseToHomeService {
         }
         String wantEvent = date + "_" + targetType.name().toLowerCase(java.util.Locale.ROOT);
         return bestBets.stream()
+                // Rank 1 only. The chip says "the Best Bet", and the banner directly above labels
+                // rank 2 "ALSO GOOD" — flagging a runner-up would have the two screens contradict
+                // each other, and "going local is not a compromise" is simply untrue when rank 1
+                // is a different window.
+                .filter(b -> b.rank() == 1)
                 .filter(b -> wantEvent.equals(b.event()))
                 .findFirst()
                 .orElse(null);
-    }
-
-    private LocalDate today() {
-        return LocalDate.now(clock.withZone(LONDON));
     }
 
     // ── breadcrumb ────────────────────────────────────────────────────────────
@@ -383,8 +381,12 @@ public class CloseToHomeService {
         List<Candidate> forNext = nearby.stream()
                 .filter(c -> c.date().equals(next.date()) && c.targetType() == next.targetType())
                 .toList();
+        // Falls back to the briefing's own event time. Taking it only from in-radius candidates
+        // left it null exactly when the block matters most — a next event carried solely by
+        // distant regions — so the breadcrumb read "Tomorrow sunrise" with no time beside it.
         LocalDateTime nextTime = forNext.stream()
-                .map(Candidate::eventTime).filter(Objects::nonNull).findFirst().orElse(null);
+                .map(Candidate::eventTime).filter(Objects::nonNull).findFirst()
+                .orElseGet(() -> next.eventTime());
 
         // The soonest local window worth leaving the house for — the hope that keeps a user
         // coming back on a stay-in night. Chronological FIRST, then best-rated within that event.
@@ -440,7 +442,7 @@ public class CloseToHomeService {
         for (BriefingDay day : days) {
             for (BriefingEventSummary es : day.eventSummaries()) {
                 if (!isEventPast(es)) {
-                    return new NextEvent(day.date(), es.targetType());
+                    return new NextEvent(day.date(), es.targetType(), earliestTime(es));
                 }
             }
         }
@@ -483,6 +485,15 @@ public class CloseToHomeService {
      * "next" — they would otherwise disagree for 30 minutes after every sunrise.
      */
     private boolean isEventPast(BriefingEventSummary es) {
+        LocalDateTime earliest = earliestTime(es);
+        if (earliest == null) {
+            return false;
+        }
+        return earliest.plusMinutes(AFTERGLOW_MINUTES).isBefore(LocalDateTime.now(clock.withZone(UTC)));
+    }
+
+    /** The earliest slot time in an event group, across regioned and unregioned slots. */
+    private static LocalDateTime earliestTime(BriefingEventSummary es) {
         LocalDateTime earliest = null;
         for (BriefingRegion region : es.regions()) {
             for (BriefingSlot slot : region.slots()) {
@@ -492,10 +503,7 @@ public class CloseToHomeService {
         for (BriefingSlot slot : es.unregioned()) {
             earliest = earlier(earliest, slot.solarEventTime());
         }
-        if (earliest == null) {
-            return false;
-        }
-        return earliest.plusMinutes(AFTERGLOW_MINUTES).isBefore(LocalDateTime.now(clock.withZone(UTC)));
+        return earliest;
     }
 
     private static LocalDateTime earlier(LocalDateTime a, LocalDateTime b) {
@@ -508,16 +516,24 @@ public class CloseToHomeService {
     /** The tide fact worth a chip, most notable first; null when there is nothing to say. */
     private static String tideLabel(BriefingSlot slot) {
         BriefingSlot.TideInfo tide = slot.tide();
-        if (tide == null || tide.tideState() == null) {
+        if (tide == null) {
             return null;
         }
+        // King and spring do NOT depend on tideState — a notable tide is worth saying even when
+        // the state is unknown. The first port gated them on a non-null state and dropped them.
         if (Boolean.TRUE.equals(tide.isKingTide())) {
             return "king tide";
         }
         if (Boolean.TRUE.equals(tide.isSpringTide())) {
             return "spring tide";
         }
-        return Objects.toString(tide.tideState(), "").toLowerCase(java.util.Locale.ROOT) + " tide";
+        // A plain state is only worth a chip when it MATCHES the location's preference. Without
+        // this the card advertised the tide a location is explicitly not wanted at — a low-tide
+        // spot sitting at high water read "high tide", which is worse than saying nothing.
+        if (Boolean.TRUE.equals(tide.tideAligned()) && tide.tideState() != null) {
+            return tide.tideState().toString().toLowerCase(java.util.Locale.ROOT) + " tide";
+        }
+        return null;
     }
 
     private static String eventKey(Candidate c) {
@@ -535,6 +551,7 @@ public class CloseToHomeService {
             DisplayVerdict briefingRegionDisplayVerdict) {
     }
 
-    private record NextEvent(LocalDate date, TargetType targetType) {
+    private record NextEvent(LocalDate date, TargetType targetType,
+            LocalDateTime eventTime) {
     }
 }

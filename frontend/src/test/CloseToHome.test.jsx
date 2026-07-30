@@ -175,10 +175,24 @@ describe('CloseToHome', () => {
       windows: [eventWindow(TOMORROW, 'SUNSET', [card('Souter Lighthouse', 4)], {
         sameWindowAsBestBet: true, bestBetRegionName: 'Northumberland',
       })],
-    }));
+    }), { isPro: true });
 
     expect(screen.getByTestId('cth-flag-same-as-best-bet').getAttribute('title'))
       .toContain('Northumberland');
+  });
+
+  it('does NOT name the Best Bet region to a LITE user', () => {
+    // The pick's region is Pro content — the banner above is isPro-gated and LITE sees a blurred
+    // placeholder. Naming it in a tooltip would hand over the fact that placeholder withholds.
+    renderBlock(panel({
+      windows: [eventWindow(TOMORROW, 'SUNSET', [card('A', 4)], {
+        sameWindowAsBestBet: true, bestBetRegionName: 'Northumberland',
+      })],
+    }), { isPro: false });
+
+    const flag = screen.getByTestId('cth-flag-same-as-best-bet');
+    expect(flag).toBeInTheDocument();                       // the signal itself is not identifying
+    expect(flag.getAttribute('title')).not.toContain('Northumberland');
   });
 
   it('shows no flags when neither applies', () => {

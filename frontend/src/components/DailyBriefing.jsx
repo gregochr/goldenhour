@@ -1346,6 +1346,7 @@ export default function DailyBriefing({
         panel={closeToHome}
         todayStr={todayStr}
         tomorrowStr={tomorrowStr}
+        isPro={isPro}
         onShowOnMap={onShowOnMap}
       />
 

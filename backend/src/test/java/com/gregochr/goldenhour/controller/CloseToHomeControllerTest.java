@@ -3,14 +3,13 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CloseToHomeResponse;
-import com.gregochr.goldenhour.model.UserSettingsResponse;
+import com.gregochr.goldenhour.service.UserSettingsService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -37,23 +36,15 @@ class CloseToHomeControllerTest extends AbstractControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
-    private static UserSettingsResponse settingsWithHome(Double lat, Double lon) {
-        return settingsWithHome(lat, lon, 30);
-    }
-
-    private static UserSettingsResponse settingsWithHome(Double lat, Double lon, Integer radius) {
-        return new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                lat == null ? null : "DH1 3LE", lat, lon,
-                lat == null ? null : "Durham, County Durham",
-                radius, Instant.parse("2026-04-01T10:00:00Z"));
+    private static UserSettingsService.HomeLocation home(Double lat, Double lon) {
+        return new UserSettingsService.HomeLocation(7L, lat, lon, 30);
     }
 
     @Test
     @WithMockUser
     @DisplayName("GET /api/briefing/close-to-home returns the panel")
     void closeToHome_returnsPanel() throws Exception {
-        when(settingsService.getSettings(any())).thenReturn(settingsWithHome(54.7753, -1.5849));
-        when(settingsService.getUserId(any())).thenReturn(7L);
+        when(settingsService.getHomeLocation(any())).thenReturn(home(54.7753, -1.5849));
         CloseToHomeResponse.Card card = new CloseToHomeResponse.Card(
                 1L, "Penshaw Monument", "Tyne and Wear", Set.of(LocationType.SEASCAPE),
                 4, 9, 25, null, true);
@@ -83,8 +74,7 @@ class CloseToHomeControllerTest extends AbstractControllerTest {
     @WithMockUser
     @DisplayName("passes THIS caller's home and id to the service, not a default")
     void closeToHome_passesCallersOwnHomeAndId() throws Exception {
-        when(settingsService.getSettings(any())).thenReturn(settingsWithHome(54.7753, -1.5849));
-        when(settingsService.getUserId(any())).thenReturn(7L);
+        when(settingsService.getHomeLocation(any())).thenReturn(home(54.7753, -1.5849));
         when(closeToHomeService.build(any(), any(), any(), any()))
                 .thenReturn(CloseToHomeResponse.empty(22, 3));
 
@@ -100,8 +90,7 @@ class CloseToHomeControllerTest extends AbstractControllerTest {
     @WithMockUser
     @DisplayName("no home set returns an empty panel, not an error")
     void closeToHome_noHome_returnsEmptyPanel() throws Exception {
-        when(settingsService.getSettings(any())).thenReturn(settingsWithHome(null, null));
-        when(settingsService.getUserId(any())).thenReturn(7L);
+        when(settingsService.getHomeLocation(any())).thenReturn(home(null, null));
         when(closeToHomeService.build(any(), any(), any(), any()))
                 .thenReturn(CloseToHomeResponse.empty(22, 3));
 

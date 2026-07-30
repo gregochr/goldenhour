@@ -120,6 +120,7 @@ export default function CloseToHome({
   panel = null,
   todayStr,
   tomorrowStr,
+  isPro = false,
   onShowOnMap = null,
 }) {
   if (!panel) return null;
@@ -321,8 +322,14 @@ export default function CloseToHome({
                 <span
                   data-testid="cth-flag-same-as-best-bet"
                   className="font-mono uppercase"
-                  title={`The Best Bet for this window is ${w.bestBetRegionName} — going local `
-                    + 'is not a compromise.'}
+                  // The pick's REGION is Pro content: the banner above is isPro-gated and LITE
+                  // sees a blurred placeholder instead. Naming it here would hand over the very
+                  // fact that placeholder exists to withhold. The chip itself stays — "this
+                  // window also holds the Best Bet" is not identifying.
+                  title={isPro
+                    ? `The Best Bet for this window is ${w.bestBetRegionName} — going local `
+                      + 'is not a compromise.'
+                    : 'The Best Bet falls in this window too — going local is not a compromise.'}
                   style={{
                     fontSize: '10px',
                     fontWeight: 600,
@@ -447,5 +454,6 @@ CloseToHome.propTypes = {
   }),
   todayStr: PropTypes.string.isRequired,
   tomorrowStr: PropTypes.string.isRequired,
+  isPro: PropTypes.bool,
   onShowOnMap: PropTypes.func,
 };

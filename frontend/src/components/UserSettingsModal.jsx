@@ -31,6 +31,7 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
   const [radius, setRadius] = useState(null);
   const [radiusSaving, setRadiusSaving] = useState(false);
   const [radiusError, setRadiusError] = useState(false);
+  const [radiusChosen, setRadiusChosen] = useState(false);
   const [lookupResult, setLookupResult] = useState(null);
   const [lookupError, setLookupError] = useState(null);
   const [lookingUp, setLookingUp] = useState(false);
@@ -52,6 +53,11 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
       setSettings(data);
       if (data.homePostcode) setPostcode(data.homePostcode);
       setRadius(data.localRadiusMiles ?? DEFAULT_RADIUS_MILES);
+      // Whether the value came from the SERVER or is just the slider's display fallback. Without
+      // this the first postcode save wrote 22 into the column V136 deliberately leaves NULL,
+      // converting "never chosen" into "chose 22" and overriding the server-side default for a
+      // user who never touched the slider.
+      setRadiusChosen(data.localRadiusMiles != null);
       if (data.driveTimesCalculatedAt && data.homePostcode) {
         setDriveTimesPostcode(data.homePostcode);
       }
@@ -96,8 +102,10 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
     if (!lookupResult) return;
     setSaving(true);
     try {
+      // null when the user has never chosen one, so the column stays NULL and the server keeps
+      // deciding what the default means.
       const updated = await saveHome(lookupResult.postcode, lookupResult.latitude,
-        lookupResult.longitude, radius);
+        lookupResult.longitude, radiusChosen ? radius : null);
       setSettings(updated);
       setLookupResult(null);
     } catch {
@@ -116,12 +124,18 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
    */
   const handleRadiusCommit = async (next) => {
     if (!settings?.homePostcode || settings.homeLatitude == null) return;
+    // Moving the slider IS choosing.
+    setRadiusChosen(true);
     setRadiusSaving(true);
     setRadiusError(false);
     try {
       const updated = await saveHome(settings.homePostcode, settings.homeLatitude,
         settings.homeLongitude, next);
-      setSettings(updated);
+      // Merge rather than replace: saveHome's response carries no resolved place name (it does
+      // not geocode), so assigning it wholesale blanked the "Durham, County Durham" line the
+      // user was looking at.
+      setSettings((prev) => ({ ...prev, ...updated, homePlaceName: updated?.homePlaceName
+        ?? prev?.homePlaceName }));
       // Trust the server's echo over the local value — it clamps to 10-50.
       if (updated?.localRadiusMiles != null) setRadius(updated.localRadiusMiles);
     } catch {
