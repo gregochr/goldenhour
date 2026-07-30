@@ -38,29 +38,89 @@ public final class ConfidenceDeriver {
     /** Coverage below this fraction of the roster downgrades one band. */
     static final double THIN_COVERAGE_RATIO = 0.5;
 
+    /**
+     * Voting roster at or below which a region's verdict is <b>unconditionally</b> degenerate.
+     *
+     * <p>{@code BriefingVerdictEvaluator.rollUpVerdict} fires GO when {@code goCount} reaches 20%
+     * of the <i>viable</i> (non-STANDDOWN) slots. Since {@code 1 * 100 >= viable * 20} holds for
+     * every viable count up to 5, a single GO location carries the whole region — there is no
+     * split of a five-location region in which one good spot does not read "Worth it".
+     *
+     * <p><b>Note the mismatch, because it bounds what this guard is worth.</b> The degenerate
+     * quantity is {@code viable}, which is per-day, per-event and collapses on bad weather. The
+     * roster is a static upper bound on it. So this catches a region that is <i>structurally</i>
+     * too small — every day, whatever the weather — and cannot catch a large region whose
+     * locations have nearly all stood down, which produces the same wrong "Worth it" off one
+     * location. Closing that gap means deriving confidence from the runtime verdict counts, or
+     * putting a minimum-n term in {@code rollUpVerdict} itself; neither is done here.
+     */
+    static final int DEGENERATE_VOTING_ROSTER = 5;
+
+    /**
+     * Voting roster below which a region reaches {@link #DEGENERATE_VOTING_ROSTER} on fewer than
+     * half its locations standing down.
+     *
+     * <p>Falling into the degenerate band takes {@code voting - 5} stand-downs, which is less than
+     * half the roster exactly when {@code voting < 10}. Above this a region has to be mostly
+     * written off before one location can speak for it; below it, an ordinary mixed morning does.
+     */
+    static final int FRAGILE_VOTING_ROSTER = 10;
+
+    /**
+     * The two roster sizes a region carries. They are deliberately different numbers, and the
+     * distinction is the whole reason this is a record rather than two int parameters that could
+     * be transposed without a compiler complaint.
+     *
+     * @param scoreable locations that could carry a Claude rating — the coverage denominator.
+     *                  Excludes a canopy slot only while it holds no rating, since an in-season
+     *                  bluebell wood is scored by the bluebell prompt and belongs in both
+     *                  numerator and denominator.
+     * @param voting    locations that vote on the region verdict — non-canopy slots, or all slots
+     *                  for an all-canopy region, mirroring
+     *                  {@code BriefingHierarchyBuilder.buildRegion}. A non-positive value disables
+     *                  the small-region rules.
+     */
+    public record RegionRoster(int scoreable, int voting) {
+    }
+
     private ConfidenceDeriver() {
     }
 
     /**
      * Derives the confidence for a region.
      *
-     * @param daysAhead  forecast horizon in days from "today" (may be negative for
-     *                   a past date, treated as HIGH by the {@code <= 1} rule)
-     * @param stats      the region's rating stats; {@code null} or empty → unknown
-     * @param rosterSize total number of locations in the region (for coverage); a
-     *                   non-positive value disables the thin-coverage downgrade
+     * @param daysAhead forecast horizon in days from "today" (may be negative for
+     *                  a past date, treated as HIGH by the {@code <= 1} rule)
+     * @param stats     the region's rating stats; {@code null} or empty → unknown
+     * @param roster    the region's two roster sizes; {@code null} disables both the
+     *                  thin-coverage and the small-region rules
      * @return the derived confidence, or {@code null} when the signal is unknown
      *         (no scored locations)
      */
-    public static Confidence derive(int daysAhead, BriefingRatingStats.Stats stats, int rosterSize) {
+    public static Confidence derive(int daysAhead, BriefingRatingStats.Stats stats,
+            RegionRoster roster) {
         if (stats == null || stats.isEmpty()) {
             return null;
         }
+        int scoreable = roster == null ? 0 : roster.scoreable();
+        int voting = roster == null ? 0 : roster.voting();
+
+        // Floor, not a downgrade. Below this the verdict carries no information a confidence band
+        // could qualify — one GO location produces "Worth it" for every possible split of the
+        // region — so no horizon, however near, may present it as settled.
+        if (voting > 0 && voting <= DEGENERATE_VOTING_ROSTER) {
+            return Confidence.LOW;
+        }
+
         Confidence base = fromHorizon(daysAhead);
         boolean wideSpread = stats.ratingRange() >= WIDE_SPREAD_RANGE;
-        boolean thinCoverage = rosterSize > 0
-                && stats.count() < THIN_COVERAGE_RATIO * rosterSize;
-        if (wideSpread || thinCoverage) {
+        boolean thinCoverage = scoreable > 0
+                && stats.count() < THIN_COVERAGE_RATIO * scoreable;
+        // A small region cannot express disagreement — ratingRange is a min-max statistic, so it
+        // saturates with n and fires almost always on a 70-location region and almost never on a
+        // 7-location one. Without this term the quiet channel reads roster size, backwards.
+        boolean fragileRoster = voting > 0 && voting < FRAGILE_VOTING_ROSTER;
+        if (wideSpread || thinCoverage || fragileRoster) {
             base = downgrade(base);
         }
         return base;

@@ -1,0 +1,15 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    { "type": "Feature", "properties": { "name": "Roker Pier & Lighthouse", "order": 1, "note": "Sunderland (Tyne and Wear), not Durham" }, "geometry": { "type": "Point", "coordinates": [-1.3620, 54.9210] } },
+    { "type": "Feature", "properties": { "name": "Seaham North Pier & Lighthouse", "order": 2 }, "geometry": { "type": "Point", "coordinates": [-1.3210, 54.8400] } },
+    { "type": "Feature", "properties": { "name": "Seaham Chemical Beach", "order": 3, "note": "sea glass beach south of the harbour" }, "geometry": { "type": "Point", "coordinates": [-1.3290, 54.8290] } },
+    { "type": "Feature", "properties": { "name": "Nose's Point & Blast Beach", "order": 4, "note": "clifftop car park, Dawdon" }, "geometry": { "type": "Point", "coordinates": [-1.3230, 54.8180] } },
+    { "type": "Feature", "properties": { "name": "Hawthorn Hive", "order": 5, "note": "dene mouth" }, "geometry": { "type": "Point", "coordinates": [-1.3180, 54.7940] } },
+    { "type": "Feature", "properties": { "name": "Shippersea Bay, Easington", "order": 6 }, "geometry": { "type": "Point", "coordinates": [-1.3070, 54.7830] } },
+    { "type": "Feature", "properties": { "name": "Horden Beach", "order": 7 }, "geometry": { "type": "Point", "coordinates": [-1.2870, 54.7590] } },
+    { "type": "Feature", "properties": { "name": "Blackhall Rocks", "order": 8, "note": "sea stacks" }, "geometry": { "type": "Point", "coordinates": [-1.2660, 54.7400] } },
+    { "type": "Feature", "properties": { "name": "Crimdon Beach", "order": 9 }, "geometry": { "type": "Point", "coordinates": [-1.2540, 54.7180] } },
+    { "type": "Feature", "properties": { "name": "Hartlepool Headland", "order": 10, "note": "Heugh Lighthouse" }, "geometry": { "type": "Point", "coordinates": [-1.1770, 54.6930] } }
+  ]
+}

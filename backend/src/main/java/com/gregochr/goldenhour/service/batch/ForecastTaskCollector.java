@@ -534,6 +534,22 @@ public class ForecastTaskCollector {
                 boolean isCoastal = preEval.atmosphericData().tide() != null;
                 String locationType = isCoastal ? "coastal" : "inland";
 
+                // Keyed on DATA, not on metadata — deliberately, and BatchRequestFactory
+                // .selectBuilder uses the same predicate, so the bucket and the prompt always
+                // agree and the batch stays homogeneous (which is what lets its system prompt
+                // cache). But that also means a genuinely coastal location whose tide_extreme rows
+                // are missing is evaluated by the inland prompt, with no tide and no surge, and
+                // looks identical to an inland one in every log line. Say so once per slot, or the
+                // degradation is invisible: it is what a location inserted by migration (V138), a
+                // failed eager fetch, or an expired tide window all look like.
+                if (!isCoastal && locationService.isCoastal(candidate.location())) {
+                    LOG.warn("[BATCH DIAG] TIDE-LESS COASTAL {} | date={} event={} — typed coastal "
+                                    + "but carries no tide data, so it is bucketed inland and gets "
+                                    + "the inland prompt. Run the tide_refresh job.",
+                            candidate.location().getName(), candidate.date(),
+                            candidate.targetType());
+                }
+
                 if (isNearTerm) {
                     if (isCoastal) {
                         nearCoastal.add(eval);

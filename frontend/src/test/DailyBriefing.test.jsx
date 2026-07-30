@@ -2535,8 +2535,12 @@ describe('bestConfidence (day-pill confidence aggregation)', () => {
   it('falls back to the horizon when a region has no backend confidence', () => {
     // No supplied confidence + far horizon → low; the most-confident of two far regions is low.
     expect(bestConfidence([entry(undefined), entry(undefined)], 5)).toBe('low');
-    // A same-day region with no field falls back to high.
-    expect(bestConfidence([entry(undefined)], 0)).toBe('high');
+    // A same-day region with no field reads MEDIUM, not high: resolveConfidence caps every
+    // inferred tier at MAX_INFERRED_TIER. A missing field is either a pre-field cached payload or
+    // a live one where the backend deliberately derived nothing (zero coverage), and the day pill
+    // must not promote either to full confidence. A region that genuinely says 'high' still wins.
+    expect(bestConfidence([entry(undefined)], 0)).toBe('medium');
+    expect(bestConfidence([entry(undefined), entry('high')], 0)).toBe('high');
   });
 
   it('returns null for an empty set (no reduce-without-seed throw)', () => {

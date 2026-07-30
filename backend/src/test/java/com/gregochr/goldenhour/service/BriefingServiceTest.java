@@ -1997,13 +1997,21 @@ class BriefingServiceTest {
             // The core behavioural claim of Change B: a same-day 'Worth it' is more certain than a
             // far one. getCachedBriefing() is the raw build-path result, so this pins the daysAhead
             // computation + ConfidenceDeriver + withConfidence wiring in enrichWithCachedScores.
-            LocationEntity loc = locationWithRegion("Bamburgh", "North East");
-            stubFullRefresh(loc);
-            BriefingEvaluationResult eval = new BriefingEvaluationResult(
-                    "Bamburgh", 4, 78, 52, "Dramatic light expected.", null, null);
+            // Sixteen locations, not one: ConfidenceDeriver floors a region whose voting roster is
+            // too small for its verdict to mean anything, and that floor would answer every
+            // horizon here with LOW — hiding the decay this test exists to pin. Sixteen rather
+            // than ten so the fixture is not sitting on FRAGILE_VOTING_ROSTER's boundary, where
+            // losing one slot would fail the horizon assertion for a roster reason.
+            List<LocationEntity> roster = regionRoster("North East", 16);
+            stubFullRefresh(roster);
+            Map<String, BriefingEvaluationResult> evals = new java.util.HashMap<>();
+            for (LocationEntity loc : roster) {
+                evals.put(loc.getName(), new BriefingEvaluationResult(
+                        loc.getName(), 4, 78, 52, "Dramatic light expected.", null, null));
+            }
             when(evaluationViewService.getScoresForEnrichment(
                     eq("North East"), any(LocalDate.class), any(TargetType.class)))
-                    .thenReturn(Map.of("Bamburgh", eval));
+                    .thenReturn(evals);
 
             briefingService.refreshBriefing();
             DailyBriefingResponse cached = briefingService.getCachedBriefing();
@@ -2209,7 +2217,41 @@ class BriefingServiceTest {
         }
 
         private void stubFullRefresh(LocationEntity loc) {
-            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            stubFullRefresh(List.of(loc));
+        }
+
+        /**
+         * A region roster large enough to clear {@code ConfidenceDeriver}'s small-region rules,
+         * so a test of the horizon term is answered by the horizon rather than by the floor.
+         *
+         * <p>Callers should pass comfortably more than {@code FRAGILE_VOTING_ROSTER} (10). Sitting
+         * exactly on it clears the rule by zero margin, so any later change costing the fixture a
+         * single slot fires the fragile downgrade and the horizon assertion fails pointing at the
+         * horizon — which would not be the cause.
+         *
+         * <p>These do NOT share a weather fetch, despite sharing a coordinate:
+         * {@code fetchWeatherSequential} keys its dedup on
+         * {@code hasGridCell() ? gridCellKey() : "ungrouped-" + id}, and nothing here sets
+         * {@code gridLat}/{@code gridLng}, so each is its own group. One slot each either way,
+         * which is what the roster count reads.
+         */
+        private List<LocationEntity> regionRoster(String regionName, int size) {
+            RegionEntity region = RegionEntity.builder().name(regionName).build();
+            List<LocationEntity> locations = new java.util.ArrayList<>();
+            for (int i = 0; i < size; i++) {
+                locations.add(LocationEntity.builder()
+                        .id((long) (i + 1)).name("Loc" + i).lat(55.0).lon(-1.5)
+                        .locationType(Set.of(LocationType.LANDSCAPE))
+                        .tideType(Set.of())
+                        .solarEventType(Set.of())
+                        .region(region)
+                        .enabled(true).createdAt(LocalDateTime.now()).build());
+            }
+            return locations;
+        }
+
+        private void stubFullRefresh(List<LocationEntity> locations) {
+            when(locationService.findAllEnabled()).thenReturn(locations);
             when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
                     .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
             org.mockito.Mockito.lenient().when(
