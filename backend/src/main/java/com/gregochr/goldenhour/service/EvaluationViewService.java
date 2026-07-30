@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -36,6 +37,9 @@ import java.util.Set;
 public class EvaluationViewService {
 
     private static final Logger LOG = LoggerFactory.getLogger(EvaluationViewService.class);
+
+    /** Zone {@code forecast_evaluation.forecast_run_at} is implicitly recorded in. */
+    private static final ZoneId LONDON = ZoneId.of("Europe/London");
 
     private static final TypeReference<List<BriefingEvaluationResult>> RESULT_LIST_TYPE =
             new TypeReference<>() { };
@@ -426,20 +430,29 @@ public class EvaluationViewService {
      * Applies the merge precedence rule to produce a single view.
      *
      * <ol>
-     *   <li>Cached evaluation with a rating → CACHED_EVALUATION</li>
-     *   <li>Cached evaluation with triage → CACHED_EVALUATION (triaged)</li>
+     *   <li>Cached evaluation, <b>if it is at least as fresh as the forecast row</b> →
+     *       CACHED_EVALUATION (scored or triaged)</li>
      *   <li>Scored forecast_evaluation row → FORECAST_EVALUATION_SCORED</li>
      *   <li>Triaged forecast_evaluation row → FORECAST_EVALUATION_TRIAGE</li>
      *   <li>Nothing → NONE</li>
      * </ol>
+     *
+     * <p><b>The freshness gate is the whole point of this method.</b> Cached evaluations used to
+     * win unconditionally, and because a triaged slot makes no Claude call and therefore writes no
+     * cached rating, the only way a rating coexists with a triage is that the rating came from an
+     * <em>earlier, more optimistic</em> run. Measured in production over four days for two
+     * neighbouring locations: every 4★ cached rating was stale — one by 47.9 hours — against a
+     * current row triaged {@code HIGH_CLOUD} on 87–99% low cloud at the solar horizon, while every
+     * cached rating that was fresher than its forecast row scored ≤2. The stale rating was being
+     * served to the Plan grid and the map as the live verdict.
      */
     private LocationEvaluationView mergeToView(Long locationId, String locationName,
             Long regionId, String regionName, LocalDate date, TargetType targetType,
             BriefingEvaluationResult cachedResult, Instant cachedEvaluatedAt,
             ForecastEvaluationEntity forecastRow) {
 
-        // 1. Cached evaluation wins (both scored and triaged entries)
-        if (cachedResult != null) {
+        // 1. Cached evaluation wins only while it is at least as fresh as the forecast row.
+        if (cachedResult != null && cachedIsAtLeastAsFresh(cachedEvaluatedAt, forecastRow)) {
             DisplayVerdict displayVerdict = DisplayVerdict.resolve(
                     cachedResult.rating(),
                     cachedResult.triageReason() != null ? Verdict.STANDDOWN : null);
@@ -464,10 +477,7 @@ public class EvaluationViewService {
                     null, null,
                     forecastRow.getEvaluationModel() != null
                             ? forecastRow.getEvaluationModel().name() : null,
-                    forecastRow.getForecastRunAt() != null
-                            ? forecastRow.getForecastRunAt().atZone(
-                                    java.time.ZoneId.of("Europe/London")).toInstant()
-                            : null,
+                    forecastRunInstant(forecastRow),
                     displayVerdict);
         }
 
@@ -481,15 +491,56 @@ public class EvaluationViewService {
                     null, null, null, null,
                     forecastRow.getTriage().getReason(), forecastRow.getTriage().getMessage(),
                     null,
-                    forecastRow.getForecastRunAt() != null
-                            ? forecastRow.getForecastRunAt().atZone(
-                                    java.time.ZoneId.of("Europe/London")).toInstant()
-                            : null,
+                    forecastRunInstant(forecastRow),
                     displayVerdict);
         }
 
         // 4. Nothing
         return emptyView(locationId, locationName, regionId, regionName, date, targetType);
+    }
+
+    /**
+     * Whether the cached evaluation may still speak for this slot.
+     *
+     * <p>Returns true when there is nothing to compare against, and when the cached write is not
+     * older than the forecast run. Ties go to the cache: a same-instant pair is the batch writing
+     * both halves of one run, where the cache carries strictly more (rating, prose, sub-scores).
+     *
+     * <p>Unknown freshness also returns true, which preserves the previous behaviour rather than
+     * inventing a new one. Both {@code cached_evaluation} timestamps are {@code nullable = false}
+     * and the in-memory writers all stamp {@code Instant.now()}, so a null here is a
+     * cannot-happen rather than a case worth a policy.
+     *
+     * @param cachedEvaluatedAt when the cached entry was last written, or null if unknown
+     * @param forecastRow       the latest forecast_evaluation row for the slot, or null
+     * @return true if the cached entry should win the merge
+     */
+    private static boolean cachedIsAtLeastAsFresh(Instant cachedEvaluatedAt,
+            ForecastEvaluationEntity forecastRow) {
+        Instant runAt = forecastRunInstant(forecastRow);
+        if (runAt == null || cachedEvaluatedAt == null) {
+            return true;
+        }
+        return !cachedEvaluatedAt.isBefore(runAt);
+    }
+
+    /**
+     * The forecast run instant, or null when there is no row or no stamp.
+     *
+     * <p>{@code forecast_run_at} is a naive {@code LocalDateTime}; it is recorded in
+     * {@link #LONDON}, not UTC, so it must be zoned before it can be compared with an
+     * {@link Instant}. Comparing it raw would be silently out by an hour through BST — enough to
+     * invert the verdict on any pair written within an hour of each other, which the nightly
+     * cycle produces routinely.
+     *
+     * @param forecastRow the row, or null
+     * @return the instant the forecast ran, or null
+     */
+    private static Instant forecastRunInstant(ForecastEvaluationEntity forecastRow) {
+        if (forecastRow == null || forecastRow.getForecastRunAt() == null) {
+            return null;
+        }
+        return forecastRow.getForecastRunAt().atZone(LONDON).toInstant();
     }
 
     private LocationEvaluationView emptyView(Long locationId, String locationName,
@@ -559,7 +610,14 @@ public class EvaluationViewService {
                         entity.getResultsJson(), RESULT_LIST_TYPE);
                 Map<String, BriefingEvaluationResult> map = new HashMap<>();
                 results.forEach(r -> map.put(r.locationName(), r));
-                result.put(key, new CachedEntry(map, entity.getEvaluatedAt()));
+                // getUpdatedAt(), NOT getEvaluatedAt(): the entity documents the former as
+                // "when this row was last updated" and the latter as "when the evaluation was
+                // first created", and persistToDb only ever sets evaluated_at inside its
+                // orElseGet for a NEW row. A slot re-evaluated for three days running still
+                // carries its day-one evaluated_at, so hydrating from it made every
+                // DB-sourced entry look older than it is — and the freshness rule below is
+                // only sound on the last-write stamp.
+                result.put(key, new CachedEntry(map, entity.getUpdatedAt()));
             } catch (Exception e) {
                 LOG.warn("Failed to parse cached evaluation {}: {}",
                         key, e.getMessage());

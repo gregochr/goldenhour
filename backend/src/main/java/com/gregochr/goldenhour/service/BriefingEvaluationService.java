@@ -543,7 +543,10 @@ public class BriefingEvaluationService {
                     }
                 }
                 cache.put(entity.getCacheKey(),
-                        new CachedEvaluation(resultMap, entity.getEvaluatedAt()));
+                        // Last write, not first: evaluated_at is only set when the row is
+                        // created (see persistToDb), so hydrating the in-memory cache from it
+                        // rewinds a slot's freshness to day one every time the app restarts.
+                        new CachedEvaluation(resultMap, entity.getUpdatedAt()));
                 loaded++;
             } catch (Exception e) {
                 LOG.warn("Failed to rehydrate cache entry {}: {}",

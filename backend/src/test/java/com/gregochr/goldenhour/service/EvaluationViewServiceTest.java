@@ -1099,8 +1099,14 @@ class EvaluationViewServiceTest {
         }
 
         @Test
-        @DisplayName("DB-fallback cache entry carries its evaluated_at onto the view")
-        void dbFallbackCacheCarriesEvaluatedAt() throws Exception {
+        @DisplayName("DB-fallback cache entry carries updated_at, NOT the creation stamp")
+        void dbFallbackCacheCarriesUpdatedAtNotEvaluatedAt() throws Exception {
+            // The two columns mean different things and the fixture now sets them apart, which the
+            // previous version could not: it set evaluated_at alone, so it could not distinguish
+            // "carries the last write" from "carries the row's birthday". persistToDb only sets
+            // evaluated_at when the row is CREATED, so a slot re-evaluated for three days running
+            // still reports day one — and the merge's freshness rule is only sound on the last write.
+            Instant createdAt = Instant.parse("2026-04-20T01:00:00Z");
             Instant evaluatedAt = Instant.parse("2026-04-23T04:30:00Z");
             when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
             // Not in the in-memory cache — forces the DB-fallback branch.
@@ -1119,7 +1125,8 @@ class EvaluationViewServiceTest {
             dbEntry.setTargetType("SUNRISE");
             dbEntry.setResultsJson(new ObjectMapper().writeValueAsString(List.of(
                     new BriefingEvaluationResult("Bamburgh", 4, 70, 60, "Great"))));
-            dbEntry.setEvaluatedAt(evaluatedAt);
+            dbEntry.setEvaluatedAt(createdAt);
+            dbEntry.setUpdatedAt(evaluatedAt);
             when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(DATE))
                     .thenReturn(List.of(dbEntry));
 
@@ -1129,7 +1136,109 @@ class EvaluationViewServiceTest {
                     .findFirst().orElseThrow();
 
             assertThat(v.source()).isEqualTo(Source.CACHED_EVALUATION);
-            assertThat(v.evaluatedAt()).isEqualTo(evaluatedAt);
+            assertThat(v.evaluatedAt()).isEqualTo(evaluatedAt).isNotEqualTo(createdAt);
+        }
+    }
+
+    @Nested
+    @DisplayName("Merge freshness gate — a stale cached rating must not outrank a newer triage")
+    class MergeFreshness {
+
+        /** A triaged row for Bamburgh, run at the given LONDON-naive local time. */
+        private void triagedRunAt(LocalDateTime runAt) {
+            ForecastEvaluationEntity row = ForecastEvaluationEntity.builder()
+                    .triage(new TriageDetails(TriageReason.HIGH_CLOUD, "Low cloud 94% — sun blocked"))
+                    .forecastRunAt(runAt)
+                    .build();
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, SUNRISE))
+                    .thenReturn(Optional.of(row));
+        }
+
+        private void cachedRatingAt(int rating, Instant writtenAt) {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", rating, 80, 70, "Worth it")));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Optional.ofNullable(writtenAt));
+        }
+
+        @Test
+        @DisplayName("Stale 4-star cache loses to a newer triage — the production case")
+        void staleCacheLosesToNewerTriage() {
+            // Measured in production: a 4-star cached rating 47.9 hours older than a row triaged
+            // HIGH_CLOUD on 87-99% low cloud at the solar horizon. A triaged slot makes no Claude
+            // call and so writes no cached rating, which is why the only way the two coexist is
+            // that the rating predates the cloud arriving.
+            cachedRatingAt(4, Instant.parse("2026-04-21T00:09:00Z"));
+            triagedRunAt(LocalDateTime.of(2026, 4, 23, 1, 5));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.FORECAST_EVALUATION_TRIAGE);
+            assertThat(v.rating()).isNull();
+            assertThat(v.triageReason()).isEqualTo(TriageReason.HIGH_CLOUD);
+        }
+
+        @Test
+        @DisplayName("Fresher cache still wins over an older triage")
+        void fresherCacheBeatsOlderTriage() {
+            cachedRatingAt(2, Instant.parse("2026-04-22T14:08:00Z"));
+            triagedRunAt(LocalDateTime.of(2026, 4, 22, 1, 5));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.CACHED_EVALUATION);
+            assertThat(v.rating()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("A tie goes to the cache — one batch run writing both halves")
+        void tieGoesToTheCache() {
+            // 01:05 London in April is 00:05Z. Same instant, so this is one run writing the
+            // forecast row and the cache together; the cache carries strictly more.
+            cachedRatingAt(3, Instant.parse("2026-04-23T00:05:00Z"));
+            triagedRunAt(LocalDateTime.of(2026, 4, 23, 1, 5));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.CACHED_EVALUATION);
+            assertThat(v.rating()).isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("forecast_run_at is LONDON-naive, so BST cannot invert the comparison")
+        void bstDoesNotInvertTheComparison() {
+            // The trap: forecast_run_at is a naive LocalDateTime recorded in Europe/London, and
+            // 04:00 London in April is 03:00Z. The cache here is written at 03:30Z — half an hour
+            // AFTER the forecast ran — so it must win. Compare the two raw and 03:30 reads as
+            // earlier than 04:00, handing it to the triage and losing a live rating. The nightly
+            // cycle writes both halves within the hour routinely, so this is the common case.
+            cachedRatingAt(4, Instant.parse("2026-04-23T03:30:00Z"));
+            triagedRunAt(LocalDateTime.of(2026, 4, 23, 4, 0));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.CACHED_EVALUATION);
+            assertThat(v.rating()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("Unknown cache freshness keeps the cache — deliberately the prior behaviour")
+        void unknownFreshnessKeepsTheCache() {
+            // Both cached_evaluation stamps are nullable = false and every in-memory writer sets
+            // Instant.now(), so this is a cannot-happen. It resolves to the old behaviour rather
+            // than a newly invented one, and it is why the existing precedence tests above -- none
+            // of which stub getCachedEvaluatedAt -- still describe precedence under unknown freshness.
+            cachedRatingAt(5, null);
+            triagedRunAt(LocalDateTime.of(2026, 4, 23, 1, 5));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.CACHED_EVALUATION);
+            assertThat(v.rating()).isEqualTo(5);
         }
     }
 
