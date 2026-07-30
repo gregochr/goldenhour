@@ -337,6 +337,15 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
                   >
                     {radius ?? DEFAULT_RADIUS_MILES} miles
                   </span>
+                  {/* Feedback WITHOUT disabling the slider: toggling `disabled` mid-interaction
+                      blurs the control and drops the focus of a user still arrow-keying it. */}
+                  <span
+                    className="font-mono text-xs text-plex-text-muted w-12"
+                    aria-live="polite"
+                    data-testid="settings-radius-status"
+                  >
+                    {radiusSaving ? 'Saving…' : ''}
+                  </span>
                 </div>
                 {!settings?.homePostcode && (
                   <p className="text-xs text-plex-text-muted mt-1">
