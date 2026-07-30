@@ -51,6 +51,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.IntStream;
 
 
 /**
@@ -92,6 +93,29 @@ public class BriefingService {
 
     /** UK civil-date zone for "today" derivation. */
     private static final ZoneId LONDON = ZoneId.of("Europe/London");
+
+    /**
+     * Number of consecutive dates the briefing covers, starting on the day it is built.
+     *
+     * <p><b>Five, not four, because the briefing is read a day after it is written.</b> Since
+     * V103 retired the standalone {@code daily_briefing} cron it is refreshed only at the
+     * <em>tail</em> of a pipeline cycle, so the 01:00 nightly cycle consumes the briefing the
+     * previous afternoon's intraday cycle left behind. That briefing's first date is by then
+     * yesterday, and {@code BriefingCandidateCollector} drops it as {@code PAST_DATE} — so a
+     * four-date window arrives at the nightly cycle already one date short at the far end.
+     *
+     * <p>That capped the nightly cycle's effective horizon at T+2 and made the T+3 SETTLED tier
+     * in {@code NightlyEligibilityPolicy} <b>unreachable in production</b>. Measured over 14 days
+     * and 28 cycles: zero candidates at {@code days_ahead = 3}, and 5,684 at
+     * {@code days_ahead = -1} — one full quarter of every nightly candidate set spent on a date
+     * that had already happened. The intraday cycle showed no {@code -1} bucket at all, because
+     * it reads a briefing built the same morning; that asymmetry is the mechanism, not a symptom.
+     *
+     * <p>The fifth date is never rendered — {@code DailyBriefing.jsx} caps the grid at six solar
+     * events — and costs one extra region × event round of briefing gloss. It exists purely so
+     * the window still reaches T+3 after ageing overnight.
+     */
+    private static final int BRIEFING_WINDOW_DAYS = 5;
     /** Horizon offset distance in metres — geometric horizon for low cloud at ~1 km altitude. */
     private static final double HORIZON_OFFSET_METRES = 113_000.0;
 
@@ -372,7 +396,8 @@ public class BriefingService {
 
     /**
      * Refreshes the daily briefing by fetching live weather data for all enabled colour
-     * locations across today and tomorrow, rolling up by region per solar event.
+     * locations across the next {@link #BRIEFING_WINDOW_DAYS} dates, rolling up by region per
+     * solar event.
      *
      * <p>Logs a {@link RunType#BRIEFING} job run for metrics tracking.
      */
@@ -382,7 +407,9 @@ public class BriefingService {
         JobRunEntity jobRun = jobRunService.startRun(RunType.BRIEFING, false, null);
 
         LocalDate today = LocalDate.now(clock.withZone(LONDON));
-        List<LocalDate> dates = List.of(today, today.plusDays(1), today.plusDays(2), today.plusDays(3));
+        List<LocalDate> dates = IntStream.range(0, BRIEFING_WINDOW_DAYS)
+                .mapToObj(today::plusDays)
+                .toList();
 
         // Candidacy is tested across the whole briefed window, not just today: a bluebell site
         // whose bloom opens in two days belongs in a briefing that already covers that day, and

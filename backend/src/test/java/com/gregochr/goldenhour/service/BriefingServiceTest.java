@@ -329,8 +329,44 @@ class BriefingServiceTest {
 
         DailyBriefingResponse cached = briefingService.getCachedBriefing();
         assertThat(cached).isNotNull();
-        assertThat(cached.days()).hasSize(4);
+        assertThat(cached.days()).hasSize(5);
         assertThat(cached.headline()).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("The briefing window reaches T+4, so it still covers T+3 once a day has aged off")
+    void refresh_windowSurvivesAgeingOvernight() {
+        // The briefing is written at the TAIL of a cycle and read by the NEXT one, ~10 hours later
+        // and on the following date. BriefingCandidateCollector then drops the first date as
+        // PAST_DATE, so the window that matters is the one MINUS its first entry. A four-date
+        // window left the nightly cycle reaching only T+2, which made the T+3 SETTLED tier in
+        // NightlyEligibilityPolicy unreachable — production recorded zero candidates at
+        // days_ahead = 3 across 28 cycles.
+        LocationEntity loc = location("Durham", null);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+        when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
+        when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
+        when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                .thenAnswer(inv -> inv.<List<?>>getArgument(0).stream()
+                        .map(c -> buildForecastResponse()).toList());
+
+        briefingService.refreshBriefing();
+
+        // CLOCK is fixed at noon UTC, so the service's London "today" is FIXED_TODAY.
+        LocalDate builtOn = FIXED_TODAY;
+        List<LocalDate> dates = briefingService.getCachedBriefing().days().stream()
+                .map(BriefingDay::date)
+                .toList();
+
+        assertThat(dates).containsExactly(builtOn, builtOn.plusDays(1), builtOn.plusDays(2),
+                builtOn.plusDays(3), builtOn.plusDays(4));
+        // The load-bearing assertion: drop the date that will have gone stale by the time the
+        // next cycle reads this, and T+3 relative to THAT cycle must still be present.
+        assertThat(dates.subList(1, dates.size())).hasSize(4).endsWith(builtOn.plusDays(4));
     }
 
     @Nested
