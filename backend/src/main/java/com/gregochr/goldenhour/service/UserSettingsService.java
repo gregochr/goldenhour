@@ -32,6 +32,12 @@ import static org.springframework.http.HttpStatus.TOO_MANY_REQUESTS;
 @Service
 public class UserSettingsService {
 
+    /** Narrowest useful radius; below this almost nothing qualifies outside a city. */
+    public static final int MIN_LOCAL_RADIUS_MILES = 10;
+
+    /** Widest before "close to home" stops meaning it — a 50-mile radius is a 60-minute drive. */
+    public static final int MAX_LOCAL_RADIUS_MILES = 50;
+
     private static final Logger LOG = LoggerFactory.getLogger(UserSettingsService.class);
 
     /** Minimum interval between drive time refreshes (30 minutes). */
@@ -92,6 +98,13 @@ public class UserSettingsService {
         user.setHomePostcode(request.postcode());
         user.setHomeLatitude(request.latitude());
         user.setHomeLongitude(request.longitude());
+        if (request.localRadiusMiles() != null) {
+            // Clamped rather than rejected: this arrives from a slider whose bounds the client
+            // already enforces, so an out-of-range value means a stale client or a direct API
+            // call, and silently honouring 500 miles would make "close to home" meaningless.
+            user.setLocalRadiusMiles(Math.clamp(request.localRadiusMiles(),
+                    MIN_LOCAL_RADIUS_MILES, MAX_LOCAL_RADIUS_MILES));
+        }
         userRepository.save(user);
         LOG.info("User '{}' saved home location: {} ({}, {})",
                 user.getUsername(), request.postcode(), request.latitude(), request.longitude());
@@ -165,6 +178,7 @@ public class UserSettingsService {
                 user.getHomeLatitude(),
                 user.getHomeLongitude(),
                 placeName,
+                user.getLocalRadiusMiles(),
                 user.getDriveTimesCalculatedAt());
     }
 }

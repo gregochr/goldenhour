@@ -95,6 +95,15 @@ public class AppUserEntity implements UserDetails {
     @Column(name = "home_longitude")
     private Double homeLongitude;
 
+    /**
+     * The caller's "close to home" radius in miles, or {@code null} when never chosen.
+     *
+     * <p>Null rather than a defaulted 22 so the column distinguishes "left alone" from
+     * "deliberately set to 22" — {@code CloseToHomeService} applies the default when reading.
+     */
+    @Column(name = "local_radius_miles")
+    private Integer localRadiusMiles;
+
     /** When per-user drive times were last calculated from the home location. */
     @Column(name = "drive_times_calculated_at")
     private Instant driveTimesCalculatedAt;

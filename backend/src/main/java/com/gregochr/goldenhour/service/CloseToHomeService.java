@@ -76,7 +76,7 @@ public class CloseToHomeService {
     private final LocationService locationService;
     private final DriveTimeResolver driveTimeResolver;
     private final Clock clock;
-    private final int radiusMiles;
+    private final int defaultRadiusMiles;
 
     /**
      * Creates the service.
@@ -85,20 +85,21 @@ public class CloseToHomeService {
      * @param locationService    supplies the locations roster (coordinates and regions)
      * @param driveTimeResolver  supplies the caller's own drive times, keyed by location id
      * @param clock              UTC clock, for deciding which events are still upcoming
-     * @param radiusMiles        proximity gate. Configurable so the radius can become a user
-     *                           setting without a client release — the client used to own this
-     *                           constant, which is what made that impossible.
+     * @param defaultRadiusMiles fallback gate for a caller who has never chosen one. The radius
+     *                           is a PER-USER setting (V136); this is only what a null column
+     *                           means. It began as a client constant, which is what made a user
+     *                           setting impossible in the first place.
      */
     public CloseToHomeService(BriefingService briefingService,
             LocationService locationService,
             DriveTimeResolver driveTimeResolver,
             Clock clock,
-            @Value("${photocast.close-to-home.radius-miles:22}") int radiusMiles) {
+            @Value("${photocast.close-to-home.radius-miles:22}") int defaultRadiusMiles) {
         this.briefingService = briefingService;
         this.locationService = locationService;
         this.driveTimeResolver = driveTimeResolver;
         this.clock = clock;
-        this.radiusMiles = radiusMiles;
+        this.defaultRadiusMiles = defaultRadiusMiles;
     }
 
     /**
@@ -110,6 +111,21 @@ public class CloseToHomeService {
      * @return the panel; empty (not null, not an error) when no home is set or nothing is in reach
      */
     public CloseToHomeResponse build(Long userId, Double homeLatitude, Double homeLongitude) {
+        return build(userId, homeLatitude, homeLongitude, null);
+    }
+
+    /**
+     * Builds the panel for one user at their chosen radius.
+     *
+     * @param userId            the caller's id, for their drive times
+     * @param homeLatitude      the caller's home latitude, or null when no home is set
+     * @param homeLongitude     the caller's home longitude, or null when no home is set
+     * @param userRadiusMiles   the caller's chosen radius, or null to use the default
+     * @return the panel; empty (not null, not an error) when no home is set or nothing is in reach
+     */
+    public CloseToHomeResponse build(Long userId, Double homeLatitude, Double homeLongitude,
+            Integer userRadiusMiles) {
+        int radiusMiles = userRadiusMiles != null ? userRadiusMiles : defaultRadiusMiles;
         if (homeLatitude == null || homeLongitude == null) {
             // No home postcode is the normal state for a new user, not a failure.
             return CloseToHomeResponse.empty(radiusMiles, HORIZON_DAYS);
@@ -135,7 +151,7 @@ public class CloseToHomeService {
         }
 
         List<Candidate> nearby = collectNearby(briefing.days(), byId, byName,
-                homeLatitude, homeLongitude);
+                homeLatitude, homeLongitude, radiusMiles);
         if (nearby.isEmpty()) {
             return CloseToHomeResponse.empty(radiusMiles, HORIZON_DAYS);
         }
@@ -154,7 +170,7 @@ public class CloseToHomeService {
 
     private List<Candidate> collectNearby(List<BriefingDay> days,
             Map<Long, LocationEntity> byId, Map<String, LocationEntity> byName,
-            double homeLat, double homeLon) {
+            double homeLat, double homeLon, int radiusMiles) {
         List<Candidate> out = new ArrayList<>();
         Set<LocalDate> dates = new LinkedHashSet<>();
 
@@ -174,11 +190,12 @@ public class CloseToHomeService {
             for (BriefingEventSummary es : events) {
                 for (BriefingRegion region : es.regions()) {
                     collectSlots(out, region.slots(), region.regionName(), region.verdict(),
-                            day.date(), es.targetType(), byId, byName, homeLat, homeLon);
+                            day.date(), es.targetType(), byId, byName, homeLat, homeLon,
+                            radiusMiles);
                 }
                 // Unregioned slots count too: a location without a region is still within reach.
                 collectSlots(out, es.unregioned(), null, null, day.date(), es.targetType(),
-                        byId, byName, homeLat, homeLon);
+                        byId, byName, homeLat, homeLon, radiusMiles);
             }
         }
         return out;
@@ -187,7 +204,7 @@ public class CloseToHomeService {
     private void collectSlots(List<Candidate> out, List<BriefingSlot> slots, String briefingRegion,
             Verdict briefingRegionVerdict, LocalDate date, TargetType targetType,
             Map<Long, LocationEntity> byId, Map<String, LocationEntity> byName,
-            double homeLat, double homeLon) {
+            double homeLat, double homeLon, int radiusMiles) {
         for (BriefingSlot slot : slots) {
             // Prefer the FK; fall back to the name only for cached payloads written before
             // BriefingSlot carried an id. Those keep being served until their key ages out, so

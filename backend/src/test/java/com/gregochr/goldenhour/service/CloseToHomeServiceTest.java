@@ -503,6 +503,36 @@ class CloseToHomeServiceTest {
     // ── configuration ─────────────────────────────────────────────────────────
 
     @Test
+    @DisplayName("the caller's OWN radius wins over the deployment default")
+    void userRadiusOverridesDefault() {
+        // The default is what a null column means, not a cap. A user who widened to 100 miles
+        // must see the further location the 22-mile default would have gated out.
+        when(locationService.findAllEnabled()).thenReturn(List.of(nearLoc(), farLoc()));
+        givenBriefing(slot(1L, "Penshaw Monument", 3, Verdict.GO),
+                slot(2L, "Bamburgh", 5, Verdict.GO));
+
+        CloseToHomeResponse r = service.build(1L, HOME_LAT, HOME_LON, 100);
+
+        assertThat(r.radiusMiles()).isEqualTo(100);
+        assertThat(cardsOf(r)).extracting(CloseToHomeResponse.Card::locationName)
+                .contains("Bamburgh");
+    }
+
+    @Test
+    @DisplayName("a null user radius falls back to the deployment default")
+    void nullUserRadiusFallsBackToDefault() {
+        when(locationService.findAllEnabled()).thenReturn(List.of(nearLoc(), farLoc()));
+        givenBriefing(slot(1L, "Penshaw Monument", 3, Verdict.GO),
+                slot(2L, "Bamburgh", 5, Verdict.GO));
+
+        CloseToHomeResponse r = service.build(1L, HOME_LAT, HOME_LON, null);
+
+        assertThat(r.radiusMiles()).isEqualTo(22);
+        assertThat(cardsOf(r)).extracting(CloseToHomeResponse.Card::locationName)
+                .doesNotContain("Bamburgh");
+    }
+
+    @Test
     @DisplayName("the radius is server-configurable — the point of moving it off the client")
     void radiusIsConfigurable() {
         CloseToHomeService wide = new CloseToHomeService(briefingService, locationService,

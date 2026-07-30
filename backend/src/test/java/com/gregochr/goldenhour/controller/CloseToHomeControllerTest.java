@@ -38,10 +38,14 @@ class CloseToHomeControllerTest extends AbstractControllerTest {
     private MockMvc mockMvc;
 
     private static UserSettingsResponse settingsWithHome(Double lat, Double lon) {
+        return settingsWithHome(lat, lon, 30);
+    }
+
+    private static UserSettingsResponse settingsWithHome(Double lat, Double lon, Integer radius) {
         return new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
                 lat == null ? null : "DH1 3LE", lat, lon,
                 lat == null ? null : "Durham, County Durham",
-                Instant.parse("2026-04-01T10:00:00Z"));
+                radius, Instant.parse("2026-04-01T10:00:00Z"));
     }
 
     @Test
@@ -57,7 +61,7 @@ class CloseToHomeControllerTest extends AbstractControllerTest {
                 LocalDate.of(2026, 4, 22), TargetType.SUNSET,
                 LocalDateTime.of(2026, 4, 22, 19, 30), 4, 2,
                 true, "Tyne and Wear", true, "Tyne and Wear", List.of(card));
-        when(closeToHomeService.build(any(), any(), any())).thenReturn(
+        when(closeToHomeService.build(any(), any(), any(), any())).thenReturn(
                 new CloseToHomeResponse(22, 3, List.of(window),
                         new CloseToHomeResponse.Breadcrumb(true, LocalDate.of(2026, 4, 22),
                                 TargetType.SUNSET, LocalDateTime.of(2026, 4, 22, 19, 30),
@@ -81,14 +85,15 @@ class CloseToHomeControllerTest extends AbstractControllerTest {
     void closeToHome_passesCallersOwnHomeAndId() throws Exception {
         when(settingsService.getSettings(any())).thenReturn(settingsWithHome(54.7753, -1.5849));
         when(settingsService.getUserId(any())).thenReturn(7L);
-        when(closeToHomeService.build(any(), any(), any()))
+        when(closeToHomeService.build(any(), any(), any(), any()))
                 .thenReturn(CloseToHomeResponse.empty(22, 3));
 
         mockMvc.perform(get("/api/briefing/close-to-home")).andExpect(status().isOk());
 
-        // Per-user data: handing the service the wrong id would serve one user another's
-        // home-area forecast, which is the failure mode this endpoint's whole design guards.
-        verify(closeToHomeService).build(eq(7L), eq(54.7753), eq(-1.5849));
+        // Per-user data throughout: the id, the home AND the radius all belong to this caller.
+        // Handing the service the wrong id would serve one user another's home-area forecast,
+        // which is the failure mode this endpoint's whole design guards.
+        verify(closeToHomeService).build(eq(7L), eq(54.7753), eq(-1.5849), eq(30));
     }
 
     @Test
@@ -97,7 +102,7 @@ class CloseToHomeControllerTest extends AbstractControllerTest {
     void closeToHome_noHome_returnsEmptyPanel() throws Exception {
         when(settingsService.getSettings(any())).thenReturn(settingsWithHome(null, null));
         when(settingsService.getUserId(any())).thenReturn(7L);
-        when(closeToHomeService.build(any(), any(), any()))
+        when(closeToHomeService.build(any(), any(), any(), any()))
                 .thenReturn(CloseToHomeResponse.empty(22, 3));
 
         mockMvc.perform(get("/api/briefing/close-to-home"))

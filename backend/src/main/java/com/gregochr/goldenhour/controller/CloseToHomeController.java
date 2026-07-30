@@ -61,6 +61,7 @@ public class CloseToHomeController {
         return closeToHomeService.build(
                 userSettingsService.getUserId(auth),
                 settings.homeLatitude(),
-                settings.homeLongitude());
+                settings.homeLongitude(),
+                settings.localRadiusMiles());
     }
 }

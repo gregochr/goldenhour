@@ -12,6 +12,8 @@ import java.time.Instant;
  * @param homeLatitude             the user's home latitude, or null
  * @param homeLongitude            the user's home longitude, or null
  * @param homePlaceName            the resolved place name, or null
+ * @param localRadiusMiles      the caller's Close to home radius in miles, or null when never
+ *                              chosen (the service applies the default)
  * @param driveTimesCalculatedAt   when drive times were last calculated, or null
  */
 public record UserSettingsResponse(
@@ -22,5 +24,6 @@ public record UserSettingsResponse(
         Double homeLatitude,
         Double homeLongitude,
         String homePlaceName,
+        Integer localRadiusMiles,
         Instant driveTimesCalculatedAt) {
 }
