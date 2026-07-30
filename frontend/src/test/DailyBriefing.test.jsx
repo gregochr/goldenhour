@@ -4,6 +4,8 @@ import DailyBriefing, { bestConfidence } from '../components/DailyBriefing.jsx';
 
 vi.mock('../api/briefingApi.js', () => ({
   getDailyBriefing: vi.fn(),
+  // Close to home is its own endpoint; these tests are not about it, so resolve empty.
+  getCloseToHome: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('../context/AuthContext.jsx', () => ({
@@ -35,7 +37,7 @@ vi.mock('../api/hotTopicSimulationApi.js', () => ({
   getSimulationState: vi.fn(() => Promise.resolve({ enabled: false })),
 }));
 
-import { getDailyBriefing } from '../api/briefingApi.js';
+import { getDailyBriefing, getCloseToHome } from '../api/briefingApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getDriveTimes } from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
@@ -2466,48 +2468,62 @@ describe('DailyBriefing — summary strip', () => {
   // ────── Close to home ──────
 
   describe('Close to home', () => {
-    const HOME = { lat: 54.60, lon: -3.13 };
-    // Keswick sits ~2 miles from HOME; Bamburgh ~60, so the distance gate has something to reject.
-    const NEARBY_LOCATIONS = [
-      { name: 'Keswick', lat: 54.601, lon: -3.135, regionName: 'Lake District' },
-      { name: 'Bamburgh', lat: 55.608, lon: -1.709, regionName: 'Northumberland' },
-    ];
+    // The derivation lives on the server now, so these assert the WIRING and the reading order,
+    // not the selection rules — those are CloseToHomeServiceTest's job.
+    const PANEL = {
+      radiusMiles: 22,
+      horizonDays: 3,
+      windows: [{
+        date: '2026-03-25', targetType: 'SUNSET', eventTime: '2026-03-25T18:30:00',
+        bestRating: 4, withinReach: 1, notInBriefing: false, flaggedRegionName: null,
+        sameWindowAsBestBet: false, bestBetRegionName: null,
+        cards: [{
+          locationId: 1, locationName: 'Keswick', regionName: 'Lake District',
+          locationTypes: ['LANDSCAPE'], rating: 4, distanceMiles: 2, driveMinutes: 8,
+          tideLabel: null, lead: true,
+        }],
+      }],
+      breadcrumb: {
+        worthIt: true, date: '2026-03-25', targetType: 'SUNSET',
+        eventTime: '2026-03-25T18:30:00', topLocationName: 'Keswick', topRating: 4,
+        topHeadline: 'Clear to the west', topSummary: null, dominantReason: null,
+        nextWindow: null,
+      },
+    };
 
-    /** The standard fixture with the Lake District's Keswick slot actually rated. */
-    function buildBriefingWithRatedKeswick() {
-      const briefing = buildBriefing();
-      const sunset = briefing.days[0].eventSummaries.find((es) => es.targetType === 'SUNSET');
-      sunset.regions[0].slots[0] = {
-        ...sunset.regions[0].slots[0], claudeRating: 4, displayVerdict: 'WORTH_IT',
-      };
-      return briefing;
-    }
-
-    it('renders nothing when no home postcode is saved', async () => {
-      getDailyBriefing.mockResolvedValue(buildBriefingWithRatedKeswick());
-      render(<DailyBriefing locations={NEARBY_LOCATIONS} />);
+    it('renders nothing when the endpoint returns no panel — no home postcode saved', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      getCloseToHome.mockResolvedValue(null);
+      render(<DailyBriefing locations={[]} />);
       await waitFor(() => screen.getByTestId('daily-briefing'));
       expect(screen.queryByTestId('close-to-home')).toBeNull();
     });
 
-    it('renders the nearby location once home coordinates resolve', async () => {
-      getDailyBriefing.mockResolvedValue(buildBriefingWithRatedKeswick());
-      render(<DailyBriefing locations={NEARBY_LOCATIONS} homeCoords={HOME} />);
+    it('renders the panel the endpoint returns', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      getCloseToHome.mockResolvedValue(PANEL);
+      render(<DailyBriefing locations={[]} />);
       await waitFor(() => screen.getByTestId('close-to-home'));
-      const cards = screen.getAllByTestId('close-to-home-card');
-      // Bamburgh is rated too far out to qualify — proximity gates, region never does.
-      expect(cards).toHaveLength(1);
-      expect(cards[0]).toHaveTextContent('Keswick');
+      expect(screen.getByTestId('close-to-home-card')).toHaveTextContent('Keswick');
+    });
+
+    it('survives the endpoint failing — the Plan tab must not go down with it', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      getCloseToHome.mockRejectedValue(new Error('boom'));
+      render(<DailyBriefing locations={[]} />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      expect(screen.queryByTestId('close-to-home')).toBeNull();
     });
 
     // Change B's reading order: the decision (picks) → the low-risk local decision (here) → the
     // conditions (hot topics) → the horizon (summary strip). Decisions before explanations.
     it('sits between the headline picks and the rest of the plan', async () => {
       getDailyBriefing.mockResolvedValue({
-        ...buildBriefingWithRatedKeswick(),
+        ...buildBriefing(),
         bestBets: [{ rank: 1, headline: 'Lake District sunset', region: 'Lake District' }],
       });
-      render(<DailyBriefing locations={NEARBY_LOCATIONS} homeCoords={HOME} />);
+      getCloseToHome.mockResolvedValue(PANEL);
+      render(<DailyBriefing locations={[]} />);
       await waitFor(() => screen.getByTestId('close-to-home'));
 
       const picks = screen.getByTestId('best-bet-banner');

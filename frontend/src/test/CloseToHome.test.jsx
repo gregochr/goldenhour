@@ -1,18 +1,16 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import CloseToHome from '../components/CloseToHome.jsx';
 
-// Home at Whitley Bay; the roster matches the handoff's reference data plus one far location the
-// distance gate must reject.
-const HOME = { lat: 55.04, lon: -1.45 };
-
-const LOCATIONS = [
-  { name: "St Mary's Lighthouse", lat: 55.072, lon: -1.451, regionName: 'Northumberland' },
-  { name: 'Souter Lighthouse', lat: 54.969, lon: -1.359, regionName: 'Tyne and Wear' },
-  { name: 'Tynemouth Priory', lat: 55.017, lon: -1.418, regionName: 'Tyne and Wear' },
-  { name: 'Malham Cove', lat: 54.070, lon: -2.157, regionName: 'The Yorkshire Dales' },
-];
+/**
+ * Render tests for the Close to home block.
+ *
+ * The derivation moved to the server, so these no longer exercise selection rules — those live in
+ * `CloseToHomeServiceTest`, joined on the location FK rather than a name string. What remains here
+ * is the part that stayed on the client and is worth pinning: the window grouping's readability,
+ * the two signal flags, and the breadcrumb sentence the endpoint deliberately does not write.
+ */
 
 function dateStr(offset = 0) {
   const d = new Date();
@@ -22,195 +20,252 @@ function dateStr(offset = 0) {
 
 const TODAY = dateStr(0);
 const TOMORROW = dateStr(1);
-const DAY_AFTER = dateStr(2);
+const LATER = dateStr(3);
 
-function slot(locationName, date, overrides = {}) {
+function card(locationName, rating, overrides = {}) {
   return {
+    locationId: locationName.length,
     locationName,
-    solarEventTime: `${date}T05:15:00`,
-    verdict: 'GO',
-    displayVerdict: 'WORTH_IT',
-    claudeRating: 4,
-    flags: [],
+    regionName: 'Tyne and Wear',
+    locationTypes: ['SEASCAPE'],
+    rating,
+    distanceMiles: 9,
+    driveMinutes: 14,
+    tideLabel: null,
+    lead: false,
     ...overrides,
   };
 }
 
-function region(regionName, slots) {
+function eventWindow(date, targetType, cards, overrides = {}) {
   return {
-    regionName, verdict: 'GO', displayVerdict: 'WORTH_IT', summary: '', tideHighlights: [], slots,
+    date,
+    targetType,
+    eventTime: `${date}T05:09:00`,
+    bestRating: cards[0]?.rating ?? null,
+    withinReach: cards.length,
+    notInBriefing: false,
+    flaggedRegionName: null,
+    sameWindowAsBestBet: false,
+    bestBetRegionName: null,
+    cards,
+    ...overrides,
   };
 }
 
-function day(date, regions) {
-  return { date, eventSummaries: [{ targetType: 'SUNRISE', regions, unregioned: [] }] };
+function panel(overrides = {}) {
+  return {
+    radiusMiles: 22,
+    horizonDays: 3,
+    windows: [eventWindow(TOMORROW, 'SUNRISE', [card('Angel of the North', 4, { lead: true })])],
+    breadcrumb: {
+      worthIt: true,
+      date: TOMORROW,
+      targetType: 'SUNRISE',
+      eventTime: `${TOMORROW}T05:09:00`,
+      topLocationName: 'Angel of the North',
+      topRating: 4,
+      topHeadline: 'Soft light over the fields',
+      topSummary: null,
+      dominantReason: null,
+      nextWindow: null,
+    },
+    ...overrides,
+  };
 }
 
-function renderBlock(props = {}) {
+function renderBlock(p = panel(), props = {}) {
   return render(
-    <CloseToHome
-      briefingDays={props.briefingDays ?? [day(TOMORROW, [
-        region('Northumberland', [slot("St Mary's Lighthouse", TOMORROW, { claudeRating: 5 })]),
-        region('Tyne and Wear', [slot('Souter Lighthouse', TOMORROW, { claudeRating: 4 })]),
-      ])]}
-      locations={props.locations ?? LOCATIONS}
-      homeCoords={'homeCoords' in props ? props.homeCoords : HOME}
-      driveMap={props.driveMap ?? new Map([["St Mary's Lighthouse", 22]])}
-      evaluationScores={props.evaluationScores ?? new Map()}
-      todayStr={TODAY}
-      tomorrowStr={TOMORROW}
-      onShowOnMap={props.onShowOnMap ?? null}
-    />,
+    <CloseToHome panel={p} todayStr={TODAY} tomorrowStr={TOMORROW} {...props} />,
   );
 }
 
 describe('CloseToHome', () => {
-  it('renders nothing without a saved home postcode', () => {
-    renderBlock({ homeCoords: null });
-    expect(screen.queryByTestId('close-to-home')).not.toBeInTheDocument();
+  it('renders nothing without a panel — no home postcode saved', () => {
+    const { container } = render(
+      <CloseToHome panel={null} todayStr={TODAY} tomorrowStr={TOMORROW} />,
+    );
+    expect(container).toBeEmptyDOMElement();
   });
 
-  it('renders nothing when nothing at all is within reach', () => {
-    renderBlock({
-      briefingDays: [day(TOMORROW, [
-        region('The Yorkshire Dales', [slot('Malham Cove', TOMORROW)]),
-      ])],
-    });
-    expect(screen.queryByTestId('close-to-home')).not.toBeInTheDocument();
+  it('names the radius the server gated on, not a hardcoded one', () => {
+    // The radius is a per-user setting now, so the client must never assume 22.
+    renderBlock(panel({ radiusMiles: 35 }));
+    expect(screen.getByText(/Within 35 miles of home/)).toBeInTheDocument();
   });
 
-  it('names the radius it gated on', () => {
+  // ── window grouping ───────────────────────────────────────────────────────
+
+  it('groups cards under a header naming day, event and time', () => {
+    // The flat list this replaced never said which event a card was for.
     renderBlock();
-    expect(screen.getByText('Within 22 miles of home')).toBeInTheDocument();
+    expect(screen.getByTestId('cth-window-label')).toHaveTextContent(/Tomorrow sunrise · 05:09/);
   });
 
-  it('counts what is within reach across the horizon', () => {
-    renderBlock();
-    expect(screen.getByTestId('close-to-home-count')).toHaveTextContent('2 within reach · next 3 days');
+  it('renders windows chronologically, not by rating', () => {
+    renderBlock(panel({
+      windows: [
+        eventWindow(TOMORROW, 'SUNRISE', [card('Angel of the North', 4)]),
+        eventWindow(TOMORROW, 'SUNSET', [card('Souter Lighthouse', 5)]),
+      ],
+    }));
+
+    const labels = screen.getAllByTestId('cth-window-label').map((n) => n.textContent);
+    // The 5★ sunset stays second: the user is deciding WHEN, so order is chronological.
+    expect(labels[0]).toMatch(/sunrise/);
+    expect(labels[1]).toMatch(/sunset/);
   });
+
+  it('shows both sunrise and sunset windows — never sunrise-only', () => {
+    renderBlock(panel({
+      windows: [
+        eventWindow(TOMORROW, 'SUNRISE', [card('A', 4)]),
+        eventWindow(TOMORROW, 'SUNSET', [card('B', 4)]),
+      ],
+    }));
+    expect(screen.getAllByTestId('cth-window')).toHaveLength(2);
+  });
+
+  it('labels a distant window by weekday rather than Today/Tomorrow', () => {
+    renderBlock(panel({ windows: [eventWindow(LATER, 'SUNSET', [card('A', 4)])] }));
+    expect(screen.getByTestId('cth-window-label').textContent).not.toMatch(/Today|Tomorrow/);
+  });
+
+  // ── the two signal flags ──────────────────────────────────────────────────
+
+  it('flags NOT IN THE BRIEFING, naming the standing-down region in the tooltip', () => {
+    // The case the region-level grid structurally cannot show.
+    renderBlock(panel({
+      windows: [eventWindow(TOMORROW, 'SUNRISE', [card('Angel of the North', 4)], {
+        notInBriefing: true, flaggedRegionName: 'Tyne and Wear',
+      })],
+    }));
+
+    const flag = screen.getByTestId('cth-flag-not-in-briefing');
+    expect(flag).toBeInTheDocument();
+    expect(flag.getAttribute('title')).toContain('Tyne and Wear');
+  });
+
+  it('flags SAME WINDOW AS BEST BET and names the Best Bet region', () => {
+    renderBlock(panel({
+      windows: [eventWindow(TOMORROW, 'SUNSET', [card('Souter Lighthouse', 4)], {
+        sameWindowAsBestBet: true, bestBetRegionName: 'Northumberland',
+      })],
+    }));
+
+    expect(screen.getByTestId('cth-flag-same-as-best-bet').getAttribute('title'))
+      .toContain('Northumberland');
+  });
+
+  it('shows no flags when neither applies', () => {
+    renderBlock();
+    expect(screen.queryByTestId('cth-flag-not-in-briefing')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('cth-flag-same-as-best-bet')).not.toBeInTheDocument();
+  });
+
+  // ── cards ─────────────────────────────────────────────────────────────────
 
   it('shows the location, its real region, distance and drive', () => {
     renderBlock();
-    const [lead] = screen.getAllByTestId('close-to-home-card');
-    expect(lead).toHaveTextContent("St Mary's Lighthouse");
-    expect(lead).toHaveTextContent('Northumberland');
-    expect(lead).toHaveTextContent('🚗 22 min · 2 mi');
-    expect(lead).toHaveTextContent('5.0★');
+    const c = screen.getByTestId('close-to-home-card');
+    expect(c).toHaveTextContent('Angel of the North');
+    expect(within(c).getByTestId('close-to-home-region')).toHaveTextContent('Tyne and Wear');
+    expect(c.textContent).toMatch(/9 mi/);
+    expect(c.textContent).toMatch(/14 min/);
   });
 
   it('still shows distance when no drive time is known for the user', () => {
-    renderBlock({ driveMap: new Map() });
-    const [lead] = screen.getAllByTestId('close-to-home-card');
-    expect(lead).toHaveTextContent('2 mi');
-    expect(lead).not.toHaveTextContent('🚗');
+    renderBlock(panel({
+      windows: [eventWindow(TOMORROW, 'SUNRISE', [card('A', 4, { driveMinutes: null })])],
+    }));
+    const c = screen.getByTestId('close-to-home-card');
+    expect(c.textContent).toMatch(/9 mi/);
+    expect(c).not.toHaveTextContent('🚗');
   });
 
-  it('marks only the rank-1 card as the lead', () => {
+  it('carries the subject-type icon, labelled for screen readers', () => {
     renderBlock();
-    const cards = screen.getAllByTestId('close-to-home-card');
-    expect(cards[0]).toHaveAttribute('data-lead', 'true');
-    expect(cards[1]).not.toHaveAttribute('data-lead');
+    expect(screen.getByLabelText('Seascape')).toBeInTheDocument();
   });
 
-  it('suppresses the day chip when every card lands on the same day', () => {
-    renderBlock();
-    expect(screen.queryByTestId('close-to-home-day-chip')).not.toBeInTheDocument();
-  });
-
-  it('shows the day chip when the result set spans more than one day', () => {
-    renderBlock({
-      briefingDays: [
-        day(TOMORROW, [region('Northumberland', [slot("St Mary's Lighthouse", TOMORROW, { claudeRating: 5 })])]),
-        day(DAY_AFTER, [region('Tyne and Wear', [slot('Souter Lighthouse', DAY_AFTER, { claudeRating: 4 })])]),
+  it('marks exactly one lead card across the whole block', () => {
+    // A lead per window would make the gold accent meaningless.
+    renderBlock(panel({
+      windows: [
+        eventWindow(TOMORROW, 'SUNRISE', [card('A', 5, { lead: true }), card('B', 4)]),
+        eventWindow(TOMORROW, 'SUNSET', [card('C', 5)]),
       ],
-    });
-    expect(screen.getAllByTestId('close-to-home-day-chip')).toHaveLength(2);
+    }));
+
+    const leads = screen.getAllByTestId('close-to-home-card')
+      .filter((n) => n.getAttribute('data-lead') === 'true');
+    expect(leads).toHaveLength(1);
   });
 
-  it('shows a tide chip only where there is a tide fact', () => {
-    renderBlock({
-      briefingDays: [day(TOMORROW, [
-        region('Northumberland', [slot("St Mary's Lighthouse", TOMORROW, { claudeRating: 5, isSpringTide: true })]),
-        region('Tyne and Wear', [slot('Souter Lighthouse', TOMORROW, { claudeRating: 4 })]),
-      ])],
-    });
-    const cards = screen.getAllByTestId('close-to-home-card');
-    expect(cards[0]).toHaveTextContent('🌊 spring tide');
-    expect(cards[1]).not.toHaveTextContent('🌊');
-  });
-
-  it('opens the map focused on that one location', () => {
+  it('opens the map focused on the card, carrying its own window', () => {
     const onShowOnMap = vi.fn();
-    renderBlock({ onShowOnMap });
-    fireEvent.click(screen.getAllByTestId('close-to-home-card')[0]);
-    // Signature matches every other location affordance on the Plan tab, so the overlay's
-    // location trigger flies to the single pin and auto-opens its popup.
-    expect(onShowOnMap).toHaveBeenCalledWith(TOMORROW, 'SUNRISE', "St Mary's Lighthouse");
+    renderBlock(panel(), { onShowOnMap });
+
+    fireEvent.click(screen.getByTestId('close-to-home-card'));
+
+    expect(onShowOnMap).toHaveBeenCalledWith(TOMORROW, 'SUNRISE', 'Angel of the North');
   });
 
-  // ── the breadcrumb ─────────────────────────────────────────────────────────
+  // ── the breadcrumb sentence, which the server deliberately does not write ──
 
-  it('reads "Worth it" and quotes the leading local headline', () => {
-    renderBlock({
-      briefingDays: [day(TOMORROW, [region('Northumberland', [
-        slot("St Mary's Lighthouse", TOMORROW, {
-          claudeRating: 5, claudeHeadline: 'Spring tide bares the causeway at first light',
-        }),
-      ])])],
-    });
-    expect(screen.getByTestId('close-to-home-verdict')).toHaveTextContent('◎ Worth it');
-    expect(screen.getByTestId('close-to-home-breadcrumb'))
-      .toHaveTextContent('Spring tide bares the causeway at first light');
+  it('prefers the Claude headline for a worth-it verdict', () => {
+    renderBlock();
+    expect(screen.getByTestId('close-to-home-verdict')).toHaveTextContent('Worth it');
+    expect(screen.getByText('Soft light over the fields')).toBeInTheDocument();
   });
 
-  // The explicit product decision: an honest "stay in" plus a date to look forward to beats an
-  // absent block, so the breadcrumb survives even when part 2 has nothing to show.
-  it('keeps the breadcrumb on a poor verdict with no cards', () => {
-    renderBlock({
-      briefingDays: [day(TOMORROW, [region('Tyne and Wear', [
-        slot('Tynemouth Priory', TOMORROW, {
-          verdict: 'STANDDOWN', displayVerdict: 'STAND_DOWN', standdownReason: 'Heavy cloud', claudeRating: 1,
-        }),
-      ])])],
-    });
+  it('names the dominant cause on a stay-in night', () => {
+    renderBlock(panel({
+      windows: [],
+      breadcrumb: {
+        worthIt: false, date: TOMORROW, targetType: 'SUNRISE',
+        eventTime: `${TOMORROW}T05:09:00`, topLocationName: null, topRating: null,
+        topHeadline: null, topSummary: null, dominantReason: 'Heavy cloud', nextWindow: null,
+      },
+    }));
+
+    expect(screen.getByTestId('close-to-home-verdict')).toHaveTextContent('Stay in');
+    expect(screen.getByText(/Heavy cloud nearby/)).toBeInTheDocument();
+  });
+
+  it('never names a nearby location on a stay-in night', () => {
+    // An earlier iteration surfaced the best nearby spot at 1.8★ here, which undercut the verdict
+    // it sat beside. The endpoint returns null for it deliberately; this pins the rendering.
+    renderBlock(panel({
+      windows: [],
+      breadcrumb: {
+        worthIt: false, date: TOMORROW, targetType: 'SUNRISE',
+        eventTime: `${TOMORROW}T05:09:00`, topLocationName: null, topRating: null,
+        topHeadline: null, topSummary: null, dominantReason: 'Full cloud', nextWindow: null,
+      },
+    }));
+
+    expect(screen.queryByTestId('close-to-home-card')).not.toBeInTheDocument();
     expect(screen.getByTestId('close-to-home-breadcrumb')).toBeInTheDocument();
-    expect(screen.getByTestId('close-to-home-verdict')).toHaveTextContent('○ Stay in');
-    expect(screen.getByTestId('close-to-home-breadcrumb')).toHaveTextContent('Heavy cloud');
-    expect(screen.queryByTestId('close-to-home-cards')).not.toBeInTheDocument();
-    expect(screen.getByTestId('close-to-home-count')).toHaveTextContent('None within reach');
   });
 
-  // Naming the best nearby spot on a bad night undercuts the stay-in verdict — removed by an
-  // explicit product decision, so a poor night with nothing ahead names nobody.
-  it('names no location when there is no local window ahead', () => {
-    renderBlock({
-      briefingDays: [day(TOMORROW, [region('Tyne and Wear', [
-        slot('Tynemouth Priory', TOMORROW, {
-          verdict: 'STANDDOWN', displayVerdict: 'STAND_DOWN', standdownReason: 'Rain', claudeRating: 1,
-        }),
-      ])])],
-    });
-    expect(screen.queryByTestId('close-to-home-next-window')).not.toBeInTheDocument();
-    expect(screen.getByTestId('close-to-home-breadcrumb')).not.toHaveTextContent('Tynemouth Priory');
-  });
+  it('shows the next local window — the hope that survives a stay-in verdict', () => {
+    renderBlock(panel({
+      windows: [],
+      breadcrumb: {
+        worthIt: false, date: TODAY, targetType: 'SUNSET', eventTime: `${TODAY}T21:19:00`,
+        topLocationName: null, topRating: null, topHeadline: null, topSummary: null,
+        dominantReason: 'Heavy cloud',
+        nextWindow: {
+          locationId: 1, locationName: "St Mary's Lighthouse", rating: 4,
+          date: TOMORROW, targetType: 'SUNRISE', eventTime: `${TOMORROW}T05:15:00`,
+          driveMinutes: 22,
+        },
+      },
+    }));
 
-  it('points at the next local window worth leaving the house for', () => {
-    renderBlock({
-      briefingDays: [
-        day(TOMORROW, [region('Tyne and Wear', [
-          slot('Tynemouth Priory', TOMORROW, {
-            verdict: 'STANDDOWN', displayVerdict: 'STAND_DOWN', standdownReason: 'Overcast', claudeRating: 1,
-          }),
-        ])]),
-        day(DAY_AFTER, [region('Northumberland', [
-          slot("St Mary's Lighthouse", DAY_AFTER, { claudeRating: 5 }),
-        ])]),
-      ],
-    });
-    const window = screen.getByTestId('close-to-home-next-window');
-    expect(window).toHaveTextContent('Next local window');
-    expect(window).toHaveTextContent("St Mary's Lighthouse · 5.0★");
-    expect(window).toHaveTextContent('sunrise');
-    expect(window).toHaveTextContent('🚗 22 min');
+    const next = screen.getByTestId('close-to-home-next-window');
+    expect(next).toHaveTextContent("St Mary's Lighthouse");
+    expect(next).toHaveTextContent(/Tomorrow sunrise 05:15/);
   });
 });

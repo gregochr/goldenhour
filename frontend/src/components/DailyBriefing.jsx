@@ -15,6 +15,7 @@ import { resolveConfidence, confidenceTreatment, daysOut } from '../utils/confid
 import HotTopicStrip from './HotTopicStrip.jsx';
 import BriefingSummaryStrip from './BriefingSummaryStrip.jsx';
 import CloseToHome from './CloseToHome.jsx';
+import { getCloseToHome } from '../api/briefingApi.js';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
 import { computeCellTier, isCellVisible, resolveRegionDisplay } from '../utils/tierUtils.js';
 import {
@@ -944,6 +945,19 @@ export default function DailyBriefing({
   // Evaluation scores hydrated from the batch-written cached_evaluation cache.
   // Keyed by "regionName|date|targetType|locationName".
   const [evaluationScores, setEvaluationScores] = useState(new Map());
+  // Close to home is its OWN endpoint, not part of the briefing payload: it answers a different
+  // question about differently owned data (this caller's home postcode and drive times). It must
+  // never ride the shared payload, because that one is ETag-revalidated and per-user data cannot
+  // be allowed into a browser cache JavaScript cannot clear on logout.
+  const [closeToHome, setCloseToHome] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    getCloseToHome()
+      .then((p) => { if (!cancelled) setCloseToHome(p); })
+      // A failure here must not take the Plan tab down with it — the panel simply does not render.
+      .catch(() => { if (!cancelled) setCloseToHome(null); });
+    return () => { cancelled = true; };
+  }, []);
 
   // Astro conditions: per-date scores keyed by locationName
   const [astroScoresByDate, setAstroScoresByDate] = useState({}); // { date: { locName: score } }
@@ -1323,11 +1337,7 @@ export default function DailyBriefing({
           evidence (full grid). Decisions before explanations, which is why this sits above the
           topics rather than below them. Renders nothing without a saved home postcode. */}
       <CloseToHome
-        briefingDays={briefing.days}
-        locations={locations}
-        homeCoords={homeCoords}
-        driveMap={driveMap}
-        evaluationScores={evaluationScores}
+        panel={closeToHome}
         todayStr={todayStr}
         tomorrowStr={tomorrowStr}
         onShowOnMap={onShowOnMap}
