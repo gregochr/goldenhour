@@ -531,7 +531,7 @@ public class CloseToHomeService {
         // this the card advertised the tide a location is explicitly not wanted at — a low-tide
         // spot sitting at high water read "high tide", which is worse than saying nothing.
         if (Boolean.TRUE.equals(tide.tideAligned()) && tide.tideState() != null) {
-            return tide.tideState().toString().toLowerCase(java.util.Locale.ROOT) + " tide";
+            return tide.tideState().toLowerCase(java.util.Locale.ROOT) + " tide";
         }
         return null;
     }
