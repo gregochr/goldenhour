@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the forecast prompt clears Haiku's cache floor by 5%, and nothing recorded it
+
+- **Anthropic's minimum cacheable prefix is model-dependent and not monotonic**: 1,024 tokens on Sonnet, **4,096 on Haiku 4.5**. Below it, a request carrying `cache_control` does not error or warn — it returns `cache_creation_input_tokens: 0` and pays the full input rate forever. `BATCH_FAR_TERM` is Haiku (V92), so every T+2/T+3 evaluation depends on clearing that number.
+- **Measured against seven days of production `api_call_log`:** the cached prefix is **~4,322 tokens for 16,318 characters** — 3.78 chars/token, putting the floor at ~15,470 characters. The live prompt clears it by roughly **5%**, and no comment, constant or test recorded that. A routine edit trimming a few paragraphs would have switched caching off across the whole far-term bucket with no failing test and no operational signal.
+- `PromptBuilder.MIN_CACHEABLE_SYSTEM_PROMPT_CHARS` now carries the derivation, and `SystemPromptCacheabilityTest` pins the inland and coastal prompts against it. The bound is the *cacheability* boundary rather than today's length, so ordinary rewording stays free and only a real reduction fails. Mutation-verified: raising the floor to 17,000 reddens exactly those two assertions.
+- **It is a proxy, not an oracle** — characters per token vary with content, so a markup-heavy rewrite could fall under 4,096 tokens while still clearing a character check. The constant says so, and says to re-measure with `messages.count_tokens` against `claude-haiku-4-5` instead.
+- **Bluebell and woodland prompts are ~1,020 and ~1,270 tokens — both well under the floor**, so the `cache_control` blocks `BatchRequestFactory` attaches to those two buckets are **inert**. Left that way deliberately: padding them past 4,096 tokens would cost more input than caching could recover, and routing them to Sonnet for its lower floor would raise the rate to save on the prefix. A test pins the state so it is visible rather than surprising.
+
+### Fixed — three stale doc claims that each sent an investigation the wrong way
+
+- **`BatchRequestFactory` said "~3,600-token system prompt".** The real figure is ~4,320 — and 3,600 is *below* Haiku's 4,096 floor, so the comment argued the opposite of the truth about its own `cache_control` block.
+- **`CycleType` said INTRADAY was "reserved … do not use yet" and that "no INTRADAY phases are wired today".** Both false since V105: `runIntradayCycle()` exists, is registered against `intraday_forecast_refresh`, is seeded ACTIVE, and records a `STABILITY_RECLASSIFY` phase. The javadoc had been wrong for as long as the cycle has been running.
+- **CLAUDE.md described `AuroraStateCache` as a four-state FSM** (`IDLE → MONITORING → MODERATE/STRONG`). It is `private enum State { IDLE, ACTIVE }` — two states. QUIET/MINOR/MODERATE/STRONG is the alert *level*, a separate field, not a state.
+- Recorded together because they share a failure mode: each was load-bearing for a decision, each read plausibly, and each was only caught by opening the file it described.
+
 ### Fixed — a 4★ popup with no score bars, and a footer denying the evaluation above it
 
 - **#356 coalesced the *rating* across the two score sources and left the scores behind.** `popupRating` preferred `briefingScore`, while the score bars a few lines below still read `forecast.fierySkyPotential` — null on a triaged row, because Claude was never called. The block guards on `!= null`, so it rendered nothing rather than failing: four stars above an empty space.
