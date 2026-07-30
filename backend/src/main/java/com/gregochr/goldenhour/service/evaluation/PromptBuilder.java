@@ -32,6 +32,29 @@ import java.util.Map;
  */
 public class PromptBuilder {
 
+    /**
+     * Character floor below which the system prompt stops being cacheable on Haiku.
+     *
+     * <p>Anthropic's minimum cacheable prefix is <b>model-dependent and not monotonic</b>: 1,024
+     * tokens on Sonnet, but <b>4,096 on Haiku 4.5</b>. Below the minimum a request carrying
+     * {@code cache_control} <em>silently does not cache</em> — no error, no warning, just
+     * {@code cache_creation_input_tokens: 0} and the full input rate on every request. Since
+     * {@code BATCH_FAR_TERM} is Haiku (V92), every T+2/T+3 evaluation depends on clearing 4,096.
+     *
+     * <p>Measured against production, seven days of {@code api_call_log}: the cached prefix is
+     * <b>~4,322 tokens</b> for <b>16,318 characters</b> — a ratio of <b>3.78 chars/token</b>, which
+     * puts the 4,096-token floor at ~15,470 characters. The live prompt therefore clears it by
+     * roughly <b>5%</b>. That is the whole margin, and nothing else in the codebase records it.
+     *
+     * <p>The floor here is deliberately the <em>cacheability</em> boundary rather than today's
+     * length, so ordinary rewording is free and only a real reduction fails. It is a
+     * <b>proxy, not an oracle</b>: characters per token vary with content, so a rewrite that is
+     * heavier on punctuation or markup could fall under 4,096 tokens while still clearing this
+     * check. Re-measure with {@code messages.count_tokens} against {@code claude-haiku-4-5} rather
+     * than trusting the character count if the prompt's shape changes materially.
+     */
+    static final int MIN_CACHEABLE_SYSTEM_PROMPT_CHARS = 15_500;
+
     /** System prompt: rating scales, key criteria, aerosol guidance, directional cloud rules. */
     static final String SYSTEM_PROMPT =
             "You are an expert sunrise/sunset colour potential advisor for landscape photographers.\n"

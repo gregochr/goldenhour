@@ -58,8 +58,19 @@ public class BatchRequestFactory {
      * <p>Selects between {@link PromptBuilder} and {@link CoastalPromptBuilder} by the
      * presence of tide data, and between the base and surge-aware
      * {@link PromptBuilder#buildUserMessage} overloads by the presence of storm-surge data.
-     * The system block has {@link CacheControlEphemeral} attached so the ~3,600-token
+     * The system block has {@link CacheControlEphemeral} attached so the <b>~4,320-token</b>
      * system prompt is shared across all requests in a batch.
+     *
+     * <p>That number is load-bearing, not decorative. Haiku 4.5 — the {@code BATCH_FAR_TERM} model
+     * (V92) — will not cache a prefix below <b>4,096 tokens</b>, and below it fails silently rather
+     * than erroring. The forecast prompt clears that by about 5%, which
+     * {@code SystemPromptCacheabilityTest} pins. (This javadoc previously claimed ~3,600 tokens,
+     * which is <em>under</em> the floor and would have argued the opposite conclusion.)
+     *
+     * <p>The bluebell and woodland variants below carry the same {@code cache_control} block, but
+     * their prompts are roughly a quarter as long and sit well under the floor — so for those two
+     * buckets it is <b>inert</b>. Left as-is deliberately: padding them past 4,096 tokens would
+     * cost more input than caching could recover.
      *
      * @param customId  the Anthropic custom ID (produced via {@link CustomIdFactory})
      * @param model     the evaluation model to invoke
