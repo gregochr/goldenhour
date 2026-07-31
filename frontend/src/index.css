@@ -683,13 +683,30 @@
 }
 
 /* Scroll position rail beneath a filmstrip. Present only when the strip actually overflows —
-   a full-width thumb on a non-scrolling strip reads as a disabled control. */
+   a full-width thumb on a non-scrolling strip reads as a disabled control.
+   It is draggable: the strip hides the native scrollbar, so this is the only handle a mouse user
+   has, and it has to answer the grab it so obviously invites. `touch-action: none` keeps a drag
+   from being stolen by the page's own vertical scroll. */
 .cth-rail {
   position: relative;
   height: 2px;
   margin-top: 7px;
   border-radius: 2px;
   background: var(--color-plex-border);
+  cursor: pointer;
+  touch-action: none;
+}
+/* Invisible 16px hit target. 2px is a fine thing to LOOK at and an impossible one to hit — the
+   pointer lands on the pseudo-element, which reports the rail as the event target, so the bar
+   stays hairline-quiet while the grab area is thumb-sized. Inset horizontally by nothing: the
+   ends of the rail are exactly where "jump to the start/end" lives. */
+.cth-rail::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -7px;
+  bottom: -7px;
 }
 .cth-rail > i {
   position: absolute;
@@ -697,8 +714,18 @@
   bottom: 0;
   border-radius: 2px;
   background: var(--color-close-to-home);
-  transition: width 0.12s ease, left 0.12s ease;
+  transition: width 0.12s ease, left 0.12s ease, transform 0.12s ease;
 }
+/* Thicken on hover/drag rather than recolour — the thumb already carries the block's gold, and a
+   second gold would compete with the lead card's accent. */
+.cth-rail:hover > i,
+.cth-rail[data-dragging] > i {
+  transform: scaleY(2);
+}
+.cth-rail[data-dragging] { cursor: grabbing; }
+/* Dragging writes scrollLeft on every pointermove; a width/left transition on the thumb would
+   then animate toward a position already superseded, so the thumb visibly lags the pointer. */
+.cth-rail[data-dragging] > i { transition: transform 0.12s ease; }
 @media (prefers-reduced-motion: reduce) {
   .cth-rail > i { transition: none; }
 }

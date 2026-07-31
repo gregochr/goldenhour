@@ -140,9 +140,19 @@ function FilterChip({ label, active, onClick, testId }) {
  * Scroll-position rail under a filmstrip: thumb width is the visible fraction, thumb offset the
  * scrolled fraction. Rendered only while the strip actually overflows — a full-width thumb on a
  * strip that fits reads as a disabled control rather than "you have seen everything".
+ *
+ * <p>It is also the strip's <em>only</em> scrollbar, so it has to behave like one. `.cth-window-grid`
+ * hides the native bar (`scrollbar-width: none`), which leaves a mouse user with no visible handle
+ * but this — and for its first life it carried no pointer handlers at all, so grabbing the thing
+ * that looks exactly like a scrollbar did nothing. Click jumps, drag tracks, both centred on the
+ * pointer. Kept `aria-hidden` and unfocusable deliberately: it duplicates scrolling that keyboard
+ * users already get for free by tabbing through the cards, and a focusable custom scrollbar in the
+ * tab order is one more stop between the reader and the next window.
  */
 function ScrollRail({ stripRef, cardCount }) {
+  const railRef = useRef(null);
   const [thumb, setThumb] = useState(null);
+  const [dragging, setDragging] = useState(false);
 
   const measure = useCallback(() => {
     const el = stripRef.current;
@@ -159,21 +169,76 @@ function ScrollRail({ stripRef, cardCount }) {
 
   // Re-measured on card count too: filtering a window down can remove the overflow entirely, and
   // a rail left over from the unfiltered set would claim there is more to scroll to.
+  //
+  // A window `resize` listener alone is not enough, and the gap is visible: the strip's width also
+  // changes when the panel itself resizes, when a fallback font swaps, or simply because the first
+  // measure ran before layout settled — none of which fire `resize`. The thumb then sits at a width
+  // describing a strip that no longer exists, which is a *lie about how much is off-screen*, and
+  // now that the rail is draggable it is also a wrong pointer→offset mapping. Observe the element.
   useEffect(() => {
     measure();
     const el = stripRef.current;
     if (!el) return undefined;
     el.addEventListener('scroll', measure, { passive: true });
     window.addEventListener('resize', measure);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(el);
     return () => {
       el.removeEventListener('scroll', measure);
       window.removeEventListener('resize', measure);
+      observer?.disconnect();
     };
   }, [measure, stripRef, cardCount]);
 
+  // Rail x → scroll offset. The rail's full width maps to scrollWidth (that is what makes the
+  // thumb's width the visible fraction), so the pointer names a point in the *content*; half a
+  // thumb is subtracted to centre the thumb under it rather than putting its left edge there.
+  const scrollToPointer = useCallback((clientX) => {
+    const el = stripRef.current;
+    const rail = railRef.current;
+    if (!el || !rail) return;
+    const box = rail.getBoundingClientRect();
+    if (!box.width) return;
+    const fraction = (clientX - box.left) / box.width;
+    const halfThumb = el.clientWidth / el.scrollWidth / 2;
+    const max = el.scrollWidth - el.clientWidth;
+    el.scrollLeft = Math.max(0, Math.min(max, (fraction - halfThumb) * el.scrollWidth));
+  }, [stripRef]);
+
+  const onPointerDown = useCallback((e) => {
+    const el = stripRef.current;
+    if (!el) return;
+    // `scroll-snap-type: x mandatory` re-snaps every programmatic scrollLeft write, which turns a
+    // smooth drag into a card-by-card stutter that feels like the rail is fighting back. Suspend
+    // snapping for the duration; releasing it on pointerup re-snaps once, landing on a card edge.
+    el.style.scrollSnapType = 'none';
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    setDragging(true);
+    scrollToPointer(e.clientX);
+  }, [scrollToPointer, stripRef]);
+
+  const onPointerMove = useCallback((e) => {
+    if (dragging) scrollToPointer(e.clientX);
+  }, [dragging, scrollToPointer]);
+
+  const endDrag = useCallback(() => {
+    if (stripRef.current) stripRef.current.style.scrollSnapType = '';
+    setDragging(false);
+  }, [stripRef]);
+
   if (!thumb) return null;
   return (
-    <div data-testid="cth-scroll-rail" className="cth-rail" aria-hidden="true">
+    <div
+      ref={railRef}
+      data-testid="cth-scroll-rail"
+      className="cth-rail"
+      data-dragging={dragging || undefined}
+      aria-hidden="true"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+    >
       <i style={{ width: `${thumb.width}%`, left: `${thumb.left}%` }} />
     </div>
   );

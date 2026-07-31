@@ -27,6 +27,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Storm-surge parameters interpolate the V60 neighbours (bearing 90–110, fetch 240–250 km, shelf 27–28 m) rather than Redcar's, whose 400 km / 30 m reflects it facing north into Tees Bay. `elevation_m` is left NULL rather than guessed, since `InversionScoreCalculator` reads it.
 - This does **not** make a standalone County Durham region viable and the migration records why: nine of the ten are County Durham, which with Wharton Park gives a voting roster of 10 — better than Teesdale's four, still inside the failure mode above.
 
+### Fixed — the scroll bar under each "Close to home" filmstrip was a picture of a scroll bar
+
+- **It looked exactly like a scrollbar and answered nothing.** The gold rail under each window's card strip was built as a read-only position indicator: thumb width for the visible fraction, offset for the scrolled fraction, and no pointer handlers at all. The strip hides the native bar (`scrollbar-width: none`), so for a mouse user that rail *was* the only scrollbar on screen — grabbing it did nothing, and with four cards of a twenty-card window visible there was no visible handle to the other sixteen. Click now jumps and drag now tracks, both centred on the pointer and clamped at both ends. Kept `aria-hidden` and out of the tab order deliberately: it duplicates scrolling keyboard users already get by tabbing the cards, and a custom scrollbar in the tab order is one more stop before the next window.
+- Scroll snapping is suspended for the duration of a drag. `scroll-snap-type: x mandatory` re-snaps every programmatic `scrollLeft` write, which turns a smooth drag into a card-by-card stutter that reads as the rail fighting back; restoring it on release re-snaps once, so the strip still lands on a card edge.
+- A 2px bar is a fine thing to look at and an impossible one to hit, so the rail carries an invisible 16px hit target and thickens on hover — the bar itself stays hairline-quiet.
+- **The thumb was also lying about how much was off-screen.** It re-measured on window `resize` and on scroll only, so a first measure taken before layout settled — or the panel resizing, or a font swapping, none of which fire `resize` — left a thumb sized for a strip that no longer existed. Reproduced in a browser at 16% on a strip that was showing 41%, self-correcting only once something happened to scroll it. The strip is now watched with a `ResizeObserver`. That inaccuracy was cosmetic while the rail was decorative; on a draggable rail it is a wrong pointer→offset mapping.
+
 ## [v2.17.6] - 2026-07-31
 
 ### Changed — "Next local window" is a place you can go, not a caption
