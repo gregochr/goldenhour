@@ -492,6 +492,16 @@ describe('CloseToHome', () => {
       .toHaveTextContent('Ranked by rating, then by drive time. Showing the top 4 of 10.');
   });
 
+  it('gates the "top 4 of N" clause on the CSS, not a JS breakpoint', () => {
+    // The count is a fact about the 4.5-across flex basis, which only applies from 900px. Guarding
+    // it in JS needs a second copy of that number: the first attempt used `isMobile` (639px) and
+    // left the sentence claiming four cards across the whole 640-899px band, one card wide.
+    renderBlock(panel({ windows: [bigWindow(10)] }));
+
+    const clause = screen.getByText(/Showing the top 4 of 10/);
+    expect(clause).toHaveClass('cth-wide-only');
+  });
+
   it('drops the "top 4 of N" clause when the whole window already fits', () => {
     renderBlock(panel({ windows: [bigWindow(3)] }));
 

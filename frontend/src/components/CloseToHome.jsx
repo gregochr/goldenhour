@@ -571,11 +571,16 @@ function WindowGroup({
           style={{ fontSize: '11px', marginTop: '7px' }}
         >
           Ranked by rating, then by drive time.
-          {/* Desktop-only clause. VISIBLE_CARDS mirrors the 4.5-across flex basis, which is gated
-              on min-width 900px; below it one card fills the strip, so the sentence would state a
-              number the reader can never see. */}
-          {!isExpanded && !isMobile && w.cards.length > VISIBLE_CARDS
-            && ` Showing the top ${VISIBLE_CARDS} of ${w.cards.length}.`}
+          {/* VISIBLE_CARDS mirrors the 4.5-across flex basis, which only applies at min-width
+              900px; below it one card fills the strip and this sentence would name a number the
+              reader cannot see. The gate is therefore the SAME media query as the sizing, in CSS —
+              a JS breakpoint is a second source of truth, and the first attempt at this used
+              `isMobile` (639px), which left the sentence wrong across the whole 640–899px band. */}
+          {!isExpanded && w.cards.length > VISIBLE_CARDS && (
+            <span className="cth-wide-only">
+              {` Showing the top ${VISIBLE_CARDS} of ${w.cards.length}.`}
+            </span>
+          )}
         </p>
       )}
     </div>

@@ -638,7 +638,14 @@
   flex: 0 0 100%;
   scroll-snap-align: start;
 }
+/* Copy that is only TRUE at the width where four cards fit. Gated on the same query as the sizing
+   below, deliberately: the count in the sentence is a fact about the CSS, so the CSS is the only
+   place that may decide when it is shown. */
+.cth-wide-only { display: none; }
+
 @media (min-width: 900px) {
+  .cth-wide-only { display: inline; }
+
   /* 4.5 across: four readable, the fifth half-visible as the "there is more" signal.
      There is deliberately NO max-width cap on the strip for short windows. The old grid needed one
      (its `1fr` columns stretched to fill), but `flex: 0 0` already forbids growing — and a cap

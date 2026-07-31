@@ -42,7 +42,7 @@ import java.util.List;
  *                     because a king tide's defining number is how high the water gets, not how far
  *                     it swings. Null on a spring run, where the range is the story
  * @param highWaterAnomaly how far that high water clears the location's spring-tide threshold,
- *                     {@code "+0.4 over spring"} — the thing that makes a tide king rather than
+ *                     {@code "+0.4 m over spring"} — the thing that makes a tide king rather than
  *                     merely spring. Null when there is no threshold or the excess is display noise
  * @param sunrise      the day's sunrise, {@code "05:10"}
  * @param sunset       the day's sunset, {@code "21:22"}
