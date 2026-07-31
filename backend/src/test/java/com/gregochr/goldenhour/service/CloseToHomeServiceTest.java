@@ -369,15 +369,17 @@ class CloseToHomeServiceTest {
     }
 
     @Test
-    @DisplayName("a rating tie breaks on the shorter drive, in the lead card AND the next window")
+    @DisplayName("a rating tie breaks on the shorter drive, in all three gold elements")
     void ratingTie_breaksOnDrive_consistentlyAcrossBothGoldElements() {
         // Distance still never outranks a better-rated spot further out — this only orders
         // locations the rating cannot separate, where "closer" beats the alphabet.
         //
-        // Both assertions matter together: the earliest window IS windows[0], so the panel's two
-        // gold elements describe the same event. When only the card list carried the tiebreak, a
-        // 4★ tie put Copt Hill on the lead card and Angel of the North in "Next local window" —
-        // one block naming two different places for one sunrise.
+        // All three assertions matter together: the earliest window IS windows[0], so the panel's
+        // gold elements all describe the same event. When only the card list carried the tiebreak,
+        // a 4★ tie put Copt Hill on the lead card and Angel of the North in "Next local window";
+        // when the breadcrumb's headline location was the one left out, the "Worth it" paragraph
+        // named Angel above a Copt Hill card. Either way, one block naming two different places
+        // for one sunrise — so each selection is pinned rather than just the pair that broke last.
         List<LocationEntity> locs = List.of(
                 loc(1L, "Angel of the North", 54.80, -1.58, "Tyne and Wear"),
                 loc(2L, "Copt Hill", 54.81, -1.58, "Tyne and Wear"));
@@ -390,7 +392,9 @@ class CloseToHomeServiceTest {
 
         // Alphabetically Angel of the North wins; on drive time Copt Hill does.
         assertThat(cardsOf(response).get(0).locationName()).isEqualTo("Copt Hill");
-        assertThat(response.breadcrumb().nextWindow().locationName()).isEqualTo("Copt Hill");
+        assertThat(response.breadcrumb().nextWindow().card().locationName()).isEqualTo("Copt Hill");
+        // The prose one. It renders as "◎ Worth it" directly above the lead card.
+        assertThat(response.breadcrumb().topLocationName()).isEqualTo("Copt Hill");
     }
 
     @Test
@@ -636,9 +640,49 @@ class CloseToHomeServiceTest {
         givenWindows(List.of(new WindowSpec(TODAY, TargetType.SUNRISE, "Durham", Verdict.GO,
                 List.of(earlySlot, lateSlot))), List.of());
 
-        assertThat(service.build(1L, HOME_LAT, HOME_LON).breadcrumb().nextWindow().locationName())
+        assertThat(service.build(1L, HOME_LAT, HOME_LON).breadcrumb().nextWindow().card().locationName())
                 .as("the better-rated spot at the same event wins, despite the later solar time")
                 .isEqualTo("Later Better");
+    }
+
+    @Test
+    @DisplayName("nextWindow carries the CARD, identical to rank 1 of the first window")
+    void nextWindowCarriesTheSameCardAsTheGrid() {
+        // The shortcut now renders everything a card renders — region, distance, drive, tide — and
+        // it is by construction rank 1 of windows[0]: the same comparator over the same qualifying
+        // set decides both. Copying those fields onto NextWindow would put the same location on
+        // one screen twice from two mappings, so the record carries the card itself and this pins
+        // that they are equal, field for field.
+        // TWO locations, differing in every displayed field. With one, "the shortcut equals the
+        // grid" is satisfied by any mapping at all, including one that picked the wrong candidate:
+        // the runner-up exists so a shortcut resolved from the wrong end of the sort fails here.
+        LocationEntity coastal = loc(1L, "Seaham", 54.84, -1.34, "Durham");
+        LocationEntity inland = loc(2L, "Penshaw Monument", 54.8926, -1.4776, "Tyne and Wear");
+        when(locationService.findAllEnabled()).thenReturn(List.of(coastal, inland));
+        BriefingSlot slot = new BriefingSlot(1L, "Seaham", TODAY.atTime(21, 0), Verdict.GO,
+                null, tideInfo("HIGH", true, false, true), List.of(), null)
+                .withClaudeScores(5, null, null, "s");
+        BriefingSlot runnerUp = new BriefingSlot(2L, "Penshaw Monument", TODAY.atTime(21, 0),
+                Verdict.GO, null, BriefingSlot.TideInfo.NONE, List.of(), null)
+                .withClaudeScores(3, null, null, "s");
+        givenBriefing(slot, runnerUp);
+        when(driveTimeResolver.getAllMinutes(7L)).thenReturn(Map.of(1L, 18, 2L, 25));
+
+        CloseToHomeResponse response = service.build(7L, HOME_LAT, HOME_LON);
+        CloseToHomeResponse.Card grid = cardsOf(response).get(0);
+        CloseToHomeResponse.Card shortcut = response.breadcrumb().nextWindow().card();
+
+        assertThat(grid.locationName()).as("rank 1 is the 5-star spot").isEqualTo("Seaham");
+        assertThat(shortcut.locationName()).isEqualTo(grid.locationName());
+        assertThat(shortcut.regionName()).isEqualTo(grid.regionName());
+        assertThat(shortcut.rating()).isEqualTo(grid.rating());
+        assertThat(shortcut.distanceMiles()).isEqualTo(grid.distanceMiles());
+        assertThat(shortcut.driveMinutes()).isEqualTo(grid.driveMinutes());
+        assertThat(shortcut.tideLabel()).isEqualTo(grid.tideLabel()).isEqualTo("spring tide");
+        // Not lead, though the grid copy is: the gold accent marks rank 1 of the FIRST WINDOW, and
+        // a second gold-accented card outside the grid would spend the signal twice.
+        assertThat(grid.lead()).isTrue();
+        assertThat(shortcut.lead()).isFalse();
     }
 
     @Test
@@ -727,45 +771,28 @@ class CloseToHomeServiceTest {
     // ── caps and counts ───────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("every window inside the stated horizon is served — including the LAST day's sunset")
-    void windowsReachTheEndOfTheHorizon() {
-        // The regression this test exists for. The cap was a flat 3 while the horizon is 3 DAYS,
-        // so the block stopped halfway through its own stated range: on a Friday the third window
-        // was Sunday sunrise and Sunday sunset — inside the horizon, in the candidate set, and
-        // plainly visible in the Plan grid below — was silently dropped. The final window carries
-        // the highest rating here precisely so a truncation cannot pass by losing something dull.
+    @DisplayName("at most 3 windows, keeping the SOONEST three")
+    void windowsCappedAtThree() {
         LocationEntity a = loc(1L, "Alpha", 54.80, -1.58, "Durham");
         when(locationService.findAllEnabled()).thenReturn(List.of(a));
-
-        List<WindowSpec> specs = new java.util.ArrayList<>();
-        for (int d = 0; d < CloseToHomeService.HORIZON_DAYS; d++) {
-            LocalDate date = TODAY.plusDays(d);
-            boolean last = d == CloseToHomeService.HORIZON_DAYS - 1;
-            specs.add(new WindowSpec(date, TargetType.SUNRISE, "D", Verdict.GO,
-                    List.of(slotAt(1L, "Alpha", 4, date, 5))));
-            specs.add(new WindowSpec(date, TargetType.SUNSET, "D", Verdict.GO,
-                    List.of(slotAt(1L, "Alpha", last ? 5 : 4, date, 21))));
-        }
-        givenWindows(specs, List.of());
+        givenWindows(List.of(
+                new WindowSpec(TODAY, TargetType.SUNRISE, "D", Verdict.GO,
+                        List.of(slotAt(1L, "Alpha", 4, TODAY, 5))),
+                new WindowSpec(TODAY, TargetType.SUNSET, "D", Verdict.GO,
+                        List.of(slotAt(1L, "Alpha", 4, TODAY, 21))),
+                new WindowSpec(TODAY.plusDays(1), TargetType.SUNRISE, "D", Verdict.GO,
+                        List.of(slotAt(1L, "Alpha", 4, TODAY.plusDays(1), 5))),
+                new WindowSpec(TODAY.plusDays(1), TargetType.SUNSET, "D", Verdict.GO,
+                        List.of(slotAt(1L, "Alpha", 5, TODAY.plusDays(1), 21)))),
+                List.of());
 
         List<CloseToHomeResponse.Window> w = service.build(1L, HOME_LAT, HOME_LON).windows();
 
-        assertThat(w).hasSize(CloseToHomeService.MAX_WINDOWS);
+        // The 5-star window is fourth chronologically and is dropped: the block is a glance at
+        // what is SOON, not a ranked list of the horizon.
+        assertThat(w).hasSize(3);
         assertThat(w.get(0).date()).isEqualTo(TODAY);
-        CloseToHomeResponse.Window last = w.get(w.size() - 1);
-        assertThat(last.date()).isEqualTo(TODAY.plusDays(CloseToHomeService.HORIZON_DAYS - 1));
-        assertThat(last.targetType()).isEqualTo(TargetType.SUNSET);
-        assertThat(last.bestRating()).isEqualTo(5);
-    }
-
-    @Test
-    @DisplayName("the window cap can never be tighter than the horizon it advertises")
-    void windowCapMatchesTheAdvertisedHorizon() {
-        // The block's own header reads "next N days", so a cap below one window per solar event
-        // per day makes that header a promise the payload does not keep. Pinned as arithmetic
-        // rather than as a literal so tightening either constant alone fails here.
-        assertThat(CloseToHomeService.MAX_WINDOWS)
-                .isGreaterThanOrEqualTo(CloseToHomeService.HORIZON_DAYS * 2);
+        assertThat(w).extracting(CloseToHomeResponse.Window::bestRating).doesNotContain(5);
     }
 
     @Test

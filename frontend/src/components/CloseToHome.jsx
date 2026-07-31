@@ -94,6 +94,32 @@ function TravelLine({ driveMinutes, distanceMiles }) {
   );
 }
 
+/**
+ * The star badge — `4.0★` in its rating band's colour.
+ *
+ * <p>One component for the cards, the ranked rows and the "next local window" shortcut. The
+ * shortcut showed a bare `· 4.0★` while the card for the same location showed a coloured pill, so
+ * the two disagreed about how loudly the same number should read.
+ */
+function RatingPill({ rating, testId }) {
+  if (rating == null) return null;
+  return (
+    <span
+      data-testid={testId}
+      className="font-mono whitespace-nowrap"
+      style={{
+        fontSize: '10.5px',
+        fontWeight: 600,
+        padding: '2px 6px',
+        borderRadius: '5px',
+        ...starBadgeStyle(rating),
+      }}
+    >
+      {rating.toFixed(1)}★
+    </span>
+  );
+}
+
 /** A cycling or toggling filter chip in the block head. */
 function FilterChip({ label, active, onClick, testId }) {
   return (
@@ -114,9 +140,19 @@ function FilterChip({ label, active, onClick, testId }) {
  * Scroll-position rail under a filmstrip: thumb width is the visible fraction, thumb offset the
  * scrolled fraction. Rendered only while the strip actually overflows — a full-width thumb on a
  * strip that fits reads as a disabled control rather than "you have seen everything".
+ *
+ * <p>It is also the strip's <em>only</em> scrollbar, so it has to behave like one. `.cth-window-grid`
+ * hides the native bar (`scrollbar-width: none`), which leaves a mouse user with no visible handle
+ * but this — and for its first life it carried no pointer handlers at all, so grabbing the thing
+ * that looks exactly like a scrollbar did nothing. Click jumps, drag tracks, both centred on the
+ * pointer. Kept `aria-hidden` and unfocusable deliberately: it duplicates scrolling that keyboard
+ * users already get for free by tabbing through the cards, and a focusable custom scrollbar in the
+ * tab order is one more stop between the reader and the next window.
  */
 function ScrollRail({ stripRef, cardCount }) {
+  const railRef = useRef(null);
   const [thumb, setThumb] = useState(null);
+  const [dragging, setDragging] = useState(false);
 
   const measure = useCallback(() => {
     const el = stripRef.current;
@@ -133,21 +169,76 @@ function ScrollRail({ stripRef, cardCount }) {
 
   // Re-measured on card count too: filtering a window down can remove the overflow entirely, and
   // a rail left over from the unfiltered set would claim there is more to scroll to.
+  //
+  // A window `resize` listener alone is not enough, and the gap is visible: the strip's width also
+  // changes when the panel itself resizes, when a fallback font swaps, or simply because the first
+  // measure ran before layout settled — none of which fire `resize`. The thumb then sits at a width
+  // describing a strip that no longer exists, which is a *lie about how much is off-screen*, and
+  // now that the rail is draggable it is also a wrong pointer→offset mapping. Observe the element.
   useEffect(() => {
     measure();
     const el = stripRef.current;
     if (!el) return undefined;
     el.addEventListener('scroll', measure, { passive: true });
     window.addEventListener('resize', measure);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(el);
     return () => {
       el.removeEventListener('scroll', measure);
       window.removeEventListener('resize', measure);
+      observer?.disconnect();
     };
   }, [measure, stripRef, cardCount]);
 
+  // Rail x → scroll offset. The rail's full width maps to scrollWidth (that is what makes the
+  // thumb's width the visible fraction), so the pointer names a point in the *content*; half a
+  // thumb is subtracted to centre the thumb under it rather than putting its left edge there.
+  const scrollToPointer = useCallback((clientX) => {
+    const el = stripRef.current;
+    const rail = railRef.current;
+    if (!el || !rail) return;
+    const box = rail.getBoundingClientRect();
+    if (!box.width) return;
+    const fraction = (clientX - box.left) / box.width;
+    const halfThumb = el.clientWidth / el.scrollWidth / 2;
+    const max = el.scrollWidth - el.clientWidth;
+    el.scrollLeft = Math.max(0, Math.min(max, (fraction - halfThumb) * el.scrollWidth));
+  }, [stripRef]);
+
+  const onPointerDown = useCallback((e) => {
+    const el = stripRef.current;
+    if (!el) return;
+    // `scroll-snap-type: x mandatory` re-snaps every programmatic scrollLeft write, which turns a
+    // smooth drag into a card-by-card stutter that feels like the rail is fighting back. Suspend
+    // snapping for the duration; releasing it on pointerup re-snaps once, landing on a card edge.
+    el.style.scrollSnapType = 'none';
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    setDragging(true);
+    scrollToPointer(e.clientX);
+  }, [scrollToPointer, stripRef]);
+
+  const onPointerMove = useCallback((e) => {
+    if (dragging) scrollToPointer(e.clientX);
+  }, [dragging, scrollToPointer]);
+
+  const endDrag = useCallback(() => {
+    if (stripRef.current) stripRef.current.style.scrollSnapType = '';
+    setDragging(false);
+  }, [stripRef]);
+
   if (!thumb) return null;
   return (
-    <div data-testid="cth-scroll-rail" className="cth-rail" aria-hidden="true">
+    <div
+      ref={railRef}
+      data-testid="cth-scroll-rail"
+      className="cth-rail"
+      data-dragging={dragging || undefined}
+      aria-hidden="true"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+    >
       <i style={{ width: `${thumb.width}%`, left: `${thumb.left}%` }} />
     </div>
   );
@@ -203,15 +294,7 @@ function WindowRows({ cards, onOpen, onPreview, onPreviewEnd }) {
             {card.tideLabel && (
               <span style={{ color: 'var(--color-tide)' }}>🌊 {card.tideLabel}</span>
             )}
-            <span
-              className="font-mono"
-              style={{
-                fontWeight: 600, padding: '2px 6px', borderRadius: '5px',
-                ...starBadgeStyle(card.rating),
-              }}
-            >
-              {card.rating.toFixed(1)}★
-            </span>
+            <RatingPill rating={card.rating} />
           </span>
         </button>
       ))}
@@ -326,7 +409,6 @@ function previewFacts(locationName, date, targetType, scoreIndex, locations) {
  *
  * @param {Object}    props
  * @param {Object}    props.w                the window, already filtered
- * @param {boolean}   props.isFirst          the first window carries the ordering explainer
  * @param {boolean}   props.isExpanded       show the ranked list instead of the strip
  * @param {Function}  props.onToggleExpanded toggles this window's expansion
  * @param {string}    props.todayStr         today's ISO date, for the header wording
@@ -338,12 +420,21 @@ function previewFacts(locationName, date, targetType, scoreIndex, locations) {
  * @param {Function}  props.closePreview     dismisses the hover preview
  */
 function WindowGroup({
-  w, isFirst, isExpanded, onToggleExpanded, todayStr, tomorrowStr, isPro, isMobile,
+  w, isExpanded, onToggleExpanded, todayStr, tomorrowStr, isPro, isMobile,
   onShowOnMap, openPreview, closePreview,
 }) {
   const stripRef = useRef(null);
   const mark = eventMark(w.targetType);
   const time = timeOf(w.eventTime);
+
+  // Opening the map swaps a full-viewport overlay in UNDER a pointer that has not moved, which
+  // covers the card without reliably firing mouseleave — the same "the DOM moved out from under
+  // a `position: fixed` preview" case the strip's onScroll handles below, and the preview sits
+  // above the overlay. Dismiss on the way out rather than trusting the pointer to move.
+  const openOnMap = useCallback((locationName) => {
+    closePreview();
+    onShowOnMap?.(w.date, w.targetType, locationName);
+  }, [closePreview, onShowOnMap, w.date, w.targetType]);
 
   return (
     <div data-testid="cth-window" style={{ margin: '0 16px 12px' }}>
@@ -453,7 +544,7 @@ function WindowGroup({
       ) : isExpanded ? (
         <WindowRows
           cards={w.cards}
-          onOpen={(card) => onShowOnMap?.(w.date, w.targetType, card.locationName)}
+          onOpen={(card) => openOnMap(card.locationName)}
           onPreview={isMobile ? null : (e, card) => openPreview(e, card, w)}
           onPreviewEnd={closePreview}
         />
@@ -477,7 +568,7 @@ function WindowGroup({
                 type="button"
                 data-testid="close-to-home-card"
                 data-lead={card.lead || undefined}
-                onClick={() => onShowOnMap?.(w.date, w.targetType, card.locationName)}
+                onClick={() => openOnMap(card.locationName)}
                 // Pointer-only, and gated on viewport: hover has no touch equivalent, and on
                 // a phone a preview pinned beside the card would cover the grid it came from.
                 // Focus opens it too, so keyboard users get the same shortcut.
@@ -508,19 +599,7 @@ function WindowGroup({
                     ))}
                     {card.locationName}
                   </span>
-                  <span
-                    data-testid="close-to-home-stars"
-                    className="font-mono whitespace-nowrap"
-                    style={{
-                      fontSize: '10.5px',
-                      fontWeight: 600,
-                      padding: '2px 6px',
-                      borderRadius: '5px',
-                      ...starBadgeStyle(card.rating),
-                    }}
-                  >
-                    {card.rating.toFixed(1)}★
-                  </span>
+                  <RatingPill rating={card.rating} testId="close-to-home-stars" />
                 </span>
 
                 {/* The location's actual region — the honesty label, never a filter. Kept at
@@ -559,29 +638,37 @@ function WindowGroup({
             ))}
           </div>
           <ScrollRail stripRef={stripRef} cardCount={w.cards.length} />
-        </>
-      )}
 
-      {/* The ordering rule, stated once under the first window. Without it, a strip that
-          scrolls reads as an arbitrary sample and the scrolling feels obligatory. */}
-      {isFirst && w.cards.length > 0 && (
-        <p
-          data-testid="cth-ordering-explainer"
-          className="font-mono text-plex-text-muted"
-          style={{ fontSize: '11px', marginTop: '7px' }}
-        >
-          Ranked by rating, then by drive time.
-          {/* VISIBLE_CARDS mirrors the 4.5-across flex basis, which only applies at min-width
-              900px; below it one card fills the strip and this sentence would name a number the
-              reader cannot see. The gate is therefore the SAME media query as the sizing, in CSS —
-              a JS breakpoint is a second source of truth, and the first attempt at this used
-              `isMobile` (639px), which left the sentence wrong across the whole 640–899px band. */}
-          {!isExpanded && w.cards.length > VISIBLE_CARDS && (
-            <span className="cth-wide-only">
-              {` Showing the top ${VISIBLE_CARDS} of ${w.cards.length}.`}
-            </span>
+          {/* Cards → rail → note, per window.
+              Its job is to make scrolling feel OPTIONAL: without it a strip that runs off the
+              edge reads as an arbitrary sample and reaching the end feels obligatory, when the
+              four already on screen are in fact the best four. That is a fact about THIS window's
+              set, so it is stated under each overflowing window rather than once under the first —
+              a window that fits has nothing to explain, and under the old rule a 3-card first
+              window swallowed the sentence for a 20-card second one.
+
+              Held at text-secondary rather than the handoff's --ink-3 (text-muted): muted measures
+              3.40:1 on this block's surface and fails WCAG AA for 11px text. Same audit that raised
+              the card's region line — and the sentence now renders once per overflowing window
+              rather than once per block, so this is the wrong place to spend the exception. */}
+          {w.cards.length > VISIBLE_CARDS && (
+            <p
+              data-testid="cth-ordering-explainer"
+              className="font-mono text-plex-text-secondary"
+              style={{ fontSize: '11px', marginTop: '6px' }}
+            >
+              Ranked by rating, then by drive time.
+              {/* VISIBLE_CARDS mirrors the 4.5-across flex basis, which only applies at min-width
+                  900px; below it one card fills the strip and this clause would name a number the
+                  reader cannot see. The gate is therefore the SAME media query as the sizing, in
+                  CSS — a JS breakpoint is a second source of truth, and the first attempt at this
+                  used `isMobile` (639px), leaving the sentence wrong across the 640–899px band. */}
+              <span className="cth-wide-only">
+                {` Showing the top ${VISIBLE_CARDS} of ${w.cards.length} — scroll for the rest.`}
+              </span>
+            </p>
           )}
-        </p>
+        </>
       )}
     </div>
   );
@@ -669,10 +756,15 @@ export default function CloseToHome({
     };
   });
 
-  // The busiest single window, NOT the sum. Each window holds at most one entry per location, so
-  // summing counted a location once per window it qualified in — five locations across three
-  // windows read "15 within reach" under a heading that says "within 22 miles of home".
-  const reach = windows.reduce((n, w) => Math.max(n, w.withinReach), 0);
+  // Every location within reach, counted ONCE. The heading beside it names a radius, so the
+  // number has to be a count of PLACES you could drive to, and both of the obvious shortcuts get
+  // that wrong in opposite directions: summing the windows counts a location once per window it
+  // qualified in, so five locations across three windows read "15 within reach" under "within 22
+  // miles of home"; taking the busiest single window — the previous fix for that — undercounts,
+  // since two windows holding one different location each are two places, not one.
+  const reachIds = new Set();
+  windows.forEach((w) => w.cards.forEach((c) => reachIds.add(c.locationId ?? c.locationName)));
+  const reach = reachIds.size;
   const countLine = reach > 0
     ? `${reach} within reach · ${windows.length} window${windows.length === 1 ? '' : 's'}`
       + ` · next ${horizonDays} days`
@@ -823,25 +915,39 @@ export default function CloseToHome({
           {breadcrumbReason(breadcrumb, todayStr, tomorrowStr)}
         </p>
 
-        {/* The next local window names a location, a date and an event — the same three facts a
-            card carries, so it opens the map the same way. Left as a div it was the one dead end
-            on a panel where every other location is one tap from the pin. */}
-        {breadcrumb.nextWindow && (
+        {/* ── The next local window — a shortcut CARD, not a label ──
+            Users read this block as "my next closest good opportunity" and want to act on it, so
+            it is the most-used entry point in the panel. It carries the same content a card does,
+            in the same order, and opens the map through the same handler — there is deliberately
+            no second code path and no bespoke panel.
+
+            It points at a LOCATION rather than a summary of one: the endpoint hands over the card
+            record itself, so nothing displayed here is a copy that could drift from the same
+            location's card in the grid below. */}
+        {breadcrumb.nextWindow?.card && (
           <button
             type="button"
             data-testid="close-to-home-next-window"
-            onClick={() => onShowOnMap?.(breadcrumb.nextWindow.date,
-              breadcrumb.nextWindow.targetType, breadcrumb.nextWindow.locationName)}
+            // Dismisses the preview first for the same reason a card does: the map overlay
+            // renders above this button but below the `position: fixed` preview.
+            onClick={() => {
+              closePreview();
+              onShowOnMap?.(breadcrumb.nextWindow.date,
+                breadcrumb.nextWindow.targetType, breadcrumb.nextWindow.card.locationName);
+            }}
             // Previews on hover exactly as a card does — it names the same location, date and
             // event, so it earns the same shortcut.
-            onMouseEnter={isMobile ? undefined : (e) => openPreview(e, breadcrumb.nextWindow,
+            onMouseEnter={isMobile ? undefined : (e) => openPreview(e, breadcrumb.nextWindow.card,
               breadcrumb.nextWindow)}
             onMouseLeave={isMobile ? undefined : closePreview}
-            onFocus={isMobile ? undefined : (e) => openPreview(e, breadcrumb.nextWindow,
+            onFocus={isMobile ? undefined : (e) => openPreview(e, breadcrumb.nextWindow.card,
               breadcrumb.nextWindow)}
             onBlur={isMobile ? undefined : closePreview}
             // Rail/hover/focus live in .cth-next-window — an inline border shorthand would
-            // outrank the hover rule, the same trap documented on .cth-card.
+            // outrank the hover rule, the same trap documented on .cth-card. A native <button>
+            // rather than the handoff's role="button" + tabindex="0" + key handlers: it is
+            // Enter- and Space-activatable and focusable with no JavaScript at all, which is
+            // strictly what those three attributes were reconstructing.
             className="cth-next-window flex flex-col text-left"
           >
             <span
@@ -850,23 +956,53 @@ export default function CloseToHome({
             >
               Next local window
             </span>
-            <span className="text-plex-text" style={{ fontSize: '13px', fontWeight: 600 }}>
-              {breadcrumb.nextWindow.locationName} · {breadcrumb.nextWindow.rating.toFixed(1)}★
+            <span className="flex items-center" style={{ gap: '7px', marginTop: '3px' }}>
+              <span className="text-plex-text" style={{ fontSize: '13px', fontWeight: 600 }}>
+                {breadcrumb.nextWindow.card.locationName}
+              </span>
+              {/* The same pill the cards carry, not a bare `· 4.0★`. A 4★ has to read the same
+                  everywhere or the two are not obviously the same measurement. */}
+              <RatingPill
+                rating={breadcrumb.nextWindow.card.rating}
+                testId="close-to-home-next-window-stars"
+              />
             </span>
+            {breadcrumb.nextWindow.card.regionName && (
+              // Held at text-secondary, not the handoff's --ink-3: that token measures 3.55:1 at
+              // this size and fails WCAG AA, which is why the card's own region line was raised.
+              // The same audit applies here.
+              <span
+                data-testid="close-to-home-next-window-region"
+                className="font-mono text-plex-text-secondary"
+                style={{ fontSize: '10.5px', marginTop: '3px' }}
+              >
+                {breadcrumb.nextWindow.card.regionName}
+              </span>
+            )}
             <span
               className="font-mono text-plex-text-secondary"
-              style={{ fontSize: '10.5px', marginTop: '2px' }}
+              style={{ fontSize: '10.5px', marginTop: '3px' }}
             >
               {windowLabel(breadcrumb.nextWindow.date, breadcrumb.nextWindow.targetType,
                 todayStr, tomorrowStr)}
               {timeOf(breadcrumb.nextWindow.eventTime)
                 && ` ${timeOf(breadcrumb.nextWindow.eventTime)}`}
-              {formatDriveDuration(breadcrumb.nextWindow.driveMinutes)
-                && ` · 🚗 ${formatDriveDuration(breadcrumb.nextWindow.driveMinutes)}`}
+              {' · '}
+              {/* Drive and distance through the card's own formatter, so "no drive time yet"
+                  degrades to bare miles here exactly as it does on a card. */}
+              <TravelLine
+                driveMinutes={breadcrumb.nextWindow.card.driveMinutes}
+                distanceMiles={breadcrumb.nextWindow.card.distanceMiles}
+              />
+              {breadcrumb.nextWindow.card.tideLabel && (
+                <span style={{ color: 'var(--color-tide)' }}>
+                  {' · 🌊 '}{breadcrumb.nextWindow.card.tideLabel}
+                </span>
+              )}
             </span>
             <span
               className="font-mono"
-              style={{ fontSize: '10px', marginTop: '4px', color: 'var(--color-tide)' }}
+              style={{ fontSize: '10px', marginTop: '7px', color: 'var(--color-tide)' }}
             >
               ◍ Open on map →
             </span>
@@ -878,11 +1014,10 @@ export default function CloseToHome({
           A flat list never said which event a card was for, and a sunrise-only suggestion is an
           easy dismissal when the same region's sunset is the Best Bet. The window header carries
           day, event and time, so no per-card day chip is needed. */}
-      {windows.map((w, i) => (
+      {windows.map((w) => (
         <WindowGroup
           key={`${w.date}|${w.targetType}`}
           w={w}
-          isFirst={i === 0}
           isExpanded={expandedKey === `${w.date}|${w.targetType}`}
           onToggleExpanded={() => setExpandedKey(
             expandedKey === `${w.date}|${w.targetType}` ? null : `${w.date}|${w.targetType}`)}

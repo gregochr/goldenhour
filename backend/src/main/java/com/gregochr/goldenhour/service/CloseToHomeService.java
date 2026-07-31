@@ -55,26 +55,8 @@ import java.util.Set;
 @Service
 public class CloseToHomeService {
 
-    /** Forecast horizon drawn from, in distinct forecast days. */
-    static final int HORIZON_DAYS = 3;
-
-    /** Solar events a day contributes: one sunrise, one sunset. */
-    private static final int EVENTS_PER_DAY = 2;
-
     /**
-     * Windows shown — a backstop at exactly what {@link #HORIZON_DAYS} can produce, never less.
-     *
-     * <p>It was a flat 3, one half of the horizon, and that made the block's own header lie: it
-     * reads "next 3 days" while the cap silently stopped a day-3 sunset from ever being shown. On a
-     * Friday the three soonest windows ran out at Sunday sunrise, so Sunday sunset — inside the
-     * stated horizon, present in the candidate set, and visible in the Plan grid directly below —
-     * was dropped with nothing to say it had been. A count the user can read but not act on is the
-     * same failure {@code withinReach} was fixed for; a horizon they can read but not see is that
-     * failure one level up.
-     *
-     * <p>Derived from the horizon rather than written as 6 so the two cannot drift apart again.
-     * That makes the cap non-binding today, which is the point — it survives as a guard on the
-     * grouping, not as a product decision about how far the block reaches.
+     * Windows shown, so the block stays a glance rather than a list.
      *
      * <p>There is deliberately no matching cap on cards <em>within</em> a window. There was — four —
      * and it made {@code withinReach} a number the user could read but not act on: a window saying
@@ -83,7 +65,10 @@ public class CloseToHomeService {
      * list); the payload's job is to make every qualifying location reachable. The set is already
      * bounded by the radius gate and the location roster.
      */
-    static final int MAX_WINDOWS = HORIZON_DAYS * EVENTS_PER_DAY;
+    static final int MAX_WINDOWS = 3;
+
+    /** Forecast horizon drawn from, in distinct forecast days. */
+    static final int HORIZON_DAYS = 3;
 
     /** Window past a solar event during which it still counts as current. */
     private static final long AFTERGLOW_MINUTES = 30;
@@ -293,22 +278,13 @@ public class CloseToHomeService {
 
     private CloseToHomeResponse.Window toWindow(List<Candidate> group,
             Map<Long, Integer> driveMinutes, List<BestBet> bestBets) {
-        // Rating first, then the shorter drive. The tiebreak is not distance-as-rank — the class
-        // contract still holds, a further location outranks a nearer one whenever it rates better —
-        // it only orders locations the rating cannot separate, where "closer" beats the alphabet.
         List<Candidate> sorted = group.stream()
-                .sorted(Comparator.comparing(Candidate::rating).reversed()
-                        .thenComparing(c -> driveOrFar(c, driveMinutes))
-                        .thenComparing(Candidate::locationName))
+                .sorted(byRatingThenDrive(driveMinutes))
                 .toList();
         Candidate first = sorted.get(0);
 
         List<CloseToHomeResponse.Card> cards = sorted.stream()
-                .map(c -> new CloseToHomeResponse.Card(
-                        c.locationId(), c.locationName(), c.regionName(), c.locationTypes(),
-                        c.rating(), (int) Math.round(c.distanceMiles()),
-                        c.locationId() == null ? null : driveMinutes.get(c.locationId()),
-                        c.tideLabel(), false))
+                .map(c -> toCard(c, driveMinutes))
                 .toList();
 
         // NOT IN THE BRIEFING — the signal the region-level grid structurally cannot show. The
@@ -345,6 +321,30 @@ public class CloseToHomeService {
     }
 
     /**
+     * Builds a card from a candidate — the ONE place a {@link CloseToHomeResponse.Card} is made.
+     *
+     * <p>The window grid and the breadcrumb's "next local window" shortcut render the same facts
+     * about a location, and the shortcut is by construction rank 1 of the first window: the two
+     * are ordered by the same comparator over the same qualifying set. Two mappings would let one
+     * place read differently in two spots on one screen, which is the failure the whole panel
+     * contract exists to prevent.
+     *
+     * @param candidate    the candidate to describe
+     * @param driveMinutes per-location drive times for this caller
+     * @return the card, never marked lead — {@link #markLead} does that afterwards, because "rank 1
+     *         of the first window" is only knowable once the windows are ordered
+     */
+    private static CloseToHomeResponse.Card toCard(Candidate candidate,
+            Map<Long, Integer> driveMinutes) {
+        return new CloseToHomeResponse.Card(
+                candidate.locationId(), candidate.locationName(), candidate.regionName(),
+                candidate.locationTypes(), candidate.rating(),
+                (int) Math.round(candidate.distanceMiles()),
+                candidate.locationId() == null ? null : driveMinutes.get(candidate.locationId()),
+                candidate.tideLabel(), false);
+    }
+
+    /**
      * A candidate's drive time for ordering, with "not yet calculated" sorting last rather than
      * first — an unknown drive is not evidence of a short one.
      *
@@ -356,6 +356,27 @@ public class CloseToHomeService {
         Integer minutes = candidate.locationId() == null
                 ? null : driveMinutes.get(candidate.locationId());
         return minutes == null ? Integer.MAX_VALUE : minutes;
+    }
+
+    /**
+     * The one rule that ranks candidates anywhere on this panel: rating first, then the shorter
+     * drive, then the name. The tiebreak is not distance-as-rank — the class contract still holds,
+     * a further location outranks a nearer one whenever it rates better — it only orders locations
+     * the rating cannot separate, where "closer" beats the alphabet.
+     *
+     * <p>It is a method rather than three inline sorts because all three of its callers produce a
+     * gold element of the same block for the same event — the lead card, "Next local window", and
+     * the "Worth it" paragraph. Three copies is three chances to drift, and one of them had:
+     * the paragraph kept a bare rating comparison, so a 4★ tie let it name a location that
+     * neither of the two elements beside it did.
+     *
+     * @param driveMinutes per-location drive times for this caller
+     * @return the panel's canonical candidate ordering, best first
+     */
+    private static Comparator<Candidate> byRatingThenDrive(Map<Long, Integer> driveMinutes) {
+        return Comparator.comparing(Candidate::rating).reversed()
+                .thenComparing(c -> driveOrFar(c, driveMinutes))
+                .thenComparing(Candidate::locationName);
     }
 
     private static List<CloseToHomeResponse.Window> markLead(
@@ -437,20 +458,23 @@ public class CloseToHomeService {
         Candidate window = nearby.stream()
                 .filter(this::qualifies)
                 .sorted(Comparator.comparing(CloseToHomeService::eventKey)
-                        .thenComparing(Comparator.comparing(Candidate::rating).reversed())
-                        .thenComparing(c -> driveOrFar(c, driveMinutes))
-                        .thenComparing(Candidate::locationName))
+                        .thenComparing(byRatingThenDrive(driveMinutes)))
                 .findFirst()
                 .orElse(null);
         CloseToHomeResponse.NextWindow nextWindow = window == null ? null
                 : new CloseToHomeResponse.NextWindow(
-                        window.locationId(), window.locationName(), window.rating(),
                         window.date(), window.targetType(), window.eventTime(),
-                        window.locationId() == null ? null : driveMinutes.get(window.locationId()));
+                        toCard(window, driveMinutes));
 
+        // The THIRD gold element, and the same rule again. This one names a location in prose —
+        // the "Worth it" paragraph renders its headline, or failing that "X leads the local
+        // options at N★" — so a rating tie broken on iteration order (which is all bare
+        // Stream.max offers) put the paragraph, the lead card and "Next local window" on two
+        // different places for one sunrise.
         Candidate top = forNext.stream()
                 .filter(this::qualifies)
-                .max(Comparator.comparing(Candidate::rating))
+                .sorted(byRatingThenDrive(driveMinutes))
+                .findFirst()
                 .orElse(null);
         if (top != null) {
             return new CloseToHomeResponse.Breadcrumb(true, next.date(), next.targetType(),

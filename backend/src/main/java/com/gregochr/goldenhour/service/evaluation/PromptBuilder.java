@@ -41,17 +41,26 @@ public class PromptBuilder {
      * {@code cache_creation_input_tokens: 0} and the full input rate on every request. Since
      * {@code BATCH_FAR_TERM} is Haiku (V92), every T+2/T+3 evaluation depends on clearing 4,096.
      *
-     * <p>Measured against production, seven days of {@code api_call_log}: the cached prefix is
-     * <b>~4,322 tokens</b> for <b>16,318 characters</b> — a ratio of <b>3.78 chars/token</b>, which
-     * puts the 4,096-token floor at ~15,470 characters. The live prompt therefore clears it by
-     * roughly <b>5%</b>. That is the whole margin, and nothing else in the codebase records it.
+     * <p><b>Token count from production, character counts from the tree.</b> Seven days of
+     * {@code api_call_log} put the cached prefix at <b>~4,322 tokens</b>. The prompts it was
+     * measured against are <b>16,193 characters</b> (inland, {@link #getSystemPrompt()}) and
+     * <b>16,452</b> (coastal) — measured here, not inferred, because the log stores the token
+     * count and not the string. Pairing the two gives roughly <b>3.75 chars/token</b> and puts the
+     * 4,096-token floor near <b>15,350 characters</b>, which the live prompt clears by about 5%.
+     *
+     * <p>The constant is set slightly above that derived floor rather than at it. The 4,322 figure
+     * does not record which of the two prompts it came from, and their ratios differ (3.75 inland
+     * against 3.81 coastal); rounding up covers the spread instead of landing inside it. Note the
+     * earlier revision of this javadoc cited "16,318 characters", which matches neither prompt nor
+     * either byte length — it is not a measurement anything in this tree reproduces.
      *
      * <p>The floor here is deliberately the <em>cacheability</em> boundary rather than today's
      * length, so ordinary rewording is free and only a real reduction fails. It is a
      * <b>proxy, not an oracle</b>: characters per token vary with content, so a rewrite that is
      * heavier on punctuation or markup could fall under 4,096 tokens while still clearing this
      * check. Re-measure with {@code messages.count_tokens} against {@code claude-haiku-4-5} rather
-     * than trusting the character count if the prompt's shape changes materially.
+     * than trusting the character count if the prompt's shape changes materially — and record
+     * which prompt produced the number.
      */
     static final int MIN_CACHEABLE_SYSTEM_PROMPT_CHARS = 15_500;
 

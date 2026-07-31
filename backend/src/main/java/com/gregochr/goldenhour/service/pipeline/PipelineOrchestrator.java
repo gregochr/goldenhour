@@ -262,8 +262,8 @@ public class PipelineOrchestrator {
      * and {@code eligibilityPolicy} arguments are the only cycle-specific
      * inputs the sequencer needs.
      *
-     * @param cycleType         which cycle is being run (NIGHTLY today;
-     *                          INTRADAY reserved)
+     * @param cycleType         which cycle is being run — both are live; INTRADAY
+     *                          enters via {@link #runIntradayCycle()} above
      * @param candidateStrategy filter deciding which event slots enter the
      *                          candidate set
      * @param eligibilityPolicy per-candidate include/skip decision function

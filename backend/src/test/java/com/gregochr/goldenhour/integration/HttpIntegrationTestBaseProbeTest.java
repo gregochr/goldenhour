@@ -48,8 +48,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 class HttpIntegrationTestBaseProbeTest extends HttpIntegrationTestBase {
 
-    /** A region name seeded by V31, used to prove the response is not an empty list. */
-    private static final String SEEDED_REGION = "Northumberland";
+    /**
+     * A region name present after all migrations, used to prove the response is not an empty list.
+     *
+     * <p>Seeded by V31 as "Northumberland" and renamed by V137, which merged Tyne and Wear into it
+     * — so this constant tracks the migrated name, not the seeded one. It is deliberately still a
+     * literal rather than "whatever the first row happens to be": the point of the assertion is
+     * that a row this test did not write survives the full migration chain.
+     */
+    private static final String SEEDED_REGION = "Northumberland & Tyneside";
 
     /** Username of the probe's LITE_USER row. Distinct so it cannot collide with real fixtures. */
     private static final String LITE_USERNAME = "http-probe-lite";

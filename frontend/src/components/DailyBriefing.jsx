@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { getDailyBriefing } from '../api/briefingApi.js';
-import { readSwrCache, writeSwrCache } from '../utils/swrCache.js';
+import { cacheGeneration, readSwrCache, writeSwrCache } from '../utils/swrCache.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getAstroConditions } from '../api/astroApi.js';
 import { getDriveTimes } from '../api/settingsApi.js';
@@ -1060,6 +1060,9 @@ export default function DailyBriefing({
   };
 
   const fetchBriefing = useCallback(async () => {
+    // Captured BEFORE the fetch — see useForecasts. A revalidation resolving after a logout sweep
+    // would otherwise re-plant the previous account's briefing under its role key.
+    const gen = cacheGeneration();
     try {
       const data = await getDailyBriefing();
       // Ignore an empty/204 revalidation: keep the last good briefing on screen and don't let a
@@ -1067,7 +1070,7 @@ export default function DailyBriefing({
       // preserving the "nothing to show" behaviour.)
       if (data) {
         setBriefing(data);
-        writeSwrCache(briefingCacheKey, data);
+        writeSwrCache(briefingCacheKey, data, gen);
       }
     } catch {
       // Transient — keep existing data (cached or previously fetched)

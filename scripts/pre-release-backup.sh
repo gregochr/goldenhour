@@ -49,7 +49,22 @@ mkdir -p "$RELEASE_DIR"
 log() { echo "[pre-release-backup] $*"; }
 
 # --- Preconditions ------------------------------------------------------------
-docker inspect "$PG_CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep -q true \
+# Checked separately from the container probe below, which the other two scripts
+# already do (backup-postgres.sh, migrate-pgdata-path.sh). Without it a missing
+# docker binary still fails closed, but reports "goldenhour-db is not running
+# here" — which sends you looking at the container on a host where the problem is
+# the host.
+command -v docker >/dev/null 2>&1 \
+    || { echo "ERROR: docker not found on PATH. This must run on the Docker host." >&2; exit 1; }
+
+# Exact match on a captured value rather than `| grep -q true`. grep's match is
+# unanchored, so it also accepts "untrue" and would accept the struct dump you
+# get if this format string is ever shortened to {{.State}} — which contains the
+# word `true` even for a stopped container, i.e. it would fail OPEN. Comparing
+# the whole value fails closed instead. (No pipe also makes the pipefail/SIGPIPE
+# shape structurally impossible here, though measurement says it never fired:
+# 6000 runs of the piped form, zero spurious failures — the output is 5 bytes.)
+[ "$(docker inspect "$PG_CONTAINER" --format='{{.State.Running}}' 2>/dev/null)" = "true" ] \
     || { echo "ERROR: ${PG_CONTAINER} is not running here — cannot back up before release." >&2; exit 1; }
 
 # --- Record what is running RIGHT NOW, before anything is pulled --------------
@@ -133,9 +148,46 @@ if [ -z "$PREV_BACKEND" ] || [ -z "$PREV_FRONTEND" ]; then
     exit 1
 fi
 
+# Flyway's `version` column is VARCHAR, so a plain MAX(version) sorts as TEXT and
+# returns '99' once V100+ exists — understating how far the schema has moved, in
+# the reassuring direction. Order on the leading integer instead.
+#
+# This constant is duplicated in scripts/rollback.sh rather than sourced from a
+# shared file, and must stay that way: deploy.yml materialises this script alone
+# out of the release tag (`git show "$TAG:scripts/pre-release-backup.sh"`), so a
+# `source` of a sibling path would resolve to nothing on the host. The
+# duplication is the cost of being standalone-extractable.
+#
+# It has already drifted once: #364 deleted this block while leaving the use
+# below, and because that use ends in `|| echo 'unknown'`, the unbound variable
+# was swallowed and every manifest since recorded schema_version "unknown"
+# without failing a release. CI now runs shellcheck with
+# -o check-unassigned-uppercase, which catches exactly that.
+SCHEMA_VERSION_SQL="SELECT COALESCE((
+    SELECT version FROM flyway_schema_history
+    WHERE success AND version IS NOT NULL
+    ORDER BY CAST(SUBSTRING(version, '^[0-9]+') AS INTEGER) DESC, installed_rank DESC
+    LIMIT 1), 'none')"
+
 SCHEMA_VERSION="$(docker exec "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -tAc \
     "$SCHEMA_VERSION_SQL" 2>/dev/null \
     | tr -d '[:space:]' || echo 'unknown')"
+
+# Validate the RESULT, not just the definition. An unbound query variable is only
+# one way to land here — psql failing (database mid-restart, wrong credentials)
+# produces the same 'unknown' through the same `||`, with the error hidden by
+# 2>/dev/null. Deliberately a warning and not an abort: the header reserves
+# aborting for the dump and the digests, which are what a rollback actually
+# needs, and refusing to release over an advisory field would be a worse trade.
+case "$SCHEMA_VERSION" in
+    ''|unknown|none)
+        SCHEMA_VERSION="unknown"
+        log "WARNING: could not read the Flyway schema version from ${PG_CONTAINER}."
+        log "         The manifest will say 'unknown'. Rollback still works — the digests"
+        log "         and the dump are what it needs — but you lose the at-a-glance check"
+        log "         of whether a restore is required. Worth investigating after the release."
+        ;;
+esac
 
 log "outgoing backend:  ${PREV_BACKEND}"
 log "outgoing frontend: ${PREV_FRONTEND}"

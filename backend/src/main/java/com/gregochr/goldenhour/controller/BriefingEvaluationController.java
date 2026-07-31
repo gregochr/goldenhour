@@ -60,7 +60,10 @@ public class BriefingEvaluationController {
     @GetMapping("/scores")
     public ResponseEntity<List<LocationEvaluationView>> getAllScores() {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        LocalDate from = today.minusDays(7);
+        // Deliberately the same past window as ForecastController's list endpoint. The Map's date
+        // strip derives its dates from the FORECAST payload alone, so any score this returns for a
+        // date older than that window has no chip to surface it — payload nothing can reach.
+        LocalDate from = today.minusDays(ForecastController.PAST_WINDOW_DAYS);
         LocalDate horizon = today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
         List<LocationEvaluationView> views = evaluationViewService.forDateRange(
                 from, horizon, Set.of(TargetType.SUNRISE, TargetType.SUNSET));
