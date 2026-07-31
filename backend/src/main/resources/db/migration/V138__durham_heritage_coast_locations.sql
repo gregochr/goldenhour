@@ -68,9 +68,14 @@ INSERT INTO locations (name, lat, lon, region_id, bortle_class, enabled, is_coas
 SELECT v.name, v.lat, v.lon,
        (SELECT id FROM regions
         WHERE name IN ('Northumberland & Tyneside', 'Northumberland', 'North East England')),
-       v.bortle, TRUE, TRUE, v.overlooks, 0, NOW(), v.bearing, v.fetch, v.shelf
+       v.bortle, TRUE, TRUE, v.overlooks, 0, NOW(), v.bearing, v.fetch_m, v.shelf
+-- The alias is fetch_m, not fetch: FETCH is a RESERVED word in PostgreSQL, so an unquoted column
+-- alias of that name is a hard syntax error. It cost a CI run — the migration failed to apply and
+-- every integration test then died on a context that could not start, which reads like a data
+-- problem rather than a parse one. Reserved words are not checked by anything local: no test here
+-- runs a migration without Docker.
 FROM (VALUES
-    -- name                              lat        lon      bortle  overlooks  bearing  fetch   shelf
+    -- name                              lat        lon      bortle  overlooks  bearing  fetch_m shelf
     ('Roker Pier & Lighthouse',        54.9210, -1.3620,  6,     FALSE,      90,  240000,  27),
     ('Seaham North Pier & Lighthouse', 54.8400, -1.3210,  5,     FALSE,      95,  245000,  27),
     ('Seaham Chemical Beach',          54.8290, -1.3290,  5,     FALSE,      95,  245000,  27),
@@ -86,7 +91,7 @@ FROM (VALUES
     -- the Heritage Coast — it is the southern end of that shoreline and shares its aspect and
     -- weather, where the Tees cluster faces north into the bay.
     ('Hartlepool Headland',            54.6930, -1.1770,  6,     FALSE,     110,  250000,  28)
-) AS v(name, lat, lon, bortle, overlooks, bearing, fetch, shelf);
+) AS v(name, lat, lon, bortle, overlooks, bearing, fetch_m, shelf);
 
 -- ---------------------------------------------------------------------------------------------
 -- 2. Types. SEASCAPE for all ten — they are the sea, not a landscape that happens to face it.
