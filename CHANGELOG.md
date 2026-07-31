@@ -15,6 +15,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Days that cannot be drawn are dropped, not faked.** A day needs both a high and a low at that location to have a range or a curve; without them the pill falls back to its fact chips. A **one-day run claims no peak** — every day is trivially the biggest, and a "peak range" badge on a lone card asserts a comparison that was never made.
 - The chart is `aria-hidden`; the verdict string carries the same meaning in words and is pinned by a test, because the chart is decorative to a screen reader and the verdict is the entire accessible answer.
 
+### Fixed — "Close to home" stopped halfway through the horizon it advertises
+
+- **The block reads "next 3 days" and then stopped at day 3's sunrise.** `MAX_WINDOWS` was a flat 3 while `HORIZON_DAYS` is 3 *days*, so on a Friday the three soonest windows ran out at Sunday sunrise and **Sunday sunset was dropped** — inside the stated horizon, present in the candidate set, and plainly visible in the Plan grid directly below, which builds up to 6 events. Nothing on the panel said a window had been withheld.
+- **The cap is now derived from the horizon** (`HORIZON_DAYS × EVENTS_PER_DAY`) rather than written as a number beside it, so the two cannot drift apart again. That makes it non-binding today, which is the point: it survives as a guard on the grouping, not as a product decision about how far the block reaches. A count the user can read but not act on is the failure `withinReach` was fixed for; a horizon they can read but not see is the same failure one level up.
+
 ### Fixed — "Close to home" stated a count it gave no way to act on
 
 - **The window showed four cards under a header reading "20 within reach".** `MAX_CARDS_PER_WINDOW` silently discarded the rest, so the number was readable and unreachable, with nothing saying why those four. The backend cap is **gone**: every qualifier is carried, and `withinReach` can no longer disagree with the list — a test pins the invariant.

@@ -727,28 +727,45 @@ class CloseToHomeServiceTest {
     // ── caps and counts ───────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("at most 3 windows, keeping the SOONEST three")
-    void windowsCappedAtThree() {
+    @DisplayName("every window inside the stated horizon is served — including the LAST day's sunset")
+    void windowsReachTheEndOfTheHorizon() {
+        // The regression this test exists for. The cap was a flat 3 while the horizon is 3 DAYS,
+        // so the block stopped halfway through its own stated range: on a Friday the third window
+        // was Sunday sunrise and Sunday sunset — inside the horizon, in the candidate set, and
+        // plainly visible in the Plan grid below — was silently dropped. The final window carries
+        // the highest rating here precisely so a truncation cannot pass by losing something dull.
         LocationEntity a = loc(1L, "Alpha", 54.80, -1.58, "Durham");
         when(locationService.findAllEnabled()).thenReturn(List.of(a));
-        givenWindows(List.of(
-                new WindowSpec(TODAY, TargetType.SUNRISE, "D", Verdict.GO,
-                        List.of(slotAt(1L, "Alpha", 4, TODAY, 5))),
-                new WindowSpec(TODAY, TargetType.SUNSET, "D", Verdict.GO,
-                        List.of(slotAt(1L, "Alpha", 4, TODAY, 21))),
-                new WindowSpec(TODAY.plusDays(1), TargetType.SUNRISE, "D", Verdict.GO,
-                        List.of(slotAt(1L, "Alpha", 4, TODAY.plusDays(1), 5))),
-                new WindowSpec(TODAY.plusDays(1), TargetType.SUNSET, "D", Verdict.GO,
-                        List.of(slotAt(1L, "Alpha", 5, TODAY.plusDays(1), 21)))),
-                List.of());
+
+        List<WindowSpec> specs = new java.util.ArrayList<>();
+        for (int d = 0; d < CloseToHomeService.HORIZON_DAYS; d++) {
+            LocalDate date = TODAY.plusDays(d);
+            boolean last = d == CloseToHomeService.HORIZON_DAYS - 1;
+            specs.add(new WindowSpec(date, TargetType.SUNRISE, "D", Verdict.GO,
+                    List.of(slotAt(1L, "Alpha", 4, date, 5))));
+            specs.add(new WindowSpec(date, TargetType.SUNSET, "D", Verdict.GO,
+                    List.of(slotAt(1L, "Alpha", last ? 5 : 4, date, 21))));
+        }
+        givenWindows(specs, List.of());
 
         List<CloseToHomeResponse.Window> w = service.build(1L, HOME_LAT, HOME_LON).windows();
 
-        // The 5-star window is fourth chronologically and is dropped: the block is a glance at
-        // what is SOON, not a ranked list of the horizon.
-        assertThat(w).hasSize(3);
+        assertThat(w).hasSize(CloseToHomeService.MAX_WINDOWS);
         assertThat(w.get(0).date()).isEqualTo(TODAY);
-        assertThat(w).extracting(CloseToHomeResponse.Window::bestRating).doesNotContain(5);
+        CloseToHomeResponse.Window last = w.get(w.size() - 1);
+        assertThat(last.date()).isEqualTo(TODAY.plusDays(CloseToHomeService.HORIZON_DAYS - 1));
+        assertThat(last.targetType()).isEqualTo(TargetType.SUNSET);
+        assertThat(last.bestRating()).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("the window cap can never be tighter than the horizon it advertises")
+    void windowCapMatchesTheAdvertisedHorizon() {
+        // The block's own header reads "next N days", so a cap below one window per solar event
+        // per day makes that header a promise the payload does not keep. Pinned as arithmetic
+        // rather than as a literal so tightening either constant alone fails here.
+        assertThat(CloseToHomeService.MAX_WINDOWS)
+                .isGreaterThanOrEqualTo(CloseToHomeService.HORIZON_DAYS * 2);
     }
 
     @Test

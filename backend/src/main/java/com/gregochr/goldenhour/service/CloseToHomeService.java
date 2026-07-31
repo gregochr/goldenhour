@@ -55,8 +55,26 @@ import java.util.Set;
 @Service
 public class CloseToHomeService {
 
+    /** Forecast horizon drawn from, in distinct forecast days. */
+    static final int HORIZON_DAYS = 3;
+
+    /** Solar events a day contributes: one sunrise, one sunset. */
+    private static final int EVENTS_PER_DAY = 2;
+
     /**
-     * Windows shown, so the block stays a glance rather than a list.
+     * Windows shown — a backstop at exactly what {@link #HORIZON_DAYS} can produce, never less.
+     *
+     * <p>It was a flat 3, one half of the horizon, and that made the block's own header lie: it
+     * reads "next 3 days" while the cap silently stopped a day-3 sunset from ever being shown. On a
+     * Friday the three soonest windows ran out at Sunday sunrise, so Sunday sunset — inside the
+     * stated horizon, present in the candidate set, and visible in the Plan grid directly below —
+     * was dropped with nothing to say it had been. A count the user can read but not act on is the
+     * same failure {@code withinReach} was fixed for; a horizon they can read but not see is that
+     * failure one level up.
+     *
+     * <p>Derived from the horizon rather than written as 6 so the two cannot drift apart again.
+     * That makes the cap non-binding today, which is the point — it survives as a guard on the
+     * grouping, not as a product decision about how far the block reaches.
      *
      * <p>There is deliberately no matching cap on cards <em>within</em> a window. There was — four —
      * and it made {@code withinReach} a number the user could read but not act on: a window saying
@@ -65,10 +83,7 @@ public class CloseToHomeService {
      * list); the payload's job is to make every qualifying location reachable. The set is already
      * bounded by the radius gate and the location roster.
      */
-    static final int MAX_WINDOWS = 3;
-
-    /** Forecast horizon drawn from, in distinct forecast days. */
-    static final int HORIZON_DAYS = 3;
+    static final int MAX_WINDOWS = HORIZON_DAYS * EVENTS_PER_DAY;
 
     /** Window past a solar event during which it still counts as current. */
     private static final long AFTERGLOW_MINUTES = 30;
