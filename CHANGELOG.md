@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the release script treated "ahead of origin" as nothing to worry about
+
+- **`release.sh` cut the CHANGELOG promotion branch from local main without checking whether local main had anything origin did not**, so an unpushed commit rode into the promotion PR and came back squashed under its message. That is how a 497-line design doc ended up inside `docs: promote [Unreleased] to v2.17.6 (#380)`, and why the script then aborted at its own sync step with `Not possible to fast-forward` — the squash had made the commit it was standing on unreachable. The guard read `LOCAL != REMOTE` and reached for `git pull --ff-only`, but "differs" is three states and only *behind* is the one that fast-forwards: on an **ahead** branch `--ff-only` prints `Already up to date.` and exits 0, so the check passed by saying nothing was wrong. Ahead and diverged now abort, listing the offending commits and how to clear them; behind still fast-forwards.
+
 ## [v2.17.6] - 2026-07-31
 
 ### Changed — "Next local window" is a place you can go, not a caption
