@@ -12,7 +12,7 @@ import java.time.Instant;
  * {@link PipelinePhaseSummary}, returned by the detail endpoint.
  *
  * @param id              run id (also the cycle id batches are tagged with)
- * @param cycleType       NIGHTLY (INTRADAY reserved for the future intraday refresh)
+ * @param cycleType       NIGHTLY or INTRADAY — both cycles are live and share this table
  * @param status          RUNNING / COMPLETED / FAILED
  * @param currentPhase    which phase is active right now; null after completion
  * @param waitingOn       human progress text while the orchestrator is mid-WAIT; null
