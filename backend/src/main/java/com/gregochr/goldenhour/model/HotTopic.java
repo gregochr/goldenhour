@@ -37,6 +37,10 @@ import java.util.List;
  * @param morningWindow  NLC twilight window low in the NE before dawn; null as {@code eveningWindow}
  * @param facts          enriched "science showing" fact chips for the pill's second line; may be null
  * @param note           the italic "where to look" cue rendered after the fact chips; may be null
+ * @param tideRun        this day's row of a multi-day spring/king tidal run — the 24-hour tide
+ *                       curve against the day's own sunrise and sunset, plus the alignment verdict.
+ *                       Null for every non-tidal topic, and for a tidal day whose tide could not be
+ *                       derived (that pill falls back to {@code facts})
  */
 public record HotTopic(
         String type,
@@ -62,7 +66,9 @@ public record HotTopic(
         @JsonInclude(JsonInclude.Include.NON_NULL)
         List<HotTopicFact> facts,
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        String note) implements Comparable<HotTopic> {
+        String note,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        TideRunDay tideRun) implements Comparable<HotTopic> {
 
     /**
      * Explicit canonical constructor with Jackson annotations so that cached briefing
@@ -88,7 +94,8 @@ public record HotTopic(
             @JsonProperty("eveningWindow") NlcWindow eveningWindow,
             @JsonProperty("morningWindow") NlcWindow morningWindow,
             @JsonProperty("facts") List<HotTopicFact> facts,
-            @JsonProperty("note") String note) {
+            @JsonProperty("note") String note,
+            @JsonProperty("tideRun") TideRunDay tideRun) {
         this.type = type;
         this.label = label;
         this.detail = detail;
@@ -105,6 +112,7 @@ public record HotTopic(
         this.morningWindow = morningWindow;
         this.facts = facts;
         this.note = note;
+        this.tideRun = tideRun;
     }
 
     /**
@@ -134,7 +142,7 @@ public record HotTopic(
             String description,
             ExpandedHotTopicDetail expandedDetail) {
         this(type, label, detail, date, priority, filterAction, regions, description,
-                expandedDetail, null, null, null, null, null, null, null);
+                expandedDetail, null, null, null, null, null, null, null, null);
     }
 
     /**
@@ -148,7 +156,7 @@ public record HotTopic(
     public HotTopic withEvent(String eventType, String eventTime) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note);
+                eveningWindow, morningWindow, facts, note, tideRun);
     }
 
     /**
@@ -161,7 +169,7 @@ public record HotTopic(
     public HotTopic withLocations(List<String> locationNames) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note);
+                eveningWindow, morningWindow, facts, note, tideRun);
     }
 
     /**
@@ -174,7 +182,7 @@ public record HotTopic(
     public HotTopic withNlcWindows(NlcWindow eveningWindow, NlcWindow morningWindow) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note);
+                eveningWindow, morningWindow, facts, note, tideRun);
     }
 
     /**
@@ -188,7 +196,7 @@ public record HotTopic(
     public HotTopic withScience(List<HotTopicFact> facts, String note) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note);
+                eveningWindow, morningWindow, facts, note, tideRun);
     }
 
     /**
@@ -203,7 +211,19 @@ public record HotTopic(
     public HotTopic withExpandedDetail(ExpandedHotTopicDetail expandedDetail) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note);
+                eveningWindow, morningWindow, facts, note, tideRun);
+    }
+
+    /**
+     * Returns a copy of this topic carrying its day of a multi-day spring or king tidal run.
+     *
+     * @param tideRun the run row for this topic's date, or null when the tide could not be derived
+     * @return a new {@link HotTopic} with {@code tideRun} set
+     */
+    public HotTopic withTideRun(TideRunDay tideRun) {
+        return new HotTopic(type, label, detail, date, priority, filterAction, regions,
+                description, expandedDetail, eventType, eventTime, locationNames,
+                eveningWindow, morningWindow, facts, note, tideRun);
     }
 
     /**

@@ -139,6 +139,10 @@ function AppInner() {
    * postcode takes effect without a page reload.
    */
   const [homeCoords, setHomeCoords] = useState(null);
+  // Bumped when the settings modal closes, so Close to home refetches after a postcode or radius
+  // change. A counter rather than the values themselves: the panel depends on server-side state
+  // this component never sees.
+  const [homeSettingsVersion, setHomeSettingsVersion] = useState(0);
   const loadHomeCoords = useCallback(() => {
     getSettings()
       .then((s) => setHomeCoords(
@@ -367,7 +371,7 @@ function AppInner() {
             skeleton and tolerates an empty locations list, so Best Bet / Hot Topics / regions paint
             without waiting on the forecast + locations + outcomes load. */}
         {viewMode === 'plan' && (
-          <DailyBriefing locations={visibleLocations} homeCoords={homeCoords} onShowOnMap={handleShowOnMap} onEvaluationScoresChange={handleEvaluationScoresChange} onSeasonalFeaturesChange={handleSeasonalFeaturesChange} />
+          <DailyBriefing locations={visibleLocations} homeCoords={homeCoords} onShowOnMap={handleShowOnMap} onEvaluationScoresChange={handleEvaluationScoresChange} onSeasonalFeaturesChange={handleSeasonalFeaturesChange} homeSettingsVersion={homeSettingsVersion} />
         )}
 
         {/* MAP needs the forecast/location data — keep the loading / error / empty gating here. */}
@@ -477,7 +481,14 @@ function AppInner() {
 
       {showSettings && (
         <UserSettingsModal
-          onClose={() => { setShowSettings(false); loadHomeCoords(); }}
+          onClose={() => {
+            setShowSettings(false);
+            loadHomeCoords();
+            // Close to home is derived from the home postcode AND the local radius, both editable
+            // in this modal, so bump a version the panel can depend on. Without it a widened
+            // radius appeared to do nothing until a full page reload.
+            setHomeSettingsVersion((v) => v + 1);
+          }}
           onDriveTimesRefreshed={refresh}
         />
       )}

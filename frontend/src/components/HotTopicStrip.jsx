@@ -2,6 +2,7 @@ import { useState } from 'react';
 import PropTypes from 'prop-types';
 import InfoTip from './InfoTip.jsx';
 import CertaintyChip from './shared/CertaintyChip.jsx';
+import TideRunRow from './TideRunRow.jsx';
 import { bortleLabel, moonIlluminationStyle, MOON_EMOJI } from '../utils/conversions.js';
 
 /**
@@ -830,6 +831,18 @@ export default function HotTopicStrip({
                 {/* Certainty vocabulary — names the KIND of certainty (almanac / forecast /
                     chance) so a fixed tide doesn't read like a three-day weather forecast. */}
                 <CertaintyChip type={topic.type} />
+                {/* SPRING RUN 2/4 — ties a multi-day tidal run's day cards back together. The
+                    cards stay one per day in date order (Hot Topics' spine is time); this chip is
+                    what says they are one event rather than four coincidences. */}
+                {topic.tideRun && topic.tideRun.dayCount > 1 && (
+                  <span
+                    data-testid={`tide-run-chip-${topic.type}`}
+                    className="runchip"
+                    style={{ '--tr-accent': style.color }}
+                  >
+                    {topic.tideRun.runLabel} {topic.tideRun.dayNumber}/{topic.tideRun.dayCount}
+                  </span>
+                )}
               </span>
 
               {/* Detail sentence — single line, ellipsis-truncated. When the topic carries a
@@ -908,10 +921,35 @@ export default function HotTopicStrip({
               )}
             </button>
 
-            {/* Generalized enriched second line — the "science showing" fact chips + note,
-                driven by backend-supplied topic.facts. Persistent, not gated behind expansion.
-                Every topic type (NLC included) renders through this one component. */}
-            {topic.facts?.length > 0 && (
+            {/* Second line. A tidal run gets its 24-hour chart INSTEAD of the generic fact chips,
+                not alongside them: the chips already carried range, anomaly, HW/LW and seas, and
+                the chart states all four against the day's own sunrise and sunset. Showing both
+                would print the same numbers twice, once as arithmetic the reader has to do. */}
+            {topic.tideRun ? (
+              <div
+                style={{
+                  padding: '0 13px 11px 38px',
+                  // Same paywall tease the fact chips use: Lite sees the shape of the science
+                  // without readable numbers.
+                  ...(isLiteUser
+                    ? { filter: 'blur(3.5px)', userSelect: 'none', pointerEvents: 'none' }
+                    : {}),
+                }}
+              >
+                <TideRunRow
+                  day={topic.tideRun}
+                  accentColor={style.color}
+                  // POSITIONAL (date, eventType, locationName), not a handoff object. Tide topics
+                  // carry filterAction: null and have no single region, so an object handoff
+                  // matches neither of App.handleShowOnMap's object branches and falls through to
+                  // `kind: 'event'` with the object itself as the date. The run already names the
+                  // one location its curve was drawn for, which is a better focus than a region.
+                  onShowOnMap={onShowOnMap && !isLiteUser
+                    ? () => onShowOnMap(topic.date, topic.eventType, topic.tideRun.locationName)
+                    : null}
+                />
+              </div>
+            ) : topic.facts?.length > 0 && (
               <TopicFacts topic={topic} accentColor={style.color} isLiteUser={isLiteUser} />
             )}
 
@@ -1011,6 +1049,7 @@ HotTopicStrip.propTypes = {
         optional: PropTypes.bool,
       })),
       note: PropTypes.string,
+      tideRun: PropTypes.object,
     }),
   ).isRequired,
   isLiteUser: PropTypes.bool,

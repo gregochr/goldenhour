@@ -56,6 +56,9 @@ class SpringTideHotTopicStrategyTest {
     @Mock
     private CoastalTideFactsBuilder coastalTideFactsBuilder;
 
+    @Mock
+    private TideRunBuilder tideRunBuilder;
+
     private SpringTideHotTopicStrategy strategy;
 
     @BeforeEach
@@ -64,7 +67,8 @@ class SpringTideHotTopicStrategyTest {
         lenient().when(freshness.isAhead(any(LocationEntity.class), any(), any()))
                 .thenReturn(true);
         strategy = new SpringTideHotTopicStrategy(briefingService, locationRepository,
-                forecastEvaluationRepository, freshness, coastalTideFactsBuilder);
+                forecastEvaluationRepository, freshness, coastalTideFactsBuilder,
+                tideRunBuilder);
     }
 
     @Test

@@ -14,6 +14,7 @@ import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.RegionGroup;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.TideLocationMetrics;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.TideMetrics;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.TideRunDay;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.springframework.context.annotation.Lazy;
@@ -56,6 +57,7 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
     private final ForecastEvaluationRepository forecastEvaluationRepository;
     private final SolarEventFreshness freshness;
     private final CoastalTideFactsBuilder coastalTideFactsBuilder;
+    private final TideRunBuilder tideRunBuilder;
 
     /**
      * Constructs a {@code KingTideHotTopicStrategy}.
@@ -66,17 +68,20 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
      * @param forecastEvaluationRepository repository for tide alignment queries
      * @param freshness                    shared filter dropping solar events already past
      * @param coastalTideFactsBuilder      builds the enriched tide + sea-state fact line
+     * @param tideRunBuilder               builds each day's row of the multi-day run
      */
     public KingTideHotTopicStrategy(@Lazy BriefingService briefingService,
             LocationRepository locationRepository,
             ForecastEvaluationRepository forecastEvaluationRepository,
             SolarEventFreshness freshness,
-            CoastalTideFactsBuilder coastalTideFactsBuilder) {
+            CoastalTideFactsBuilder coastalTideFactsBuilder,
+            TideRunBuilder tideRunBuilder) {
         this.briefingService = briefingService;
         this.locationRepository = locationRepository;
         this.forecastEvaluationRepository = forecastEvaluationRepository;
         this.freshness = freshness;
         this.coastalTideFactsBuilder = coastalTideFactsBuilder;
+        this.tideRunBuilder = tideRunBuilder;
     }
 
     /**
@@ -147,7 +152,33 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
             }
             topics.add(topic);
         }
-        return topics;
+        return attachRun(topics, kingCandidates, coastalLocations);
+    }
+
+    /**
+     * Attaches each topic's row of the shared multi-day run, so the pills can carry a
+     * {@code KING RUN n/N} chip and a per-day tide chart while staying one card per day in
+     * chronological order. Topics whose tide could not be derived keep their fact chips.
+     *
+     * <p>The run is built from <b>every</b> king-tide day in the window, not from the topics that
+     * survived the solar-freshness filter. A run describes the tide, which does not renumber itself
+     * because a sunset has passed — numbering off the survivors made the chip count down through
+     * the day ({@code 1/4} becoming {@code 1/3} once Monday expired) and could migrate the "peak
+     * range" verdict onto a day that is not the run's biggest.
+     *
+     * @param topics           the per-day topics that survived the freshness filter, in date order
+     * @param runDays          every day of the underlying run, expired ones included
+     * @param coastalLocations the enabled coastal locations
+     * @return the topics with their run rows attached where one could be built
+     */
+    private List<HotTopic> attachRun(List<HotTopic> topics, List<BriefingDay> runDays,
+            List<LocationEntity> coastalLocations) {
+        if (topics.isEmpty()) {
+            return topics;
+        }
+        Map<LocalDate, TideRunDay> run = tideRunBuilder.build(
+                runDays.stream().map(BriefingDay::date).toList(), coastalLocations, true);
+        return topics.stream().map(t -> t.withTideRun(run.get(t.date()))).toList();
     }
 
     /**

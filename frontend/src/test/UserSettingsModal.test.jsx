@@ -272,7 +272,7 @@ describe('UserSettingsModal', () => {
     fireEvent.click(screen.getByTestId('settings-lookup-btn'));
     await waitFor(() => expect(screen.getByTestId('settings-save-home-btn')).toBeInTheDocument());
     fireEvent.click(screen.getByTestId('settings-save-home-btn'));
-    await waitFor(() => expect(saveHome).toHaveBeenCalledWith('EH1 1BB', 55.95, -3.19));
+    await waitFor(() => expect(saveHome).toHaveBeenCalledWith('EH1 1BB', 55.95, -3.19, null));
     // After save, lookup result disappears and current home shows
     await waitFor(() => expect(screen.getByTestId('settings-home-current')).toHaveTextContent('Edinburgh'));
   });

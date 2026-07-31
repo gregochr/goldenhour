@@ -92,15 +92,18 @@ const TRIAGE_REASON_LABELS = {
  *
  * @param {object} forecast - The slim forecast slot (forecastRunAt, triageReason).
  * @param {object|null} detail - The resolved detail row (evaluationModel), or null.
+ * @param {boolean} [triageSuperseded] - True when a live batch evaluation outranks this row's
+ *   triage verdict. The "not evaluated by Claude" clause is then suppressed, because the popup
+ *   is showing a Claude rating and narrative and the disclaimer would contradict them.
  */
-function buildGeneratedFooter(forecast, detail) {
+function buildGeneratedFooter(forecast, detail, triageSuperseded = false) {
   const base = formatGeneratedAtFull(forecast.forecastRunAt);
   const evaluationModel = detail?.evaluationModel;
   const model = evaluationModel && evaluationModel !== 'WILDLIFE'
     ? evaluationModel.charAt(0) + evaluationModel.slice(1).toLowerCase()
     : null;
 
-  if (forecast.triageReason) {
+  if (forecast.triageReason && !triageSuperseded) {
     const reason = TRIAGE_REASON_LABELS[forecast.triageReason] ?? TRIAGE_REASON_LABELS.GENERIC;
     return model
       ? `Forecast generated: ${base} (${model} run, but not evaluated by Claude due to ${reason})`
@@ -465,6 +468,18 @@ export default function MarkerPopupContent({
   // forecast row was a superseded triage.
   const popupRating = briefingScore?.rating ?? forecast?.rating ?? null;
   const popupStandDown = resolveStandDown(briefingScore, forecast);
+
+  // The scores must come from the same source the rating did. A triaged forecast row carries a
+  // null rating AND null scores, so coalescing only the rating left the popup showing stars from
+  // the briefing over an empty score block from the forecast — the medallion said 4★ and the bars
+  // beneath it were simply absent. MapView already coalesces both when it draws the marker arcs.
+  const popupFiery = briefingScore?.fierySkyPotential ?? forecast?.fierySkyPotential ?? null;
+  const popupGolden = briefingScore?.goldenHourPotential ?? forecast?.goldenHourPotential ?? null;
+  const popupSummary = detail?.summary ?? briefingScore?.summary ?? null;
+
+  // A triage row that lost to a live batch evaluation is superseded, not authoritative: saying
+  // "not evaluated by Claude" above a Claude-authored rating and narrative is simply false.
+  const triageSuperseded = forecast?.triageReason != null && briefingScore?.rating != null;
 
   return (
     <div style={{ fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
@@ -837,9 +852,9 @@ export default function MarkerPopupContent({
               <div style={{ height: '13px', width: '88%', borderRadius: '4px', background: 'var(--color-plex-surface-light)', marginBottom: '5px' }} />
               <div style={{ height: '13px', width: '70%', borderRadius: '4px', background: 'var(--color-plex-surface-light)' }} />
             </div>
-          ) : detail?.summary ? (
+          ) : popupSummary ? (
             <div style={{ fontSize: '13px', lineHeight: '1.55', fontFamily: "'Newsreader', Georgia, serif", color: 'var(--color-plex-text-secondary)', marginBottom: '8px' }}>
-              {detail.summary}
+              {popupSummary}
             </div>
           ) : null}
           {role === 'LITE_USER' && (
@@ -942,14 +957,14 @@ export default function MarkerPopupContent({
               )}
 
               {/* Score bars — PRO/ADMIN only */}
-              {role !== 'LITE_USER' && forecast && forecast.fierySkyPotential != null && (
+              {role !== 'LITE_USER' && popupFiery != null && (
                 <div style={{ marginBottom: '6px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: 'var(--color-plex-text-muted)', marginBottom: '4px' }}>
                     <span>Scores</span>
                     <InfoTip text="Fiery Sky measures dramatic colour from clouds catching light. Golden Hour measures overall light quality and can score high even with clear sky." />
                   </div>
-                  <PopupScoreRow label="Fiery Sky" score={forecast.fierySkyPotential} />
-                  <PopupScoreRow label="Golden Hour" score={forecast.goldenHourPotential} />
+                  <PopupScoreRow label="Fiery Sky" score={popupFiery} />
+                  <PopupScoreRow label="Golden Hour" score={popupGolden} />
                 </div>
               )}
 
@@ -968,7 +983,7 @@ export default function MarkerPopupContent({
               {/* Footer: generated at (non-admin only — admin sees it always below) */}
               {role !== 'ADMIN' && forecast?.forecastRunAt && (
                 <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: `1px solid var(--color-plex-border)`, fontSize: '10px', color: 'var(--color-plex-text-muted)' }}>
-                  {buildGeneratedFooter(forecast, detail)}
+                  {buildGeneratedFooter(forecast, detail, triageSuperseded)}
                 </div>
               )}
             </>
@@ -1004,7 +1019,7 @@ export default function MarkerPopupContent({
           {/* Footer: always visible for ADMIN */}
           {role === 'ADMIN' && forecast?.forecastRunAt && (
             <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: `1px solid var(--color-plex-border)`, fontSize: '10px', color: 'var(--color-plex-text-muted)' }}>
-              {buildGeneratedFooter(forecast, detail)}
+              {buildGeneratedFooter(forecast, detail, triageSuperseded)}
               {tideFetchedAt && (
                 <div>Tide data fetched: {formatGeneratedAtFull(tideFetchedAt)}</div>
               )}

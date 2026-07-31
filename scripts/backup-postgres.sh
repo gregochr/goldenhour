@@ -90,7 +90,14 @@ die() { log "ERROR: $*"; exit 1; }
 command -v docker >/dev/null 2>&1 \
     || die "docker not found on PATH. This must run on the Docker host — the box where 'docker ps' lists ${PG_CONTAINER}."
 
-docker inspect "$PG_CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep -q true \
+# Exact match on a captured value rather than `| grep -q true`. grep's match is
+# unanchored, so it also accepts "untrue" and would accept the struct dump you
+# get if this format string is ever shortened to {{.State}} — which contains the
+# word `true` even for a stopped container, i.e. it would fail OPEN. Comparing
+# the whole value fails closed instead. (No pipe also makes the pipefail/SIGPIPE
+# shape structurally impossible here, though measurement says it never fired:
+# 6000 runs of the piped form, zero spurious failures — the output is 5 bytes.)
+[ "$(docker inspect "$PG_CONTAINER" --format='{{.State.Running}}' 2>/dev/null)" = "true" ] \
     || die "Container ${PG_CONTAINER} is not running here. This is exactly how the 2026-03-16 gap happened: the job kept running on a host that could not see the database. Install the timer on the Docker host."
 
 # --- Daily backup -------------------------------------------------------------

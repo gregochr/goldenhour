@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { getDailyBriefing } from '../api/briefingApi.js';
-import { readSwrCache, writeSwrCache } from '../utils/swrCache.js';
+import { cacheGeneration, readSwrCache, writeSwrCache } from '../utils/swrCache.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getAstroConditions } from '../api/astroApi.js';
 import { getDriveTimes } from '../api/settingsApi.js';
@@ -15,6 +15,8 @@ import { resolveConfidence, confidenceTreatment, daysOut } from '../utils/confid
 import HotTopicStrip from './HotTopicStrip.jsx';
 import BriefingSummaryStrip from './BriefingSummaryStrip.jsx';
 import CloseToHome from './CloseToHome.jsx';
+import { getCloseToHome } from '../api/briefingApi.js';
+import { buildBriefingScoreIndex } from '../utils/briefingScoreIndex.js';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
 import { computeCellTier, isCellVisible, resolveRegionDisplay } from '../utils/tierUtils.js';
 import {
@@ -909,6 +911,7 @@ const BRIEFING_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 export default function DailyBriefing({
   locations, homeCoords = null, onShowOnMap, onEvaluationScoresChange, onSeasonalFeaturesChange,
+  homeSettingsVersion = 0,
 }) {
   const { role } = useAuth();
   const isPro = role === 'ADMIN' || role === 'PRO_USER';
@@ -944,6 +947,24 @@ export default function DailyBriefing({
   // Evaluation scores hydrated from the batch-written cached_evaluation cache.
   // Keyed by "regionName|date|targetType|locationName".
   const [evaluationScores, setEvaluationScores] = useState(new Map());
+  // Close to home is its OWN endpoint, not part of the briefing payload: it answers a different
+  // question about differently owned data (this caller's home postcode and drive times). It must
+  // never ride the shared payload, because that one is ETag-revalidated and per-user data cannot
+  // be allowed into a browser cache JavaScript cannot clear on logout.
+  const [closeToHome, setCloseToHome] = useState(null);
+  // Refetched whenever the briefing does, and whenever the user's home settings change.
+  //
+  // A bare [] dep list looked right and was not: the panel is derived from the home postcode AND
+  // the local radius, both editable in Settings, so a user who widened their radius saw the block
+  // keep its old contents until a full reload — the setting appeared to do nothing.
+  useEffect(() => {
+    let cancelled = false;
+    getCloseToHome()
+      .then((p) => { if (!cancelled) setCloseToHome(p); })
+      // A failure here must not take the Plan tab down with it — the panel simply does not render.
+      .catch(() => { if (!cancelled) setCloseToHome(null); });
+    return () => { cancelled = true; };
+  }, [briefing, homeSettingsVersion]);
 
   // Astro conditions: per-date scores keyed by locationName
   const [astroScoresByDate, setAstroScoresByDate] = useState({}); // { date: { locName: score } }
@@ -981,6 +1002,12 @@ export default function DailyBriefing({
   useEffect(() => {
     onEvaluationScoresChange?.(evaluationScores);
   }, [evaluationScores, onEvaluationScoresChange]);
+
+  // O(1) (date, event, location) lookup for the Close to home hover preview. Indexed once here
+  // rather than scanned per card: the block renders up to a dozen cards and the score map holds
+  // every location across the horizon.
+  const closeToHomeScoreIndex = useMemo(
+    () => buildBriefingScoreIndex(evaluationScores), [evaluationScores]);
 
   // Lift seasonal features to parent whenever briefing loads
   useEffect(() => {
@@ -1033,6 +1060,9 @@ export default function DailyBriefing({
   };
 
   const fetchBriefing = useCallback(async () => {
+    // Captured BEFORE the fetch — see useForecasts. A revalidation resolving after a logout sweep
+    // would otherwise re-plant the previous account's briefing under its role key.
+    const gen = cacheGeneration();
     try {
       const data = await getDailyBriefing();
       // Ignore an empty/204 revalidation: keep the last good briefing on screen and don't let a
@@ -1040,7 +1070,7 @@ export default function DailyBriefing({
       // preserving the "nothing to show" behaviour.)
       if (data) {
         setBriefing(data);
-        writeSwrCache(briefingCacheKey, data);
+        writeSwrCache(briefingCacheKey, data, gen);
       }
     } catch {
       // Transient — keep existing data (cached or previously fetched)
@@ -1323,14 +1353,13 @@ export default function DailyBriefing({
           evidence (full grid). Decisions before explanations, which is why this sits above the
           topics rather than below them. Renders nothing without a saved home postcode. */}
       <CloseToHome
-        briefingDays={briefing.days}
-        locations={locations}
-        homeCoords={homeCoords}
-        driveMap={driveMap}
-        evaluationScores={evaluationScores}
+        panel={closeToHome}
         todayStr={todayStr}
         tomorrowStr={tomorrowStr}
+        isPro={isPro}
         onShowOnMap={onShowOnMap}
+        scoreIndex={closeToHomeScoreIndex}
+        locations={locations}
       />
 
       {/* ── Hot Topics strip — seasonal conditions below the Best Bet cards ── */}
@@ -1528,6 +1557,7 @@ export default function DailyBriefing({
 }
 
 DailyBriefing.propTypes = {
+  homeSettingsVersion: PropTypes.number,
   locations: PropTypes.arrayOf(
     PropTypes.shape({
       name: PropTypes.string.isRequired,

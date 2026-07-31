@@ -58,8 +58,31 @@ public class BatchRequestFactory {
      * <p>Selects between {@link PromptBuilder} and {@link CoastalPromptBuilder} by the
      * presence of tide data, and between the base and surge-aware
      * {@link PromptBuilder#buildUserMessage} overloads by the presence of storm-surge data.
-     * The system block has {@link CacheControlEphemeral} attached so the ~3,600-token
+     * The system block has {@link CacheControlEphemeral} attached so the <b>~4,320-token</b>
      * system prompt is shared across all requests in a batch.
+     *
+     * <p>That number is load-bearing, not decorative. Haiku 4.5 — the {@code BATCH_FAR_TERM} model
+     * (V92) — will not cache a prefix below <b>4,096 tokens</b>, and below it fails silently rather
+     * than erroring. The forecast prompt clears that by about 5%, which
+     * {@code SystemPromptCacheabilityTest} pins. (This javadoc previously claimed ~3,600 tokens,
+     * which is <em>under</em> the floor and would have argued the opposite conclusion.)
+     *
+     * <p>The bluebell and woodland variants below carry the same {@code cache_control} block, and
+     * whether it does anything <b>depends on the horizon, because it decides the model</b>.
+     * {@code ForecastTaskCollector} builds those tasks with the same {@code decision.model()} as
+     * the sky path, so T+0/T+1 runs them on {@code BATCH_NEAR_TERM} — Sonnet by default (V92),
+     * floor <b>1,024 tokens</b> — and T+2/T+3 on Haiku's 4,096.
+     *
+     * <p>So: <b>inert on the far-term (Haiku) path</b>, where both prompts sit far below 4,096.
+     * On the near-term path woodland (~4,770 chars, order of 1,270 tokens) clears Sonnet's floor
+     * and <b>does cache</b>; bluebell (~3,847 chars, order of 1,030) sits within measurement error
+     * of it and could fall either side. Neither has been measured with
+     * {@code messages.count_tokens} — those are character-ratio estimates, so do not act on the
+     * bluebell one without measuring.
+     *
+     * <p>Left as-is deliberately. Padding them past 4,096 tokens to win the far-term path would
+     * cost more input than caching could recover, and the blocks are free where they do nothing.
+     * <b>Do not remove them as dead weight</b> — on the near-term path at least one is live.
      *
      * @param customId  the Anthropic custom ID (produced via {@link CustomIdFactory})
      * @param model     the evaluation model to invoke
