@@ -31,6 +31,14 @@ if [[ "$BRANCH" != "main" ]]; then
     exit 1
 fi
 
+# 1.5. Anchor to the repo root.
+#
+# The promotion block reads and rewrites CHANGELOG.md by relative path. Run from a
+# subdirectory, that resolves to nothing — and it would fail AFTER the branch had been
+# created and checked out, stranding the user mid-promotion with no message of its own.
+# Every git command here is already root-relative, so this only ever helps.
+cd "$(git rev-parse --show-toplevel)"
+
 # 2. Clean working tree check
 if [[ -n "$(git status --porcelain)" ]]; then
     echo "Error: working tree not clean. Commit or stash first."
@@ -170,6 +178,37 @@ if [[ -n "$UNRELEASED_BODY" ]]; then
     echo "attributed to whichever release happens to be cut next."
     echo ""
 
+    # Refuse if v$VERSION is ALREADY promoted at the target. Every other guard here is
+    # blind to this: inserting a second identical heading still adds exactly 2 lines and
+    # removes 0, still leaves [Unreleased] empty, and the version check below is `grep -q`,
+    # which matches the first of the two. So without this the script would tag a CHANGELOG
+    # whose notes are split across two same-named sections carrying different dates —
+    # precisely the attribution corruption section 7.5 exists to prevent.
+    #
+    # Reachable without any race, because the script's own exits create the state: the
+    # promotion PR merges to main, and then the run stops before tagging — the user answers
+    # "n" at the final confirmation, or Ctrl-Cs the poll, or hits the 15-minute timeout
+    # whose message says "merge it, then re-run ./release.sh". main now carries the heading
+    # with no tag. Later entries land under [Unreleased], the user re-runs at the same
+    # version (correctly — step 7 confirms the tag is still free), and the duplicate lands.
+    #
+    # Here-string, not `printf … | grep -q`, for the SIGPIPE reason documented at the
+    # version check further down.
+    if grep -q "^## \[v$VERSION\]" <<< "$CHANGELOG_AT_TARGET"; then
+        echo "Cannot promote: CHANGELOG.md already documents v$VERSION at the target."
+        echo ""
+        grep -n "^## \[v$VERSION\]" <<< "$CHANGELOG_AT_TARGET" | sed 's/^/  /'
+        echo ""
+        echo "An earlier run promoted this version but never tagged it, and new entries"
+        echo "have accumulated under [Unreleased] since. Promoting again would create a"
+        echo "SECOND '## [v$VERSION]' heading and split the notes between them."
+        echo ""
+        echo "Either tag v$VERSION as it stands (clear [Unreleased] by folding those"
+        echo "entries into the existing section by hand), or release them under a new"
+        echo "version number."
+        exit 1
+    fi
+
     # Promotion adds a commit ON TOP of main. If the target is an earlier commit, that
     # commit still carries the unpromoted CHANGELOG, so the tag would ship notes under
     # [Unreleased] regardless — the exact outcome this guard exists to prevent. Refuse
@@ -187,6 +226,7 @@ if [[ -n "$UNRELEASED_BODY" ]]; then
     fi
 
     CAN_PROMOTE=1
+    BLOCKER=""
     if ! command -v gh >/dev/null 2>&1; then
         echo "Cannot promote automatically: the gh CLI is not installed."
         CAN_PROMOTE=0
@@ -196,19 +236,37 @@ if [[ -n "$UNRELEASED_BODY" ]]; then
     elif git rev-parse --verify "$PROMOTE_BRANCH" >/dev/null 2>&1 ||
          git ls-remote --exit-code --heads origin "$PROMOTE_BRANCH" >/dev/null 2>&1; then
         echo "Cannot promote automatically: branch $PROMOTE_BRANCH already exists."
-        echo "Delete it, or finish the promotion it already carries."
         CAN_PROMOTE=0
+        BLOCKER="branch-exists"
     fi
 
     if [[ "$CAN_PROMOTE" -eq 0 ]]; then
         echo ""
-        echo "Promote by hand instead:"
-        echo "  1. git checkout -b $PROMOTE_BRANCH"
-        echo "  2. In CHANGELOG.md, change:  ## [Unreleased]"
-        echo "                          to:  ## [Unreleased]"
-        echo "                               "
-        echo "                               ## [v$VERSION] - $TODAY"
-        echo "  3. Open a PR, merge it, then re-run ./release.sh against the merged commit."
+        # The recipe has to match the blocker. Printing "git checkout -b $PROMOTE_BRANCH"
+        # when the refusal was *that the branch already exists* hands the user a first
+        # step guaranteed to fail, which reads as the script being broken rather than as
+        # the branch needing attention.
+        if [[ "$BLOCKER" == "branch-exists" ]]; then
+            echo "That branch already carries a promotion, or is left over from one."
+            if git rev-parse --verify "$PROMOTE_BRANCH" >/dev/null 2>&1; then
+                echo "  local:  $(git log -1 --oneline "$PROMOTE_BRANCH")"
+            fi
+            if git ls-remote --exit-code --heads origin "$PROMOTE_BRANCH" >/dev/null 2>&1; then
+                echo "  remote: origin/$PROMOTE_BRANCH exists"
+            fi
+            echo ""
+            echo "Finish it (merge its PR), or clear it and re-run ./release.sh:"
+            echo "  git branch -D $PROMOTE_BRANCH"
+            echo "  git push origin --delete $PROMOTE_BRANCH"
+        else
+            echo "Promote by hand instead:"
+            echo "  1. git checkout -b $PROMOTE_BRANCH"
+            echo "  2. In CHANGELOG.md, change:  ## [Unreleased]"
+            echo "                          to:  ## [Unreleased]"
+            echo "                               "
+            echo "                               ## [v$VERSION] - $TODAY"
+            echo "  3. Open a PR, merge it, then re-run ./release.sh against the merged commit."
+        fi
         echo ""
         exit 1
     fi
@@ -224,14 +282,27 @@ if [[ -n "$UNRELEASED_BODY" ]]; then
         exit 1
     fi
 
-    # From here the script owns a branch and a checkout. Any exit before the final
-    # cleanup must put the user back on main rather than stranding them mid-promotion.
+    # From here the script owns a branch, a checkout and a temp file. Any exit before the
+    # final cleanup must put the user back on main rather than stranding them mid-promotion.
+    #
+    # INT and TERM as well as EXIT: the longest window here is a 15-minute poll, which is
+    # exactly where a Ctrl-C is likely, and that is the worst moment to leave someone on a
+    # promotion branch with a half-applied rewrite.
+    #
+    # Discarding CHANGELOG.md is safe and is what makes the checkout reliable: step 2
+    # guarantees a clean tree at start-up, so any modification present here is this
+    # script's own mechanical rewrite, and it is regenerable. Unstage first — after
+    # `git add`, `git checkout --` restores from the index and would preserve it.
     restore_main() {
+        [[ -n "${PROMOTED:-}" ]] && rm -f "$PROMOTED" 2>/dev/null
+        git reset -q HEAD -- CHANGELOG.md 2>/dev/null || true
+        git checkout -- CHANGELOG.md 2>/dev/null || true
         if [[ "$(git rev-parse --abbrev-ref HEAD)" != "main" ]]; then
             git checkout main --quiet 2>/dev/null || true
         fi
+        return 0
     }
-    trap restore_main EXIT
+    trap restore_main EXIT INT TERM
 
     git checkout -b "$PROMOTE_BRANCH" --quiet
 
@@ -312,7 +383,7 @@ if [[ -n "$UNRELEASED_BODY" ]]; then
     echo "Merged. Syncing main..."
 
     git checkout main --quiet
-    trap - EXIT
+    trap - EXIT INT TERM
     git branch -D "$PROMOTE_BRANCH" --quiet 2>/dev/null || true
     git pull --ff-only origin main --quiet
 
