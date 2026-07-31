@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.17.5] - 2026-07-31
+
 ### Added — a spring tide is a RUN, and its days now say when the water actually lands
 
 - **Three problems, one shape.** A multi-day spring tide produced several pill cards whose day word only appeared when a tide happened to align with a solar event — `HotTopicEventEnricher.resolveTideEvent` returns null on zero alignment, and `maskExpired` drops an alignment once its event has passed, so most days of a run carried no day at all; the tide times (`LW 22:19`) and the solar times lived in different parts of the UI, so *does low water land near sunrise?* — the only question a tidal photographer is asking — was left as mental arithmetic; and nothing said the cards belonged to one continuous event.
