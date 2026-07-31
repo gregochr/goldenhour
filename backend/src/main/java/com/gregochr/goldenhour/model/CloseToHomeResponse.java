@@ -160,22 +160,26 @@ public record CloseToHomeResponse(
     /**
      * The soonest local window worth the trip, for the breadcrumb's gold rail.
      *
-     * @param locationId     database id
-     * @param locationName   location name
-     * @param rating         its rating
-     * @param date           the date it falls on
-     * @param targetType     SUNRISE or SUNSET
-     * @param eventTime      UTC event time
-     * @param driveMinutes   the caller's drive time, or null
+     * <p><b>It points at a location, not at a summary of one.</b> This used to copy the name, the
+     * rating and the drive time out of the winning candidate, which was survivable while it
+     * rendered as a label. It no longer does: the shortcut is a card in everything but shape, and
+     * shows the same region, distance and tide the location's own card does. Every one of those
+     * copied out here would be a field that could disagree with the card for the same place, on the
+     * same screen. Carrying the {@link Card} itself makes that impossible by construction, which is
+     * also why {@code CloseToHomeService.toCard} is the single place a card is built.
+     *
+     * @param date       the date it falls on
+     * @param targetType SUNRISE or SUNSET
+     * @param eventTime  UTC event time
+     * @param card       the location itself, from the same mapping the window's cards use.
+     *                   {@code lead} is always false: the gold lead accent marks rank 1 of the
+     *                   first window in the GRID, and this shortcut sits outside it
      */
     public record NextWindow(
-            Long locationId,
-            String locationName,
-            Integer rating,
             LocalDate date,
             TargetType targetType,
             @JsonInclude(JsonInclude.Include.NON_NULL) LocalDateTime eventTime,
-            @JsonInclude(JsonInclude.Include.NON_NULL) Integer driveMinutes) {
+            Card card) {
     }
 
     /** The "no home set, or nothing within reach" value — an empty panel, not an error. */

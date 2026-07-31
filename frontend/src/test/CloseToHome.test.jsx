@@ -54,6 +54,22 @@ function eventWindow(date, targetType, cards, overrides = {}) {
   };
 }
 
+/**
+ * The breadcrumb's "next local window": the window's own facts, plus the LOCATION RECORD.
+ *
+ * It carries the card rather than a copy of three of its fields, because the shortcut renders
+ * everything a card renders — nothing displayed on it may be a second description of a place the
+ * grid below already describes.
+ */
+function nextWindow(locationName, rating, date, targetType, hhmm, cardOverrides = {}) {
+  return {
+    date,
+    targetType,
+    eventTime: `${date}T${hhmm}:00`,
+    card: card(locationName, rating, cardOverrides),
+  };
+}
+
 function panel(overrides = {}) {
   return {
     radiusMiles: 22,
@@ -231,8 +247,9 @@ describe('CloseToHome', () => {
     // A lead per window would make the gold accent meaningless.
     renderBlock(panel({
       windows: [
-        eventWindow(TOMORROW, 'SUNRISE', [card('A', 5, { lead: true }), card('B', 4)]),
-        eventWindow(TOMORROW, 'SUNSET', [card('C', 5)]),
+        eventWindow(TOMORROW, 'SUNRISE',
+          [card('A', 5, { locationId: 101, lead: true }), card('B', 4, { locationId: 102 })]),
+        eventWindow(TOMORROW, 'SUNSET', [card('C', 5, { locationId: 103 })]),
       ],
     }));
 
@@ -295,17 +312,58 @@ describe('CloseToHome', () => {
         worthIt: false, date: TODAY, targetType: 'SUNSET', eventTime: `${TODAY}T21:19:00`,
         topLocationName: null, topRating: null, topHeadline: null, topSummary: null,
         dominantReason: 'Heavy cloud',
-        nextWindow: {
-          locationId: 1, locationName: "St Mary's Lighthouse", rating: 4,
-          date: TOMORROW, targetType: 'SUNRISE', eventTime: `${TOMORROW}T05:15:00`,
-          driveMinutes: 22,
-        },
+        nextWindow: nextWindow("St Mary's Lighthouse", 4, TOMORROW, 'SUNRISE', '05:15',
+          { driveMinutes: 22 }),
       },
     }));
 
     const next = screen.getByTestId('close-to-home-next-window');
     expect(next).toHaveTextContent("St Mary's Lighthouse");
     expect(next).toHaveTextContent(`Tomorrow sunrise ${ukTime(`${TOMORROW}T05:15:00`)}`);
+  });
+
+  it('shows everything a card shows — region, rating pill, drive, distance and tide', () => {
+    // Users read this as "my next closest good opportunity" and act on it, so it has to be a
+    // location affordance rather than a label. It was showing a bare `· 4.0★` and a drive time,
+    // and withholding the three facts that decide whether the trip is on: where it actually is,
+    // how far, and what the water is doing.
+    renderBlock(panel({
+      windows: [],
+      breadcrumb: {
+        worthIt: false, date: TODAY, targetType: 'SUNSET', eventTime: `${TODAY}T21:19:00`,
+        topLocationName: null, topRating: null, topHeadline: null, topSummary: null,
+        dominantReason: 'Heavy cloud',
+        nextWindow: nextWindow('Souter Lighthouse', 4, TODAY, 'SUNSET', '21:11', {
+          regionName: 'Tyne and Wear', driveMinutes: 10, distanceMiles: 4,
+          tideLabel: 'spring tide',
+        }),
+      },
+    }));
+
+    const next = screen.getByTestId('close-to-home-next-window');
+    expect(within(next).getByTestId('close-to-home-next-window-region'))
+      .toHaveTextContent('Tyne and Wear');
+    // The same pill the cards carry, not a run-on `Name · 4.0★`.
+    expect(within(next).getByTestId('close-to-home-next-window-stars')).toHaveTextContent('4.0★');
+    expect(next.textContent).toMatch(/10 min/);
+    expect(next.textContent).toMatch(/4 mi/);
+    expect(next.textContent).toMatch(/spring tide/);
+  });
+
+  it('omits the tide from the next local window when there is none', () => {
+    renderBlock(panel({
+      windows: [],
+      breadcrumb: {
+        worthIt: false, date: TODAY, targetType: 'SUNSET', eventTime: `${TODAY}T21:19:00`,
+        topLocationName: null, topRating: null, topHeadline: null, topSummary: null,
+        dominantReason: 'Heavy cloud',
+        nextWindow: nextWindow('Copt Hill', 4, TOMORROW, 'SUNRISE', '05:15', { tideLabel: null }),
+      },
+    }));
+
+    const next = screen.getByTestId('close-to-home-next-window');
+    expect(next).not.toHaveTextContent('🌊');
+    expect(next.textContent).toMatch(/9 mi/);      // distance is never absent
   });
 
   it('opens the map from the next local window, exactly as a card does', () => {
@@ -318,15 +376,14 @@ describe('CloseToHome', () => {
         worthIt: false, date: TODAY, targetType: 'SUNSET', eventTime: `${TODAY}T21:19:00`,
         topLocationName: null, topRating: null, topHeadline: null, topSummary: null,
         dominantReason: 'Heavy cloud',
-        nextWindow: {
-          locationId: 1, locationName: 'Copt Hill', rating: 4,
-          date: TOMORROW, targetType: 'SUNRISE', eventTime: `${TOMORROW}T05:15:00`,
-          driveMinutes: 10,
-        },
+        nextWindow: nextWindow('Copt Hill', 4, TOMORROW, 'SUNRISE', '05:15',
+          { driveMinutes: 10 }),
       },
     }), { onShowOnMap });
 
     const next = screen.getByTestId('close-to-home-next-window');
+    // A native button: focusable and Enter/Space-activatable with no key handling of our own,
+    // which is exactly what the handoff's role="button" + tabindex="0" reconstructs by hand.
     expect(next.tagName).toBe('BUTTON');
     expect(next).toHaveTextContent('Open on map');
 
@@ -424,11 +481,8 @@ describe('CloseToHome', () => {
         worthIt: false, date: TODAY, targetType: 'SUNSET', eventTime: `${TODAY}T21:19:00`,
         topLocationName: null, topRating: null, topHeadline: null, topSummary: null,
         dominantReason: 'Heavy cloud',
-        nextWindow: {
-          locationId: 1, locationName: 'Copt Hill', rating: 4,
-          date: TOMORROW, targetType: 'SUNRISE', eventTime: `${TOMORROW}T05:15:00`,
-          driveMinutes: 10,
-        },
+        nextWindow: nextWindow('Copt Hill', 4, TOMORROW, 'SUNRISE', '05:15',
+          { driveMinutes: 10 }),
       },
     }), {
       scoreIndex: scoreIndexFor('Copt Hill', TOMORROW, 'SUNRISE', {
@@ -441,6 +495,64 @@ describe('CloseToHome', () => {
 
     expect(screen.getByTestId('cth-hover-preview'))
       .toHaveTextContent('Clear horizon under a settled ridge');
+  });
+
+  it('dismisses the preview when the click opens the map, on every surface that opens it', () => {
+    // The preview is `position: fixed` at coordinates captured on mouseenter and sits ABOVE the
+    // map overlay. A click swaps that overlay in under a pointer that has not moved, so the card
+    // is covered without a mouseleave necessarily firing and the panel is left floating over the
+    // modal — the same failure the strip's onScroll already guards. Every surface that opens the
+    // map has to dismiss on the way out, so all three are pinned here rather than just the card.
+    const onShowOnMap = vi.fn();
+    const scoreIndex = scoreIndexFor('Angel of the North', TOMORROW, 'SUNRISE', {
+      rating: 4, summary: 'Breaking low cloud frames golden westerly light',
+      fierySkyPotential: 68, goldenHourPotential: 72,
+    });
+
+    // 1. A card in the filmstrip.
+    const { unmount } = renderBlock(panel(), { isPro: true, scoreIndex, onShowOnMap });
+    fireEvent.mouseEnter(screen.getByTestId('close-to-home-card'));
+    expect(screen.getByTestId('cth-hover-preview')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('close-to-home-card'));
+    expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
+    expect(onShowOnMap).toHaveBeenCalledWith(TOMORROW, 'SUNRISE', 'Angel of the North');
+    unmount();
+
+    // 2. A row in the expanded ranked list — the same window, opened out.
+    renderBlock(panel(), { isPro: true, scoreIndex, onShowOnMap });
+    fireEvent.click(screen.getByTestId('cth-window-count'));
+    fireEvent.mouseEnter(screen.getByTestId('cth-window-row'));
+    expect(screen.getByTestId('cth-hover-preview')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('cth-window-row'));
+    expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
+  });
+
+  it('dismisses the preview when the next-window shortcut opens the map', () => {
+    const onShowOnMap = vi.fn();
+    renderBlock(panel({
+      windows: [],
+      breadcrumb: {
+        worthIt: false, date: TODAY, targetType: 'SUNSET', eventTime: `${TODAY}T21:19:00`,
+        topLocationName: null, topRating: null, topHeadline: null, topSummary: null,
+        dominantReason: 'Heavy cloud',
+        nextWindow: nextWindow('Copt Hill', 4, TOMORROW, 'SUNRISE', '05:15',
+          { driveMinutes: 10 }),
+      },
+    }), {
+      onShowOnMap,
+      scoreIndex: scoreIndexFor('Copt Hill', TOMORROW, 'SUNRISE', {
+        rating: 4, summary: 'Clear horizon under a settled ridge',
+        fierySkyPotential: 71, goldenHourPotential: 66,
+      }),
+    });
+
+    fireEvent.mouseEnter(screen.getByTestId('close-to-home-next-window'));
+    expect(screen.getByTestId('cth-hover-preview')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('close-to-home-next-window'));
+
+    expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
+    expect(onShowOnMap).toHaveBeenCalledWith(TOMORROW, 'SUNRISE', 'Copt Hill');
   });
 
   // ── overflow: reaching past the first four ────────────────────────────────
@@ -488,8 +600,9 @@ describe('CloseToHome', () => {
   it('states the ordering rule so a scrolling strip does not read as a sample', () => {
     renderBlock(panel({ windows: [bigWindow(10)] }));
 
-    expect(screen.getByTestId('cth-ordering-explainer'))
-      .toHaveTextContent('Ranked by rating, then by drive time. Showing the top 4 of 10.');
+    expect(screen.getByTestId('cth-ordering-explainer')).toHaveTextContent(
+      'Ranked by rating, then by drive time. Showing the top 4 of 10 — scroll for the rest.',
+    );
   });
 
   it('gates the "top 4 of N" clause on the CSS, not a JS breakpoint', () => {
@@ -502,12 +615,70 @@ describe('CloseToHome', () => {
     expect(clause).toHaveClass('cth-wide-only');
   });
 
-  it('drops the "top 4 of N" clause when the whole window already fits', () => {
+  it('says nothing at all when the whole window already fits', () => {
+    // The note exists to make scrolling feel optional. A window with nothing off-screen has
+    // nothing to reassure anyone about, and the sentence would be pure noise.
     renderBlock(panel({ windows: [bigWindow(3)] }));
 
-    const explainer = screen.getByTestId('cth-ordering-explainer');
-    expect(explainer).toHaveTextContent('Ranked by rating, then by drive time.');
-    expect(explainer).not.toHaveTextContent('Showing the top');
+    expect(screen.queryByTestId('cth-ordering-explainer')).not.toBeInTheDocument();
+  });
+
+  it('notes each overflowing window, not just the first one', () => {
+    // The rule used to be printed once under window 1 whatever its size, so a 3-card first window
+    // swallowed the sentence for a 20-card second one — the reader was left to guess whether the
+    // strip that ran off the edge was ranked or arbitrary.
+    renderBlock(panel({
+      windows: [
+        eventWindow(TOMORROW, 'SUNRISE',
+          [card('A', 4, { locationId: 101 }), card('B', 4, { locationId: 102 })]),
+        bigWindow(9, { date: TOMORROW, targetType: 'SUNSET' }),
+      ],
+    }));
+
+    const notes = screen.getAllByTestId('cth-ordering-explainer');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toHaveTextContent('Showing the top 4 of 9 — scroll for the rest.');
+  });
+
+  it('drops the note when the window is expanded into the ranked list', () => {
+    // Nothing is off-screen in the list, so "scroll for the rest" would be a lie.
+    renderBlock(panel({ windows: [bigWindow(10)] }));
+
+    fireEvent.click(screen.getByTestId('cth-window-count'));
+
+    expect(screen.queryByTestId('cth-ordering-explainer')).not.toBeInTheDocument();
+  });
+
+  // ── the block header's total ──────────────────────────────────────────────
+
+  it('counts each location ONCE across windows, not per window it qualifies in', () => {
+    // The heading beside the number names a radius, so it has to count PLACES you could drive to.
+    // Summing the windows counted a location once per window — two spots across two windows read
+    // "4 within reach" under "Within 22 miles of home".
+    // Same two locations, both windows — ids are what identify them, not the name string.
+    const a = (rating) => card('Angel of the North', rating, { locationId: 101 });
+    const b = (rating) => card('Copt Hill', rating, { locationId: 102 });
+    renderBlock(panel({
+      windows: [
+        eventWindow(TOMORROW, 'SUNRISE', [a(4), b(4)]),
+        eventWindow(TOMORROW, 'SUNSET', [b(5), a(3)]),
+      ],
+    }));
+
+    expect(screen.getByTestId('close-to-home-count')).toHaveTextContent('2 within reach');
+  });
+
+  it('counts a location present in only one window, which the busiest-window rule missed', () => {
+    // The previous fix for double-counting took the busiest single window, which undercounts the
+    // other way: two windows holding one different location each are two places, not one.
+    renderBlock(panel({
+      windows: [
+        eventWindow(TOMORROW, 'SUNRISE', [card('Angel of the North', 4, { locationId: 101 })]),
+        eventWindow(TOMORROW, 'SUNSET', [card('Copt Hill', 4, { locationId: 102 })]),
+      ],
+    }));
+
+    expect(screen.getByTestId('close-to-home-count')).toHaveTextContent('2 within reach');
   });
 
   // ── overflow: filters ─────────────────────────────────────────────────────
