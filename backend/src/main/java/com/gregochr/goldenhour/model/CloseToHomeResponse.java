@@ -55,7 +55,8 @@ public record CloseToHomeResponse(
      * @param targetType           SUNRISE or SUNSET
      * @param eventTime            representative UTC event time for the header, unformatted
      * @param bestRating           the best rating in this window
-     * @param withinReach          how many in-radius locations qualified, before the card cap
+     * @param withinReach          how many in-radius locations qualified — always equal to
+     *                             {@code cards.size()}, since every qualifier is now carried
      * @param notInBriefing        the region reads STANDDOWN for this window region-wide, yet at
      *                             least one nearby location still rates GO or MAYBE. This is the
      *                             case the region-level briefing structurally CANNOT show, and the
@@ -66,7 +67,9 @@ public record CloseToHomeResponse(
      *                             the local option is not a compromise
      * @param bestBetRegionName    the Best Bet's region, for the tooltip; null unless
      *                             {@code sameWindowAsBestBet}
-     * @param cards                nearby locations, RATING-ordered within the window, capped
+     * @param cards                every qualifying nearby location, ordered by rating then by the
+     *                             shorter drive. Uncapped: the client chooses how many to show at
+     *                             once, but each one must be reachable
      */
     public record Window(
             LocalDate date,

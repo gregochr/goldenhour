@@ -55,10 +55,16 @@ import java.util.Set;
 @Service
 public class CloseToHomeService {
 
-    /** Cards per WINDOW. Rating-ordered, so this is a "top N" within the window, not a sample. */
-    static final int MAX_CARDS_PER_WINDOW = 4;
-
-    /** Windows shown, so the block stays a glance rather than a list. */
+    /**
+     * Windows shown, so the block stays a glance rather than a list.
+     *
+     * <p>There is deliberately no matching cap on cards <em>within</em> a window. There was — four —
+     * and it made {@code withinReach} a number the user could read but not act on: a window saying
+     * "20 within reach" showed four cards and offered no route to the other sixteen. The client
+     * decides how many to show at once (it scrolls, and it can expand the count into a ranked
+     * list); the payload's job is to make every qualifying location reachable. The set is already
+     * bounded by the radius gate and the location roster.
+     */
     static final int MAX_WINDOWS = 3;
 
     /** Forecast horizon drawn from, in distinct forecast days. */
@@ -272,14 +278,17 @@ public class CloseToHomeService {
 
     private CloseToHomeResponse.Window toWindow(List<Candidate> group,
             Map<Long, Integer> driveMinutes, List<BestBet> bestBets) {
+        // Rating first, then the shorter drive. The tiebreak is not distance-as-rank — the class
+        // contract still holds, a further location outranks a nearer one whenever it rates better —
+        // it only orders locations the rating cannot separate, where "closer" beats the alphabet.
         List<Candidate> sorted = group.stream()
                 .sorted(Comparator.comparing(Candidate::rating).reversed()
+                        .thenComparing(c -> driveOrFar(c, driveMinutes))
                         .thenComparing(Candidate::locationName))
                 .toList();
         Candidate first = sorted.get(0);
 
         List<CloseToHomeResponse.Card> cards = sorted.stream()
-                .limit(MAX_CARDS_PER_WINDOW)
                 .map(c -> new CloseToHomeResponse.Card(
                         c.locationId(), c.locationName(), c.regionName(), c.locationTypes(),
                         c.rating(), (int) Math.round(c.distanceMiles()),
@@ -318,6 +327,20 @@ public class CloseToHomeService {
                 flaggedRegion != null, flaggedRegion,
                 match != null, match == null ? null : match.region(),
                 cards);
+    }
+
+    /**
+     * A candidate's drive time for ordering, with "not yet calculated" sorting last rather than
+     * first — an unknown drive is not evidence of a short one.
+     *
+     * @param candidate    the candidate
+     * @param driveMinutes per-location drive times for this caller
+     * @return the drive time in minutes, or {@link Integer#MAX_VALUE} when unknown
+     */
+    private static int driveOrFar(Candidate candidate, Map<Long, Integer> driveMinutes) {
+        Integer minutes = candidate.locationId() == null
+                ? null : driveMinutes.get(candidate.locationId());
+        return minutes == null ? Integer.MAX_VALUE : minutes;
     }
 
     private static List<CloseToHomeResponse.Window> markLead(
@@ -392,10 +415,15 @@ public class CloseToHomeService {
         // coming back on a stay-in night. Chronological FIRST, then best-rated within that event.
         // The event is the primary key deliberately: two locations never share a solar time to the
         // minute, so keying on the per-location time would make the rating term unreachable.
+        // Tie-breaks on the shorter drive for the same reason toWindow does, and it must be the
+        // SAME rule: the earliest window is also windows[0], so a rating tie broken differently
+        // here made the gold "Next local window" and the gold lead card name two different
+        // locations for one event.
         Candidate window = nearby.stream()
                 .filter(this::qualifies)
                 .sorted(Comparator.comparing(CloseToHomeService::eventKey)
                         .thenComparing(Comparator.comparing(Candidate::rating).reversed())
+                        .thenComparing(c -> driveOrFar(c, driveMinutes))
                         .thenComparing(Candidate::locationName))
                 .findFirst()
                 .orElse(null);

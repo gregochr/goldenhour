@@ -276,8 +276,11 @@ class CloseToHomeServiceTest {
     }
 
     @Test
-    @DisplayName("the card count is capped")
-    void cardsAreCapped() {
+    @DisplayName("every qualifier is carried, so the count is always reachable")
+    void everyQualifierIsCarried() {
+        // The window used to hold four cards under a header saying "5 within reach" — a number the
+        // user could read but not act on. The client decides how many to show at once; the payload
+        // must make each one reachable, so cards.size() and withinReach can never disagree.
         List<LocationEntity> locs = List.of(
                 loc(1L, "A", 54.80, -1.58, "D"), loc(2L, "B", 54.81, -1.58, "D"),
                 loc(3L, "C", 54.82, -1.58, "D"), loc(4L, "D", 54.83, -1.58, "D"),
@@ -287,8 +290,10 @@ class CloseToHomeServiceTest {
                 slot(3L, "C", 5, Verdict.GO), slot(4L, "D", 5, Verdict.GO),
                 slot(5L, "E", 5, Verdict.GO));
 
-        assertThat(cardsOf(service.build(1L, HOME_LAT, HOME_LON)))
-                .hasSize(CloseToHomeService.MAX_CARDS_PER_WINDOW);
+        CloseToHomeResponse response = service.build(1L, HOME_LAT, HOME_LON);
+
+        assertThat(cardsOf(response)).hasSize(5);
+        assertThat(response.windows().get(0).withinReach()).isEqualTo(5);
     }
 
     // ── the honesty label ─────────────────────────────────────────────────────
@@ -361,6 +366,47 @@ class CloseToHomeServiceTest {
         givenBriefing(slot(1L, "Penshaw Monument", 4, Verdict.GO));
 
         assertThat(cardsOf(service.build(1L, HOME_LAT, HOME_LON)).get(0).driveMinutes()).isNull();
+    }
+
+    @Test
+    @DisplayName("a rating tie breaks on the shorter drive, in the lead card AND the next window")
+    void ratingTie_breaksOnDrive_consistentlyAcrossBothGoldElements() {
+        // Distance still never outranks a better-rated spot further out — this only orders
+        // locations the rating cannot separate, where "closer" beats the alphabet.
+        //
+        // Both assertions matter together: the earliest window IS windows[0], so the panel's two
+        // gold elements describe the same event. When only the card list carried the tiebreak, a
+        // 4★ tie put Copt Hill on the lead card and Angel of the North in "Next local window" —
+        // one block naming two different places for one sunrise.
+        List<LocationEntity> locs = List.of(
+                loc(1L, "Angel of the North", 54.80, -1.58, "Tyne and Wear"),
+                loc(2L, "Copt Hill", 54.81, -1.58, "Tyne and Wear"));
+        when(locationService.findAllEnabled()).thenReturn(locs);
+        givenBriefing(slot(1L, "Angel of the North", 4, Verdict.GO),
+                slot(2L, "Copt Hill", 4, Verdict.GO));
+        when(driveTimeResolver.getAllMinutes(7L)).thenReturn(Map.of(1L, 45, 2L, 10));
+
+        CloseToHomeResponse response = service.build(7L, HOME_LAT, HOME_LON);
+
+        // Alphabetically Angel of the North wins; on drive time Copt Hill does.
+        assertThat(cardsOf(response).get(0).locationName()).isEqualTo("Copt Hill");
+        assertThat(response.breadcrumb().nextWindow().locationName()).isEqualTo("Copt Hill");
+    }
+
+    @Test
+    @DisplayName("an unmeasured drive sorts last — not knowing is not evidence of being close")
+    void ratingTie_unknownDriveSortsLast() {
+        List<LocationEntity> locs = List.of(
+                loc(1L, "Angel of the North", 54.80, -1.58, "Tyne and Wear"),
+                loc(2L, "Copt Hill", 54.81, -1.58, "Tyne and Wear"));
+        when(locationService.findAllEnabled()).thenReturn(locs);
+        givenBriefing(slot(1L, "Angel of the North", 4, Verdict.GO),
+                slot(2L, "Copt Hill", 4, Verdict.GO));
+        // Only Copt Hill has a measured drive, and it is a long one.
+        when(driveTimeResolver.getAllMinutes(7L)).thenReturn(Map.of(2L, 55));
+
+        assertThat(cardsOf(service.build(7L, HOME_LAT, HOME_LON)).get(0).locationName())
+                .isEqualTo("Copt Hill");
     }
 
     // ── window grouping: the redesign's whole point ───────────────────────────
@@ -706,10 +752,11 @@ class CloseToHomeServiceTest {
     }
 
     @Test
-    @DisplayName("withinReach counts everything that qualified, not just the carded four")
-    void withinReachCountsBeforeTheCap() {
-        // The header reads this number under "within N miles of home", so it must describe the
-        // radius, not the card cap.
+    @DisplayName("withinReach and the card list can never disagree")
+    void withinReachEqualsTheCardCount() {
+        // The header reads this number under "within N miles of home". It describes the radius —
+        // and now also the list, since the client is handed every qualifier and decides for itself
+        // how many to show at once.
         List<LocationEntity> locs = new java.util.ArrayList<>();
         List<BriefingSlot> slots = new java.util.ArrayList<>();
         for (int i = 1; i <= 6; i++) {
@@ -722,7 +769,7 @@ class CloseToHomeServiceTest {
 
         CloseToHomeResponse.Window w = service.build(1L, HOME_LAT, HOME_LON).windows().get(0);
 
-        assertThat(w.cards()).hasSize(4);
+        assertThat(w.cards()).hasSize(6);
         assertThat(w.withinReach()).isEqualTo(6);
     }
 

@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import CloseToHome from '../components/CloseToHome.jsx';
+import { buildBriefingScoreIndex } from '../utils/briefingScoreIndex.js';
 
 /**
  * Render tests for the Close to home block.
@@ -305,5 +306,248 @@ describe('CloseToHome', () => {
     const next = screen.getByTestId('close-to-home-next-window');
     expect(next).toHaveTextContent("St Mary's Lighthouse");
     expect(next).toHaveTextContent(`Tomorrow sunrise ${ukTime(`${TOMORROW}T05:15:00`)}`);
+  });
+
+  it('opens the map from the next local window, exactly as a card does', () => {
+    // It names a location, a date and an event — the same three facts a card carries — so it was
+    // the one dead end on a panel where every other location is one tap from the pin.
+    const onShowOnMap = vi.fn();
+    renderBlock(panel({
+      windows: [],
+      breadcrumb: {
+        worthIt: false, date: TODAY, targetType: 'SUNSET', eventTime: `${TODAY}T21:19:00`,
+        topLocationName: null, topRating: null, topHeadline: null, topSummary: null,
+        dominantReason: 'Heavy cloud',
+        nextWindow: {
+          locationId: 1, locationName: 'Copt Hill', rating: 4,
+          date: TOMORROW, targetType: 'SUNRISE', eventTime: `${TOMORROW}T05:15:00`,
+          driveMinutes: 10,
+        },
+      },
+    }), { onShowOnMap });
+
+    const next = screen.getByTestId('close-to-home-next-window');
+    expect(next.tagName).toBe('BUTTON');
+    expect(next).toHaveTextContent('Open on map');
+
+    fireEvent.click(next);
+    // Positional (date, targetType, locationName) — the same signature the cards call.
+    expect(onShowOnMap).toHaveBeenCalledWith(TOMORROW, 'SUNRISE', 'Copt Hill');
+  });
+
+  // ── hover preview ─────────────────────────────────────────────────────────
+
+  /** A briefing-score map keyed the way the evaluation cache keys it. */
+  function scoreIndexFor(locationName, date, targetType, score) {
+    return buildBriefingScoreIndex(
+      new Map([[`Tyne and Wear|${date}|${targetType}|${locationName}`, score]]),
+    );
+  }
+
+  it('previews the summary and scores on hover, from data already in memory', () => {
+    // The preview must cost nothing to open — sweeping a pointer across the grid cannot become a
+    // burst of requests — so it reads the briefing scores the Plan tab already holds.
+    renderBlock(panel(), {
+      isPro: true,
+      scoreIndex: scoreIndexFor('Angel of the North', TOMORROW, 'SUNRISE', {
+        rating: 4, summary: 'Breaking low cloud frames golden westerly light',
+        fierySkyPotential: 68, goldenHourPotential: 72,
+      }),
+    });
+
+    expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
+
+    fireEvent.mouseEnter(screen.getByTestId('close-to-home-card'));
+
+    const preview = screen.getByTestId('cth-hover-preview');
+    expect(preview).toHaveTextContent('Angel of the North');
+    expect(preview).toHaveTextContent('Breaking low cloud frames golden westerly light');
+    expect(preview).toHaveTextContent('68');
+    expect(preview).toHaveTextContent('72');
+
+    fireEvent.mouseLeave(screen.getByTestId('close-to-home-card'));
+    expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the map forecast row when no briefing score covers the slot', () => {
+    renderBlock(panel(), {
+      isPro: true,
+      locations: [{
+        name: 'Angel of the North',
+        forecastsByDate: new Map([[TOMORROW, {
+          sunrise: { rating: 3, fierySkyPotential: 41, goldenHourPotential: 55 },
+        }]]),
+      }],
+    });
+
+    fireEvent.mouseEnter(screen.getByTestId('close-to-home-card'));
+
+    const preview = screen.getByTestId('cth-hover-preview');
+    expect(preview).toHaveTextContent('41');
+    // No Claude sentence on the slim forecast row — the preview shows scores, not a fabricated one.
+    expect(screen.queryByTestId('cth-hover-summary')).not.toBeInTheDocument();
+  });
+
+  it('shows no preview at all when nothing is known about the slot', () => {
+    // A hover shortcut is not worth a fetch. Knowing nothing means showing nothing.
+    renderBlock(panel());
+
+    fireEvent.mouseEnter(screen.getByTestId('close-to-home-card'));
+
+    expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
+  });
+
+  it('withholds the two Pro scores from a Lite user, as the map popup does', () => {
+    // The map popup gates both score blocks on role and offers "Upgrade to Pro for Fiery Sky &
+    // Golden Hour scores" instead. The values reach a Lite client anyway, so the gate is the UX
+    // layer and has to hold at every surface that renders them.
+    renderBlock(panel(), {
+      isPro: false,
+      scoreIndex: scoreIndexFor('Angel of the North', TOMORROW, 'SUNRISE', {
+        rating: 4, summary: 'Breaking low cloud frames golden westerly light',
+        fierySkyPotential: 68, goldenHourPotential: 72,
+      }),
+    });
+
+    fireEvent.mouseEnter(screen.getByTestId('close-to-home-card'));
+
+    expect(screen.queryByTestId('cth-hover-scores')).not.toBeInTheDocument();
+    expect(screen.getByTestId('cth-hover-upsell')).toHaveTextContent('Upgrade to Pro');
+    // The summary and stars are not Pro content and stay.
+    expect(screen.getByTestId('cth-hover-summary')).toBeInTheDocument();
+  });
+
+  it('previews the next local window too, from the same handler', () => {
+    renderBlock(panel({
+      windows: [],
+      breadcrumb: {
+        worthIt: false, date: TODAY, targetType: 'SUNSET', eventTime: `${TODAY}T21:19:00`,
+        topLocationName: null, topRating: null, topHeadline: null, topSummary: null,
+        dominantReason: 'Heavy cloud',
+        nextWindow: {
+          locationId: 1, locationName: 'Copt Hill', rating: 4,
+          date: TOMORROW, targetType: 'SUNRISE', eventTime: `${TOMORROW}T05:15:00`,
+          driveMinutes: 10,
+        },
+      },
+    }), {
+      scoreIndex: scoreIndexFor('Copt Hill', TOMORROW, 'SUNRISE', {
+        rating: 4, summary: 'Clear horizon under a settled ridge',
+        fierySkyPotential: 71, goldenHourPotential: 66,
+      }),
+    });
+
+    fireEvent.mouseEnter(screen.getByTestId('close-to-home-next-window'));
+
+    expect(screen.getByTestId('cth-hover-preview'))
+      .toHaveTextContent('Clear horizon under a settled ridge');
+  });
+
+  // ── overflow: reaching past the first four ────────────────────────────────
+
+  /** A window holding `n` cards, rating-descending so the order is the server's. */
+  function bigWindow(n, overrides = {}) {
+    const cards = Array.from({ length: n }, (_, i) => card(`Spot ${i + 1}`, i < 3 ? 4 : 3, {
+      locationId: i + 1, driveMinutes: 10 + i * 5, tideLabel: i % 2 === 0 ? 'low tide' : null,
+    }));
+    return eventWindow(TOMORROW, 'SUNRISE', cards, overrides);
+  }
+
+  it('carries every card, so the count is always reachable', () => {
+    // The block used to render four cards under a header saying "10 within reach". Whatever the
+    // client shows at once, all ten must be in the DOM to be scrolled or expanded to.
+    renderBlock(panel({ windows: [bigWindow(10)] }));
+
+    expect(screen.getAllByTestId('close-to-home-card')).toHaveLength(10);
+    expect(screen.getByTestId('cth-window-count')).toHaveTextContent('10 within reach');
+  });
+
+  it('expands the count into a ranked list of the whole window', () => {
+    renderBlock(panel({ windows: [bigWindow(10)] }));
+
+    fireEvent.click(screen.getByTestId('cth-window-count'));
+
+    // The strip gives way to the list — showing both would state the ranking twice.
+    expect(screen.queryByTestId('cth-window-cards')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('cth-window-row')).toHaveLength(10);
+
+    fireEvent.click(screen.getByTestId('cth-window-count'));
+    expect(screen.getByTestId('cth-window-cards')).toBeInTheDocument();
+  });
+
+  it('opens the map from a ranked row, exactly as its card does', () => {
+    const onShowOnMap = vi.fn();
+    renderBlock(panel({ windows: [bigWindow(10)] }), { onShowOnMap });
+
+    fireEvent.click(screen.getByTestId('cth-window-count'));
+    fireEvent.click(screen.getAllByTestId('cth-window-row')[0]);
+
+    expect(onShowOnMap).toHaveBeenCalledWith(TOMORROW, 'SUNRISE', 'Spot 1');
+  });
+
+  it('states the ordering rule so a scrolling strip does not read as a sample', () => {
+    renderBlock(panel({ windows: [bigWindow(10)] }));
+
+    expect(screen.getByTestId('cth-ordering-explainer'))
+      .toHaveTextContent('Ranked by rating, then by drive time. Showing the top 4 of 10.');
+  });
+
+  it('drops the "top 4 of N" clause when the whole window already fits', () => {
+    renderBlock(panel({ windows: [bigWindow(3)] }));
+
+    const explainer = screen.getByTestId('cth-ordering-explainer');
+    expect(explainer).toHaveTextContent('Ranked by rating, then by drive time.');
+    expect(explainer).not.toHaveTextContent('Showing the top');
+  });
+
+  // ── overflow: filters ─────────────────────────────────────────────────────
+
+  it('recomputes every count from the filtered set, never the raw one', () => {
+    // A count that survived its own filter is exactly the bug the expandable count exists to
+    // avoid — the header would offer a door to locations no longer on the other side of it.
+    renderBlock(panel({ windows: [bigWindow(10)] }));
+
+    // Any drive → ≤ 15 min: only Spot 1 (10 min) and Spot 2 (15 min) survive.
+    fireEvent.click(screen.getByTestId('cth-filter-drive'));
+
+    expect(screen.getAllByTestId('close-to-home-card')).toHaveLength(2);
+    expect(screen.getByTestId('cth-window-count')).toHaveTextContent('2 within reach');
+    expect(screen.getByTestId('close-to-home-count')).toHaveTextContent('2 within reach');
+  });
+
+  it('cycles the drive filter back to Any rather than stranding it on', () => {
+    renderBlock(panel({ windows: [bigWindow(10)] }));
+    const chip = screen.getByTestId('cth-filter-drive');
+
+    expect(chip).toHaveTextContent('Any drive');
+    fireEvent.click(chip);
+    expect(chip).toHaveTextContent('≤ 15 min');
+    fireEvent.click(chip);
+    fireEvent.click(chip);
+    expect(chip).toHaveTextContent('≤ 45 min');
+    fireEvent.click(chip);
+    expect(chip).toHaveTextContent('Any drive');
+  });
+
+  it('keeps the window head when its cards all filter out', () => {
+    // Removing the head would make the day/event rhythm shuffle as the user narrows the set.
+    renderBlock(panel({ windows: [bigWindow(10)] }));
+
+    fireEvent.click(screen.getByTestId('cth-filter-rating')); // 3.0★+
+    fireEvent.click(screen.getByTestId('cth-filter-rating')); // 4.0★+
+    fireEvent.click(screen.getByTestId('cth-filter-rating')); // 5.0★+ — nothing rates 5
+
+    expect(screen.getByTestId('cth-window-label')).toBeInTheDocument();
+    expect(screen.getByTestId('cth-window-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('close-to-home-card')).not.toBeInTheDocument();
+  });
+
+  it('keeps only tide-carrying spots when tide-only is on', () => {
+    renderBlock(panel({ windows: [bigWindow(10)] }));
+
+    fireEvent.click(screen.getByTestId('cth-filter-tide'));
+
+    // Spots 1, 3, 5, 7, 9 carry a tide label in the fixture.
+    expect(screen.getAllByTestId('close-to-home-card')).toHaveLength(5);
   });
 });
