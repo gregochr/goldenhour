@@ -224,6 +224,107 @@
   }
 }
 
+/* ── Multi-day tide run: one card per day, one chart per card ──
+   A spring tide is a RUN, not n unrelated days, and the question it has to answer is whether the
+   useful water lands near a solar event. Tide times and solar times used to sit in different parts
+   of the UI, leaving that as subtraction; here the curve is drawn against the day's own sunrise and
+   sunset. Uses existing tokens only — the topic accent arrives as --tr-accent from the component. */
+.tide-run {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+.tide-row {
+  display: grid;
+  grid-template-columns: 150px 1fr 224px;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 0 9px;
+}
+.tr-range b { color: var(--color-plex-text); font-weight: 600; font-size: 11.5px; }
+.tr-range i { font-style: normal; color: var(--color-plex-text-muted); margin-left: 5px; }
+
+.tr-chart { position: relative; height: 32px; margin: 4px 0 3px; }
+.tr-chart svg { display: block; width: 100%; height: 100%; }
+
+/* Tide labels sit BELOW the curve, sun labels ABOVE it — they must never share a line. */
+.tr-lab {
+  position: absolute;
+  bottom: -5px;
+  transform: translateX(-50%);
+  font-size: 8.5px;
+  letter-spacing: 0.03em;
+  color: var(--color-plex-text-muted);
+  white-space: nowrap;
+}
+.tr-lab b { color: var(--color-plex-text-secondary); font-weight: 500; }
+
+.tr-sun {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 1px;
+  background: rgba(224, 165, 66, 0.5);
+}
+.tr-sun span {
+  position: absolute;
+  top: -13px;
+  left: 3px;
+  font-size: 8.5px;
+  color: var(--color-verdict-marginal);
+  white-space: nowrap;
+}
+/* Sunset's label hangs to the LEFT of its rule, or it runs off the right edge of the chart. */
+.tr-sun-set span { left: auto; right: 3px; }
+
+.tr-verdict { text-align: right; color: var(--color-plex-text-muted); }
+.tr-verdict b { color: var(--color-plex-text-secondary); font-weight: 500; }
+/* Ranking by EMPHASIS, not by order: the aligned day's verdict takes the topic accent while the
+   run stays in date order. Reordering would hide that the run continues on badly-timed days. */
+.tide-row.aligned .tr-verdict { color: var(--tr-accent); }
+.tide-row.aligned .tr-verdict b { color: var(--tr-accent); font-weight: 600; }
+
+.tr-foot {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--color-plex-border);
+  margin-top: 2px;
+  padding-top: 8px;
+  color: var(--color-plex-text-muted);
+}
+.tr-foot b { color: var(--color-plex-text-secondary); font-weight: 500; }
+.tr-foot .key { display: inline-flex; align-items: center; gap: 5px; font-size: 9.5px; }
+.tr-foot .swatch { width: 14px; height: 0; border-top: 1.5px solid var(--tr-accent); }
+.tr-foot .swatch.sun { border-top: 1px solid var(--color-verdict-marginal); }
+.tr-foot .phrase { font-family: var(--font-serif); font-style: italic; font-size: 12.5px; }
+.tr-foot .topic-map { color: var(--color-tide); font-size: 10px; }
+.tr-foot .topic-map:hover { text-decoration: underline; }
+
+/* The chip tying a run's days together — "SPRING RUN 2/4". */
+.runchip {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--tr-accent, var(--color-tide));
+  border: 1px solid color-mix(in oklch, var(--tr-accent, var(--color-tide)) 40%, transparent);
+  border-radius: 4px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
+/* Below the three-column layout's comfortable width the verdict is what survives: it says in
+   words what the chart draws, so it stacks under rather than shrinking beside. */
+@media (max-width: 767px) {
+  .tide-row { grid-template-columns: 1fr; gap: 4px; }
+  .tr-verdict { text-align: left; }
+  .tr-foot { gap: 10px; }
+  .tr-foot .key, .tr-foot .tr-loc { display: none; }
+}
+
 /* Heatmap cell visibility transitions */
 .heatmap-cell-visible {
   opacity: 1;

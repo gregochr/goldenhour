@@ -2476,3 +2476,92 @@ describe('NLC enriched facts', () => {
     expect(screen.queryByTestId('topic-facts-NLC')).not.toBeInTheDocument();
   });
 });
+
+describe('HotTopicStrip — multi-day tide run', () => {
+  const runDay = (overrides = {}) => ({
+    runLabel: 'SPRING RUN',
+    dayNumber: 2,
+    dayCount: 4,
+    dayLabel: 'WED 29',
+    locationName: 'Seaham',
+    range: '4.5 m',
+    rangeAnomaly: '+1.0',
+    sunrise: '05:09',
+    sunset: '21:19',
+    seas: '0.5 m \u00b7 slight',
+    tides: [
+      { type: 'H', time: '04:59' },
+      { type: 'L', time: '11:25' },
+      { type: 'H', time: '17:24' },
+    ],
+    verdict: 'HW at sunrise \u00b7 LW 2h31 after sunset',
+    aligned: false,
+    peak: false,
+    phrase: 'low water bares the foreground',
+    ...overrides,
+  });
+
+  const tideTopic = (overrides = {}) => buildTopic({
+    type: 'SPRING_TIDE',
+    label: 'Spring tide',
+    detail: '3 tides aligned with sunrise \u00b7 51 coastal locations',
+    facts: [{ key: 'range', value: '4.5 m' }, { key: 'LW', value: '11:25' }],
+    ...overrides,
+  });
+
+  it('chips the day into its run, so four cards read as one event', () => {
+    // Hot Topics is ordered by time and the run stays one card per day. Without this chip there
+    // is nothing saying the four cards belong to a single continuous tide.
+    render(<HotTopicStrip hotTopics={[tideTopic({ tideRun: runDay() })]} />);
+    expect(screen.getByTestId('tide-run-chip-SPRING_TIDE'))
+      .toHaveTextContent('SPRING RUN 2/4');
+  });
+
+  it('does not chip a one-day run — there is no run to point at', () => {
+    render(<HotTopicStrip hotTopics={[tideTopic({
+      tideRun: runDay({ dayNumber: 1, dayCount: 1 }),
+    })]} />);
+    expect(screen.queryByTestId('tide-run-chip-SPRING_TIDE')).not.toBeInTheDocument();
+  });
+
+  it('renders the chart INSTEAD of the fact chips, never both', () => {
+    // The chips already carried range, anomaly, HW/LW and seas. The chart states all four
+    // against the day's own sunrise and sunset, so showing both prints them twice \u2014 once as
+    // arithmetic the reader has to do.
+    render(<HotTopicStrip hotTopics={[tideTopic({ tideRun: runDay() })]} />);
+    expect(screen.getByTestId('tide-run-row')).toBeInTheDocument();
+    expect(screen.queryByTestId('topic-facts-SPRING_TIDE')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the fact chips when the tide could not be derived', () => {
+    render(<HotTopicStrip hotTopics={[tideTopic()]} />);
+    expect(screen.queryByTestId('tide-run-row')).not.toBeInTheDocument();
+    expect(screen.getByTestId('topic-facts-SPRING_TIDE')).toBeInTheDocument();
+  });
+
+  it('opens the map on the location the curve was drawn for, without collapsing the pill', () => {
+    // POSITIONAL (date, eventType, locationName). An object handoff would match neither of
+    // App.handleShowOnMap's object branches — tide topics carry filterAction: null and have no
+    // single region — and fall through to `kind: 'event'` with the object itself as the date.
+    const onShowOnMap = vi.fn();
+    const onTopicTap = vi.fn();
+    render(<HotTopicStrip
+      hotTopics={[tideTopic({
+        tideRun: runDay(), eventType: 'SUNRISE', locationNames: ['Seaham'],
+      })]}
+      onShowOnMap={onShowOnMap}
+      onTopicTap={onTopicTap}
+    />);
+
+    fireEvent.click(screen.getByTestId('tide-run-map-link'));
+
+    expect(onShowOnMap).toHaveBeenCalledWith('2026-04-16', 'SUNRISE', 'Seaham');
+    expect(onTopicTap).not.toHaveBeenCalled();
+  });
+
+  it('gives Lite the shape of the science without the readable numbers', () => {
+    render(<HotTopicStrip hotTopics={[tideTopic({ tideRun: runDay() })]} isLiteUser />);
+    const chart = screen.getByTestId('tide-run-row').parentElement;
+    expect(chart).toHaveStyle({ filter: 'blur(3.5px)' });
+  });
+});
