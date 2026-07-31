@@ -732,11 +732,8 @@ public class BriefingService {
                     // in-season canopy bluebell site IS scored, by the bluebell prompt, so it
                     // belongs in both numerator and denominator. Testing the rating rather than
                     // the season means the two never disagree, and needs no roster or clock.
-                    long scoreableRoster = enrichedSlots.stream()
-                            .filter(slot -> !(slot.canopy() && slot.claudeRating() == null))
-                            .count();
                     Confidence confidence = ConfidenceDeriver.derive(
-                            daysAhead, stats, (int) scoreableRoster);
+                            daysAhead, stats, rosterOf(enrichedSlots));
                     enrichedRegions.add(new BriefingRegion(
                             region.regionName(), region.verdict(), region.summary(),
                             region.tideHighlights(), enrichedSlots,
@@ -752,6 +749,46 @@ public class BriefingService {
             enrichedDays.add(new BriefingDay(day.date(), enrichedEvents));
         }
         return enrichedDays;
+    }
+
+    /**
+     * Derives the two roster sizes {@link ConfidenceDeriver} needs from a region's slots. They are
+     * different filters over the same list, and getting either wrong is silent — hence one named,
+     * tested method rather than two inline stream counts at the call site.
+     *
+     * <p><b>scoreable</b> — slots that COULD carry a rating, the coverage denominator. A canopy
+     * slot is excluded only while it holds no rating: it is out of the sky batch, so counting it
+     * unconditionally would report a permanent, unfixable shortfall and downgrade a wood-bearing
+     * region every day, including for the sky locations in it. Keyed on what the slot actually
+     * carries rather than on the season, so the two can never disagree and no clock is needed —
+     * an in-season bluebell wood IS scored, by the bluebell prompt, and belongs in both numerator
+     * and denominator.
+     *
+     * <p><b>voting</b> — slots that vote on the region VERDICT. Mirrors
+     * {@code BriefingHierarchyBuilder.buildRegion} exactly, non-canopy slots with a fallback to
+     * the full list for an all-canopy region, because a floor guarding a roster the verdict does
+     * not use guards the wrong number.
+     *
+     * <p>For a wood-bearing region in bluebell season the two genuinely differ: the scored wood
+     * counts toward coverage and still never votes.
+     *
+     * @param slots the region's slots for one date and event
+     * @return the two denominators, never null
+     */
+    static ConfidenceDeriver.RegionRoster rosterOf(List<BriefingSlot> slots) {
+        if (slots == null || slots.isEmpty()) {
+            return new ConfidenceDeriver.RegionRoster(0, 0);
+        }
+        long scoreable = slots.stream()
+                .filter(slot -> !(slot.canopy() && slot.claudeRating() == null))
+                .count();
+        long voting = slots.stream()
+                .filter(slot -> !slot.canopy())
+                .count();
+        if (voting == 0) {
+            voting = slots.size();
+        }
+        return new ConfidenceDeriver.RegionRoster((int) scoreable, (int) voting);
     }
 
     /**

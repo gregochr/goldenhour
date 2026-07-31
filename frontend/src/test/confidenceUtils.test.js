@@ -53,9 +53,20 @@ describe('confidenceUtils', () => {
     });
 
     it('falls back to horizon when the field is missing (legacy payload)', () => {
-      expect(resolveConfidence({}, 0)).toBe('high');
       expect(resolveConfidence({}, 3)).toBe('medium');
       expect(resolveConfidence(null, 5)).toBe('low');
+    });
+
+    it('never infers the top tier — an absent field cannot render as high confidence', () => {
+      // An absent field is either a pre-field cached payload or a live one where the backend
+      // deliberately derived nothing (zero coverage → ConfidenceDeriver returns null, so it reads
+      // provisional). Uncapped, both resolved to 'high' at T+0, which rendered an unscored
+      // four-location region at full confidence — the failure this whole channel exists to avoid.
+      expect(resolveConfidence({}, 0)).toBe('medium');
+      expect(resolveConfidence({}, 1)).toBe('medium');
+      expect(resolveConfidence(null, 0)).toBe('medium');
+      // A backend that DOES say high is still believed — the cap applies only to inference.
+      expect(resolveConfidence({ confidence: 'high' }, 0)).toBe('high');
     });
 
     it('ignores an unrecognised confidence value and falls back to horizon', () => {

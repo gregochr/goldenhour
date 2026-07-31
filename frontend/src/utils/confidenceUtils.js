@@ -47,10 +47,24 @@ export function horizonConfidence(days) {
 }
 
 /**
+ * The strongest tier the FALLBACK may claim. An absent field means one of two things and the
+ * frontend cannot tell them apart: a payload cached before the field existed, or a live payload
+ * where the backend deliberately derived nothing (ConfidenceDeriver returns null for a region with
+ * zero coverage, precisely so it reads provisional). Uncapped, both used to resolve to 'high' at
+ * T+0 — so an unscored four-location region rendered at full confidence, which is the exact
+ * falsely-confident reading this channel exists to prevent. An inference from the horizon alone
+ * never earns the top tier.
+ */
+const MAX_INFERRED_TIER = 'medium';
+
+/**
  * Resolves the confidence tier for a rated element, fail-soft. Prefers the backend-supplied
- * {@code confidence} (derived from horizon + rating spread server-side); falls back to a
- * horizon-only tier when the field is missing; defaults to 'medium' when nothing is known.
- * Never throws.
+ * {@code confidence} (derived from horizon + rating spread + roster size server-side); falls back
+ * to a horizon-only tier when the field is missing, capped at {@link MAX_INFERRED_TIER}; defaults
+ * to 'medium' when nothing is known. Never throws.
+ *
+ * <p>Under-reporting is the safe direction here: a legacy payload for a large, fully-scored region
+ * at T+0 now reads MEDIUM where it once read HIGH. That is a quieter cell, not a wrong one.
  *
  * @param {object|null} rated an object that may carry a {@code confidence} string
  * @param {number|null} days  days ahead, for the fallback
@@ -59,7 +73,11 @@ export function horizonConfidence(days) {
 export function resolveConfidence(rated, days) {
   const supplied = rated && rated.confidence;
   if (CONFIDENCE_TIERS.includes(supplied)) return supplied;
-  return horizonConfidence(days) || 'medium';
+  const inferred = horizonConfidence(days) || MAX_INFERRED_TIER;
+  // CONFIDENCE_TIERS runs most → least certain, so a lower index is a stronger claim.
+  return CONFIDENCE_TIERS.indexOf(inferred) < CONFIDENCE_TIERS.indexOf(MAX_INFERRED_TIER)
+    ? MAX_INFERRED_TIER
+    : inferred;
 }
 
 /**
