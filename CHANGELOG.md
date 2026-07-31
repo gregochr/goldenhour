@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — "Close to home" stopped halfway through the horizon it advertises
+
+- **The block reads "next 3 days" and then stopped at day 3's sunrise.** `MAX_WINDOWS` was a flat 3 while `HORIZON_DAYS` is 3 *days*, so on a Friday the three soonest windows ran out at Sunday sunrise and **Sunday sunset was dropped** — inside the stated horizon, present in the candidate set, and plainly visible in the Plan grid directly below, which builds up to 6 events. Nothing on the panel said a window had been withheld.
+- **The cap is now derived from the horizon** (`HORIZON_DAYS × EVENTS_PER_DAY`) rather than written as a number beside it, so the two cannot drift apart again. That makes it non-binding today, which is the point: `collectNearby` already stops at 3 distinct dates, so the horizon bounds the block and the cap survives as a guard on the grouping, not as a product decision about how far it reaches. A count the user can read but not act on is the failure `withinReach` was fixed for; a horizon they can read but not see is the same failure one level up.
+- `windowsCappedAtThree` pinned exactly the broken behaviour, so it is replaced by two tests: one building the full 3 days × 2 events and asserting the **last day's sunset** survives (highest rating in the fixture, so a truncation cannot pass by discarding something dull), and one pinning `MAX_WINDOWS >= HORIZON_DAYS × 2` as arithmetic so tightening either constant alone fails.
+
 ## [v2.17.7] - 2026-07-31
 
 ### Fixed — the release script treated "ahead of origin" as nothing to worry about
