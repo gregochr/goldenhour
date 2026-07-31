@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchForecasts, fetchLocations, fetchAllOutcomes } from '../api/forecastApi.js';
 import { groupForecastsByLocation } from '../utils/conversions.js';
-import { readSwrCache, writeSwrCache } from '../utils/swrCache.js';
+import { cacheGeneration, readSwrCache, writeSwrCache } from '../utils/swrCache.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
 /** Stale-while-revalidate window for the cached forecast payload — matches the briefing cache. */
@@ -109,13 +109,23 @@ export function useForecasts() {
     // Only show the skeleton when there's nothing to show yet. A revalidation over hydrated or
     // previously-loaded data stays silent, so refreshing the map never blanks it (no jar).
     if (!hasDataRef.current) setLoading(true);
+    // Captured BEFORE the fetch: if the cache is cleared while these requests are in flight
+    // (logout, session expiry), the write below is refused rather than re-planting this
+    // account's payload after the sweep.
+    const gen = cacheGeneration();
     try {
       const now = new Date();
       // Recorded outcomes are PAST observations — a photographer rating a sunrise/sunset
       // they already saw (ActualOutcomeEntity.outcomeDate is always historical). The window
       // must therefore look BACKWARDS: a forward [today, today+7] range returns essentially
-      // nothing. Match the forecast payload's today-7 past edge (ForecastController) so every
-      // outcome lines up with a date the map already shows.
+      // nothing.
+      //
+      // This deliberately NO LONGER matches the forecast payload's past edge, which is now
+      // ForecastController.PAST_WINDOW_DAYS (2). The forecast window shrank because that payload
+      // is cached client-side and the past half was the larger half; outcomes have neither
+      // problem — `actual_outcome` has never held a row — so narrowing them would trade a future
+      // capability for nothing. The two windows answer different questions and are allowed to
+      // differ; what is not allowed is a comment claiming they agree when they do not.
       const to = now.toISOString().slice(0, 10);
       const from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
         .toISOString()
@@ -131,8 +141,9 @@ export function useForecasts() {
 
       setLocations(buildLocations(forecasts, locationMeta, outcomes));
       hasDataRef.current = true;
-      // Best-effort: writeSwrCache silently no-ops if the payload exceeds the storage quota.
-      writeSwrCache(cacheKey, { forecasts, locationMeta, outcomes });
+      // Best-effort: writeSwrCache silently no-ops if the payload exceeds the storage quota,
+      // and refuses the write outright if the cache was cleared since `gen` was captured.
+      writeSwrCache(cacheKey, { forecasts, locationMeta, outcomes }, gen);
     } catch (err) {
       // Surface the error on a cold load (nothing on screen), or when the user explicitly asked to
       // refresh — an explicit action (Run Forecast, drive-time change, manual re-run) expects

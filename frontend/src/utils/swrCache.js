@@ -10,7 +10,54 @@
  * when the payload differs by role.
  */
 
-const PREFIX = 'photocast_swr:';
+/** Every key this module has ever owned. Sweeping uses this so old generations stay collectable. */
+const ROOT = 'photocast_swr:';
+
+/**
+ * Current key generation. Bump when the SHAPE of a cached value changes.
+ *
+ * <p>Without a version segment, a payload whose structure changed is indistinguishable from one
+ * that did not, and the old entry sits in a budget measured in single-digit megabytes until the
+ * user happens to log out. Bumping retires every previous-generation entry at the next write.
+ */
+const PREFIX = `${ROOT}v2:`;
+
+/**
+ * Incremented by {@link clearSwrCache}. A writer captures this before it starts fetching and hands
+ * it back on write; a mismatch means the cache was cleared while the fetch was in flight, and the
+ * write is refused.
+ *
+ * <p>This is a cross-account leak, not just hygiene. `logout` awaits a network round-trip and only
+ * then sweeps, and it clears the auth token *after* that — so there is a window where the sweep has
+ * already run and the tree is still mounted. A revalidation resolving inside it re-planted the
+ * previous account's full payload under the previous account's role key, immediately after the
+ * cache was supposedly cleared, where nothing would read it and only a *future* logout would
+ * collect it. An unmount-cancellation flag does not close that window; this does.
+ */
+let generation = 0;
+
+/**
+ * Returns the current cache generation, to be passed back to {@link writeSwrCache}.
+ *
+ * @returns {number} an opaque token identifying the current cache lifetime
+ */
+export function cacheGeneration() {
+  return generation;
+}
+
+/**
+ * The full localStorage key an entry is stored under, including prefix and generation.
+ *
+ * <p>Exists so tests can assert that bytes were actually RELEASED — eviction is not observable
+ * through {@link readSwrCache}, which returns null for "evicted" and "never written" alike —
+ * without pasting the prefix as a literal they would then have to chase on every generation bump.
+ *
+ * @param {string} key - cache key (without the internal prefix)
+ * @returns {string} the underlying storage key
+ */
+export function storageKey(key) {
+  return PREFIX + key;
+}
 
 /**
  * Reads a cached value, or null when missing, unparseable, or older than maxAgeMs.
@@ -46,6 +93,44 @@ function dropEntry(key) {
 }
 
 /**
+ * Retires every entry the key about to be written supersedes: any previous key *generation*, and
+ * any other role variant of the same namespace.
+ *
+ * <p><b>The policy is one entry per namespace, at the current generation.</b> Keys are
+ * `namespace:role` (`forecasts:PRO_USER`, `briefing:anon`), so 2 namespaces x 4 role suffixes gives
+ * 8 reachable keys per generation — and nothing collected the 6 a single user cannot be using.
+ * Read-triggered eviction cannot reach them, because it requires someone to read that exact key;
+ * a key nothing reads again is never collected. Only logout swept, and only wholesale.
+ *
+ * <p>Swept at write time rather than on a timer or at startup, because that is the instant the
+ * space is actually needed, and it costs one pass over a store holding fewer than fifteen keys.
+ *
+ * <p><b>This does not make the two live caches coexist, and must not be sold as if it does.</b> The
+ * briefing measures ~2.6 MB and the forecasts payload is larger; against iOS Safari's ~5 MB ceiling
+ * one of them still loses. What this removes is the *orphans* that made the loss permanent and
+ * unexplainable. Deliberately NOT evict-the-other-namespace-and-retry: the two genuinely do not
+ * fit, so that would turn today's stable outcome into alternating thrash where each write evicts
+ * the other and the next load starts cold, with a zero hit rate for both.
+ *
+ * @param {string} key - the key being written (without the internal prefix)
+ */
+function sweepSupersededBy(key) {
+  const sep = key.indexOf(':');
+  // A key with no namespace separator supersedes only its own older generations, never a sibling.
+  const nsPrefix = sep === -1 ? null : PREFIX + key.slice(0, sep + 1);
+  const keep = PREFIX + key;
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(ROOT) || k === keep) continue;
+      const supersededGeneration = !k.startsWith(PREFIX);
+      const siblingRole = nsPrefix != null && k.startsWith(nsPrefix);
+      if (supersededGeneration || siblingRole) localStorage.removeItem(k);
+    }
+  } catch { /* storage unavailable — the write below fails too, and reports for itself */ }
+}
+
+/**
  * Writes a value with the current timestamp.
  *
  * <p>Returns whether the write landed. Callers may ignore it — caching is best-effort — but the
@@ -59,9 +144,16 @@ function dropEntry(key) {
  *
  * @param {string} key - cache key (without the internal prefix)
  * @param {*} value - JSON-serialisable value to cache
+ * @param {number} [atGeneration] - value from {@link cacheGeneration} captured before fetching;
+ *   when given and no longer current, the write is refused as belonging to a cleared session
  * @returns {boolean} true if the entry was written, false if it was dropped
  */
-export function writeSwrCache(key, value) {
+export function writeSwrCache(key, value, atGeneration) {
+  if (atGeneration != null && atGeneration !== generation) {
+    // The cache was cleared while this payload was in flight — it belongs to a session that has
+    // ended. Writing it would undo the logout sweep.
+    return false;
+  }
   let serialised;
   try {
     serialised = JSON.stringify({ ts: Date.now(), value });
@@ -70,6 +162,7 @@ export function writeSwrCache(key, value) {
     console.warn(`[swrCache] could not serialise "${key}": ${err?.message ?? err}`);
     return false;
   }
+  sweepSupersededBy(key);
   try {
     localStorage.setItem(PREFIX + key, serialised);
     return true;
@@ -92,10 +185,14 @@ export function writeSwrCache(key, value) {
  * account is never shown to the next account signing in on the same browser.
  */
 export function clearSwrCache() {
+  // Bump FIRST, so a write racing this sweep is refused even if it lands mid-loop.
+  generation += 1;
   try {
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const k = localStorage.key(i);
-      if (k && k.startsWith(PREFIX)) localStorage.removeItem(k);
+      // ROOT, not PREFIX: a logout must also collect entries written by an older key generation,
+      // which a returning user's browser can still be holding.
+      if (k && k.startsWith(ROOT)) localStorage.removeItem(k);
     }
   } catch {
     // Storage unavailable — nothing to clear.

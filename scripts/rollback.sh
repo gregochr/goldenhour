@@ -73,12 +73,26 @@ VERSION="$1"
 MANIFEST="${RELEASE_DIR}/${VERSION}.json"
 [ -f "$MANIFEST" ] || { echo "ERROR: no manifest for ${VERSION} at ${MANIFEST}" >&2; echo "Run '$0' with no arguments to list what is available." >&2; exit 1; }
 
-field() { grep -o "\"$1\": *\"[^\"]*\"" "$MANIFEST" | head -1 | cut -d'"' -f4; }
+# The `|| true` is load-bearing, not defensive noise. Without it a MISSING key
+# takes the whole script out silently: grep exits 1, pipefail promotes that to
+# the pipeline's status, the bare command substitution makes it the assignment's
+# status, and `set -e` kills the run — before printing anything. Every explicit
+# error below is then unreachable for the one input it was written for, so the
+# operator sees a rollback tool that exits 1 with no output, mid-incident.
+# Reproduced against a manifest with no `schema_version` key: it died at the
+# assignment and never reached the digest guard four lines down.
+field() { grep -o "\"$1\": *\"[^\"]*\"" "$MANIFEST" | head -1 | cut -d'"' -f4 || true; }
 BACKEND_IMAGE="$(field backend)"
 FRONTEND_IMAGE="$(field frontend)"
 SCHEMA_VERSION="$(field schema_version)"
 TAKEN_AT="$(field taken_at)"
 DUMP_FILE="${RELEASE_DIR}/$(field dump)"
+
+# Advisory, unlike the digests below — it is read by a human off the banner and
+# nothing branches on it. Named explicitly so a manifest written by the window
+# where pre-release-backup.sh could not read the schema (see its header) reads
+# as "not recorded" rather than as a version.
+[ -n "$SCHEMA_VERSION" ] || SCHEMA_VERSION="not recorded"
 
 [ -n "$BACKEND_IMAGE" ] && [ -n "$FRONTEND_IMAGE" ] || { echo "ERROR: manifest is missing image digests — cannot roll back safely." >&2; exit 1; }
 [ -f "$DUMP_FILE" ] || { echo "ERROR: dump referenced by the manifest is missing: ${DUMP_FILE}" >&2; exit 1; }

@@ -95,11 +95,19 @@ say "Backup precondition met: $(basename "$NEWEST") (${AGE_H}h old, $(du -h "$NE
 # Same filesystem means mv is instant and atomic; otherwise we must copy.
 SRC_FS="$(stat -c %d "$(dirname "$OLD_ROOT")")"
 DST_FS="$(stat -c %d "$(dirname "$NEW_ROOT")")"
+# shellcheck disable=SC2209  # "mv"/"copy" are mode names, not commands to run
 if [ "$SRC_FS" = "$DST_FS" ]; then MODE=mv; else MODE=copy; fi
 say "Transfer mode: ${MODE} ($(du -sh "$OLD_ROOT" 2>/dev/null | cut -f1) to move)"
 
 # Row counts now, to compare against afterwards.
-docker inspect "$PG_CONTAINER" --format='{{.State.Running}}' 2>/dev/null | grep -q true \
+# Exact match on a captured value rather than `| grep -q true`. grep's match is
+# unanchored, so it also accepts "untrue" and would accept the struct dump you
+# get if this format string is ever shortened to {{.State}} — which contains the
+# word `true` even for a stopped container, i.e. it would fail OPEN. Comparing
+# the whole value fails closed instead. (No pipe also makes the pipefail/SIGPIPE
+# shape structurally impossible here, though measurement says it never fired:
+# 6000 runs of the piped form, zero spurious failures — the output is 5 bytes.)
+[ "$(docker inspect "$PG_CONTAINER" --format='{{.State.Running}}' 2>/dev/null)" = "true" ] \
     || die "${PG_CONTAINER} is not running — cannot take the before-counts that verify this worked."
 BEFORE="$(docker exec "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -tAc \
     "SELECT (SELECT count(*) FROM forecast_evaluation) || '/' || (SELECT count(*) FROM locations) || '/' || (SELECT count(*) FROM app_user)")"

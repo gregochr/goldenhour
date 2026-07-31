@@ -196,6 +196,43 @@ jobs:
           echo "The suite was skipped deliberately — see the 'Detect docs-only change' job."
           echo "This check reports success so branch protection is satisfied."
 
+  # ── Shell scripts ────────────────────────────────────────────────────────────
+  # These run on the production host during deploy and rollback, and nothing else
+  # executes them — no test in the repo invokes scripts/*.sh, so a shell defect
+  # ships straight to production. #364 proved the cost: it deleted the
+  # SCHEMA_VERSION_SQL assignment in pre-release-backup.sh and left the use, and
+  # because that use ends in `|| echo 'unknown'` the unbound variable was
+  # swallowed. Every manifest since recorded schema_version "unknown", and no
+  # release failed.
+  #
+  # -o check-unassigned-uppercase is the whole point of this job. SC2154 is OFF
+  # by default for uppercase names, so plain `shellcheck scripts/*.sh` exits 0 on
+  # the broken file and would have caught nothing. Verified both ways against the
+  # pre-fix version before adding this.
+  #
+  # Step-level `if:` guards, matching every other job here: a job-level `if:` or a
+  # paths filter reports "skipped", and a skipped required check blocks a merge
+  # under branch protection rather than passing it.
+  shellcheck:
+    needs: changes
+    name: Shell — ShellCheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        if: needs.changes.outputs.docs_only != 'true'
+
+      - name: ShellCheck (with unassigned-uppercase detection)
+        if: needs.changes.outputs.docs_only != 'true'
+        run: shellcheck -o check-unassigned-uppercase scripts/*.sh
+
+      - name: Documentation-only change — suite skipped
+        if: needs.changes.outputs.docs_only == 'true'
+        run: |
+          echo "Every changed path is documentation (*.md or docs/**)."
+          echo "The suite was skipped deliberately — see the 'Detect docs-only change' job."
+          echo "This check reports success so branch protection is satisfied."
+
   # ── Playwright E2E ───────────────────────────────────────────────────────────
   # E2E tests require a live Spring Boot backend (Open-Meteo + Claude + DB).
   # They run against a real environment rather than in the standard CI pipeline.

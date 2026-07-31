@@ -145,7 +145,12 @@ class ForecastControllerTest extends AbstractControllerTest {
 
         // setUp() stubs findAllEnabled() -> [DURHAM] (id 1)
         assertThat(idsCaptor.getValue()).containsExactly(1L);
-        assertThat(fromCaptor.getValue()).isEqualTo(today.minusDays(7));
+        // Asserted against the constant, not a literal 2: the value is a product decision that
+        // may move again, but the invariant — the query window is the declared past window, not
+        // some other number — is what this pins. A literal here would have to be edited in step
+        // with the constant, which is how a test stops testing anything.
+        assertThat(fromCaptor.getValue())
+                .isEqualTo(today.minusDays(ForecastController.PAST_WINDOW_DAYS));
         assertThat(toCaptor.getValue())
                 .isEqualTo(today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS));
     }
