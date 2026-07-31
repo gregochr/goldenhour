@@ -1,6 +1,8 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import {
+  render, screen, fireEvent, within, act,
+} from '@testing-library/react';
 import CloseToHome from '../components/CloseToHome.jsx';
 import { buildBriefingScoreIndex } from '../utils/briefingScoreIndex.js';
 
@@ -647,6 +649,140 @@ describe('CloseToHome', () => {
     fireEvent.click(screen.getByTestId('cth-window-count'));
 
     expect(screen.queryByTestId('cth-ordering-explainer')).not.toBeInTheDocument();
+  });
+
+  // ── overflow: the scroll rail ─────────────────────────────────────────────
+
+  /**
+   * jsdom lays nothing out: every element reports `scrollWidth === clientWidth === 0`, so the rail
+   * would never render and every assertion below would pass vacuously. Fake the one measurement it
+   * takes — a 400px viewport over 1000px of cards — and give `scrollLeft` a real setter so writes
+   * are observable and fire `scroll` as the browser's would.
+   */
+  function overflowStrip({ clientWidth = 400, scrollWidth = 1000, railWidth = 200 } = {}) {
+    const strip = screen.getByTestId('cth-window-cards');
+    let scrollLeft = 0;
+    Object.defineProperty(strip, 'clientWidth', { configurable: true, value: clientWidth });
+    Object.defineProperty(strip, 'scrollWidth', { configurable: true, value: scrollWidth });
+    Object.defineProperty(strip, 'scrollLeft', {
+      configurable: true,
+      get: () => scrollLeft,
+      set: (v) => { scrollLeft = v; fireEvent.scroll(strip); },
+    });
+    fireEvent(window, new Event('resize'));
+
+    const rail = screen.getByTestId('cth-scroll-rail');
+    rail.getBoundingClientRect = () => ({
+      left: 0, right: railWidth, width: railWidth, top: 0, bottom: 2, height: 2, x: 0, y: 0,
+    });
+    rail.setPointerCapture = vi.fn();
+    rail.releasePointerCapture = vi.fn();
+    return { strip, rail };
+  }
+
+  it('sizes the thumb by what is visible and offsets it by what is scrolled', () => {
+    renderBlock(panel({ windows: [bigWindow(10)] }));
+    const { strip, rail } = overflowStrip();
+
+    expect(rail.querySelector('i')).toHaveStyle({ width: '40%', left: '0%' });
+
+    strip.scrollLeft = 300;
+
+    expect(rail.querySelector('i')).toHaveStyle({ left: '30%' });
+  });
+
+  it('scrolls the strip when the rail is clicked — it is the only scrollbar there is', () => {
+    // The strip hides the native bar, so for a mouse user this rail IS the scrollbar. It shipped
+    // as a read-only indicator: it looked exactly like a control and answered nothing.
+    renderBlock(panel({ windows: [bigWindow(10)] }));
+    const { strip, rail } = overflowStrip();
+
+    // Middle of the rail: 0.5 of the content, less half a thumb (0.2) → 300px in.
+    fireEvent.pointerDown(rail, { clientX: 100, pointerId: 1 });
+
+    expect(strip.scrollLeft).toBe(300);
+  });
+
+  it('tracks a drag along the rail, and clamps at both ends', () => {
+    renderBlock(panel({ windows: [bigWindow(10)] }));
+    const { strip, rail } = overflowStrip();
+
+    fireEvent.pointerDown(rail, { clientX: 100, pointerId: 1 });
+    fireEvent.pointerMove(rail, { clientX: 200, pointerId: 1 });
+
+    // Far right asks for 800; the strip only has 600 of travel.
+    expect(strip.scrollLeft).toBe(600);
+
+    fireEvent.pointerMove(rail, { clientX: 0, pointerId: 1 });
+
+    expect(strip.scrollLeft).toBe(0);
+  });
+
+  it('ignores pointer movement that is not a drag — a sweep across the rail is not a grab', () => {
+    renderBlock(panel({ windows: [bigWindow(10)] }));
+    const { strip, rail } = overflowStrip();
+
+    fireEvent.pointerMove(rail, { clientX: 180, pointerId: 1 });
+
+    expect(strip.scrollLeft).toBe(0);
+  });
+
+  it('suspends scroll snapping for the drag, and restores it on release', () => {
+    // `scroll-snap-type: x mandatory` re-snaps every scrollLeft write, so a live drag stutters
+    // card by card and reads as the rail fighting the pointer. Restoring it re-snaps once, which
+    // is what leaves the strip on a card edge rather than mid-card.
+    renderBlock(panel({ windows: [bigWindow(10)] }));
+    const { strip, rail } = overflowStrip();
+
+    fireEvent.pointerDown(rail, { clientX: 100, pointerId: 1 });
+
+    expect(strip.style.scrollSnapType).toBe('none');
+
+    fireEvent.pointerUp(rail, { clientX: 100, pointerId: 1 });
+
+    expect(strip.style.scrollSnapType).toBe('');
+  });
+
+  it('re-measures when the strip itself resizes, not only the window', () => {
+    // Caught in a real browser: the first measure ran before layout settled and the thumb kept a
+    // width describing a strip that no longer existed — 16% of a strip that was showing 41%. The
+    // panel resizing, or a font swapping, changes the strip without firing a window `resize`.
+    const observed = [];
+    const originalRO = global.ResizeObserver;
+    global.ResizeObserver = class {
+      constructor(cb) { this.cb = cb; }
+
+      observe(el) { observed.push({ el, fire: () => this.cb() }); }
+
+      disconnect() {}
+    };
+    try {
+      renderBlock(panel({ windows: [bigWindow(10)] }));
+      const { strip, rail } = overflowStrip();
+
+      expect(observed.map((o) => o.el)).toContain(strip);
+
+      Object.defineProperty(strip, 'clientWidth', { configurable: true, value: 250 });
+      // A real ResizeObserver callback arrives outside React's event system, so the state update
+      // it triggers needs an explicit act() — fireEvent supplies one, a direct call does not.
+      act(() => observed.find((o) => o.el === strip).fire());
+
+      expect(rail.querySelector('i')).toHaveStyle({ width: '25%' });
+    } finally {
+      global.ResizeObserver = originalRO;
+    }
+  });
+
+  it('renders no rail at all when the strip does not overflow', () => {
+    // A full-width thumb on a strip that fits reads as a disabled control, and now that the rail
+    // is draggable it would be one — a scrollbar for a scroll that cannot happen.
+    renderBlock(panel({ windows: [bigWindow(10)] }));
+    const strip = screen.getByTestId('cth-window-cards');
+    Object.defineProperty(strip, 'clientWidth', { configurable: true, value: 1000 });
+    Object.defineProperty(strip, 'scrollWidth', { configurable: true, value: 1000 });
+    fireEvent(window, new Event('resize'));
+
+    expect(screen.queryByTestId('cth-scroll-rail')).not.toBeInTheDocument();
   });
 
   // ── the block header's total ──────────────────────────────────────────────
