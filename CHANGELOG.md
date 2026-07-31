@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the release script treated "ahead of origin" as nothing to worry about
+
+- **`release.sh` cut the CHANGELOG promotion branch from local main without checking whether local main had anything origin did not**, so an unpushed commit rode into the promotion PR and came back squashed under its message. That is how a 497-line design doc ended up inside `docs: promote [Unreleased] to v2.17.6 (#380)`, and why the script then aborted at its own sync step with `Not possible to fast-forward` — the squash had made the commit it was standing on unreachable. The guard read `LOCAL != REMOTE` and reached for `git pull --ff-only`, but "differs" is three states and only *behind* is the one that fast-forwards: on an **ahead** branch `--ff-only` prints `Already up to date.` and exits 0, so the check passed by saying nothing was wrong. Ahead and diverged now abort, listing the offending commits and how to clear them; behind still fast-forwards.
+
 ### Fixed — a four-location region could declare itself "Worth it" on one location, and read HIGH confidence doing it
 
 - **`rollUpVerdict` is a ratio with no minimum n.** GO fires when `goCount` reaches 20% of the *viable* (non-STANDDOWN) slots, and `1 * 100 >= viable * 20` holds for every viable count up to 5 — so a single GO location carries the entire region whenever five or fewer of its locations are viable. Measured across the live roster, the stand-downs needed to reach that band were: **Teesdale 0** (unconditional, 4 voting locations), **Tyne and Wear 2** of 7, North York Moors 4 of 9, then 19 / 50 / 53 / 65 for the four large regions. Two stand-downs out of seven is an ordinary British morning, so the small regions were reaching "Worth it" off one location on exactly the mixed days the verdict exists to adjudicate.

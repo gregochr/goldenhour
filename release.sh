@@ -9,7 +9,8 @@
 #
 # Safety checks:
 #   - must be on main, working tree clean
-#   - syncs with origin/main before tagging
+#   - syncs with origin/main before tagging, and refuses to run when local main is
+#     ahead (unpushed commits get swept into the CHANGELOG promotion PR)
 #   - prompts for target commit (default HEAD)
 #   - verifies target is reachable from main
 #   - shows commits between last tag and target for review
@@ -50,10 +51,30 @@ fi
 echo "Fetching from origin..."
 git fetch origin --tags --quiet
 
-LOCAL=$(git rev-parse main)
-REMOTE=$(git rev-parse origin/main)
-if [[ "$LOCAL" != "$REMOTE" ]]; then
-    echo "Local main differs from origin/main. Fast-forwarding..."
+# "Differs from origin/main" is three states, not one, and only one of them is safe
+# to fast-forward. Behind is the ordinary case. Ahead is fatal: the promotion block
+# below cuts its branch from LOCAL main, so an unpushed commit rides into the
+# changelog PR and comes back squashed, leaving main un-fast-forwardable at step 9.
+# `git pull --ff-only` does not catch this — on an ahead branch it prints
+# "Already up to date." and exits 0, which is exactly how a stray commit got into
+# the v2.17.6 promotion PR (#380).
+COUNTS=$(git rev-list --left-right --count main...origin/main)
+AHEAD=${COUNTS%%[[:space:]]*}
+BEHIND=${COUNTS##*[[:space:]]}
+
+if [[ "$AHEAD" -gt 0 ]]; then
+    echo "Error: local main is $AHEAD commit(s) ahead of origin/main."
+    echo ""
+    git log --oneline origin/main..main
+    echo ""
+    echo "Release branches are cut from local main, so these would be swept into"
+    echo "the CHANGELOG promotion PR and squash-merged under its commit message."
+    echo "Push them first, or drop them with: git reset --hard origin/main"
+    exit 1
+fi
+
+if [[ "$BEHIND" -gt 0 ]]; then
+    echo "Local main is $BEHIND commit(s) behind origin/main. Fast-forwarding..."
     git pull --ff-only origin main
 fi
 
