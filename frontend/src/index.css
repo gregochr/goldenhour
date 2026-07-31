@@ -322,7 +322,12 @@
   .tide-row { grid-template-columns: 1fr; gap: 4px; }
   .tr-verdict { text-align: left; }
   .tr-foot { gap: 10px; }
-  .tr-foot .key, .tr-foot .tr-loc { display: none; }
+  /* The legend swatches go — the chart's colours are self-evident beside it. `.tr-loc` STAYS:
+     it is the only place the representative location is named, and the whole run is drawn for
+     that one coastline. Times differ by ~20 minutes across a coastline a topic may span, so
+     dropping the name leaves clock times on a phone with nothing saying which shore they are
+     for — losing the caveat exactly where the times are most likely to be read in the field. */
+  .tr-foot .key { display: none; }
 }
 
 /* Heatmap cell visibility transitions */
@@ -434,16 +439,25 @@
   .cth-hover-preview { animation: none; }
 }
 
-/* "Next local window" — a card in everything but shape. It keeps the gold rail that marks it as
-   the breadcrumb's hopeful half, and borrows the card's lift + focus ring so the tap target
-   announces itself. Same reason as .cth-card for living here: the rail must lose to :hover. */
+/* "Next local window" — a card in everything but shape, and the block's most-used entry point.
+   The left gold rule stays: it is what keeps this reading as part of the breadcrumb rather than a
+   floating card, so only the other three corners are rounded. Padding buys it a real tap target
+   and the negative margin gives that back to the layout, so promoting the label to a card did not
+   shove the breadcrumb's sentence around. Same reason as .cth-card for living here: the rail must
+   lose to :hover. */
 .cth-next-window {
   border-left: 2px solid var(--color-close-to-home);
-  padding: 2px 0 2px 12px;
+  border-radius: 0 8px 8px 0;
+  padding: 8px 12px 9px;
+  margin: -4px -4px -4px 0;
   background: none;
-  transition: transform 0.12s ease, border-color 0.14s ease;
+  transition: background 0.14s ease, transform 0.12s ease, border-color 0.14s ease;
 }
-.cth-next-window:hover {
+/* Focus-visible gets the hover treatment as well as the ring — a keyboard user should see the
+   same "this is a thing you press" state a pointer user does. */
+.cth-next-window:hover,
+.cth-next-window:focus-visible {
+  background: rgba(201, 162, 75, 0.1);
   transform: translateY(-2px);
   border-left-color: var(--color-close-to-home-light);
 }
@@ -452,11 +466,25 @@
   outline-offset: 2px;
 }
 
+/* Tailwind v4's Preflight no longer sets `button { cursor: pointer }` — it follows the UA default
+   again — and nothing else here restores it, so every clickable surface in this block was showing
+   an arrow. Stated once for the block rather than per rule, so a new affordance cannot miss it. */
+.cth-card,
+.cth-next-window,
+.cth-row,
+.cth-count-toggle,
+.cth-filter {
+  cursor: pointer;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cth-card { transition: none; }
   .cth-card:hover { transform: none; }
   .cth-next-window { transition: none; }
-  .cth-next-window:hover { transform: none; }
+  /* :focus-visible as well as :hover — the lift is on both now, and a keyboard user is exactly
+     as entitled to the reduced-motion preference as a pointer user. */
+  .cth-next-window:hover,
+  .cth-next-window:focus-visible { transform: none; }
 }
 
 /* Briefing summary strip — actionable pills lift on hover */
