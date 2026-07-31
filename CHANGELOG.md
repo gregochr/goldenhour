@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.17.6] - 2026-07-31
+
 ### Changed — "Next local window" is a place you can go, not a caption
 
 - **Users read that block as *my next closest good opportunity* and act on it — it is the most-used entry point in "Close to home" — but it showed a name, a bare `· 4.0★` and a drive time, and withheld the three facts that actually decide the trip:** where the spot is, how far, and what the water is doing. It now carries what a card carries, in the card's order: kicker → name + the **same** star pill the cards use (`RatingPill`, extracted so a 4★ cannot read one way in the grid and another beside it) → region → `Today sunset 21:11 · 🚗 10 min · 4 mi · 🌊 spring tide` → `◍ Open on map →`. Tide is omitted when there is none; distance never is. Behaviour is unchanged — the same `onShowOnMap(date, targetType, locationName)` handler, the same hover preview, no second code path.
