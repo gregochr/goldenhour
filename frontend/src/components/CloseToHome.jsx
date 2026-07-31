@@ -882,7 +882,7 @@ export default function CloseToHome({
       {/* ── Part 1 · the next-event breadcrumb (always rendered, poor verdict included) ── */}
       <div
         data-testid="close-to-home-breadcrumb"
-        className="flex items-center flex-wrap"
+        className="flex items-start flex-wrap"
         style={{
           margin: '0 16px 14px',
           border: '1px solid var(--color-plex-border)',
@@ -892,28 +892,37 @@ export default function CloseToHome({
           gap: '13px',
         }}
       >
-        <div className="flex flex-col" style={{ gap: '3px', minWidth: '150px' }}>
-          <span
-            data-testid="close-to-home-verdict"
-            className={breadcrumb.worthIt ? 'text-plex-text' : 'text-plex-text-secondary'}
-            style={{ fontSize: '13px', fontWeight: 600 }}
-          >
-            {breadcrumb.worthIt ? '◎ Worth it' : '○ Stay in'}
-          </span>
-          {breadcrumb.date && (
-            <span className="font-mono text-plex-text-secondary" style={{ fontSize: '11px' }}>
-              {windowLabel(breadcrumb.date, breadcrumb.targetType, todayStr, tomorrowStr)}
-              {timeOf(breadcrumb.eventTime) && ` · ${timeOf(breadcrumb.eventTime)}`}
+        {/* ── Left column · the verdict and the reason it is the verdict ──
+            One statement, so they share a column rather than sitting either side of a boundary.
+            All three children were siblings of one wrapping flex row until the next-window block
+            grew from a caption into a full card (#379): the row could no longer seat three, so
+            `flex-wrap` silently dropped the card onto a second line. Nobody chose two rows. Two
+            explicit columns say what the layout is, instead of leaving it to whether the content
+            happens to fit. */}
+        <div className="flex flex-col" style={{ flex: '1 1 260px', gap: '7px' }}>
+          <div className="flex flex-col" style={{ gap: '3px' }}>
+            <span
+              data-testid="close-to-home-verdict"
+              className={breadcrumb.worthIt ? 'text-plex-text' : 'text-plex-text-secondary'}
+              style={{ fontSize: '13px', fontWeight: 600 }}
+            >
+              {breadcrumb.worthIt ? '◎ Worth it' : '○ Stay in'}
             </span>
-          )}
-        </div>
+            {breadcrumb.date && (
+              <span className="font-mono text-plex-text-secondary" style={{ fontSize: '11px' }}>
+                {windowLabel(breadcrumb.date, breadcrumb.targetType, todayStr, tomorrowStr)}
+                {timeOf(breadcrumb.eventTime) && ` · ${timeOf(breadcrumb.eventTime)}`}
+              </span>
+            )}
+          </div>
 
-        <p
-          className="text-plex-text-secondary"
-          style={{ flex: 1, minWidth: '220px', fontSize: '12.5px', lineHeight: 1.5 }}
-        >
-          {breadcrumbReason(breadcrumb, todayStr, tomorrowStr)}
-        </p>
+          <p
+            className="text-plex-text-secondary"
+            style={{ fontSize: '12.5px', lineHeight: 1.5 }}
+          >
+            {breadcrumbReason(breadcrumb, todayStr, tomorrowStr)}
+          </p>
+        </div>
 
         {/* ── The next local window — a shortcut CARD, not a label ──
             Users read this block as "my next closest good opportunity" and want to act on it, so
@@ -949,6 +958,13 @@ export default function CloseToHome({
             // Enter- and Space-activatable and focusable with no JavaScript at all, which is
             // strictly what those three attributes were reconstructing.
             className="cth-next-window flex flex-col text-left"
+            // Right column. `0 1 250px` rather than a fixed width: it holds its column while the
+            // summary takes the slack, and still collapses under the left column on a narrow
+            // viewport — the wrap is now the mobile behaviour rather than the desktop accident it
+            // had become. Flex shorthand is safe here where a `border` shorthand would not be:
+            // .cth-next-window's rail is a hover/focus target, and an inline border would outrank
+            // it (the trap documented on .cth-card).
+            style={{ flex: '0 1 250px' }}
           >
             <span
               className="font-mono uppercase"
@@ -995,7 +1011,10 @@ export default function CloseToHome({
                 distanceMiles={breadcrumb.nextWindow.card.distanceMiles}
               />
               {breadcrumb.nextWindow.card.tideLabel && (
-                <span style={{ color: 'var(--color-tide)' }}>
+                // nowrap because this line now lives in a ~250px column and wraps: without it the
+                // break lands inside "spring tide". The separator travels with the label so the
+                // fragment reads as one fact on whichever line it ends up on.
+                <span style={{ color: 'var(--color-tide)', whiteSpace: 'nowrap' }}>
                   {' · 🌊 '}{breadcrumb.nextWindow.card.tideLabel}
                 </span>
               )}
