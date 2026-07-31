@@ -64,6 +64,26 @@ public class ForecastController {
 
     private static final Logger LOG = LoggerFactory.getLogger(ForecastController.class);
 
+    /**
+     * How many past days the list endpoint returns, alongside the forward horizon.
+     *
+     * <p>Was 7, added by f58621f0 together with the DateStrip's dimmed past chips. Reduced to 2
+     * because the payload is cached client-side for instant paint and the past half of it was the
+     * larger half: past days are fully dense (every one was scored when it was T+0, and
+     * WILDLIFE/WATERFALL locations carry ~16 HOURLY rows each per day) while T+4/T+5 are never
+     * batch-evaluated. The strip keeps two dimmed chips instead of seven.
+     *
+     * <p><b>Not zero, for a timezone reason.</b> {@code computeAutoSelection} picks the initial
+     * date from the browser's <em>local</em> date, while this window and the strip's "today" are
+     * both UTC. West of UTC the local date can be a day behind, so auto-selection legitimately
+     * asks for what this endpoint calls T-1; if that date is absent the selection silently
+     * degrades to a fallback. Two days covers that with room to spare.
+     *
+     * <p>Anything older belongs in {@code GET /api/forecast/history}, which takes explicit
+     * from/to dates and is unaffected by this bound.
+     */
+    static final int PAST_WINDOW_DAYS = 2;
+
     private final ForecastEvaluationRepository repository;
     private final LocationService locationService;
     private final ForecastCommandFactory commandFactory;
@@ -109,8 +129,9 @@ public class ForecastController {
     }
 
     /**
-     * Returns stored forecast evaluations for all configured locations from T-7
-     * through T+{@value ForecastCommandFactory#FORECAST_HORIZON_DAYS}.
+     * Returns stored forecast evaluations for all configured locations from
+     * T-{@value #PAST_WINDOW_DAYS} through
+     * T+{@value ForecastCommandFactory#FORECAST_HORIZON_DAYS}.
      *
      * <p>Merges two sources so the Map tab stays in sync with the Plan tab:
      * <ul>
@@ -130,7 +151,7 @@ public class ForecastController {
     @GetMapping
     public List<ForecastListDto> getForecasts(Authentication auth) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        LocalDate from = today.minusDays(7);
+        LocalDate from = today.minusDays(PAST_WINDOW_DAYS);
         LocalDate horizon = today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
         boolean lite = isLiteUser(auth);
 
