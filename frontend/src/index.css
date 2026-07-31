@@ -224,6 +224,107 @@
   }
 }
 
+/* ── Multi-day tide run: one card per day, one chart per card ──
+   A spring tide is a RUN, not n unrelated days, and the question it has to answer is whether the
+   useful water lands near a solar event. Tide times and solar times used to sit in different parts
+   of the UI, leaving that as subtraction; here the curve is drawn against the day's own sunrise and
+   sunset. Uses existing tokens only — the topic accent arrives as --tr-accent from the component. */
+.tide-run {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+.tide-row {
+  display: grid;
+  grid-template-columns: 150px 1fr 224px;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 0 9px;
+}
+.tr-range b { color: var(--color-plex-text); font-weight: 600; font-size: 11.5px; }
+.tr-range i { font-style: normal; color: var(--color-plex-text-muted); margin-left: 5px; }
+
+.tr-chart { position: relative; height: 32px; margin: 4px 0 3px; }
+.tr-chart svg { display: block; width: 100%; height: 100%; }
+
+/* Tide labels sit BELOW the curve, sun labels ABOVE it — they must never share a line. */
+.tr-lab {
+  position: absolute;
+  bottom: -5px;
+  transform: translateX(-50%);
+  font-size: 8.5px;
+  letter-spacing: 0.03em;
+  color: var(--color-plex-text-muted);
+  white-space: nowrap;
+}
+.tr-lab b { color: var(--color-plex-text-secondary); font-weight: 500; }
+
+.tr-sun {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 1px;
+  background: rgba(224, 165, 66, 0.5);
+}
+.tr-sun span {
+  position: absolute;
+  top: -13px;
+  left: 3px;
+  font-size: 8.5px;
+  color: var(--color-verdict-marginal);
+  white-space: nowrap;
+}
+/* Sunset's label hangs to the LEFT of its rule, or it runs off the right edge of the chart. */
+.tr-sun-set span { left: auto; right: 3px; }
+
+.tr-verdict { text-align: right; color: var(--color-plex-text-muted); }
+.tr-verdict b { color: var(--color-plex-text-secondary); font-weight: 500; }
+/* Ranking by EMPHASIS, not by order: the aligned day's verdict takes the topic accent while the
+   run stays in date order. Reordering would hide that the run continues on badly-timed days. */
+.tide-row.aligned .tr-verdict { color: var(--tr-accent); }
+.tide-row.aligned .tr-verdict b { color: var(--tr-accent); font-weight: 600; }
+
+.tr-foot {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--color-plex-border);
+  margin-top: 2px;
+  padding-top: 8px;
+  color: var(--color-plex-text-muted);
+}
+.tr-foot b { color: var(--color-plex-text-secondary); font-weight: 500; }
+.tr-foot .key { display: inline-flex; align-items: center; gap: 5px; font-size: 9.5px; }
+.tr-foot .swatch { width: 14px; height: 0; border-top: 1.5px solid var(--tr-accent); }
+.tr-foot .swatch.sun { border-top: 1px solid var(--color-verdict-marginal); }
+.tr-foot .phrase { font-family: var(--font-serif); font-style: italic; font-size: 12.5px; }
+.tr-foot .topic-map { color: var(--color-tide); font-size: 10px; }
+.tr-foot .topic-map:hover { text-decoration: underline; }
+
+/* The chip tying a run's days together — "SPRING RUN 2/4". */
+.runchip {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--tr-accent, var(--color-tide));
+  border: 1px solid color-mix(in oklch, var(--tr-accent, var(--color-tide)) 40%, transparent);
+  border-radius: 4px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
+/* Below the three-column layout's comfortable width the verdict is what survives: it says in
+   words what the chart draws, so it stacks under rather than shrinking beside. */
+@media (max-width: 767px) {
+  .tide-row { grid-template-columns: 1fr; gap: 4px; }
+  .tr-verdict { text-align: left; }
+  .tr-foot { gap: 10px; }
+  .tr-foot .key, .tr-foot .tr-loc { display: none; }
+}
+
 /* Heatmap cell visibility transitions */
 .heatmap-cell-visible {
   opacity: 1;
@@ -305,9 +406,57 @@
   outline: 2px solid var(--color-close-to-home);
   outline-offset: 2px;
 }
+/* Hover preview beside a "Close to home" card. `fixed` rather than `absolute`: the block itself is
+   `overflow: hidden`, which would crop an absolutely-positioned child against the card grid. Width
+   and max-height are mirrored by PREVIEW_WIDTH / PREVIEW_MAX_HEIGHT in CloseToHome.jsx, which needs
+   them to keep the panel inside the viewport — keep the two in step. */
+.cth-hover-preview {
+  position: fixed;
+  z-index: 1200;
+  width: 300px;
+  max-height: 260px;
+  overflow: hidden;
+  padding: 12px 14px;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 10px;
+  background: var(--color-plex-surface);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  /* The pointer must never reach it — it sits beside the card it describes, and a preview that can
+     steal the hover would flicker as the pointer crossed the gap. */
+  pointer-events: none;
+  animation: cth-preview-in 0.12s ease-out;
+}
+@keyframes cth-preview-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cth-hover-preview { animation: none; }
+}
+
+/* "Next local window" — a card in everything but shape. It keeps the gold rail that marks it as
+   the breadcrumb's hopeful half, and borrows the card's lift + focus ring so the tap target
+   announces itself. Same reason as .cth-card for living here: the rail must lose to :hover. */
+.cth-next-window {
+  border-left: 2px solid var(--color-close-to-home);
+  padding: 2px 0 2px 12px;
+  background: none;
+  transition: transform 0.12s ease, border-color 0.14s ease;
+}
+.cth-next-window:hover {
+  transform: translateY(-2px);
+  border-left-color: var(--color-close-to-home-light);
+}
+.cth-next-window:focus-visible {
+  outline: 2px solid var(--color-close-to-home);
+  outline-offset: 2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cth-card { transition: none; }
   .cth-card:hover { transform: none; }
+  .cth-next-window { transition: none; }
+  .cth-next-window:hover { transform: none; }
 }
 
 /* Briefing summary strip — actionable pills lift on hover */
@@ -464,20 +613,130 @@
   opacity: 1;
 }
 
-/* Close to home — window card grid.
-   Single column on phones, then one column per card up to four, capped so a one-card window
-   renders quarter-width rather than stretching. Kept in CSS rather than inline because an inline
-   grid-template-columns applies at EVERY viewport and would squeeze four cards into ~72px each on
-   a 375px screen. */
+/* Close to home — window card filmstrip.
+   Was a fixed four-column grid, which silently discarded the rest of a window: a header reading
+   "20 within reach" sat above four cards with no route to the other sixteen. Now every qualifier is
+   in the strip and it scrolls, sized so a half card peeks past the right edge — that sliver is the
+   whole affordance, so do not round the basis up to a whole number of cards.
+   Kept in CSS rather than inline because inline sizing applies at EVERY viewport; a phone gets one
+   card per screen instead of four ~72px slivers. */
 .cth-window-grid {
-  display: grid;
+  display: flex;
   gap: 8px;
-  grid-template-columns: 1fr;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  /* `overflow-x: auto` makes overflow-y compute to auto too, so the strip clips its own children's
+     focus rings — 2px of outline at 2px offset needs 4px of room on every side. The padding buys
+     it and the negative margin gives it back to the layout, so cards stay flush with the header. */
+  padding: 4px;
+  margin: -4px;
+  scroll-padding: 4px;
 }
+.cth-window-grid::-webkit-scrollbar { display: none; }
+.cth-window-grid > .cth-card {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+}
+/* Copy that is only TRUE at the width where four cards fit. Gated on the same query as the sizing
+   below, deliberately: the count in the sentence is a fact about the CSS, so the CSS is the only
+   place that may decide when it is shown. */
+.cth-wide-only { display: none; }
 
 @media (min-width: 900px) {
-  .cth-window-grid {
-    grid-template-columns: repeat(var(--cth-cards, 1), minmax(0, 1fr));
-    max-width: calc(var(--cth-cards, 1) * 25%);
-  }
+  .cth-wide-only { display: inline; }
+
+  /* 4.5 across: four readable, the fifth half-visible as the "there is more" signal.
+     There is deliberately NO max-width cap on the strip for short windows. The old grid needed one
+     (its `1fr` columns stretched to fill), but `flex: 0 0` already forbids growing — and a cap
+     would compound with this percentage basis, since the `100%` resolves against the *capped*
+     container: a one-card window capped at 25% rendered a ~56px sliver, not a quarter-width card. */
+  .cth-window-grid > .cth-card { flex-basis: calc((100% - 3 * 8px) / 4.5); }
+}
+
+/* Scroll position rail beneath a filmstrip. Present only when the strip actually overflows —
+   a full-width thumb on a non-scrolling strip reads as a disabled control. */
+.cth-rail {
+  position: relative;
+  height: 2px;
+  margin-top: 7px;
+  border-radius: 2px;
+  background: var(--color-plex-border);
+}
+.cth-rail > i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 2px;
+  background: var(--color-close-to-home);
+  transition: width 0.12s ease, left 0.12s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cth-rail > i { transition: none; }
+}
+
+/* The window count, promoted to the control that expands the strip into a ranked list. */
+.cth-count-toggle {
+  color: var(--color-plex-text-secondary);
+  transition: color 0.12s ease;
+}
+.cth-count-toggle:hover { color: var(--color-plex-text); }
+.cth-count-toggle:focus-visible {
+  outline: 2px solid var(--color-close-to-home);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Expanded ranked list — every spot in the window, one row each. */
+.cth-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.cth-row {
+  display: grid;
+  grid-template-columns: 22px 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 11px;
+  background: rgba(0, 0, 0, 0.16);
+  text-align: left;
+}
+.cth-row:hover { background: var(--color-plex-surface-light); }
+.cth-row:focus-visible {
+  outline: 2px solid var(--color-close-to-home);
+  outline-offset: -2px;
+}
+/* The region column is the honesty label, not a decision input — first to go when space is tight. */
+@media (max-width: 639px) {
+  .cth-row { grid-template-columns: 20px 1fr auto; }
+  .cth-row .cth-row-region { display: none; }
+}
+
+/* Block-head filters. Cutting the set is the quiet alternative to scrolling it. */
+.cth-filter {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+  border: 1px solid var(--color-plex-border);
+  background: rgba(0, 0, 0, 0.16);
+  border-radius: 6px;
+  padding: 4px 9px;
+  transition: border-color 0.12s ease, color 0.12s ease;
+}
+.cth-filter:hover {
+  border-color: var(--color-plex-border-light);
+  color: var(--color-plex-text);
+}
+.cth-filter[data-on='true'] {
+  color: var(--color-close-to-home-light);
+  border-color: rgba(201, 162, 75, 0.45);
+  background: rgba(201, 162, 75, 0.12);
+}
+.cth-filter:focus-visible {
+  outline: 2px solid var(--color-close-to-home);
+  outline-offset: 2px;
 }

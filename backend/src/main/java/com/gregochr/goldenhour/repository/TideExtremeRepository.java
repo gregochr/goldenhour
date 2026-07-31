@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -29,6 +30,21 @@ public interface TideExtremeRepository extends JpaRepository<TideExtremeEntity, 
      */
     List<TideExtremeEntity> findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
             Long locationId, LocalDateTime from, LocalDateTime to);
+
+    /**
+     * Returns all tide extremes for several locations within a time window, in chronological order.
+     *
+     * <p>The multi-location form exists so the tide-run builder can pick its representative
+     * location in one query rather than one per coastal location — that loop ran on every
+     * hot-topic build, over the whole coastal roster.
+     *
+     * @param locationIds the location primary keys
+     * @param from        window start (inclusive)
+     * @param to          window end (inclusive)
+     * @return chronologically ordered list of tide extremes across all the given locations
+     */
+    List<TideExtremeEntity> findByLocationIdInAndEventTimeBetweenOrderByEventTimeAsc(
+            Collection<Long> locationIds, LocalDateTime from, LocalDateTime to);
 
     /**
      * Returns {@code true} if any tide extremes are stored for the given location.

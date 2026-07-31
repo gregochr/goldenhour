@@ -16,6 +16,7 @@ import HotTopicStrip from './HotTopicStrip.jsx';
 import BriefingSummaryStrip from './BriefingSummaryStrip.jsx';
 import CloseToHome from './CloseToHome.jsx';
 import { getCloseToHome } from '../api/briefingApi.js';
+import { buildBriefingScoreIndex } from '../utils/briefingScoreIndex.js';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
 import { computeCellTier, isCellVisible, resolveRegionDisplay } from '../utils/tierUtils.js';
 import {
@@ -1002,6 +1003,12 @@ export default function DailyBriefing({
     onEvaluationScoresChange?.(evaluationScores);
   }, [evaluationScores, onEvaluationScoresChange]);
 
+  // O(1) (date, event, location) lookup for the Close to home hover preview. Indexed once here
+  // rather than scanned per card: the block renders up to a dozen cards and the score map holds
+  // every location across the horizon.
+  const closeToHomeScoreIndex = useMemo(
+    () => buildBriefingScoreIndex(evaluationScores), [evaluationScores]);
+
   // Lift seasonal features to parent whenever briefing loads
   useEffect(() => {
     onSeasonalFeaturesChange?.(briefing?.seasonalFeatures ?? []);
@@ -1348,6 +1355,8 @@ export default function DailyBriefing({
         tomorrowStr={tomorrowStr}
         isPro={isPro}
         onShowOnMap={onShowOnMap}
+        scoreIndex={closeToHomeScoreIndex}
+        locations={locations}
       />
 
       {/* ── Hot Topics strip — seasonal conditions below the Best Bet cards ── */}
