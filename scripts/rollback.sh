@@ -94,7 +94,14 @@ DUMP_FILE="${RELEASE_DIR}/$(field dump)"
 # as "not recorded" rather than as a version.
 [ -n "$SCHEMA_VERSION" ] || SCHEMA_VERSION="not recorded"
 
-[ -n "$BACKEND_IMAGE" ] && [ -n "$FRONTEND_IMAGE" ] || { echo "ERROR: manifest is missing image digests — cannot roll back safely." >&2; exit 1; }
+# Spelled as an explicit `if` rather than `A && B || C`. The old form was correct here, but
+# ShellCheck flags it (SC2015) because in general C also runs when A succeeded and B failed —
+# and this is the guard that decides whether a rollback may proceed, so it should not need that
+# argument made in its defence. It is also the guard the `field()` fix above made reachable.
+if [ -z "$BACKEND_IMAGE" ] || [ -z "$FRONTEND_IMAGE" ]; then
+    echo "ERROR: manifest is missing image digests — cannot roll back safely." >&2
+    exit 1
+fi
 [ -f "$DUMP_FILE" ] || { echo "ERROR: dump referenced by the manifest is missing: ${DUMP_FILE}" >&2; exit 1; }
 gzip -t "$DUMP_FILE" || { echo "ERROR: dump fails its integrity check — do NOT roll back to it." >&2; exit 1; }
 
