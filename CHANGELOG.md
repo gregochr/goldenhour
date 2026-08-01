@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the "Close to home" filters are remembered, and now say what they cut
+
+- **The narrowing survives a reload.** "Under 30 minutes, 4★ and up" describes the reader's own tolerance for a drive, not a per-visit whim — it does not change between page loads, yet the block charged for it again on every one. All three chips now persist to localStorage through the existing `useLocalStorageState` hook. Not cleared on logout, matching the map's `mapFilterMinStars`: these are display preferences, and the postcode they are measured from lives server-side behind auth.
+- **A remembered filter cannot become an unexplained empty block** — the chips carry their own on-state and `Clear` appears beside them the moment anything is active, so the cause is always on screen next to the effect.
+- **A stored step is honoured only while it is still a step.** Storage outlives the code that wrote it, and `nextStep` returns "Any" for a value it does not recognise — so dropping 45 from `DRIVE_STEPS` would have left a returning user's chip reading "Any drive time" while it quietly hid half the set. `storedStep` sanitises on read; the value is inert until the next tap overwrites it.
+- **The toggle is set by value, not by updater.** The persisting setter has no functional-update form: `setTideOnly(on => !on)` flips React state while `JSON.stringify`-ing the updater to `undefined`, so the chip would come back **on** after a reload the user had just turned it off in. A test pins the off case specifically.
+- **Each chip now names its dimension in both states.** "Any drive" read as a mood rather than a control and gave no hint that tapping cycles through ceilings — it is `Any drive time` / `≤ 30 min drive`. "Tide only" named the subject but not the test and was being read as "coastal spots"; it is now **`Right tide only`**, which is what `CloseToHomeService.tideLabel` actually encodes: a king or spring tide, or the tide state that location is at its best in — never simply that it is on the coast. An InfoTip beside `Narrow` carries the full explanation, because a `title` is unreachable on touch and this block is read on a phone.
+
+### Changed — the hover preview sets Claude's sentence in Claude's voice
+
+- Serif italic is this app's typographic mark for **generated prose** — the drill-down gloss, the map overlay summary, the InfoTip card body and the tide-run phrase all carry it. The "Close to home" hover preview was the one surface rendering the same sentence in the UI sans, so a summary changed voice depending on whether you hovered a card or opened the drill-down. Geometry matches InfoTip's card body, the other serif block that floats over the page.
+
 ### Fixed — the tide run was anchored to a cove nobody could place
 
 - **Every spring and king tide chart was drawn for Breil Nook, a small cove on Flamborough Head.** Not a bad roll — a structural one. `selectRepresentative` picked the biggest single-day range anywhere in the run, and tidal range on this coast **grows southward** toward the Humber approaches, so across a 53-location roster running Bamburgh to Bridlington the maximum reliably lands at the southern end. The card named it in the footer as the honest caveat, but naming a place the reader cannot locate carries no information: it makes the range, the curve and the alignment verdict read as arbitrary rather than as measurements of somewhere.
