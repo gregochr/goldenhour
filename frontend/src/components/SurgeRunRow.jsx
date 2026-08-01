@@ -4,7 +4,7 @@ import {
   VIEW_W,
   VIEW_H,
   MINUTES_PER_DAY,
-  LABEL_COLLISION_MINUTES,
+  EDGE_PERCENT,
   toMinutes,
   percentOf,
   edgePin,
@@ -22,6 +22,20 @@ const PAD_Y = 5;
  * it stays true. A fixed floor means small surges LOOK small.
  */
 const MIN_DOMAIN_M = 0.5;
+
+/**
+ * Minimum separation before a second label may share the peak's rail.
+ *
+ * NOT the shared LABEL_COLLISION_MINUTES (45). That one guards a label against a sun RAIL — a
+ * 1px line — so 45 minutes is ample. Here two *labels* sit on one rail (both `.sr-lab`, same
+ * `bottom`, both centre-transformed), and at the strip's real width roughly 0.4px per minute,
+ * "▲ +0.72 m" against "HW 15:00" needs about 110 minutes of centre separation to clear.
+ *
+ * The old value was worse than merely tight: the backend calls a peak ALIGNED within 90 minutes
+ * of high water, so every aligned day — the exact case this topic exists to surface — fell in the
+ * 45-90 gap and rendered two mutually unreadable labels on top of each other.
+ */
+const SAME_RAIL_COLLISION_MINUTES = 120;
 
 /**
  * A sibling of {@code TideRunRow}: the storm-surge curve for one day at one coastal location.
@@ -105,10 +119,19 @@ function SurgeRunRow({ run, accentColor }) {
   const markers = [
     { key: 'peak', x: peakX, text: `${peakGlyph} ${run.peak}`, colour: accentColor },
   ];
-  if (highWaterX != null
-      // Suppress a high-water label that would overprint the peak's; the verdict already states
-      // the relationship between the two in words.
-      && Math.abs(toMinutes(run.highWaterTime) - toMinutes(run.peakTime)) >= LABEL_COLLISION_MINUTES) {
+  // The high-water label is dropped whenever it cannot be read beside the peak's. Losing it costs
+  // nothing: the verdict states the relationship in words ("· on high water", "· 1h20 before high
+  // water"), and the dashed high-water RULE stays on the chart either way — it is only the text
+  // that is suppressed.
+  const separation = highWaterX == null
+    ? Number.POSITIVE_INFINITY
+    : Math.abs(toMinutes(run.highWaterTime) - toMinutes(run.peakTime));
+  // Both inside an edge zone is the case a minute-gap test cannot catch: edgePin resolves each to
+  // the same flush position, so they stack exactly however far apart in time they are.
+  const bothPinnedToSameEdge = highWaterX != null
+    && ((peakX < EDGE_PERCENT && highWaterX < EDGE_PERCENT)
+      || (peakX > 100 - EDGE_PERCENT && highWaterX > 100 - EDGE_PERCENT));
+  if (highWaterX != null && separation >= SAME_RAIL_COLLISION_MINUTES && !bothPinnedToSameEdge) {
     markers.push({ key: 'hw', x: highWaterX, text: `HW ${run.highWaterTime}`, colour: null });
   }
 

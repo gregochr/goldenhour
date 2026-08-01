@@ -91,6 +91,31 @@ describe('SurgeRunRow', () => {
     expect(screen.getByText('▲ +0.72 m')).toBeInTheDocument();
   });
 
+  it('suppresses it across the whole ALIGNED band, not just at a few minutes apart', () => {
+    // The regression this exists for. The gate reused the sun-rail constant (45 min), but the
+    // backend calls a peak aligned within 90 minutes of high water — so every aligned day, the
+    // exact case this topic surfaces, drew two unreadable labels stacked on one rail.
+    render(<SurgeRunRow run={run({ highWaterTime: '15:00' })} accentColor={ACCENT} />);
+    expect(screen.queryByText(/^HW /)).not.toBeInTheDocument();
+  });
+
+  it('suppresses it when both labels pin to the SAME edge, however far apart in time', () => {
+    // edgePin resolves both to the identical flush position, which no minute-gap test can catch.
+    render(
+      <SurgeRunRow
+        run={run({ peakTime: '00:30', highWaterTime: '02:00' })}
+        accentColor={ACCENT}
+      />,
+    );
+    expect(screen.queryByText(/^HW /)).not.toBeInTheDocument();
+  });
+
+  it('still shows high water when it is genuinely far from the peak', () => {
+    // Suppression must not become "never show it" — the marker earns its place when readable.
+    render(<SurgeRunRow run={run({ highWaterTime: '20:00' })} accentColor={ACCENT} />);
+    expect(screen.getByText('HW 20:00')).toBeInTheDocument();
+  });
+
   it('draws the solar rules on the same axis as the tide chart', () => {
     render(<SurgeRunRow run={run()} accentColor={ACCENT} />);
     expect(screen.getByText('↑ 08:10')).toBeInTheDocument();
