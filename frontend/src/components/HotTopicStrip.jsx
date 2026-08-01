@@ -315,6 +315,53 @@ function AuroraExpandedCard({ auroraData }) {
   );
 }
 
+AuroraExpandedCard.propTypes = {
+  auroraData: PropTypes.shape({
+    alertLevel: PropTypes.string,
+    // `kp` is the live reading and `peakKp` the forecast maximum; the card shows whichever it has.
+    kp: PropTypes.number,
+    peakKp: PropTypes.number,
+    regions: PropTypes.arrayOf(PropTypes.shape({
+      regionName: PropTypes.string,
+      locations: PropTypes.array,
+    })),
+    moonPhase: PropTypes.string,
+    moonIlluminationPct: PropTypes.number,
+    windowQuality: PropTypes.string,
+    moonRiseTime: PropTypes.string,
+    moonSetTime: PropTypes.string,
+  }),
+};
+
+/**
+ * The props the two region-grouped expanded cards share.
+ *
+ * <p>Declared once because Bluebell and Tide take the *same* four props and read the same fields
+ * off them — the region link in each builds an identical map handoff from `topic`. Two hand-copied
+ * shapes would be two places for that contract to drift, and the drift would be invisible: a
+ * missing key in one copy only downgrades its own warning.
+ */
+const EXPANDED_CARD_PROP_TYPES = {
+  expandedDetail: PropTypes.shape({
+    regionGroups: PropTypes.arrayOf(PropTypes.shape({
+      regionName: PropTypes.string,
+      glossHeadline: PropTypes.string,
+      locations: PropTypes.array,
+    })),
+  }),
+  // Only the fields the map handoff actually reads. A `shape` rather than the looser
+  // `PropTypes.object` used elsewhere in this file: these four are a contract with `onShowOnMap`,
+  // and naming them is the documentation.
+  topic: PropTypes.shape({
+    date: PropTypes.string,
+    label: PropTypes.string,
+    locationNames: PropTypes.arrayOf(PropTypes.string),
+    filterAction: PropTypes.string,
+  }).isRequired,
+  onShowOnMap: PropTypes.func,
+  isLiteUser: PropTypes.bool,
+};
+
 /**
  * Expanded bluebell detail card rendered below a BLUEBELL pill.
  */
@@ -444,6 +491,8 @@ function BluebellExpandedCard({ expandedDetail, topic, onShowOnMap = null, isLit
   );
 }
 
+BluebellExpandedCard.propTypes = EXPANDED_CARD_PROP_TYPES;
+
 /**
  * Expanded tide detail card rendered below a KING_TIDE or SPRING_TIDE pill.
  */
@@ -536,6 +585,8 @@ function TideExpandedCard({ expandedDetail, topic, onShowOnMap = null, isLiteUse
     </div>
   );
 }
+
+TideExpandedCard.propTypes = EXPANDED_CARD_PROP_TYPES;
 
 /**
  * A location name that opens the map overlay focused on that spot when the map is available.

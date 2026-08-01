@@ -910,7 +910,7 @@ const BRIEFING_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 /* eslint-enable react/prop-types */
 
 export default function DailyBriefing({
-  locations, homeCoords = null, onShowOnMap, onEvaluationScoresChange, onSeasonalFeaturesChange,
+  locations, onShowOnMap, onEvaluationScoresChange, onSeasonalFeaturesChange,
   homeSettingsVersion = 0,
 }) {
   const { role } = useAuth();
@@ -1563,7 +1563,6 @@ DailyBriefing.propTypes = {
       locationType: PropTypes.string,
     }),
   ),
-  homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
   onShowOnMap: PropTypes.func,
   onEvaluationScoresChange: PropTypes.func,
   onSeasonalFeaturesChange: PropTypes.func,

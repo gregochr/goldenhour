@@ -373,7 +373,7 @@ function AppInner() {
             skeleton and tolerates an empty locations list, so Best Bet / Hot Topics / regions paint
             without waiting on the forecast + locations + outcomes load. */}
         {viewMode === 'plan' && (
-          <DailyBriefing locations={visibleLocations} homeCoords={homeCoords} onShowOnMap={handleShowOnMap} onEvaluationScoresChange={handleEvaluationScoresChange} onSeasonalFeaturesChange={handleSeasonalFeaturesChange} homeSettingsVersion={homeSettingsVersion} />
+          <DailyBriefing locations={visibleLocations} onShowOnMap={handleShowOnMap} onEvaluationScoresChange={handleEvaluationScoresChange} onSeasonalFeaturesChange={handleSeasonalFeaturesChange} homeSettingsVersion={homeSettingsVersion} />
         )}
 
         {/* MAP needs the forecast/location data — keep the loading / error / empty gating here. */}
