@@ -1,35 +1,29 @@
 import React from 'react';
 import PropTypes from 'prop-types';
-
-/**
- * Chart geometry. The viewBox is a 1000-unit day against a 32-unit height, stretched to the
- * container by `preserveAspectRatio="none"` — the curve carries shape, not scale.
- */
-const VIEW_W = 1000;
-const VIEW_H = 32;
-const MINUTES_PER_DAY = 1440;
-const SAMPLE_MINUTES = 8;
+import {
+  VIEW_W,
+  VIEW_H,
+  MINUTES_PER_DAY,
+  SAMPLE_MINUTES,
+  LABEL_COLLISION_MINUTES,
+  EDGE_PERCENT,
+  toMinutes,
+  percentOf,
+} from './chart/solarDayGeometry.js';
 
 /** A semidiurnal tide cycle is ~12h25m. Half of one is the extension past each end of the day. */
 const CYCLE_MINUTES = 745;
 
-/** Curve baselines — high water rides near the top of the band, low water near the bottom. */
+/**
+ * Curve baselines — high water rides near the top of the band, low water near the bottom.
+ *
+ * <p>These stay HERE rather than in the shared geometry, and so does the boolean mapping that uses
+ * them: a tide curve plots high-or-low, while the surge curve plots metres through a scale. That is
+ * a different function, not a different parameter, which is why the surge chart is a sibling
+ * component rather than a mode of this one.
+ */
 const HIGH_Y = 7;
 const LOW_Y = 25;
-
-/**
- * A tide label within this many minutes of a sun marker is suppressed: the two would overprint,
- * and the verdict already names that extremum in words.
- */
-const LABEL_COLLISION_MINUTES = 45;
-
-/** Inside this percentage of either edge, a label is pinned flush instead of centre-transformed. */
-const EDGE_PERCENT = 9;
-
-/** `"05:44"` → minutes past local midnight. */
-function toMinutes(clock) {
-  return Number(clock.slice(0, 2)) * 60 + Number(clock.slice(3, 5));
-}
 
 /**
  * Builds the SVG path for a day's tide curve.
@@ -66,11 +60,6 @@ function curvePath(tides) {
   return points
     .map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(2)}`)
     .join(' ');
-}
-
-/** Percentage across the 24-hour axis for a clock time. */
-function percentOf(clock) {
-  return (toMinutes(clock) / MINUTES_PER_DAY) * 100;
 }
 
 /**
