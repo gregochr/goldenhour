@@ -337,8 +337,16 @@ public class ForecastDataAugmentor {
             List<String> times = h.getTime();
             int idx = TimeSlotUtils.findNearestIndex(times, highTideTime);
 
-            Double pressure = h.getSurfacePressure() != null && idx < h.getSurfacePressure().size()
-                    ? h.getSurfacePressure().get(idx) : null;
+            // pressure_msl, NOT surface_pressure. The inverse-barometer term measures departure
+            // from STANDARD_PRESSURE_HPA (1013.25), which is a MEAN-SEA-LEVEL reference, while
+            // surface_pressure is reduced to the grid cell's own elevation — so an elevated coastal
+            // cell reported a permanently low pressure and the model read it as a standing surge of
+            // roughly +0.04 to +0.06 m that no weather caused. Small, but it sits right at
+            // SIGNIFICANCE_THRESHOLD_M (0.05), so it could carry a calm day over the gate on its
+            // own. Changed here and in SurgeCurveService together: the chip and the curve must run
+            // one function over one field, or the pill contradicts itself.
+            Double pressure = h.getPressureMsl() != null && idx < h.getPressureMsl().size()
+                    ? h.getPressureMsl().get(idx) : null;
             Double windSpeed = h.getWindSpeed10m() != null && idx < h.getWindSpeed10m().size()
                     ? h.getWindSpeed10m().get(idx) : null;
             Integer windDir = h.getWindDirection10m() != null && idx < h.getWindDirection10m().size()
