@@ -187,7 +187,9 @@ export default function TideRunRow({ day, accentColor, onShowOnMap = null }) {
         {/* Which coastline the curve is for. The topic can span 50 locations whose alignment
             differs by ~20 minutes, and naming the one we drew is the honest form of that caveat. */}
         <span data-testid="tide-run-location" className="tr-loc">at {day.locationName}</span>
-        <span className="phrase">{day.phrase}</span>
+        {/* Absent on an unaligned day: the backend only claims the draw when the water
+            lands in usable light, so there is nothing to print rather than an empty slot. */}
+        {day.phrase && <span className="phrase">{day.phrase}</span>}
         {onShowOnMap && (
           <button
             type="button"

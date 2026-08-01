@@ -578,4 +578,34 @@ class TideRunBuilderTest {
                 .type(type)
                 .build();
     }
+    @Test
+    @DisplayName("an UNALIGNED day claims no draw — the phrase stands down")
+    void build_unalignedDay_hasNoPhrase() {
+        // "low water bares the foreground" is true of the water and useless to the reader when the
+        // low is at 01:00 in the dark. The verdict beside it already says the water misses the
+        // light; printing the draw anyway had the two lines arguing, the confident one wrong.
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1,
+                low("01:00", 0.4), high("07:20", 5.0), low("13:40", 0.4)));
+
+        TideRunDay result = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
+
+        assertThat(result.aligned()).isFalse();
+        assertThat(result.phrase()).isNull();
+        // The verdict still carries the whole answer — silence is only about the editorial claim.
+        assertThat(result.verdict()).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("an ALIGNED day still claims it — the gate must not silence the phrase entirely")
+    void build_alignedDay_keepsPhrase() {
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1,
+                low("08:30", 0.4), high("14:40", 5.0), low("20:50", 0.4)));
+
+        TideRunDay result = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
+
+        assertThat(result.aligned()).isTrue();
+        assertThat(result.phrase()).isEqualTo(TideRunBuilder.SPRING_PHRASE);
+    }
 }
