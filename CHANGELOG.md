@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.17.9] - 2026-08-01
+
 ### Fixed — a surge number now says which moment it describes
 
 - **The pill carries one quantity sampled at two different instants**: the curve's day peak, and the persisted scalar taken at the next high tide after the slot's solar event. Only one is ever on screen, so a bare magnitude left the reader no way to tell a *timing* difference from a *disagreement* — the root cause behind three separate findings in the surge review, each of which had been fixed as its own symptom.
