@@ -408,3 +408,18 @@ springdoc:
     enabled: false
   api-docs:
     enabled: false
+
+photocast:
+  tide-run:
+    preferred-anchor: "St Mary's Lighthouse"  # location NAME the spring/king tide run's 24-hour
+                            # chart is drawn for. Blank restores pure biggest-range selection.
+                            # Biggest-range is not neutral across a long roster: tidal range grows
+                            # southward on this coast, so the maximum reliably lands at the
+                            # southern end — a Bamburgh-to-Bridlington roster anchored every run to
+                            # a cove on Flamborough Head, which no reader could place. Range picks
+                            # the most dramatic version of the event; the anchor picks the legible
+                            # one, and legibility is what the footer naming it was for.
+                            # Matched by NAME, case-insensitively — ids differ between local H2 and
+                            # production, so a configured id would silently select the wrong coast.
+                            # Falls back to biggest range when the anchor is not in the run or has
+                            # no drawable day, so a Yorkshire-only topic is never mislabelled.

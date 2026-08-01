@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.model.TideRunDay;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.repository.MarineWaveRepository;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -38,12 +39,17 @@ import java.util.Optional;
  *
  * <h2>One location for the whole run</h2>
  *
- * <p>The run is drawn for a <b>single representative coastal location</b>, chosen once as the
- * location with the biggest single-day range anywhere in the run. Choosing per day would let the
+ * <p>The run is drawn for a <b>single representative coastal location</b>, chosen once — the
+ * configured {@code photocast.tide-run.preferred-anchor} when it is in the run and drawable,
+ * otherwise the biggest single-day range anywhere in the run. Choosing per day would let the
  * curve jump between coastlines mid-run, so a reader comparing Tuesday to Thursday would be
  * comparing two different places. The chosen location is carried on every row and named in the
- * card's footer, because alignment genuinely differs by ~20 minutes across a coastline a topic may
- * span — naming it is the honest form of that caveat.
+ * card's footer, because alignment genuinely differs across a coastline a topic may span —
+ * naming it is the honest form of that caveat.
+ *
+ * <p>The anchor exists because biggest-range is not neutral across a long roster: range grows
+ * southward on this coast, so the maximum reliably lands at the southern end and anchors every
+ * run to the same distant place. See {@code selectRepresentative} for the full reasoning.
  *
  * <h2>Days with no derivable range are dropped, not faked</h2>
  *
@@ -88,6 +94,9 @@ public class TideRunBuilder {
     private final TideService tideService;
     private final SolarService solarService;
 
+    /** Location name the run is drawn for when present and drawable; blank means biggest range. */
+    private final String preferredAnchor;
+
     /**
      * Constructs a {@code TideRunBuilder}.
      *
@@ -96,15 +105,19 @@ public class TideRunBuilder {
      * @param marineWaveRepository  the shared sea-state carrier
      * @param tideService           supplies each location's historical range statistics
      * @param solarService          supplies the day's sunrise and sunset
+     * @param preferredAnchor       location name the run should be drawn for when it is in the
+     *                              run and drawable; blank restores pure biggest-range selection
      */
     public TideRunBuilder(TideExtremeRepository tideExtremeRepository,
             MarineWaveRepository marineWaveRepository,
             TideService tideService,
-            SolarService solarService) {
+            SolarService solarService,
+            @Value("${photocast.tide-run.preferred-anchor:}") String preferredAnchor) {
         this.tideExtremeRepository = tideExtremeRepository;
         this.marineWaveRepository = marineWaveRepository;
         this.tideService = tideService;
         this.solarService = solarService;
+        this.preferredAnchor = preferredAnchor;
     }
 
     /** A day's extrema at one location, already reduced to local clock minutes. */
@@ -193,11 +206,36 @@ public class TideRunBuilder {
     }
 
     /**
-     * Picks the location with the biggest single-day range anywhere in the run. Ties break on name
-     * so the choice is stable across rebuilds rather than following map iteration order.
+     * Picks the location the run is drawn for: the configured anchor when it is in this run and
+     * has a drawable day, otherwise the biggest single-day range anywhere in the run.
+     *
+     * <p><b>Why an anchor exists at all.</b> Biggest-range is not a neutral rule on a roster that
+     * spans a coastline. Tidal range on this coast grows southward toward the Humber approaches,
+     * so the maximum reliably lands at the southern end of the roster — a 53-location set running
+     * Bamburgh to Bridlington anchored every spring run to a cove on Flamborough Head, ~90 miles
+     * from the reader. The footer names the representative as the honest caveat, but naming a
+     * place the reader cannot locate carries no information: it makes the numbers read as
+     * arbitrary rather than as measurements of somewhere. Range picks the most dramatic version
+     * of the event; the anchor picks the most legible one, and legibility is what the footer was
+     * for.
+     *
+     * <p>The anchor must still be <em>drawable</em> — matching by name is not enough, since a
+     * location with no extremes for any date in the run would yield an anchored row with no
+     * curve. A run that does not reach the anchor (a Yorkshire-only topic, say) falls back
+     * silently rather than claiming a coastline it never covered.
+     *
+     * <p>Matched on name rather than id because ids are environment-specific: the same anchor has
+     * different ids in local H2 and production, so a configured id would be a foot-gun that
+     * silently selects the wrong coast. The trade is that renaming a location in the Admin UI
+     * quietly disables the preference — the fallback then applies, so the row degrades to the
+     * previous behaviour rather than breaking.
      */
     private LocationEntity selectRepresentative(List<LocationEntity> coastalLocations,
             Map<Long, List<TideExtremeEntity>> byLocation, List<LocalDate> ordered) {
+        LocationEntity anchor = findAnchor(coastalLocations, byLocation, ordered);
+        if (anchor != null) {
+            return anchor;
+        }
         LocationEntity best = null;
         double bestRange = Double.NEGATIVE_INFINITY;
         for (LocationEntity location : coastalLocations.stream()
@@ -217,6 +255,37 @@ public class TideRunBuilder {
             }
         }
         return best;
+    }
+
+    /**
+     * The configured anchor, when it is in this run and has at least one drawable day.
+     *
+     * @param coastalLocations the run's candidate locations
+     * @param byLocation       extremes keyed by location id
+     * @param ordered          the run's dates, ascending
+     * @return the anchor location, or null when unconfigured, absent from this run, or undrawable
+     */
+    private LocationEntity findAnchor(List<LocationEntity> coastalLocations,
+            Map<Long, List<TideExtremeEntity>> byLocation, List<LocalDate> ordered) {
+        if (preferredAnchor == null || preferredAnchor.isBlank()) {
+            return null;
+        }
+        String wanted = preferredAnchor.trim();
+        for (LocationEntity location : coastalLocations) {
+            if (location.getName() == null || !location.getName().equalsIgnoreCase(wanted)) {
+                continue;
+            }
+            List<TideExtremeEntity> extremes = byLocation.get(location.getId());
+            for (LocalDate date : ordered) {
+                if (dayTides(extremes, date) != null) {
+                    return location;
+                }
+            }
+            // Named but undrawable: stop looking rather than matching a same-named location
+            // elsewhere in the roster, and let the caller fall back to biggest range.
+            return null;
+        }
+        return null;
     }
 
     /** Reduces one location's extrema to the given local day, or null when the day is incomplete. */
