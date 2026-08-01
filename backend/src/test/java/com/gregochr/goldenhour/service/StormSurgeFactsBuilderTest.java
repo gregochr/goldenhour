@@ -91,7 +91,7 @@ class StormSurgeFactsBuilderTest {
         assertThat(waves.emphasis()).isTrue();
 
         HotTopicFact surge = factWithKey(result, "surge");
-        assertThat(surge.value()).isEqualTo("0.6 m above normal");
+        assertThat(surge.value()).isEqualTo("0.6 m above normal at high water");
         assertThat(surge.emphasis()).isFalse();
 
         HotTopicFact wind = factWithKey(result, "wind");
@@ -112,7 +112,7 @@ class StormSurgeFactsBuilderTest {
 
         assertThat(result.facts()).noneMatch(f -> "waves".equals(f.key()));
         HotTopicFact surge = factWithKey(result, "surge");
-        assertThat(surge.value()).isEqualTo("0.6 m above normal");
+        assertThat(surge.value()).isEqualTo("0.6 m above normal at high water");
         assertThat(surge.emphasis()).isTrue();
     }
 
@@ -128,7 +128,7 @@ class StormSurgeFactsBuilderTest {
                 surgeRow(2L, 0.8, 20.0, 247.0)));
 
         // Location 2 has the bigger surge, so its 0.8 m and its marine lookup win.
-        assertThat(factWithKey(result, "surge").value()).isEqualTo("0.8 m above normal");
+        assertThat(factWithKey(result, "surge").value()).isEqualTo("0.8 m above normal at high water");
     }
 
     @Test
@@ -206,7 +206,7 @@ class StormSurgeFactsBuilderTest {
 
         assertThat(result.surgeRun()).isNull();
         // The facts survive: suppressing the chart must not cost the pill its numbers.
-        assertThat(factWithKey(result, "surge").value()).isEqualTo("1.0 m above normal");
+        assertThat(factWithKey(result, "surge").value()).isEqualTo("1.0 m above normal at high water");
     }
 
     @Test
@@ -278,6 +278,18 @@ class StormSurgeFactsBuilderTest {
                 .attach(baseTopic(), List.of(surgeRow(1L, 0.95, 17.0, 247.0)));
 
         assertThat(result.surgeRun()).isNull();
-        assertThat(factWithKey(result, "surge").value()).isEqualTo("1.0 m above normal");
+        assertThat(factWithKey(result, "surge").value()).isEqualTo("1.0 m above normal at high water");
+    }
+    @Test
+    @DisplayName("the surge chip names ITS instant too — the high-water reading, not the day peak")
+    void surgeChip_statesItsInstant() {
+        // Qualitative by necessity: the sample instant is not stored, and a day has two high
+        // waters, so naming a clock time would be a guess dressed as a measurement. "at high
+        // water" is true by construction.
+        HotTopic result = builderWithCurve(flatSeries(0.10))
+                .attach(baseTopic(), List.of(surgeRow(1L, 0.95, 17.0, 247.0)));
+
+        assertThat(result.surgeRun()).isNull();
+        assertThat(factWithKey(result, "surge").value()).endsWith("at high water");
     }
 }

@@ -23,7 +23,7 @@ function run(overrides = {}) {
     highWaterTime: '14:05',
     sunrise: '08:10',
     sunset: '16:30',
-    verdict: '+0.72 m at 14:00 · on high water',
+    verdict: 'peak +0.72 m at 14:00 · on high water',
     aligned: true,
     datumNote: 'above predicted tide',
     phrase: 'water pushed past its predicted mark',

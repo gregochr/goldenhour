@@ -2576,7 +2576,7 @@ describe('HotTopicStrip — storm surge verdict', () => {
     highWaterTime: '14:05',
     sunrise: '08:10',
     sunset: '16:30',
-    verdict: '+0.72 m at 14:00 \u00b7 on high water',
+    verdict: 'peak +0.72 m at 14:00 \u00b7 on high water',
     aligned: true,
     datumNote: 'above predicted tide',
     phrase: 'water pushed past its predicted mark',
@@ -2597,7 +2597,7 @@ describe('HotTopicStrip — storm surge verdict', () => {
     // The chart is a later change and will be aria-hidden, so this sentence has to stand alone.
     render(<HotTopicStrip hotTopics={[surgeTopic]} />);
     expect(screen.getByTestId('surge-verdict')).toHaveTextContent(
-      '+0.72 m at 14:00 \u00b7 on high water',
+      'peak +0.72 m at 14:00 \u00b7 on high water',
     );
   });
 
