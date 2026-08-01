@@ -202,11 +202,15 @@ public class SurgeCurveService {
         if (idx < 0) {
             return null;
         }
-        // surface_pressure, matching the field the persisted per-event scalar already uses, so the
-        // curve and the pill's existing "N m above normal" chip are computed from one input and
-        // cannot disagree. pressure_msl is the better datum for a model whose reference is
-        // 1013.25 hPa, but changing only the curve would make chart and chip visibly diverge.
-        Double pressure = at(hourly.getSurfacePressure(), idx);
+        // pressure_msl, matching the field the persisted per-event scalar uses, so the curve and
+        // the pill's "N m above normal" chip are computed from one input and cannot disagree.
+        // Both moved off surface_pressure together: that field is reduced to the grid cell's own
+        // elevation, while the inverse-barometer term measures departure from a MEAN-SEA-LEVEL
+        // reference (STANDARD_PRESSURE_HPA = 1013.25), so an elevated coastal cell produced a
+        // standing offset of roughly +0.04 to +0.06 m with no weather behind it. On a curve that
+        // is not a rounding error but a flat lift of the whole trace, sitting right at the
+        // significance threshold.
+        Double pressure = at(hourly.getPressureMsl(), idx);
         Double windSpeed = at(hourly.getWindSpeed10m(), idx);
         List<Integer> directions = hourly.getWindDirection10m();
         Integer windDirection = directions != null && idx < directions.size()

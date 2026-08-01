@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the surge model was reading a pressure that had the wrong sea level in it
+
+- **`surface_pressure` is reduced to the grid cell's own elevation; the inverse-barometer term measures departure from `STANDARD_PRESSURE_HPA` (1013.25), which is a mean-sea-level reference.** So an elevated coastal cell reported a permanently low pressure and the model turned it into a standing surge of roughly +0.04 to +0.06 m that no weather caused. Small as a per-event number — and not small in context: it sits right on `SIGNIFICANCE_THRESHOLD_M` (0.05), so it could carry an entirely calm day over the gate on its own, and on the 24-hour curve it is not a rounding error but a flat lift of the whole trace.
+- **Changed on both surfaces in one commit, never one alone.** The persisted per-event scalar behind the "N m above normal" chip and the hourly curve behind the chart run one pure function over one field precisely so the pill cannot contradict itself; fixing the datum on either side by itself would have made the chart and the chip visibly disagree, which is the failure the shared-input rule exists to prevent.
+- **No new API call** — `pressure_msl` was already requested and already on the response model, used by the stability classifier. Only the two surge reads moved.
+- The test fixtures now set `pressure_msl` to the real value and `surface_pressure` to a **decoy** at the elevation-reduced figure, so a regression to the wrong field fails loudly rather than passing identically.
+
 ### Fixed — one missing full stop had silently disabled the tide run's anchor
 
 - **Every spring and king tide run was drawing itself at the wrong place.** Location Management holds `St. Mary's Lighthouse`; `photocast.tide-run.preferred-anchor` said `St Mary's Lighthouse`. `findAnchor` matched with `equalsIgnoreCase`, so one full stop missed, the anchor resolved to nothing, and `selectRepresentative` fell back to the biggest single-day range — which on a roster spanning this coast reliably lands at its southern end. Readers got `at Breil Nook` on a run covering two regions and 61 coastal locations, which is the precise outcome the anchor was added to prevent.

@@ -84,7 +84,9 @@ class ForecastDataAugmentorSurgeTest {
         OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
         hourly.setTime(List.of(
                 "2026-03-30T18:00", "2026-03-30T19:00", "2026-03-30T20:00"));
-        hourly.setSurfacePressure(List.of(pressure, pressure, pressure));
+        hourly.setPressureMsl(List.of(pressure, pressure, pressure));
+        // A decoy at the elevation-reduced value: reverting to surface_pressure fails loudly.
+        hourly.setSurfacePressure(List.of(pressure - 6.0, pressure - 6.0, pressure - 6.0));
         hourly.setWindSpeed10m(List.of(windSpeed, windSpeed, windSpeed));
         hourly.setWindDirection10m(List.of(windDir, windDir, windDir));
         response.setHourly(hourly);
@@ -194,7 +196,8 @@ class ForecastDataAugmentorSurgeTest {
         OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
         hourly.setTime(List.of(
                 "2026-03-30T18:00", "2026-03-30T19:00", "2026-03-30T20:00"));
-        hourly.setSurfacePressure(List.of(1013.0, 985.0, 1010.0)); // 985 at 19:00
+        hourly.setPressureMsl(List.of(1013.0, 985.0, 1010.0)); // 985 at 19:00
+        hourly.setSurfacePressure(List.of(1007.0, 979.0, 1004.0)); // decoy: elevation-reduced
         hourly.setWindSpeed10m(List.of(3.0, 18.0, 5.0)); // 18 at 19:00
         hourly.setWindDirection10m(List.of(180, 60, 270)); // 60 at 19:00
         response.setHourly(hourly);
@@ -368,7 +371,7 @@ class ForecastDataAugmentorSurgeTest {
         OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
         hourly.setTime(List.of(
                 "2026-03-30T18:00", "2026-03-30T19:00", "2026-03-30T20:00"));
-        hourly.setSurfacePressure(null); // null pressure list
+        hourly.setPressureMsl(null); // null pressure list
         hourly.setWindSpeed10m(List.of(15.0, 15.0, 15.0));
         hourly.setWindDirection10m(List.of(60, 60, 60));
         response.setHourly(hourly);

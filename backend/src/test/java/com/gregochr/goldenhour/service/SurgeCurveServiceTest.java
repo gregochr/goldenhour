@@ -39,6 +39,12 @@ class SurgeCurveServiceTest {
     private static final double STORM_WIND_MS = 20.0;
     private static final int ONSHORE_DIRECTION_DEG = 20;
 
+    /**
+     * Roughly what reducing to a clifftop cell's elevation takes off the reading — the reason
+     * surface_pressure was the wrong field: it looks like a standing low that no weather caused.
+     */
+    private static final double ELEVATION_REDUCTION_HPA = 6.0;
+
     private StormSurgeService stormSurgeService;
     private SurgeCurveService service;
 
@@ -218,7 +224,12 @@ class SurgeCurveServiceTest {
         }
         OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
         h.setTime(times);
-        h.setSurfacePressure(pressure);
+        h.setPressureMsl(pressure);
+        // surface_pressure is deliberately set to a DIFFERENT value — what an elevated coastal
+        // grid cell would report. Any regression back to that field produces a visibly wrong
+        // surge here rather than an identical-looking pass.
+        h.setSurfacePressure(new ArrayList<>(java.util.Collections.nCopies(
+                pressure.size(), STORM_PRESSURE_HPA - ELEVATION_REDUCTION_HPA)));
         h.setWindSpeed10m(wind);
         h.setWindDirection10m(direction);
         OpenMeteoForecastResponse response = new OpenMeteoForecastResponse();
@@ -233,7 +244,7 @@ class SurgeCurveServiceTest {
         // zero rule, asserting the water tracks its prediction hour after hour. The model never
         // said that; it said the water is BELOW prediction.
         OpenMeteoForecastResponse calm = hourly(WINTER_DAY);
-        java.util.Collections.fill(calm.getHourly().getSurfacePressure(), 1035.0);
+        java.util.Collections.fill(calm.getHourly().getPressureMsl(), 1035.0);
         java.util.Collections.fill(calm.getHourly().getWindSpeed10m(), 2.0);
 
         service.refresh(List.of(pairing(coastal(), calm)), List.of(WINTER_DAY));
@@ -257,5 +268,27 @@ class SurgeCurveServiceTest {
         assertThat(direct.totalSurgeMetres()).isGreaterThan(0.0);
         assertThat(service.getCached().forLocation(ID_COASTAL, WINTER_DAY).get(12))
                 .isEqualTo(round(direct.totalSurgeMetres()));
+    }
+    @Test
+    @DisplayName("the curve reads pressure_msl, not the elevation-reduced surface_pressure")
+    void refresh_usesMeanSeaLevelPressure() {
+        // The inverse-barometer term measures departure from 1013.25 hPa, a MEAN-SEA-LEVEL
+        // reference. surface_pressure is reduced to the grid cell's own elevation, so an elevated
+        // coastal cell reads permanently low and the model turns that into a standing surge no
+        // weather caused — right at the significance threshold, so it can carry a calm day over
+        // the gate on its own.
+        LocationEntity location = coastal();
+        service.refresh(List.of(pairing(location, hourly(WINTER_DAY))), List.of(WINTER_DAY));
+
+        StormSurgeBreakdown fromMsl = stormSurgeService.calculate(
+                STORM_PRESSURE_HPA, STORM_WIND_MS, ONSHORE_DIRECTION_DEG,
+                location.toCoastalParameters(), "REGULAR_TIDE");
+        StormSurgeBreakdown fromSurface = stormSurgeService.calculate(
+                STORM_PRESSURE_HPA - ELEVATION_REDUCTION_HPA, STORM_WIND_MS, ONSHORE_DIRECTION_DEG,
+                location.toCoastalParameters(), "REGULAR_TIDE");
+
+        double plotted = service.getCached().forLocation(ID_COASTAL, WINTER_DAY).get(12);
+        assertThat(plotted).isEqualTo(round(fromMsl.totalSurgeMetres()));
+        assertThat(plotted).isNotEqualTo(round(fromSurface.totalSurgeMetres()));
     }
 }
