@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.17.8] - 2026-08-01
+
 ### Changed — the frontend lint gate now fails on warnings
 
 - **`npm run lint` carried no `--max-warnings`**, so every warning-level rule was advisory: the build stayed green with 34 of them outstanding, and CodeQL was the only thing catching the class of defect they described. The gate is now `--max-warnings 0`. It is the same script CI runs, so local and CI tighten together.
