@@ -8,14 +8,42 @@ against the tree, not against documentation — see §2.6 for why that distincti
 > `fix/release-ahead-guard`. **That branch is not an ancestor of `main`** (`git merge-base
 > --is-ancestor a484d1c4 main` → false). The tree has since moved to `d421ef5f`, where
 > `ForecastTaskCollector.java` is **899 lines, not 883** — a 16-line TIDE-LESS COASTAL
-> diagnostic was added at `:537-552`, so **every citation of that file past line 534 in this
-> document is off by +16**. The build plan (`all-in-build-plan.md`) is re-verified at
-> `d421ef5f` and supersedes this document wherever they disagree.
+> diagnostic was added at `:537-552`. The build plan (`all-in-build-plan.md`) is re-verified and
+> supersedes this document wherever they disagree.
 >
-> Two further doc claims fell to the same rule while this was written: CLAUDE.md says the
-> project runs on H2 locally (it does not — Postgres everywhere, `h2` is `<scope>test</scope>`
-> at `pom.xml:250-254`), and CLAUDE.md cites `src/test/java/**/regression/` as the protected
-> test path (that directory does not exist). That is six false doc claims now. Read the tree.
+> ⚠️ **Do not apply a blanket +16.** An earlier draft of this note said "every citation of that
+> file past line 534 is off by +16". Both halves are wrong, and acting on it would *introduce*
+> an error. The diff hunk is `536a537,552`, so old lines 1–**536** are unchanged — the boundary
+> is 536, not 534. And the **only** `ForecastTaskCollector` citation past 534 in this document is
+> `:733`, which is **already correct at HEAD** (the `briefingService.getCachedBriefing()` read
+> inside `collectRegionFilteredBatches`) because it was written against `d421ef5f` after the
+> warning. Adding 16 would break a correct citation. All four citations of that file verify at
+> HEAD as written; the file is still 899 lines and unchanged since `d421ef5f`.
+>
+> Two further doc claims fell to the same rule while this was written. CLAUDE.md cites
+> `src/test/java/**/regression/` as the protected test path — **that directory does not exist**;
+> prompt-regression is selected by JUnit tag (`pom.xml:23`, `:29-32`). And CLAUDE.md's H2 claim
+> was called false here in an earlier draft; **that correction was itself wrong** — see below.
+>
+> ⚠️ **Retraction (2026-08-01): "there is no H2 at runtime" is false, and this document asserted
+> it.** `backend/src/main/resources/application-local.yml` is **tracked**, is a runtime profile,
+> and is H2: `jdbc:h2:file:./data/goldenhour` (`:6`), `org.h2.Driver` (`:7`), `H2Dialect` (`:11`),
+> `ddl-auto: update` (`:13`), `flyway.enabled: false` (`:20`), console on (`:21-23`).
+> `pom.xml:247-249` says so in its own words — *"H2 — used in tests (@DataJpaTest) and local dev
+> profile (H2 file DB). test scope makes it available for test execution and spring-boot:run."*
+> And `backend/data/goldenhour.mv.db` is on disk. The `<scope>test</scope>` reading was right
+> about the dependency and wrong about the conclusion: test scope still reaches `spring-boot:run`
+> via Maven.
+>
+> What is true is narrower and belongs to the user, not the tree: **they do not use it** — local
+> development is Postgres, and the `local` profile is a leftover to delete (build plan §2.8).
+> The Postgres-only DDL decision **survives** on its own merits, because `local` has
+> `flyway.enabled: false` and therefore never runs a migration at all. But the reasoning must be
+> stated that way round. Note also that `application-local.yml` **changed since `d421ef5f`** —
+> +15 lines of `photocast.tide-run` config appended at `:192-209`, the same block that landed in
+> `-prod` and `-example`, so it looks like a blanket edit across profiles rather than active use.
+>
+> That is seven false doc claims now, two of them this document's own. Read the tree.
 
 ---
 
@@ -190,7 +218,7 @@ panels may.** That one rule dissolves the circularity, and it is the invariant t
 
 > **Corrected 2026-07-31.** This was first written as the snappier "publication is terminal —
 > nothing reads it", which is false and would break any guard written against it:
-> `CloseToHomeService.java:136` calls `getCachedBriefingForApi()` on the **serve** path, which
+> `CloseToHomeService.java:151` calls `getCachedBriefingForApi()` on the **serve** path, which
 > creates no cycle. The precise form is the writable one. Two genuine breaks remain and are
 > resolved in the build plan: `ForecastTaskCollector.java:733` (the region-filtered admin path,
 > unaddressed) and `POST /api/briefing/run` → `republish()`, which under maximum deletion should
@@ -255,8 +283,10 @@ non-uniform path.
 otherwise take with it:
 
 - `PromptBuilder:608–625` emits a `FORECAST RELIABILITY:` block into the **user message**.
-- `BriefingBestBetAdvisor` and `BriefingRollupBuilder` read `StabilitySnapshotProvider` to
-  surface worst-case regional stability on the Plan tab.
+- `BriefingRollupBuilder.java:403` reads `StabilitySnapshotProvider` and
+  `appendStabilityToRegion` writes `stability` / `stabilityReason` into the rollup **JSON**
+  (`:427`, `:429`) — which is the Claude **best-bet prompt**, not a rendered surface.
+  `BriefingBestBetAdvisor.java:150` only passes the provider through to that builder.
 
 **Keep the classifier as a pure inline function called at slate-build time for display and
 prompt enrichment. Delete the snapshot table, the controller, `GridCellStabilityService`, and
@@ -264,17 +294,26 @@ every gating read.**
 
 > ⚠️ **Corrected 2026-07-31 — this paragraph contained a fatal contradiction, and three design
 > agents inherited it.** It previously also said "delete … the provider" in the same breath as
-> naming the provider a Plan-tab display path two lines above. `StabilitySnapshotProvider` is
-> the **only** transport carrying stability from the classifier to the Plan tab —
-> `BriefingRollupBuilder.java:403` (region rollup → `BriefingRegion` → Plan tab) and
-> `BriefingBestBetAdvisor.java:150` (best-bet prompt input), nine production call sites across
-> eight classes in total. Deleting it deletes the display, which is the precise error the
-> classify-for-display rule exists to prevent.
+> naming the provider a consumer two lines above. `StabilitySnapshotProvider` is the **only**
+> transport carrying stability out of the classifier — nine production call sites across eight
+> classes, a count that verifies exactly at HEAD. Deleting it before rerouting silently degrades
+> whatever depends on it.
 >
-> **Resolution:** per-region stability rides the **slate** into PUBLISH, and
-> `BriefingRollupBuilder` / `BriefingBestBetAdvisor` read it from there. That work is owned by
-> the slate area and **must land before** anything deletes the provider. Only then does the
-> provider go.
+> ⚠️ **Second correction (2026-08-01) — it is NOT a display path, and this document said so
+> twice.** Verified at HEAD: `appendStabilityToRegion` writes into a Jackson `ObjectNode`
+> (`BriefingRollupBuilder.java:427,429`); that node is the rollup JSON from `buildRollupJson`
+> (`:111`); its only consumer is `BriefingBestBetAdvisor.advise` (`:202`) as the Claude
+> **best-bet user message**. `BriefingRegion` has **no** stability component (`grep -n stability
+> model/BriefingRegion.java` → nothing) and no frontend renders one. `BriefingBestBetAdvisor:150`
+> is a DI pass-through, not a read. So stability is **prompt enrichment**, full stop.
+>
+> This sharpens the design rather than weakening it. The classify-for-display rule still keeps
+> the classifier — but for the *prompt*, not the Plan tab. "Stability rides the slate" must
+> therefore deliver a **prompt input**, not a display attribute on `BriefingRegion`.
+>
+> **Resolution (unchanged):** the reroute **must land before** anything deletes the provider —
+> now because the best-bet prompt would otherwise lose an input with no visible symptom at all,
+> which is harder to catch than a blank cell, not easier.
 >
 > A second hole sits behind it: `grep -rn withStability src` returns exactly **one** production
 > producer of the `FORECAST RELIABILITY` block — `ForecastCommandExecutor.java:667`. The batch
@@ -426,10 +465,15 @@ visible by default rather than filtered out.
 
 **The bug.** `refreshBriefing()` does two jobs in one method:
 
-- `BriefingService.java:409–483` — **slate**: dates, colour locations, sequential weather
-  fetch, horizon cloud, marine waves, slot build, day hierarchy. No Claude, no cost.
-- `BriefingService.java:486–560` — **publication**: enrich with cached scores, gloss (Claude),
-  headline, best-bet (Claude), aurora, hot topics, persist.
+- `BriefingService.java:409–488` — **slate**: dates, colour locations, sequential weather
+  fetch, horizon cloud, marine waves, slot build, day hierarchy (`buildDays` at `:488`). No Claude.
+- `BriefingService.java:490–593` — **publication**: enrich with cached scores, gloss (Claude),
+  headline, best-bet (Claude), aurora, hot topics, persist (`:563`), method ends `:593`.
+
+> **Re-measured 2026-08-01.** The file is now 1040 lines (985 when this was written). It is also
+> **not a single cut**: three *free* refreshes sit inside the paid half — `nlcClarityService`
+> `:521-525`, `meteorClarityService` `:530-535`, and `surgeCurveService` `:544-548` (new, PR #389),
+> the last of which consumes `locationWeathers`, a free-half local. See build plan §2.10.
 
 The collector reads the *published* artefact and the cycle tail rewrites it. Split the method:
 
@@ -520,10 +564,11 @@ Carried forward verbatim; violations here are how this work goes wrong quietly.
   `prompt-regression` profile at `pom.xml:29-32`, and `@Tag("prompt-regression")` on
   `PromptRegressionTest`, `BestBetAuroraPromptRegressionTest` and `SkyRatingEvalTest` — which
   live in ordinary packages beside the code they test. Grep the tag, never the path.
-  Note that changing `BriefingBestBetAdvisor.advise` or `BriefingRollupBuilder.buildRollupJson`
-  signatures forces edits to `BestBetAuroraPromptRegressionTest.java:111,175,219` — legal, since
-  those are constructor calls rather than assertions, but it must be called out rather than
-  hidden behind "additive".
+  Note that `BestBetAuroraPromptRegressionTest.java:111,175,219` are
+  `new BriefingBestBetAdvisor(` **constructor** calls, so it is a *constructor* signature change
+  that forces edits there — not a change to `advise`, which that file never calls (it calls
+  `buildRollupJson` at `:117,:181,:225`). Editing them is legal, since they are construction rather
+  than assertions, but it must be called out rather than hidden behind "additive".
 - **Never edit prompt-regression assertions.** `PromptRegressionTest` pins `coptHill_5Mar` at
   solar low 67% → rating ≤ 2 — only 7pp above the ">60% BLOCKED" rule, so it is a genuinely
   tight pin. Only the user updates these.
