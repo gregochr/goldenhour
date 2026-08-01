@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the frontend lint gate now fails on warnings
+
+- **`npm run lint` carried no `--max-warnings`**, so every warning-level rule was advisory: the build stayed green with 34 of them outstanding, and CodeQL was the only thing catching the class of defect they described. The gate is now `--max-warnings 0`. It is the same script CI runs, so local and CI tighten together.
+- **The 34 were two real gaps, not noise.** 33 were `react/prop-types` on three `HotTopicStrip` components — `AuroraExpandedCard`, `BluebellExpandedCard` and `TideExpandedCard` — which had none while every other component in that file did. The two region-grouped cards take the *same* four props and build an identical map handoff from `topic`, so they share one `EXPANDED_CARD_PROP_TYPES` declaration rather than two hand-copied shapes; a missing key in one copy would only ever downgrade its own warning, which is exactly the drift that stays invisible. `topic` is a `shape` naming the four fields the handoff reads, not the looser `PropTypes.object` used elsewhere in the file — those four are a contract with `onShowOnMap`, and naming them is the documentation.
+- The 34th was a **dead prop**: `DailyBriefing` declared and defaulted `homeCoords` and never read it. Removed, along with its `propTypes` entry and the pass-site in `App.jsx`. `App` still holds the state — the map's "centre on home" control uses it.
+- Rules stay at `warn` rather than being promoted to `error`. The severity says how bad a thing is; the gate says whether any of them may ship. Conflating the two would make every future rule addition a choice between "blocks the build" and "invisible", which is how 34 accumulated.
+
 ### Fixed — the surge chart's unused import, and the magic 24 it should have been
 
 - CodeQL alert 174: `MINUTES_PER_DAY` was imported into `SurgeRunRow` and never used. ESLint did not catch it — unused imports are a *warning* in this config and the gate carries no `--max-warnings`. Deleting the line would have closed the alert and left the actual smell in place: the surge series is indexed by **hour**, so the x-position read `(hour / 24) * VIEW_W` — a bare 24 for the same local day `solarDayGeometry` already describes with a named constant. The import is therefore **swapped rather than removed**: a new `HOURS_PER_DAY` joins its sibling and takes the literal's place. `MINUTES_PER_DAY` keeps its consumers in `TideRunRow`, which samples by minute.
