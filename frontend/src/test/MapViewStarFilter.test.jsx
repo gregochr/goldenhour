@@ -135,10 +135,18 @@ describe('MapView advanced filters toggle', () => {
   beforeEach(() => { localStorage.clear(); });
   afterEach(() => { localStorage.clear(); });
 
+  // The drawer's max-height moved from a Tailwind class pair to an inline style, so the Map tab
+  // and the Plan overlay can share one easing and one open height. Asserted through
+  // `aria-expanded` — the state the disclosure actually publishes — with the height as the
+  // corroborating detail rather than the whole assertion.
+  const drawerOpen = () => screen.getByTestId('advanced-filters-toggle')
+    .getAttribute('aria-expanded') === 'true';
+  const drawerMaxHeight = () => screen.getByTestId('advanced-filters-panel').style.maxHeight;
+
   it('advanced filters panel is collapsed on fresh load', () => {
     renderMap();
-    expect(screen.getByTestId('advanced-filters-panel').className).toMatch(/max-h-0/);
-    expect(screen.getByTestId('advanced-filters-panel').className).not.toMatch(/max-h-96/);
+    expect(drawerOpen()).toBe(false);
+    expect(drawerMaxHeight()).toBe('0px');
   });
 
   it('Filters toggle button is present', () => {
@@ -166,14 +174,16 @@ describe('MapView advanced filters toggle', () => {
   it('clicking the toggle opens the advanced panel', () => {
     renderMap();
     fireEvent.click(screen.getByTestId('advanced-filters-toggle'));
-    expect(screen.getByTestId('advanced-filters-panel').className).toMatch(/max-h-96/);
+    expect(drawerOpen()).toBe(true);
+    expect(drawerMaxHeight()).toBe('340px');
   });
 
   it('clicking the toggle twice collapses the panel again', () => {
     renderMap();
     fireEvent.click(screen.getByTestId('advanced-filters-toggle'));
     fireEvent.click(screen.getByTestId('advanced-filters-toggle'));
-    expect(screen.getByTestId('advanced-filters-panel').className).toMatch(/max-h-0/);
+    expect(drawerOpen()).toBe(false);
+    expect(drawerMaxHeight()).toBe('0px');
   });
 });
 

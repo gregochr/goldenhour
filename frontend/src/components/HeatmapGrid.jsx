@@ -4,7 +4,7 @@ import PropTypes from 'prop-types';
 import { computeCellTier, isCellVisible, resolveRegionDisplay } from '../utils/tierUtils.js';
 import { formatTideHighlight } from '../utils/conversions.js';
 import {
-  LOCATION_TYPE_ICONS, isPoorSlot, slotSortKey, sortedSlotsByTidePriority, weatherCodeToIcon,
+  locationTypeIcons, isPoorSlot, slotSortKey, sortedSlotsByTidePriority, weatherCodeToIcon,
   msToMph, formatDriveDuration, formatTime, isEventPast,
 } from '../utils/briefingDisplay.js';
 import SlotLocationName from './shared/SlotLocationName.jsx';
@@ -191,7 +191,7 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
     <div className="mt-1" data-testid="region-slots">
       {sorted.map((slot) => {
         const drive = formatDriveDuration(driveMap.get(slot.locationName));
-        const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
+        const typeIcon = locationTypeIcons(typeMap.get(slot.locationName));
         const score = mergedScore(slot, scores.get(slot.locationName));
         const rating = score?.rating;
         const reasoning = score?.summary;
@@ -285,7 +285,7 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
           </div>
           {standdownSlots.map((slot) => {
             const drive = formatDriveDuration(driveMap.get(slot.locationName));
-            const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
+            const typeIcon = locationTypeIcons(typeMap.get(slot.locationName));
             return (
               <div
                 key={slot.locationName}

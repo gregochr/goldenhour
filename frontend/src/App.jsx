@@ -140,17 +140,26 @@ function AppInner() {
    * postcode takes effect without a page reload.
    */
   const [homeCoords, setHomeCoords] = useState(null);
+  // The Close-to-home radius, from the same settings read. It frames the map's "centre on home"
+  // camera move, so that control shows the area this user calls local rather than a fixed 30.
+  const [homeRadiusMiles, setHomeRadiusMiles] = useState(null);
+  // Non-null when the settings dialog was opened to land on a particular field — currently only
+  // the map control's "you have no postcode" branch, which exists to point at exactly that input.
+  const [settingsFocus, setSettingsFocus] = useState(null);
   // Bumped when the settings modal closes, so Close to home refetches after a postcode or radius
   // change. A counter rather than the values themselves: the panel depends on server-side state
   // this component never sees.
   const [homeSettingsVersion, setHomeSettingsVersion] = useState(0);
   const loadHomeCoords = useCallback(() => {
     getSettings()
-      .then((s) => setHomeCoords(
-        s?.homeLatitude != null && s?.homeLongitude != null
-          ? { lat: s.homeLatitude, lon: s.homeLongitude }
-          : null,
-      ))
+      .then((s) => {
+        setHomeCoords(
+          s?.homeLatitude != null && s?.homeLongitude != null
+            ? { lat: s.homeLatitude, lon: s.homeLongitude }
+            : null,
+        );
+        setHomeRadiusMiles(s?.localRadiusMiles ?? null);
+      })
       .catch(() => { /* settings are optional — the block just stays hidden */ });
   }, []);
   useEffect(() => { loadHomeCoords(); }, [loadHomeCoords]);
@@ -416,6 +425,13 @@ function AppInner() {
                   briefingScores={briefingScores}
                   onForecastRun={refresh}
                   seasonalFeatures={seasonalFeatures}
+                  // "Centre on home" reads the coordinates already resolved for Close to home —
+                  // the postcode was geocoded once, server-side, when it was saved, and this
+                  // state is refreshed when the settings modal closes. No second geocoding path,
+                  // and no lookup on a click.
+                  homeCoords={homeCoords}
+                  homeRadiusMiles={homeRadiusMiles}
+                  onOpenSettings={() => setSettingsFocus('postcode')}
                 />
               </Suspense>
             )}
@@ -472,10 +488,12 @@ function AppInner() {
         </div>
       </footer>
 
-      {showSettings && (
+      {(showSettings || settingsFocus) && (
         <UserSettingsModal
+          focusField={settingsFocus}
           onClose={() => {
             setShowSettings(false);
+            setSettingsFocus(null);
             loadHomeCoords();
             // Close to home is derived from the home postcode AND the local radius, both editable
             // in this modal, so bump a version the panel can depend on. Without it a widened
@@ -512,6 +530,10 @@ function AppInner() {
               briefingScores={briefingScores}
               onForecastRun={refresh}
               seasonalFeatures={seasonalFeatures}
+              // This map arrived from a plan card, which already chose the location and the solar
+              // event — so it opens with the filters folded behind a one-line context bar and
+              // spends the reclaimed height on the map. The Map tab keeps the full rail.
+              overlayMode
             />
           </MapOverlay>
         </Suspense>

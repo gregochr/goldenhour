@@ -2,12 +2,21 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import ProPill from './shared/ProPill.jsx';
 
-const TYPES = [
-  { value: 'SUNRISE', label: '☀️ Sunrise' },
-  { value: 'SUNSET',  label: '🌇 Sunset' },
-  { value: 'ASTRO',   label: '🌙 Astro' },
-  { value: 'AURORA',  label: '🌌 Aurora' },
-];
+/**
+ * Event glyph + word, in one place.
+ *
+ * <p>Exported because the map overlay's context bar restates the inherited event as a read-only
+ * chip. Two literals would let the chip and the control it stands for drift apart, which is the
+ * one thing a "this is what you are looking at" line may never do.
+ */
+export const EVENT_TYPE_LABELS = {
+  SUNRISE: '☀️ Sunrise',
+  SUNSET: '🌇 Sunset',
+  ASTRO: '🌙 Astro',
+  AURORA: '🌌 Aurora',
+};
+
+const TYPES = Object.entries(EVENT_TYPE_LABELS).map(([value, label]) => ({ value, label }));
 
 /**
  * Sunrise / Sunset / Astro / Aurora toggle bar shown above the map.

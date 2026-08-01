@@ -456,29 +456,81 @@
   outline: 2px solid var(--color-close-to-home);
   outline-offset: 2px;
 }
-/* Hover preview beside a "Close to home" card. `fixed` rather than `absolute`: the block itself is
-   `overflow: hidden`, which would crop an absolutely-positioned child against the card grid. Width
-   and max-height are mirrored by PREVIEW_WIDTH / PREVIEW_MAX_HEIGHT in CloseToHome.jsx, which needs
-   them to keep the panel inside the viewport — keep the two in step. */
+/* Hover peek under a "Close to home" card — tooltip weight, not modal weight.
+   `fixed` rather than `absolute`: the block is `overflow: hidden` (the gold accent rail relies on
+   it to stay inside the rounded corner), which would crop an absolutely-positioned child against
+   the card grid. Fixed escapes every ancestor's overflow, so the "never clipped" rule holds
+   without the block giving up its own clipping. Horizontal clamping to the block's edges is done
+   in JS, where the block's rect is already to hand — see previewPlacement in CloseToHome.jsx.
+   Width is mirrored by PREVIEW_WIDTH there; keep the two in step.
+   Deliberately NO max-height: the old panel capped at 260px with overflow hidden, which is what
+   cut the second score bar in half. The content is three short lines, so nothing needs a cap. */
 .cth-hover-preview {
   position: fixed;
   z-index: 1200;
-  width: 300px;
-  max-height: 260px;
-  overflow: hidden;
-  padding: 12px 14px;
+  width: 280px;
+  padding: 11px 13px 12px;
   border: 1px solid var(--color-plex-border-light);
   border-radius: 10px;
-  background: var(--color-plex-surface);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
-  /* The pointer must never reach it — it sits beside the card it describes, and a preview that can
-     steal the hover would flicker as the pointer crossed the gap. */
-  pointer-events: none;
-  animation: cth-preview-in 0.12s ease-out;
+  background: var(--color-plex-surface-light);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+  text-align: left;
+  cursor: pointer;
+  /* The pointer MUST be able to reach it: the panel sits 10px below the card, and travel across
+     that gap has to keep it open (the card's mouseleave starts a grace period the panel's
+     mouseenter cancels). It also carries the click through to the map overlay. */
+  pointer-events: auto;
+  animation:
+    cth-preview-fade 0.16s ease,
+    cth-preview-rise 0.18s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
-@keyframes cth-preview-in {
+/* Flipped above the card when there is no room below — the rise reverses with it. */
+.cth-hover-preview[data-placement='above'] {
+  animation-name: cth-preview-fade, cth-preview-drop;
+}
+/* Arrow tethering the panel to the card centre. Same fill and border as the shell, so it reads as
+   one shape; --cth-arrow-left is set inline from the card's centre, already clamped to the panel. */
+.cth-hover-preview::after {
+  content: '';
+  position: absolute;
+  left: var(--cth-arrow-left, 24px);
+  width: 11px;
+  height: 11px;
+  transform: rotate(45deg);
+  background: var(--color-plex-surface-light);
+}
+.cth-hover-preview[data-placement='below']::after {
+  top: -6px;
+  border-left: 1px solid var(--color-plex-border-light);
+  border-top: 1px solid var(--color-plex-border-light);
+}
+.cth-hover-preview[data-placement='above']::after {
+  bottom: -6px;
+  border-right: 1px solid var(--color-plex-border-light);
+  border-bottom: 1px solid var(--color-plex-border-light);
+}
+/* The drive chip on the peek's first line. `nowrap` because "1 hr 59 mins" otherwise breaks
+   across two lines inside a 280px panel and drags the clause down with it. */
+.cth-hover-chip {
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--color-plex-border-light);
+  color: var(--color-plex-text-secondary);
+  white-space: nowrap;
+}
+@keyframes cth-preview-fade {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+@keyframes cth-preview-rise {
+  from { transform: translateY(-6px); }
+  to { transform: translateY(0); }
+}
+@keyframes cth-preview-drop {
+  from { transform: translateY(6px); }
+  to { transform: translateY(0); }
 }
 @media (prefers-reduced-motion: reduce) {
   .cth-hover-preview { animation: none; }
@@ -627,6 +679,110 @@
 }
 .map-overlay-panel {
   animation: map-overlay-rise 0.2s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* ── "Centre on home" map control ──
+   Its own container in the top-left stack, directly under the zoom box. `.leaflet-bar` gives it
+   Leaflet's own control shadow, and Leaflet's corner container handles the stacking, which is why
+   nothing here hardcodes a distance from the top of the map. The 8px gap is what makes it read as
+   a separate action rather than a third zoom step.
+
+   Three classes on purpose. `leaflet/dist/leaflet.css` is imported from MapView.jsx and so lands
+   AFTER this file in the bundle, and two of its rules are two-class selectors that would otherwise
+   win on source order alone: `.leaflet-touch .leaflet-bar` (a 2px black border) and
+   `.leaflet-top .leaflet-control` (a 10px stack margin). Both classes are already on the element,
+   so naming them here is a specificity bump, not a new coupling — and it is what `!important`
+   would otherwise be doing three times over. */
+.leaflet-control.leaflet-bar.map-home-control {
+  margin-top: 8px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 8px;
+  background: rgba(20, 15, 12, 0.86);
+  overflow: hidden;
+}
+.map-home-control button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 30px;
+  background: transparent;
+  border: 0;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--color-close-to-home);
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.map-home-control button:hover {
+  background: var(--color-plex-surface-light);
+  color: var(--color-plex-text);
+}
+.map-home-control button:focus-visible {
+  outline: 2px solid var(--color-close-to-home);
+  outline-offset: -2px;
+}
+/* No postcode saved. Still visible, still clickable — the click is what says where to set it —
+   so this is a `data-` state rather than the `disabled` attribute, which would swallow the
+   pointer and leave the user with a dead button and no explanation. */
+.map-home-control button[data-disabled] {
+  opacity: 0.4;
+}
+.map-home-control button[data-disabled]:hover {
+  background: transparent;
+  color: var(--color-close-to-home);
+}
+
+/* ── Map overlay context bar ──
+   The read-only receipt that replaced five rows of filter controls. Chips are stated, not
+   operated: arriving from a plan card IS a filter action, so the bar's job is to show what was
+   inherited, and the one control on it is the disclosure that gets the controls back. */
+.map-ctx-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid var(--color-plex-border-light);
+  color: var(--color-plex-text-secondary);
+  white-space: nowrap;
+}
+/* The lead chip is the event, which is the fact the user actually chose on the way in. */
+.map-ctx-chip--lead {
+  background: rgba(224, 165, 66, 0.14);
+  border-color: rgba(224, 165, 66, 0.38);
+  color: #f0cd8a;
+}
+/* Same visual weight as the modal's ✕ — a disclosure, not a panel. */
+.map-ctx-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-plex-text-secondary);
+  border: 1px solid var(--color-plex-border);
+  background: transparent;
+  border-radius: 7px;
+  padding: 5px 11px;
+  transition: border-color 0.14s ease, color 0.14s ease;
+}
+.map-ctx-btn:hover {
+  border-color: var(--color-plex-border-light);
+  color: var(--color-plex-text);
+}
+.map-ctx-caret {
+  transition: transform 0.18s ease;
+}
+.map-ctx-caret[data-open] {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-ctx-caret { transition: none; }
 }
 
 /* Bottom sheet slide-up animation */
