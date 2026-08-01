@@ -88,6 +88,7 @@ public class BriefingService {
     private final SeasonalWindow bluebellSeason;
     private final NlcClarityService nlcClarityService;
     private final MeteorClarityService meteorClarityService;
+    private final SurgeCurveService surgeCurveService;
     private final java.time.Clock clock;
     private final MarineWaveRefreshService marineWaveRefreshService;
 
@@ -165,6 +166,8 @@ public class BriefingService {
      * @param bluebellSeason             the configured bluebell season window
      * @param nlcClarityService          caches which nights have a clear dark-sky NLC chance
      * @param meteorClarityService       caches overhead dark-sky clarity for shower-peak nights
+     * @param surgeCurveService          caches the hourly storm-surge curve computed from the
+     *                                   weather this build has already fetched
      * @param clock                      UTC clock supplying "now" and (via London) "today"
      * @param marineWaveRefreshService   fetches + persists coastal sea-state each briefing cycle
      */
@@ -187,6 +190,7 @@ public class BriefingService {
             SeasonalWindow bluebellSeason,
             NlcClarityService nlcClarityService,
             MeteorClarityService meteorClarityService,
+            SurgeCurveService surgeCurveService,
             java.time.Clock clock,
             MarineWaveRefreshService marineWaveRefreshService) {
         this.locationService = locationService;
@@ -210,6 +214,7 @@ public class BriefingService {
         this.bluebellSeason = bluebellSeason;
         this.nlcClarityService = nlcClarityService;
         this.meteorClarityService = meteorClarityService;
+        this.surgeCurveService = surgeCurveService;
         this.clock = clock;
         this.marineWaveRefreshService = marineWaveRefreshService;
     }
@@ -527,6 +532,19 @@ public class BriefingService {
         } catch (Exception e) {
             LOG.warn("Meteor clarity refresh failed — clear-sky fact may be omitted: {}",
                     e.getMessage());
+        }
+
+        // Refresh the hourly storm-surge curve from weather ALREADY fetched above — no HTTP, no DB,
+        // just the pure surge calculation run once per local hour. Isolated like the others: a
+        // failure here costs the chart, never the briefing.
+        //
+        // Over `dates` rather than the narrower hot-topic window on purpose: serve time uses the
+        // REQUEST day, so a briefing built today and served tomorrow asks for a date one further
+        // out than this build's own horizon.
+        try {
+            surgeCurveService.refresh(locationWeathers, dates);
+        } catch (Exception e) {
+            LOG.warn("Surge curve refresh failed — surge chart may be absent: {}", e.getMessage());
         }
 
         List<HotTopic> hotTopics = hotTopicAggregator.getHotTopics(today, today.plusDays(3));
