@@ -436,7 +436,13 @@ public class TideRunBuilder {
                 verdict(usefulPoint, otherPoint, sunriseMinutes, sunsetMinutes, aligned, peak, king),
                 aligned,
                 peak,
-                king ? KING_PHRASE : SPRING_PHRASE);
+                // The editorial line is claimed ONLY on an aligned day. It states what the event
+                // gives a photographer — "low water bares the foreground" — and on an unaligned day
+                // that is true of the water and useless to the reader: the foreground is bared at
+                // 01:00, in the dark. The verdict beside it already says the water misses the
+                // light, so printing the draw anyway had the two lines arguing, with the more
+                // confident-sounding one wrong. Silence is the honest form of "not tonight".
+                aligned ? (king ? KING_PHRASE : SPRING_PHRASE) : null);
     }
 
     /** The extremum of the given type sitting closest to either solar event, or null if none. */

@@ -216,7 +216,16 @@ public class SurgeCurveService {
         }
         StormSurgeBreakdown breakdown = stormSurgeService.calculate(
                 pressure, windSpeed, windDirection, params, NEUTRAL_TIDE_TYPE);
-        return round(breakdown.totalSurgeMetres());
+        // The UNCLAMPED residual, not totalSurgeMetres(). That field is Math.max(0, pressure +
+        // wind), which is right for a risk classification — there is no such thing as negative
+        // risk — but wrong for a curve: it turns every below-prediction hour into exactly 0.000,
+        // so an ordinary high-pressure morning draws a dead-flat run sitting on the datum rule,
+        // asserting "the water tracks its prediction exactly, hour after hour", which the model
+        // never said. That is the same artefact the null-gap rule exists to prevent, reached by a
+        // different route. The two components are stored unclamped, so the true residual needs no
+        // change to the calculator; where the surge is positive the two agree exactly, which is
+        // the property the pill's chip depends on.
+        return round(breakdown.pressureRiseMetres() + breakdown.windRiseMetres());
     }
 
     /**

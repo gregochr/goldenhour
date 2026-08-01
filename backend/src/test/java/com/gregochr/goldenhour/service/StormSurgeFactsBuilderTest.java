@@ -159,11 +159,22 @@ class StormSurgeFactsBuilderTest {
 
     /** A builder whose carrier holds a curve for location 1 on DATE, with the given values. */
     private StormSurgeFactsBuilder builderWithCurve(java.util.List<Double> series) {
+        return builderWithCurve(series, null);
+    }
+
+    /** As above, plus the FOLLOWING day's series — the window the chip may have been sampled in. */
+    private StormSurgeFactsBuilder builderWithCurve(java.util.List<Double> series,
+            java.util.List<Double> nextDay) {
+        java.util.Map<java.time.LocalDate, java.util.List<Double>> byDate =
+                new java.util.LinkedHashMap<>();
+        byDate.put(DATE, series);
+        if (nextDay != null) {
+            byDate.put(DATE.plusDays(1), nextDay);
+        }
         SurgeCurveService carrier = new SurgeCurveService(new StormSurgeService()) {
             @Override
             public com.gregochr.goldenhour.model.SurgeCurve getCached() {
-                return new com.gregochr.goldenhour.model.SurgeCurve(
-                        java.util.Map.of(1L, java.util.Map.of(DATE, series)));
+                return new com.gregochr.goldenhour.model.SurgeCurve(java.util.Map.of(1L, byDate));
             }
         };
         return new StormSurgeFactsBuilder(marineWaveRepository, carrier,
@@ -216,5 +227,57 @@ class StormSurgeFactsBuilderTest {
                 .attach(baseTopic(), List.of(surgeRow(1L, null, 17.0, 247.0)));
 
         assertThat(result.surgeRun()).isNotNull();
+    }
+    /** A day that climbs from calm to a late peak — the overnight-building case. */
+    private static java.util.List<Double> risingSeries(double from, double to) {
+        java.util.List<Double> out = new java.util.ArrayList<>();
+        for (int h = 0; h < 24; h++) {
+            out.add(from + (to - from) * (h / 23.0));
+        }
+        return out;
+    }
+
+    @Test
+    @DisplayName("a chip sampled on the FOLLOWING day no longer deletes a correct chart")
+    void chipSampledNextDay_curveSurvives() {
+        // The guard's own javadoc concedes the chip can be taken after midnight. A surge building
+        // overnight then produces a chip legitimately larger than today's maximum, and a
+        // day-D-only envelope vetoed the chart on exactly the biggest nights — made worse by
+        // attach() picking the representative by MAX surge, which selects for that very row.
+        HotTopic result = builderWithCurve(risingSeries(0.05, 0.40), risingSeries(0.45, 0.95))
+                .attach(baseTopic(), List.of(surgeRow(1L, 0.90, 17.0, 247.0)));
+
+        assertThat(result.surgeRun()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("a chip outside BOTH days is still suppressed — the guard has not been defanged")
+    void chipOutsideBothDays_isSuppressed() {
+        HotTopic result = builderWithCurve(risingSeries(0.05, 0.40), risingSeries(0.10, 0.45))
+                .attach(baseTopic(), List.of(surgeRow(1L, 2.50, 17.0, 247.0)));
+
+        assertThat(result.surgeRun()).isNull();
+    }
+
+    @Test
+    @DisplayName("the surge chip stands down when a curve is attached — one number, not two")
+    void curveAttached_surgeChipDropped() {
+        // The pill was printing the curve's day peak AND the next-high-tide sample, at different
+        // precisions, in words that gave no clue they were different instants.
+        HotTopic result = builderWithCurve(flatSeries(0.62))
+                .attach(baseTopic(), List.of(surgeRow(1L, 0.60, 17.0, 247.0)));
+
+        assertThat(result.surgeRun()).isNotNull();
+        assertThat(result.facts()).extracting(HotTopicFact::key).doesNotContain("surge");
+    }
+
+    @Test
+    @DisplayName("with the chart suppressed the surge chip returns — it is then the only magnitude")
+    void curveSuppressed_surgeChipKept() {
+        HotTopic result = builderWithCurve(flatSeries(0.10))
+                .attach(baseTopic(), List.of(surgeRow(1L, 0.95, 17.0, 247.0)));
+
+        assertThat(result.surgeRun()).isNull();
+        assertThat(factWithKey(result, "surge").value()).isEqualTo("1.0 m above normal");
     }
 }

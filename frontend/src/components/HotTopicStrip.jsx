@@ -1062,9 +1062,11 @@ export default function HotTopicStrip({
               // — the entire accessible answer: how much water, when, and whether it rides high
               // water, which is the only version of a surge worth the drive.
               //
-              // Rendered ALONGSIDE the fact chips, unlike the tide run which replaces them. The
-              // chips carry waves, surge magnitude and wind; this line carries timing against high
-              // water, which none of them says.
+              // Rendered ALONGSIDE the fact chips, unlike the tide run which replaces them —
+              // but the backend drops the SURGE chip whenever it sends a curve, so the chips left
+              // here carry waves and wind while this line carries the magnitude and its timing
+              // against high water. No quantity appears twice. On the suppressed-chart path the
+              // surge chip comes back, because it is then the only magnitude the pill has.
               <div style={{ padding: '0 13px 11px 38px' }}>
                 <SurgeVerdict
                   run={topic.surgeRun}

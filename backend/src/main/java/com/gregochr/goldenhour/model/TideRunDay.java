@@ -54,7 +54,9 @@ import java.util.List;
  *                     screen reader, so this string must never be hidden from one
  * @param aligned      true when the useful extremum falls within an hour of sunrise or sunset
  * @param peak         true on the run's biggest-range day
- * @param phrase       the editorial line for this event type, {@code "low water bares the
+ * @param phrase       the editorial line for this event type, or null on an unaligned day —
+ *                     the draw is only claimed when the water lands in usable light.
+ *                     {@code "low water bares the
  *                     foreground"} — a king run's draw is highest water, not exposed foreground,
  *                     so the wording differs
  */
@@ -75,7 +77,7 @@ public record TideRunDay(
         String verdict,
         boolean aligned,
         boolean peak,
-        String phrase) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) String phrase) {
 
     /**
      * Canonical constructor with Jackson bindings so cached briefing JSON round-trips.
