@@ -7,6 +7,7 @@ import { LOCATION_TYPE_ICONS, locationTypeLabel } from '../utils/locationTypes.j
 import { formatEventTimeUk } from '../utils/conversions.js';
 import { lookupBriefingScore } from '../utils/briefingScoreIndex.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import useLocalStorageState from '../hooks/useLocalStorageState.js';
 
 /** Accent for the whole block — its own warm gold, distinct from the bone `--color-plex-gold`. */
 const GOLD = 'var(--color-close-to-home)';
@@ -14,6 +15,19 @@ const GOLD = 'var(--color-close-to-home)';
 /** Tooltip carrying the ranking rule. A one-time explanation, so it stays out of the body copy. */
 const RANKING_TIP = 'Ranked by rating. Gated by distance from your home postcode — region '
   + 'boundaries are ignored, so a nearby spot in the next region still counts as local.';
+
+/**
+ * What the three chips actually cut, in one place.
+ *
+ * <p>An InfoTip rather than `title` attributes, for the reason InfoTip exists: a hover-only tooltip
+ * is unreachable on touch, and this block is read on a phone at least as often as on a desktop. The
+ * chips keep their own `title` as a pointer-user shortcut, but the answer does not live only there.
+ */
+const FILTER_TIP = 'Drive time caps how long you are willing to travel — tap to cycle any → 15 → 30 '
+  + '→ 45 minutes. A spot whose drive time has not been worked out yet is kept, not hidden, so the '
+  + 'count never claims nothing is close. Rating sets a floor in whole stars. Right tide keeps only '
+  + 'spots where the tide suits — a king or spring tide, or the tide state that location is best at, '
+  + 'never simply "it is on the coast". Your choices are remembered on this device.';
 
 /**
  * Star-badge colour bands. Mirrors the heatmap's star pills so a 4★ reads the same everywhere.
@@ -120,14 +134,20 @@ function RatingPill({ rating, testId }) {
   );
 }
 
-/** A cycling or toggling filter chip in the block head. */
-function FilterChip({ label, active, onClick, testId }) {
+/**
+ * A cycling or toggling filter chip in the block head.
+ *
+ * <p>`title` is the pointer-user shortcut only — the same explanation is in the row's InfoTip,
+ * which is the one a touch user can actually reach.
+ */
+function FilterChip({ label, active, onClick, testId, title = undefined }) {
   return (
     <button
       type="button"
       data-testid={testId}
       data-on={active ? 'true' : 'false'}
       aria-pressed={active}
+      title={title}
       onClick={onClick}
       className="cth-filter"
     >
@@ -314,12 +334,43 @@ function WindowRows({ cards, onOpen, onPreview, onPreviewEnd }) {
 const DRIVE_STEPS = [null, 15, 30, 45];
 const RATING_STEPS = [null, 3, 4, 5];
 
+/**
+ * localStorage keys for the block's narrowing.
+ *
+ * <p>"Under 30 minutes, 4★ and up" is a standing preference, not a per-visit whim — it describes the
+ * reader's own tolerance for a drive, which does not change between page loads. Re-picking it on
+ * every visit was the tax; the chips carry their own on-state and a Clear button appears beside
+ * them, so a remembered filter cannot become an unexplained empty block.
+ *
+ * <p>Not cleared on logout, matching the map's `mapFilterMinStars`: these are display preferences,
+ * not personal data — the postcode they are measured from lives on the server, behind auth.
+ */
+const DRIVE_KEY = 'closeToHomeFilterDrive';
+const RATING_KEY = 'closeToHomeFilterRating';
+const TIDE_KEY = 'closeToHomeFilterTide';
+
 /** Cards fully visible in the filmstrip at desktop width — the `4.5` basis in `.cth-window-grid`. */
 const VISIBLE_CARDS = 4;
 
 /** Advances a cycling filter to its next step, wrapping back to "Any". */
 function nextStep(steps, current) {
   return steps[(steps.indexOf(current) + 1) % steps.length];
+}
+
+/**
+ * A stored step is honoured only while it is still one of the steps.
+ *
+ * <p>localStorage outlives the code that wrote it. Drop 45 from `DRIVE_STEPS` and a returning user
+ * would otherwise keep filtering on a ceiling no chip can display — `nextStep` returns "Any" for an
+ * unknown current value, so the chip would read "Any drive time" while quietly hiding half the set,
+ * which is the one failure a visible filter is supposed to be immune to.
+ *
+ * @param {Array}  steps the filter's valid steps, including the leading null
+ * @param {*}      value whatever came back out of storage
+ * @returns {?number} the value when it is a real step, otherwise null (no filter)
+ */
+function storedStep(steps, value) {
+  return steps.includes(value) ? value : null;
 }
 
 /**
@@ -712,11 +763,17 @@ export default function CloseToHome({
 }) {
   // Hooks precede the early return so the hook order is stable across a null → loaded panel.
   const [preview, setPreview] = useState(null);
-  const [maxDrive, setMaxDrive] = useState(null);
-  const [minRating, setMinRating] = useState(null);
-  const [tideOnly, setTideOnly] = useState(false);
+  const [storedDrive, setMaxDrive] = useLocalStorageState(DRIVE_KEY, null);
+  const [storedRating, setMinRating] = useLocalStorageState(RATING_KEY, null);
+  const [storedTide, setTideOnly] = useLocalStorageState(TIDE_KEY, false);
   const [expandedKey, setExpandedKey] = useState(null);
   const isMobile = useIsMobile();
+
+  // Sanitised on the way out rather than on the way in: the stored value is only ever read through
+  // these, so a stale one is inert until the next tap overwrites it with a real step.
+  const maxDrive = storedStep(DRIVE_STEPS, storedDrive);
+  const minRating = storedStep(RATING_STEPS, storedRating);
+  const tideOnly = storedTide === true;
 
   const openPreview = useCallback((event, card, window_) => {
     const facts = previewFacts(card.locationName, window_.date, window_.targetType,
@@ -843,28 +900,40 @@ export default function CloseToHome({
           style={{ gap: '7px', margin: '0 16px 12px' }}
         >
           <span
-            className="font-mono uppercase text-plex-text-muted"
-            style={{ fontSize: '10px', letterSpacing: '0.08em' }}
+            className="font-mono uppercase text-plex-text-muted inline-flex items-center"
+            style={{ fontSize: '10px', letterSpacing: '0.08em', gap: '6px' }}
           >
             Narrow
+            <InfoTip text={FILTER_TIP} heading="What these cut" accentColor={GOLD} />
           </span>
+          {/* Each chip names its DIMENSION in both states. "Any drive" did not — it read as a
+              mood rather than a control, and gave no hint that tapping it cycles through ceilings;
+              "Tide only" named the subject but not the test, and was read as "coastal spots". */}
           <FilterChip
             testId="cth-filter-drive"
-            label={maxDrive == null ? 'Any drive' : `≤ ${maxDrive} min`}
+            label={maxDrive == null ? 'Any drive time' : `≤ ${maxDrive} min drive`}
+            title={'Cycles the drive-time ceiling: any → 15 → 30 → 45 minutes. '
+              + 'Spots with no drive time worked out yet are kept.'}
             active={maxDrive != null}
             onClick={() => setMaxDrive(nextStep(DRIVE_STEPS, maxDrive))}
           />
           <FilterChip
             testId="cth-filter-rating"
             label={minRating == null ? 'Any rating' : `${minRating.toFixed(1)}★ +`}
+            title="Cycles the rating floor: any → 3★ → 4★ → 5★."
             active={minRating != null}
             onClick={() => setMinRating(nextStep(RATING_STEPS, minRating))}
           />
           <FilterChip
             testId="cth-filter-tide"
-            label="Tide only"
+            label="Right tide only"
+            title={'Keeps only spots where the tide suits — a king or spring tide, or the tide '
+              + 'state that location is at its best in. Not simply every coastal spot.'}
+            // Not `setTideOnly((on) => !on)`: the persisting setter has no functional-update form,
+            // and would JSON.stringify the updater to `undefined` — React state would flip while
+            // storage silently kept the old value. Pass the computed value.
             active={tideOnly}
-            onClick={() => setTideOnly((on) => !on)}
+            onClick={() => setTideOnly(!tideOnly)}
           />
           {filtersOn && (
             <button

@@ -113,11 +113,24 @@ export default function CardHoverPreview({
         {time ? ` ${time}` : ''}
       </div>
 
+      {/* Claude's sentence, in Claude's voice.
+          Serif italic is this app's typographic mark for generated prose — the drill-down gloss,
+          the map overlay's summary, the InfoTip card body and the tide run's phrase all use it, and
+          this paragraph is the same kind of thing: an argued sentence, not a measurement. It was
+          the one place that rendered it in the UI sans, so the same summary changed voice depending
+          on whether you hovered a card or opened the drill-down. Geometry (12.5px / 1.52) matches
+          InfoTip's card body — the other serif block that floats over the page. */}
       {summary && (
         <p
           data-testid="cth-hover-summary"
           className="text-plex-text-secondary"
-          style={{ fontSize: '12px', lineHeight: 1.5, margin: '9px 0 10px' }}
+          style={{
+            fontFamily: 'var(--font-serif)',
+            fontStyle: 'italic',
+            fontSize: '12.5px',
+            lineHeight: 1.52,
+            margin: '9px 0 10px',
+          }}
         >
           {summary}
         </p>

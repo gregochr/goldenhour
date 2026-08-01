@@ -1,5 +1,7 @@
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import {
+  describe, it, expect, vi, beforeEach,
+} from 'vitest';
 import {
   render, screen, fireEvent, within, act,
 } from '@testing-library/react';
@@ -111,6 +113,10 @@ function renderBlock(p = panel(), props = {}) {
 }
 
 describe('CloseToHome', () => {
+  // The filter chips persist to localStorage, so without this every test inherits the narrowing the
+  // previous one left behind — the counting tests would start reading a filtered set.
+  beforeEach(() => localStorage.clear());
+
   it('renders nothing without a panel — no home postcode saved', () => {
     const { container } = render(
       <CloseToHome panel={null} todayStr={TODAY} tomorrowStr={TOMORROW} />,
@@ -445,6 +451,25 @@ describe('CloseToHome', () => {
     expect(preview).toHaveTextContent('41');
     // No Claude sentence on the slim forecast row — the preview shows scores, not a fabricated one.
     expect(screen.queryByTestId('cth-hover-summary')).not.toBeInTheDocument();
+  });
+
+  it("sets Claude's sentence in the app's serif italic, as every other gloss is", () => {
+    // Serif italic is this app's typographic mark for GENERATED PROSE — the drill-down gloss, the
+    // map overlay summary, the InfoTip card body and the tide-run phrase all carry it. The preview
+    // was the one surface rendering the same sentence in the UI sans, so a summary changed voice
+    // depending on whether you hovered a card or opened the drill-down.
+    renderBlock(panel(), {
+      isPro: true,
+      scoreIndex: scoreIndexFor('Angel of the North', TOMORROW, 'SUNRISE', {
+        rating: 4, summary: 'Breaking low cloud frames golden westerly light',
+      }),
+    });
+
+    fireEvent.mouseEnter(screen.getByTestId('close-to-home-card'));
+
+    const summary = screen.getByTestId('cth-hover-summary');
+    expect(summary.style.fontFamily).toBe('var(--font-serif)');
+    expect(summary.style.fontStyle).toBe('italic');
   });
 
   it('shows no preview at all when nothing is known about the slot', () => {
@@ -836,14 +861,26 @@ describe('CloseToHome', () => {
     renderBlock(panel({ windows: [bigWindow(10)] }));
     const chip = screen.getByTestId('cth-filter-drive');
 
-    expect(chip).toHaveTextContent('Any drive');
+    // Exact labels, not substrings: the chip has to name its DIMENSION in BOTH states. The old
+    // off-label "Any drive" read as a mood rather than a control, and a `toHaveTextContent`
+    // substring assertion would go on passing against it.
+    expect(chip.textContent).toBe('Any drive time');
     fireEvent.click(chip);
-    expect(chip).toHaveTextContent('≤ 15 min');
+    expect(chip.textContent).toBe('≤ 15 min drive');
     fireEvent.click(chip);
     fireEvent.click(chip);
-    expect(chip).toHaveTextContent('≤ 45 min');
+    expect(chip.textContent).toBe('≤ 45 min drive');
     fireEvent.click(chip);
-    expect(chip).toHaveTextContent('Any drive');
+    expect(chip.textContent).toBe('Any drive time');
+  });
+
+  it('names what the tide chip tests, not merely its subject', () => {
+    // "Tide only" was read as "coastal spots". The filter is narrower than that: it keeps a card
+    // only when the tide is doing something worth the trip — king, spring, or the state that
+    // location is actually wanted at (CloseToHomeService.tideLabel).
+    renderBlock(panel({ windows: [bigWindow(10)] }));
+
+    expect(screen.getByTestId('cth-filter-tide').textContent).toBe('Right tide only');
   });
 
   it('keeps the window head when its cards all filter out', () => {
@@ -866,5 +903,68 @@ describe('CloseToHome', () => {
 
     // Spots 1, 3, 5, 7, 9 carry a tide label in the fixture.
     expect(screen.getAllByTestId('close-to-home-card')).toHaveLength(5);
+  });
+
+  // ── overflow: filters survive a reload ────────────────────────────────────
+
+  it('restores all three filters on a fresh mount', () => {
+    // "Under 30 minutes, 4★ and up" describes the reader's own tolerance for a drive, which does
+    // not change between page loads. Re-picking it every visit was the tax the block charged for
+    // its own radius.
+    const { unmount } = renderBlock(panel({ windows: [bigWindow(10)] }));
+    fireEvent.click(screen.getByTestId('cth-filter-drive')); // ≤ 15 min
+    fireEvent.click(screen.getByTestId('cth-filter-rating')); // 3.0★ +
+    fireEvent.click(screen.getByTestId('cth-filter-tide')); // right tide only
+    unmount();
+
+    renderBlock(panel({ windows: [bigWindow(10)] }));
+
+    expect(screen.getByTestId('cth-filter-drive').textContent).toBe('≤ 15 min drive');
+    expect(screen.getByTestId('cth-filter-rating').textContent).toBe('3.0★ +');
+    expect(screen.getByTestId('cth-filter-tide')).toHaveAttribute('data-on', 'true');
+    // And the set is genuinely narrowed, not just the chips relabelled.
+    expect(screen.getByTestId('cth-filter-clear')).toBeInTheDocument();
+  });
+
+  it('persists a toggle OFF, not only on', () => {
+    // The toggle writes through a setter with no functional-update form: `setTideOnly(on => !on)`
+    // would have flipped React state while storing the stringified updater, so the chip came back
+    // on after a reload the user had just turned it off in.
+    const { unmount } = renderBlock(panel({ windows: [bigWindow(10)] }));
+    fireEvent.click(screen.getByTestId('cth-filter-tide'));
+    fireEvent.click(screen.getByTestId('cth-filter-tide'));
+    unmount();
+
+    renderBlock(panel({ windows: [bigWindow(10)] }));
+
+    expect(screen.getByTestId('cth-filter-tide')).toHaveAttribute('data-on', 'false');
+    expect(screen.getAllByTestId('close-to-home-card')).toHaveLength(10);
+  });
+
+  it('persists Clear, so a cleared block does not come back narrowed', () => {
+    const { unmount } = renderBlock(panel({ windows: [bigWindow(10)] }));
+    fireEvent.click(screen.getByTestId('cth-filter-drive'));
+    fireEvent.click(screen.getByTestId('cth-filter-rating'));
+    fireEvent.click(screen.getByTestId('cth-filter-clear'));
+    unmount();
+
+    renderBlock(panel({ windows: [bigWindow(10)] }));
+
+    expect(screen.queryByTestId('cth-filter-clear')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('close-to-home-card')).toHaveLength(10);
+  });
+
+  it('ignores a stored value that is no longer one of the steps', () => {
+    // Storage outlives the code that wrote it. A ceiling dropped from DRIVE_STEPS must not keep
+    // filtering: `nextStep` returns "Any" for an unknown current value, so the chip would read
+    // "Any drive time" while still hiding half the set — a filter invisible to its own control.
+    localStorage.setItem('closeToHomeFilterDrive', '7');
+    localStorage.setItem('closeToHomeFilterRating', '"gibberish"');
+
+    renderBlock(panel({ windows: [bigWindow(10)] }));
+
+    expect(screen.getByTestId('cth-filter-drive').textContent).toBe('Any drive time');
+    expect(screen.getByTestId('cth-filter-rating').textContent).toBe('Any rating');
+    expect(screen.getAllByTestId('close-to-home-card')).toHaveLength(10);
   });
 });
