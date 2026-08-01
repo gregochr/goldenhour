@@ -611,6 +611,61 @@ const COMPASS_ARROW = {
  * @param {string}  props.accentColor the pill accent colour for directional chips
  * @param {boolean} props.isLiteUser  blur the values when true
  */
+/**
+ * The storm-surge verdict line — how much water above the predicted tide, when it peaks, and how
+ * that sits against high water.
+ *
+ * <p>This is deliberately TEXT. A surge chart is coming, but it will be `aria-hidden` like the tide
+ * run's, so this sentence has to stand alone as the whole accessible answer and must never be
+ * replaced by the picture.
+ *
+ * <p>The datum note is not decoration. Surge is a residual — its zero is the predicted astronomical
+ * tide, not sea level — and the tide datum itself is undocumented upstream, so no absolute water
+ * level can honestly be stated. Saying what the number is measured from is the honest form of that.
+ */
+function SurgeVerdict({ run, accentColor, isLiteUser = false }) {
+  return (
+    <div
+      data-testid="surge-verdict"
+      className="flex flex-wrap items-baseline"
+      style={{
+        gap: '8px',
+        marginBottom: '7px',
+        // Same paywall tease the fact chips use: Lite sees the shape without readable numbers.
+        ...(isLiteUser ? { filter: 'blur(3.5px)', userSelect: 'none', pointerEvents: 'none' } : {}),
+      }}
+    >
+      <span
+        className="font-mono"
+        style={{ fontSize: '11.5px', color: accentColor, fontWeight: 600 }}
+      >
+        {run.verdict}
+      </span>
+      <span className="font-mono text-plex-text-secondary" style={{ fontSize: '10px' }}>
+        {run.datumNote}
+      </span>
+      {run.locationName && (
+        // Named for the same reason the tide run names its representative: surge timing differs
+        // along a coastline the topic may span, so one location speaking for all of it is a caveat
+        // the reader is entitled to see.
+        <span className="font-mono text-plex-text-secondary" style={{ fontSize: '10px' }}>
+          at {run.locationName}
+        </span>
+      )}
+    </div>
+  );
+}
+
+SurgeVerdict.propTypes = {
+  run: PropTypes.shape({
+    verdict: PropTypes.string,
+    datumNote: PropTypes.string,
+    locationName: PropTypes.string,
+  }).isRequired,
+  accentColor: PropTypes.string.isRequired,
+  isLiteUser: PropTypes.bool,
+};
+
 function TopicFacts({ topic, accentColor, isLiteUser = false }) {
   if (!topic.facts || topic.facts.length === 0) return null;
 
@@ -949,6 +1004,25 @@ export default function HotTopicStrip({
                     : null}
                 />
               </div>
+            ) : topic.surgeRun ? (
+              // A storm surge states its peak in WORDS before it ever draws one. The chart is a
+              // later change and will be aria-hidden when it lands, so this verdict is — and stays
+              // — the entire accessible answer: how much water, when, and whether it rides high
+              // water, which is the only version of a surge worth the drive.
+              //
+              // Rendered ALONGSIDE the fact chips, unlike the tide run which replaces them. The
+              // chips carry waves, surge magnitude and wind; this line carries timing against high
+              // water, which none of them says.
+              <div style={{ padding: '0 13px 11px 38px' }}>
+                <SurgeVerdict
+                  run={topic.surgeRun}
+                  accentColor={style.color}
+                  isLiteUser={isLiteUser}
+                />
+                {topic.facts?.length > 0 && (
+                  <TopicFacts topic={topic} accentColor={style.color} isLiteUser={isLiteUser} />
+                )}
+              </div>
             ) : topic.facts?.length > 0 && (
               <TopicFacts topic={topic} accentColor={style.color} isLiteUser={isLiteUser} />
             )}
@@ -1050,6 +1124,7 @@ HotTopicStrip.propTypes = {
       })),
       note: PropTypes.string,
       tideRun: PropTypes.object,
+      surgeRun: PropTypes.object,
     }),
   ).isRequired,
   isLiteUser: PropTypes.bool,

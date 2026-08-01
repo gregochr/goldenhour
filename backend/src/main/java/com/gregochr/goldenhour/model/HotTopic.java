@@ -41,6 +41,11 @@ import java.util.List;
  *                       curve against the day's own sunrise and sunset, plus the alignment verdict.
  *                       Null for every non-tidal topic, and for a tidal day whose tide could not be
  *                       derived (that pill falls back to {@code facts})
+ * @param surgeRun       this day's storm-surge curve — hourly water pushed above the predicted
+ *                       astronomical tide at one representative coastal location, with the peak
+ *                       stated against high water. Null for every non-surge topic, and whenever the
+ *                       in-memory curve carrier is empty (the state after a restart, until the next
+ *                       briefing cycle), in which case that pill falls back to {@code facts}
  */
 public record HotTopic(
         String type,
@@ -68,7 +73,9 @@ public record HotTopic(
         @JsonInclude(JsonInclude.Include.NON_NULL)
         String note,
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        TideRunDay tideRun) implements Comparable<HotTopic> {
+        TideRunDay tideRun,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        SurgeRunDay surgeRun) implements Comparable<HotTopic> {
 
     /**
      * Explicit canonical constructor with Jackson annotations so that cached briefing
@@ -95,7 +102,8 @@ public record HotTopic(
             @JsonProperty("morningWindow") NlcWindow morningWindow,
             @JsonProperty("facts") List<HotTopicFact> facts,
             @JsonProperty("note") String note,
-            @JsonProperty("tideRun") TideRunDay tideRun) {
+            @JsonProperty("tideRun") TideRunDay tideRun,
+            @JsonProperty("surgeRun") SurgeRunDay surgeRun) {
         this.type = type;
         this.label = label;
         this.detail = detail;
@@ -113,6 +121,7 @@ public record HotTopic(
         this.facts = facts;
         this.note = note;
         this.tideRun = tideRun;
+        this.surgeRun = surgeRun;
     }
 
     /**
@@ -142,7 +151,7 @@ public record HotTopic(
             String description,
             ExpandedHotTopicDetail expandedDetail) {
         this(type, label, detail, date, priority, filterAction, regions, description,
-                expandedDetail, null, null, null, null, null, null, null, null);
+                expandedDetail, null, null, null, null, null, null, null, null, null);
     }
 
     /**
@@ -156,7 +165,7 @@ public record HotTopic(
     public HotTopic withEvent(String eventType, String eventTime) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun);
     }
 
     /**
@@ -169,7 +178,7 @@ public record HotTopic(
     public HotTopic withLocations(List<String> locationNames) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun);
     }
 
     /**
@@ -182,7 +191,7 @@ public record HotTopic(
     public HotTopic withNlcWindows(NlcWindow eveningWindow, NlcWindow morningWindow) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun);
     }
 
     /**
@@ -196,7 +205,7 @@ public record HotTopic(
     public HotTopic withScience(List<HotTopicFact> facts, String note) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun);
     }
 
     /**
@@ -211,7 +220,7 @@ public record HotTopic(
     public HotTopic withExpandedDetail(ExpandedHotTopicDetail expandedDetail) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun);
     }
 
     /**
@@ -223,7 +232,22 @@ public record HotTopic(
     public HotTopic withTideRun(TideRunDay tideRun) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun);
+    }
+
+    /**
+     * Returns a copy of this topic carrying its storm-surge curve for the day.
+     *
+     * <p>Attached at serve time from the in-memory carrier, never from the persisted briefing JSON —
+     * hot topics are rebuilt live on every request, so a persisted-only value would be discarded.
+     *
+     * @param surgeRun the day's surge curve, or null when no curve could be derived
+     * @return a new {@link HotTopic} with {@code surgeRun} set
+     */
+    public HotTopic withSurgeRun(SurgeRunDay surgeRun) {
+        return new HotTopic(type, label, detail, date, priority, filterAction, regions,
+                description, expandedDetail, eventType, eventTime, locationNames,
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun);
     }
 
     /**
