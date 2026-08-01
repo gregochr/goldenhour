@@ -11,6 +11,7 @@ import AuroraBanner from './components/AuroraBanner.jsx';
 import NlcSightingBanner from './components/NlcSightingBanner.jsx';
 import DailyBriefing from './components/DailyBriefing.jsx';
 import HealthIndicator from './components/HealthIndicator.jsx';
+import BrandLockup from './components/shared/BrandLockup.jsx';
 import UserSettingsModal from './components/UserSettingsModal.jsx';
 import { getSettings } from './api/settingsApi.js';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
@@ -279,15 +280,7 @@ function AppInner() {
     <div className="min-h-screen bg-plex-bg">
       <header className="border-b border-plex-border px-4 py-6">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-4xl font-extrabold tracking-tight text-plex-text flex items-center gap-3">
-              <img src="/logo.png" alt="" className="h-10 w-10 object-contain" />
-              PhotoCast
-            </h1>
-            <p className="text-base text-plex-text-secondary mt-1">
-              AI sunrise, sunset, and aurora forecasting
-            </p>
-          </div>
+          <BrandLockup variant="header" />
           <div className="flex flex-col items-end gap-1">
             {isAdmin && <HealthIndicator status={healthStatus} degraded={healthDegraded} checkedAt={healthCheckedAt} build={healthBuild} services={healthServices} database={healthDatabase} session={healthSession} appVersion={healthAppVersion} startedAt={healthStartedAt} />}
             <div className="flex items-center gap-2">

@@ -34,7 +34,7 @@ describe('LoginPage', () => {
 
   it('renders the login form with username and password fields', () => {
     renderWithAuth(<LoginPage />);
-    expect(screen.getByText('PhotoCast')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'PhotoCast' })).toBeInTheDocument();
     expect(screen.getByTestId('login-username')).toBeInTheDocument();
     expect(screen.getByTestId('login-password')).toBeInTheDocument();
   });

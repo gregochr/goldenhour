@@ -2,6 +2,7 @@ import React, { useActionState, useState } from 'react';
 import PropTypes from 'prop-types';
 import { useAuth } from '../context/AuthContext.jsx';
 import TurnstileWidget from './TurnstileWidget.jsx';
+import BrandLockup from './shared/BrandLockup.jsx';
 
 /** Checks a single complexity rule and returns a styled list item. */
 function CheckItem({ ok, label }) {
@@ -70,12 +71,8 @@ export default function ChangePasswordPage() {
   return (
     <div className="min-h-screen bg-plex-bg flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-extrabold tracking-tight text-plex-text flex items-center justify-center gap-3">
-            <img src="/logo.png" alt="" className="h-10 w-10" />
-            PhotoCast
-          </h1>
-          <p className="text-base text-plex-text-secondary mt-2">AI sunrise, sunset, and aurora forecasting</p>
+        <div className="mb-8">
+          <BrandLockup variant="auth" />
         </div>
 
         <form
