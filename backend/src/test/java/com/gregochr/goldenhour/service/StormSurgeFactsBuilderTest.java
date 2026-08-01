@@ -155,4 +155,66 @@ class StormSurgeFactsBuilderTest {
         assertThat(result.facts()).isNull();
         assertThat(result.note()).isNull();
     }
+    // ── the curve/chip disagreement guard ─────────────────────────────────────
+
+    /** A builder whose carrier holds a curve for location 1 on DATE, with the given values. */
+    private StormSurgeFactsBuilder builderWithCurve(java.util.List<Double> series) {
+        SurgeCurveService carrier = new SurgeCurveService(new StormSurgeService()) {
+            @Override
+            public com.gregochr.goldenhour.model.SurgeCurve getCached() {
+                return new com.gregochr.goldenhour.model.SurgeCurve(
+                        java.util.Map.of(1L, java.util.Map.of(DATE, series)));
+            }
+        };
+        return new StormSurgeFactsBuilder(marineWaveRepository, carrier,
+                new SurgeRunDayBuilder(tideExtremeRepository, new SolarService()));
+    }
+
+    private static java.util.List<Double> flatSeries(double metres) {
+        return java.util.Collections.nCopies(24, metres);
+    }
+
+    @Test
+    @DisplayName("a curve consistent with the chip is attached")
+    void curveAgreeingWithChip_isAttached() {
+        HotTopic result = builderWithCurve(flatSeries(0.62))
+                .attach(baseTopic(), List.of(surgeRow(1L, 0.60, 17.0, 247.0)));
+
+        assertThat(result.surgeRun()).isNotNull();
+        assertThat(result.facts()).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("a chip OUTSIDE the curve's whole-day envelope suppresses the chart, keeping chips")
+    void curveContradictingChip_isSuppressed() {
+        // The pill must never show a chart and a number that disagree. Whatever hour the chip
+        // sampled, a value nowhere inside the day's range means the carrier is stale — a curve
+        // from an earlier build, or another location.
+        HotTopic result = builderWithCurve(flatSeries(0.10))
+                .attach(baseTopic(), List.of(surgeRow(1L, 0.95, 17.0, 247.0)));
+
+        assertThat(result.surgeRun()).isNull();
+        // The facts survive: suppressing the chart must not cost the pill its numbers.
+        assertThat(factWithKey(result, "surge").value()).isEqualTo("1.0 m above normal");
+    }
+
+    @Test
+    @DisplayName("the guard tolerates the hour the chip and the curve sample independently")
+    void curveWithinTolerance_isAttached() {
+        // The chip is taken at the next high tide after its solar event, which need not be any
+        // hour this day's curve peaks at. A near-miss must NOT suppress a good chart.
+        HotTopic result = builderWithCurve(flatSeries(0.50))
+                .attach(baseTopic(), List.of(surgeRow(1L, 0.60, 17.0, 247.0)));
+
+        assertThat(result.surgeRun()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("no chip means nothing to contradict, so the curve stands")
+    void noChip_curveStillAttached() {
+        HotTopic result = builderWithCurve(flatSeries(0.40))
+                .attach(baseTopic(), List.of(surgeRow(1L, null, 17.0, 247.0)));
+
+        assertThat(result.surgeRun()).isNotNull();
+    }
 }
