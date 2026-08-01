@@ -1,8 +1,21 @@
 # The all-in architecture — design
 
-Designed against `all-in-architecture-brief.md` §0 and §2. Every code reference below was
-checked against the tree at `f56ed337`, not against documentation — see §2.6 for why that
-distinction is load-bearing.
+Designed against `all-in-architecture-brief.md` §0–§2. Every code reference below was checked
+against the tree, not against documentation — see §2.6 for why that distinction is load-bearing.
+
+> **Provenance, and a staleness warning that proves the point.** §0–§2 and the summary-depth
+> §3–§7 below were written against the working tree at `f56ed337` / `a484d1c4`, on branch
+> `fix/release-ahead-guard`. **That branch is not an ancestor of `main`** (`git merge-base
+> --is-ancestor a484d1c4 main` → false). The tree has since moved to `d421ef5f`, where
+> `ForecastTaskCollector.java` is **899 lines, not 883** — a 16-line TIDE-LESS COASTAL
+> diagnostic was added at `:537-552`, so **every citation of that file past line 534 in this
+> document is off by +16**. The build plan (`all-in-build-plan.md`) is re-verified at
+> `d421ef5f` and supersedes this document wherever they disagree.
+>
+> Two further doc claims fell to the same rule while this was written: CLAUDE.md says the
+> project runs on H2 locally (it does not — Postgres everywhere, `h2` is `<scope>test</scope>`
+> at `pom.xml:250-254`), and CLAUDE.md cites `src/test/java/**/regression/` as the protected
+> test path (that directory does not exist). That is six false doc claims now. Read the tree.
 
 ---
 
@@ -67,6 +80,18 @@ roughly uniformly, baseline and delta scale together — the ratios hold, the ab
 |---|---|---|
 | Baseline | ~£31 | ~£51 |
 | All-in delta | +£20–30 | **+£32–48** |
+
+> ⚠️ **Superseded — this figure assumed triage was retained.** Both this row and §2.3 computed
+> the delta with the weather-triage and hard-constraint gates still in place. Under "no gates
+> except travel days" they are gone too, so the evaluate count rises further — roughly by
+> `(triaged + hard_constraint) / evaluated` on top of the figure above, which on
+> `V101__forecast_run_disposition.sql:6-8`'s own sample is order **+35% more evaluations than
+> this estimate assumes**. (That comment's numbers do not themselves add up — 163 + 48 + 41 + 2
+> + 1 = 255, not the 242 it states — so treat it as an order-of-magnitude hint, not a
+> measurement.) **Run the real query before anything ships**; it is the first item of the build
+> plan, and it must be normalised by `job_run.started_at::date`, never by `evaluation_date`,
+> which is the forecast *target* date and over overlapping 4–5-day windows counts ~34 distinct
+> dates while saying nothing about how many cycles ran.
 
 *(The £51 is the user's figure; the ×1.6 scaling of the delta is derived from it and endorsed
 by "the all-in delta scales with it". Correct the derived row if the true at-home delta was
@@ -160,8 +185,18 @@ The all-in architecture makes the cycle linear, with one persistence spine:
   (free)      (cheap)       (£)          (durable)    (derived)      (£)
 ```
 
-Each stage reads only from upstream. **Publication is terminal — nothing reads it.** That one
-rule dissolves the circularity, and it is the invariant to defend in review.
+Each stage reads only from upstream. **No stage of the cycle reads the publication; serve-path
+panels may.** That one rule dissolves the circularity, and it is the invariant to defend in review.
+
+> **Corrected 2026-07-31.** This was first written as the snappier "publication is terminal —
+> nothing reads it", which is false and would break any guard written against it:
+> `CloseToHomeService.java:136` calls `getCachedBriefingForApi()` on the **serve** path, which
+> creates no cycle. The precise form is the writable one. Two genuine breaks remain and are
+> resolved in the build plan: `ForecastTaskCollector.java:733` (the region-filtered admin path,
+> unaddressed) and `POST /api/briefing/run` → `republish()`, which under maximum deletion should
+> go entirely — the twice-daily cycle already does the job, and an admin pressing it during an
+> Open-Meteo degradation persists a sub-50%-coverage briefing over the last known good with no
+> recovery path.
 
 ---
 
@@ -224,8 +259,31 @@ otherwise take with it:
   surface worst-case regional stability on the Plan tab.
 
 **Keep the classifier as a pure inline function called at slate-build time for display and
-prompt enrichment. Delete the snapshot table, the provider, the controller,
-`GridCellStabilityService`, and every gating read.**
+prompt enrichment. Delete the snapshot table, the controller, `GridCellStabilityService`, and
+every gating read.**
+
+> ⚠️ **Corrected 2026-07-31 — this paragraph contained a fatal contradiction, and three design
+> agents inherited it.** It previously also said "delete … the provider" in the same breath as
+> naming the provider a Plan-tab display path two lines above. `StabilitySnapshotProvider` is
+> the **only** transport carrying stability from the classifier to the Plan tab —
+> `BriefingRollupBuilder.java:403` (region rollup → `BriefingRegion` → Plan tab) and
+> `BriefingBestBetAdvisor.java:150` (best-bet prompt input), nine production call sites across
+> eight classes in total. Deleting it deletes the display, which is the precise error the
+> classify-for-display rule exists to prevent.
+>
+> **Resolution:** per-region stability rides the **slate** into PUBLISH, and
+> `BriefingRollupBuilder` / `BriefingBestBetAdvisor` read it from there. That work is owned by
+> the slate area and **must land before** anything deletes the provider. Only then does the
+> provider go.
+>
+> A second hole sits behind it: `grep -rn withStability src` returns exactly **one** production
+> producer of the `FORECAST RELIABILITY` block — `ForecastCommandExecutor.java:667`. The batch
+> path has never emitted it. So if the synchronous engine is deleted, the block has no producer
+> and the reason for keeping the classifier evaporates. **Decide before phase 1:** either the
+> batch path starts emitting it (cost: zero API calls — the classification is arithmetic over
+> weather already fetched at `ForecastTaskCollector.java:302-303`), or the classifier and the
+> block both go and `SYSTEM_PROMPT` is left untouched (`PromptBuilder.java:225` already branches
+> on absence).
 
 The rationale, in the user's words: the cost was never in classifying — that is arithmetic over
 weather already fetched — it was in the gating and the persistence. Deleting the classifier
@@ -260,7 +318,18 @@ repository.
 | `stability_snapshot` (V98) | DROP | Recovery-across-restart for a gate that no longer exists |
 | `evaluation_delta_log` (V97) | DROP | Existed to refine freshness thresholds empirically; there are no thresholds left to refine |
 | `optimisation_strategy` rows | DELETE rows, DROP table | Also removes the mutual-exclusion validation surface |
-| `forecast_evaluation` history | **Preserve** | Backfilled into `evaluation_event` (§4.4); the table itself may be dropped only after a row-count and spot-check reconciliation passes |
+| `forecast_evaluation` history | **Preserve** | Backfilled into `evaluation_event` (§4.4). ⚠️ **Do not drop it without remapping `cloud_verification` first** — see below |
+
+> ⚠️ **`forecast_evaluation` carries a cascade that would destroy the ERA5 evidence base.**
+> `V129__add_cloud_verification.sql:23,43` declares
+> `forecast_evaluation_id BIGINT NOT NULL UNIQUE … REFERENCES forecast_evaluation (id) ON DELETE
+> CASCADE`. Dropping or emptying `forecast_evaluation` silently destroys **all 25,730**
+> cloud-verification rows — the project's only non-self-referential evidence outside the empty
+> `actual_outcome` table. The remap onto `evaluation_event` must land first, and the `NOT NULL
+> UNIQUE` must be dropped or made `DEFERRABLE` around the remap `UPDATE`: Postgres enforces
+> non-deferrable unique constraints row-by-row, and since the backfill inserts one event per
+> non-HOURLY evaluation the two id ranges overlap almost exactly, so a mid-statement duplicate-key
+> failure is close to certain.
 
 ### 4.4 The unified table — a projection over append-only history
 
@@ -294,6 +363,15 @@ SELECT * FROM (
   FROM evaluation_event e) t
 WHERE rn = 1;
 ```
+
+> **Superseded by the Postgres-only correction.** With H2 gone from the runtime, the idiomatic
+> form is `DISTINCT ON (location_id, target_date, target_type, prompt_kind) … ORDER BY …,
+> produced_at DESC, id DESC`, not the `ROW_NUMBER()` subquery above — which was written to hedge
+> against a database that does not exist. Two further constraints the build plan pins: the
+> supporting index must carry **all four** partition columns in the same order (an index omitting
+> `prompt_kind` diverges at the fourth column and cannot serve the sort), and with
+> `ddl-auto: validate` on every runtime profile, Hibernate's visibility of a Flyway-created view
+> must be proven before the migration ships.
 
 A view cannot drift from its source and needs no rebuild job. At ~60 cycles/30d over a few
 hundred slots the read cost is irrelevant. *Revisit if* `evaluation_event` passes ~1M rows or
@@ -434,6 +512,18 @@ most obvious if the earlier phases need backing out.
 
 Carried forward verbatim; violations here are how this work goes wrong quietly.
 
+- **Never edit prompt-regression assertions — and they are selected by JUnit *tag*, not by
+  path.** `src/test/java/**/regression/` **does not exist** (`find src/test -type d -name
+  regression` → empty); CLAUDE.md's citation of that path is wrong, and four design agents
+  repeated it, one of them "verifying" it. The real mechanism is `pom.xml:23`
+  `<surefire.excludedGroups>prompt-regression</surefire.excludedGroups>` with the
+  `prompt-regression` profile at `pom.xml:29-32`, and `@Tag("prompt-regression")` on
+  `PromptRegressionTest`, `BestBetAuroraPromptRegressionTest` and `SkyRatingEvalTest` — which
+  live in ordinary packages beside the code they test. Grep the tag, never the path.
+  Note that changing `BriefingBestBetAdvisor.advise` or `BriefingRollupBuilder.buildRollupJson`
+  signatures forces edits to `BestBetAuroraPromptRegressionTest.java:111,175,219` — legal, since
+  those are constructor calls rather than assertions, but it must be called out rather than
+  hidden behind "additive".
 - **Never edit prompt-regression assertions.** `PromptRegressionTest` pins `coptHill_5Mar` at
   solar low 67% → rating ≤ 2 — only 7pp above the ">60% BLOCKED" rule, so it is a genuinely
   tight pin. Only the user updates these.
