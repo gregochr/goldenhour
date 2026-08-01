@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the surge chart's unused import, and the magic 24 it should have been
+
+- CodeQL alert 174: `MINUTES_PER_DAY` was imported into `SurgeRunRow` and never used. ESLint did not catch it — unused imports are a *warning* in this config and the gate carries no `--max-warnings`. Deleting the line would have closed the alert and left the actual smell in place: the surge series is indexed by **hour**, so the x-position read `(hour / 24) * VIEW_W` — a bare 24 for the same local day `solarDayGeometry` already describes with a named constant. The import is therefore **swapped rather than removed**: a new `HOURS_PER_DAY` joins its sibling and takes the literal's place. `MINUTES_PER_DAY` keeps its consumers in `TideRunRow`, which samples by minute.
+
 ### Changed — the hover peek matches its gesture, and the drill-down stops asking answered questions
 
 - **The "Close to home" peek carried modal weight on an accidental trigger.** Name, stars, drive, the whole generated paragraph and two score bars, summoned by a pointer merely crossing the row — with no delay, no shell, no tether, and a 260px `max-height` with `overflow: hidden` that cut the second score bar in half. It read as the page glitching rather than a panel opening. Hover now gives a **glance**; the click gives the full read in the map overlay that already exists. Nothing left the product: the scores and the whole narrative moved one click away, to the surface that was always their home.

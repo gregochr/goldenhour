@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import {
   VIEW_W,
   VIEW_H,
-  MINUTES_PER_DAY,
+  HOURS_PER_DAY,
   EDGE_PERCENT,
   toMinutes,
   percentOf,
@@ -103,7 +103,7 @@ function SurgeRunRow({ run, accentColor }) {
       current = [];
       return;
     }
-    current.push([(hour / 24) * VIEW_W, scale(value)]);
+    current.push([(hour / HOURS_PER_DAY) * VIEW_W, scale(value)]);
   });
   if (current.length > 1) segments.push(current);
 

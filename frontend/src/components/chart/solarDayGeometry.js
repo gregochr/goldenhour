@@ -21,6 +21,9 @@
 export const VIEW_W = 1000;
 export const VIEW_H = 32;
 export const MINUTES_PER_DAY = 1440;
+
+/** Hours in the local day — the surge series is indexed by hour, the tide curve sampled by minute. */
+export const HOURS_PER_DAY = 24;
 export const SAMPLE_MINUTES = 8;
 
 /**
