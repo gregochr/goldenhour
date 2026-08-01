@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — a surge number now says which moment it describes
+
+- **The pill carries one quantity sampled at two different instants**: the curve's day peak, and the persisted scalar taken at the next high tide after the slot's solar event. Only one is ever on screen, so a bare magnitude left the reader no way to tell a *timing* difference from a *disagreement* — the root cause behind three separate findings in the surge review, each of which had been fixed as its own symptom.
+- **Each sample now names its own moment.** The verdict reads `peak +0.72 m at 14:00 · on high water`; the chip reads `0.6 m above normal at high water`.
+- **The chip's wording is qualitative on purpose.** "at high water" is true *by construction* — the augmentor samples at `nextHighTideTime` — while the exact clock time is not recoverable: no timestamp is stored, and a day has two high waters, so naming one would be a guess dressed as a measurement. A comment and a test record that, so it is not "improved" into a false precision later.
+- The unaligned verdict drops its now-duplicated word: `… high water 21:00, misses it` rather than `… peak misses it`, since the head already names the sample.
+
 ### Fixed — the surge model was reading a pressure that had the wrong sea level in it
 
 - **`surface_pressure` is reduced to the grid cell's own elevation; the inverse-barometer term measures departure from `STANDARD_PRESSURE_HPA` (1013.25), which is a mean-sea-level reference.** So an elevated coastal cell reported a permanently low pressure and the model turned it into a standing surge of roughly +0.04 to +0.06 m that no weather caused. Small as a per-event number — and not small in context: it sits right on `SIGNIFICANCE_THRESHOLD_M` (0.05), so it could carry an entirely calm day over the gate on its own, and on the 24-hour curve it is not a rounding error but a flat lift of the whole trace.

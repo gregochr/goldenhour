@@ -129,7 +129,11 @@ public class SurgeRunDayBuilder {
      */
     private static String verdict(double peakMetres, int peakHour, LocalDateTime highWater,
             long gapMinutes, boolean aligned, LocalDate date) {
-        String head = metres(peakMetres) + " at " + CLOCK.format(date.atTime(peakHour, 0));
+        // Named "peak" so the sentence says WHICH sample it is. The pill's other magnitude — the
+        // persisted chip on the suppressed-chart path — is the surge at high water, a different
+        // instant of the same quantity. Each now describes its own moment, so the two can never
+        // read as a contradiction when only one of them is on screen.
+        String head = "peak " + metres(peakMetres) + " at " + CLOCK.format(date.atTime(peakHour, 0));
         if (highWater == null) {
             // No tide to measure against: state the surge and stop, rather than implying the
             // alignment that makes a surge dramatic.
@@ -141,7 +145,9 @@ public class SurgeRunDayBuilder {
         if (aligned) {
             return head + " · " + offset(gapMinutes) + " high water";
         }
-        return head + " · high water " + CLOCK.format(highWater) + ", peak misses it";
+        // "misses it", not "peak misses it" — the head now names the sample, and saying peak twice
+        // in one sentence reads as two different things.
+        return head + " · high water " + CLOCK.format(highWater) + ", misses it";
     }
 
     /** {@code "1h20 before"} / {@code "45m after"} — the peak's offset from high water. */

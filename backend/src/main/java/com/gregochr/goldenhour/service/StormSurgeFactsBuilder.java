@@ -106,7 +106,18 @@ public class StormSurgeFactsBuilder {
         boolean haveCurve = surgeRun != null;
         if (surge != null && !haveCurve) {
             // Plain-language framing: the surge IS the water raised above the predicted tide.
-            facts.add(new HotTopicFact("surge", metres(surge) + " above normal", null, !haveWaves, false));
+            // States its INSTANT, not just its magnitude. This scalar is sampled at the next high
+            // tide after the slot's solar event — a different moment from the curve's day peak,
+            // and a reader shown a bare "0.6 m above normal" has no way to know which of the two
+            // they are looking at, or that the difference is timing rather than disagreement.
+            //
+            // Qualitative on purpose: "at high water" is true BY CONSTRUCTION (ForecastDataAugmentor
+            // samples at nextHighTideTime), whereas the exact clock time is not recoverable —
+            // SurvivorSignals.Readings stores no timestamp, and a day has two high waters, so
+            // naming one would be a guess dressed as a measurement. Do not "improve" this into a
+            // specific time without persisting the instant it was actually taken at.
+            facts.add(new HotTopicFact("surge",
+                    metres(surge) + " above normal at high water", null, !haveWaves, false));
         }
 
         Double windMs = rep.readings().surgeWindSpeedMs();

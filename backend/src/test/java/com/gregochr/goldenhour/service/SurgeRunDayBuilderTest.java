@@ -62,7 +62,7 @@ class SurgeRunDayBuilderTest {
 
         SurgeRunDay day = builder.build(seaham(), DAY, curveWithPeakAt(14, 0.72));
 
-        assertThat(day.verdict()).isEqualTo("+0.72 m at 14:00 · on high water");
+        assertThat(day.verdict()).isEqualTo("peak +0.72 m at 14:00 · on high water");
         assertThat(day.aligned()).isTrue();
         assertThat(day.peak()).isEqualTo("+0.72 m");
         assertThat(day.peakTime()).isEqualTo("14:00");
@@ -76,7 +76,7 @@ class SurgeRunDayBuilderTest {
 
         SurgeRunDay day = builder.build(seaham(), DAY, curveWithPeakAt(14, 0.60));
 
-        assertThat(day.verdict()).isEqualTo("+0.60 m at 14:00 · 1h20 before high water");
+        assertThat(day.verdict()).isEqualTo("peak +0.60 m at 14:00 · 1h20 before high water");
         assertThat(day.aligned()).isTrue();
     }
 
@@ -89,7 +89,7 @@ class SurgeRunDayBuilderTest {
 
         SurgeRunDay day = builder.build(seaham(), DAY, curveWithPeakAt(9, 0.55));
 
-        assertThat(day.verdict()).isEqualTo("+0.55 m at 09:00 · high water 21:00, peak misses it");
+        assertThat(day.verdict()).isEqualTo("peak +0.55 m at 09:00 · high water 21:00, misses it");
         assertThat(day.aligned()).isFalse();
     }
 
@@ -103,7 +103,7 @@ class SurgeRunDayBuilderTest {
 
         SurgeRunDay day = builder.build(seaham(), DAY, curveWithPeakAt(14, 0.72));
 
-        assertThat(day.verdict()).isEqualTo("+0.72 m at 14:00 · no high water derived");
+        assertThat(day.verdict()).isEqualTo("peak +0.72 m at 14:00 · no high water derived");
         assertThat(day.aligned()).isFalse();
         assertThat(day.highWaterTime()).isNull();
     }
@@ -174,5 +174,18 @@ class SurgeRunDayBuilderTest {
         return LocationEntity.builder()
                 .id(ID).name("Seaham").lat(54.84).lon(-1.33).enabled(true).coastalTidal(true)
                 .build();
+    }
+    @Test
+    @DisplayName("the verdict names WHICH sample it is — the day peak, not the high-water reading")
+    void build_verdictNamesTheSample() {
+        // The pill carries two magnitudes of one quantity at different instants: this day peak and
+        // the persisted chip taken at high water. Only one is ever on screen, so each has to say
+        // which moment it describes or a reader has no way to tell a timing difference from a
+        // disagreement.
+        givenHighWaterAt(14, 5);
+
+        SurgeRunDay day = builder.build(seaham(), DAY, curveWithPeakAt(14, 0.72));
+
+        assertThat(day.verdict()).startsWith("peak ");
     }
 }
