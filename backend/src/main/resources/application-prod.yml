@@ -411,7 +411,7 @@ springdoc:
 
 photocast:
   tide-run:
-    preferred-anchor: "St Mary's Lighthouse"  # location NAME the spring/king tide run's 24-hour
+    preferred-anchor: "St. Mary's Lighthouse"  # location NAME the spring/king tide run's 24-hour
                             # chart is drawn for. Blank restores pure biggest-range selection.
                             # Biggest-range is not neutral across a long roster: tidal range grows
                             # southward on this coast, so the maximum reliably lands at the

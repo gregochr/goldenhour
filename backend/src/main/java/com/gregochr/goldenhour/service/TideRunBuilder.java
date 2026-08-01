@@ -10,6 +10,9 @@ import com.gregochr.goldenhour.model.TideRunDay;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.repository.MarineWaveRepository;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
+import com.gregochr.goldenhour.util.LogSanitizer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -27,6 +30,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Builds the per-day {@link TideRunDay} rows behind a spring or king tide pill's 24-hour chart.
@@ -59,6 +63,8 @@ import java.util.Optional;
  */
 @Component
 public class TideRunBuilder {
+
+    private static final Logger LOG = LoggerFactory.getLogger(TideRunBuilder.class);
 
     /** The run chip text for an ordinary spring run. */
     public static final String SPRING_RUN_LABEL = "SPRING RUN";
@@ -93,6 +99,28 @@ public class TideRunBuilder {
     private final MarineWaveRepository marineWaveRepository;
     private final TideService tideService;
     private final SolarService solarService;
+
+    /**
+     * Everything that is not a letter or a digit, for comparing two spellings of one place name.
+     *
+     * <p>The anchor is matched by name because ids are environment-specific, and matching by name
+     * means matching how somebody typed it. {@code St. Mary's Lighthouse} in the Admin UI against
+     * {@code St Mary's Lighthouse} in configuration is one missing full stop, and under a plain
+     * {@code equalsIgnoreCase} that single character silently disabled the whole feature: the run
+     * fell back to biggest-range and drew itself at a cove 90 miles away, with nothing anywhere
+     * saying why. Punctuation and spacing are exactly the part of a place name people disagree
+     * about — {@code St}/{@code St.}, {@code Marys}/{@code Mary's}, hyphen or space — and none of
+     * those disagreements mean a different place.
+     */
+    private static final String NON_ALPHANUMERIC = "[^\\p{L}\\p{N}]";
+
+    /**
+     * The last unresolved anchor name warned about, so the WARN below fires once rather than once
+     * per request. Hot topics are recomputed live on every serve, so an unguarded warning here
+     * would write a line per briefing fetch — and a message that noisy stops being read, which is
+     * how a silent fallback becomes a silent fallback again.
+     */
+    private final AtomicReference<String> warnedAnchor = new AtomicReference<>();
 
     /** Location name the run is drawn for when present and drawable; blank means biggest range. */
     private final String preferredAnchor;
@@ -271,21 +299,72 @@ public class TideRunBuilder {
             return null;
         }
         String wanted = preferredAnchor.trim();
-        for (LocationEntity location : coastalLocations) {
-            if (location.getName() == null || !location.getName().equalsIgnoreCase(wanted)) {
-                continue;
+
+        // Exact first, always. A configuration that names a roster entry outright must never be
+        // resolved by the tolerant pass below, so a deliberate exact name cannot be beaten by a
+        // punctuation-equal neighbour.
+        LocationEntity named = matching(coastalLocations,
+                name -> name.equalsIgnoreCase(wanted));
+        if (named == null) {
+            String normalised = normalise(wanted);
+            named = normalised.isEmpty() ? null
+                    : matching(coastalLocations, name -> normalise(name).equals(normalised));
+            if (named != null) {
+                warnOnce(wanted, "resolved to '" + LogSanitizer.sanitize(named.getName())
+                        + "' by ignoring punctuation and spacing. The run still draws correctly;"
+                        + " align photocast.tide-run.preferred-anchor with the location's name to"
+                        + " silence this.");
             }
-            List<TideExtremeEntity> extremes = byLocation.get(location.getId());
-            for (LocalDate date : ordered) {
-                if (dayTides(extremes, date) != null) {
-                    return location;
-                }
-            }
-            // Named but undrawable: stop looking rather than matching a same-named location
-            // elsewhere in the roster, and let the caller fall back to biggest range.
+        }
+        if (named == null) {
+            warnOnce(wanted, "is not in this run's coastal roster of " + coastalLocations.size()
+                    + " location(s); falling back to the biggest single-day range, which may be"
+                    + " far from the reader. Check the name in Location Management.");
             return null;
         }
+
+        List<TideExtremeEntity> extremes = byLocation.get(named.getId());
+        for (LocalDate date : ordered) {
+            if (dayTides(extremes, date) != null) {
+                return named;
+            }
+        }
+        // Named but undrawable: stop looking rather than matching a same-named location
+        // elsewhere in the roster, and let the caller fall back to biggest range.
+        warnOnce(wanted, "is in the run but has no day with both a high and a low water, so it"
+                + " cannot be drawn; falling back to the biggest single-day range. This usually"
+                + " means its tide extremes have not been refreshed for these dates.");
         return null;
+    }
+
+    /** First roster entry whose non-null name satisfies {@code test}, or null. */
+    private static LocationEntity matching(List<LocationEntity> coastalLocations,
+            java.util.function.Predicate<String> test) {
+        for (LocationEntity location : coastalLocations) {
+            if (location.getName() != null && test.test(location.getName())) {
+                return location;
+            }
+        }
+        return null;
+    }
+
+    /** A place name reduced to its letters and digits, lower-cased — see {@link #NON_ALPHANUMERIC}. */
+    private static String normalise(String name) {
+        return name.replaceAll(NON_ALPHANUMERIC, "").toLowerCase(Locale.UK);
+    }
+
+    /**
+     * Logs an anchor problem once per distinct configured name.
+     *
+     * <p>The anchor's whole job is to keep the run legible, so when it does not apply the reader
+     * gets a place they cannot locate and no indication that anything went wrong. That silence is
+     * the defect worth fixing, not the fallback itself — the fallback is correct behaviour for a
+     * run the anchor genuinely does not reach.
+     */
+    private void warnOnce(String wanted, String problem) {
+        if (!wanted.equals(warnedAnchor.getAndSet(wanted))) {
+            LOG.warn("[TIDE RUN] Configured anchor '{}' {}", LogSanitizer.sanitize(wanted), problem);
+        }
     }
 
     /** Reduces one location's extrema to the given local day, or null when the day is incomplete. */

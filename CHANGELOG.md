@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — one missing full stop had silently disabled the tide run's anchor
+
+- **Every spring and king tide run was drawing itself at the wrong place.** Location Management holds `St. Mary's Lighthouse`; `photocast.tide-run.preferred-anchor` said `St Mary's Lighthouse`. `findAnchor` matched with `equalsIgnoreCase`, so one full stop missed, the anchor resolved to nothing, and `selectRepresentative` fell back to the biggest single-day range — which on a roster spanning this coast reliably lands at its southern end. Readers got `at Breil Nook` on a run covering two regions and 61 coastal locations, which is the precise outcome the anchor was added to prevent.
+- **The name match now ignores punctuation and spacing.** `St`/`St.`, `Marys`/`Mary's`, hyphen or space — these are the parts of a place name people disagree about, and none of those disagreements mean a different place. **Exact match is still tried first and always wins**, so a configuration naming a roster entry outright can never be beaten by a punctuation-equal neighbour.
+- **The silence was the real defect.** A configured anchor that does not resolve now logs a single WARN naming which of the three things went wrong — not in the roster, resolved only by ignoring punctuation, or present but with no day carrying both a high and a low water. Guarded to fire **once per distinct name** rather than once per request: hot topics are recomputed live on every serve, and a per-fetch warning stops being read, which is how a silent fallback becomes silent again.
+- Config corrected in `application-prod.yml`, `-local.yml` and `-example.yml`. The code change means the fix holds even if the location is renamed again.
+
 ## [v2.17.8] - 2026-08-01
 
 ### Changed — the frontend lint gate now fails on warnings
