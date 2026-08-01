@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.MarineWaveEntity;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.SeaState;
+import com.gregochr.goldenhour.model.SurgeRunDay;
 import com.gregochr.goldenhour.model.SurvivorSignals;
 import com.gregochr.goldenhour.repository.MarineWaveRepository;
 import com.gregochr.goldenhour.service.evaluation.PromptUtils;
@@ -30,14 +31,22 @@ public class StormSurgeFactsBuilder {
     private static final double MS_TO_MPH = 2.237;
 
     private final MarineWaveRepository marineWaveRepository;
+    private final SurgeCurveService surgeCurveService;
+    private final SurgeRunDayBuilder surgeRunDayBuilder;
 
     /**
      * Constructs a {@code StormSurgeFactsBuilder}.
      *
      * @param marineWaveRepository the shared sea-state carrier (V123)
+     * @param surgeCurveService    the in-memory hourly surge curve, populated on the build path
+     * @param surgeRunDayBuilder   formats one day's curve into the row the pill renders
      */
-    public StormSurgeFactsBuilder(MarineWaveRepository marineWaveRepository) {
+    public StormSurgeFactsBuilder(MarineWaveRepository marineWaveRepository,
+            SurgeCurveService surgeCurveService,
+            SurgeRunDayBuilder surgeRunDayBuilder) {
         this.marineWaveRepository = marineWaveRepository;
+        this.surgeCurveService = surgeCurveService;
+        this.surgeRunDayBuilder = surgeRunDayBuilder;
     }
 
     /**
@@ -79,7 +88,13 @@ public class StormSurgeFactsBuilder {
                     .asOptional());
         }
 
-        return facts.isEmpty() ? topic : topic.withScience(facts, NOTE);
+        HotTopic enriched = facts.isEmpty() ? topic : topic.withScience(facts, NOTE);
+
+        // The curve is attached AFTER withScience, never before: every wither rebuilds the record
+        // positionally, so attaching first and enriching second would silently drop it.
+        SurgeRunDay surgeRun = surgeRunDayBuilder.build(
+                rep.location(), rep.date(), surgeCurveService.getCached());
+        return surgeRun == null ? enriched : enriched.withSurgeRun(surgeRun);
     }
 
     private static double surgeMetres(SurvivorSignals s) {

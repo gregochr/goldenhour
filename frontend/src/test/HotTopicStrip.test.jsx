@@ -2565,3 +2565,66 @@ describe('HotTopicStrip — multi-day tide run', () => {
     expect(chart).toHaveStyle({ filter: 'blur(3.5px)' });
   });
 });
+
+describe('HotTopicStrip — storm surge verdict', () => {
+  const surgeRun = {
+    locationName: 'Seaham',
+    surgeMetres: [0.1, null, 0.72],
+    axisLabels: ['00:00'],
+    peak: '+0.72 m',
+    peakTime: '14:00',
+    highWaterTime: '14:05',
+    sunrise: '08:10',
+    sunset: '16:30',
+    verdict: '+0.72 m at 14:00 \u00b7 on high water',
+    aligned: true,
+    datumNote: 'above predicted tide',
+    phrase: 'water pushed past its predicted mark',
+  };
+
+  const surgeTopic = {
+    type: 'STORM_SURGE',
+    label: 'Storm surge',
+    detail: 'High surge risk',
+    date: '2026-06-17',
+    priority: 1,
+    regions: ['Northumberland'],
+    surgeRun,
+    facts: [{ key: 'waves', value: '3.2 m', emphasis: true }],
+  };
+
+  it('states the surge peak in words — the whole accessible answer', () => {
+    // The chart is a later change and will be aria-hidden, so this sentence has to stand alone.
+    render(<HotTopicStrip hotTopics={[surgeTopic]} />);
+    expect(screen.getByTestId('surge-verdict')).toHaveTextContent(
+      '+0.72 m at 14:00 \u00b7 on high water',
+    );
+  });
+
+  it('states the datum, because no absolute water level can be claimed', () => {
+    render(<HotTopicStrip hotTopics={[surgeTopic]} />);
+    expect(screen.getByTestId('surge-verdict')).toHaveTextContent('above predicted tide');
+  });
+
+  it('names the representative location it was drawn for', () => {
+    // Surge timing differs along a coastline the topic may span; one location speaking for all
+    // of it is a caveat the reader is entitled to see.
+    render(<HotTopicStrip hotTopics={[surgeTopic]} />);
+    expect(screen.getByTestId('surge-verdict')).toHaveTextContent('at Seaham');
+  });
+
+  it('keeps the fact chips ALONGSIDE the verdict, unlike a tide run which replaces them', () => {
+    // The chips carry waves, magnitude and wind; the verdict carries timing against high water.
+    // Neither says what the other says, so neither substitutes for the other.
+    render(<HotTopicStrip hotTopics={[surgeTopic]} />);
+    expect(screen.getByTestId('surge-verdict')).toBeInTheDocument();
+    expect(screen.getByText(/3\.2 m/)).toBeInTheDocument();
+  });
+
+  it('falls back to fact chips when no curve could be derived', () => {
+    // The post-restart state: the carrier is empty, so the pill degrades rather than inventing.
+    render(<HotTopicStrip hotTopics={[{ ...surgeTopic, surgeRun: null }]} />);
+    expect(screen.queryByTestId('surge-verdict')).not.toBeInTheDocument();
+    expect(screen.getByText(/3\.2 m/)).toBeInTheDocument();
+  });
+});

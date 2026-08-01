@@ -416,4 +416,60 @@ class HotTopicJsonTest {
         assertThat(topic.facts()).isNull();
         assertThat(topic.note()).isNull();
     }
+    @Test
+    @DisplayName("legacy JSON without surgeRun deserialises to null, so cached payloads keep serving")
+    void deserialize_legacyJsonWithoutSurgeRun_isNull() throws Exception {
+        String json = """
+                {
+                  "type": "STORM_SURGE",
+                  "label": "Storm surge",
+                  "detail": "High surge risk",
+                  "date": "2026-06-17",
+                  "priority": 1,
+                  "regions": ["Northumberland"],
+                  "description": "desc"
+                }
+                """;
+
+        assertThat(mapper.readValue(json, HotTopic.class).surgeRun()).isNull();
+    }
+
+    @Test
+    @DisplayName("a surge run round-trips, gaps included — a null hour must survive as a null")
+    void serialize_surgeRunRoundTrips() throws Exception {
+        List<Double> series = new java.util.ArrayList<>(java.util.Collections.nCopies(24, 0.1));
+        series.set(0, null);
+        SurgeRunDay run = new SurgeRunDay("Seaham", series, List.of("00:00"), "+0.72 m", "14:00",
+                "14:05", "08:10", "16:30", "+0.72 m at 14:00 · on high water", true,
+                "above predicted tide", "water pushed past its predicted mark");
+
+        HotTopic restored = mapper.readValue(
+                mapper.writeValueAsString(surgeTopic().withSurgeRun(run)), HotTopic.class);
+
+        assertThat(restored.surgeRun().verdict()).isEqualTo("+0.72 m at 14:00 · on high water");
+        assertThat(restored.surgeRun().surgeMetres()).hasSize(24);
+        assertThat(restored.surgeRun().surgeMetres().get(0)).isNull();
+        assertThat(restored.surgeRun().datumNote()).isEqualTo("above predicted tide");
+    }
+
+    @Test
+    @DisplayName("two equal surge runs are EQUAL — the briefing cache shortcut depends on it")
+    void surgeRun_isValueEqual() {
+        // If surgeMetres were a double[], record equals would compare by identity, the briefing's
+        // cache-equality check would be false on every request, and the whole response would be
+        // rebuilt each time. This is that guarantee, pinned.
+        List<Double> a = List.of(0.1, 0.2);
+        List<Double> b = List.of(0.1, 0.2);
+        SurgeRunDay first = new SurgeRunDay("Seaham", a, List.of("00:00"), "+0.2 m", "01:00",
+                null, "08:10", "16:30", "v", false, "d", "p");
+        SurgeRunDay second = new SurgeRunDay("Seaham", b, List.of("00:00"), "+0.2 m", "01:00",
+                null, "08:10", "16:30", "v", false, "d", "p");
+
+        assertThat(first).isEqualTo(second);
+    }
+
+    private static HotTopic surgeTopic() {
+        return new HotTopic("STORM_SURGE", "Storm surge", "High surge risk",
+                LocalDate.of(2026, 6, 17), 1, null, List.of("Northumberland"), "desc", null);
+    }
 }

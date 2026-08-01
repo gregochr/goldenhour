@@ -156,7 +156,15 @@ class BriefingServiceTest {
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                BLUEBELL_WINDOW, nlc(), meteor(), CLOCK, marineWaveRefreshService);
+                BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService);
+    }
+
+    /**
+     * Surge curve carrier over a real calculator. Left unrefreshed, so it reports EMPTY — the
+     * post-restart state, in which the surge pill falls back to its fact chips.
+     */
+    private SurgeCurveService surgeCurve() {
+        return new SurgeCurveService(new StormSurgeService());
     }
 
     /** NLC clarity service wired with a real transect sampler over the mocked Open-Meteo client. */
@@ -703,7 +711,7 @@ class BriefingServiceTest {
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                BLUEBELL_WINDOW, nlc(), meteor(), CLOCK, marineWaveRefreshService);
+                BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService);
         freshService.loadPersistedBriefing();
 
         DailyBriefingResponse cached = freshService.getCachedBriefing();
@@ -736,7 +744,7 @@ class BriefingServiceTest {
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                BLUEBELL_WINDOW, nlc(), meteor(), CLOCK, marineWaveRefreshService);
+                BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -762,7 +770,7 @@ class BriefingServiceTest {
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                BLUEBELL_WINDOW, nlc(), meteor(), CLOCK, marineWaveRefreshService);
+                BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -1302,7 +1310,7 @@ class BriefingServiceTest {
                     new BriefingHierarchyBuilder(verdictEvaluator),
                     slotBuilder, eventPublisher, hotTopicAggregator,
                     briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                    BLUEBELL_WINDOW, nlc(), meteor(), CLOCK, marineWaveRefreshService);
+                    BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService);
             freshService.loadPersistedBriefing();
 
             // Trigger below-threshold refresh: 1 location, batch throws → succeeded=0, failed=1

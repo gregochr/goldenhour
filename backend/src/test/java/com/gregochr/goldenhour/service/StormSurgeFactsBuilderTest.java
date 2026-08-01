@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.SurvivorSignals;
 import com.gregochr.goldenhour.repository.MarineWaveRepository;
+import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,8 +37,18 @@ class StormSurgeFactsBuilderTest {
 
     private StormSurgeFactsBuilder builder;
 
+    @Mock
+    private TideExtremeRepository tideExtremeRepository;
+
+    /**
+     * Built with an UNREFRESHED surge carrier, so it reports EMPTY and no curve is attached — the
+     * post-restart state these fact assertions are all written against. The curve's own behaviour
+     * is pinned in {@link SurgeRunDayBuilderTest}.
+     */
     private StormSurgeFactsBuilder builder() {
-        return new StormSurgeFactsBuilder(marineWaveRepository);
+        return new StormSurgeFactsBuilder(marineWaveRepository,
+                new SurgeCurveService(new StormSurgeService()),
+                new SurgeRunDayBuilder(tideExtremeRepository, new SolarService()));
     }
 
     private static LocationEntity location(long id) {
