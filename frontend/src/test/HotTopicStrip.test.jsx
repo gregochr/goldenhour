@@ -2627,4 +2627,33 @@ describe('HotTopicStrip — storm surge verdict', () => {
     expect(screen.queryByTestId('surge-verdict')).not.toBeInTheDocument();
     expect(screen.getByText(/3\.2 m/)).toBeInTheDocument();
   });
+
+  it('gives Lite the shape of the chart, BLURRED — not hidden', () => {
+    // Role-gating pattern: PRO/ADMIN premium detail is visible-but-degraded for Lite, the same
+    // treatment the tide chart and fact chips already get. Hiding it would remove the breadcrumb
+    // that makes the upgrade legible.
+    render(<HotTopicStrip hotTopics={[surgeTopic]} isLiteUser />);
+    const chart = document.querySelector('.sr-chart').parentElement;
+    expect(chart).toHaveStyle({ filter: 'blur(3.5px)' });
+  });
+
+  it('blurs the verdict for Lite too, so the numbers are not readable around the chart', () => {
+    render(<HotTopicStrip hotTopics={[surgeTopic]} isLiteUser />);
+    expect(screen.getByTestId('surge-verdict')).toHaveStyle({ filter: 'blur(3.5px)' });
+  });
+
+  it('renders the chart UNBLURRED for a full user', () => {
+    render(<HotTopicStrip hotTopics={[surgeTopic]} />);
+    const chart = document.querySelector('.sr-chart').parentElement;
+    expect(chart).not.toHaveStyle({ filter: 'blur(3.5px)' });
+  });
+
+  it('puts the verdict BEFORE the chart in the DOM — sentence first, picture second', () => {
+    // The chart is aria-hidden, so the verdict is the accessible answer. Source order is what a
+    // screen reader and a keyboard user follow.
+    render(<HotTopicStrip hotTopics={[surgeTopic]} />);
+    const verdict = screen.getByTestId('surge-verdict');
+    const chart = document.querySelector('.sr-chart');
+    expect(verdict.compareDocumentPosition(chart) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });

@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import InfoTip from './InfoTip.jsx';
 import CertaintyChip from './shared/CertaintyChip.jsx';
 import TideRunRow from './TideRunRow.jsx';
+import SurgeRunRow from './SurgeRunRow.jsx';
 import { bortleLabel, moonIlluminationStyle, MOON_EMOJI } from '../utils/conversions.js';
 
 /**
@@ -1019,6 +1020,17 @@ export default function HotTopicStrip({
                   accentColor={style.color}
                   isLiteUser={isLiteUser}
                 />
+                {/* The chart follows the verdict, and is aria-hidden. Order matters: the sentence
+                    is the accessible answer and the picture is the elaboration, never the other
+                    way round. Lite gets the same blur the tide chart and fact chips use — the
+                    shape of the science without readable numbers. */}
+                <div
+                  style={isLiteUser
+                    ? { filter: 'blur(3.5px)', userSelect: 'none', pointerEvents: 'none' }
+                    : undefined}
+                >
+                  <SurgeRunRow run={topic.surgeRun} accentColor={style.color} />
+                </div>
                 {topic.facts?.length > 0 && (
                   <TopicFacts topic={topic} accentColor={style.color} isLiteUser={isLiteUser} />
                 )}
