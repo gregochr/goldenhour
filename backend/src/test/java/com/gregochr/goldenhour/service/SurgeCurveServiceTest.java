@@ -225,4 +225,37 @@ class SurgeCurveServiceTest {
         response.setHourly(h);
         return response;
     }
+    @Test
+    @DisplayName("a below-prediction hour plots NEGATIVE, not a flat zero on the datum line")
+    void refresh_highPressureOffshoreWind_plotsBelowPrediction() {
+        // totalSurgeMetres() is Math.max(0, ...) — right for a risk band, wrong for a curve. Left
+        // clamped, an ordinary high-pressure morning drew a dead-flat run sitting exactly on the
+        // zero rule, asserting the water tracks its prediction hour after hour. The model never
+        // said that; it said the water is BELOW prediction.
+        OpenMeteoForecastResponse calm = hourly(WINTER_DAY);
+        java.util.Collections.fill(calm.getHourly().getSurfacePressure(), 1035.0);
+        java.util.Collections.fill(calm.getHourly().getWindSpeed10m(), 2.0);
+
+        service.refresh(List.of(pairing(coastal(), calm)), List.of(WINTER_DAY));
+
+        List<Double> series = service.getCached().forLocation(ID_COASTAL, WINTER_DAY);
+        assertThat(series.get(12)).isLessThan(0.0);
+    }
+
+    @Test
+    @DisplayName("where the surge is positive the curve still equals the chip's own calculation")
+    void refresh_positiveSurge_stillMatchesTotalSurgeMetres() {
+        // The unclamped residual and totalSurgeMetres() coincide above zero, which is the property
+        // the pill's chip depends on — plotting the true residual must not break that agreement.
+        LocationEntity location = coastal();
+        service.refresh(List.of(pairing(location, hourly(WINTER_DAY))), List.of(WINTER_DAY));
+
+        StormSurgeBreakdown direct = stormSurgeService.calculate(
+                STORM_PRESSURE_HPA, STORM_WIND_MS, ONSHORE_DIRECTION_DEG,
+                location.toCoastalParameters(), "REGULAR_TIDE");
+
+        assertThat(direct.totalSurgeMetres()).isGreaterThan(0.0);
+        assertThat(service.getCached().forLocation(ID_COASTAL, WINTER_DAY).get(12))
+                .isEqualTo(round(direct.totalSurgeMetres()));
+    }
 }

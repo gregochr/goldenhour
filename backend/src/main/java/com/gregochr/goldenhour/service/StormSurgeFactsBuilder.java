@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.MarineWaveEntity;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.SeaState;
+import com.gregochr.goldenhour.model.SurgeCurve;
 import com.gregochr.goldenhour.model.SurgeRunDay;
 import com.gregochr.goldenhour.model.SurvivorSignals;
 import com.gregochr.goldenhour.repository.MarineWaveRepository;
@@ -77,6 +78,14 @@ public class StormSurgeFactsBuilder {
             return topic;
         }
 
+        Double surge = rep.readings().surgeTotalMetres();
+
+        // Decided BEFORE the chips, because whether the curve survives changes which chips belong.
+        SurgeCurve curve = surgeCurveService.getCached();
+        SurgeRunDay candidate = surgeRunDayBuilder.build(rep.location(), rep.date(), curve);
+        SurgeRunDay surgeRun = candidate != null && agreesWithChip(candidate, surge, rep, curve)
+                ? candidate : null;
+
         List<HotTopicFact> facts = new ArrayList<>();
         Double hs = marineWaveRepository
                 .findByLocation_IdAndEvaluationDateAndEventType(
@@ -88,28 +97,33 @@ public class StormSurgeFactsBuilder {
             facts.add(HotTopicFact.metric("waves", metres(hs) + " · " + SeaState.fromHs(hs).label()));
         }
 
-        Double surge = rep.readings().surgeTotalMetres();
-        if (surge != null) {
+        // The surge chip stands down when a curve is attached. Both are the same quantity, and the
+        // pill was printing two of them: the curve's day peak ("+0.72 m at 14:00") beside the
+        // next-high-tide sample ("0.6 m above normal"), at different precisions, in words that gave
+        // a reader no way to tell they were different instants rather than a contradiction. The
+        // tide run states the same rule for the same reason — its chart REPLACES the chips. On the
+        // suppressed-chart path the chip is the only magnitude the pill has, so it stays.
+        boolean haveCurve = surgeRun != null;
+        if (surge != null && !haveCurve) {
             // Plain-language framing: the surge IS the water raised above the predicted tide.
             facts.add(new HotTopicFact("surge", metres(surge) + " above normal", null, !haveWaves, false));
         }
 
         Double windMs = rep.readings().surgeWindSpeedMs();
         if (windMs != null) {
-            facts.add(HotTopicFact.metric("wind", wind(windMs, rep.readings().surgeWindDirectionDegrees()))
-                    .asOptional());
+            HotTopicFact windFact = HotTopicFact.metric(
+                    "wind", wind(windMs, rep.readings().surgeWindDirectionDegrees()));
+            // Emphasis followed the surge chip's absence before; with the chip gone on the curve
+            // path, wind carries it when there are no waves, so the line still has a lead fact
+            // rather than nothing but an optional one.
+            facts.add(haveCurve && !haveWaves ? windFact : windFact.asOptional());
         }
 
         HotTopic enriched = facts.isEmpty() ? topic : topic.withScience(facts, NOTE);
 
         // The curve is attached AFTER withScience, never before: every wither rebuilds the record
         // positionally, so attaching first and enriching second would silently drop it.
-        SurgeRunDay surgeRun = surgeRunDayBuilder.build(
-                rep.location(), rep.date(), surgeCurveService.getCached());
-        if (surgeRun == null || !agreesWithChip(surgeRun, surge, rep)) {
-            return enriched;
-        }
-        return enriched.withSurgeRun(surgeRun);
+        return surgeRun == null ? enriched : enriched.withSurgeRun(surgeRun);
     }
 
     /**
@@ -131,22 +145,40 @@ public class StormSurgeFactsBuilder {
      * @param run    the curve about to be attached
      * @param chip   the persisted surge scalar shown as a fact chip, or null
      * @param rep    the representative survivor row, for logging
+     * @param curve  the carrier, so the next day's series can extend the envelope
      * @return true when the two are compatible, or when there is no chip to contradict
      */
-    private static boolean agreesWithChip(SurgeRunDay run, Double chip, SurvivorSignals rep) {
+    private static boolean agreesWithChip(SurgeRunDay run, Double chip, SurvivorSignals rep,
+            SurgeCurve curve) {
         if (chip == null || run.surgeMetres() == null) {
             return true;
         }
-        List<Double> values = run.surgeMetres().stream().filter(Objects::nonNull).toList();
-        if (values.isEmpty()) {
+        List<Double> values = new ArrayList<>(run.surgeMetres());
+        // The chip is sampled at the next high tide AFTER its solar event, which can fall on the
+        // FOLLOWING day — at most one ~12h25 high-water interval past it, so tomorrow's series is
+        // the whole of the remaining exposure. Without this, a surge building overnight produces a
+        // chip legitimately larger than today's maximum, and the guard deletes a correct chart on
+        // exactly the biggest nights. Worse, attach() picks the representative by MAX surge, which
+        // actively selects for the next-day-sampled row in that case.
+        List<Double> tomorrow = curve == null ? null
+                : curve.forLocation(rep.location().getId(), rep.date().plusDays(1));
+        if (tomorrow != null) {
+            values.addAll(tomorrow);
+        }
+        List<Double> present = values.stream().filter(Objects::nonNull).toList();
+        if (present.isEmpty()) {
             return true;
         }
-        double low = values.stream().mapToDouble(Double::doubleValue).min().orElse(0);
-        double high = values.stream().mapToDouble(Double::doubleValue).max().orElse(0);
+        double low = present.stream().mapToDouble(Double::doubleValue).min().orElse(0);
+        double high = present.stream().mapToDouble(Double::doubleValue).max().orElse(0);
         boolean agrees = chip >= low - CURVE_CHIP_TOLERANCE_M && chip <= high + CURVE_CHIP_TOLERANCE_M;
         if (!agrees) {
-            LOG.warn("Surge chart suppressed for {} on {}: chip {} m lies outside the curve's "
-                            + "{} m to {} m envelope — the carrier is probably stale",
+            // States the observation, not a diagnosis. A stale carrier is only one cause — a
+            // representative row from another location, or a sample instant beyond the window
+            // above, produce the same reading, and naming one of them here would misdirect
+            // whoever reads the log.
+            LOG.warn("Surge chart suppressed for {} on {}: chip {} m lies outside the {} m to {} m "
+                            + "envelope of the curve for that day and the next",
                     rep.location().getName(), rep.date(), chip, low, high);
         }
         return agrees;
