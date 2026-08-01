@@ -162,6 +162,50 @@ class TideRunBuilderTest {
     }
 
     @Test
+    @DisplayName("a punctuation difference in the anchor name does not disable it")
+    void build_anchorMatchIgnoresPunctuation() {
+        // The production case, exactly: Location Management held "St. Mary's Lighthouse" and the
+        // configuration said "St Mary's Lighthouse". One full stop, and equalsIgnoreCase missed —
+        // so every spring run silently fell back to biggest range and drew itself at a cove far
+        // from the reader, which is the precise outcome the anchor exists to prevent. Punctuation
+        // and spacing are the part of a place name people disagree about; none of those
+        // disagreements mean a different place.
+        stubSolar();
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_WHITBY, DAY_1,
+                low("04:30", 1.0), high("10:40", 3.0), low("16:50", 1.0)));
+        extremes.addAll(day(ID_SEAHAM, DAY_1,
+                low("05:00", 0.4), high("11:10", 5.0), low("17:20", 0.4)));
+        stubExtremes(extremes);
+
+        // Seaham has the biggest range (4.6 m vs 2.0 m), so a failed match is visible as Seaham.
+        Map<LocalDate, TideRunDay> run = anchoredTo("Whit-by.")
+                .build(List.of(DAY_1), List.of(whitby(), seaham()), false);
+
+        assertThat(run.get(DAY_1).locationName()).isEqualTo("Whitby");
+    }
+
+    @Test
+    @DisplayName("an exact anchor match always wins over a punctuation-equal neighbour")
+    void build_exactAnchorMatchBeatsNormalisedOne() {
+        // Tolerance must never override intent: if the configured name IS a roster entry, that
+        // entry is the anchor, even when another entry differs from it only by punctuation.
+        stubSolar();
+        LocationEntity punctuated = LocationEntity.builder().id(99L).name("Whit-by")
+                .lat(54.49).lon(-0.61).build();
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_WHITBY, DAY_1,
+                low("04:30", 1.0), high("10:40", 3.0), low("16:50", 1.0)));
+        extremes.addAll(day(99L, DAY_1,
+                low("04:30", 1.0), high("10:40", 9.0), low("16:50", 1.0)));
+        stubExtremes(extremes);
+
+        // "Whit-by" is listed first, so a normalised-only match would pick it.
+        Map<LocalDate, TideRunDay> run = anchoredTo("Whitby")
+                .build(List.of(DAY_1), List.of(punctuated, whitby()), false);
+
+        assertThat(run.get(DAY_1).locationName()).isEqualTo("Whitby");
+    }
+
+    @Test
     @DisplayName("the anchor matches case-insensitively, so config casing cannot silently disable it")
     void build_anchorMatchIsCaseInsensitive() {
         stubSolar();
