@@ -279,6 +279,44 @@
 /* Sunset's label hangs to the LEFT of its rule, or it runs off the right edge of the chart. */
 .tr-sun-set span { left: auto; right: 3px; }
 
+/* ── Storm surge chart ──
+   A SIBLING of the tide chart, not a variant: it plots metres against a scale where the tide row
+   plots high-or-low against two baselines. The axis and label rails are shared so two adjacent
+   pills read on the same 24-hour day; the mark is dashed because a surge is a forecast and a tide
+   is an almanac, and they must not look equally certain. */
+.sr-chart { position: relative; height: 32px; margin: 4px 0 3px; }
+.sr-chart svg { display: block; width: 100%; height: 100%; }
+
+/* Peak / high-water labels sit BELOW the curve, sun labels ABOVE — never on one line. */
+.sr-lab {
+  position: absolute;
+  bottom: -5px;
+  transform: translateX(-50%);
+  font-size: 8.5px;
+  letter-spacing: 0.03em;
+  color: var(--color-plex-text-muted);
+  white-space: nowrap;
+}
+.sr-lab b { color: var(--color-plex-text-secondary); font-weight: 500; }
+
+.sr-sun {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 1px;
+  background: rgba(224, 165, 66, 0.5);
+}
+.sr-sun span {
+  position: absolute;
+  top: -13px;
+  left: 3px;
+  font-size: 8.5px;
+  color: var(--color-verdict-marginal);
+  white-space: nowrap;
+}
+/* Sunset's label hangs LEFT of its rule, or it runs off the right edge. */
+.sr-sun-set span { left: auto; right: 3px; }
+
 .tr-verdict { text-align: right; color: var(--color-plex-text-muted); }
 .tr-verdict b { color: var(--color-plex-text-secondary); font-weight: 500; }
 /* Ranking by EMPHASIS, not by order: the aligned day's verdict takes the topic accent while the
