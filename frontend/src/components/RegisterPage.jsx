@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { useAuth } from '../context/AuthContext.jsx';
 import { register, resendVerification, verifyEmail, setPasswordForNewUser, submitWaitlist } from '../api/authApi.js';
 import TurnstileWidget from './TurnstileWidget.jsx';
+import BrandLockup from './shared/BrandLockup.jsx';
 const STEPS = { REGISTER: 'REGISTER', CHECK_EMAIL: 'CHECK_EMAIL', VERIFY: 'VERIFY', SET_PASSWORD: 'SET_PASSWORD', SUCCESS: 'SUCCESS', WAITLIST: 'WAITLIST' };
 
 /** Checks a single complexity rule and returns a styled list item. */
@@ -190,12 +191,8 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
   return (
     <div className="min-h-screen bg-plex-bg flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-extrabold tracking-tight text-plex-text flex items-center justify-center gap-3">
-            <img src="/logo.png" alt="" className="h-10 w-10" />
-            PhotoCast
-          </h1>
-          <p className="text-base text-plex-text-secondary mt-2">AI sunrise, sunset, and aurora forecasting</p>
+        <div className="mb-8">
+          <BrandLockup variant="auth" />
         </div>
 
         {/* REGISTER step */}

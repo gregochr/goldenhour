@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 
+/** Reads the real index.html off disk — the only way to assert on the app shell's own markup. */
+async function readIndexHtml() {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  return fs.readFileSync(path.resolve(import.meta.dirname, '../../index.html'), 'utf-8');
+}
+
 describe('nomodule fallback', () => {
   beforeEach(() => {
     document.body.innerHTML = '<div id="root"></div>';
@@ -20,14 +27,18 @@ describe('nomodule fallback', () => {
   });
 
   it('index.html contains a nomodule script tag', async () => {
-    const fs = await import('node:fs');
-    const path = await import('node:path');
-    const html = fs.readFileSync(
-      path.resolve(import.meta.dirname, '../../index.html'),
-      'utf-8',
-    );
+    const html = await readIndexHtml();
 
     expect(html).toContain('<script nomodule>');
     expect(html).toContain('Browser Not Supported');
+  });
+
+  it('index.html title carries the current tagline', async () => {
+    // The <title> is the one tagline slot no component test can reach, so it is pinned here
+    // alongside the other index.html assertion rather than in a file of its own.
+    const html = await readIndexHtml();
+
+    expect(html).toContain('<title>PhotoCast — Golden hour, forecast and ranked by AI</title>');
+    expect(html).not.toContain('AI sunrise, sunset, and aurora forecasting');
   });
 });

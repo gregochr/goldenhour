@@ -28,7 +28,7 @@ export default defineConfig({
       // precache and neither globIgnores nor omitting includeAssets overrides that. Accepted as the
       // price of installability: it's a one-off per deploy, and an installable PWA wants its icons.
       manifest: {
-        name: 'PhotoCast — AI sunrise, sunset, and aurora forecasting',
+        name: 'PhotoCast — Golden hour, forecast and ranked by AI',
         short_name: 'PhotoCast',
         description: 'Sunrise, sunset, and aurora photography forecasts for your locations.',
         start_url: '/',
