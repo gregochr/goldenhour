@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the tide run was anchored to a cove nobody could place
+
+- **Every spring and king tide chart was drawn for Breil Nook, a small cove on Flamborough Head.** Not a bad roll — a structural one. `selectRepresentative` picked the biggest single-day range anywhere in the run, and tidal range on this coast **grows southward** toward the Humber approaches, so across a 53-location roster running Bamburgh to Bridlington the maximum reliably lands at the southern end. The card named it in the footer as the honest caveat, but naming a place the reader cannot locate carries no information: it makes the range, the curve and the alignment verdict read as arbitrary rather than as measurements of somewhere.
+- **New `photocast.tide-run.preferred-anchor`** names the location the run is drawn for. Range picks the most dramatic version of the event; the anchor picks the most legible one, and legibility is what naming it in the footer was for. Blank restores pure biggest-range selection, so the behaviour is opt-in.
+- **The anchor must be drawable, not merely present.** Matching on name alone would return a representative whose every day is then dropped for want of a high or a low — emptying the run and silently deleting a topic another location could have carried. A run that does not reach the anchor (a Yorkshire-only topic) falls back to biggest range rather than claiming a coastline it never covered.
+- Matched by **name**, case-insensitively and trimmed: ids differ between local H2 and production, so a configured id would be a foot-gun that silently selects the wrong coast. The trade — renaming a location in the Admin UI quietly disables the preference — degrades to the previous behaviour rather than breaking.
+
 ### Fixed — "Close to home" stopped halfway through the horizon it advertises
 
 - **The block reads "next 3 days" and then stopped at day 3's sunrise.** `MAX_WINDOWS` was a flat 3 while `HORIZON_DAYS` is 3 *days*, so on a Friday the three soonest windows ran out at Sunday sunrise and **Sunday sunset was dropped** — inside the stated horizon, present in the candidate set, and plainly visible in the Plan grid directly below, which builds up to 6 events. Nothing on the panel said a window had been withheld.

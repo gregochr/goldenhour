@@ -71,8 +71,16 @@ class TideRunBuilderTest {
 
     @BeforeEach
     void setUp() {
+        // No anchor configured: every existing test exercises pure biggest-range selection, which
+        // is the documented fallback and remains the behaviour wherever the anchor is absent.
         builder = new TideRunBuilder(tideExtremeRepository, marineWaveRepository,
-                tideService, solarService);
+                tideService, solarService, "");
+    }
+
+    /** A builder configured to draw runs for the named location. */
+    private TideRunBuilder anchoredTo(String anchor) {
+        return new TideRunBuilder(tideExtremeRepository, marineWaveRepository,
+                tideService, solarService, anchor);
     }
 
     // ── representative selection ──────────────────────────────────────────────
@@ -94,6 +102,79 @@ class TideRunBuilderTest {
 
         assertThat(run.get(DAY_1).locationName()).isEqualTo("Seaham");
         assertThat(run.get(DAY_1).range()).isEqualTo("4.6 m");
+    }
+
+    @Test
+    @DisplayName("the configured anchor wins over a bigger range elsewhere")
+    void build_configuredAnchor_outranksBiggestRange() {
+        // The complaint this exists for: biggest-range is not neutral across a long roster.
+        // Range grows southward on this coast, so the maximum reliably lands at the southern end
+        // and every run was drawn for the same distant place — named in the footer, but unplaceable
+        // by the reader, which makes the numbers read as arbitrary rather than as measurements of
+        // somewhere. Whitby swings 2.0 m against Seaham's 4.6 m and still wins when configured.
+        stubSolar();
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_WHITBY, DAY_1,
+                low("04:30", 1.0), high("10:40", 3.0), low("16:50", 1.0)));
+        extremes.addAll(day(ID_SEAHAM, DAY_1,
+                low("05:00", 0.4), high("11:10", 5.0), low("17:20", 0.4)));
+        stubExtremes(extremes);
+
+        Map<LocalDate, TideRunDay> run = anchoredTo("Whitby")
+                .build(List.of(DAY_1), List.of(whitby(), seaham()), false);
+
+        assertThat(run.get(DAY_1).locationName()).isEqualTo("Whitby");
+        // The range still describes the location actually drawn, not the roster's maximum.
+        assertThat(run.get(DAY_1).range()).isEqualTo("2.0 m");
+    }
+
+    @Test
+    @DisplayName("an anchor absent from the run falls back to biggest range, silently")
+    void build_anchorNotInRun_fallsBackToBiggestRange() {
+        // A topic that never reaches the anchor — a Yorkshire-only run, say — must not be
+        // mislabelled with a coastline it does not cover.
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1,
+                low("05:00", 0.4), high("11:10", 5.0), low("17:20", 0.4)));
+
+        Map<LocalDate, TideRunDay> run = anchoredTo("St Mary's Lighthouse")
+                .build(List.of(DAY_1), List.of(seaham()), false);
+
+        assertThat(run.get(DAY_1).locationName()).isEqualTo("Seaham");
+    }
+
+    @Test
+    @DisplayName("an anchor present but undrawable falls back rather than yielding an empty run")
+    void build_anchorWithNoDrawableDay_fallsBackToBiggestRange() {
+        // Matching on name alone is not enough: an anchor with no derivable day would return a
+        // representative whose every day is dropped, emptying the run and silently deleting a
+        // topic that Seaham could have carried.
+        stubSolar();
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_WHITBY, DAY_1,
+                high("10:40", 3.0)));
+        extremes.addAll(day(ID_SEAHAM, DAY_1,
+                low("05:00", 0.4), high("11:10", 5.0), low("17:20", 0.4)));
+        stubExtremes(extremes);
+
+        Map<LocalDate, TideRunDay> run = anchoredTo("Whitby")
+                .build(List.of(DAY_1), List.of(whitby(), seaham()), false);
+
+        assertThat(run.get(DAY_1).locationName()).isEqualTo("Seaham");
+    }
+
+    @Test
+    @DisplayName("the anchor matches case-insensitively, so config casing cannot silently disable it")
+    void build_anchorMatchIsCaseInsensitive() {
+        stubSolar();
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_WHITBY, DAY_1,
+                low("04:30", 1.0), high("10:40", 3.0), low("16:50", 1.0)));
+        extremes.addAll(day(ID_SEAHAM, DAY_1,
+                low("05:00", 0.4), high("11:10", 5.0), low("17:20", 0.4)));
+        stubExtremes(extremes);
+
+        Map<LocalDate, TideRunDay> run = anchoredTo("  wHiTbY  ")
+                .build(List.of(DAY_1), List.of(whitby(), seaham()), false);
+
+        assertThat(run.get(DAY_1).locationName()).isEqualTo("Whitby");
     }
 
     @Test
