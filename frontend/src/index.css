@@ -19,6 +19,13 @@
   --color-plex-text-secondary: rgba(242, 231, 211, 0.66);
   --color-plex-text-muted: rgba(242, 231, 211, 0.42);
 
+  /* Masthead kicker only — the one coral in the system. The rule above (chrome is bone, never
+     colour) holds everywhere a verdict could be read; the masthead is the one surface that
+     carries no forecast, so an accent there competes with nothing. Deliberately NOT
+     --color-verdict-standdown (#C8452F), which it sits near: they must never be confusable,
+     so this is warmer and lighter, and is confined to the brand lockup. ~5.2:1 on --plex-bg. */
+  --color-plex-coral: #E8593F;
+
   --color-sunrise-50: #fff7ed;
   --color-sunrise-100: #ffedd5;
   --color-sunrise-500: #f97316;

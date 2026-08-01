@@ -2,7 +2,9 @@
 // index.html. Bundled and served same-origin (hashed, immutable-cached) so the load path no longer
 // depends on a third-party stylesheet round-trip. Latin subset only; the @font-face family names
 // ('IBM Plex Sans', 'IBM Plex Mono', 'Newsreader') match the --font-* tokens in index.css @theme, so
-// no CSS change is needed. Weights mirror the old Google Fonts request exactly.
+// no CSS change is needed. Weights mirror the old Google Fonts request, plus Newsreader 600 for the
+// brand-lockup wordmark — without the real 600 the browser synthesises it from 500, which smears the
+// serifs at 40px.
 import '@fontsource/ibm-plex-sans/latin-400.css';
 import '@fontsource/ibm-plex-sans/latin-500.css';
 import '@fontsource/ibm-plex-sans/latin-600.css';
@@ -12,5 +14,6 @@ import '@fontsource/ibm-plex-mono/latin-500.css';
 import '@fontsource/ibm-plex-mono/latin-400-italic.css';
 import '@fontsource/newsreader/latin-400.css';
 import '@fontsource/newsreader/latin-500.css';
+import '@fontsource/newsreader/latin-600.css';
 import '@fontsource/newsreader/latin-400-italic.css';
 import '@fontsource/newsreader/latin-500-italic.css';
