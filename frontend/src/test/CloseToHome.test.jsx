@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  describe, it, expect, vi, beforeEach,
+  describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import {
   render, screen, fireEvent, within, act,
@@ -400,186 +400,253 @@ describe('CloseToHome', () => {
     expect(onShowOnMap).toHaveBeenCalledWith(TOMORROW, 'SUNRISE', 'Copt Hill');
   });
 
-  // ── hover preview ─────────────────────────────────────────────────────────
+  // ── hover peek ────────────────────────────────────────────────────────────
+  //
+  // Tooltip weight, not modal weight. The peek used to carry the map popup's headline — name,
+  // stars, drive, the whole generated paragraph and two score bars — fired by a pointer merely
+  // crossing the row, with a 260px `max-height` that cut the second bar in half. What is pinned
+  // here is the new bargain: hover gives a glance after a deliberate pause, the click gives the
+  // full read on the map, and nothing in between can be summoned by accident.
 
-  /** A briefing-score map keyed the way the evaluation cache keys it. */
-  function scoreIndexFor(locationName, date, targetType, score) {
-    return buildBriefingScoreIndex(
-      new Map([[`Tyne and Wear|${date}|${targetType}|${locationName}`, score]]),
-    );
-  }
+  describe('hover peek', () => {
+    /** Mirrors PEEK_OPEN_DELAY_MS / PEEK_HIDE_GRACE_MS in the component. */
+    const OPEN_DELAY = 180;
+    const HIDE_GRACE = 140;
 
-  it('previews the summary and scores on hover, from data already in memory', () => {
-    // The preview must cost nothing to open — sweeping a pointer across the grid cannot become a
-    // burst of requests — so it reads the briefing scores the Plan tab already holds.
-    renderBlock(panel(), {
-      isPro: true,
-      scoreIndex: scoreIndexFor('Angel of the North', TOMORROW, 'SUNRISE', {
-        rating: 4, summary: 'Breaking low cloud frames golden westerly light',
-        fierySkyPotential: 68, goldenHourPotential: 72,
-      }),
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    /** A briefing-score map keyed the way the evaluation cache keys it. */
+    function scoreIndexFor(locationName, date, targetType, score) {
+      return buildBriefingScoreIndex(
+        new Map([[`Tyne and Wear|${date}|${targetType}|${locationName}`, score]]),
+      );
+    }
+
+    /** Rests the pointer on a card for long enough to arm the peek. */
+    function rest(el) {
+      fireEvent.mouseEnter(el);
+      act(() => { vi.advanceTimersByTime(OPEN_DELAY); });
+    }
+
+    /** Leaves an element and lets the dismissal grace run out. */
+    function leave(el) {
+      fireEvent.mouseLeave(el);
+      act(() => { vi.advanceTimersByTime(HIDE_GRACE); });
+    }
+
+    const SUMMARY = 'Breaking low cloud frames golden westerly light, '
+      + 'with a settled ridge holding the horizon open past the hour';
+
+    function withScore(props = {}) {
+      return renderBlock(panel(), {
+        scoreIndex: scoreIndexFor('Angel of the North', TOMORROW, 'SUNRISE', {
+          rating: 4, summary: SUMMARY, fierySkyPotential: 68, goldenHourPotential: 72,
+        }),
+        ...props,
+      });
+    }
+
+    it('opens nothing when the pointer merely crosses the row', () => {
+      // The 180ms pause IS the feature. A panel that fires on a mouse travelling somewhere else
+      // is the thing that read as the page glitching, and no amount of framing fixes that.
+      withScore();
+
+      fireEvent.mouseEnter(screen.getByTestId('close-to-home-card'));
+      act(() => { vi.advanceTimersByTime(OPEN_DELAY - 20); });
+      fireEvent.mouseLeave(screen.getByTestId('close-to-home-card'));
+      act(() => { vi.advanceTimersByTime(OPEN_DELAY); });
+
+      expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
     });
 
-    expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
+    it('opens on a rest, tethered under the card, and dismisses after the grace', () => {
+      withScore();
+      expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
 
-    fireEvent.mouseEnter(screen.getByTestId('close-to-home-card'));
+      rest(screen.getByTestId('close-to-home-card'));
 
-    const preview = screen.getByTestId('cth-hover-preview');
-    expect(preview).toHaveTextContent('Angel of the North');
-    expect(preview).toHaveTextContent('Breaking low cloud frames golden westerly light');
-    expect(preview).toHaveTextContent('68');
-    expect(preview).toHaveTextContent('72');
+      const peek = screen.getByTestId('cth-hover-preview');
+      // Under the card, with an arrow pointing back at it — the tether is what makes it read as
+      // belonging to one card rather than floating over the block.
+      expect(peek).toHaveAttribute('data-placement', 'below');
+      expect(peek.style.getPropertyValue('--cth-arrow-left')).not.toBe('');
 
-    fireEvent.mouseLeave(screen.getByTestId('close-to-home-card'));
-    expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
-  });
-
-  it('falls back to the map forecast row when no briefing score covers the slot', () => {
-    renderBlock(panel(), {
-      isPro: true,
-      locations: [{
-        name: 'Angel of the North',
-        forecastsByDate: new Map([[TOMORROW, {
-          sunrise: { rating: 3, fierySkyPotential: 41, goldenHourPotential: 55 },
-        }]]),
-      }],
+      leave(screen.getByTestId('close-to-home-card'));
+      expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
     });
 
-    fireEvent.mouseEnter(screen.getByTestId('close-to-home-card'));
+    it('carries the rating, the drive and ONE clause — never the score bars', () => {
+      // Everything the peek dropped is still in the product, one click away in the map overlay.
+      // What must not come back is the modal payload on a hover trigger.
+      withScore({ isPro: true });
 
-    const preview = screen.getByTestId('cth-hover-preview');
-    expect(preview).toHaveTextContent('41');
-    // No Claude sentence on the slim forecast row — the preview shows scores, not a fabricated one.
-    expect(screen.queryByTestId('cth-hover-summary')).not.toBeInTheDocument();
-  });
+      rest(screen.getByTestId('close-to-home-card'));
 
-  it("sets Claude's sentence in the app's serif italic, as every other gloss is", () => {
-    // Serif italic is this app's typographic mark for GENERATED PROSE — the drill-down gloss, the
-    // map overlay summary, the InfoTip card body and the tide-run phrase all carry it. The preview
-    // was the one surface rendering the same sentence in the UI sans, so a summary changed voice
-    // depending on whether you hovered a card or opened the drill-down.
-    renderBlock(panel(), {
-      isPro: true,
-      scoreIndex: scoreIndexFor('Angel of the North', TOMORROW, 'SUNRISE', {
-        rating: 4, summary: 'Breaking low cloud frames golden westerly light',
-      }),
+      const peek = screen.getByTestId('cth-hover-preview');
+      expect(peek).toHaveTextContent('★★★★☆');
+      expect(peek).toHaveTextContent('4.0/5');
+      expect(within(peek).getByTestId('cth-hover-drive')).toHaveTextContent('14 min');
+      expect(peek).toHaveTextContent('Breaking low cloud frames golden westerly light.');
+      // The clause, not the paragraph.
+      expect(peek).not.toHaveTextContent('settled ridge');
+      expect(within(peek).getByTestId('cth-hover-prompt'))
+        .toHaveTextContent('Click for the full read + map');
+
+      // The two scores, the timestamp, the region line and the panel chrome are all gone.
+      expect(screen.queryByTestId('cth-hover-scores')).not.toBeInTheDocument();
+      expect(peek).not.toHaveTextContent('68');
+      expect(peek).not.toHaveTextContent('Tyne and Wear');
     });
 
-    fireEvent.mouseEnter(screen.getByTestId('close-to-home-card'));
+    it('hands a Lite user exactly what it hands a Pro one — there is no Pro content left', () => {
+      // The Fiery Sky / Golden Hour gate did not weaken; the content it guarded left the panel,
+      // so an upsell here would be advertising something this surface no longer shows either way.
+      withScore({ isPro: false });
 
-    const summary = screen.getByTestId('cth-hover-summary');
-    expect(summary.style.fontFamily).toBe('var(--font-serif)');
-    expect(summary.style.fontStyle).toBe('italic');
-  });
+      rest(screen.getByTestId('close-to-home-card'));
 
-  it('shows no preview at all when nothing is known about the slot', () => {
-    // A hover shortcut is not worth a fetch. Knowing nothing means showing nothing.
-    renderBlock(panel());
-
-    fireEvent.mouseEnter(screen.getByTestId('close-to-home-card'));
-
-    expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
-  });
-
-  it('withholds the two Pro scores from a Lite user, as the map popup does', () => {
-    // The map popup gates both score blocks on role and offers "Upgrade to Pro for Fiery Sky &
-    // Golden Hour scores" instead. The values reach a Lite client anyway, so the gate is the UX
-    // layer and has to hold at every surface that renders them.
-    renderBlock(panel(), {
-      isPro: false,
-      scoreIndex: scoreIndexFor('Angel of the North', TOMORROW, 'SUNRISE', {
-        rating: 4, summary: 'Breaking low cloud frames golden westerly light',
-        fierySkyPotential: 68, goldenHourPotential: 72,
-      }),
+      expect(screen.queryByTestId('cth-hover-scores')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('cth-hover-upsell')).not.toBeInTheDocument();
+      expect(screen.getByTestId('cth-hover-summary')).toBeInTheDocument();
     });
 
-    fireEvent.mouseEnter(screen.getByTestId('close-to-home-card'));
+    it('survives the travel from card to panel, and closes when the pointer leaves both', () => {
+      // The panel sits 10px below the card, so leaving the card starts a grace rather than
+      // closing outright — otherwise the panel would vanish in the gap on the way to it.
+      withScore();
+      rest(screen.getByTestId('close-to-home-card'));
 
-    expect(screen.queryByTestId('cth-hover-scores')).not.toBeInTheDocument();
-    expect(screen.getByTestId('cth-hover-upsell')).toHaveTextContent('Upgrade to Pro');
-    // The summary and stars are not Pro content and stay.
-    expect(screen.getByTestId('cth-hover-summary')).toBeInTheDocument();
-  });
+      fireEvent.mouseLeave(screen.getByTestId('close-to-home-card'));
+      act(() => { vi.advanceTimersByTime(HIDE_GRACE - 40); });
+      fireEvent.mouseEnter(screen.getByTestId('cth-hover-preview'));
+      act(() => { vi.advanceTimersByTime(HIDE_GRACE * 4) });
+      expect(screen.getByTestId('cth-hover-preview')).toBeInTheDocument();
 
-  it('previews the next local window too, from the same handler', () => {
-    renderBlock(panel({
-      windows: [],
-      breadcrumb: {
-        worthIt: false, date: TODAY, targetType: 'SUNSET', eventTime: `${TODAY}T21:19:00`,
-        topLocationName: null, topRating: null, topHeadline: null, topSummary: null,
-        dominantReason: 'Heavy cloud',
-        nextWindow: nextWindow('Copt Hill', 4, TOMORROW, 'SUNRISE', '05:15',
-          { driveMinutes: 10 }),
-      },
-    }), {
-      scoreIndex: scoreIndexFor('Copt Hill', TOMORROW, 'SUNRISE', {
-        rating: 4, summary: 'Clear horizon under a settled ridge',
-        fierySkyPotential: 71, goldenHourPotential: 66,
-      }),
+      leave(screen.getByTestId('cth-hover-preview'));
+      expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
     });
 
-    fireEvent.mouseEnter(screen.getByTestId('close-to-home-next-window'));
+    it('closes on Escape', () => {
+      withScore();
+      rest(screen.getByTestId('close-to-home-card'));
 
-    expect(screen.getByTestId('cth-hover-preview'))
-      .toHaveTextContent('Clear horizon under a settled ridge');
-  });
+      fireEvent.keyDown(window, { key: 'Escape' });
 
-  it('dismisses the preview when the click opens the map, on every surface that opens it', () => {
-    // The preview is `position: fixed` at coordinates captured on mouseenter and sits ABOVE the
-    // map overlay. A click swaps that overlay in under a pointer that has not moved, so the card
-    // is covered without a mouseleave necessarily firing and the panel is left floating over the
-    // modal — the same failure the strip's onScroll already guards. Every surface that opens the
-    // map has to dismiss on the way out, so all three are pinned here rather than just the card.
-    const onShowOnMap = vi.fn();
-    const scoreIndex = scoreIndexFor('Angel of the North', TOMORROW, 'SUNRISE', {
-      rating: 4, summary: 'Breaking low cloud frames golden westerly light',
-      fierySkyPotential: 68, goldenHourPotential: 72,
+      expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
     });
 
-    // 1. A card in the filmstrip.
-    const { unmount } = renderBlock(panel(), { isPro: true, scoreIndex, onShowOnMap });
-    fireEvent.mouseEnter(screen.getByTestId('close-to-home-card'));
-    expect(screen.getByTestId('cth-hover-preview')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('close-to-home-card'));
-    expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
-    expect(onShowOnMap).toHaveBeenCalledWith(TOMORROW, 'SUNRISE', 'Angel of the North');
-    unmount();
+    it("sets Claude's clause in the app's serif italic, as every other gloss is", () => {
+      // Serif italic is this app's typographic mark for GENERATED PROSE — the drill-down gloss,
+      // the map overlay summary, the InfoTip card body and the tide-run phrase all carry it.
+      withScore();
 
-    // 2. A row in the expanded ranked list — the same window, opened out.
-    renderBlock(panel(), { isPro: true, scoreIndex, onShowOnMap });
-    fireEvent.click(screen.getByTestId('cth-window-count'));
-    fireEvent.mouseEnter(screen.getByTestId('cth-window-row'));
-    expect(screen.getByTestId('cth-hover-preview')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('cth-window-row'));
-    expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
-  });
+      rest(screen.getByTestId('close-to-home-card'));
 
-  it('dismisses the preview when the next-window shortcut opens the map', () => {
-    const onShowOnMap = vi.fn();
-    renderBlock(panel({
-      windows: [],
-      breadcrumb: {
-        worthIt: false, date: TODAY, targetType: 'SUNSET', eventTime: `${TODAY}T21:19:00`,
-        topLocationName: null, topRating: null, topHeadline: null, topSummary: null,
-        dominantReason: 'Heavy cloud',
-        nextWindow: nextWindow('Copt Hill', 4, TOMORROW, 'SUNRISE', '05:15',
-          { driveMinutes: 10 }),
-      },
-    }), {
-      onShowOnMap,
-      scoreIndex: scoreIndexFor('Copt Hill', TOMORROW, 'SUNRISE', {
-        rating: 4, summary: 'Clear horizon under a settled ridge',
-        fierySkyPotential: 71, goldenHourPotential: 66,
-      }),
+      const summary = screen.getByTestId('cth-hover-summary');
+      expect(summary.style.fontFamily).toBe('var(--font-serif)');
+      expect(summary.style.fontStyle).toBe('italic');
     });
 
-    fireEvent.mouseEnter(screen.getByTestId('close-to-home-next-window'));
-    expect(screen.getByTestId('cth-hover-preview')).toBeInTheDocument();
+    it('shows no peek at all when the slot has no generated sentence', () => {
+      // The rating and the drive both come from the card the pointer is already on, so a peek
+      // without the "why" would restate the card and add a prompt. Knowing nothing shows nothing —
+      // and a hover shortcut is never worth a fetch to find out.
+      renderBlock(panel(), {
+        scoreIndex: scoreIndexFor('Angel of the North', TOMORROW, 'SUNRISE', {
+          rating: 4, summary: null, fierySkyPotential: 68, goldenHourPotential: 72,
+        }),
+      });
 
-    fireEvent.click(screen.getByTestId('close-to-home-next-window'));
+      rest(screen.getByTestId('close-to-home-card'));
 
-    expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
-    expect(onShowOnMap).toHaveBeenCalledWith(TOMORROW, 'SUNRISE', 'Copt Hill');
+      expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
+    });
+
+    it('opens the map from the peek itself, for the same spot and window as the card', () => {
+      const onShowOnMap = vi.fn();
+      withScore({ onShowOnMap });
+      rest(screen.getByTestId('close-to-home-card'));
+
+      fireEvent.click(screen.getByTestId('cth-hover-preview'));
+
+      expect(onShowOnMap).toHaveBeenCalledWith(TOMORROW, 'SUNRISE', 'Angel of the North');
+      expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
+    });
+
+    it('peeks the next local window too, from the same handler', () => {
+      renderBlock(panel({
+        windows: [],
+        breadcrumb: {
+          worthIt: false, date: TODAY, targetType: 'SUNSET', eventTime: `${TODAY}T21:19:00`,
+          topLocationName: null, topRating: null, topHeadline: null, topSummary: null,
+          dominantReason: 'Heavy cloud',
+          nextWindow: nextWindow('Copt Hill', 4, TOMORROW, 'SUNRISE', '05:15',
+            { driveMinutes: 10 }),
+        },
+      }), {
+        scoreIndex: scoreIndexFor('Copt Hill', TOMORROW, 'SUNRISE', {
+          rating: 4, summary: 'Clear horizon under a settled ridge holding all evening',
+        }),
+      });
+
+      rest(screen.getByTestId('close-to-home-next-window'));
+
+      expect(screen.getByTestId('cth-hover-preview'))
+        .toHaveTextContent('Clear horizon under a settled ridge holding all evening.');
+    });
+
+    it('dismisses the peek when the click opens the map, on every surface that opens it', () => {
+      // The peek is `position: fixed` at coordinates captured on mouseenter and sits ABOVE the
+      // map overlay. A click swaps that overlay in under a pointer that has not moved, so the card
+      // is covered without a mouseleave necessarily firing and the panel is left floating over the
+      // modal — the same failure the strip's onScroll already guards. It has to go down at once,
+      // not on the grace timer, so all three surfaces are pinned here rather than just the card.
+      const onShowOnMap = vi.fn();
+
+      // 1. A card in the filmstrip.
+      const { unmount } = withScore({ onShowOnMap });
+      rest(screen.getByTestId('close-to-home-card'));
+      fireEvent.click(screen.getByTestId('close-to-home-card'));
+      expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
+      expect(onShowOnMap).toHaveBeenCalledWith(TOMORROW, 'SUNRISE', 'Angel of the North');
+      unmount();
+
+      // 2. A row in the expanded ranked list — the same window, opened out.
+      withScore({ onShowOnMap });
+      fireEvent.click(screen.getByTestId('cth-window-count'));
+      rest(screen.getByTestId('cth-window-row'));
+      expect(screen.getByTestId('cth-hover-preview')).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('cth-window-row'));
+      expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
+    });
+
+    it('dismisses the peek when the next-window shortcut opens the map', () => {
+      const onShowOnMap = vi.fn();
+      renderBlock(panel({
+        windows: [],
+        breadcrumb: {
+          worthIt: false, date: TODAY, targetType: 'SUNSET', eventTime: `${TODAY}T21:19:00`,
+          topLocationName: null, topRating: null, topHeadline: null, topSummary: null,
+          dominantReason: 'Heavy cloud',
+          nextWindow: nextWindow('Copt Hill', 4, TOMORROW, 'SUNRISE', '05:15',
+            { driveMinutes: 10 }),
+        },
+      }), {
+        onShowOnMap,
+        scoreIndex: scoreIndexFor('Copt Hill', TOMORROW, 'SUNRISE', {
+          rating: 4, summary: 'Clear horizon under a settled ridge holding all evening',
+        }),
+      });
+
+      rest(screen.getByTestId('close-to-home-next-window'));
+      expect(screen.getByTestId('cth-hover-preview')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('close-to-home-next-window'));
+
+      expect(screen.queryByTestId('cth-hover-preview')).not.toBeInTheDocument();
+      expect(onShowOnMap).toHaveBeenCalledWith(TOMORROW, 'SUNRISE', 'Copt Hill');
+    });
   });
 
   // ── overflow: reaching past the first four ────────────────────────────────

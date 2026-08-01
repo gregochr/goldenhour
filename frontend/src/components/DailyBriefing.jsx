@@ -20,7 +20,7 @@ import { buildBriefingScoreIndex } from '../utils/briefingScoreIndex.js';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
 import { computeCellTier, isCellVisible, resolveRegionDisplay } from '../utils/tierUtils.js';
 import {
-  DISPLAY_ORDER, LOCATION_TYPE_ICONS, isPoorSlot, sortedSlotsByVerdict, weatherCodeToIcon,
+  DISPLAY_ORDER, locationTypeIcons, isPoorSlot, sortedSlotsByVerdict, weatherCodeToIcon,
   msToMph, formatDriveDuration, formatTime, getEventTime, isEventPast,
 } from '../utils/briefingDisplay.js';
 import { formatTideHighlight, isTravelDate } from '../utils/conversions.js';
@@ -440,7 +440,7 @@ function LocationSlotList({ slots, driveMap, typeMap, date = null, targetType = 
     <div className="ml-4 mt-0.5 space-y-1 mb-1" data-testid="region-slots">
       {visible.map((slot) => {
         const drive = formatDriveDuration(driveMap.get(slot.locationName));
-        const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
+        const typeIcon = locationTypeIcons(typeMap.get(slot.locationName));
         return (
           <div
             key={slot.locationName}
@@ -479,7 +479,7 @@ function LocationSlotList({ slots, driveMap, typeMap, date = null, targetType = 
         );
       })}
       {standdowns.map((slot) => {
-        const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
+        const typeIcon = locationTypeIcons(typeMap.get(slot.locationName));
         const subtitle = slot.claudeHeadline || slot.standdownReason;
         return (
           <div
@@ -1359,7 +1359,6 @@ export default function DailyBriefing({
         isPro={isPro}
         onShowOnMap={onShowOnMap}
         scoreIndex={closeToHomeScoreIndex}
-        locations={locations}
       />
 
       {/* ── Hot Topics strip — seasonal conditions below the Best Bet cards ── */}

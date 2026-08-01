@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import PropTypes from 'prop-types';
 import Modal from './shared/Modal';
 import { getSettings, lookupPostcode, saveHome, refreshDriveTimes } from '../api/settingsApi';
@@ -19,8 +19,11 @@ const ROLE_LABELS = {
  */
 const DEFAULT_RADIUS_MILES = 22;
 
-export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
+export default function UserSettingsModal({ onClose, onDriveTimesRefreshed, focusField = null }) {
   const [settings, setSettings] = useState(null);
+  // Focused once settings have loaded, not on mount: the input is disabled for a LITE user and
+  // the section only becomes meaningful with the payload in hand.
+  const postcodeRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [postcode, setPostcode] = useState('');
   // Null until settings load, then the saved value or the 22-mile default. Kept separate from
@@ -67,6 +70,15 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
       setLoading(false);
     }
   }, []);
+
+  // Land on the field the caller opened the dialog for. The map's "centre on home" control, with
+  // no postcode saved, is a signpost — it exists to say where the missing setting is — so it must
+  // put the cursor there rather than leave the reader to find it among four sections.
+  useEffect(() => {
+    if (loading || focusField !== 'postcode') return;
+    postcodeRef.current?.focus();
+    postcodeRef.current?.select();
+  }, [loading, focusField]);
 
   useEffect(() => {
     function tick() {
@@ -262,6 +274,7 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
                   onChange={(e) => setPostcode(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="Enter UK postcode"
+                  ref={postcodeRef}
                   className="flex-1 px-3 py-1.5 text-sm bg-plex-bg border border-plex-border rounded-lg text-plex-text placeholder:text-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
                   data-testid="settings-postcode-input"
                   disabled={!isPro}
@@ -402,4 +415,6 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
 UserSettingsModal.propTypes = {
   onClose: PropTypes.func.isRequired,
   onDriveTimesRefreshed: PropTypes.func,
+  /** Field to focus once settings load — `'postcode'`, or null to open normally. */
+  focusField: PropTypes.oneOf(['postcode']),
 };

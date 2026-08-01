@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents, useMap } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
@@ -9,14 +10,14 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import BottomSheet from './BottomSheet.jsx';
 import MarkerPopupContent from './MarkerPopupContent.jsx';
-import ForecastTypeSelector from './ForecastTypeSelector.jsx';
+import ForecastTypeSelector, { EVENT_TYPE_LABELS } from './ForecastTypeSelector.jsx';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
 import { useAuroraViewline } from '../hooks/useAuroraViewline.js';
 import { getAuroraLocations, getAuroraForecastResults, getAuroraForecastAvailableDates } from '../api/auroraApi.js';
 import { getDriveTimes } from '../api/settingsApi.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
-import { isTravelDate } from '../utils/conversions.js';
+import { isTravelDate, formatEventTimeUk } from '../utils/conversions.js';
 import { fitBoundsKey } from '../utils/fitBoundsKey.js';
 import { buildBriefingScoreIndex, lookupBriefingScore } from '../utils/briefingScoreIndex.js';
 import { resolveStandDown } from '../utils/standDown.js';
@@ -171,6 +172,58 @@ function ZoomTracker({ onZoom }) {
 
 ZoomTracker.propTypes = {
   onZoom: PropTypes.func.isRequired,
+};
+
+/**
+ * Invisible component that reports the map's viewport as `[south, west, north, east]`.
+ *
+ * <p>Mounted only where a count is drawn from it. The overlay's context bar says "N pins in view",
+ * and "in view" has to mean the viewport rather than the filtered set — otherwise panning away
+ * from the pins leaves a number describing something the reader is no longer looking at, which is
+ * the one failure a read-only receipt line may not have.
+ */
+function BoundsTracker({ onBounds }) {
+  const map = useMap();
+  // The initial read, before any pan or zoom has fired. Guarded because the test harness stubs
+  // `useMap` with the two methods it needs and no more.
+  useEffect(() => {
+    const bounds = map?.getBounds?.();
+    if (bounds) onBounds(bounds);
+  }, [map, onBounds]);
+  useMapEvents({
+    moveend: (e) => onBounds(e.target.getBounds()),
+    zoomend: (e) => onBounds(e.target.getBounds()),
+  });
+  return null;
+}
+
+BoundsTracker.propTypes = {
+  onBounds: PropTypes.func.isRequired,
+};
+
+/**
+ * Keeps Leaflet's idea of its own size in step with a container whose height is animating.
+ *
+ * <p>The overlay's map grows and shrinks as the filter drawer opens and closes. Leaflet caches the
+ * container size and only recomputes it on `invalidateSize`, so without this the tiles keep the
+ * old geometry: grey bands at the bottom on a grow, and a centre that has silently moved on a
+ * shrink. Polled across the transition rather than fired once at the end, because a single call at
+ * `transitionend` leaves the map wrong for the whole 240ms the user is watching it move.
+ */
+function MapSizeSync({ trigger, enabled }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!enabled || typeof map?.invalidateSize !== 'function') return undefined;
+    const tick = setInterval(() => map.invalidateSize({ animate: false }), 60);
+    const stop = setTimeout(() => clearInterval(tick), 340);
+    return () => { clearInterval(tick); clearTimeout(stop); };
+  }, [map, trigger, enabled]);
+  return null;
+}
+
+MapSizeSync.propTypes = {
+  trigger: PropTypes.any,
+  enabled: PropTypes.bool,
 };
 
 /**
@@ -391,7 +444,213 @@ function getNextEventType(locations, date) {
 
 const ALERT_WORTHY_LEVELS = new Set(['MODERATE', 'STRONG']);
 
-function MapView({ locations, date, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null }) {
+/** Width of the drawer's mono label column in compact (overlay) mode. */
+const COMPACT_LABEL_WIDTH = '78px';
+
+/**
+ * Framing constants for "centre on home".
+ *
+ * <p>The zoom is DERIVED rather than fixed, from the user's own Close-to-home radius and the map's
+ * live pixel size: "show me home" means "show me the area I said was local", and that radius is a
+ * per-user setting. A hardcoded zoom would frame 30 miles for someone who set 15 and crop someone
+ * who set 45. The fallbacks below cover the two things that can be missing — a radius that was
+ * never chosen, and a map that cannot report its size yet.
+ */
+const DEFAULT_HOME_RADIUS_MILES = 30;
+const FALLBACK_HOME_ZOOM = 9;
+const METRES_PER_MILE = 1609.34;
+/** Web-Mercator ground resolution at zoom 0, in metres per pixel at the equator. */
+const EQUATOR_M_PER_PX_Z0 = 156543.03392;
+
+/**
+ * The zoom at which `radiusMiles` around `lat` fits inside the map's shorter axis.
+ *
+ * <p>Floored, not rounded: rounding up would frame slightly less than the radius asked for, which
+ * is the one direction that makes the control lie about what it is showing.
+ *
+ * @param {Object}  map         the Leaflet map
+ * @param {number}  lat         latitude of the centre, for the Mercator scale factor
+ * @param {?number} radiusMiles the user's local radius, or null for the default
+ * @returns {number} a Leaflet zoom level, clamped to what the map allows
+ */
+function zoomForHomeRadius(map, lat, radiusMiles) {
+  const size = map?.getSize?.();
+  const halfPx = size ? Math.min(size.x, size.y) / 2 : 0;
+  if (!halfPx) return FALLBACK_HOME_ZOOM;
+  const metres = (radiusMiles ?? DEFAULT_HOME_RADIUS_MILES) * METRES_PER_MILE;
+  const scale = EQUATOR_M_PER_PX_Z0 * Math.cos((lat * Math.PI) / 180);
+  const zoom = Math.floor(Math.log2(scale / (metres / halfPx)));
+  const min = map.getMinZoom?.() ?? 0;
+  const max = map.getMaxZoom?.() ?? 19;
+  return Math.max(min, Math.min(max, zoom));
+}
+
+/**
+ * "Centre on home" — a Leaflet control, because it is a map action.
+ *
+ * <p>It sits in the top-left corner stack directly under the zoom box, in its OWN control
+ * container rather than as a third button in the zoom bar: recentring is not a zoom step, and
+ * putting it in that bar would make it read as one. Leaflet's corner container handles the
+ * stacking and the gap, so nothing here hardcodes an offset from the top of the map.
+ *
+ * <p>Home coordinates are NOT geocoded here. The postcode was resolved once, on the server, when
+ * the user saved it — `GET /api/user/settings` returns the stored lat/lon — and the same values
+ * already drive the Close-to-home radius. A click is a camera move and nothing else.
+ *
+ * <p>With no postcode saved the button stays visible and disabled rather than disappearing: a
+ * control that is absent explains nothing, and this one's whole job when unset is to say where
+ * the missing setting lives. Clicking it opens Settings on the postcode field.
+ *
+ * @param {Object}    props
+ * @param {?Object}   props.homeCoords  `{ lat, lon }`, or null when no postcode is saved
+ * @param {?number}   props.radiusMiles the user's Close-to-home radius, in miles
+ * @param {?Function} props.onOpenSettings opens the settings dialog focused on the postcode field
+ */
+function CentreOnHomeControl({ homeCoords = null, radiusMiles = null, onOpenSettings = null }) {
+  const map = useMap();
+  // The container is made once, in a state initialiser rather than in the effect, so it exists on
+  // the first render and the portal has somewhere to go without a second render pass. Leaflet's
+  // `Control.addTo` adds `leaflet-control` itself, which is what earns the corner spacing.
+  const [container] = useState(() => {
+    if (typeof document === 'undefined') return null;
+    const el = document.createElement('div');
+    el.className = 'leaflet-bar map-home-control';
+    return el;
+  });
+
+  useEffect(() => {
+    // Guarded rather than assumed: the JSDOM test harness stubs `leaflet` down to the two icon
+    // factories. Unattached, the portal's contents simply never reach the page.
+    if (!container || !map?.addControl || !L?.Control || !L?.DomEvent) return undefined;
+    // Leaflet listens natively on the map container, so a React `stopPropagation` would fire too
+    // late — a click would recentre AND start a map drag.
+    L.DomEvent.disableClickPropagation(container);
+    L.DomEvent.disableScrollPropagation(container);
+    const control = new L.Control({ position: 'topleft' });
+    control.onAdd = () => container;
+    control.addTo(map);
+    return () => control.remove();
+  }, [container, map]);
+
+  if (!container) return null;
+
+  const hasHome = homeCoords?.lat != null && homeCoords?.lon != null;
+  return createPortal(
+    <button
+      type="button"
+      data-testid="centre-on-home"
+      aria-label="Centre on home"
+      title={hasHome ? 'Centre on home' : 'Set your home postcode in Settings'}
+      onClick={() => {
+        if (!hasHome) {
+          onOpenSettings?.();
+          return;
+        }
+        map.flyTo(
+          [homeCoords.lat, homeCoords.lon],
+          zoomForHomeRadius(map, homeCoords.lat, radiusMiles),
+          { duration: 0.6 },
+        );
+      }}
+      data-disabled={hasHome ? undefined : 'true'}
+    >
+      <span aria-hidden="true">⌂</span>
+    </button>,
+    container,
+  );
+}
+
+CentreOnHomeControl.propTypes = {
+  homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
+  radiusMiles: PropTypes.number,
+  onOpenSettings: PropTypes.func,
+};
+
+/**
+ * One labelled group of the filter drawer, in the two shapes the drawer has.
+ *
+ * <p>Stacked (Map tab) is the layout the rail has always had: a heading, then its controls beneath.
+ * Compact (overlay) turns the heading ninety degrees into a fixed mono column on the left, which
+ * both makes the drawer scannable — four labels in a straight line — and, more to the point,
+ * shorter: every row it saves is map the modal gets back.
+ *
+ * <p>Two layouts, ONE set of controls. The children are the same elements with the same handlers
+ * in both, because a second copy of the quality segment or the subject chips is a second place for
+ * "what does this filter actually do" to drift.
+ *
+ * @param {Object}       props
+ * @param {string}       props.label        heading text in the stacked layout
+ * @param {string}       props.compactLabel heading text in the compact layout (shorter)
+ * @param {boolean}      [props.compact]    use the compact layout
+ * @param {?string}      [props.hint]       a mono aside to the right of the controls (compact only)
+ * @param {?React.Node}  [props.info]       an InfoTip beside the heading (stacked only)
+ * @param {React.Node}   props.children     the controls
+ */
+function FilterRow({ label, compactLabel, compact = false, hint = null, info = null, children }) {
+  if (!compact) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] uppercase tracking-wide text-plex-text-muted font-semibold">
+            {label}
+          </span>
+          {info}
+        </div>
+        {children}
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-start flex-wrap" style={{ gap: '8px' }}>
+      <span
+        className="font-mono uppercase shrink-0 text-plex-text-muted"
+        style={{
+          width: COMPACT_LABEL_WIDTH,
+          fontSize: '9.5px',
+          fontWeight: 600,
+          letterSpacing: '0.1em',
+          paddingTop: '7px',
+        }}
+      >
+        {compactLabel}
+      </span>
+      <div className="flex flex-col gap-1.5" style={{ flex: '1 1 260px' }}>{children}</div>
+      {hint && (
+        <span
+          className="font-mono text-plex-text-muted self-center"
+          style={{ fontSize: '10.5px' }}
+        >
+          {hint}
+        </span>
+      )}
+    </div>
+  );
+}
+
+FilterRow.propTypes = {
+  label: PropTypes.string.isRequired,
+  compactLabel: PropTypes.string.isRequired,
+  compact: PropTypes.bool,
+  hint: PropTypes.string,
+  info: PropTypes.node,
+  children: PropTypes.node,
+};
+
+/**
+ * Map heights, and the easing the drawer and the map share.
+ *
+ * <p>The Map tab's map is a fixed 500px in a page that scrolls. The overlay's is not: it lives in
+ * a modal whose whole height is spoken for, so every row of chrome above it comes straight out of
+ * the map. Opening the overlay from a plan card left ~165px of visible map — a strip too short to
+ * show the focused pin, its neighbours and the popup without panning — because five rows of filter
+ * controls were sitting where the map should be. Folding them away buys the map back.
+ */
+const MAP_HEIGHT_PX = 500;
+const OVERLAY_MAP_HEIGHT_PX = 470;
+const OVERLAY_MAP_HEIGHT_FILTERS_OPEN_PX = 300;
+const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
+
+function MapView({ locations, date, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null }) {
   const { role } = useAuth();
   const isMobile = useIsMobile();
   const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
@@ -422,13 +681,31 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
   const [darkSkyFilter, setDarkSkyFilter] = useState(false);
   // Filters are collapsed by default (a quiet "tell me more" follow-up to Plan);
   // the open/closed choice persists since users rarely change filters.
-  const [advancedOpen, setAdvancedOpen] = useState(() => localStorage.getItem('mapFiltersOpen') === '1');
+  //
+  // In the OVERLAY the choice deliberately does not persist, and collapsed is the state every
+  // single time: arriving here from a plan card IS a filter action — the user picked the location
+  // and the solar event on the way in — so the drawer opens answering a question that has already
+  // been answered. A remembered "open" would restate it on every drill-down thereafter. Changing
+  // a filter while the drawer is open still persists the FILTER VALUE exactly as it does on the
+  // Map tab; it is only the disclosure's own state that is forgotten.
+  const [advancedOpen, setAdvancedOpen] = useState(
+    () => !overlayMode && localStorage.getItem('mapFiltersOpen') === '1',
+  );
   const toggleAdvancedOpen = () => setAdvancedOpen((v) => {
     const next = !v;
+    if (overlayMode) return next;
     if (next) localStorage.setItem('mapFiltersOpen', '1');
     else localStorage.removeItem('mapFiltersOpen');
     return next;
   });
+  // Viewport of the overlay's map, as [south, west, north, east] — see BoundsTracker.
+  const [mapBounds, setMapBounds] = useState(null);
+  const handleBounds = useCallback((b) => {
+    const next = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()];
+    // Identity-compared before storing: `moveend` fires on every pan, and a fresh array each time
+    // would re-render (and so rebuild every marker) for a viewport that has not actually moved.
+    setMapBounds((prev) => (prev && prev.every((v, i) => v === next[i]) ? prev : next));
+  }, []);
   const { status: auroraStatus } = useAuroraStatus();
   const viewlineEnabled = role !== 'LITE_USER' && auroraStatus != null
     && ALERT_WORTHY_LEVELS.has(auroraStatus.level);
@@ -826,11 +1103,17 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
     return { forecast, hourlyData, isPureWildlife, isWaterfall, excludeFromSkyCluster };
   }
 
-  // Active (non-default) filters drive the collapsed pill summary and its highlight.
+  // Active (non-default) filters drive the collapsed pill summary and its highlight — and, in the
+  // overlay, the read-only chips on the context bar. One list, two renderings: a chip row that
+  // disagreed with the pill summary about what was being cut would be worse than neither.
   const STAR_THRESHOLD_LABELS = { 1: '1★+', 2: '2★+', 3: '3★+', 4: '4★+', 5: '5★' };
   const hasNonDefaultFilters = minStars !== DEFAULT_MIN_STARS
     || activeTypeFilters.size > 0 || showUnrated || showStandDown
     || driveTimeFilter > 0 || darkSkyFilter;
+  // The quality threshold leads and is ALWAYS stated, default or not: it is the one filter that
+  // is never a no-op — a 3★+ floor is hiding pins right now, and the pin count beside it would
+  // otherwise be an unexplained number. Everything after it appears only when it is actually
+  // cutting something, so the bar stays a short receipt rather than a list of switched-off things.
   const filterSummaryParts = [STAR_THRESHOLD_LABELS[minStars]];
   activeTypeFilters.forEach((t) => filterSummaryParts.push(
     locationTypeLabel(t),
@@ -843,60 +1126,171 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
   if (showUnrated) filterSummaryParts.push('+ unknown');
   const filterSummary = filterSummaryParts.join(' · ');
 
+  // ── Overlay context bar ──
+  // The inherited event, with the clock time the plan card was showing. Taken from the pin the
+  // overlay opened on where there is one, so the chip states that location's own solar time rather
+  // than an arbitrary member of the set — they differ by minutes across a region.
+  const contextEventTime = (() => {
+    if (!overlayMode || isAuroraMode || isAstroMode) return null;
+    const slot = eventType === 'SUNRISE' ? 'sunrise' : 'sunset';
+    const anchor = (emphasisTarget && visibleLocations.find((l) => l.name === emphasisTarget))
+      ?? visibleLocations[0];
+    return formatEventTimeUk(anchor?.forecastsByDate?.get?.(date)?.[slot]?.solarEventTime ?? null);
+  })();
+
+  // What the map is actually showing. Falls back to the whole filtered set until the first bounds
+  // report — a true statement either way, and never a count of something already filtered out.
+  const pinsInView = mapBounds
+    ? visibleLocations.filter(({ lat, lon }) => lat >= mapBounds[0] && lat <= mapBounds[2]
+        && lon >= mapBounds[1] && lon <= mapBounds[3]).length
+    : visibleLocations.length;
+
+  const mapHeight = overlayMode
+    ? (advancedOpen ? OVERLAY_MAP_HEIGHT_FILTERS_OPEN_PX : OVERLAY_MAP_HEIGHT_PX)
+    : MAP_HEIGHT_PX;
+
+  const eventSelector = (
+    <ForecastTypeSelector
+      eventType={eventType}
+      onChange={(value) => {
+        setUserHasOverriddenEvent(true);
+        setEventType(value);
+        setMinStars(DEFAULT_MIN_STARS);
+        setShowUnrated(false);
+        setShowStandDown(false);
+        localStorage.removeItem('mapFilterMinStars');
+        localStorage.removeItem('mapFilterShowStandDown');
+      }}
+      showAurora={role !== 'LITE_USER'}
+      auroraAvailable={auroraAvailable}
+      astroAvailable={astroAvailable}
+      sunriseAvailable={sunriseAvailable}
+      sunsetAvailable={sunsetAvailable}
+    />
+  );
+
+  // The disclosure. On the Map tab it is a filter pill that also summarises what is active; in the
+  // overlay the chips beside it already say that, so it drops to the plain weight of the modal's ✕
+  // — one button, right-aligned, with a caret that turns.
+  const filtersButton = overlayMode ? (
+    <button
+      type="button"
+      data-testid="advanced-filters-toggle"
+      onClick={toggleAdvancedOpen}
+      aria-expanded={advancedOpen}
+      className="map-ctx-btn ml-auto"
+    >
+      Filters
+      <span aria-hidden="true" className="map-ctx-caret" data-open={advancedOpen || undefined}>▾</span>
+    </button>
+  ) : (
+    <button
+      data-testid="advanced-filters-toggle"
+      onClick={toggleAdvancedOpen}
+      aria-expanded={advancedOpen}
+      className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+        hasNonDefaultFilters
+          ? 'bg-plex-gold/10 border-plex-gold/40 text-plex-gold'
+          : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
+      }`}
+    >
+      <span aria-hidden="true">{advancedOpen ? '▴' : '▾'}</span>
+      Filters
+      {!advancedOpen && (
+        <span data-testid="filter-summary" className="text-plex-text-muted font-normal">
+          · {filterSummary}
+        </span>
+      )}
+    </button>
+  );
+
   return (
-    <div className="flex flex-col gap-4">
-      {/* Primary row: event type toggles + Filters disclosure button */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <ForecastTypeSelector
-          eventType={eventType}
-          onChange={(value) => {
-            setUserHasOverriddenEvent(true);
-            setEventType(value);
-            setMinStars(DEFAULT_MIN_STARS);
-            setShowUnrated(false);
-            setShowStandDown(false);
-            localStorage.removeItem('mapFilterMinStars');
-            localStorage.removeItem('mapFilterShowStandDown');
+    <div className={overlayMode ? 'flex flex-col' : 'flex flex-col gap-4'}>
+      {overlayMode ? (
+        /* ── Context bar — the overlay's default row ──
+           A receipt, not a control panel: what the map is showing, in read-only chips, because
+           the user already answered every one of these questions on the way in. */
+        <div
+          data-testid="map-context-bar"
+          className="flex items-center flex-wrap"
+          style={{
+            gap: '9px',
+            padding: '9px 18px',
+            borderBottom: '1px solid var(--color-plex-border)',
+            background: 'rgba(0,0,0,0.16)',
           }}
-          showAurora={role !== 'LITE_USER'}
-          auroraAvailable={auroraAvailable}
-          astroAvailable={astroAvailable}
-          sunriseAvailable={sunriseAvailable}
-          sunsetAvailable={sunsetAvailable}
-        />
-        <button
-          data-testid="advanced-filters-toggle"
-          onClick={toggleAdvancedOpen}
-          aria-expanded={advancedOpen}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
-            hasNonDefaultFilters
-              ? 'bg-plex-gold/10 border-plex-gold/40 text-plex-gold'
-              : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
-          }`}
         >
-          <span aria-hidden="true">{advancedOpen ? '▴' : '▾'}</span>
-          Filters
-          {!advancedOpen && (
-            <span data-testid="filter-summary" className="text-plex-text-muted font-normal">
-              · {filterSummary}
-            </span>
-          )}
-        </button>
-      </div>
+          <span
+            className="font-mono uppercase text-plex-text-muted"
+            style={{ fontSize: '10px', fontWeight: 600, letterSpacing: '0.1em' }}
+          >
+            Showing
+          </span>
+          <span data-testid="map-context-event" className="map-ctx-chip map-ctx-chip--lead">
+            {EVENT_TYPE_LABELS[eventType] ?? eventType}
+            {contextEventTime && ` · ${contextEventTime}`}
+          </span>
+          {filterSummaryParts.map((part) => (
+            <span key={part} data-testid="map-context-chip" className="map-ctx-chip">{part}</span>
+          ))}
+          <span
+            data-testid="map-context-count"
+            className="font-mono text-plex-text-muted"
+            style={{ fontSize: '11px' }}
+          >
+            {pinsInView} {pinsInView === 1 ? 'pin' : 'pins'} in view
+          </span>
+          {filtersButton}
+        </div>
+      ) : (
+        /* Primary row: event type toggles + Filters disclosure button */
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          {eventSelector}
+          {filtersButton}
+        </div>
+      )}
 
       {/* Advanced filters — hidden by default, revealed with a slide-down transition */}
       <div
-        className={`overflow-hidden transition-all duration-200 ${advancedOpen ? 'max-h-96' : 'max-h-0'}`}
+        className="overflow-hidden"
         data-testid="advanced-filters-panel"
+        style={{
+          maxHeight: advancedOpen ? '340px' : 0,
+          transition: `max-height 0.24s ${DRAWER_EASING}`,
+          ...(overlayMode
+            ? { borderBottom: '1px solid var(--color-plex-border)', background: 'rgba(0,0,0,0.10)' }
+            : {}),
+        }}
       >
-        <div className="flex flex-col gap-3 pb-1" data-testid="advanced-filters-content">
+        <div
+          className="flex flex-col"
+          data-testid="advanced-filters-content"
+          style={overlayMode
+            ? { gap: '11px', padding: '13px 18px 15px' }
+            : { gap: '0.75rem', paddingBottom: '0.25rem' }}
+        >
+
+          {/* ── Event — in the overlay only, where the context bar took the primary row's place.
+              It is the one control the drill-down genuinely inherited, so it is labelled as such
+              rather than presented as a fresh question. ── */}
+          {overlayMode && (
+            <FilterRow
+              compact
+              label="Event"
+              compactLabel="Event"
+              hint="inherited from the plan card"
+            >
+              {eventSelector}
+            </FilterRow>
+          )}
 
           {/* ── Minimum quality — a single "this and above" threshold ── */}
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] uppercase tracking-wide text-plex-text-muted font-semibold">Minimum quality</span>
-              <InfoTip text="Shows locations rated this many stars and above. Combines with the Subject and Logistics filters: a location must match all three." />
-            </div>
+          <FilterRow
+            compact={overlayMode}
+            label="Minimum quality"
+            compactLabel="Quality"
+            info={<InfoTip text="Shows locations rated this many stars and above. Combines with the Subject and Logistics filters: a location must match all three." />}
+          >
             <div className="flex items-center gap-2.5 flex-wrap">
               <div className="inline-flex rounded-full border border-plex-border overflow-hidden" role="group" aria-label="Minimum quality threshold">
                 {[1, 2, 3, 4, 5].map((star) => (
@@ -968,12 +1362,11 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
                 </button>
               </div>
             )}
-          </div>
+          </FilterRow>
 
           {/* ── Subject — location-type chips (hidden in Aurora/Astro modes) ── */}
           {!isAuroraMode && !isAstroMode && (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-[11px] uppercase tracking-wide text-plex-text-muted font-semibold">Subject</span>
+            <FilterRow compact={overlayMode} label="Subject" compactLabel="Subject">
               <div className="flex items-center gap-2 flex-wrap">
                 {MAP_FILTER_CHIPS.map(([type, { label, emoji }]) => (
                   <button
@@ -1007,12 +1400,11 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
                   </button>
                 )}
               </div>
-            </div>
+            </FilterRow>
           )}
 
           {/* ── Logistics — drive time, dark-sky, clear ── */}
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[11px] uppercase tracking-wide text-plex-text-muted font-semibold">Logistics</span>
+          <FilterRow compact={overlayMode} label="Logistics" compactLabel="Logistics">
             <div className="flex items-center gap-2 flex-wrap">
               <select
                 value={driveTimeFilter}
@@ -1064,13 +1456,14 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
                 </button>
               )}
             </div>
-          </div>
+          </FilterRow>
         </div>
       </div>
 
       {/* Best aurora location card — visible only in aurora mode */}
       {isAuroraMode && bestAuroraLocation && (
         <div
+          style={overlayMode ? { margin: '10px 18px' } : undefined}
           className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg border border-indigo-500/30 bg-indigo-900/20 text-sm"
           data-testid="aurora-best-location-card"
         >
@@ -1094,11 +1487,19 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
       )}
       {/* All-overcast message now shown inside AuroraBanner */}
 
-      {/* Map */}
+      {/* Map.
+          In the overlay it is full-bleed and its height is the reclaimed space — no rounding or
+          ring, because it butts against the modal's own edges rather than sitting on a page. The
+          height transition shares the drawer's easing so the two move as one gesture. */}
       <div
         data-testid="map-container"
-        className="rounded-lg overflow-hidden ring-1 ring-gray-700"
-        style={{ height: '500px', position: 'relative', zIndex: 0 }}
+        className={overlayMode ? '' : 'rounded-lg overflow-hidden ring-1 ring-gray-700'}
+        style={{
+          height: `${mapHeight}px`,
+          position: 'relative',
+          zIndex: 0,
+          ...(overlayMode ? { transition: `height 0.24s ${DRAWER_EASING}` } : {}),
+        }}
       >
         <MapContainer
           bounds={bounds}
@@ -1112,6 +1513,18 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
             maxZoom={19}
           />
           <ZoomTracker onZoom={setZoom} />
+          {/* Map tab only. The Plan overlay is already focused on the spot the user asked about,
+              and "go home" there would throw away the framing they opened it for — worse, its
+              no-postcode branch opens a settings dialog on top of a modal. */}
+          {!overlayMode && (
+            <CentreOnHomeControl
+              homeCoords={homeCoords}
+              radiusMiles={homeRadiusMiles}
+              onOpenSettings={onOpenSettings}
+            />
+          )}
+          {overlayMode && <BoundsTracker onBounds={handleBounds} />}
+          <MapSizeSync trigger={advancedOpen} enabled={overlayMode} />
           <FlyToController target={flyTarget} />
           <FitBoundsController target={fitBoundsTarget} />
           <HandoffPopupController
@@ -1365,6 +1778,18 @@ MapView.propTypes = {
     names: PropTypes.arrayOf(PropTypes.string),
     nonce: PropTypes.number,
   }),
+  /**
+   * True when this map is the Plan tab's drill-down overlay rather than the full Map tab. The
+   * overlay inherits its event and location from the card that opened it, so it opens with the
+   * filters folded away behind a one-line context bar and gives the height to the map.
+   */
+  overlayMode: PropTypes.bool,
+  /** `{ lat, lon }` of the user's saved home postcode, or null when none is saved. */
+  homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
+  /** The user's Close-to-home radius in miles — frames the "centre on home" camera move. */
+  homeRadiusMiles: PropTypes.number,
+  /** Opens the settings dialog on the postcode field. */
+  onOpenSettings: PropTypes.func,
 };
 
 export default React.memo(MapView);

@@ -7,6 +7,7 @@ import { LOCATION_TYPE_ICONS, locationTypeLabel } from '../utils/locationTypes.j
 import { formatEventTimeUk } from '../utils/conversions.js';
 import { lookupBriefingScore } from '../utils/briefingScoreIndex.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { useIsCoarsePointer } from '../hooks/useIsCoarsePointer.js';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
 
 /** Accent for the whole block — its own warm gold, distinct from the bone `--color-plex-gold`. */
@@ -393,62 +394,99 @@ function keepCard(card, maxDrive, minRating, tideOnly) {
   return true;
 }
 
-/** Preview panel geometry, mirrored in the `.cth-hover-preview` rule. */
-const PREVIEW_WIDTH = 300;
-const PREVIEW_MAX_HEIGHT = 260;
+/**
+ * Peek geometry, mirrored in the `.cth-hover-preview` rule.
+ *
+ * <p>`PREVIEW_ESTIMATED_HEIGHT` is deliberately an estimate rather than a measurement: it decides
+ * only which SIDE of the card the panel goes on, and the content is bounded by construction (a
+ * stars row, one clause, one prompt line). Measuring would mean rendering the panel hidden, reading
+ * it back and re-rendering — a second paint's worth of machinery to choose between two answers that
+ * are both legible.
+ */
+const PREVIEW_WIDTH = 280;
 const PREVIEW_GAP = 10;
+const BLOCK_EDGE_MARGIN = 10;
+const ARROW_SIZE = 11;
+const ARROW_INSET = 16;
 const VIEWPORT_MARGIN = 8;
+const PREVIEW_ESTIMATED_HEIGHT = 170;
 
 /**
- * Places the preview beside the hovered card: to its right when there is room, otherwise to its
- * left, and vertically clamped into the viewport. Coordinates are viewport-relative because the
- * panel is `position: fixed` — the block itself is `overflow: hidden`, which would crop an
- * absolutely-positioned child against the card grid.
+ * Places the peek centred under the hovered card, tethered to it by an arrow.
  *
- * @param {DOMRect} rect the hovered card's bounding box
- * @returns {{left: number, top: number}} fixed-position coordinates in px
+ * <p>Under, not beside: the panel belongs to one card, and a tooltip hanging off a card's flank in
+ * a four-across filmstrip points at the gap between two of them. It is clamped to the block's own
+ * left and right edges rather than the viewport's, so a peek from the last card in a row still
+ * reads as part of the block instead of drifting out over the page.
+ *
+ * <p>Coordinates are viewport-relative because the panel is `position: fixed` — the block is
+ * `overflow: hidden` (its gold accent rail depends on that to stay inside the rounded corner), and
+ * an absolutely-positioned child would be cropped against the card grid, which is the clipping this
+ * whole change exists to remove.
+ *
+ * @param {DOMRect}  cardRect  the hovered card's bounding box
+ * @param {?DOMRect} blockRect the Close-to-home block's bounding box, when it is mounted
+ * @returns {{placement: string, arrowLeft: number, position: Object}} the panel's placement
  */
-function previewPosition(rect) {
-  const spaceRight = window.innerWidth - rect.right;
-  const left = spaceRight >= PREVIEW_WIDTH + PREVIEW_GAP + VIEWPORT_MARGIN
-    ? rect.right + PREVIEW_GAP
-    : Math.max(VIEWPORT_MARGIN, rect.left - PREVIEW_WIDTH - PREVIEW_GAP);
-  const maxTop = window.innerHeight - PREVIEW_MAX_HEIGHT - VIEWPORT_MARGIN;
-  const top = Math.max(VIEWPORT_MARGIN, Math.min(rect.top, Math.max(VIEWPORT_MARGIN, maxTop)));
-  return { left, top };
-}
+function previewPlacement(cardRect, blockRect) {
+  const leftBound = (blockRect?.left ?? VIEWPORT_MARGIN) + BLOCK_EDGE_MARGIN;
+  const rightBound = (blockRect?.right ?? (window.innerWidth - VIEWPORT_MARGIN)) - BLOCK_EDGE_MARGIN;
+  const centre = cardRect.left + cardRect.width / 2;
+  const maxLeft = rightBound - PREVIEW_WIDTH;
+  const left = maxLeft >= leftBound
+    ? Math.max(leftBound, Math.min(centre - PREVIEW_WIDTH / 2, maxLeft))
+    : leftBound;
 
-/**
- * Resolves the forecast facts behind a card's hover preview, preferring the briefing evaluation
- * (which carries Claude's sentence) and falling back to the map's own forecast row.
- *
- * <p>Both are already in memory, which is the whole point: the preview must cost nothing to open,
- * or sweeping a pointer across a grid of cards becomes a burst of requests. When neither source
- * holds the slot, the card simply has no preview — a hover shortcut is not worth a fetch.
- *
- * @param {string}  locationName the card's location
- * @param {string}  date         the window's date
- * @param {string}  targetType   SUNRISE or SUNSET
- * @param {?Map}    scoreIndex   briefing-score index, from `buildBriefingScoreIndex`
- * @param {Array}   locations    map locations carrying `forecastsByDate`
- * @returns {?{summary: ?string, fierySky: ?number, goldenHour: ?number, rating: ?number}} the
- *     preview facts, or null when nothing is known about this slot
- */
-function previewFacts(locationName, date, targetType, scoreIndex, locations) {
-  const score = lookupBriefingScore(scoreIndex, locationName, date, targetType);
-  const slot = (locations ?? []).find((l) => l.name === locationName)
-    ?.forecastsByDate?.get?.(date)?.[targetType === 'SUNRISE' ? 'sunrise' : 'sunset'];
-  if (!score && !slot) return null;
+  // Flip above only when below genuinely cannot hold it AND above holds it better — a card near
+  // the bottom of a short window would otherwise flip for the sake of a few pixels.
+  const roomBelow = window.innerHeight - VIEWPORT_MARGIN - (cardRect.bottom + PREVIEW_GAP);
+  const roomAbove = cardRect.top - PREVIEW_GAP - VIEWPORT_MARGIN;
+  const above = roomBelow < PREVIEW_ESTIMATED_HEIGHT && roomAbove > roomBelow;
+
+  // The arrow points at the card's centre, held clear of the shell's 10px corners. Its `left` is
+  // the rotated square's top-left corner, so half a side comes back off.
+  const tip = Math.max(ARROW_INSET, Math.min(centre - left, PREVIEW_WIDTH - ARROW_INSET));
+
   return {
-    // Only what the panel itself cannot supply. The RATING deliberately is not taken from here —
-    // it stays the card's own, from the enriched briefing payload — because a preview that
-    // disagreed with the card it hangs off is the exact failure the panel's single-source
-    // contract exists to prevent. See CloseToHomeService's class javadoc.
-    summary: score?.summary ?? null,
-    fierySky: score?.fierySkyPotential ?? slot?.fierySkyPotential ?? null,
-    goldenHour: score?.goldenHourPotential ?? slot?.goldenHourPotential ?? null,
+    placement: above ? 'above' : 'below',
+    arrowLeft: tip - ARROW_SIZE / 2,
+    position: above
+      ? { left, bottom: window.innerHeight - cardRect.top + PREVIEW_GAP }
+      : { left, top: cardRect.bottom + PREVIEW_GAP },
   };
 }
+
+/**
+ * Claude's sentence for a card's slot, from the briefing scores the Plan tab already holds.
+ *
+ * <p>Already in memory, which is the whole point: the peek must cost nothing to open, or sweeping
+ * a pointer across a grid of cards becomes a burst of requests.
+ *
+ * <p>A missing sentence means <b>no peek at all</b>. The rating and the drive both come from the
+ * card the pointer is already on, so a peek without the "why" would restate what the reader can
+ * see and add a prompt — a panel that appears to say something and does not. The forecast rows
+ * behind the map are not a fallback here: they carry scores but no summary (the narrative arrives
+ * with the per-location detail fetch), and the scores are no longer part of the peek.
+ *
+ * @param {string} locationName the card's location
+ * @param {string} date         the window's date
+ * @param {string} targetType   SUNRISE or SUNSET
+ * @param {?Map}   scoreIndex   briefing-score index, from `buildBriefingScoreIndex`
+ * @returns {?string} the sentence, or null when the slot has none
+ */
+function previewSummary(locationName, date, targetType, scoreIndex) {
+  return lookupBriefingScore(scoreIndex, locationName, date, targetType)?.summary ?? null;
+}
+
+/**
+ * How long the pointer must rest on a card before the peek opens.
+ *
+ * <p>180ms is the whole difference between a panel that answers a question and one that fires at
+ * a mouse crossing the row on its way somewhere else. Paired with the grace below, which is the
+ * time the pointer has to cross the 10px gap from card to panel without the panel vanishing.
+ */
+const PEEK_OPEN_DELAY_MS = 180;
+const PEEK_HIDE_GRACE_MS = 140;
 
 /* eslint-disable react/prop-types */
 
@@ -465,14 +503,15 @@ function previewFacts(locationName, date, targetType, scoreIndex, locations) {
  * @param {string}    props.todayStr         today's ISO date, for the header wording
  * @param {string}    props.tomorrowStr      tomorrow's ISO date
  * @param {boolean}   props.isPro            gates the Best Bet region in a tooltip
- * @param {boolean}   props.isMobile         suppresses the pointer-only hover preview
+ * @param {boolean}   props.noHoverPeek      suppresses the pointer-only hover peek
  * @param {?Function} props.onShowOnMap      (date, targetType, locationName) opens the map
- * @param {Function}  props.openPreview      (event, card, window) shows the hover preview
- * @param {Function}  props.closePreview     dismisses the hover preview
+ * @param {Function}  props.openPreview      (event, card, window) schedules the hover peek
+ * @param {Function}  props.closePreview     starts the peek's dismissal grace
+ * @param {Function}  props.dismissPreview   takes the peek down immediately
  */
 function WindowGroup({
-  w, isExpanded, onToggleExpanded, todayStr, tomorrowStr, isPro, isMobile,
-  onShowOnMap, openPreview, closePreview,
+  w, isExpanded, onToggleExpanded, todayStr, tomorrowStr, isPro, noHoverPeek,
+  onShowOnMap, openPreview, closePreview, dismissPreview,
 }) {
   const stripRef = useRef(null);
   const mark = eventMark(w.targetType);
@@ -481,11 +520,12 @@ function WindowGroup({
   // Opening the map swaps a full-viewport overlay in UNDER a pointer that has not moved, which
   // covers the card without reliably firing mouseleave — the same "the DOM moved out from under
   // a `position: fixed` preview" case the strip's onScroll handles below, and the preview sits
-  // above the overlay. Dismiss on the way out rather than trusting the pointer to move.
+  // above the overlay. Dismiss on the way out — immediately, not on the grace timer, which would
+  // leave the panel floating over the modal for its duration.
   const openOnMap = useCallback((locationName) => {
-    closePreview();
+    dismissPreview();
     onShowOnMap?.(w.date, w.targetType, locationName);
-  }, [closePreview, onShowOnMap, w.date, w.targetType]);
+  }, [dismissPreview, onShowOnMap, w.date, w.targetType]);
 
   return (
     <div data-testid="cth-window" style={{ margin: '0 16px 12px' }}>
@@ -596,7 +636,7 @@ function WindowGroup({
         <WindowRows
           cards={w.cards}
           onOpen={(card) => openOnMap(card.locationName)}
-          onPreview={isMobile ? null : (e, card) => openPreview(e, card, w)}
+          onPreview={noHoverPeek ? null : (e, card) => openPreview(e, card, w)}
           onPreviewEnd={closePreview}
         />
       ) : (
@@ -608,10 +648,11 @@ function WindowGroup({
             // query. Inline sizing would win at every viewport and squeeze the strip into
             // slivers on a phone.
             className="cth-window-grid"
-            // The preview is `position: fixed` at coordinates captured on mouseenter, so a
+            // The peek is `position: fixed` at coordinates captured on mouseenter, so a
             // horizontal scroll slides the card out from under it while no mouseleave fires —
-            // the panel would be left hanging over empty space. Dismiss rather than chase it.
-            onScroll={closePreview}
+            // the panel would be left hanging over empty space. Dismiss rather than chase it,
+            // and immediately: the grace period exists for card→panel travel, not for this.
+            onScroll={dismissPreview}
           >
             {w.cards.map((card) => (
               <button
@@ -620,13 +661,14 @@ function WindowGroup({
                 data-testid="close-to-home-card"
                 data-lead={card.lead || undefined}
                 onClick={() => openOnMap(card.locationName)}
-                // Pointer-only, and gated on viewport: hover has no touch equivalent, and on
-                // a phone a preview pinned beside the card would cover the grid it came from.
-                // Focus opens it too, so keyboard users get the same shortcut.
-                onMouseEnter={isMobile ? undefined : (e) => openPreview(e, card, w)}
-                onMouseLeave={isMobile ? undefined : closePreview}
-                onFocus={isMobile ? undefined : (e) => openPreview(e, card, w)}
-                onBlur={isMobile ? undefined : closePreview}
+                // Pointer-only, and gated on viewport AND pointer type: hover has no touch
+                // equivalent, and on a phone a panel pinned under the card would cover the grid
+                // it came from. Focus opens it too, so keyboard users get the same shortcut —
+                // through the same 180ms delay, which suppresses it while tabbing straight past.
+                onMouseEnter={noHoverPeek ? undefined : (e) => openPreview(e, card, w)}
+                onMouseLeave={noHoverPeek ? undefined : closePreview}
+                onFocus={noHoverPeek ? undefined : (e) => openPreview(e, card, w)}
+                onBlur={noHoverPeek ? undefined : closePreview}
                 // Border/radius/background live in .cth-card CSS keyed on data-lead — an
                 // inline border shorthand would outrank the hover rule and kill the
                 // affordance.
@@ -749,8 +791,7 @@ function WindowGroup({
  * @param {string}    props.todayStr     today's ISO date, for "Today"/"Tomorrow" wording
  * @param {string}    props.tomorrowStr  tomorrow's ISO date
  * @param {?Function} props.onShowOnMap  (date, targetType, locationName) → open the map focused
- * @param {?Map}      props.scoreIndex   briefing-score index for the hover preview (optional)
- * @param {Array}     props.locations    map locations carrying `forecastsByDate` (optional)
+ * @param {?Map}      props.scoreIndex   briefing-score index for the hover peek (optional)
  */
 export default function CloseToHome({
   panel = null,
@@ -759,7 +800,6 @@ export default function CloseToHome({
   isPro = false,
   onShowOnMap = null,
   scoreIndex = null,
-  locations = [],
 }) {
   // Hooks precede the early return so the hook order is stable across a null → loaded panel.
   const [preview, setPreview] = useState(null);
@@ -768,6 +808,15 @@ export default function CloseToHome({
   const [storedTide, setTideOnly] = useLocalStorageState(TIDE_KEY, false);
   const [expandedKey, setExpandedKey] = useState(null);
   const isMobile = useIsMobile();
+  const isCoarsePointer = useIsCoarsePointer();
+  const blockRef = useRef(null);
+  const openTimer = useRef(null);
+  const hideTimer = useRef(null);
+
+  // Two gates, because they catch different devices: the viewport query catches a phone, and the
+  // pointer query catches a tablet or touchscreen laptop that is wide enough to look like a
+  // desktop but where "hover" is a tap that has already committed.
+  const noHoverPeek = isMobile || isCoarsePointer;
 
   // Sanitised on the way out rather than on the way in: the stored value is only ever read through
   // these, so a stale one is inert until the next tap overwrites it with a real step.
@@ -775,23 +824,61 @@ export default function CloseToHome({
   const minRating = storedStep(RATING_STEPS, storedRating);
   const tideOnly = storedTide === true;
 
+  /** Cancels a pending open and a pending dismissal, and takes the panel down now. */
+  const dismissPreview = useCallback(() => {
+    clearTimeout(openTimer.current);
+    clearTimeout(hideTimer.current);
+    setPreview(null);
+  }, []);
+
   const openPreview = useCallback((event, card, window_) => {
-    const facts = previewFacts(card.locationName, window_.date, window_.targetType,
-      scoreIndex, locations);
-    if (!facts) return;
-    setPreview({
-      ...facts,
+    const summary = previewSummary(card.locationName, window_.date, window_.targetType, scoreIndex);
+    if (!summary) return;
+    // Both rects are read HERE, synchronously: React clears `currentTarget` once the handler
+    // returns, so a rect read inside the timeout below would come back null.
+    const placed = previewPlacement(
+      event.currentTarget.getBoundingClientRect(),
+      blockRef.current?.getBoundingClientRect() ?? null,
+    );
+    clearTimeout(hideTimer.current);
+    clearTimeout(openTimer.current);
+    openTimer.current = setTimeout(() => setPreview({
+      ...placed,
+      summary,
       locationName: card.locationName,
+      // The RATING is the card's own, from the enriched briefing payload, never the score index's
+      // — a peek that disagreed with the card it hangs off is the exact failure the panel's
+      // single-source contract exists to prevent. See CloseToHomeService's class javadoc.
       rating: card.rating ?? null,
       driveMinutes: card.driveMinutes ?? null,
-      eventTime: window_.eventTime ?? null,
       date: window_.date,
       targetType: window_.targetType,
-      position: previewPosition(event.currentTarget.getBoundingClientRect()),
-    });
-  }, [scoreIndex, locations]);
+    }), PEEK_OPEN_DELAY_MS);
+  }, [scoreIndex]);
 
-  const closePreview = useCallback(() => setPreview(null), []);
+  /**
+   * Leaving a card starts the grace rather than closing: the panel sits 10px below, and the pointer
+   * is briefly over neither. The panel's own mouseenter cancels this, which is what makes the
+   * travel work; moving anywhere else lets it run out.
+   */
+  const closePreview = useCallback(() => {
+    clearTimeout(openTimer.current);
+    hideTimer.current = setTimeout(() => setPreview(null), PEEK_HIDE_GRACE_MS);
+  }, []);
+
+  const holdPreview = useCallback(() => clearTimeout(hideTimer.current), []);
+
+  // Esc closes it, and so does unmounting — a pending open timer that fires into a torn-down tree
+  // is a setState on an unmounted component, and a pending hide timer would outlive the panel.
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') dismissPreview(); };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      clearTimeout(openTimer.current);
+      clearTimeout(hideTimer.current);
+    };
+  }, [dismissPreview]);
 
   if (!panel) return null;
   const model = panel;
@@ -829,6 +916,7 @@ export default function CloseToHome({
 
   return (
     <div
+      ref={blockRef}
       data-testid="close-to-home"
       className="relative overflow-hidden mb-3"
       style={{
@@ -1009,18 +1097,18 @@ export default function CloseToHome({
             // Dismisses the preview first for the same reason a card does: the map overlay
             // renders above this button but below the `position: fixed` preview.
             onClick={() => {
-              closePreview();
+              dismissPreview();
               onShowOnMap?.(breadcrumb.nextWindow.date,
                 breadcrumb.nextWindow.targetType, breadcrumb.nextWindow.card.locationName);
             }}
-            // Previews on hover exactly as a card does — it names the same location, date and
+            // Peeks on hover exactly as a card does — it names the same location, date and
             // event, so it earns the same shortcut.
-            onMouseEnter={isMobile ? undefined : (e) => openPreview(e, breadcrumb.nextWindow.card,
-              breadcrumb.nextWindow)}
-            onMouseLeave={isMobile ? undefined : closePreview}
-            onFocus={isMobile ? undefined : (e) => openPreview(e, breadcrumb.nextWindow.card,
-              breadcrumb.nextWindow)}
-            onBlur={isMobile ? undefined : closePreview}
+            onMouseEnter={noHoverPeek ? undefined : (e) => openPreview(e,
+              breadcrumb.nextWindow.card, breadcrumb.nextWindow)}
+            onMouseLeave={noHoverPeek ? undefined : closePreview}
+            onFocus={noHoverPeek ? undefined : (e) => openPreview(e,
+              breadcrumb.nextWindow.card, breadcrumb.nextWindow)}
+            onBlur={noHoverPeek ? undefined : closePreview}
             // Rail/hover/focus live in .cth-next-window — an inline border shorthand would
             // outrank the hover rule, the same trap documented on .cth-card. A native <button>
             // rather than the handoff's role="button" + tabindex="0" + key handlers: it is
@@ -1112,28 +1200,32 @@ export default function CloseToHome({
           todayStr={todayStr}
           tomorrowStr={tomorrowStr}
           isPro={isPro}
-          isMobile={isMobile}
+          noHoverPeek={noHoverPeek}
           onShowOnMap={onShowOnMap}
           openPreview={openPreview}
           closePreview={closePreview}
+          dismissPreview={dismissPreview}
         />
       ))}
 
-      {/* The hover preview — one panel for the whole block, repositioned per card. Rendered last
-          and `position: fixed` so it escapes this block's `overflow: hidden`. */}
+      {/* The hover peek — one panel for the whole block, repositioned per card. Rendered last
+          and `position: fixed` so it escapes this block's `overflow: hidden`. Clicking it opens
+          exactly what clicking the card opens; there is no second code path. */}
       {preview && (
         <CardHoverPreview
           key={`${preview.date}|${preview.targetType}|${preview.locationName}`}
-          locationName={preview.locationName}
           rating={preview.rating}
           driveMinutes={preview.driveMinutes}
-          eventTime={preview.eventTime}
-          eventLabel={windowLabel(preview.date, preview.targetType, todayStr, tomorrowStr)}
           summary={preview.summary}
-          fierySky={preview.fierySky}
-          goldenHour={preview.goldenHour}
-          isPro={isPro}
           position={preview.position}
+          placement={preview.placement}
+          arrowLeft={preview.arrowLeft}
+          onOpen={() => {
+            dismissPreview();
+            onShowOnMap?.(preview.date, preview.targetType, preview.locationName);
+          }}
+          onPointerEnter={holdPreview}
+          onPointerLeave={closePreview}
         />
       )}
     </div>
@@ -1152,5 +1244,4 @@ CloseToHome.propTypes = {
   isPro: PropTypes.bool,
   onShowOnMap: PropTypes.func,
   scoreIndex: PropTypes.instanceOf(Map),
-  locations: PropTypes.array,
 };

@@ -74,7 +74,11 @@ export default function MapOverlay({
           border: '1px solid var(--color-plex-border-light)',
           borderRadius: '12px',
           boxShadow: '0 30px 80px rgba(0,0,0,0.7)',
-          overflow: 'hidden',
+          // `hidden auto`, not `hidden`: the map body is now its own natural height (see below),
+          // so on a short viewport the panel's content can exceed 88vh. Plain `hidden` would cut
+          // the foot row off rather than letting the reader reach it; the x-axis stays clipped so
+          // the 12px radius still trims the map's corners.
+          overflow: 'hidden auto',
           display: 'flex',
           flexDirection: 'column',
         }}
@@ -100,9 +104,13 @@ export default function MapOverlay({
           </button>
         </div>
 
-        {/* Map body — takes the remaining space and clips the embedded map so the header,
-            narrative and foot always stay visible within the panel. */}
-        <div style={{ position: 'relative', flex: '1 1 auto', minHeight: '260px', overflow: 'hidden' }}>
+        {/* Map body — its own natural height, NOT the panel's leftover space.
+            It used to be `flex: 1 1 auto`, which handed it whatever the chrome did not want and
+            then clipped the map inside it. With the filter rail expanded that leftover was ~165px
+            of visible map: a strip too short for the focused pin, its neighbours and the popup.
+            The map now states its own height (470px, or 300px with the filter drawer open) and
+            this row simply takes it, so nothing is cut and the number is the number. */}
+        <div style={{ position: 'relative', flex: '0 0 auto', overflow: 'hidden' }}>
           {children}
           {caption && (
             <div
