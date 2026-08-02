@@ -12,26 +12,22 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.BriefingDay;
-import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.service.BriefingRatingStats;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.model.Verdict;
-import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingGatingPolicy;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Generates Claude-authored one-line glosses for briefing regions that have at least
@@ -114,7 +110,6 @@ public class BriefingGlossService {
     private final ObjectMapper objectMapper;
     private final JobRunService jobRunService;
     private final ModelSelectionService modelSelectionService;
-    private final BriefingEvaluationService briefingEvaluationService;
     private final double minCoverageRatio;
     private final ParallelGlossExecutor<GlossWorkItem> glossExecutor =
             new ParallelGlossExecutor<>(MAX_CONCURRENCY, "Gloss");
@@ -122,25 +117,27 @@ public class BriefingGlossService {
     /**
      * Constructs a {@code BriefingGlossService}.
      *
-     * @param anthropicApiClient        resilient Anthropic API client
-     * @param objectMapper              Jackson mapper for JSON building
-     * @param jobRunService             service for logging API calls
-     * @param modelSelectionService     service for resolving the active Claude model
-     * @param briefingEvaluationService cached Claude evaluation scores from drill-down
-     * @param minCoverageRatio          coverage fraction below which the gloss is told to hedge
-     *                                  (shared with the read-path honesty filter); {@code 0.0}
-     *                                  disables the low-coverage signal
+     * <p>It no longer takes {@code BriefingEvaluationService}. The score statistics fed to Claude
+     * are read off the slots this gloss is being written about, which are already enriched when
+     * {@code generateGlosses} runs — so the evaluation cache is not a dependency of writing prose,
+     * and the {@code @Lazy} that broke the circular reference is gone with it.
+     *
+     * @param anthropicApiClient    resilient Anthropic API client
+     * @param objectMapper          Jackson mapper for JSON building
+     * @param jobRunService         service for logging API calls
+     * @param modelSelectionService service for resolving the active Claude model
+     * @param minCoverageRatio      coverage fraction below which the gloss is told to hedge
+     *                              (shared with the read-path honesty filter); {@code 0.0}
+     *                              disables the low-coverage signal
      */
     public BriefingGlossService(AnthropicApiClient anthropicApiClient,
             ObjectMapper objectMapper, JobRunService jobRunService,
             ModelSelectionService modelSelectionService,
-            @Lazy BriefingEvaluationService briefingEvaluationService,
             @Value("${photocast.briefing.min-coverage-ratio:0.5}") double minCoverageRatio) {
         this.anthropicApiClient = anthropicApiClient;
         this.objectMapper = objectMapper;
         this.jobRunService = jobRunService;
         this.modelSelectionService = modelSelectionService;
-        this.briefingEvaluationService = briefingEvaluationService;
         this.minCoverageRatio = minCoverageRatio;
     }
 
@@ -175,9 +172,8 @@ public class BriefingGlossService {
         }
 
         long withScores = workItems.stream()
-                .filter(item -> !briefingEvaluationService.getCachedScores(
-                        item.region.regionName(), item.day.date(),
-                        item.eventSummary.targetType()).isEmpty())
+                .filter(item -> item.region.slots().stream()
+                        .anyMatch(slot -> slot.claudeRating() != null))
                 .count();
         LOG.info("Gloss generation: {} work items, {} with Claude scores",
                 workItems.size(), withScores);
@@ -315,8 +311,7 @@ public class BriefingGlossService {
             node.put("totalLocations", region.slots().size());
 
             // Append Claude evaluation scores when available
-            appendClaudeScores(node, region.regionName(),
-                    item.day.date(), item.eventSummary.targetType(), region.slots().size());
+            appendClaudeScores(node, region, item.day.date(), item.eventSummary.targetType());
 
             return objectMapper.writeValueAsString(node);
         } catch (Exception e) {
@@ -325,34 +320,47 @@ public class BriefingGlossService {
     }
 
     /**
-     * Appends cached Claude evaluation score distribution to the gloss user message JSON.
-     * When no cached scores are available, no fields are added.
+     * Appends the Claude evaluation score distribution to the gloss user message JSON.
+     * When the region carries no ratings, no fields are added.
+     *
+     * <p><b>The statistics come from the slots this gloss is about, not from a second read of the
+     * evaluation cache.</b> They used to come from {@code getCachedScores} — the raw cache, with no
+     * freshness gate and no {@code forecast_evaluation} fallback — while the list the paragraph is
+     * rendered above resolves through the gated merge. So the prose could describe a set of ratings
+     * that no longer existed: observed reading "across all 55 locations averages 3.6 stars, with 40
+     * rated highly" above a list averaging ~3.1 with 23 rated highly, because the cache still held
+     * the pre-downgrade values that the gate had since superseded.
+     *
+     * <p>Reading the region's own slots removes the disagreement by construction rather than by
+     * keeping two sources in step: {@code BriefingService} enriches the slots before it asks for a
+     * gloss, so they already carry whatever the freshness rule resolved. It is also strictly less
+     * work — no query, no cache lookup — and the count can no longer exceed
+     * {@code totalLocations}, which a cache covering a renamed or moved location could do.
      *
      * <p>Also emits a coverage signal so the gloss can hedge honestly when only a
      * small fraction of the region's locations were evaluated: {@code claudeCoverageRatio}
      * (scored / roster size, 2dp) and a {@code lowCoverage} boolean keyed on the same
      * threshold the read-path honesty filter uses.
      *
-     * @param totalLocations the region's roster size (slot count), used for the coverage ratio
+     * @param node       the user-message JSON being assembled
+     * @param region     the region this gloss describes, whose enriched slots supply the ratings
+     * @param date       the forecast date, for the aggregator's logging
+     * @param targetType the solar event, for the aggregator's logging
      */
-    private void appendClaudeScores(ObjectNode node, String regionName,
-            java.time.LocalDate date, com.gregochr.goldenhour.entity.TargetType targetType,
-            int totalLocations) {
-        Map<String, BriefingEvaluationResult> cached =
-                briefingEvaluationService.getCachedScores(regionName, date, targetType);
-        if (cached.isEmpty()) {
-            return;
-        }
+    private void appendClaudeScores(ObjectNode node, BriefingRegion region,
+            java.time.LocalDate date, com.gregochr.goldenhour.entity.TargetType targetType) {
+        int totalLocations = region.slots().size();
 
         // Route through the shared aggregator rather than recomputing: this was the last of four
         // copies of the "high >= 4, medium == 3, mean to 1dp" rule, and the only one that skipped
         // RatingValidator — so an out-of-range rating would have inflated the counts and the mean
-        // fed to Haiku as prompt input. The arithmetic is otherwise identical.
+        // fed to Haiku as prompt input. It is also the same call enrichWithCachedScores makes over
+        // the same slots, so the paragraph and the region's own scoredLocationCount agree.
         BriefingRatingStats.Stats stats = BriefingRatingStats.compute(
-                cached.values().stream()
-                        .map(r -> new BriefingRatingStats.Entry(r.locationName(), r.rating()))
+                region.slots().stream()
+                        .map(s -> new BriefingRatingStats.Entry(s.locationName(), s.claudeRating()))
                         .toList(),
-                regionName, date, targetType);
+                region.regionName(), date, targetType);
         if (stats.isEmpty()) {
             return;
         }

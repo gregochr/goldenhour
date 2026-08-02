@@ -11,14 +11,12 @@ import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingDay;
-import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.model.Verdict;
-import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingVerdictEvaluator;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
@@ -35,7 +33,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -61,8 +58,6 @@ class BriefingGlossServiceTest {
     private JobRunService jobRunService;
     @Mock
     private ModelSelectionService modelSelectionService;
-    @Mock
-    private BriefingEvaluationService briefingEvaluationService;
 
     private BriefingGlossService glossService;
 
@@ -70,7 +65,7 @@ class BriefingGlossServiceTest {
     void setUp() {
         glossService = new BriefingGlossService(
                 anthropicApiClient, new ObjectMapper(), jobRunService,
-                modelSelectionService, briefingEvaluationService, 0.5);
+                modelSelectionService, 0.5);
     }
 
     // ── Core behaviour: gloss populated per verdict ──────────────────────────
@@ -890,24 +885,42 @@ class BriefingGlossServiceTest {
     @DisplayName("Claude score enrichment in user message")
     class ClaudeScoreEnrichmentTests {
 
-        @Test
-        @DisplayName("Cached scores add claudeRatedCount and distribution to user message")
-        void cachedScoresAddedToUserMessage() {
-            when(briefingEvaluationService.getCachedScores(
-                    eq("Northumberland"),
-                    eq(LocalDate.of(2026, 4, 10)),
-                    eq(TargetType.SUNSET)))
-                    .thenReturn(Map.of(
-                            "Location1", new BriefingEvaluationResult(
-                                    "Location1", 4, 80, 70, "Good light")));
+        /**
+         * A region whose slots carry the given ratings, in order. A {@code null} entry is an
+         * unrated slot — how a triaged, superseded or not-yet-evaluated location looks once
+         * {@code BriefingService} has enriched the hierarchy, which it does before asking for a
+         * gloss.
+         *
+         * <p>These used to be stubbed on the evaluation cache instead. The stats now come from the
+         * slots the gloss is written about, so the fixture has to put them where the production
+         * code reads them.
+         */
+        private BriefingRegion regionRated(String name, Integer... ratings) {
+            List<BriefingSlot> slots = new java.util.ArrayList<>();
+            for (int i = 0; i < ratings.length; i++) {
+                BriefingSlot slot = new BriefingSlot(
+                        "Loc" + i, LocalDateTime.of(2026, 4, 10, 18, 30), Verdict.GO,
+                        new BriefingSlot.WeatherConditions(15, BigDecimal.ZERO, 20000, 65,
+                                10.0, 8.0, 0, BigDecimal.valueOf(3.5), 25, 40),
+                        BriefingSlot.TideInfo.NONE, List.of(), null);
+                slots.add(ratings[i] == null ? slot
+                        : slot.withClaudeScores(ratings[i], 80, 70, "Good light"));
+            }
+            return new BriefingRegion(name, Verdict.GO, "Summary", List.of(), slots,
+                    10.0, 8.0, 3.5, 0, null, null);
+        }
 
-            BriefingRegion goRegion = region("Northumberland", Verdict.GO);
-            BriefingDay day = dayWith(goRegion);
+        private String userMessageFor(BriefingRegion region) {
+            BriefingDay day = dayWith(region);
             BriefingEventSummary es = day.eventSummaries().getFirst();
-            BriefingGlossService.GlossWorkItem item =
-                    new BriefingGlossService.GlossWorkItem(0, 0, 0, day, es, goRegion);
+            return glossService.buildUserMessage(
+                    new BriefingGlossService.GlossWorkItem(0, 0, 0, day, es, region));
+        }
 
-            String json = glossService.buildUserMessage(item);
+        @Test
+        @DisplayName("Slot ratings add claudeRatedCount and distribution to user message")
+        void slotRatingsAddedToUserMessage() {
+            String json = userMessageFor(regionRated("Northumberland", 4));
 
             assertThat(json).contains("\"claudeRatedCount\":1");
             assertThat(json).contains("\"claudeHighRatedCount\":1");
@@ -916,24 +929,30 @@ class BriefingGlossServiceTest {
         }
 
         @Test
+        @DisplayName("The numbers describe the slots the paragraph sits above, not a second source")
+        void statsDescribeTheRegionsOwnSlots() {
+            // The defect this fix exists for: the stats were read from the raw evaluation cache,
+            // ungated and with no forecast_evaluation fallback, while the list rendered beneath the
+            // paragraph resolves through the gated merge. Observed in production as "across all 55
+            // locations averages 3.6 stars, with 40 rated highly" above a list averaging ~3.1.
+            // Here the slots say 2, 2, 4 — mean 2.7, one rated highly — and a stale cache claiming
+            // otherwise has nowhere to enter, because nothing but the slots is consulted.
+            String json = userMessageFor(regionRated("Northumberland", 2, 2, 4));
+
+            assertThat(json).contains("\"claudeRatedCount\":3");
+            assertThat(json).contains("\"claudeHighRatedCount\":1");
+            assertThat(json).contains("\"claudeAverageRating\":2.7");
+            // Coverage can no longer exceed 1.0. It could before: the count came from a cache that
+            // may hold locations absent from this region's roster, over a slot-count denominator.
+            assertThat(json).contains("\"claudeCoverageRatio\":1.0");
+        }
+
+        @Test
         @DisplayName("Low coverage: few scored of many locations emits lowCoverage:true + ratio")
         void lowCoverage_emittedWhenFewScoredOfManyLocations() {
-            when(briefingEvaluationService.getCachedScores(
-                    eq("Northumberland"),
-                    eq(LocalDate.of(2026, 4, 10)),
-                    eq(TargetType.SUNSET)))
-                    .thenReturn(Map.of(
-                            "Location1", new BriefingEvaluationResult(
-                                    "Location1", 4, 80, 70, "Good light")));
-
             // 10-location roster, only 1 scored → coverage 0.1, below the 0.5 threshold
-            BriefingRegion region = regionWithSlots("Northumberland", Verdict.GO, 10);
-            BriefingDay day = dayWith(region);
-            BriefingEventSummary es = day.eventSummaries().getFirst();
-            BriefingGlossService.GlossWorkItem item =
-                    new BriefingGlossService.GlossWorkItem(0, 0, 0, day, es, region);
-
-            String json = glossService.buildUserMessage(item);
+            String json = userMessageFor(regionRated("Northumberland",
+                    4, null, null, null, null, null, null, null, null, null));
 
             assertThat(json).contains("\"totalLocations\":10");
             assertThat(json).contains("\"claudeRatedCount\":1");
@@ -944,23 +963,8 @@ class BriefingGlossServiceTest {
         @Test
         @DisplayName("High coverage: most locations scored emits lowCoverage:false")
         void highCoverage_emittedWhenMostScored() {
-            when(briefingEvaluationService.getCachedScores(
-                    eq("Northumberland"),
-                    eq(LocalDate.of(2026, 4, 10)),
-                    eq(TargetType.SUNSET)))
-                    .thenReturn(Map.of(
-                            "A", new BriefingEvaluationResult("A", 4, 80, 70, "x"),
-                            "B", new BriefingEvaluationResult("B", 5, 90, 80, "y"),
-                            "C", new BriefingEvaluationResult("C", 4, 70, 60, "z")));
-
             // 3-location roster, all 3 scored → coverage 1.0, above the 0.5 threshold
-            BriefingRegion region = regionWithSlots("Northumberland", Verdict.GO, 3);
-            BriefingDay day = dayWith(region);
-            BriefingEventSummary es = day.eventSummaries().getFirst();
-            BriefingGlossService.GlossWorkItem item =
-                    new BriefingGlossService.GlossWorkItem(0, 0, 0, day, es, region);
-
-            String json = glossService.buildUserMessage(item);
+            String json = userMessageFor(regionRated("Northumberland", 4, 5, 4));
 
             assertThat(json).contains("\"claudeRatedCount\":3");
             assertThat(json).contains("\"claudeCoverageRatio\":1.0");
@@ -968,85 +972,27 @@ class BriefingGlossServiceTest {
         }
 
         @Test
-        @DisplayName("No cached scores — claude fields omitted from user message")
-        void noCachedScores_fieldsOmitted() {
-            BriefingRegion goRegion = region("Northumberland", Verdict.GO);
-            BriefingDay day = dayWith(goRegion);
-            BriefingEventSummary es = day.eventSummaries().getFirst();
-            BriefingGlossService.GlossWorkItem item =
-                    new BriefingGlossService.GlossWorkItem(0, 0, 0, day, es, goRegion);
-
-            String json = glossService.buildUserMessage(item);
+        @DisplayName("No rated slots — claude fields omitted from user message")
+        void noRatedSlots_fieldsOmitted() {
+            String json = userMessageFor(regionRated("Northumberland", (Integer) null));
 
             assertThat(json).doesNotContain("claudeRatedCount");
             assertThat(json).doesNotContain("claudeHighRatedCount");
         }
 
         @Test
-        @DisplayName("Triaged entries (null rating) excluded from distribution")
-        void triagedEntries_excludedFromDistribution() {
-            when(briefingEvaluationService.getCachedScores(
-                    eq("Northumberland"),
-                    eq(LocalDate.of(2026, 4, 10)),
-                    eq(TargetType.SUNSET)))
-                    .thenReturn(Map.of(
-                            "Location1", new BriefingEvaluationResult(
-                                    "Location1", 5, 95, 90, "Stunning"),
-                            "Location2", new BriefingEvaluationResult(
-                                    "Location2", null, null, null, null,
-                                    com.gregochr.goldenhour.model.TriageReason.HIGH_CLOUD,
-                                    "Heavy cloud")));
-
-            BriefingRegion goRegion = region("Northumberland", Verdict.GO);
-            BriefingDay day = dayWith(goRegion);
-            BriefingEventSummary es = day.eventSummaries().getFirst();
-            BriefingGlossService.GlossWorkItem item =
-                    new BriefingGlossService.GlossWorkItem(0, 0, 0, day, es, goRegion);
-
-            String json = glossService.buildUserMessage(item);
+        @DisplayName("Unrated slots (triaged or superseded) excluded from distribution")
+        void unratedSlots_excludedFromDistribution() {
+            String json = userMessageFor(regionRated("Northumberland", 5, null));
 
             assertThat(json).contains("\"claudeRatedCount\":1");
             assertThat(json).contains("\"claudeAverageRating\":5.0");
         }
 
         @Test
-        @DisplayName("Cache lookup uses exact region name, date and targetType")
-        void cacheLookupUsesExactParameters() {
-            BriefingRegion goRegion = region("Northumberland", Verdict.GO);
-            BriefingDay day = dayWith(goRegion);
-            BriefingEventSummary es = day.eventSummaries().getFirst();
-            BriefingGlossService.GlossWorkItem item =
-                    new BriefingGlossService.GlossWorkItem(0, 0, 0, day, es, goRegion);
-
-            glossService.buildUserMessage(item);
-
-            verify(briefingEvaluationService).getCachedScores(
-                    eq("Northumberland"),
-                    eq(LocalDate.of(2026, 4, 10)),
-                    eq(TargetType.SUNSET));
-        }
-
-        @Test
         @DisplayName("Low-rated entries count in rated but not high or medium")
         void lowRatedEntries_countInRatedNotHighOrMedium() {
-            when(briefingEvaluationService.getCachedScores(
-                    eq("Northumberland"),
-                    eq(LocalDate.of(2026, 4, 10)),
-                    eq(TargetType.SUNSET)))
-                    .thenReturn(Map.of(
-                            "Location1", new BriefingEvaluationResult(
-                                    "Location1", 2, 25, 20, "Poor"),
-                            "Location2", new BriefingEvaluationResult(
-                                    "Location2", 1, 10, 5, "Very poor")));
-
-            BriefingRegion goRegion = region("Northumberland", Verdict.GO);
-            BriefingDay day = dayWith(goRegion);
-            BriefingEventSummary es = day.eventSummaries().getFirst();
-            BriefingGlossService.GlossWorkItem item =
-                    new BriefingGlossService.GlossWorkItem(
-                            0, 0, 0, day, es, goRegion);
-
-            String json = glossService.buildUserMessage(item);
+            String json = userMessageFor(regionRated("Northumberland", 2, 1));
 
             assertThat(json).contains("\"claudeRatedCount\":2");
             assertThat(json).contains("\"claudeHighRatedCount\":0");
@@ -1057,26 +1003,7 @@ class BriefingGlossServiceTest {
         @Test
         @DisplayName("Medium boundary: exactly 3 stars counted, 2 and 4 are not")
         void mediumBoundary_exactlyThreeStars() {
-            when(briefingEvaluationService.getCachedScores(
-                    eq("Northumberland"),
-                    eq(LocalDate.of(2026, 4, 10)),
-                    eq(TargetType.SUNSET)))
-                    .thenReturn(Map.of(
-                            "Loc1", new BriefingEvaluationResult(
-                                    "Loc1", 2, 30, 25, "Low"),
-                            "Loc2", new BriefingEvaluationResult(
-                                    "Loc2", 3, 50, 45, "Moderate"),
-                            "Loc3", new BriefingEvaluationResult(
-                                    "Loc3", 4, 75, 70, "Good")));
-
-            BriefingRegion goRegion = region("Northumberland", Verdict.GO);
-            BriefingDay day = dayWith(goRegion);
-            BriefingEventSummary es = day.eventSummaries().getFirst();
-            BriefingGlossService.GlossWorkItem item =
-                    new BriefingGlossService.GlossWorkItem(
-                            0, 0, 0, day, es, goRegion);
-
-            String json = glossService.buildUserMessage(item);
+            String json = userMessageFor(regionRated("Northumberland", 2, 3, 4));
 
             assertThat(json).contains("\"claudeRatedCount\":3");
             assertThat(json).contains("\"claudeHighRatedCount\":1");
@@ -1088,73 +1015,17 @@ class BriefingGlossServiceTest {
         @DisplayName("Average rating rounds to one decimal place")
         void averageRatingRoundsToOneDecimal() {
             // Ratings: 2, 3, 5 → avg 3.333... → rounds to 3.3
-            when(briefingEvaluationService.getCachedScores(
-                    eq("Northumberland"),
-                    eq(LocalDate.of(2026, 4, 10)),
-                    eq(TargetType.SUNSET)))
-                    .thenReturn(Map.of(
-                            "Loc1", new BriefingEvaluationResult(
-                                    "Loc1", 2, 30, 25, "Low"),
-                            "Loc2", new BriefingEvaluationResult(
-                                    "Loc2", 3, 50, 45, "Moderate"),
-                            "Loc3", new BriefingEvaluationResult(
-                                    "Loc3", 5, 95, 90, "Excellent")));
-
-            BriefingRegion goRegion = region("Northumberland", Verdict.GO);
-            BriefingDay day = dayWith(goRegion);
-            BriefingEventSummary es = day.eventSummaries().getFirst();
-            BriefingGlossService.GlossWorkItem item =
-                    new BriefingGlossService.GlossWorkItem(
-                            0, 0, 0, day, es, goRegion);
-
-            String json = glossService.buildUserMessage(item);
+            String json = userMessageFor(regionRated("Northumberland", 2, 3, 5));
 
             assertThat(json).contains("\"claudeAverageRating\":3.3");
         }
 
         @Test
-        @DisplayName("All-triaged cache returns no claude fields in user message")
-        void allTriagedCache_noClaudeFields() {
-            when(briefingEvaluationService.getCachedScores(
-                    eq("Northumberland"),
-                    eq(LocalDate.of(2026, 4, 10)),
-                    eq(TargetType.SUNSET)))
-                    .thenReturn(Map.of(
-                            "Kielder", new BriefingEvaluationResult(
-                                    "Kielder", null, null, null, null,
-                                    com.gregochr.goldenhour.model.TriageReason.HIGH_CLOUD,
-                                    "Heavy cloud")));
-
-            BriefingRegion goRegion = region("Northumberland", Verdict.GO);
-            BriefingDay day = dayWith(goRegion);
-            BriefingEventSummary es = day.eventSummaries().getFirst();
-            BriefingGlossService.GlossWorkItem item =
-                    new BriefingGlossService.GlossWorkItem(
-                            0, 0, 0, day, es, goRegion);
-
-            String json = glossService.buildUserMessage(item);
+        @DisplayName("An entirely unrated region returns no claude fields in user message")
+        void allUnratedRegion_noClaudeFields() {
+            String json = userMessageFor(regionRated("Northumberland", null, null));
 
             assertThat(json).doesNotContain("claudeRatedCount");
-        }
-
-        @Test
-        @DisplayName("SUNRISE event passes SUNRISE targetType to cache lookup")
-        void sunriseEvent_passesSunriseTargetType() {
-            BriefingRegion goRegion = region("Northumberland", Verdict.GO);
-            BriefingEventSummary sunriseEs = new BriefingEventSummary(
-                    TargetType.SUNRISE, List.of(goRegion), List.of());
-            BriefingDay day = new BriefingDay(
-                    LocalDate.of(2026, 4, 10), List.of(sunriseEs));
-            BriefingGlossService.GlossWorkItem item =
-                    new BriefingGlossService.GlossWorkItem(
-                            0, 0, 0, day, sunriseEs, goRegion);
-
-            glossService.buildUserMessage(item);
-
-            verify(briefingEvaluationService).getCachedScores(
-                    eq("Northumberland"),
-                    eq(LocalDate.of(2026, 4, 10)),
-                    eq(TargetType.SUNRISE));
         }
 
         @Test
