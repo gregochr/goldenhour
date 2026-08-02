@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the tide run's verdict named a low water five hours away instead of the high water on sunrise
+
+- **Two thresholds were answering one question.** `aligned` asks whether the useful water is within `ALIGNED_WINDOW_MINUTES` (60) of a solar event; the "other extremum" branch asked whether it was within the much tighter `COINCIDENT_MINUTES` (30). A high water landing **58 minutes after sunrise** fell between the two, was discarded, and the run instead stated the nearest *low* water — five hours earlier, at 00:12, in the dark. The reported line read `peak range · LW 5h03 before sunrise` on a morning whose one actionable fact was high water on the sunrise.
+- **The sentence is now about the water a reader can act on.** When the useful extremum is not aligned but the other one is, the verdict names the other one with its real offset — `peak range · HW 58m after sunrise`, or `HW 09:08 · 58m after sunrise` on a non-peak day, matching the shape the aligned branch already uses. Nothing is hidden: every extreme is labelled with its clock time on the chart directly below, so this changes which fact is *promoted*, not which facts exist.
+- **`at sunrise` still means on it.** The ≤30-minute coincident branch is untouched, so a genuinely coincident high water keeps its plainer wording rather than being downgraded to an offset.
+- `aligned()` is deliberately still false in this case — that flag describes the run's *useful* water (a spring run's low), and the low really is five hours out. The flag and the sentence answer different questions, and a test pins that they may disagree.
+
 ## [v2.17.9] - 2026-08-01
 
 ### Fixed — a surge number now says which moment it describes
