@@ -21,6 +21,9 @@ Both found by adversarial review before the code landed, both reproduced by fail
 - **The Best Bet named the location the header star had just refused.** With a wood at 5 and a beach at 3, the star read 3 and the "where to drive" line read the wood — under sky prose. The two now read one population, decided once per window, because deciding it twice is how they came to disagree. An all-canopy region inside a mixed window is excluded from the ranking entirely rather than naming its wood.
 - Out-of-range ratings no longer reach the header. The ranking already discarded them; a header printing a value the ranking refused let one bad row be both rejected and displayed.
 - `BriefingSlot`'s Javadoc claimed a canopy slot was "structurally unable to carry a Claude rating". It is not — the woodland and bluebell mini-batches score these sites with their own prompt — and that sentence is what made both defects above look defensible.
+- **The Best Bet now carries the location's id, not just its name.** The client joins per-user reach data by `locationId` and that contract carries no name at all, so a name-only Pick would have forced a join through the locations roster — the join this project has already paid for once, where a rename silently empties the block for every user. Id and name are read from one slot, resolved once, for the same reason the star and the destination now are.
+- A rating outside 1–5 could still become the Best Bet's destination after the header star learned to reject it. One predicate now serves every reader.
+- **A region's display name could decide a window's verdict.** With nothing rated, a blanked region and a real one both compute to zero, and the tie fell through to the region's name — so renaming a region flipped the same forecast between Worth it and Poor. Content now breaks the tie before the name does.
 
 ### Fixed — the tide run's verdict named a low water five hours away instead of the high water on sunrise
 

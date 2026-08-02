@@ -19,9 +19,12 @@ class AlsoGoodFloorTest {
     @DisplayName("absolute floor")
     class AbsoluteFloor {
 
-        // The top is held well clear of the gap term throughout, so only the absolute floor can
-        // decide these three — otherwise a failure here would be ambiguous between the two rules.
-        private static final double TOP = 3.5;
+        // Chosen so the gap term cannot decide any rung: at 3.2 the gaps are 0.2 / 0.3 / 0.1, all
+        // comfortably inside MAX_GAP_FROM_TOP, so only MIN_ABSOLUTE can flip these three.
+        // 3.5 does NOT work and was the original mistake — it puts 3.0 exactly ON the gap bound and
+        // 2.9 past it, which made the "just below" rung false for every possible MIN_ABSOLUTE and
+        // left the constant free to drift down to 2.6 with the whole repo green.
+        private static final double TOP = 3.2;
 
         @Test
         void atExactlyThreeQualifies() {

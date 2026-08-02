@@ -81,6 +81,12 @@ public record BriefingWindow(
      * star came from or the card would send someone to a place chosen by the opposite measure of a
      * good morning. Ranking parity and destination parity pull opposite ways; both are honoured.
      *
+     * <p><b>The id travels with the name, from the same slot.</b> The client joins per-user reach
+     * data by {@code locationId} — that contract carries no name at all — so publishing only a
+     * name would force a join through the locations roster, which is the join this project has
+     * already paid for once: a rename silently empties the block for every user. Null is possible
+     * on a slot cached before slots carried an id; prefer the id, fall back to the name.
+     *
      * @param regionName    the region this describes; the card names it beside the kicker
      * @param headline      Claude's gloss headline. Never null: a Pick exists only when the
      *                      headline is usable, so the absence of a Pick is the only way to say
@@ -89,13 +95,15 @@ public record BriefingWindow(
      * @param averageRating the average this region was ranked and floored on, published so the
      *                      selection is auditable from the payload rather than only from the logs
      * @param locationName  the region's highest-rated location, or null when none is rated
+     * @param locationId    that location's id, or null on a slot cached before slots carried one
      */
     public record Pick(
             String regionName,
             String headline,
             @JsonInclude(JsonInclude.Include.NON_NULL) String detail,
             double averageRating,
-            @JsonInclude(JsonInclude.Include.NON_NULL) String locationName) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) String locationName,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Long locationId) {
     }
 
     /**

@@ -33,7 +33,8 @@ class BriefingEventSummaryWindowSerializationTest {
                 DisplayVerdict.WORTH_IT,
                 4,
                 Confidence.HIGH,
-                new BriefingWindow.Pick("North East", "Breaking clear", "Detail.", 4.0, "Bamburgh"),
+                new BriefingWindow.Pick("North East", "Breaking clear", "Detail.", 4.0,
+                        "Bamburgh", 42L),
                 null,
                 List.of(new BriefingWindow.Badge("NLC", "Clearest in 11 nights", null, "22:04", 14)),
                 14);

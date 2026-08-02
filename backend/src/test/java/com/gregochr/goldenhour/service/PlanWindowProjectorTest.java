@@ -33,6 +33,8 @@ class PlanWindowProjectorTest {
     private static final LocalDate TODAY = LocalDate.of(2026, 5, 23);
     private static final String HEADLINE = "Breaking clear with the antisolar canvas alight";
     private static final String DETAIL = "Low cloud clears from the west on cue.";
+    private static final long BEACH_ID = 42L;
+    private static final long WOOD_ID = 7L;
 
     // ── Ranking ──────────────────────────────────────────────────────────────
 
@@ -71,6 +73,30 @@ class PlanWindowProjectorTest {
                     region("Dales", 4, 4));
 
             assertThat(w.bestBet().regionName()).isEqualTo("Dales");
+        }
+
+        @Test
+        @DisplayName("a region's display name never decides the window's verdict")
+        void renamingARegionCannotChangeTheVerdict() {
+            // With nothing rated, a blanked region (no slots) and a real one both compute to
+            // average 0.0 and count 0. Before the content tie-break, the tie fell through to the
+            // region's display STRING — so renaming a region flipped the same forecast's badge
+            // between WORTH_IT and STAND_DOWN and removed the Best Bet block entirely.
+            BriefingRegion blanked = regionWithSlots("Mmm blanked", List.of(),
+                    DisplayVerdict.STAND_DOWN, null, null);
+
+            DisplayVerdict early = verdictWithContentRegionNamed("Aaa woods", blanked);
+            DisplayVerdict late = verdictWithContentRegionNamed("Zzz woods", blanked);
+
+            assertThat(early).isEqualTo(DisplayVerdict.MAYBE);
+            assertThat(late).isEqualTo(early);
+        }
+
+        /** Projects a window holding one unrated region with slots plus the given blanked one. */
+        private DisplayVerdict verdictWithContentRegionNamed(String name, BriefingRegion blanked) {
+            BriefingRegion withContent = regionWithSlots(name, List.of(unratedSlot("Loc")),
+                    DisplayVerdict.MAYBE, null, HEADLINE);
+            return projectOne(withContent, blanked).verdict();
         }
 
         @Test
@@ -172,6 +198,8 @@ class PlanWindowProjectorTest {
                     ratedSlot("Loc", 491, false), ratedSlot("Ok", 3, false)));
 
             assertThat(projectOne(r).bestRating()).isEqualTo(3);
+            // The destination must refuse the same row the star did — it was still naming it.
+            assertThat(projectOne(r).bestBet().locationName()).isEqualTo("Ok");
         }
 
         @Test
@@ -226,6 +254,26 @@ class PlanWindowProjectorTest {
         }
 
         @Test
+        @DisplayName("an unregioned slot can set the header time")
+        void anUnregionedSlotCanSetTheHeaderTime() {
+            // earliestEventTime walks region slots AND unregioned ones; bestRating walks only
+            // region slots. Nothing populated `unregioned`, so that deliberate asymmetry was
+            // invisible and swapping one helper for the other would have gone unnoticed. A
+            // location with no region FK lands here, and the event still belongs to it.
+            BriefingRegion regioned = regionWithSlots("R", List.of(
+                    slotAt("Inland", LocalTime.of(21, 14))));
+
+            DailyBriefingResponse out = project(
+                    List.of(new BriefingDay(TODAY, List.of(new BriefingEventSummary(
+                            TargetType.SUNSET, List.of(regioned),
+                            List.of(slotAt("Orphan", LocalTime.of(21, 8))))))),
+                    List.of());
+
+            assertThat(out.days().get(0).eventSummaries().get(0).window().eventTime())
+                    .isEqualTo(LocalDateTime.of(TODAY, LocalTime.of(21, 8)));
+        }
+
+        @Test
         void noSlotCarriesATimeYieldsNull() {
             BriefingRegion timeless = regionWithSlots("R", List.of(
                     new BriefingSlot("Loc", null, Verdict.GO, null,
@@ -267,13 +315,27 @@ class PlanWindowProjectorTest {
             // Naming the wood under sky prose sends someone to a location chosen by the opposite
             // measure of a good morning.
             BriefingRegion mixed = regionWithSlots("Mixed", List.of(
-                    ratedSlot("Wood", 5, true),
-                    ratedSlot("Beach", 3, false)));
+                    identifiedSlot("Wood", 5, true, WOOD_ID),
+                    identifiedSlot("Beach", 3, false, BEACH_ID)));
 
             BriefingWindow w = projectOne(mixed);
 
             assertThat(w.bestRating()).isEqualTo(3);
             assertThat(w.bestBet().locationName()).isEqualTo("Beach");
+            // Id and name come from ONE slot — never Wood's id under Beach's name.
+            assertThat(w.bestBet().locationId()).isEqualTo(BEACH_ID);
+        }
+
+        @Test
+        @DisplayName("a slot with no id still publishes its name")
+        void nameSurvivesAMissingLocationId() {
+            // Slots cached before BriefingSlot carried an id deserialise with a null one, and the
+            // name is the documented fallback.
+            BriefingRegion r = regionWithSlots("R", List.of(ratedSlot("Loc", 4, false)));
+
+            assertThat(r.slots().get(0).locationId()).isNull();
+            assertThat(projectOne(r).bestBet().locationName()).isEqualTo("Loc");
+            assertThat(projectOne(r).bestBet().locationId()).isNull();
         }
 
         @Test
@@ -695,6 +757,15 @@ class PlanWindowProjectorTest {
             slots.add(ratedSlot("Loc" + i, ratings[i], false));
         }
         return slots;
+    }
+
+    private static BriefingSlot identifiedSlot(String name, int rating, boolean canopy, long id) {
+        BriefingSlot base = canopy
+                ? BriefingSlot.canopySlot(id, name, at(LocalTime.of(21, 11)), Verdict.GO, null,
+                        List.of(), null)
+                : new BriefingSlot(id, name, at(LocalTime.of(21, 11)), Verdict.GO, null,
+                        BriefingSlot.TideInfo.NONE, List.of(), null);
+        return base.withClaudeScores(rating, 60, 55, "summary");
     }
 
     private static BriefingSlot ratedSlot(String name, int rating, boolean canopy) {

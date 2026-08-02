@@ -10,11 +10,14 @@ import org.junit.jupiter.api.Test;
 class TopicRarityTest {
 
     /**
-     * Every topic kind a strategy emits today, as a literal.
+     * Every topic kind that can reach a window today, as a literal.
      *
-     * <p>Deliberately a hand-written list rather than a derivation from the map under test — a test
-     * that reads its expectation from the thing it is testing cannot fail. Re-derive it with:
-     * {@code grep -rhoE '"[A-Z_]+"' src/main/java/**\/*HotTopicStrategy.java}.
+     * <p>Deliberately hand-written rather than derived from the map under test — a test that reads
+     * its expectation from the thing it tests cannot fail. Re-derive with
+     * {@code grep -rhoE '"[A-Z_]{3,}"' src/main/java/**\/*HotTopicStrategy.java}, then add
+     * {@code CLEARANCE}, which no strategy emits: it comes from {@code HotTopicSimulationService}
+     * and is styled by the frontend, so it needs a rank even though the production pipeline never
+     * produces it.
      */
     private static final List<String> EMITTED_TYPES = List.of(
             "AURORA", "BLUEBELL", "CLEARANCE", "DUST", "EQUINOX", "INVERSION", "KING_TIDE",
@@ -22,11 +25,13 @@ class TopicRarityTest {
             "STORM_SURGE", "SUPERMOON");
 
     @Test
-    @DisplayName("every kind a strategy emits has an explicit rank")
+    @DisplayName("every kind that can reach a window has an explicit rank")
     void everyEmittedTypeIsRanked() {
-        // The failure this catches: a new strategy ships, nobody takes a rarity decision, and its
-        // topic silently sorts last — so a genuinely rare coincidence loses the strip to a common
-        // one and nothing anywhere says why.
+        // Be precise about what this can and cannot catch. HotTopicStrategy exposes only
+        // detect(from, to) — there is no programmatic roster of strategies — so a NEW strategy
+        // touches neither this list nor the rank table, and both stay green while its topic sorts
+        // last. What this pair does catch is the drift that follows: someone adds the kind here
+        // and forgets the rank, or ranks it and never adds it here.
         assertThat(EMITTED_TYPES)
                 .allSatisfy(type -> assertThat(TopicRarity.rankOf(type))
                         .as("rank of %s", type)
@@ -34,7 +39,7 @@ class TopicRarityTest {
     }
 
     @Test
-    @DisplayName("the table ranks nothing that no strategy emits")
+    @DisplayName("the table ranks nothing that cannot reach a window")
     void noRankedTypeIsUnreachable() {
         assertThat(TopicRarity.rankedTypes().keySet()).containsExactlyInAnyOrderElementsOf(EMITTED_TYPES);
     }

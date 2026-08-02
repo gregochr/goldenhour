@@ -58,6 +58,10 @@ public final class PlanWindowProjector {
             Comparator.comparingDouble((RankedRegion r) -> r.stats().averageRating()).reversed()
                     .thenComparing(Comparator.comparingInt(
                             (RankedRegion r) -> r.stats().count()).reversed())
+                    // Content before name: with nothing rated, a blanked region (no slots at all)
+                    // and a real one both compute to 0.0/0, and the tie fell through to the region's
+                    // display string — so renaming a region flipped the window's verdict.
+                    .thenComparing((RankedRegion r) -> r.region().slots().isEmpty())
                     .thenComparing(r -> r.region().regionName(),
                             Comparator.nullsLast(Comparator.naturalOrder()));
 
@@ -185,12 +189,23 @@ public final class PlanWindowProjector {
         Integer best = null;
         for (BriefingSlot slot : slots) {
             Integer rating = slot.claudeRating();
-            if (rating != null && rating >= MIN_RATING && rating <= MAX_RATING
-                    && (best == null || rating > best)) {
+            if (usableRating(slot) && (best == null || rating > best)) {
                 best = rating;
             }
         }
         return best;
+    }
+
+    /**
+     * Whether a slot carries a rating this projection will read.
+     *
+     * <p>One predicate for every reader, because the header star and the location it names must
+     * agree about which rows exist. Bounding only one of them is how a row rejected by the star,
+     * by the region average and by the ranking could still become the Best Bet's destination.
+     */
+    private static boolean usableRating(BriefingSlot slot) {
+        Integer rating = slot.claudeRating();
+        return rating != null && rating >= MIN_RATING && rating <= MAX_RATING;
     }
 
     /**
@@ -243,12 +258,14 @@ public final class PlanWindowProjector {
             return null;
         }
         BriefingRegion region = ranked.region();
+        BriefingSlot destination = topSlot(region, canopyCounts);
         return new BriefingWindow.Pick(
                 region.regionName(),
                 region.glossHeadline(),
                 region.glossDetail(),
                 ranked.stats().averageRating(),
-                topLocationName(region, canopyCounts));
+                destination == null ? null : destination.locationName(),
+                destination == null ? null : destination.locationId());
     }
 
     /**
@@ -285,18 +302,17 @@ public final class PlanWindowProjector {
     }
 
     /**
-     * The region's highest-rated location, read from the same slots the header star was taken
-     * from.
+     * The region's highest-rated slot, read from the same population the header star was taken
+     * from — returned whole so the Pick's id and name come from one value rather than two lookups.
      *
-     * <p>An all-canopy region inside a mixed window names nothing rather than naming its wood: the
-     * header refused that slot, and a card whose star and destination disagree sends someone to a
-     * place chosen by the opposite measure of a good morning.
+     * <p>An all-canopy region inside a mixed window resolves to nothing rather than to its wood:
+     * the header refused that slot, and a card whose star and destination disagree sends someone
+     * to a place chosen by the opposite measure of a good morning.
      */
-    private static String topLocationName(BriefingRegion region, boolean canopyCounts) {
+    private static BriefingSlot topSlot(BriefingRegion region, boolean canopyCounts) {
         return region.slots().stream()
-                .filter(s -> (canopyCounts || !s.canopy()) && s.claudeRating() != null)
+                .filter(s -> (canopyCounts || !s.canopy()) && usableRating(s))
                 .min(BY_SLOT_RATING)
-                .map(BriefingSlot::locationName)
                 .orElse(null);
     }
 
