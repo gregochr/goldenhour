@@ -19,6 +19,7 @@ import com.gregochr.goldenhour.model.BestBetStatus;
 import com.gregochr.goldenhour.model.CandidateCoverage;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.RollupResult;
+import com.gregochr.goldenhour.service.AlsoGoodFloor;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.JobRunService;
@@ -79,7 +80,7 @@ public class BriefingBestBetAdvisor {
      * so {@link #logPickTwoEligibility} can report whether any region <em>could</em> have
      * supported an Also Good pick. Keep it in step with the prompt if that rule changes.
      */
-    private static final double PICK_TWO_RATING_FLOOR = 3.0;
+    private static final double PICK_TWO_RATING_FLOOR = AlsoGoodFloor.MIN_ABSOLUTE;
 
     /** How many top-rated candidate slots {@link #logPickTwoEligibility} names. */
     private static final int PICK_TWO_LOG_TOP_N = 3;

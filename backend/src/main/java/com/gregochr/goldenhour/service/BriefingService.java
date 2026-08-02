@@ -306,9 +306,15 @@ public class BriefingService {
      *         if no briefing has been built yet
      */
     public DailyBriefingResponse getCachedBriefingForApi() {
-        return applyBestBetFallback(
-                BriefingHonestyFilter.apply(
-                        reEnrichVerdicts(getCachedBriefing()), minCoverageRatio));
+        // The window projection is deliberately OUTERMOST. It reads regions to name a Best Bet, a
+        // verdict and a rating, so it must see the same regions the caller does — and the honesty
+        // filter blanks a zero-coverage region to STAND_DOWN with an empty slot list on the way
+        // past. Projected any earlier, a window would confidently describe a region the same
+        // response reports as unevaluable. See PlanWindowProjector.
+        return PlanWindowProjector.apply(
+                applyBestBetFallback(
+                        BriefingHonestyFilter.apply(
+                                reEnrichVerdicts(getCachedBriefing()), minCoverageRatio)));
     }
 
     /**

@@ -43,9 +43,12 @@ import java.util.List;
  *                            location is under a canopy. The two evaluators have <b>opposite
  *                            polarity</b> — a woodland GO means heavy cloud and mist — so a
  *                            {@link Verdict} alone is ambiguous and every consumer that aggregates
- *                            or explains slots needs to know which question was answered. Also
- *                            marks the slot as structurally unable to carry a Claude rating, since
- *                            canopy sites are excluded from the sky batch.
+ *                            or explains slots needs to know which question was answered. A canopy
+ *                            slot carries no <em>sky</em> rating, but it can and does carry a
+ *                            rating: the woodland and bluebell mini-batches score these sites with
+ *                            their own prompt. So a non-null rating here is not evidence the slot
+ *                            was judged as sky, and anything reducing slots to one number must
+ *                            filter on this flag rather than on whether a rating is present.
  * @param claudeHeadline      4-9 word Claude-authored card header (Gate 2 redesign), or null
  *                            when no Claude evaluation has been performed or the result
  *                            pre-dates the headline field
