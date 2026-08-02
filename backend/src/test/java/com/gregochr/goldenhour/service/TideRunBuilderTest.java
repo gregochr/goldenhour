@@ -347,6 +347,49 @@ class TideRunBuilderTest {
     }
 
     @Test
+    @DisplayName("an aligned high water is named, not a low water five hours away")
+    void verdict_otherExtremumAlignedButNotCoincident() {
+        // The reported production case, to the minute. At St. Mary's the run read
+        //   "peak range · LW 5h03 before sunrise"
+        // — a low water at 00:12, in the dark — on a morning when high water landed 58 minutes
+        // after sunrise. Two thresholds were answering one question: `aligned` allows 60 minutes,
+        // the other-extremum test demanded 30, so the 58-minute high water fell between them and
+        // was discarded in favour of a number nobody can use.
+        stubSolar();
+        // DAY_1 carries the bigger range, so it is the run's peak day, exactly as reported.
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
+                low("03:07", 0.4), high("09:08", 5.0)));
+        extremes.addAll(day(ID_SEAHAM, DAY_2,
+                low("03:50", 1.0), high("09:50", 4.0)));
+        stubExtremes(extremes);
+
+        TideRunDay day = builder.build(List.of(DAY_1, DAY_2), List.of(seaham()), false).get(DAY_1);
+
+        assertThat(day.verdict()).isEqualTo("peak range · HW 58m after sunrise");
+        // Still not "aligned": that flag describes the useful water — a spring run's low — and the
+        // low really is five hours out. The flag and the sentence answer different questions.
+        assertThat(day.aligned()).isFalse();
+    }
+
+    @Test
+    @DisplayName("an aligned high water on a non-peak day carries its clock time")
+    void verdict_otherExtremumAlignedOnNonPeakDay() {
+        // Same rule, without the peak prefix competing for the ~40 characters the column holds:
+        // the clock time comes back, matching the shape the aligned-useful-water branch uses.
+        stubSolar();
+        // DAY_2 carries the bigger range, so DAY_1 keeps the aligned high water without the badge.
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
+                low("03:07", 1.0), high("09:08", 4.0)));
+        extremes.addAll(day(ID_SEAHAM, DAY_2,
+                low("03:50", 0.4), high("09:50", 5.5)));
+        stubExtremes(extremes);
+
+        TideRunDay day = builder.build(List.of(DAY_1, DAY_2), List.of(seaham()), false).get(DAY_1);
+
+        assertThat(day.verdict()).isEqualTo("HW 09:08 · 58m after sunrise");
+    }
+
+    @Test
     @DisplayName("an unaligned peak day leads with its range")
     void verdict_peakButUnaligned() {
         stubSolar();

@@ -475,8 +475,17 @@ public class TideRunBuilder {
     /**
      * The plain-language alignment call, in priority order: the aligned day states the gap exactly;
      * a day whose <em>other</em> extremum sits on a solar event says so, since "high water at
-     * sunrise" is itself a reason to go; the peak day leads with its range; and everything else
+     * sunrise" is itself a reason to go; a day whose other extremum is merely <em>aligned</em> is
+     * described by that extremum rather than by the useful one, because the sentence has to be
+     * about the water a reader can act on; the peak day leads with its range; and everything else
      * places the useful water in the day and measures it to the nearer event.
+     *
+     * <p>The third rule exists because the second one used the wrong threshold. {@code aligned}
+     * asks whether water is within {@link #ALIGNED_WINDOW_MINUTES} of an event; the "other
+     * extremum" test asked whether it was within the much tighter {@link #COINCIDENT_MINUTES}.
+     * One question, two answers — and the strict answer guarded the useful sentence, so a spring
+     * run at St. Mary's read <em>"peak range · LW 5h03 before sunrise"</em> (a low water at 00:12,
+     * in the dark) on a morning when high water landed 58 minutes after sunrise.
      *
      * <p>Kept under ~40 characters — the verdict column is 224px of monospace.
      */
@@ -495,10 +504,24 @@ public class TideRunBuilder {
         }
         if (other != null) {
             long otherGap = signedGap(other.minutes(), sunriseMinutes, sunsetMinutes);
+            String otherWord = solarWord(other.minutes(), sunriseMinutes, sunsetMinutes);
             if (Math.abs(otherGap) <= COINCIDENT_MINUTES) {
-                return otherLabel + " at "
-                        + solarWord(other.minutes(), sunriseMinutes, sunsetMinutes)
+                return otherLabel + " at " + otherWord
                         + " · " + usefulLabel + " " + against;
+            }
+            // The other extremum is aligned by the very rule `aligned` uses, and the useful one is
+            // not. Two thresholds were answering one question — "is this water near a solar event?"
+            // — and the stricter of them guarded the more useful sentence, so a high water 58
+            // minutes after sunrise was discarded while a low water five hours earlier, at 00:12
+            // in the dark, was stated as the finding. Name the water that actually lands near the
+            // event. Nothing is hidden by doing so: every extreme is already labelled with its
+            // clock time on the chart directly below, and the one the reader can act on is the one
+            // the sentence should be about.
+            if (Math.abs(otherGap) <= ALIGNED_WINDOW_MINUTES) {
+                String offset = offsetPhrase(otherGap, otherWord);
+                return peak
+                        ? "peak range · " + otherLabel + " " + offset
+                        : otherLabel + " " + clock(other.minutes()) + " · " + offset;
             }
         }
         if (peak) {
