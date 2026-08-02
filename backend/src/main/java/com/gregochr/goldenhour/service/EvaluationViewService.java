@@ -30,8 +30,21 @@ import java.util.Set;
  * Canonical merge layer that combines scored results from {@code cached_evaluation}
  * with triage/scored rows from {@code forecast_evaluation}.
  *
- * <p>Precedence: cached evaluation (batch/SSE) &gt; scored forecast row &gt; triage row &gt; none.
- * Both the Plan tab and Map tab read through this service so there is a single source of truth.
+ * <p>Precedence: cached evaluation (batch/SSE) &gt; scored forecast row &gt; triage row &gt; none,
+ * with the cached entry winning only while it is at least as fresh as the forecast row it is
+ * merged against. Both the Plan tab and Map tab read through this service so there is a single
+ * source of truth.
+ *
+ * <p><b>One freshness rule, two return shapes.</b> The merge is performed twice here — once into
+ * a {@link LocationEvaluationView} ({@link #mergeToView}) and once into the
+ * {@code BriefingEvaluationResult} map the briefing enrichment consumes
+ * ({@link #getScoresForEnrichment}, {@link #getScoresForEnrichmentBulk}) — because those two
+ * consumers need different shapes. They must not have different <em>rules</em>, and for three days
+ * in production they did: the freshness gate below landed on the view path alone, so one stale
+ * cached rating lost the merge on the map and the region drill-down while still winning it on the
+ * briefing payload. The same location read 4★ on the Close to home panel and 2★ everywhere else on
+ * the same screen. Both paths now decide through {@link #cachedIsAtLeastAsFresh}; a third reader
+ * must call it rather than re-derive precedence.
  */
 @Service
 public class EvaluationViewService {
@@ -262,8 +275,16 @@ public class EvaluationViewService {
      * Returns merged evaluation results for a region, keyed by location name.
      *
      * <p>Convenience method for Plan tab enrichment — returns the same shape as
-     * {@link BriefingEvaluationService#getCachedScores} but with fallback to
-     * {@code forecast_evaluation} rows when the cache has no entry for a location.
+     * {@link BriefingEvaluationService#getCachedScores}, resolved against
+     * {@code forecast_evaluation}: a cached entry speaks for its location only while it is at
+     * least as fresh as that location's latest forecast row, and the row speaks otherwise —
+     * scored when it carries a rating, triaged when it carries only a reason.
+     *
+     * <p>The rows arrive in ONE query for the whole region rather than a {@code findTop} per
+     * location. Gating needs a row for <em>every</em> location, not only the ones the cache
+     * misses, so keeping the point lookup would have turned an occasional query into a
+     * per-location fan-out on the briefing build path — which calls this once per region × date ×
+     * event.
      *
      * @param regionName the region name
      * @param date       the forecast date
@@ -272,38 +293,35 @@ public class EvaluationViewService {
      */
     public Map<String, BriefingEvaluationResult> getScoresForEnrichment(
             String regionName, LocalDate date, TargetType targetType) {
-        // Start with cached scores (covers batch + SSE results)
-        Map<String, BriefingEvaluationResult> result =
-                new HashMap<>(briefingEvaluationService.getCachedScores(regionName, date, targetType));
+        Map<String, BriefingEvaluationResult> cached =
+                briefingEvaluationService.getCachedScores(regionName, date, targetType);
+        Instant cachedEvaluatedAt = cached.isEmpty() ? null
+                : briefingEvaluationService.getCachedEvaluatedAt(regionName, date, targetType)
+                        .orElse(null);
 
-        // Supplement with forecast_evaluation for locations not in cache
         List<LocationEntity> regionLocations = locationService.findAllEnabled().stream()
                 .filter(loc -> loc.getRegion() != null
                         && loc.getRegion().getName().equals(regionName))
                 .toList();
+        Map<String, ForecastEvaluationEntity> latest =
+                loadLatestForecasts(regionLocations, date, date, Set.of(targetType));
 
+        Map<String, BriefingEvaluationResult> result = new HashMap<>();
         for (LocationEntity loc : regionLocations) {
-            if (result.containsKey(loc.getName())) {
-                continue;
+            BriefingEvaluationResult resolved = resolveForEnrichment(loc.getName(),
+                    cached.get(loc.getName()), cachedEvaluatedAt,
+                    latest.get(loc.getId() + "|" + date + "|" + targetType));
+            if (resolved != null) {
+                result.put(loc.getName(), resolved);
             }
-            forecastEvaluationRepository
-                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            loc.getId(), date, targetType)
-                    .ifPresent(row -> {
-                        if (row.getRating() != null) {
-                            result.put(loc.getName(), new BriefingEvaluationResult(
-                                    loc.getName(), row.getRating(),
-                                    row.getFierySkyPotential(), row.getGoldenHourPotential(),
-                                    row.getSummary()));
-                        } else if (row.getTriage() != null
-                                && row.getTriage().getReason() != null) {
-                            result.put(loc.getName(), new BriefingEvaluationResult(
-                                    loc.getName(), null, null, null, null,
-                                    row.getTriage().getReason(), row.getTriage().getMessage()));
-                        }
-                    });
         }
 
+        // Cached entries whose location is not in the enabled roster — renamed, disabled, or moved
+        // to another region since the batch wrote them. This map used to START as a copy of the
+        // cache, so they were carried; dropping them here would be an unrelated behaviour change
+        // riding along with the freshness fix. By definition they have no forecast row to be gated
+        // against.
+        cached.forEach(result::putIfAbsent);
         return result;
     }
 
@@ -311,9 +329,10 @@ public class EvaluationViewService {
      * Bulk equivalent of {@link #getScoresForEnrichment} across a whole date range, keyed by
      * {@code "regionName|date|targetType"}.
      *
-     * <p>Same precedence — in-memory cached scores (which carry the Claude {@code headline}) win,
-     * with a {@code forecast_evaluation} fallback for locations the cache does not cover. The
-     * difference is query shape: the fallback issues a <em>single</em> dedup-at-source query for
+     * <p>Same precedence — in-memory cached scores win while they are at least as fresh as the
+     * location's latest {@code forecast_evaluation} row, which speaks otherwise. Either way the
+     * winner supplies rating, summary and headline together. The difference is query shape: the
+     * merge issues a <em>single</em> dedup-at-source query for
      * every region-assigned location, instead of one {@code findTop} per (location, date,
      * targetType) or one range query per location. Serving a briefing re-enriches the full plan
      * window in a single pass, so this collapses what was O(locations × dates × targets) point
@@ -327,9 +346,12 @@ public class EvaluationViewService {
     public Map<String, Map<String, BriefingEvaluationResult>> getScoresForEnrichmentBulk(
             LocalDate start, LocalDate end, Set<TargetType> types) {
         Map<String, Map<String, BriefingEvaluationResult>> byKey = new HashMap<>();
+        // When each key's cache entry was written, so step 2 can gate it against the forecast row.
+        Map<String, Instant> cachedEvaluatedAtByKey = new HashMap<>();
         List<LocationEntity> locations = locationService.findAllEnabled();
 
-        // 1. In-memory cached scores first — no DB, and they carry the Claude headline.
+        // 1. In-memory cached scores first — no DB round trip. (Both stores carry a headline, so
+        //    that is no longer what separates them; only freshness is.)
         Set<String> regionNames = locations.stream()
                 .filter(loc -> loc.getRegion() != null)
                 .map(loc -> loc.getRegion().getName())
@@ -340,7 +362,10 @@ public class EvaluationViewService {
                     Map<String, BriefingEvaluationResult> cached =
                             briefingEvaluationService.getCachedScores(regionName, date, type);
                     if (!cached.isEmpty()) {
-                        byKey.put(regionName + "|" + date + "|" + type, new HashMap<>(cached));
+                        String key = regionName + "|" + date + "|" + type;
+                        byKey.put(key, new HashMap<>(cached));
+                        briefingEvaluationService.getCachedEvaluatedAt(regionName, date, type)
+                                .ifPresent(at -> cachedEvaluatedAtByKey.put(key, at));
                     }
                 }
             }
@@ -374,8 +399,8 @@ public class EvaluationViewService {
             }
         }
 
-        // Iterate the locations (not the query result) so the cached-score-wins precedence below
-        // still resolves in the original, stable location order.
+        // Iterate the locations (not the query result) so the precedence below still resolves in
+        // the original, stable location order.
         for (LocationEntity loc : locations) {
             if (loc.getRegion() == null) {
                 continue;
@@ -384,25 +409,74 @@ public class EvaluationViewService {
             Map<String, ForecastEvaluationEntity> latest =
                     latestByLocationId.getOrDefault(loc.getId(), Map.of());
             for (ForecastEvaluationEntity row : latest.values()) {
-                Map<String, BriefingEvaluationResult> regionMap = byKey.computeIfAbsent(
-                        regionName + "|" + row.getTargetDate() + "|" + row.getTargetType(),
-                        k -> new HashMap<>());
-                if (regionMap.containsKey(loc.getName())) {
-                    continue; // cached score wins
-                }
-                if (row.getRating() != null) {
-                    regionMap.put(loc.getName(), new BriefingEvaluationResult(
-                            loc.getName(), row.getRating(), row.getFierySkyPotential(),
-                            row.getGoldenHourPotential(), row.getSummary()));
-                } else if (row.getTriage() != null && row.getTriage().getReason() != null) {
-                    regionMap.put(loc.getName(), new BriefingEvaluationResult(
-                            loc.getName(), null, null, null, null,
-                            row.getTriage().getReason(), row.getTriage().getMessage()));
+                String key = regionName + "|" + row.getTargetDate() + "|" + row.getTargetType();
+                Map<String, BriefingEvaluationResult> regionMap =
+                        byKey.computeIfAbsent(key, k -> new HashMap<>());
+                BriefingEvaluationResult resolved = resolveForEnrichment(loc.getName(),
+                        regionMap.get(loc.getName()), cachedEvaluatedAtByKey.get(key), row);
+                if (resolved != null) {
+                    regionMap.put(loc.getName(), resolved);
                 }
             }
         }
 
         return byKey;
+    }
+
+    /**
+     * Chooses the result that speaks for one location during briefing enrichment, under the same
+     * freshness rule {@link #mergeToView} applies on the view path.
+     *
+     * <p>Falls back to the cached entry when a newer forecast row yields nothing usable — neither
+     * a rating nor a triage reason. Losing the merge is not the same as having something to say,
+     * and an unusable row must not blank a location the cache can still describe.
+     *
+     * @param locationName      the location this result is about
+     * @param cachedResult      the cached entry for it, or null when the cache does not cover it
+     * @param cachedEvaluatedAt when the cache entry was written, or null when unknown
+     * @param forecastRow       that location's latest forecast row for the slot, or null
+     * @return the winning result, or null when neither source has anything to say
+     */
+    private static BriefingEvaluationResult resolveForEnrichment(String locationName,
+            BriefingEvaluationResult cachedResult, Instant cachedEvaluatedAt,
+            ForecastEvaluationEntity forecastRow) {
+        if (cachedResult != null && cachedIsAtLeastAsFresh(cachedEvaluatedAt, forecastRow)) {
+            return cachedResult;
+        }
+        BriefingEvaluationResult fromRow = toEnrichmentResult(locationName, forecastRow);
+        return fromRow != null ? fromRow : cachedResult;
+    }
+
+    /**
+     * Converts a forecast row into the enrichment shape: scored when it carries a rating, triaged
+     * when it carries only a reason, null when it says neither.
+     *
+     * <p>The row's own {@code headline} rides along with its rating and summary. It is not
+     * decoration: {@code BriefingService.enrichSlot} <em>assigns</em> whatever it is given, so
+     * passing null here would actively blank a card header the slot already had — and the drill-down
+     * renders that header with no fallback. Every scored row carries one ({@code ForecastService}
+     * persists it on the sole write path), so dropping it would discard prose that exists rather
+     * than represent an absence. Whichever store wins the gate supplies all three fields together.
+     *
+     * @param locationName the location this row is about
+     * @param row          the row, or null
+     * @return the result, or null when the row says nothing usable
+     */
+    private static BriefingEvaluationResult toEnrichmentResult(String locationName,
+            ForecastEvaluationEntity row) {
+        if (row == null) {
+            return null;
+        }
+        if (row.getRating() != null) {
+            return new BriefingEvaluationResult(locationName, row.getRating(),
+                    row.getFierySkyPotential(), row.getGoldenHourPotential(), row.getSummary(),
+                    null, null, row.getHeadline());
+        }
+        if (row.getTriage() != null && row.getTriage().getReason() != null) {
+            return new BriefingEvaluationResult(locationName, null, null, null, null,
+                    row.getTriage().getReason(), row.getTriage().getMessage());
+        }
+        return null;
     }
 
     /**
