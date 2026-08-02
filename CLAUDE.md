@@ -317,7 +317,49 @@ Every new UI feature must be assessed for role gating.
 
 ## Test Standards
 
-Read `docs/engineering/test-improvement-standards.md` before writing or modifying any test class.
+Read the standards for the side you are working on before writing or modifying any test class.
+They share a philosophy and almost no mechanics, so the wrong one is close to useless:
+
+| Side | Document |
+|---|---|
+| Backend (Java, Mockito, JUnit) | `docs/engineering/test-improvement-standards.md` |
+| Frontend (React, Vitest, Testing Library) | `docs/engineering/frontend-test-standards.md` |
+
+---
+
+## UI Work — Review Cadence
+
+**Every code commit that touches the UI gets an adversarial review before it lands, and the tests go
+past "it renders".** Not a rubber stamp and not after the fact: the review runs against the working
+tree, its surviving findings are fixed, and only then does the commit happen.
+
+The order is: **build → tests → adversarial review of the diff → fix what survives → re-verify →
+commit.**
+
+**Why.** The UI is the product here — the forecasts only reach a user through it, and a pilot with a
+handful of people gives very few chances at a first impression. Every review run on this redesign so
+far has found real defects that a green test suite, clean lint and a successful build had all passed
+over: Tailwind theme tokens silently pruned to the empty string, an escape hatch that disappeared on a
+failed settings fetch, a plan citation that concealed a missing region ordering. Review-after-green is
+where this project's defects actually live.
+
+**Shape that works** (~15 agents): about six prosecutor lenses over the diff — runtime behaviour,
+CSS/tokens, test quality, accessibility, project conventions, and what it makes harder for later
+phases — then one refutation agent per charge, prompted to *refute*, defaulting to REFUTED without
+citable evidence, then a synthesis pass. Report what was *not* examined as plainly as what was; a
+charge that fell below a verification cut is not a finding.
+
+**Verify in the browser rather than asserting.** ⚠️ There is currently no local browser path past the
+login page — see the H2 note under Dev Setup — so say plainly which claims are tested and which are
+merely built.
+
+⚠️ **Review agents must never write to the working tree.** A reviewer that probes by mutating source
+— stripping a guard to see whether a test catches it, then tidying up with `git checkout --` — will
+delete unstaged work it never knew was there. This has already happened once: a P0 reviewer's cleanup
+destroyed uncommitted test improvements, unrecoverably, because they had never been staged. Tell
+review agents to read only, and give anything that genuinely needs to mutate its own copy
+(`isolation: 'worktree'` on the Agent/Workflow call). Commit or stash before starting a review that
+runs mutations.
 
 ---
 
