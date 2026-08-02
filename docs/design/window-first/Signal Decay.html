@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Signal decay — the 60th night of NLC season</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--surface-light:#2A2019;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,0.66);--ink-3:rgba(242,231,211,0.42);--go:#8AAE72;--marginal:#E0A542;--standdown:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--nlc:#9B8FD4;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:30px 20px 80px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+.doc{max-width:1000px;margin:0 auto}
+h1{font-size:21px;font-weight:700;letter-spacing:-.01em;margin-bottom:8px}
+.lede{font-size:13.5px;color:var(--ink-2);line-height:1.62;max-width:900px}
+.lede strong{color:var(--ink);font-weight:600}
+
+.ctl{display:flex;align-items:center;gap:18px;margin:22px 0 16px;padding:13px 16px;border:1px solid var(--border);border-radius:10px;background:var(--surface);flex-wrap:wrap}
+.ctl .lb{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.ctl .grp{display:flex;align-items:center;gap:10px}
+input[type=range]{width:270px;accent-color:var(--home)}
+.val{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--ink);min-width:74px}
+.sw{display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.sw button{font-family:var(--mono);font-size:11px;padding:6px 11px;background:transparent;border:none;border-right:1px solid var(--border);color:var(--ink-2);cursor:pointer}
+.sw button:last-child{border-right:none}
+.sw button.on{background:rgba(155,143,212,.15);color:#BFB6E8;font-weight:600}
+
+.stage{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px 16px}
+.stagek{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:10px}
+.slot{min-height:52px;display:flex;flex-direction:column;gap:9px}
+
+/* tier 1 — headline strip */
+.promo{border:1px solid rgba(155,143,212,.4);border-left:3px solid var(--nlc);border-radius:11px;background:linear-gradient(180deg,rgba(155,143,212,.08),transparent 70%),var(--surface);overflow:hidden}
+.ph{display:flex;align-items:center;gap:10px;padding:11px 14px 8px;flex-wrap:wrap}
+.ph .k{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:#BFB6E8}
+.ph .t{font-size:14.5px;font-weight:700;letter-spacing:-.01em}
+.ph .rule{flex:1;height:1px;background:var(--border);min-width:12px}
+.ph .rare{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.pb{display:grid;grid-template-columns:auto auto 1fr;gap:22px;align-items:center;padding:0 14px 11px}
+.pb .fig{font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+.pb .fig b{display:block;font-size:15px;color:var(--ink);font-weight:600}
+.pb .why{font-family:var(--serif);font-style:italic;font-size:12.5px;color:var(--ink-2);text-align:right;line-height:1.45}
+.pfoot{display:flex;align-items:center;gap:12px;padding:8px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,.18);font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.pfoot .go{margin-left:auto;color:var(--tide)}
+
+/* tier 2 — row inside the window */
+.row{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:7px 11px;border:1px solid rgba(155,143,212,.26);border-left:2px solid var(--nlc);border-radius:8px;background:rgba(155,143,212,.05)}
+.row .k{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#BFB6E8;white-space:nowrap}
+.row .f{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);display:flex;gap:14px;flex-wrap:wrap}
+.row .f b{color:var(--ink);font-weight:600}
+.row .f .dim{color:var(--ink-3)}
+.row .go{font-family:var(--mono);font-size:10.5px;color:var(--tide);white-space:nowrap}
+
+/* tier 3 — badge only */
+.bdg{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:999px;border:1px solid rgba(155,143,212,.45);background:rgba(155,143,212,.12);color:#BFB6E8;white-space:nowrap;width:fit-content}
+.wh{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--border);border-radius:9px;background:var(--panel);flex-wrap:wrap}
+.wh .when{font-size:14px;font-weight:700}
+.wh .time{font-family:var(--mono);font-size:12.5px;font-weight:600}
+.wh .best{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.wh .rule2{flex:1;height:1px;background:var(--border);min-width:12px}
+
+/* tier 4 — suppressed */
+.sup{font-family:var(--mono);font-size:11px;color:var(--ink-3);border:1px dashed var(--border);border-radius:8px;padding:11px 13px;display:flex;align-items:center;gap:10px}
+.sup .go{margin-left:auto;color:var(--tide)}
+
+/* readout */
+.read{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
+.rd{border:1px solid var(--border);border-left:3px solid var(--home);border-radius:8px;background:var(--surface);padding:10px 13px}
+.rd b{display:block;font-size:12.5px;font-weight:600;margin-bottom:3px}
+.rd span{font-size:12px;color:var(--ink-2);line-height:1.55}
+.rd .tag{font-family:var(--mono);font-size:10px;color:var(--nlc)}
+.rules{margin-top:16px;border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:13px 16px 14px}
+.rules h3{font-size:13.5px;font-weight:700;margin-bottom:8px}
+.rules ol{margin:0;padding-left:19px;display:flex;flex-direction:column;gap:6px}
+.rules li{font-size:12.5px;color:var(--ink-2);line-height:1.55}
+.rules li b{color:var(--ink);font-weight:600}
+.tiers{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap}
+.tr{font-family:var(--mono);font-size:10px;border:1px solid var(--border);border-radius:7px;padding:5px 9px;color:var(--ink-3)}
+.tr.on{border-color:rgba(155,143,212,.5);background:rgba(155,143,212,.12);color:#BFB6E8;font-weight:600}
+</style>
+</head>
+<body>
+<a href="Index.html" style="position:fixed;top:10px;left:12px;z-index:200;font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:rgba(242,231,211,.42);background:#221A15;border:1px solid #3A2C23;border-radius:7px;padding:5px 9px;text-decoration:none">← Index</a>
+<div class="doc">
+<h1>Signal decay — why the 60th night of NLC season should say nothing</h1>
+<p class="lede">You are right that hot topics <em>are</em> coincidences. But a season is not a coincidence — it is a background condition, and a notice that fires every night for nine weeks stops being information by about night four. The fix is to make an event's treatment a function of <strong>how much tonight beats the baseline</strong>, and of <strong>how many times you have already been told</strong>. Drag the night and watch the same event demote itself.</p>
+
+<div class="ctl">
+<div class="grp"><span class="lb">Night of season</span><input type="range" id="n" min="1" max="62" value="1"><span class="val" id="nv">night 1</span></div>
+<div class="grp"><span class="lb">Tonight vs season</span><div class="sw" id="q"><button class="on" data-q="typ">Typical</button><button data-q="good">Better</button><button data-q="best">Best in weeks</button></div></div>
+</div>
+
+<div class="stage">
+<div class="stagek">What the Plan tab shows tonight</div>
+<div class="slot" id="slot"></div>
+</div>
+
+<div class="tiers" id="tiers"></div>
+
+<div class="read">
+<div class="rd" id="rd1"></div>
+<div class="rd" id="rd2"></div>
+</div>
+
+<div class="rules">
+<h3>The rule set this implies</h3>
+<ol>
+<li><b>Speak to the delta, not the fact.</b> "It is NLC season" is true for 62 nights and useful on one of them. "Clearest northern horizon in 11 nights" is only ever said when it is worth saying — and it carries the season inside it.</li>
+<li><b>Count what you have already shown.</b> Treatment steps down with exposure: strip, then row, then badge, then silence. The season does not get to reset the counter; only a new best does.</li>
+<li><b>Silence is a state you design.</b> A suppressed event still leaves one quiet line with a link, so a keen user can always find it. Absence should read as "nothing new", not as "broken".</li>
+<li><b>A coincidence overrides decay.</b> Night 55 with a clear horizon <em>and</em> peak tide is a trip, not a repeat. Two attributes on one window re-earn the strip regardless of how long the season has run.</li>
+<li><b>Seasons belong in Coming up.</b> The standing fact — dates, what it is, how many nights left — lives there permanently. Plan only ever carries tonight's delta.</li>
+</ol>
+</div>
+</div>
+
+<script>
+const nEl=document.getElementById('n'),nv=document.getElementById('nv'),slot=document.getElementById('slot'),tiers=document.getElementById('tiers');
+let quality='typ';
+const TIERS=[['1 · Headline strip'],['2 · Row in the window'],['3 · Badge only'],['4 · Suppressed']];
+
+function tierFor(n,q){
+ if(q==='best') return n<=1?0:0;          // a new best always re-earns the strip
+ if(q==='good') return n<=3?0:1;          // better than baseline — row, strip early in season
+ if(n<=2) return 0;                        // season opening is genuinely news
+ if(n<=6) return 1;
+ if(n<=14) return 2;
+ return 3;
+}
+
+function view(n,q){
+ const left=62-n;
+ if(q==='best') return `<div class="promo">
+  <div class="ph"><span class="k">✦ Clearest in 11 nights</span><span class="t">Best northern horizon since the season opened</span><span class="rule"></span><span class="rare">night ${n} of 62 · 248 of 252 dark-sky locations</span></div>
+  <div class="pb"><div class="fig">window<b>21:52–00:03</b>NW after dusk</div><div class="fig">horizon<b>98% clear</b>vs 61% season avg</div><div class="why">the night the season has been building towards</div></div>
+  <div class="pfoot"><span>and again 02:20–04:31 to the NE</span><span>4 regions</span><span class="go">◍ Show the 248 on map →</span></div></div>`;
+ if(q==='good') return n<=3?`<div class="promo">
+  <div class="ph"><span class="k">✦ Noctilucent cloud season</span><span class="t">Season opens tonight — clear northern horizon</span><span class="rule"></span><span class="rare">night ${n} of 62 · first of the year</span></div>
+  <div class="pb"><div class="fig">window<b>21:52–00:03</b>NW after dusk</div><div class="fig">locations<b>241 of 252</b>dark-sky sites</div><div class="why">look low on the horizon, after the last of the dusk goes</div></div>
+  <div class="pfoot"><span>and again 02:20–04:31 to the NE</span><span>4 regions</span><span class="go">◍ Show on map →</span></div></div>`
+ :`<div class="row"><span class="k">✦ NLC</span><div class="f"><span>horizon <b>84% clear</b></span><span>21:52–00:03 <b>NW</b> · better than most nights</span><span class="dim">night ${n} of 62 · 219 sites</span></div><span class="go">Show on map →</span></div>`;
+ if(n<=2) return `<div class="promo">
+  <div class="ph"><span class="k">✦ Noctilucent cloud season</span><span class="t">Season opens tonight</span><span class="rule"></span><span class="rule2"></span><span class="rare">night ${n} of 62 · first of the year</span></div>
+  <div class="pb"><div class="fig">window<b>21:52–00:03</b>NW after dusk</div><div class="fig">locations<b>241 of 252</b>dark-sky sites</div><div class="why">worth knowing the season has started, even on a middling night</div></div>
+  <div class="pfoot"><span>and again 02:20–04:31 to the NE</span><span>4 regions</span><span class="go">◍ Show on map →</span></div></div>`;
+ if(n<=6) return `<div class="row"><span class="k">✦ NLC</span><div class="f"><span>horizon <b>61% clear</b></span><span>21:52–00:03 <b>NW</b></span><span class="dim">night ${n} of 62 · typical for the season</span></div><span class="go">Show on map →</span></div>`;
+ if(n<=14) return `<div class="wh"><span class="when">Tonight sunset</span><span class="time">21:11</span><span class="best">best 4.0★ · 7 within reach</span><span class="rule2"></span><span class="bdg">✦ NLC chance · 21:52 NW</span></div>`;
+ return `<div class="sup"><span>Nothing new tonight — NLC season runs ${left} more nights, horizon typical.</span><span class="go">Coming up →</span></div>`;
+}
+
+const COPY={
+ 0:['Headline strip','A full-width strip is a claim on your evening. It is only honest when tonight is either the first you have heard of the season, or measurably the best it has been.'],
+ 1:['Row in the window','The event is real and better than average, so it states its numbers next to the window it affects — but it does not interrupt.'],
+ 2:['Badge only','Still true, no longer news. Four words in the window header: enough to remember, not enough to read.'],
+ 3:['Suppressed','You have been told fourteen times. One quiet line preserves the link and admits there is nothing new — which is itself the useful signal.']
+};
+const WHY={typ:'Typical night · the season is background, not news',good:'Above the season average · worth a mention',best:'A new best · overrides decay entirely'};
+
+function render(){
+ const n=+nEl.value;
+ nv.textContent='night '+n;
+ slot.innerHTML=view(n,quality);
+ const t=tierFor(n,quality);
+ tiers.innerHTML=TIERS.map((x,i)=>`<span class="tr${i===t?' on':''}">${x[0]}</span>`).join('');
+ document.getElementById('rd1').innerHTML=`<b>${COPY[t][0]}</b><span>${COPY[t][1]}</span>`;
+ document.getElementById('rd2').innerHTML=`<b>Why this tier</b><span>${WHY[quality]}. <span class="tag">night ${n} of 62 · ${62-n} remaining</span></span>`;
+}
+nEl.addEventListener('input',render);
+document.querySelectorAll('#q button').forEach(b=>b.addEventListener('click',()=>{
+ document.querySelectorAll('#q button').forEach(o=>o.classList.remove('on'));b.classList.add('on');quality=b.dataset.q;render();
+}));
+render();
+</script>
+</body>
+</html>

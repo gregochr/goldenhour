@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PhotoCast — adversarial review of the window-first Plan</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--surface-light:#2A2019;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,0.66);--ink-3:rgba(242,231,211,0.42);--go:#8AAE72;--marginal:#E0A542;--standdown:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:32px 20px 90px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+.doc{max-width:1000px;margin:0 auto}
+h1{font-size:21px;font-weight:700;letter-spacing:-.01em;margin-bottom:8px}
+.lede{font-size:13.5px;color:var(--ink-2);line-height:1.62;max-width:900px}
+.lede strong{color:var(--ink);font-weight:600}
+h2{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin:26px 0 10px;display:flex;align-items:center;gap:10px}
+h2:after{content:'';flex:1;height:1px;background:var(--border)}
+
+.methods{display:grid;grid-template-columns:repeat(auto-fit,minmax(228px,1fr));gap:8px}
+.m{border:1px solid var(--border);border-radius:9px;background:var(--surface);padding:11px 13px}
+.m .n{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;color:var(--home)}
+.m b{display:block;font-size:12.5px;font-weight:600;margin:3px 0 3px}
+.m span{font-size:12px;color:var(--ink-2);line-height:1.5}
+.m .cost{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);margin-top:6px;display:block}
+
+.tally{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:14px;padding:10px 14px;margin:0 0 10px;border:1px solid var(--border);border-radius:9px;background:var(--surface-light);flex-wrap:wrap}
+.tally .k{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.tally .big{font-family:var(--mono);font-size:17px;font-weight:600}
+.tally .big i{font-style:normal;color:var(--ink-3);font-size:12px}
+.tally .bar{flex:1;min-width:120px;height:7px;border-radius:999px;background:rgba(0,0,0,.35);overflow:hidden}
+.tally .bar div{height:100%;background:linear-gradient(90deg,#8AAE72,#E0A542);transition:width .2s}
+.tally .act{font-family:var(--mono);font-size:10.5px;color:var(--tide);cursor:pointer;background:none;border:none}
+
+.charge{border:1px solid var(--border);border-radius:10px;background:var(--surface);margin-bottom:8px;overflow:hidden}
+.ch{display:flex;align-items:center;gap:10px;padding:11px 14px;flex-wrap:wrap}
+.ch .sev{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;padding:2px 6px;border-radius:5px;white-space:nowrap}
+.sev.high{background:rgba(200,69,47,.16);color:#E58C7A}
+.sev.med{background:rgba(224,165,66,.16);color:#EFC377}
+.sev.low{background:rgba(138,174,114,.16);color:#A8C795}
+.ch .t{font-size:13.5px;font-weight:600;letter-spacing:-.005em}
+.ch .dec{margin-left:auto;display:flex;gap:0;border:1px solid var(--border);border-radius:7px;overflow:hidden}
+.ch .dec button{font-family:var(--mono);font-size:10px;padding:5px 9px;background:transparent;border:none;border-right:1px solid var(--border);color:var(--ink-3);cursor:pointer}
+.ch .dec button:last-child{border-right:none}
+.ch .dec button.on{font-weight:600}
+.ch .dec button.on[data-v="keep"]{background:rgba(138,174,114,.16);color:#A8C795}
+.ch .dec button.on[data-v="prove"]{background:rgba(224,165,66,.16);color:#EFC377}
+.ch .dec button.on[data-v="cut"]{background:rgba(200,69,47,.16);color:#E58C7A}
+.cb{padding:0 14px 12px;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.cb .side b{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px}
+.cb .side p{font-size:12px;color:var(--ink-2);line-height:1.55}
+.cb .side.pros b{color:#E58C7A}
+.cb .side.def b{color:#A8C795}
+.verdict{font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ink);padding:9px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,.18);line-height:1.5}
+.verdict s{color:var(--ink-3)}
+
+.counter{border:1px solid var(--border);border-left:3px solid var(--go);border-radius:10px;background:var(--surface);padding:13px 16px 15px}
+.counter h3{font-size:14px;font-weight:700;margin-bottom:6px}
+.counter p{font-size:12.5px;color:var(--ink-2);line-height:1.6;max-width:840px}
+.counter ol{margin:9px 0 0 19px;display:flex;flex-direction:column;gap:5px}
+.counter li{font-size:12.5px;color:var(--ink-2)}
+.counter li b{color:var(--ink);font-weight:600}
+.caveat{margin-top:14px;border:1px solid var(--border);border-left:3px solid var(--standdown);border-radius:9px;background:var(--surface);padding:11px 14px}
+.caveat b{display:block;font-size:12.5px;font-weight:600;margin-bottom:3px}
+.caveat span{font-size:12px;color:var(--ink-2);line-height:1.55}
+@media(max-width:700px){.cb{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<a href="Index.html" style="position:fixed;top:10px;left:12px;z-index:200;font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:rgba(242,231,211,.42);background:#221A15;border:1px solid #3A2C23;border-radius:7px;padding:5px 9px;text-decoration:none">← Index</a>
+<div class="doc">
+<h1>Adversarial review — where we made the Plan worse</h1>
+<p class="lede">You asked the right question and you asked it of the wrong reviewer: I proposed most of what is in there, so my instinct is to defend it. What follows is the most hostile honest read I can produce — a charge sheet where <strong>the prosecution goes first</strong>, the defence answers, and each item gets a verdict you can overrule. Set every row to keep, prove or cut and the tally tracks how much of tonight's Plan survives. Above it, five ways to get a genuinely impartial read this week, none of which involve either of us.</p>
+
+<h2>Getting an impartial read — a pilot beats all five</h2>
+<div class="methods">
+<div class="m"><span class="n">01</span><b>Fresh model, no history</b><span>Open a new conversation, paste only a screenshot and one line: "what is this for, and what would you cut?" No thread, no rationale, no investment. Closest thing to a stranger you can get in five minutes.</span><span class="cost">5 min · free · do this first</span></div>
+<div class="m"><span class="n">02</span><b>The 05:00 test</b><span>Do not review it at a desk. Open it in bed on a Monday at 05:00 with one question: go or not. Anything you skip past at 05:00 is decoration, however good it looked at 14:00.</span><span class="cost">one week · free · brutally honest</span></div>
+<div class="m" style="border-color:rgba(201,162,75,.5);background:linear-gradient(180deg,rgba(201,162,75,.07),transparent 70%),var(--surface)"><span class="n">03</span><b>The pilot itself</b><span>Five friends who shoot, no training, no walkthrough. Say nothing for a week and collect only two things: what they asked you, and what they never touched. That is the review — every question is a label to rewrite, every untouched control is a candidate for deletion.</span><span class="cost">a week · the real answer</span></div>
+<div class="m"><span class="n">04</span><b>Log your own hands</b><span>Instrument every control. You are the only user, so two weeks of your own clicks settles the arrows-versus-drilldown argument with data instead of taste.</span><span class="cost">an afternoon to build</span></div>
+<div class="m"><span class="n">05</span><b>Deletion round</b><span>Ship a build with the four contested elements removed. If you do not miss any of them inside a week, they were never load-bearing. Cheaper than debating them.</span><span class="cost">one week · reversible</span></div>
+</div>
+
+<h2>The charge sheet</h2>
+<div class="tally" id="tally">
+<span class="k">Element types in tonight's card</span>
+<span class="big" id="cnt">—</span>
+<div class="bar"><div id="fill" style="width:100%"></div></div>
+<button class="act" id="acceptAll">Accept every cut I suggest</button>
+<button class="act" id="resetAll">Reset</button>
+</div>
+<div id="charges"></div>
+
+<h2>Before the pilot — what I would actually do</h2>
+<div class="counter" style="border-left-color:var(--home);margin-bottom:8px">
+<h3>Three cuts, one afternoon, then ship it to friends</h3>
+<p>A pilot with friends is the impartial review — better than anything on this page, because it is real people at 05:00. Do not rebuild for it. Make the three cuts that reduce explaining, leave everything contested in place, and let the pilot tell you what to remove next.</p>
+<ol>
+<li><b>Rename reach into plain words</b> — "How far tonight · 2h30" — and delete the explainer link. Charge 05.</li>
+<li><b>One source for reach</b> — lens states it, rail stops repeating it. Charge 06.</li>
+<li><b>Desktop-only arrows</b>, and drop the exposure counter from signal decay so the app is reproducible while five people are reporting bugs. Charges 02 and 07.</li>
+</ol>
+<p style="margin-top:9px"><b style="color:var(--ink)">Leave alone for the pilot:</b> the eight-layer night, the tide rows, Coming up, Also Good. All four are cheap to remove later and impossible to evaluate without users. Strip the five demo buttons before anyone sees it.</p>
+</div>
+
+<h2>The counter-proposal to test against</h2>
+<div class="counter">
+<h3>The four-element Plan</h3>
+<p>Not a serious proposal — a control. Build it in an hour, run it beside the current one for a week, and the difference tells you which of the middle layers are real. If this version answers "go or not" as fast as the rich one, everything the rich one adds is for the second question, not the first — and second-question material can live behind a tap.</p>
+<ol>
+<li><b>Rail</b> — four days, verdict and reach each.</li>
+<li><b>One window card per shooting window</b> — time, verdict, best rating, count.</li>
+<li><b>Four spot cards</b> — name, region, drive.</li>
+<li><b>One line of why</b> — the Best Bet sentence, nothing else.</li>
+</ol>
+</div>
+
+<div class="caveat"><b>Where I am biased, stated plainly</b><span>I argued for the window-first frame, the coincidence promotion, the tide rows and the signal-decay model. Of the charges below, the ones I am least able to judge are 02, 04 and 07 — they are my ideas and they are the ones that add the most structure for the least proven benefit. Weight my defence on those accordingly, and let method 01 settle them.</span></div>
+</div>
+
+<script>
+const CHARGES=[
+ {id:'c1',sev:'high',t:'Tonight’s card can carry eight layers at once',
+  pros:'Verdict badge, NLC badge, tide row, snow row, Best Bet, Also Good, film strip, footer control — all legitimately present on the same evening. The window card started as "one card per window" and has quietly become a page.',
+  def:'Each layer is one line and only appears when true; on an ordinary night it is verdict, tide row, Best Bet, strip. The eight-layer night is genuinely a big night.',
+  verd:'Guilty in the worst case, and the worst case is the night you most need to read fast. Cap it: at most two attribute rows per window, the rest fold into badges.',
+  rec:'prove',cost:2},
+ {id:'c2',sev:'high',t:'Four ways to see more spots',
+  pros:'Film strip scroll, ‹ › arrows, "See all N", and a drilldown with three of its own filters. Four affordances for one intention, added in three separate rounds without removing anything.',
+  def:'The strip is for glancing, the drilldown is for browsing. Different jobs.',
+  verd:'Guilty. Arrows and drilldown overlap badly. Keep swipe plus "See all"; the arrows exist because a mouse cannot swipe, which is a reason to keep them only on desktop.',
+  rec:'cut',cost:1},
+ {id:'c3',sev:'med',t:'A tide row on every window repeats the same fact',
+  pros:'On a six-window day that is six tide rows saying variations of the same tide. I argued for "every window states its tide" and it scales badly.',
+  def:'The tide differs per window — that is the point. Low water at sunrise is not the same fact as high water at sunset.',
+  verd:'Half guilty. Keep the row where the tide is doing something (low or high on the window); demote mid-tide to a badge. That removes about half of them.',
+  rec:'prove',cost:1},
+ {id:'c4',sev:'med',t:'“Also good · same window” explains a concept that barely occurs',
+  pros:'It needed a qualifier bolted onto its own label to be comprehensible. That is a smell. And two regions competing for the same golden hour is rare.',
+  def:'When it happens it is genuinely useful — a second direction to drive.',
+  verd:'Guilty of the label, not the feature. Drop the qualifier, show it only when the second region is within a star of the first, and let it be silent otherwise.',
+  rec:'keep',cost:1},
+ {id:'c5',sev:'high',t:'A control that needs a “what is this?” control',
+  pros:'The lens has an explainer link. If reach needs explaining in the bar, the label is wrong.',
+  def:'Reach genuinely is a novel concept — per-day travel willingness is not standard.',
+  verd:'Guilty. Say it in the control: "How far tonight · 2h30". Then the explainer goes, and so does a whole row of chrome.',
+  rec:'cut',cost:1},
+ {id:'c6',sev:'med',t:'Reach is stated in three places',
+  pros:'Rail cell, lens bar, and drilldown all carry a reach. Three sources for one truth, and they can disagree — as they did on load until it was fixed.',
+  def:'Different scopes: the rail states the day’s default, the lens is today’s working value, the drilldown is a temporary widening.',
+  verd:'Guilty enough. One source: the lens shows it, the rail stops repeating it, the drilldown inherits and says "widened for browsing".',
+  rec:'cut',cost:1},
+ {id:'c7',sev:'high',t:'Signal decay makes the app unpredictable',
+  pros:'Treatment depends on per-user exposure history. When it goes quiet you cannot tell whether nothing is happening or you have simply been told before — and you can never reproduce a bug. I proposed this and it is the most fragile idea in the set.',
+  def:'It solves a real problem: a season notice that fires 62 nights running is noise.',
+  verd:'Not proven. Keep the delta-based copy ("clearest in 11 nights") which needs no history at all, and drop the exposure counter until you have felt the noise for a season.',
+  rec:'prove',cost:0},
+ {id:'c8',sev:'low',t:'Promotion has two competing mechanisms',
+  pros:'Rarity promotes a strip; coincidence also promotes a strip; badges and rows say some of it again underneath. Three ways of saying "this matters".',
+  def:'One strip only, highest rarity wins — the rule is already written.',
+  verd:'Not guilty, but only because the cap exists. Keep the cap explicit in code, not in a note.',
+  rec:'keep',cost:1},
+ {id:'c9',sev:'med',t:'“Coming up” may be where features go to die',
+  pros:'We moved seasons and rare events into a tab, which is exactly the fate I warned about when arguing against your four-tab split.',
+  def:'It answers a question windows cannot: when is the next one.',
+  verd:'Unproven. Instrument it. If it goes unopened for a fortnight, fold the next event into the rail as a fifth cell and delete the tab.',
+  rec:'prove',cost:1},
+ {id:'c10',sev:'low',t:'Five demo buttons make it look more complex than it is',
+  pros:'Multi-user, Away, Six events, Winter, iPhone. None ship, but they frame the design as a machine with modes.',
+  def:'They are scaffolding for reviewing states you cannot otherwise see in August.',
+  verd:'Not guilty — but strip them before anyone else looks at this, or the first impression is of a control panel.',
+  rec:'keep',cost:0}
+];
+const BASE=14;
+let state={};CHARGES.forEach(c=>state[c.id]=c.rec==='cut'?'keep':'keep');
+function draw(){
+ document.getElementById('charges').innerHTML=CHARGES.map(c=>`
+ <div class="charge">
+  <div class="ch"><span class="sev ${c.sev}">${c.sev==='high'?'serious':c.sev==='med'?'moderate':'minor'}</span><span class="t">${c.t}</span>
+   <span class="dec" data-id="${c.id}">${['keep','prove','cut'].map(v=>`<button data-v="${v}"${state[c.id]===v?' class="on"':''}>${v}</button>`).join('')}</span></div>
+  <div class="cb"><div class="side pros"><b>Prosecution</b><p>${c.pros}</p></div><div class="side def"><b>Defence</b><p>${c.def}</p></div></div>
+  <div class="verdict">Verdict — ${c.verd} ${c.rec!=='keep'?`<s>· my recommendation: ${c.rec}</s>`:''}</div>
+ </div>`).join('');
+ document.querySelectorAll('.dec button').forEach(b=>b.addEventListener('click',()=>{
+  state[b.parentElement.dataset.id]=b.dataset.v;draw();
+ }));
+ const saved=CHARGES.reduce((a,c)=>a+(state[c.id]==='cut'?c.cost:0),0);
+ const n=BASE-saved;
+ document.getElementById('cnt').innerHTML=`${n} <i>of ${BASE}</i>`;
+ document.getElementById('fill').style.width=(n/BASE*100)+'%';
+}
+document.getElementById('acceptAll').addEventListener('click',()=>{CHARGES.forEach(c=>state[c.id]=c.rec);draw()});
+document.getElementById('resetAll').addEventListener('click',()=>{CHARGES.forEach(c=>state[c.id]='keep');draw()});
+draw();
+</script>
+</body>
+</html>

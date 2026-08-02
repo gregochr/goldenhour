@@ -13,6 +13,11 @@
   --color-plex-bg: #181210;
   --color-plex-surface: #221A15;
   --color-plex-surface-light: #2A2019;
+  /* The CARD surface, and a real token rather than a collapse onto --surface. It sits only
+     (4,3,3) from it, so substituting would have been defensible — but the window-first design
+     uses it ten times as the thing that distinguishes a card from the frame it sits in, and a
+     surface the design names is not a surface two components should each approximate. */
+  --color-plex-panel: #1E1712;
   --color-plex-border: #3A2C23;
   --color-plex-border-light: #4A3A2E;
   --color-plex-text: #F2E7D3;
@@ -56,6 +61,48 @@
      (which is bone, identical to ink) so the block reads as its own channel rather than chrome. */
   --color-close-to-home: #C9A24B;
   --color-close-to-home-light: #E4C878;
+}
+
+/* ── Window-first redesign palette ──
+   `static` because Tailwind v4 emits a theme variable only when a scanned file mentions it, and
+   the rule differs by file type. **In CSS only a var() reference counts** — a bare token name in
+   a declaration or a comment protects nothing. **In JS/JSX the bare name counts anywhere**, a
+   utility class or a loose string included. (The scanner does not strip CSS comments, so a var()
+   written inside one counts too. That is not a licence: an earlier draft of this comment quoted a
+   var() and silently kept exactly one of these tokens alive, which is why the measurement below
+   once read 8.)
+
+   These land a dozen phases ahead of the components that use them, so nothing mentions them yet
+   and in the plain block above they are simply absent from :root — the handoff palette cannot be
+   inspected in devtools until P5 builds the first badge. Measured: 9 of the 10 window-first
+   tokens prune without `static`, at 254 bytes to keep them. The tenth is --color-plex-panel, in
+   the ordinary block above and kept alive by a utility class, which is why it is not in here.
+   Fold these in once they are all in use.
+
+   The failure mode worth knowing, because it is the one that IS silent: a name assembled at
+   runtime is invisible to the scanner, so a token referenced only as a template string built from
+   a prefix and a variable is pruned however many times it is used, and the property just
+   inherits. Build badge colours as classes here, referencing each token by its whole name. */
+@theme static {
+  /* Condition channels — objective, independent of the sky verdict, and each its own hue so a
+     tide, a noctilucent display and lying snow never read as three grades of one thing.
+     (--color-tide is the third member and already lives above, where it is in use today.) */
+  --color-nlc: #9B8FD4;
+  --color-snow: #B7CBD8;
+
+  /* Badge TEXT variants. A badge is ~10px type on a 12–14% tint of its own hue, and at that size
+     the full-strength channel colour does not carry — these are the lifted versions that do. Two
+     families rather than one, because fill and text have different jobs: the fill names the
+     channel, the text has to be read. Never use a --color-badge-* as a fill or a border. */
+  --color-badge-go: #A8C795;
+  --color-badge-maybe: #EFC377;
+  --color-badge-poor: #E58C7A;
+  --color-badge-tide: #9CCBD1;
+  --color-badge-nlc: #BFB6E8;
+  --color-badge-snow: #C6D8E3;
+  /* The active segment of a segmented control — the one non-badge member, here because it is the
+     same trick: readable type on a 13% tint of --color-close-to-home. */
+  --color-segment-active: #EBD9A8;
 }
 
 @layer base {
