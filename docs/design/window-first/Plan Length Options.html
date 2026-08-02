@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="design_doc_mode" content="canvas">
+<title>Plan length — two ways to lose the scroll</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--surface-light:#2A2019;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,0.66);--ink-3:rgba(242,231,211,0.42);--go:#8AAE72;--marginal:#E0A542;--standdown:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--nlc:#9B8FD4;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+body{font-family:var(--sans);color:var(--ink);line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+.frame{position:absolute;width:960px}
+.cap{margin-bottom:12px}
+.cap h2{font-size:19px;font-weight:700;letter-spacing:-.01em}
+.cap p{font-size:13px;color:var(--ink-2);line-height:1.6;margin-top:5px;max-width:900px}
+.cap .m{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--home);margin-bottom:4px}
+.app{background:var(--bg);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.mast{display:flex;align-items:flex-start;gap:12px;padding:16px 18px 14px;border-bottom:1px solid var(--border)}
+.logo{width:26px;height:26px;border-radius:50%;background:conic-gradient(from 200deg,#E0A542,#C8452F,#C9A24B,#E0A542)}
+.brand{font-size:19px;font-weight:700;letter-spacing:-.02em}
+.mast .sub{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.mast .r{margin-left:auto;display:flex;gap:8px;align-items:center}
+.pill{font-family:var(--mono);font-size:10px;padding:4px 9px;border-radius:999px;border:1px solid rgba(138,174,114,.4);background:rgba(138,174,114,.12);color:#A8C795}
+.tabs{display:flex;gap:6px;padding:12px 18px 0}
+.tab{font-size:12.5px;font-weight:500;color:var(--ink-2);border:1px solid var(--border);border-bottom:none;background:var(--panel);border-radius:8px 8px 0 0;padding:8px 14px;font-family:var(--sans);cursor:pointer}
+.tab.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:inset 0 2px 0 var(--home)}
+.tab.gate{margin-left:auto;color:var(--ink-3);border-style:dashed}
+.tabrule{height:1px;background:var(--border)}
+.body{padding:16px 18px 20px;display:flex;flex-direction:column;gap:10px}
+
+/* one-line briefing strip */
+.brief{display:flex;align-items:center;gap:12px;border:1px solid var(--border);border-left:3px solid var(--go);border-radius:9px;background:var(--surface);padding:10px 14px}
+.brief .k{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.brief .t{font-size:13px;font-weight:600}
+.brief .d{font-size:12.5px;color:var(--ink-2)}
+.brief .more{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--tide);white-space:nowrap}
+
+/* window card */
+.win{border:1px solid var(--border);border-radius:11px;background:var(--panel);overflow:hidden}
+.win.lead{border-color:rgba(201,162,75,.42);background:linear-gradient(180deg,rgba(201,162,75,.06),transparent 60%),var(--panel)}
+.win.off{opacity:.5}
+.wh{display:flex;align-items:center;gap:10px;padding:11px 14px 10px;flex-wrap:wrap}
+.wh .lbl{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--home)}
+.wh .when{font-size:15px;font-weight:700;letter-spacing:-.01em}
+.wh .time{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--ink)}
+.wh .best{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.wh .rule{flex:1;height:1px;background:var(--border);min-width:14px}
+.badges{display:flex;gap:6px;flex-wrap:wrap}
+.bdg{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:999px;border:1px solid var(--border-light);background:rgba(255,255,255,.04);color:var(--ink-2);white-space:nowrap;cursor:pointer}
+.bdg.tide{border-color:rgba(111,168,176,.45);background:rgba(111,168,176,.12);color:#9CCBD1}
+.bdg.nlc{border-color:rgba(155,143,212,.45);background:rgba(155,143,212,.12);color:#BFB6E8}
+.bdg.aur{border-color:rgba(138,174,114,.45);background:rgba(138,174,114,.12);color:#A8C795}
+.bdg.verd{border-color:rgba(224,165,66,.5);background:rgba(224,165,66,.14);color:#EFC377;font-weight:600}
+.wtop{display:grid;grid-template-columns:1.25fr 1fr;gap:14px;padding:2px 14px 12px}
+.bb{border-left:2px solid var(--go);padding-left:11px}
+.bb.alt{border-left-color:var(--marginal)}
+.bb .k{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);display:flex;gap:8px}
+.bb .k .reg{color:var(--ink-3);margin-left:auto;font-weight:400}
+.bb h4{font-family:var(--serif);font-size:15px;font-weight:500;line-height:1.32;margin:4px 0 4px;letter-spacing:-.005em}
+.bb p{font-size:12px;color:var(--ink-2);line-height:1.55}
+.spots{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:0 14px 10px}
+.spot{border:1px solid var(--border);border-radius:8px;padding:9px 10px;background:rgba(0,0,0,.16);display:flex;flex-direction:column;gap:4px;cursor:pointer}
+.spot:hover{border-color:var(--border-light)}
+.spot .top{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.spot .nm{font-size:12.5px;font-weight:600;line-height:1.25}
+.spot .st{font-family:var(--mono);font-size:10px;font-weight:600;padding:2px 5px;border-radius:5px;background:rgba(138,174,114,.16);color:#A8C795;white-space:nowrap}
+.spot .mt{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.wfoot{display:flex;align-items:center;gap:12px;padding:8px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,.16);font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.wfoot .go{margin-left:auto;color:var(--tide)}
+.off .wh{padding-bottom:11px}
+
+/* persistent day rail (B) */
+.rail{display:flex;gap:8px;padding:12px 18px 0}
+.day{flex:1;border:1px solid var(--border);border-radius:9px;background:var(--panel);padding:9px 11px;cursor:pointer}
+.day.on{border-color:rgba(201,162,75,.5);background:rgba(201,162,75,.07)}
+.day.off{opacity:.45}
+.day .dt{display:flex;align-items:baseline;gap:7px}
+.day .dow{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;color:var(--ink-3)}
+.day .n{font-size:15px;font-weight:700;line-height:1}
+.day .nm{font-size:12.5px;font-weight:600}
+.day .sun{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:3px}
+.day .vd{font-family:var(--mono);font-size:10.5px;margin-top:5px;color:var(--marginal)}
+.day .vd.go{color:#A8C795}
+
+/* segmented window switch (B) */
+.seg{display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--panel);width:fit-content}
+.seg button{font-family:var(--mono);font-size:11px;padding:7px 12px;background:transparent;border:none;border-right:1px solid var(--border);color:var(--ink-2);cursor:pointer}
+.seg button:last-child{border-right:none}
+.seg button.on{background:rgba(201,162,75,.13);color:#EBD9A8;font-weight:600}
+.sect{border:1px solid var(--border);border-radius:11px;background:var(--panel)}
+.sh{display:flex;align-items:center;gap:11px;padding:12px 14px 10px}
+.sh .ico{width:28px;height:28px;border-radius:8px;background:rgba(201,162,75,.14);box-shadow:inset 0 0 0 1px rgba(201,162,75,.35);display:flex;align-items:center;justify-content:center;font-size:12px}
+.sh .k{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--home)}
+.sh .t{font-size:15px;font-weight:700}
+.sh .c{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-2)}
+.srow{display:flex;align-items:center;gap:10px;padding:0 14px 12px;flex-wrap:wrap}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--border);border-radius:11px;background:var(--surface);overflow:hidden}
+.pair>div{padding:12px 14px 13px}
+.pair>div+div{border-left:1px solid var(--border)}
+
+/* collapsed link row */
+.links{display:flex;gap:8px}
+.lk{flex:1;border:1px solid var(--border);border-radius:9px;background:var(--surface);padding:10px 13px;cursor:pointer}
+.lk:hover{border-color:var(--border-light)}
+.lk .t{font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:6px}
+.lk .t .ar{margin-left:auto;color:var(--ink-3);font-family:var(--mono);font-size:11px}
+.lk .d{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:3px}
+
+/* notes */
+.notes{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+.nt{border:1px solid var(--border);border-left:3px solid var(--home);border-radius:8px;background:var(--surface);padding:9px 13px}
+.nt b{display:block;font-size:12.5px;font-weight:600;margin-bottom:2px}
+.nt span{font-size:12px;color:var(--ink-2);line-height:1.55}
+.nt.warn{border-left-color:var(--standdown)}
+.h{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-top:8px}
+.h b{color:var(--go);font-weight:600}
+</style>
+</head>
+<body>
+<a href="Index.html" style="position:fixed;top:10px;left:12px;z-index:200;font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:rgba(242,231,211,.42);background:#221A15;border:1px solid #3A2C23;border-radius:7px;padding:5px 9px;text-decoration:none">← Index</a>
+
+<!-- ══ FRAME 1: window-first agenda ══ -->
+<div class="frame" style="left:80px;top:80px">
+<div class="cap"><div class="m">Option 1</div><h2>Window-first agenda — same three tabs</h2><p>The outer loop is <strong>time</strong>, not feature. Each shooting window is one card that carries everything relevant to it: its verdict, its Best Bet, its nearby spots, and its tide / NLC / aurora alignment as badges rather than as sections further down the page. Tides and aurora stop being blocks that repeat per run — they become attributes of the window they affect. Regions, Almanac and the Full Briefing collapse to three doors at the bottom.</p></div>
+
+<div class="app">
+<div class="mast"><div class="logo"></div><div><div class="brand">PhotoCast</div><div class="sub">AI sunrise, sunset, and aurora forecasting</div></div><div class="r"><span class="pill">● UP v2.17.7</span></div></div>
+<div class="tabs"><button class="tab on">◉ Plan</button><button class="tab">◍ Map</button><button class="tab gate">⚙ Manage · admin</button></div>
+<div class="tabrule"></div>
+<div class="body">
+
+<div class="brief"><span class="k">Weekend read</span><span class="t">Tomorrow sunrise is the best window</span><span class="d">— 57 sites fully evaluated, conditions transitional</span><span class="more">52m ago · by Sonnet ›</span></div>
+
+<div class="win lead">
+<div class="wh"><span class="lbl">Tonight</span><span class="when">Today sunset</span><span class="time">21:11</span><span class="best">best 4.0★ · 7 within reach</span><span class="rule"></span><span class="badges"><span class="bdg verd">◎ Worth it</span><span class="bdg tide">≈ Spring tide · 11 aligned</span><span class="bdg nlc">✦ NLC chance 21:52</span></span></div>
+<div class="wtop">
+<div class="bb"><div class="k"><span>◎ Best bet</span><span class="reg">Northumberland &amp; Tyneside</span></div><h4>Breaking clear with the antisolar canvas alight</h4><p>Low water bares the foreground at Breil Nook — 4h12 before sunrise, seas 0.3 m and smooth.</p></div>
+<div class="bb alt"><div class="k"><span>○ Also good</span><span class="reg">The Yorkshire Dales</span></div><h4>Thin high cloud inland, lower confidence</h4><p>Provisional — 12 of 31 rated sites score well if the overcast thins before golden hour.</p></div>
+</div>
+<div class="spots">
+<div class="spot"><div class="top"><span class="nm">The River Wansbeck, Bothal</span><span class="st">4.0★</span></div><div class="mt">45 min · 23 mi</div><div class="mt" style="color:var(--tide)">◍ map →</div></div>
+<div class="spot"><div class="top"><span class="nm">Infinity Bridge</span><span class="st">3.0★</span></div><div class="mt">38 min · 21 mi</div><div class="mt" style="color:var(--tide)">◍ map →</div></div>
+<div class="spot"><div class="top"><span class="nm">Blyth Beach</span><span class="st">3.0★</span></div><div class="mt">41 min · 19 mi · mid tide</div><div class="mt" style="color:var(--tide)">◍ map →</div></div>
+<div class="spot"><div class="top"><span class="nm">Redcar</span><span class="st">3.0★</span></div><div class="mt">52 min · 25 mi · mid tide</div><div class="mt" style="color:var(--tide)">◍ map →</div></div>
+</div>
+<div class="wfoot"><span>Within 30 mi of home · ranked by rating, then drive</span><span>Any drive · Any rating · Tide only</span><span class="go">All 7 for this window →</span></div>
+</div>
+
+<div class="win">
+<div class="wh"><span class="when">Tomorrow sunrise</span><span class="time">05:17</span><span class="best">best 4.0★ · 18 within reach</span><span class="rule"></span><span class="badges"><span class="bdg verd">◎ Worth it</span><span class="bdg">Same window as Best Bet</span></span></div>
+<div class="wtop" style="grid-template-columns:1fr">
+<div class="bb"><div class="k"><span>◎ Best bet</span><span class="reg">The Lake District</span></div><h4>Best-evaluated window of the weekend — calm, clear</h4><p>Twenty-three locations rated excellent across 57 fully evaluated sites, with near-still air. Early mornings often hold ahead of a front.</p></div>
+</div>
+<div class="spots">
+<div class="spot"><div class="top"><span class="nm">Infinity Bridge</span><span class="st">4.0★</span></div><div class="mt">38 min · 21 mi</div><div class="mt" style="color:var(--tide)">◍ map →</div></div>
+<div class="spot"><div class="top"><span class="nm">Copt Hill</span><span class="st">3.0★</span></div><div class="mt">10 min · 4 mi</div><div class="mt" style="color:var(--tide)">◍ map →</div></div>
+<div class="spot"><div class="top"><span class="nm">Angel of the North</span><span class="st">3.0★</span></div><div class="mt">16 min · 5 mi</div><div class="mt" style="color:var(--tide)">◍ map →</div></div>
+<div class="spot"><div class="top"><span class="nm">Roker Pier &amp; Lighthouse</span><span class="st">3.0★</span></div><div class="mt">25 min · 9 mi</div><div class="mt" style="color:var(--tide)">◍ map →</div></div>
+</div>
+<div class="wfoot"><span>Within 30 mi of home</span><span class="go">All 18 for this window →</span></div>
+</div>
+
+<div class="win">
+<div class="wh"><span class="when">Tomorrow sunset</span><span class="time">21:08</span><span class="best">best 4.0★ · 14 within reach</span><span class="rule"></span><span class="badges"><span class="bdg tide">≈ Spring tide 2/3 · peak range</span><span class="bdg aur">▣ Aurora Kp 4 · 21:57</span></span></div>
+<div class="spots" style="padding-top:2px">
+<div class="spot"><div class="top"><span class="nm">Simonside</span><span class="st">4.0★</span></div><div class="mt">19 min · 10 mi</div><div class="mt" style="color:var(--tide)">◍ map →</div></div>
+<div class="spot"><div class="top"><span class="nm">Infinity Bridge</span><span class="st">4.0★</span></div><div class="mt">38 min · 21 mi</div><div class="mt" style="color:var(--tide)">◍ map →</div></div>
+<div class="spot"><div class="top"><span class="nm">Blyth Beach</span><span class="st">4.0★</span></div><div class="mt">41 min · 19 mi · mid tide</div><div class="mt" style="color:var(--tide)">◍ map →</div></div>
+<div class="spot"><div class="top"><span class="nm">Bothal Weir</span><span class="st">4.0★</span></div><div class="mt">45 min · 23 mi</div><div class="mt" style="color:var(--tide)">◍ map →</div></div>
+</div>
+<div class="wfoot"><span>Peak range · LW 3h40 before sunrise · seas 0.2 m smooth</span><span class="go">All 14 for this window →</span></div>
+</div>
+
+<div class="win off"><div class="wh"><span class="when" style="font-size:13.5px">Mon 3 – Tue 4</span><span class="best">✈ Away · travel days · no forecast generated</span><span class="rule"></span><span class="badges"><span class="bdg">Edit availability</span></span></div></div>
+
+<div class="links">
+<div class="lk"><div class="t">Regional planner<span class="ar">→</span></div><div class="d">4 regions · heatmap &amp; full briefing</div></div>
+<div class="lk"><div class="t">Almanac<span class="ar">→</span></div><div class="d">spring tide runs · NLC season · aurora</div></div>
+<div class="lk"><div class="t">Hot topics<span class="ar">→</span></div><div class="d">3 live · enriched science reads</div></div>
+</div>
+
+</div></div>
+
+<div class="notes">
+<div class="nt"><b>What this kills</b><span>Three repeats of Close to Home, two spring-tide blocks, the standalone NLC and aurora banners, and the day calendar — all absorbed into the window they describe. Nothing is deleted; it is re-parented.</span></div>
+<div class="nt"><b>Where the Planning Summary goes</b><span>Top, as one line. It is a summary, so it is the first thing you read and it appears exactly once. The full Best Bet / Also Good prose lives inside the window it is about.</span></div>
+<div class="nt warn"><b>Trade-off</b><span>A spot that is good in two windows appears twice, and the almanac stories (tide runs, NLC season) lose their standalone billing — they become badges plus a door. If those stories are the product's personality, Option 3 protects them better.</span></div>
+</div>
+<div class="h">Height <b>≈1,290px</b> · today ≈2,600px</div>
+</div>
+
+<!-- ══ FRAME 2: four tabs + persistent rail ══ -->
+<div class="frame" style="left:1140px;top:80px">
+<div class="cap"><div class="m">Option 3</div><h2>Your tabs, corrected — rail outside, windows segmented</h2><p>Five tabs, and the Planning Summary is solved by living <strong>above</strong> the tab bar as a persistent day rail, so it is never duplicated. The other fix is inside Tonight: the three windows become a segmented switch instead of three stacked rows, so Close to Home renders once. Almanac takes the browse-y material (tide runs, NLC season, aurora, hot topics) that was never a tonight decision.</p></div>
+
+<div class="app">
+<div class="mast"><div class="logo"></div><div><div class="brand">PhotoCast</div><div class="sub">AI sunrise, sunset, and aurora forecasting</div></div><div class="r"><span class="pill">● UP v2.17.7</span></div></div>
+<div class="rail">
+<div class="day on"><div class="dt"><span class="dow">SAT</span><span class="n">1</span><span class="nm">Today</span></div><div class="sun">↑05:22 ↓21:14</div><div class="vd">Maybe · sunset</div></div>
+<div class="day"><div class="dt"><span class="dow">SUN</span><span class="n">2</span><span class="nm">Tomorrow</span></div><div class="sun">↑05:23 ↓21:12</div><div class="vd go">◎ Worth it · sunset</div></div>
+<div class="day off"><div class="dt"><span class="dow">MON</span><span class="n">3</span><span class="nm">Monday</span></div><div class="sun">✈ Away · travel day</div><div class="vd" style="color:var(--ink-3)">No forecast</div></div>
+<div class="day off"><div class="dt"><span class="dow">TUE</span><span class="n">4</span><span class="nm">Tuesday</span></div><div class="sun">✈ Away · travel day</div><div class="vd" style="color:var(--ink-3)">No forecast</div></div>
+</div>
+<div class="tabs" style="padding-top:14px"><button class="tab on">◉ Tonight</button><button class="tab">✦ Almanac</button><button class="tab">▦ Regions</button><button class="tab">◍ Map</button><button class="tab gate">⚙ Manage · admin</button></div>
+<div class="tabrule"></div>
+<div class="body">
+
+<div class="pair">
+<div><div class="bb" style="border:none;padding:0"><div class="k"><span>◎ Best bet</span><span class="reg">The Lake District</span></div><h4>Best-evaluated window of the weekend — calm, clear conditions</h4><p>Twenty-three locations rated excellent across 57 fully evaluated sites, with near-still air and clear skies. Conditions are TRANSITIONAL, so check before heading out — but early mornings often hold ahead of a front.</p><div class="mt" style="font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:8px">Tomorrow sunrise · 05:23</div></div></div>
+<div><div class="bb alt" style="border:none;padding:0"><div class="k"><span>○ Also good</span><span class="reg">The Yorkshire Dales</span></div><h4>Later Sunday: exceptionally high-rated locations if skies break</h4><p>46 of 54 fully rated locations score excellent — the highest hit-rate of the weekend. Overcast is forecast but conditions are transitional; if cloud breaks before golden hour, this could deliver.</p><div class="mt" style="font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:8px">Tomorrow sunset · 21:12 · low confidence</div></div></div>
+</div>
+
+<div class="sect">
+<div class="sh"><div class="ico">⌂</div><div><div class="k">Close to home</div><div class="t">Within 30 miles of home</div></div><div class="c">27 within reach · 3 windows · next 3 days</div></div>
+<div class="srow"><div class="seg"><button class="on">↓ Today sunset 21:11 · 7</button><button>↑ Tmr sunrise 05:17 · 18</button><button>↓ Tmr sunset 21:08 · 14</button></div><span class="badges" style="margin-left:auto"><span class="bdg">Any drive</span><span class="bdg">Any rating</span><span class="bdg">Tide only</span></span></div>
+<div class="srow" style="padding-bottom:10px"><span class="bdg verd">◎ Worth it · best 4.0★</span><span class="bdg tide">≈ Spring tide · 11 aligned tonight</span><span class="bdg nlc">✦ NLC chance · 21:52–00:03 NW</span></div>
+<div class="spots">
+<div class="spot"><div class="top"><span class="nm">The River Wansbeck, Bothal</span><span class="st">4.0★</span></div><div class="mt">Northumberland &amp; Tyneside</div><div class="mt">45 min · 23 mi</div><div class="mt" style="color:var(--tide)">◍ Open on map →</div></div>
+<div class="spot"><div class="top"><span class="nm">Infinity Bridge</span><span class="st">3.0★</span></div><div class="mt">North York Moors &amp; Coast</div><div class="mt">38 min · 21 mi</div><div class="mt" style="color:var(--tide)">◍ Open on map →</div></div>
+<div class="spot"><div class="top"><span class="nm">Blyth Beach</span><span class="st">3.0★</span></div><div class="mt">Northumberland &amp; Tyneside</div><div class="mt">41 min · 19 mi · mid tide</div><div class="mt" style="color:var(--tide)">◍ Open on map →</div></div>
+<div class="spot"><div class="top"><span class="nm">Redcar</span><span class="st">3.0★</span></div><div class="mt">North York Moors &amp; Coast</div><div class="mt">52 min · 25 mi · mid tide</div><div class="mt" style="color:var(--tide)">◍ Open on map →</div></div>
+</div>
+<div class="wfoot"><span>Ranked by rating, then drive time · showing top 4 of 7</span><span class="go">Scroll for the rest →</span></div>
+</div>
+
+<div class="links">
+<div class="lk"><div class="t">✦ Almanac<span class="ar">3 live →</span></div><div class="d">spring tide run 1/3 &amp; 2/3 · NLC season · aurora Kp 4</div></div>
+<div class="lk"><div class="t">▦ Regions<span class="ar">4 →</span></div><div class="d">heatmap · full briefing · Sat–Tue</div></div>
+</div>
+
+</div></div>
+
+<div class="notes">
+<div class="nt"><b>Why the rail sits above the tabs</b><span>It answers "which day" for every tab, so it belongs to the shell, not to a page. Click a day and all five tabs retarget — no summary duplicated three times.</span></div>
+<div class="nt"><b>The segmented switch is the real saving</b><span>Close to Home was rendering three times down the page. As a switch it renders once and the counts stay visible, so nothing is hidden.</span></div>
+<div class="nt warn"><b>Trade-off</b><span>Best Bet / Also Good and Close to Home still stack, so Tonight is taller than an Option 1 window card — and Almanac becomes a tab you have to remember to visit. Its stories no longer interrupt you, which is either the fix or the loss.</span></div>
+</div>
+<div class="h">Height <b>≈1,050px</b> per tab · today ≈2,600px</div>
+</div>
+
+</body>
+</html>

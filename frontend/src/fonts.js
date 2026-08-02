@@ -11,6 +11,11 @@ import '@fontsource/ibm-plex-sans/latin-600.css';
 import '@fontsource/ibm-plex-sans/latin-700.css';
 import '@fontsource/ibm-plex-mono/latin-400.css';
 import '@fontsource/ibm-plex-mono/latin-500.css';
+// 600 for the window-first design's mono kickers ("◎ BEST BET", "≈ TIDE", "TONIGHT"), which are
+// 10px, uppercase and letter-spaced — the weight is what separates them from the data they label.
+// Without the real face the browser synthesises it, and a smeared 10px kicker is exactly the
+// surface where that shows.
+import '@fontsource/ibm-plex-mono/latin-600.css';
 import '@fontsource/ibm-plex-mono/latin-400-italic.css';
 import '@fontsource/newsreader/latin-400.css';
 import '@fontsource/newsreader/latin-500.css';

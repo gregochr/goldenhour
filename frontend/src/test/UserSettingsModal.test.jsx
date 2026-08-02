@@ -422,3 +422,63 @@ describe('UserSettingsModal', () => {
     expect(screen.getByTestId('settings-refresh-drive-btn')).toBeDisabled();
   });
 });
+
+describe('UserSettingsModal — plan layout switch', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('is hidden when the caller passes no layout', async () => {
+    getSettings.mockResolvedValue(PRO_SETTINGS);
+    render(<UserSettingsModal onClose={() => {}} />);
+    await screen.findByTestId('settings-role-badge');
+    expect(screen.queryByRole('switch', { name: 'Window-first Plan' })).toBeNull();
+  });
+
+  it('reports the current layout and flips to the other one', async () => {
+    getSettings.mockResolvedValue(PRO_SETTINGS);
+    const onChange = vi.fn();
+    render(
+      <UserSettingsModal onClose={() => {}} planLayout="v1" onPlanLayoutChange={onChange} />,
+    );
+    const toggle = await screen.findByRole('switch', { name: 'Window-first Plan' });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(toggle);
+    expect(onChange).toHaveBeenCalledWith('v2');
+  });
+
+  it('flips back from the window-first layout', async () => {
+    getSettings.mockResolvedValue(PRO_SETTINGS);
+    const onChange = vi.fn();
+    render(
+      <UserSettingsModal onClose={() => {}} planLayout="v2" onPlanLayoutChange={onChange} />,
+    );
+    const toggle = await screen.findByRole('switch', { name: 'Window-first Plan' });
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(toggle);
+    expect(onChange).toHaveBeenCalledWith('v1');
+  });
+
+  // The switch is the only route out of a half-built v2, and it needs nothing from the server —
+  // so a failed settings fetch must not take it away with everything else. It lives outside the
+  // settings-loaded branch for exactly this case.
+  it('survives a failed settings fetch', async () => {
+    getSettings.mockRejectedValue(new Error('offline'));
+    render(
+      <UserSettingsModal onClose={() => {}} planLayout="v2" onPlanLayoutChange={() => {}} />,
+    );
+    expect(await screen.findByText('Failed to load settings.')).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Window-first Plan' }))
+      .toHaveAttribute('aria-checked', 'true');
+  });
+
+  // A LITE user is a pilot user. The switch chooses between two views of what they can already
+  // see, so gating it would make the comparison a privilege rather than the thing being asked of
+  // them — and would strand them in v2 with no way back.
+  it('is available to a Lite user', async () => {
+    getSettings.mockResolvedValue(LITE_SETTINGS);
+    render(
+      <UserSettingsModal onClose={() => {}} planLayout="v1" onPlanLayoutChange={() => {}} />,
+    );
+    const toggle = await screen.findByRole('switch', { name: 'Window-first Plan' });
+    expect(toggle).not.toBeDisabled();
+  });
+});

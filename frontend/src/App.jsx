@@ -20,6 +20,8 @@ import { useForecasts } from './hooks/useForecasts.js';
 import { useHealthStatus } from './hooks/useHealthStatus.js';
 import { useRunNotifications } from './hooks/useRunNotifications.js';
 import useAfterFirstPaint from './hooks/useAfterFirstPaint.js';
+import usePlanLayout, { PLAN_V1, PLAN_V2 } from './hooks/usePlanLayout.js';
+import WindowFirstShell from './components/WindowFirstShell.jsx';
 
 // Code-split the heavy, rarely-first-viewed subtrees so they stay out of the initial bundle:
 // the Leaflet map stack (Plan is the default tab; the map is a drill-down) and the admin-only
@@ -98,6 +100,10 @@ function AuthGate() {
 function AppInner() {
   const { isAdmin, logout, username, sessionDaysRemaining, token } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
+  // Which Plan tab this browser renders. Held here rather than read independently wherever it is
+  // needed: `useLocalStorageState` is per-instance, so a second reader would keep its own copy and
+  // toggling in the settings modal would write storage without re-rendering the page behind it.
+  const [planLayout, setPlanLayout] = usePlanLayout();
   const { locations, loading, error, refresh } = useForecasts();
   // Defer the two long-lived SSE streams until after first paint so they don't compete with the
   // critical forecast/briefing fetches during boot.
@@ -363,103 +369,113 @@ function AppInner() {
         </div>
       )}
 
+      {/* The Plan-layout flag branches ABOVE the tab bar, not inside the Plan pane. The
+          window-first design has its own tabs — a different control from ViewToggle — and its
+          subtree owns its own shell and tab state, so branching here is what keeps DailyBriefing
+          and ViewToggle untouched while both layouts are alive. */}
       <main className={`max-w-4xl mx-auto px-4 py-6${isDown ? ' opacity-50 pointer-events-none' : ''}`}>
-        {/* Tab shell — always visible; needs no server data, so it paints instantly on refresh. */}
-        <div className="mb-6">
-          <ViewToggle value={viewMode} onChange={setViewMode} isAdmin={isAdmin} />
-        </div>
-
-        {/* PLAN (default tab) renders immediately: DailyBriefing owns its own briefing fetch and
-            skeleton and tolerates an empty locations list, so Best Bet / Hot Topics / regions paint
-            without waiting on the forecast + locations + outcomes load. */}
-        {viewMode === 'plan' && (
-          <DailyBriefing locations={visibleLocations} onShowOnMap={handleShowOnMap} onEvaluationScoresChange={handleEvaluationScoresChange} onSeasonalFeaturesChange={handleSeasonalFeaturesChange} homeSettingsVersion={homeSettingsVersion} />
-        )}
-
-        {/* MAP needs the forecast/location data — keep the loading / error / empty gating here. */}
-        {viewMode === 'map' && (
+        {planLayout === PLAN_V2 ? (
+          <WindowFirstShell onExit={() => setPlanLayout(PLAN_V1)} />
+        ) : (
           <>
-            {loading && (
-              <div className="flex justify-center py-16">
-                <p className="text-plex-text-secondary animate-pulse">Loading forecast…</p>
-              </div>
-            )}
+          {/* Tab shell — always visible; needs no server data, so it paints instantly on refresh. */}
+          <div className="mb-6">
+            <ViewToggle value={viewMode} onChange={setViewMode} isAdmin={isAdmin} />
+          </div>
 
-            {!loading && error && (
-              <div
-                data-testid="error-message"
-                className="card border-red-900/50 text-center py-8"
-                role="alert"
-              >
-                <p className="text-red-400 font-medium mb-2">Unable to load forecast</p>
-                <p className="text-plex-text-secondary text-sm mb-4">{error}</p>
-                <button
-                  className="btn-primary"
-                  onClick={refresh}
-                  disabled={healthStatus === 'DOWN'}
-                >
-                  Try again
-                </button>
-              </div>
-            )}
+          {/* PLAN (default tab) renders immediately: DailyBriefing owns its own briefing fetch and
+              skeleton and tolerates an empty locations list, so Best Bet / Hot Topics / regions paint
+              without waiting on the forecast + locations + outcomes load. */}
+          {viewMode === 'plan' && (
+            <DailyBriefing locations={visibleLocations} onShowOnMap={handleShowOnMap} onEvaluationScoresChange={handleEvaluationScoresChange} onSeasonalFeaturesChange={handleSeasonalFeaturesChange} homeSettingsVersion={homeSettingsVersion} />
+          )}
 
-            {!loading && !error && allDates.length > 0 && effectiveDate && (
-              <DateStrip
-                dates={allDates}
-                selectedDate={effectiveDate}
-                onSelect={setSelectedDate}
-              />
-            )}
-
-            {!loading && !error && allDates.length > 0 && (
-              <Suspense fallback={<ViewFallback />}>
-                <MapView
-                  locations={visibleLocations}
-                  date={effectiveDate}
-                  autoEventType={autoSelection?.eventType ?? null}
-                  handoffEventType={mapHandoff?.eventType ?? null}
-                  handoffFilterAction={mapHandoff?.filterAction ?? null}
-                  handoffLocationName={mapHandoff?.locationName ?? null}
-                  handoffRegion={mapHandoff?.region ?? null}
-                  handoffNonce={mapHandoff?.nonce ?? null}
-                  briefingScores={briefingScores}
-                  onForecastRun={refresh}
-                  seasonalFeatures={seasonalFeatures}
-                  // "Centre on home" reads the coordinates already resolved for Close to home —
-                  // the postcode was geocoded once, server-side, when it was saved, and this
-                  // state is refreshed when the settings modal closes. No second geocoding path,
-                  // and no lookup on a click.
-                  homeCoords={homeCoords}
-                  homeRadiusMiles={homeRadiusMiles}
-                  onOpenSettings={() => setSettingsFocus('postcode')}
-                />
-              </Suspense>
-            )}
-
-            {!loading && !error && allDates.length === 0 && (
-              <div className="card text-center py-16">
-                <p className="text-plex-text-secondary text-lg mb-4">No forecasts loaded yet</p>
-                <p className="text-plex-text-muted text-sm mb-6">Forecasts are generated automatically at 06:00 and 18:00 UTC. Check back in a moment.</p>
-                <div className="flex justify-center gap-3">
-                  <button className="btn-primary" onClick={refresh}>
-                    Refresh
-                  </button>
-                  {isAdmin && (
-                    <button className="btn-secondary" onClick={() => setViewMode('manage')}>
-                      Manage Locations
-                    </button>
-                  )}
+          {/* MAP needs the forecast/location data — keep the loading / error / empty gating here. */}
+          {viewMode === 'map' && (
+            <>
+              {loading && (
+                <div className="flex justify-center py-16">
+                  <p className="text-plex-text-secondary animate-pulse">Loading forecast…</p>
                 </div>
-              </div>
-            )}
-          </>
-        )}
+              )}
 
-        {/* MANAGE — admin only. */}
-        {viewMode === 'manage' && isAdmin && (
-          <Suspense fallback={<ViewFallback />}>
-            <ManageView onComplete={refresh} />
-          </Suspense>
+              {!loading && error && (
+                <div
+                  data-testid="error-message"
+                  className="card border-red-900/50 text-center py-8"
+                  role="alert"
+                >
+                  <p className="text-red-400 font-medium mb-2">Unable to load forecast</p>
+                  <p className="text-plex-text-secondary text-sm mb-4">{error}</p>
+                  <button
+                    className="btn-primary"
+                    onClick={refresh}
+                    disabled={healthStatus === 'DOWN'}
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
+
+              {!loading && !error && allDates.length > 0 && effectiveDate && (
+                <DateStrip
+                  dates={allDates}
+                  selectedDate={effectiveDate}
+                  onSelect={setSelectedDate}
+                />
+              )}
+
+              {!loading && !error && allDates.length > 0 && (
+                <Suspense fallback={<ViewFallback />}>
+                  <MapView
+                    locations={visibleLocations}
+                    date={effectiveDate}
+                    autoEventType={autoSelection?.eventType ?? null}
+                    handoffEventType={mapHandoff?.eventType ?? null}
+                    handoffFilterAction={mapHandoff?.filterAction ?? null}
+                    handoffLocationName={mapHandoff?.locationName ?? null}
+                    handoffRegion={mapHandoff?.region ?? null}
+                    handoffNonce={mapHandoff?.nonce ?? null}
+                    briefingScores={briefingScores}
+                    onForecastRun={refresh}
+                    seasonalFeatures={seasonalFeatures}
+                    // "Centre on home" reads the coordinates already resolved for Close to home —
+                    // the postcode was geocoded once, server-side, when it was saved, and this
+                    // state is refreshed when the settings modal closes. No second geocoding path,
+                    // and no lookup on a click.
+                    homeCoords={homeCoords}
+                    homeRadiusMiles={homeRadiusMiles}
+                    onOpenSettings={() => setSettingsFocus('postcode')}
+                  />
+                </Suspense>
+              )}
+
+              {!loading && !error && allDates.length === 0 && (
+                <div className="card text-center py-16">
+                  <p className="text-plex-text-secondary text-lg mb-4">No forecasts loaded yet</p>
+                  <p className="text-plex-text-muted text-sm mb-6">Forecasts are generated automatically at 06:00 and 18:00 UTC. Check back in a moment.</p>
+                  <div className="flex justify-center gap-3">
+                    <button className="btn-primary" onClick={refresh}>
+                      Refresh
+                    </button>
+                    {isAdmin && (
+                      <button className="btn-secondary" onClick={() => setViewMode('manage')}>
+                        Manage Locations
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* MANAGE — admin only. */}
+          {viewMode === 'manage' && isAdmin && (
+            <Suspense fallback={<ViewFallback />}>
+              <ManageView onComplete={refresh} />
+            </Suspense>
+          )}
+          </>
         )}
       </main>
 
@@ -491,6 +507,8 @@ function AppInner() {
       {(showSettings || settingsFocus) && (
         <UserSettingsModal
           focusField={settingsFocus}
+          planLayout={planLayout}
+          onPlanLayoutChange={setPlanLayout}
           onClose={() => {
             setShowSettings(false);
             setSettingsFocus(null);

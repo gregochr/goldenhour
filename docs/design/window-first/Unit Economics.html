@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PhotoCast — what a day of forecast actually costs</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--surface-light:#2A2019;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,0.66);--ink-3:rgba(242,231,211,0.42);--go:#8AAE72;--marginal:#E0A542;--standdown:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:30px 20px 80px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+.doc{max-width:1060px;margin:0 auto}
+h1{font-size:21px;font-weight:700;letter-spacing:-.01em;margin-bottom:8px}
+.lede{font-size:13.5px;color:var(--ink-2);line-height:1.62;max-width:900px}
+.lede strong{color:var(--ink);font-weight:600}
+.grid{display:grid;grid-template-columns:290px 1fr;gap:10px;margin-top:20px;align-items:start}
+
+.panel{border:1px solid var(--border);border-radius:11px;background:var(--surface);padding:13px 15px 15px}
+.panel h3{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:11px}
+.ctl{display:flex;flex-direction:column;gap:12px}
+.f{display:flex;flex-direction:column;gap:5px}
+.f .lb{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:var(--ink-2)}
+.f .lb b{font-family:var(--mono);font-size:12px;color:var(--ink);font-weight:600}
+input[type=range]{width:100%;accent-color:var(--home)}
+.seg{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--panel)}
+.seg button{flex:1;font-family:var(--mono);font-size:10.5px;padding:6px 8px;background:transparent;border:none;border-right:1px solid var(--border);color:var(--ink-2);cursor:pointer}
+.seg button:last-child{border-right:none}
+.seg button.on{background:rgba(201,162,75,.14);color:#EBD9A8;font-weight:600}
+.hint{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);line-height:1.45}
+
+.out{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.kpi{border:1px solid var(--border);border-radius:10px;background:var(--panel);padding:11px 13px}
+.kpi .k{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.kpi .v{font-size:21px;font-weight:700;letter-spacing:-.02em;margin-top:4px;font-family:var(--mono)}
+.kpi .d{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:3px}
+.kpi.fixed .v{color:var(--marginal)}
+.kpi.marg .v{color:var(--tide)}
+.kpi.per .v{color:var(--go)}
+.kpi.tot .v{color:var(--ink)}
+
+.split{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.bars{border:1px solid var(--border);border-radius:10px;background:var(--panel);padding:12px 14px 14px}
+.bars h4{font-size:12.5px;font-weight:600;margin-bottom:9px}
+.bar{margin-bottom:9px}
+.bar .t{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;color:var(--ink-2);margin-bottom:4px}
+.bar .t b{color:var(--ink);font-weight:600}
+.track{height:7px;border-radius:999px;background:rgba(0,0,0,.35);overflow:hidden}
+.fill{height:100%;border-radius:999px;transition:width .2s ease}
+.chartbox{border:1px solid var(--border);border-radius:10px;background:var(--panel);padding:12px 14px 10px}
+.chartbox h4{font-size:12.5px;font-weight:600;margin-bottom:4px}
+.chartbox .sub{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-bottom:8px}
+.chartbox svg{display:block;width:100%;height:150px;overflow:visible}
+.axl{font-family:var(--mono);font-size:9px;fill:rgba(242,231,211,.42)}
+
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;margin-top:14px}
+.nt{border:1px solid var(--border);border-left:3px solid var(--home);border-radius:8px;background:var(--surface);padding:10px 13px}
+.nt b{display:block;font-size:12.5px;font-weight:600;margin-bottom:3px}
+.nt span{font-size:12px;color:var(--ink-2);line-height:1.55}
+.nt.warn{border-left-color:var(--standdown)}
+.nt.good{border-left-color:var(--go)}
+.foot{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:12px}
+@media(max-width:820px){.grid{grid-template-columns:1fr}.out{grid-template-columns:1fr 1fr}.split{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<a href="Index.html" style="position:fixed;top:10px;left:12px;z-index:200;font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:rgba(242,231,211,.42);background:#221A15;border:1px solid #3A2C23;border-radius:7px;padding:5px 9px;text-decoration:none">← Index</a>
+<div class="doc">
+<h1>Yes — a day of forecast is very nearly a fixed cost</h1>
+<p class="lede">Scoring happens per <strong>site and window</strong>, so one user and a thousand users buy the same generation. What actually scales with users is small and mostly one-off: drive times from a new home address, notification sends, and — only if you let it — personalised prose. Drag the users slider and watch cost per user collapse while total cost barely moves. Unit costs are placeholders; put your real ones in and the shape holds.</p>
+
+<div class="grid">
+<div class="panel">
+<h3>Coverage &amp; scale</h3>
+<div class="ctl">
+<div class="f"><div class="lb"><span>Users</span><b id="vu">1</b></div><input type="range" id="u" min="0" max="60" value="0"><div class="hint">log scale · 1 → 10,000</div></div>
+<div class="f"><div class="lb"><span>Regions generated</span><b id="vr">4</b></div><input type="range" id="r" min="1" max="12" value="4"></div>
+<div class="f"><div class="lb"><span>Windows per day</span><b id="vw">2</b></div><input type="range" id="w" min="1" max="6" value="2"></div>
+<div class="f"><div class="lb"><span>Days ahead</span><b id="vd">4</b></div><input type="range" id="d" min="1" max="7" value="4"></div>
+<div class="f"><div class="lb"><span>Briefing prose</span></div><div class="seg" id="prose"><button data-p="shared" class="on">Regional · shared</button><button data-p="user">Per user</button></div><div class="hint">Regional prose is written once and read by everyone in that region. Per-user prose is the one thing that turns a fixed cost into a marginal one.</div></div>
+<div class="f"><div class="lb"><span>Notifications / user / week</span><b id="vn">3</b></div><input type="range" id="n" min="0" max="14" value="3"></div>
+<div class="f"><div class="lb"><span>Price / user / month</span><b id="vp">£4</b></div><input type="range" id="p" min="0" max="20" value="4" step="1"></div>
+</div>
+</div>
+
+<div>
+<div class="out">
+<div class="kpi fixed"><div class="k">Fixed · per month</div><div class="v" id="kf">—</div><div class="d" id="kfd">generation, any user count</div></div>
+<div class="kpi marg"><div class="k">Marginal · per user</div><div class="v" id="km">—</div><div class="d" id="kmd">per month</div></div>
+<div class="kpi per"><div class="k">Total cost / user</div><div class="v" id="kp">—</div><div class="d" id="kpd">fixed ÷ users + marginal</div></div>
+<div class="kpi tot"><div class="k">Gross margin</div><div class="v" id="kg">—</div><div class="d" id="kgd">at the price set</div></div>
+</div>
+
+<div class="split">
+<div class="bars">
+<h4>Where the money goes each month</h4>
+<div class="bar" id="b1"></div>
+<div class="bar" id="b2"></div>
+<div class="bar" id="b3"></div>
+<div class="bar" id="b4"></div>
+</div>
+<div class="chartbox">
+<h4>Cost per user as users arrive</h4>
+<div class="sub" id="csub">log x-axis · 1 → 10,000 users</div>
+<svg id="chart" viewBox="0 0 320 150" preserveAspectRatio="none"></svg>
+</div>
+</div>
+
+<div class="notes" id="notes"></div>
+<div class="foot" id="foot"></div>
+</div>
+</div>
+</div>
+
+<script>
+/* placeholder unit costs — swap for real ones */
+const C={regionWindow:0.021,   // one scored region-window (model call + compute)
+         proseRegion:0.014,    // one regional briefing paragraph
+         proseUser:0.012,      // personalised paragraph, per user per day
+         driveSetup:0.06,      // one-off geocode + drive matrix for a new home
+         notify:0.0008,        // one push/email
+         serve:0.004};         // hosting/API per user per month
+const el=id=>document.getElementById(id);
+const users=i=>Math.round(Math.pow(10,i/15));  // 0→1, 60→10000
+let prose='shared';
+
+function calc(){
+ const U=users(+el('u').value),R=+el('r').value,W=+el('w').value,D=+el('d').value,N=+el('n').value,P=+el('p').value;
+ const rw=R*W*D, gen=rw*C.regionWindow*30, pros=prose==='shared'?R*D*C.proseRegion*30:0;
+ const fixed=gen+pros;
+ const proseU=prose==='user'?C.proseUser*D*30:0;
+ const marg=proseU+N*4.33*C.notify+C.serve+C.driveSetup/12;
+ const total=fixed+marg*U, perUser=U?total/U:total;
+ const rev=P*U, margin=rev?((rev-total)/rev*100):0;
+ return {U,R,W,D,N,P,rw,gen,pros,fixed,marg,total,perUser,rev,margin,proseU};
+}
+const money=v=>(v<1?'£'+v.toFixed(3):'£'+v.toFixed(2));
+function bar(id,label,val,tot,col,note){
+ el(id).innerHTML=`<div class="t"><span>${label}${note?` <span style="color:rgba(242,231,211,.42)">${note}</span>`:''}</span><b>${money(val)}</b></div>
+ <div class="track"><div class="fill" style="width:${tot?Math.max(1.5,val/tot*100):0}%;background:${col}"></div></div>`;
+}
+function chart(s){
+ const pts=[];for(let i=0;i<=60;i+=2){const u=users(i);pts.push([i,(s.fixed+s.marg*u)/u])}
+ const max=pts[0][1],min=s.marg;
+ const x=i=>i/60*320, y=v=>{const lo=Math.log10(Math.max(min*0.6,0.0005)),hi=Math.log10(max);return 138-((Math.log10(Math.max(v,min*0.6))-lo)/(hi-lo))*128};
+ const path=pts.map((p,i)=>(i?'L':'M')+x(p[0]).toFixed(1)+' '+y(p[1]).toFixed(1)).join(' ');
+ const cx=x(+el('u').value),cy=y(s.perUser);
+ const priceY=s.P>0?y(s.P):null;
+ el('chart').innerHTML=`
+ ${priceY!==null&&priceY>0&&priceY<145?`<line x1="0" y1="${priceY.toFixed(1)}" x2="320" y2="${priceY.toFixed(1)}" stroke="#8AAE72" stroke-width="1" stroke-dasharray="4 3"></line><text class="axl" x="2" y="${(priceY-4).toFixed(1)}" style="fill:#8AAE72">price £${s.P}</text>`:''}
+ <path d="${path}" fill="none" stroke="#6FA8B0" stroke-width="1.8"></path>
+ <line x1="${cx.toFixed(1)}" y1="0" x2="${cx.toFixed(1)}" y2="138" stroke="#E0A542" stroke-width="1" stroke-dasharray="3 3"></line>
+ <circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="3" fill="#E0A542"></circle>
+ <text class="axl" x="0" y="148">1</text><text class="axl" x="150" y="148">100</text><text class="axl" x="296" y="148">10k</text>
+ <text class="axl" x="${Math.min(cx+5,250).toFixed(1)}" y="${Math.max(cy-6,10).toFixed(1)}" style="fill:#E0A542">${money(s.perUser)}/user</text>`;
+}
+function render(){
+ const s=calc();
+ el('vu').textContent=s.U.toLocaleString();el('vr').textContent=s.R;el('vw').textContent=s.W;el('vd').textContent=s.D;el('vn').textContent=s.N;el('vp').textContent='£'+s.P;
+ el('kf').textContent=money(s.fixed);
+ el('kfd').textContent=`${s.rw} region-windows/day`;
+ el('km').textContent=money(s.marg);
+ el('kmd').textContent=prose==='user'?'incl. personalised prose':'sends + serving + drive setup';
+ el('kp').textContent=money(s.perUser);
+ el('kpd').textContent=s.U===1?'the first user carries everything':`across ${s.U.toLocaleString()} users`;
+ el('kg').textContent=s.P?(s.margin>0?s.margin.toFixed(0)+'%':'—'):'n/a';
+ el('kgd').textContent=s.P?(s.margin>0?`£${(s.rev-s.total).toFixed(2)} on £${s.rev.toFixed(2)}`:`losing £${(s.total-s.rev).toFixed(2)}/mo`):'set a price';
+ const tot=Math.max(s.total,0.001);
+ bar('b1','Scoring · fixed',s.gen,tot,'linear-gradient(90deg,#B5A06A,#E0A542)',`${s.R}×${s.W}×${s.D} region-windows`);
+ bar('b2',prose==='shared'?'Regional prose · fixed':'Personalised prose · per user',prose==='shared'?s.pros:s.proseU*s.U,tot,'linear-gradient(90deg,#8f7a4e,#C88E2E)',prose==='shared'?`${s.R} regions × ${s.D} days`:`${s.U.toLocaleString()} users × ${s.D} days`);
+ bar('b3','Notifications',s.N*4.33*C.notify*s.U,tot,'linear-gradient(90deg,#4d7a80,#6FA8B0)',`${(s.N*4.33*s.U).toFixed(0)} sends/mo`);
+ bar('b4','Serving + drive setup',(C.serve+C.driveSetup/12)*s.U,tot,'linear-gradient(90deg,#5d7a52,#8AAE72)',`${s.U.toLocaleString()} users`);
+ chart(s);
+ const notes=[];
+ notes.push(['good','A day of forecast is a fixed cost',`${s.rw} region-windows a day whether one person looks or ten thousand. At ${s.U.toLocaleString()} user${s.U===1?'':'s'} that is ${money(s.perUser)} each — the first user carries the whole bill, and every user after is nearly free.`]);
+ if(prose==='user')notes.push(['warn','Per-user prose is the one thing that breaks this',`It turns ${money(s.fixed)} of fixed cost into ${money(s.marg)} per user per month — at scale that is ${money(s.proseU*s.U)} a month of writing nobody asked to be unique. Write regionally and personalise by selection instead.`]);
+ else notes.push(['','Prose stays regional',`One paragraph per region per day, read by everyone there. Personalisation comes from which windows and spots you are shown, not from re-writing the sentence.`]);
+ notes.push(['','What actually scales',`Notification sends, serving, and a one-off drive matrix when someone new sets their home. Together ${money(s.marg)} per user per month.`]);
+ if(s.R>4)notes.push(['warn','New regions are the real step cost',`Going to ${s.R} regions costs ${money(s.gen)} a month before anyone signs up. A user whose home is outside your coverage is not a marginal user — they are a new region.`]);
+ if(s.P&&s.margin>0&&s.U>1)notes.push(['good','Break-even',`You cover the fixed bill at roughly ${Math.max(1,Math.ceil(s.fixed/(s.P-s.marg))).toLocaleString()} paying user${Math.ceil(s.fixed/(s.P-s.marg))===1?'':'s'} at £${s.P}.`]);
+ el('notes').innerHTML=notes.map(([c,b,t])=>`<div class="nt${c?' '+c:''}"><b>${b}</b><span>${t}</span></div>`).join('');
+ el('foot').textContent=`Placeholder unit costs: £${C.regionWindow} per scored region-window · £${C.proseRegion} per regional paragraph · £${C.proseUser} per personalised paragraph · £${C.notify} per send · £${C.serve}/user/mo serving · £${C.driveSetup} one-off drive matrix. Replace with your measured figures.`;
+}
+['u','r','w','d','n','p'].forEach(id=>el(id).addEventListener('input',render));
+document.querySelectorAll('#prose button').forEach(b=>b.addEventListener('click',()=>{
+ document.querySelectorAll('#prose button').forEach(o=>o.classList.remove('on'));b.classList.add('on');prose=b.dataset.p;render()}));
+render();
+</script>
+</body>
+</html>

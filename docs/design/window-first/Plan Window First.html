@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PhotoCast — Plan, window-first</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--surface-light:#2A2019;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,0.66);--ink-3:rgba(242,231,211,0.42);--go:#8AAE72;--marginal:#E0A542;--standdown:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--nlc:#9B8FD4;--snow:#B7CBD8;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:28px 20px 70px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+.wrap{max-width:1080px;margin:0 auto}
+.app{background:var(--bg);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+
+/* masthead */
+.mast{display:flex;align-items:flex-start;gap:12px;padding:16px 18px 14px;border-bottom:1px solid var(--border)}
+.logo{width:28px;height:28px;border-radius:50%;background:conic-gradient(from 200deg,#E0A542,#C8452F,#C9A24B,#E0A542);flex:none}
+.brand{font-size:20px;font-weight:700;letter-spacing:-.02em;line-height:1.15}
+.mast .sub{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.mast .r{margin-left:auto;display:flex;gap:8px;align-items:center}
+.pill{font-family:var(--mono);font-size:10px;padding:4px 9px;border-radius:999px;border:1px solid rgba(138,174,114,.4);background:rgba(138,174,114,.12);color:#A8C795}
+.ghost{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);border:1px solid var(--border);background:transparent;border-radius:7px;padding:5px 10px;cursor:pointer}
+.ghost:hover{border-color:var(--border-light);color:var(--ink-2)}
+
+/* persistent day rail — lives in the shell, above the tabs */
+.rail{display:flex;gap:8px;padding:13px 18px 0}
+.day{flex:1;border:1px solid var(--border);border-radius:9px;background:var(--panel);padding:9px 11px 10px;text-align:left;font-family:var(--sans);color:inherit;user-select:none}
+.day.now{border-color:rgba(201,162,75,.55);background:rgba(201,162,75,.08)}
+.day.off{opacity:.45;cursor:default}
+.day .dt{display:flex;align-items:baseline;gap:7px}
+.day .dow{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;color:var(--ink-3)}
+.day .n{font-size:16px;font-weight:700;line-height:1}
+.day .nm{font-size:12.5px;font-weight:600}
+.day .flag{margin-left:auto;font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.06em;padding:2px 6px;border-radius:5px;background:rgba(138,174,114,.16);color:#A8C795}
+.day .sun{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:4px}
+.day .rc{font-family:var(--mono);font-size:10px;color:#9CCBD1;margin-top:3px}
+.day .rc.wk{color:var(--ink-3)}
+.day .vd{font-family:var(--mono);font-size:10.5px;margin-top:4px;color:var(--marginal)}
+.day .vd.g{color:#A8C795}
+.day .vd.n{color:var(--ink-3)}
+.railfoot{display:flex;align-items:center;gap:8px;padding:6px 18px 0;font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.railfoot .b{margin-left:auto}
+
+/* tabs */
+.tabs{display:flex;gap:6px;padding:12px 18px 0}
+.tab{font-size:12.5px;font-weight:500;color:var(--ink-2);border:1px solid var(--border);border-bottom-width:0;background:var(--panel);border-radius:8px 8px 0 0;padding:8px 14px;font-family:var(--sans);cursor:pointer}
+.tab:hover{color:var(--ink)}
+.tab.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:inset 0 2px 0 var(--home)}
+.tab .ct{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-left:5px}
+.tab.gate{margin-left:auto;color:var(--ink-3);border-style:dashed}
+.tabrule{height:1px;background:var(--border)}
+.body{padding:16px 18px 20px;display:flex;flex-direction:column;gap:10px}
+.pane{display:none;flex-direction:column;gap:10px}
+.pane.on{display:flex}
+
+/* promoted event strip — only when something exceptional is live */
+.promo{border:1px solid rgba(111,168,176,.4);border-left:3px solid var(--tide);border-radius:11px;background:linear-gradient(180deg,rgba(111,168,176,.07),transparent 70%),var(--surface);overflow:hidden}
+.promo.nlcp{border-color:rgba(155,143,212,.4);border-left-color:var(--nlc);background:linear-gradient(180deg,rgba(155,143,212,.07),transparent 70%),var(--surface)}
+.promo.snowp{border-color:rgba(183,203,216,.4);border-left-color:var(--snow);background:linear-gradient(180deg,rgba(183,203,216,.07),transparent 70%),var(--surface);display:none}
+body.winter .snowp{display:block}
+body.winter .tidep{display:none}
+.promo.snowp .ph .k{color:#C6D8E3}
+.pb.drive{grid-template-columns:auto auto auto 1fr;gap:22px}
+.pb.drive .why{max-width:250px}
+.ph{display:flex;align-items:center;gap:10px;padding:11px 14px 8px;flex-wrap:wrap}
+.ph .k{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:#9CCBD1}
+.promo.nlcp .ph .k{color:#BFB6E8}
+.ph .t{font-size:14.5px;font-weight:700;letter-spacing:-.01em}
+.ph .rule{flex:1;height:1px;background:var(--border);min-width:12px}
+.ph .rare{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.pb{display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:center;padding:0 14px 11px}
+.pb .fig{font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+.pb .fig b{display:block;font-size:15px;color:var(--ink);font-weight:600}
+.chart{height:58px;width:100%;position:relative;padding-bottom:16px}
+.chart svg{display:block;width:100%;height:42px;overflow:visible}
+.chart .lab{position:absolute;bottom:0;font-family:var(--mono);font-size:9px;color:var(--ink-3)}
+.pb .why{font-family:var(--serif);font-style:italic;font-size:12.5px;color:var(--ink-2);text-align:right;max-width:230px;line-height:1.45}
+.pfoot{display:flex;align-items:center;gap:12px;padding:8px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,.18);font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.pfoot .go{margin-left:auto;color:var(--tide)}
+
+/* tide row — present in every window that has an alignment, not just exceptional runs */
+.tiderow{display:grid;grid-template-columns:auto auto 1fr auto;gap:12px;align-items:center;margin:0 14px 11px;padding:7px 11px;border:1px solid rgba(111,168,176,.28);border-left:2px solid var(--tide);border-radius:8px;background:rgba(111,168,176,.055);cursor:pointer}
+.tiderow:hover{border-color:rgba(111,168,176,.5);background:rgba(111,168,176,.085)}
+.tiderow .k{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#9CCBD1;white-space:nowrap}
+.mini{width:104px;height:24px;flex:none}
+.mini svg{display:block;width:104px;height:24px;overflow:visible}
+.tiderow .f{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);display:flex;gap:14px;flex-wrap:wrap}
+.tiderow .f b{color:var(--ink);font-weight:600}
+.tiderow .f .dim{color:var(--ink-3)}
+.tiderow .go{font-family:var(--mono);font-size:10.5px;color:var(--tide);white-space:nowrap}
+.tiderow.peak{border-color:rgba(111,168,176,.5);background:rgba(111,168,176,.1)}
+
+/* snow row — ground condition, same slim treatment as tide */
+.snowrow{display:none;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;margin:0 14px 11px;padding:7px 11px;border:1px solid rgba(183,203,216,.26);border-left:2px solid var(--snow);border-radius:8px;background:rgba(183,203,216,.05);cursor:pointer}
+body.winter .snowrow{display:grid}
+.snowrow:hover{border-color:rgba(183,203,216,.48);background:rgba(183,203,216,.08)}
+.snowrow .k{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#C6D8E3;white-space:nowrap}
+.snowrow .f{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);display:flex;gap:14px;flex-wrap:wrap}
+.snowrow .f b{color:var(--ink);font-weight:600}
+.snowrow .f .dim{color:var(--ink-3)}
+.snowrow .go{font-family:var(--mono);font-size:10.5px;color:var(--tide);white-space:nowrap}
+.demobar{max-width:1080px;margin:0 auto 10px;display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.demobar button{font-family:var(--mono);font-size:10.5px;border:1px solid var(--border);background:var(--surface);color:var(--ink-2);border-radius:7px;padding:6px 11px;cursor:pointer}
+.demobar button:hover{border-color:var(--border-light);color:var(--ink)}
+body.winter .demobar button{border-color:rgba(183,203,216,.5);background:rgba(183,203,216,.1);color:#DCE8EF}
+
+/* window card */
+.win{border:1px solid var(--border);border-radius:11px;background:var(--panel);overflow:hidden}
+.win.lead{border-color:rgba(201,162,75,.42);background:linear-gradient(180deg,rgba(201,162,75,.06),transparent 55%),var(--panel)}
+.win.off{opacity:.5}
+.wh{display:flex;align-items:center;gap:10px;padding:12px 14px 10px;flex-wrap:wrap}
+.wh .lbl{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--home)}
+.wh .when{font-size:15.5px;font-weight:700;letter-spacing:-.01em}
+.wh .time{font-family:var(--mono);font-size:13.5px;font-weight:600}
+.wh .best{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.wh .rule{flex:1;height:1px;background:var(--border);min-width:12px}
+.badges{display:flex;gap:6px;flex-wrap:wrap}
+.bdg{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:999px;border:1px solid var(--border-light);background:rgba(255,255,255,.04);color:var(--ink-2);white-space:nowrap;cursor:pointer;font-family:var(--mono)}
+.bdg:hover{border-color:var(--ink-3);color:var(--ink)}
+.bdg.tide{border-color:rgba(111,168,176,.45);background:rgba(111,168,176,.12);color:#9CCBD1}
+.bdg.nlc{border-color:rgba(155,143,212,.45);background:rgba(155,143,212,.12);color:#BFB6E8}
+.bdg.aur{border-color:rgba(138,174,114,.45);background:rgba(138,174,114,.12);color:#A8C795}
+.bdg.verd{border-color:rgba(224,165,66,.5);background:rgba(224,165,66,.14);color:#EFC377;font-weight:600}
+.bdg.flat{cursor:default;border-style:dashed}
+.wtop{display:grid;grid-template-columns:1.25fr 1fr;gap:15px;padding:0 14px 12px}
+.wtop.solo{grid-template-columns:1fr}
+.bb{border-left:2px solid var(--go);padding-left:11px}
+.bb.alt{border-left-color:var(--marginal)}
+.bb .k{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);display:flex;gap:8px}
+.bb .k .reg{margin-left:auto;font-weight:400}
+.bb h4{font-family:var(--serif);font-size:15.5px;font-weight:500;line-height:1.32;margin:5px 0;letter-spacing:-.005em}
+.bb p{font-size:12px;color:var(--ink-2);line-height:1.58}
+.bb .lc{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:7px}
+.spots{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:0 14px 11px}
+.spot{border:1px solid var(--border);border-radius:8px;padding:9px 10px;background:rgba(0,0,0,.16);display:flex;flex-direction:column;gap:4px;cursor:pointer;transition:transform .12s,border-color .14s}
+.spot:hover{transform:translateY(-2px);border-color:var(--border-light)}
+.spot .top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.spot .nm{font-size:12.5px;font-weight:600;line-height:1.25}
+.spot .st{font-family:var(--mono);font-size:10px;font-weight:600;padding:2px 5px;border-radius:5px;background:rgba(138,174,114,.16);color:#A8C795;white-space:nowrap;flex:none}
+.spot .mt{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.spot .mt.far{color:#9CCBD1}
+.spot.far{border-color:rgba(111,168,176,.3)}
+.spot .op{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:auto}
+.spot:hover .op{color:var(--tide)}
+.wfoot{display:flex;align-items:center;gap:12px;padding:8px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,.16);font-family:var(--mono);font-size:10.5px;color:var(--ink-3);flex-wrap:wrap}
+.wfoot .go{margin-left:auto;color:var(--tide);cursor:pointer}
+
+/* doors */
+.links{display:flex;gap:8px}
+.lk{flex:1;border:1px solid var(--border);border-radius:9px;background:var(--surface);padding:10px 13px;cursor:pointer}
+.lk:hover{border-color:var(--border-light)}
+.lk .t{font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:6px}
+.lk .t .ar{margin-left:auto;color:var(--ink-3);font-family:var(--mono);font-size:10.5px;font-weight:400}
+.lk .d{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:3px}
+
+/* coming up */
+.cu{border:1px solid var(--border);border-radius:11px;background:var(--panel);overflow:hidden}
+.cuh{display:flex;align-items:center;gap:10px;padding:12px 14px 11px;border-bottom:1px solid var(--border)}
+.cuh .t{font-size:15px;font-weight:700}
+.cuh .d{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.cuh .d::before{content:'· '}
+.ev{display:grid;grid-template-columns:112px 1fr auto;gap:14px;align-items:center;padding:11px 14px;border-bottom:1px solid var(--border);cursor:pointer}
+.ev:last-child{border-bottom:none}
+.ev:hover{background:rgba(255,255,255,.02)}
+.ev .dt{font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+.ev .dt b{display:block;font-size:12.5px;color:var(--ink);font-weight:600}
+.ev .nm{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ev .sub{font-size:12px;color:var(--ink-2);margin-top:2px;line-height:1.5}
+.ev .rt{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);text-align:right;white-space:nowrap}
+.ev.past{opacity:.45}
+.kindk{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;padding:2px 6px;border-radius:5px}
+.kindk.alm{background:rgba(111,168,176,.14);color:#9CCBD1}
+.kindk.fc{background:rgba(138,174,114,.14);color:#A8C795}
+.cufoot{padding:9px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,.16);font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+
+/* notes */
+.notes{max-width:1080px;margin:16px auto 0;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.nt{border:1px solid var(--border);border-left:3px solid var(--home);border-radius:8px;background:var(--surface);padding:10px 13px}
+.nt b{display:block;font-size:12.5px;font-weight:600;margin-bottom:3px}
+.nt span{font-size:12px;color:var(--ink-2);line-height:1.55}
+.h{max-width:1080px;margin:10px auto 0;font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.h b{color:var(--go);font-weight:600}
+</style>
+</head>
+<body>
+<a href="Index.html" style="position:fixed;top:10px;left:12px;z-index:200;font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:rgba(242,231,211,.42);background:#221A15;border:1px solid #3A2C23;border-radius:7px;padding:5px 9px;text-decoration:none">← Index</a>
+<div class="wrap">
+<div class="demobar"><span>Mock is dated 1 Aug — snow only appears when there is snow.</span><button id="wt">❄ Preview a winter day</button></div>
+<div class="app">
+
+<div class="mast"><div class="logo"></div><div><div class="brand">PhotoCast</div><div class="sub">AI sunrise, sunset, and aurora forecasting</div></div><div class="r"><span class="pill">● UP v2.17.7</span><button class="ghost">⚙</button><button class="ghost">Sign out</button></div></div>
+
+<div class="rail" id="rail">
+<div class="day now"><div class="dt"><span class="dow">SAT</span><span class="n">1</span><span class="nm">Today</span></div><div class="sun">↑ 05:22 ↓ 21:14</div><div class="vd">Maybe · sunset</div><div class="rc">reach 2h30 · 120 mi</div></div>
+<div class="day"><div class="dt"><span class="dow">SUN</span><span class="n">2</span><span class="nm">Tomorrow</span><span class="flag">◎ BEST</span></div><div class="sun">↑ 05:23 ↓ 21:12</div><div class="vd g">Worth it · both windows</div><div class="rc">reach 2h30 · 120 mi</div></div>
+<div class="day off"><div class="dt"><span class="dow">MON</span><span class="n">3</span><span class="nm">Monday</span></div><div class="sun">✈ Away · travel day</div><div class="vd n">No forecast</div><div class="rc wk">reach 45 min · 30 mi</div></div>
+<div class="day off"><div class="dt"><span class="dow">TUE</span><span class="n">4</span><span class="nm">Tuesday</span></div><div class="sun">✈ Away · travel day</div><div class="vd n">No forecast</div><div class="rc wk">reach 45 min · 30 mi</div></div>
+</div>
+<div class="railfoot"><span>Home · Northumberland &amp; Tyneside · reach set per day</span><span class="b">Edit reach · forecast 52m ago by Sonnet</span></div>
+
+<div class="tabs">
+<button class="tab on" data-p="plan">◉ Plan</button>
+<button class="tab" data-p="cu">Coming up<span class="ct">3</span></button>
+<button class="tab" data-p="map">◍ Map</button>
+<button class="tab gate">⚙ Manage · admin</button>
+</div>
+<div class="tabrule"></div>
+
+<div class="body">
+
+<!-- ─── PLAN ─── -->
+<div class="pane on" id="plan">
+
+<!-- promoted event: earned, disappears when nothing exceptional is live -->
+<!-- promoted: a coincidence — two attributes landing on one window is the thing worth driving for -->
+<div class="promo snowp">
+<div class="ph"><span class="k">❄ Snow × clear sky</span><span class="t">Fresh snow on the Lakeland tops with a clear sunrise</span><span class="rule"></span><span class="rare">first coincidence since 2 Mar · 2h 05 out — within your weekend reach</span></div>
+<div class="pb drive">
+<div class="fig">drive<b>2h 05</b>96 mi · leave 03:10</div>
+<div class="fig">alpenglow<b>05:04–05:31</b>27 min of it</div>
+<div class="fig">rated excellent<b>23 of 57</b>sites evaluated</div>
+<div class="why">tops white, valleys clear — the combination you drive for</div>
+</div>
+<div class="pfoot"><span>4 cm above 500 m · near-still air · no valley cloud forecast</span><span>Wasdale · Great Gable · Blencathra</span><span class="go">Plan the drive →</span></div>
+</div>
+
+<div class="promo tidep">
+<div class="ph"><span class="k">≈ Spring tide run</span><span class="t">Peak range lands on tomorrow's sunset</span><span class="rule"></span><span class="rare">2 of 3 · 61 coastal locations · 2 regions</span></div>
+<div class="pb">
+<div class="fig">range<b>4.9 m</b>+1.2 avg</div>
+<div class="chart">
+<svg viewBox="0 0 320 44" preserveAspectRatio="none" aria-hidden="true">
+<path d="M0 34 C 24 34 34 6 60 6 C 86 6 96 38 120 38 C 144 38 156 8 182 8 C 208 8 218 36 244 36 C 270 36 282 10 320 10" fill="none" stroke="#6FA8B0" stroke-width="1.6"></path>
+<line x1="108" y1="0" x2="108" y2="44" stroke="#E0A542" stroke-width="1" stroke-dasharray="3 3"></line>
+<line x1="248" y1="0" x2="248" y2="44" stroke="#E0A542" stroke-width="1" stroke-dasharray="3 3"></line>
+</svg>
+<span class="lab" style="left:0">LW 01:34</span><span class="lab" style="left:24%">HW 07:35</span><span class="lab" style="left:50%">LW 14:01</span><span class="lab" style="left:76%">HW 20:03</span>
+</div>
+<div class="why">low water bares the foreground 3h40 before sunrise</div>
+</div>
+<div class="pfoot"><span>seas 0.2 m · smooth · at Breil Nook</span><span>10 tides aligned with sunset</span><span class="go">◍ Show the 61 on map →</span></div>
+</div>
+
+<div class="win lead">
+<div class="wh"><span class="lbl">Tonight</span><span class="when">Sunset</span><span class="time">21:11</span><span class="best">best 4.0★ · 23 within reach</span><span class="rule"></span><span class="badges"><span class="bdg verd">◎ Worth it</span><span class="bdg nlc">✦ NLC chance · 21:52 NW</span></span></div>
+<div class="tiderow"><span class="k">≈ Tide</span><div class="mini"><svg viewBox="0 0 104 24" preserveAspectRatio="none" aria-hidden="true"><path d="M0 19 C 12 19 17 4 30 4 C 43 4 48 20 61 20 C 74 20 79 5 104 5" fill="none" stroke="#6FA8B0" stroke-width="1.5"></path><line x1="41" y1="-1" x2="41" y2="24" stroke="#E0A542" stroke-width="1" stroke-dasharray="2 2"></line><circle cx="41" cy="12.5" r="2.4" fill="#E0A542"></circle></svg></div><div class="f"><span>mid tide, <b>falling</b></span><span>HW 19:28 · <b>1h43 before sunset</b></span><span class="dim">range 4.9 m +1.2 avg · 11 aligned</span></div><span class="go">61 coastal locations →</span></div>
+<div class="snowrow"><span class="k">❄ Snow on the tops</span><div class="f"><span>lying above <b>650 m</b></span><span><b>3 days old</b> · wind-scoured, thin cover</span><span class="dim">Cheviot &amp; Simonside tops · 7 sites affected</span></div><span class="go">Filter to high ground →</span></div>
+<div class="wtop">
+<div class="bb"><div class="k"><span>◎ Best bet</span><span class="reg">Northumberland &amp; Tyneside</span></div><h4>Breaking clear with the antisolar canvas alight</h4><p>Low cloud clears from the west and mid-level cloud catches fire on cue. The strongest local window before the front arrives.</p><div class="lc">The River Wansbeck, Bothal · 45 min · 23 mi</div></div>
+<div class="bb alt"><div class="k"><span>○ Also good · same window</span><span class="reg">The Yorkshire Dales</span></div><h4>Thin high cloud inland, lower confidence</h4><p>Provisional — 12 of 31 rated sites score well if the overcast thins before golden hour.</p><div class="lc">High Force · 58 min · 29 mi</div></div>
+</div>
+<div class="spots">
+<div class="spot"><div class="top"><span class="nm">The River Wansbeck, Bothal</span><span class="st">4.0★</span></div><div class="mt">45 min · 23 mi</div><div class="op">◍ Open on map →</div></div>
+<div class="spot"><div class="top"><span class="nm">Infinity Bridge</span><span class="st">3.0★</span></div><div class="mt">38 min · 21 mi</div><div class="op">◍ Open on map →</div></div>
+<div class="spot far"><div class="top"><span class="nm">Sycamore Gap ridge</span><span class="st">4.0★</span></div><div class="mt far">1h 06 · 47 mi · beyond weekday reach</div><div class="op">◍ Open on map →</div></div>
+<div class="spot far"><div class="top"><span class="nm">Sandsend Ness</span><span class="st">3.0★</span></div><div class="mt far">1h 48 · 78 mi · weekend only</div><div class="op">◍ Open on map →</div></div>
+</div>
+<div class="wfoot"><span>Within tonight's 2h30 reach · ranked by rating, then drive</span><span class="badges"><span class="bdg flat">Any drive</span><span class="bdg flat">Any rating</span><span class="bdg flat">Tide only</span></span><span class="go">All 23 for this window →</span></div>
+</div>
+
+<div class="win">
+<div class="wh"><span class="when">Tomorrow sunrise</span><span class="time">05:17</span><span class="best">best 4.0★ · 41 within reach</span><span class="rule"></span><span class="badges"><span class="bdg verd">◎ Worth it</span><span class="bdg">Best window of the weekend</span></span></div>
+<div class="tiderow"><span class="k">≈ Tide</span><div class="mini"><svg viewBox="0 0 104 24" preserveAspectRatio="none" aria-hidden="true"><path d="M0 6 C 10 6 15 20 27 20 C 40 20 45 4 58 4 C 71 4 76 20 89 20 C 97 20 100 14 104 11" fill="none" stroke="#6FA8B0" stroke-width="1.5"></path><line x1="27" y1="-1" x2="27" y2="24" stroke="#E0A542" stroke-width="1" stroke-dasharray="2 2"></line><circle cx="27" cy="20" r="2.4" fill="#E0A542"></circle></svg></div><div class="f"><span><b>Low water</b> on the window</span><span>LW 01:34 · <b>3h43 before sunrise</b></span><span class="dim">seas 0.3 m smooth · 9 aligned</span></div><span class="go">Low water bares the foreground →</span></div>
+<div class="snowrow"><span class="k">❄ Fresh snow</span><div class="f"><span><b>4 cm</b> overnight above 500 m</span><span>tops white, <b>valleys clear</b></span><span class="dim">alpenglow window 05:04–05:31 · 22 sites affected</span></div><span class="go">Filter to high ground →</span></div>
+<div class="wtop solo">
+<div class="bb"><div class="k"><span>◎ Best bet</span><span class="reg">The Lake District</span></div><h4>Best-evaluated window of the weekend — calm, clear conditions</h4><p>Twenty-three locations rated excellent across 57 fully evaluated sites, with near-still air and clear skies. Conditions are TRANSITIONAL, so check the forecast before heading out — but early mornings often hold ahead of a front.</p></div>
+</div>
+<div class="spots">
+<div class="spot far"><div class="top"><span class="nm">Buttermere</span><span class="st">4.0★</span></div><div class="mt far">2h 05 · 96 mi · leave 03:10</div><div class="op">◍ Open on map →</div></div>
+<div class="spot"><div class="top"><span class="nm">Infinity Bridge</span><span class="st">4.0★</span></div><div class="mt">38 min · 21 mi</div><div class="op">◍ Open on map →</div></div>
+<div class="spot"><div class="top"><span class="nm">Copt Hill</span><span class="st">3.0★</span></div><div class="mt">10 min · 4 mi</div><div class="op">◍ Open on map →</div></div>
+<div class="spot"><div class="top"><span class="nm">Angel of the North</span><span class="st">3.0★</span></div><div class="mt">16 min · 5 mi</div><div class="op">◍ Open on map →</div></div>
+</div>
+<div class="wfoot"><span>Within tomorrow's 2h30 reach · the Best Bet sits 2h 05 out</span><span class="go">All 41 for this window →</span></div>
+</div>
+
+<div class="win">
+<div class="wh"><span class="when">Tomorrow sunset</span><span class="time">21:08</span><span class="best">best 4.0★ · 14 within reach</span><span class="rule"></span><span class="badges"><span class="bdg aur">▣ Aurora Kp 4 · 21:57</span></span></div>
+<div class="tiderow peak"><span class="k">≈ Tide · peak</span><div class="mini"><svg viewBox="0 0 104 24" preserveAspectRatio="none" aria-hidden="true"><path d="M0 20 C 12 20 17 3 30 3 C 43 3 48 21 61 21 C 74 21 79 2 92 2 C 99 2 102 8 104 12" fill="none" stroke="#6FA8B0" stroke-width="1.8"></path><line x1="92" y1="-1" x2="92" y2="24" stroke="#E0A542" stroke-width="1" stroke-dasharray="2 2"></line><circle cx="92" cy="2" r="2.4" fill="#E0A542"></circle></svg></div><div class="f"><span><b>High water</b> on the window</span><span>HW 20:03 · <b>1h05 before sunset</b></span><span class="dim">peak range 4.9 m · 10 aligned</span></div><span class="go">Promoted above →</span></div>
+<div class="spots" style="padding-top:2px">
+<div class="spot"><div class="top"><span class="nm">Simonside</span><span class="st">4.0★</span></div><div class="mt">19 min · 10 mi</div><div class="op">◍ Open on map →</div></div>
+<div class="spot"><div class="top"><span class="nm">Infinity Bridge</span><span class="st">4.0★</span></div><div class="mt">38 min · 21 mi</div><div class="op">◍ Open on map →</div></div>
+<div class="spot"><div class="top"><span class="nm">Blyth Beach</span><span class="st">4.0★</span></div><div class="mt">41 min · 19 mi · mid tide</div><div class="op">◍ Open on map →</div></div>
+<div class="spot"><div class="top"><span class="nm">Bothal Weir</span><span class="st">4.0★</span></div><div class="mt">45 min · 23 mi</div><div class="op">◍ Open on map →</div></div>
+</div>
+<div class="wfoot"><span>Kp 4 · glow reaches ~58°N · moon 82% · look due N, low</span><span class="go">All 14 for this window →</span></div>
+</div>
+
+<div class="win off"><div class="wh"><span class="when" style="font-size:13.5px">Mon 3 – Tue 4</span><span class="best">✈ Away · travel days · no forecast generated</span><span class="rule"></span><span class="badges"><span class="bdg">Edit availability</span></span></div></div>
+
+<div class="links">
+<div class="lk"><div class="t">Regional planner<span class="ar">4 regions →</span></div><div class="d">heatmap · full briefing · Sat–Tue</div></div>
+<div class="lk"><div class="t">Hot topics<span class="ar">3 live →</span></div><div class="d">enriched science reads</div></div>
+</div>
+
+</div>
+
+<!-- ─── COMING UP ─── -->
+<div class="pane" id="cu">
+<div class="cu">
+<div class="cuh"><span class="t">Coming up</span><span class="d">dated events worth planning a trip around · next 90 days</span></div>
+
+<div class="ev"><div class="dt"><b>Tomorrow</b>Sun 2 Aug · 21:08</div><div><div class="nm">Spring tide run 2/3 — peak range<span class="kindk alm">Almanac</span></div><div class="sub">4.9 m range, +1.2 on average. Low water 3h40 before sunrise bares the foreground at 61 coastal locations across 2 regions.</div></div><div class="rt">promoted to Plan<br>10 tides aligned</div></div>
+
+<div class="ev"><div class="dt"><b>Tomorrow</b>Sun 2 Aug · 21:57</div><div><div class="nm">Aurora possible — Kp 4<span class="kindk fc">Forecast</span></div><div class="sub">Glow reaches ~58°N and north. Moon 82% will wash the low sky; look due north and low.</div></div><div class="rt">4 regions<br>worth watching</div></div>
+
+<div class="ev"><div class="dt"><b>Through 12 Aug</b>nightly · 21:52–00:03</div><div><div class="nm">Noctilucent cloud season<span class="kindk alm">Almanac</span></div><div class="sub">Clear northern horizon at 241 of 252 dark-sky locations. Best after dusk to the NW and before dawn to the NE.</div></div><div class="rt">4 regions<br>11 nights left</div></div>
+
+<div class="ev"><div class="dt"><b>16–18 Aug</b>Fri–Sun</div><div><div class="nm">Spring tide run 3/3<span class="kindk alm">Almanac</span></div><div class="sub">4.6 m range. Alignment falls on sunrise rather than sunset this run — the eastern coast benefits.</div></div><div class="rt">2 regions<br>in 15 days</div></div>
+
+<div class="ev"><div class="dt"><b>11–13 Aug</b>peak Tue night</div><div><div class="nm">Perseid maximum<span class="kindk alm">Almanac</span></div><div class="sub">Moon sets 01:10, leaving a dark window until astronomical dawn. Radiant high to the NE after midnight.</div></div><div class="rt">all regions<br>in 10 days</div></div>
+
+<div class="ev past"><div class="dt"><b>Passed</b>26–28 Jul</div><div><div class="nm">Spring tide run 1/3<span class="kindk alm">Almanac</span></div><div class="sub">4.9 m range · 11 tides aligned with sunset.</div></div><div class="rt">2 regions</div></div>
+
+<div class="cufoot">Almanac events are fixed by orbital mechanics — plan months out. Forecast events firm up 3 days ahead. Anything live gets promoted to the top of Plan on the day.</div>
+</div>
+</div>
+
+<div class="pane" id="map"><div class="win" style="padding:60px 14px;text-align:center"><span style="font-family:var(--mono);font-size:11.5px;color:var(--ink-3)">Map tab — unchanged</span></div></div>
+
+</div>
+</div>
+
+<div class="notes">
+<div class="nt"><b>Also good means same window</b><span>The second region worth driving to <em>for this window</em> — 21:11 tonight, a different direction. A cross-day "also good" cannot exist here by construction: it is simply the Best Bet of the window it belongs to. The rail is a read-out, not a control: it states each day and its reach, and the windows below are already in order.</span></div>
+<div class="nt"><b>Reach is a property of the day</b><span>Weekday you will drive 45 minutes; a weekend you will drive 2h30 for the shot. So reach lives on the rail cell, not in a global setting — and every window ranks against <em>that day's</em> reach. Spots beyond weekday range are marked, so a Saturday list can honestly include a 2h drive without pretending it is local.</span></div>
+<div class="nt"><b>Ground conditions get a row too</b><span>Fresh snow and lying snow on the tops change the subject as much as a tide does, so they take the same slim row: depth, the line it lies above, age, and how many sites it affects. Present only when there is snow — hit <b>Preview a winter day</b> above to see it.</span></div>
+</div>
+<div class="h">Plan tab <b>≈1,420px</b> with an event promoted, ≈1,140px without · today ≈2,600px</div>
+</div>
+
+<script>
+document.getElementById('wt').addEventListener('click',()=>{
+ const on=document.body.classList.toggle('winter');
+ document.getElementById('wt').textContent=on?'❄ Winter day · on':'❄ Preview a winter day';
+});
+</script>
+<script>
+document.querySelectorAll('.tab[data-p]').forEach(t=>t.addEventListener('click',()=>{
+ document.querySelectorAll('.tab').forEach(o=>o.classList.remove('on'));t.classList.add('on');
+ document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id===t.dataset.p));
+}));
+</script>
+</body>
+</html>

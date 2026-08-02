@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PhotoCast — Plan, window-first v2</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--surface-light:#2A2019;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,0.66);--ink-3:rgba(242,231,211,0.42);--go:#8AAE72;--marginal:#E0A542;--standdown:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--nlc:#9B8FD4;--snow:#B7CBD8;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:26px 20px 80px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+.wrap{max-width:1080px;margin:0 auto;transition:max-width .22s ease}
+.wrap.mob{max-width:390px}
+.app{background:var(--bg);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.wrap.mob .app{border-radius:26px;box-shadow:0 0 0 8px #241c17,0 26px 60px rgba(0,0,0,.6)}
+
+.demobar{max-width:1080px;margin:0 auto 10px;display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);flex-wrap:wrap}
+.demobar .sp{margin-right:auto}
+.demobar button{font-family:var(--mono);font-size:10.5px;border:1px solid var(--border);background:var(--surface);color:var(--ink-2);border-radius:7px;padding:6px 11px;cursor:pointer}
+.demobar button:hover{border-color:var(--border-light);color:var(--ink)}
+.demobar button.on{border-color:rgba(201,162,75,.55);background:rgba(201,162,75,.12);color:#EBD9A8}
+
+.mast{display:flex;align-items:flex-start;gap:12px;padding:16px 18px 14px;border-bottom:1px solid var(--border)}
+.logo{width:28px;height:28px;border-radius:50%;background:conic-gradient(from 200deg,#E0A542,#C8452F,#C9A24B,#E0A542);flex:none}
+.brand{font-size:20px;font-weight:700;letter-spacing:-.02em;line-height:1.15}
+.mast .sub{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.mast .r{margin-left:auto;display:flex;gap:8px;align-items:center}
+.pill{font-family:var(--mono);font-size:10px;padding:4px 9px;border-radius:999px;border:1px solid rgba(138,174,114,.4);background:rgba(138,174,114,.12);color:#A8C795;white-space:nowrap}
+.ghost{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);border:1px solid var(--border);background:transparent;border-radius:7px;padding:5px 10px;cursor:pointer}
+
+.rail{display:flex;gap:8px;padding:13px 18px 0}
+.day{flex:1;border:1px solid var(--border);border-radius:9px;background:var(--panel);padding:9px 11px 10px;user-select:none;min-width:0}
+.day.now{border-color:rgba(201,162,75,.55);background:rgba(201,162,75,.08)}
+.day.off{opacity:.45}
+.day .dt{display:flex;align-items:baseline;gap:7px}
+.day .dow{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;color:var(--ink-3)}
+.day .n{font-size:16px;font-weight:700;line-height:1}
+.day .nm{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.day .flag{margin-left:auto;font-family:var(--mono);font-size:9.5px;font-weight:600;padding:2px 6px;border-radius:5px;background:rgba(138,174,114,.16);color:#A8C795}
+.day .sun{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:4px;white-space:nowrap}
+.day .vd{font-family:var(--mono);font-size:10.5px;margin-top:4px;color:var(--marginal)}
+.day .vd.g{color:#A8C795}.day .vd.n{color:var(--ink-3)}
+.railfoot{display:flex;align-items:center;gap:8px;padding:6px 18px 0;font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.railfoot .b{margin-left:auto}
+.day .vd.sk{color:var(--marginal)}
+.skipped{border:1px dashed var(--border-light);border-radius:11px;background:rgba(0,0,0,.14);padding:11px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.skipped b{color:var(--ink-2);font-weight:600}
+.skipped .go{margin-left:auto;color:var(--tide);cursor:pointer}
+
+.tabs{display:flex;gap:6px;padding:12px 18px 0}
+.tab{font-size:12.5px;font-weight:500;color:var(--ink-2);border:1px solid var(--border);border-bottom-width:0;background:var(--panel);border-radius:8px 8px 0 0;padding:8px 14px;font-family:var(--sans);cursor:pointer;white-space:nowrap}
+.tab.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:inset 0 2px 0 var(--home)}
+.tab .ct{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-left:5px}
+.tab.gate{margin-left:auto;color:var(--ink-3);border-style:dashed;border-bottom-width:0}
+.tabrule{height:1px;background:var(--border)}
+
+/* global lens bar — one place, applies to every window */
+.lens{display:flex;align-items:center;gap:8px;padding:11px 18px;background:var(--surface);border-bottom:1px solid var(--border);flex-wrap:wrap;position:sticky;top:0;z-index:20}
+.lgrp{display:flex;align-items:center;gap:8px}
+.lens .k{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap}
+.seg{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--panel)}
+.seg button{font-family:var(--mono);font-size:11px;padding:6px 11px;background:transparent;border:none;border-right:1px solid var(--border);color:var(--ink-2);cursor:pointer;white-space:nowrap}
+.seg button:last-child{border-right:none}
+.seg button.on{background:rgba(201,162,75,.13);color:#EBD9A8;font-weight:600}
+.seg.home button.on{background:rgba(201,162,75,.18)}
+.chip{font-family:var(--mono);font-size:11px;padding:6px 11px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--ink-2);cursor:pointer;white-space:nowrap}
+.chip.on{border-color:rgba(111,168,176,.5);background:rgba(111,168,176,.13);color:#9CCBD1;font-weight:600}
+.lens .res{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);white-space:nowrap}
+.stick{font-family:var(--mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;padding:2px 5px;border-radius:4px;background:rgba(138,174,114,.14);color:#A8C795;white-space:nowrap}
+.stick.tmp{background:rgba(224,165,66,.14);color:#EFC377}
+.lens .rst{font-family:var(--mono);font-size:10.5px;color:var(--tide);cursor:pointer;background:none;border:none;white-space:nowrap;display:none}
+.lens .rst.on{display:inline}
+
+.spot .rg{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.body{padding:14px 18px 20px;display:flex;flex-direction:column;gap:10px}
+.pane{display:none;flex-direction:column;gap:10px}
+.pane.on{display:flex}
+
+/* promoted strip */
+.promo{border:1px solid rgba(111,168,176,.4);border-left:3px solid var(--tide);border-radius:11px;background:linear-gradient(180deg,rgba(111,168,176,.07),transparent 70%),var(--surface);overflow:hidden}
+.promo.snowp{border-color:rgba(183,203,216,.4);border-left-color:var(--snow);background:linear-gradient(180deg,rgba(183,203,216,.07),transparent 70%),var(--surface);display:none}
+body.winter .snowp{display:block}body.winter .tidep{display:none}
+.promo.snowp .ph .k{color:#C6D8E3}
+.ph{display:flex;align-items:center;gap:10px;padding:11px 14px 8px;flex-wrap:wrap}
+.ph .k{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:#9CCBD1}
+.ph .t{font-size:14.5px;font-weight:700;letter-spacing:-.01em}
+.ph .rule{flex:1;height:1px;background:var(--border);min-width:12px}
+.ph .rare{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.pb{display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:center;padding:0 14px 11px}
+.pb.drive{grid-template-columns:auto auto auto 1fr;gap:20px}
+.pb .fig{font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+.pb .fig b{display:block;font-size:15px;color:var(--ink);font-weight:600}
+.chart{height:58px;width:100%;position:relative;padding-bottom:16px}
+.chart svg{display:block;width:100%;height:42px;overflow:visible}
+.chart .lab{position:absolute;bottom:0;font-family:var(--mono);font-size:9px;color:var(--ink-3)}
+.pb .why{font-family:var(--serif);font-style:italic;font-size:12.5px;color:var(--ink-2);text-align:right;max-width:240px;line-height:1.45}
+.pfoot{display:flex;align-items:center;gap:12px;padding:8px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,.18);font-family:var(--mono);font-size:10.5px;color:var(--ink-3);flex-wrap:wrap}
+.pfoot .go{margin-left:auto;color:var(--tide)}
+
+/* window card */
+#wins{position:relative}
+/* hover peek — tooltip weight, framed like the map card so it does not jar */
+.pk{position:absolute;z-index:40;width:300px;opacity:0;pointer-events:none;transform:translateY(-5px);transition:opacity .15s ease,transform .18s cubic-bezier(.2,.7,.2,1)}
+.pk.show{opacity:1;pointer-events:auto;transform:none}
+.pk-shell{background:var(--surface-light);border:1px solid var(--border-light);border-radius:11px;box-shadow:0 20px 48px rgba(0,0,0,.6);overflow:hidden}
+.pk-arrow{position:absolute;top:-6px;width:11px;height:11px;background:var(--surface-light);border-left:1px solid var(--border-light);border-top:1px solid var(--border-light);transform:rotate(45deg)}
+.pk-head{display:flex;align-items:baseline;gap:8px;padding:10px 13px 9px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.pk-name{font-size:13.5px;font-weight:700}
+.pk-when{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.pk-body{padding:11px 13px 12px}
+.pk-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pk-line .g{color:var(--marginal);letter-spacing:1.5px;font-size:13px}
+.pk-line .n{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.pk-why{font-family:var(--serif);font-style:italic;font-size:12.5px;line-height:1.5;color:var(--ink-2);margin-top:8px}
+.pk-scores{margin-top:10px;display:flex;flex-direction:column;gap:7px}
+.sc-top{display:flex;justify-content:space-between;align-items:baseline;font-size:10.5px;color:var(--ink-2);margin-bottom:3px;font-family:var(--mono)}
+.sc-top .v{font-weight:600}
+.sc-track{height:5px;border-radius:999px;background:rgba(0,0,0,.35);overflow:hidden}
+.sc-fill{height:100%;border-radius:999px}
+.pk-foot{display:flex;align-items:center;gap:10px;padding:8px 13px;border-top:1px solid var(--border);background:rgba(0,0,0,.2)}
+.pk-foot .hint{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.pk-foot .go{margin-left:auto;font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--tide);cursor:pointer}
+.wrap.mob .pk{width:calc(100% - 24px)}
+
+/* drilldown — where browsing filters belong */
+.sheet{position:fixed;inset:0;z-index:120;display:none}
+.sheet.on{display:block}
+.sheet .scrim{position:absolute;inset:0;background:rgba(8,6,5,.72)}
+.sheet .card2{position:absolute;left:50%;top:34px;transform:translateX(-50%);width:min(880px,calc(100vw - 40px));max-height:calc(100vh - 68px);display:flex;flex-direction:column;background:var(--bg);border:1px solid var(--border-light);border-radius:13px;box-shadow:0 30px 80px rgba(0,0,0,.7);overflow:hidden}
+.sheet .sh2{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.sheet .sh2 .t{font-size:15.5px;font-weight:700}
+.sheet .sh2 .w{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.sheet .sh2 .x{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-3);border:1px solid var(--border);background:none;border-radius:7px;padding:5px 9px;cursor:pointer}
+.sheet .fbar{display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surface);flex-wrap:wrap}
+.sheet .list{overflow-y:auto;padding:12px 16px 16px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.sheet .list>.spot{flex:none}
+.sheet .none{font-family:var(--mono);font-size:11px;color:var(--ink-3);padding:8px 0}
+.sheet .ft{padding:9px 16px;border-top:1px solid var(--border);background:rgba(0,0,0,.2);font-family:var(--mono);font-size:10.5px;color:var(--ink-3);display:flex;gap:12px;flex-wrap:wrap}
+@media(max-width:620px){.sheet .list{grid-template-columns:1fr 1fr}}
+
+/* map view */
+.mapv{border:1px solid var(--border);border-radius:11px;background:var(--panel);overflow:hidden}
+.mapv .mh{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.mapv .mh .t{font-size:14px;font-weight:700}
+.mapv .mh .w{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.mapv .mh .bk{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--tide);cursor:pointer}
+.mapv .plot{height:230px;background:repeating-linear-gradient(45deg,rgba(255,255,255,.018) 0 9px,transparent 9px 18px),var(--surface);display:flex;align-items:center;justify-content:center;position:relative}
+.mapv .plot .pin{width:13px;height:13px;border-radius:50%;background:var(--home);box-shadow:0 0 0 6px rgba(201,162,75,.2),0 0 0 13px rgba(201,162,75,.09)}
+.mapv .plot .cap{position:absolute;bottom:12px;left:14px;font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+
+.win{border:1px solid var(--border);border-radius:11px;background:var(--panel);overflow:hidden}
+.win.lead{border-color:rgba(201,162,75,.42);background:linear-gradient(180deg,rgba(201,162,75,.06),transparent 55%),var(--panel)}
+.win.off{opacity:.5}
+.wh{display:flex;align-items:center;gap:10px;padding:12px 14px 10px;flex-wrap:wrap}
+.win.collapsed .wh{padding:10px 14px}
+.wh .lbl{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--home)}
+.wh .when{font-size:15.5px;font-weight:700;letter-spacing:-.01em}
+.win.collapsed .wh .when{font-size:13.5px}
+.wh .time{font-family:var(--mono);font-size:13.5px;font-weight:600}
+.wh .best{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.wh .rule{flex:1;height:1px;background:var(--border);min-width:12px}
+.wh .exp{font-family:var(--mono);font-size:10.5px;color:var(--tide);cursor:pointer;background:none;border:none;padding:2px 0;white-space:nowrap}
+.badges{display:flex;gap:6px;flex-wrap:wrap}
+.bdg{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:999px;border:1px solid var(--border-light);background:rgba(255,255,255,.04);color:var(--ink-2);white-space:nowrap}
+.bdg.tide{border-color:rgba(111,168,176,.45);background:rgba(111,168,176,.12);color:#9CCBD1}
+.bdg.nlc{border-color:rgba(155,143,212,.45);background:rgba(155,143,212,.12);color:#BFB6E8}
+.bdg.aur{border-color:rgba(138,174,114,.45);background:rgba(138,174,114,.12);color:#A8C795}
+.bdg.snow{border-color:rgba(183,203,216,.45);background:rgba(183,203,216,.12);color:#C6D8E3}
+.bdg.verd{border-color:rgba(224,165,66,.5);background:rgba(224,165,66,.14);color:#EFC377;font-weight:600}
+.bdg.good{border-color:rgba(138,174,114,.5);background:rgba(138,174,114,.14);color:#A8C795;font-weight:600}
+.bdg.poor{border-color:rgba(200,69,47,.4);background:rgba(200,69,47,.12);color:#E58C7A}
+.rows{display:flex;flex-direction:column;gap:7px;margin:0 14px 11px}
+.frow{display:grid;grid-template-columns:auto auto 1fr auto;gap:12px;align-items:center;padding:7px 11px;border:1px solid rgba(111,168,176,.28);border-left:2px solid var(--tide);border-radius:8px;background:rgba(111,168,176,.055)}
+.frow.sn{border-color:rgba(183,203,216,.26);border-left-color:var(--snow);background:rgba(183,203,216,.05);grid-template-columns:auto 1fr auto}
+.frow .k{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#9CCBD1;white-space:nowrap}
+.frow.sn .k{color:#C6D8E3}
+.mini{width:104px;flex:none}
+.mini svg{display:block;width:104px;height:24px;overflow:visible}
+.frow .f{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);display:flex;gap:14px;flex-wrap:wrap}
+.frow .f b{color:var(--ink);font-weight:600}
+.frow .f .dim{color:var(--ink-3)}
+.frow .go{font-family:var(--mono);font-size:10.5px;color:var(--tide);white-space:nowrap}
+.wtop{display:grid;grid-template-columns:1.25fr 1fr;gap:15px;padding:0 14px 12px}
+.wtop.solo{grid-template-columns:1fr}
+.bb{border-left:2px solid var(--go);padding-left:11px}
+.bb.alt{border-left-color:var(--marginal)}
+.bb .k{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);display:flex;gap:8px;flex-wrap:wrap}
+.bb .k .reg{margin-left:auto;font-weight:400}
+.bb h4{font-family:var(--serif);font-size:15.5px;font-weight:500;line-height:1.32;margin:5px 0;letter-spacing:-.005em}
+.bb p{font-size:12px;color:var(--ink-2);line-height:1.58}
+.bb .lc{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:7px}
+.spots{display:flex;gap:8px;padding:0 0 11px;overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:none;-ms-overflow-style:none}
+.spots::-webkit-scrollbar{display:none}
+.spots>.spot{flex:0 0 calc((100% - 24px)/3.5);scroll-snap-align:start}
+.strip{position:relative;padding:0 14px}
+.strip.more:after{content:'';position:absolute;top:0;right:14px;bottom:11px;width:56px;pointer-events:none;background:linear-gradient(90deg,transparent,var(--panel) 78%)}
+.strip.back:before{content:'';position:absolute;top:0;left:14px;bottom:11px;width:40px;z-index:2;pointer-events:none;background:linear-gradient(270deg,transparent,var(--panel) 78%)}
+.win.lead .strip.more:after{background:linear-gradient(90deg,transparent,#221b15 78%)}
+.win.lead .strip.back:before{background:linear-gradient(270deg,transparent,#221b15 78%)}
+.filmctl{display:flex;align-items:center;gap:6px}
+.filmctl button{display:none}
+@media (hover:hover) and (pointer:fine){.filmctl button{display:block}}
+.wrap.mob .filmctl button{display:none}   /* phone swipes; arrows would duplicate in the tightest space */
+.filmctl button{width:24px;height:22px;border:1px solid var(--border);background:var(--panel);color:var(--ink-2);border-radius:6px;font-family:var(--mono);font-size:11px;line-height:1;cursor:pointer}
+.filmctl button:hover:not(:disabled){border-color:var(--border-light);color:var(--ink)}
+.filmctl button:disabled{opacity:.32;cursor:default}
+.filmctl .pos{font-family:var(--mono);font-size:10px;color:var(--ink-3);min-width:62px}
+.spot{border:1px solid var(--border);border-radius:8px;padding:9px 10px;background:rgba(0,0,0,.16);display:flex;flex-direction:column;gap:4px;cursor:pointer;transition:transform .12s,border-color .14s;min-height:78px}
+.spot:hover{transform:translateY(-2px);border-color:var(--border-light)}
+.spot.far{border-color:rgba(111,168,176,.3)}
+.spot .top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.spot .nm{font-size:12.5px;font-weight:600;line-height:1.25}
+.spot .st{font-family:var(--mono);font-size:10px;font-weight:600;padding:2px 5px;border-radius:5px;background:rgba(138,174,114,.16);color:#A8C795;white-space:nowrap;flex:none}
+.spot .mt{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.spot .mt.far{color:#9CCBD1}
+.spot .op{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:auto}
+.spot:hover .op{color:var(--tide)}
+.wfoot{display:flex;align-items:center;gap:12px;padding:8px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,.16);font-family:var(--mono);font-size:10.5px;color:var(--ink-3);flex-wrap:wrap}
+.wfoot .go{margin-left:auto;color:var(--tide);cursor:pointer}
+
+.links{display:flex;gap:8px}
+.lk{flex:1;border:1px solid var(--border);border-radius:9px;background:var(--surface);padding:10px 13px;cursor:pointer}
+.lk:hover{border-color:var(--border-light)}
+.lk .t{font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:6px}
+.lk .t .ar{margin-left:auto;color:var(--ink-3);font-family:var(--mono);font-size:10.5px;font-weight:400}
+.lk .d{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:3px}
+
+.notes{max-width:1080px;margin:16px auto 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(236px,1fr));gap:8px}
+.nt{border:1px solid var(--border);border-left:3px solid var(--home);border-radius:8px;background:var(--surface);padding:10px 13px}
+.nt b{display:block;font-size:12.5px;font-weight:600;margin-bottom:3px}
+.nt span{font-size:12px;color:var(--ink-2);line-height:1.55}
+.h{max-width:1080px;margin:10px auto 0;font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.h b{color:var(--go);font-weight:600}
+
+/* ── phone ── */
+.wrap.mob .mast{padding:13px 14px 12px}
+.wrap.mob .mast .sub,.wrap.mob .ghost{display:none}
+.wrap.mob .brand{font-size:17px}
+.wrap.mob .rail{padding:11px 14px 0;overflow-x:auto;scrollbar-width:none}
+.wrap.mob .rail::-webkit-scrollbar{display:none}
+.wrap.mob .day{flex:0 0 150px}
+.wrap.mob .railfoot{padding:6px 14px 0}
+.wrap.mob .railfoot .b{display:none}
+.wrap.mob .tabs{padding:10px 14px 0;overflow-x:auto;scrollbar-width:none}
+.wrap.mob .tabs::-webkit-scrollbar{display:none}
+.wrap.mob .tab{padding:8px 11px;font-size:12px}
+.wrap.mob .tab.gate{margin-left:0}
+.wrap.mob .lens{padding:9px 14px;gap:7px;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none}
+.wrap.mob .lens::-webkit-scrollbar{display:none}
+.wrap.mob .lens .res{display:none}
+.wrap.mob .lens .k{font-size:9px}
+.wrap.mob #lfk{font-size:9px}
+.wrap.mob .body{padding:12px 14px 18px}
+.wrap.mob .ph{padding:10px 12px 7px}
+.wrap.mob .ph .t{font-size:13.5px;flex-basis:100%;order:2}
+.wrap.mob .ph .rule{display:none}
+.wrap.mob .ph .rare{order:3;flex-basis:100%}
+.wrap.mob .pb,.wrap.mob .pb.drive{grid-template-columns:1fr 1fr;gap:10px;padding:0 12px 10px}
+.wrap.mob .chart{grid-column:1/-1}
+.wrap.mob .pb .why{text-align:left;max-width:none;grid-column:1/-1;font-size:12px}
+.wrap.mob .pfoot,.wrap.mob .wfoot{padding:8px 12px;gap:4px 10px}
+.wrap.mob .pfoot .go,.wrap.mob .wfoot .go{margin-left:0;flex-basis:100%}
+.wrap.mob .wh{padding:11px 12px 9px;gap:7px}
+.wrap.mob .wh .rule{display:none}
+.wrap.mob .wh .best{flex-basis:100%;order:5}
+.wrap.mob .wh .badges{order:6;flex-basis:100%}
+.wrap.mob .wh .exp{order:7;margin-left:auto}
+.wrap.mob .rows{margin:0 12px 10px}
+.wrap.mob .frow,.wrap.mob .frow.sn{grid-template-columns:1fr;gap:6px;padding:8px 10px}
+.wrap.mob .mini{display:none}
+.wrap.mob .frow .f{gap:3px 12px}
+.wrap.mob .wtop{grid-template-columns:1fr;gap:12px;padding:0 12px 11px}
+.wrap.mob .bb h4{font-size:14.5px}
+.wrap.mob .strip{padding:0 12px}
+.wrap.mob .spots{padding:0 0 10px}
+.wrap.mob .spots>.spot{flex:0 0 72%}
+.wrap.mob .links{flex-direction:column}
+</style>
+</head>
+<body>
+<a href="Index.html" style="position:fixed;top:10px;left:12px;z-index:200;font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:rgba(242,231,211,.42);background:#221A15;border:1px solid #3A2C23;border-radius:7px;padding:5px 9px;text-decoration:none">← Index</a>
+
+<div class="demobar">
+<span class="sp">Same document, three states — the questions you asked.</span>
+<button id="bu">● Multi-user</button>
+<button id="ba">✈ Away Mon–Tue</button>
+<button id="b6">Six solar events</button>
+<button id="bw">❄ Winter day</button>
+<button id="bm">▭ iPhone</button>
+</div>
+
+<div class="wrap" id="wrap">
+<div class="app">
+
+<div class="mast"><div class="logo"></div><div><div class="brand">PhotoCast</div><div class="sub">AI sunrise, sunset, and aurora forecasting</div></div><div class="r"><span class="pill">● UP v2.17.7</span><button class="ghost">⚙</button><button class="ghost">Sign out</button></div></div>
+
+<div class="rail" id="rail"></div>
+<div class="railfoot"><span>Home · Northumberland &amp; Tyneside · reach set per day</span><span class="b">Edit reach · forecast 52m ago by Sonnet</span></div>
+
+<div class="tabs">
+<button class="tab on" data-p="plan">◉ Plan</button>
+<button class="tab" data-p="cu">Coming up<span class="ct">3</span></button>
+<button class="tab" data-p="map">◍ Map</button>
+<button class="tab gate">⚙ Manage · admin</button>
+</div>
+<div class="tabrule"></div>
+
+<div class="lens" id="lens">
+<div class="lgrp"><span class="k">How far tonight</span>
+<div class="seg home" id="reach"><button data-r="30">45 min</button><button data-r="60">1h 30</button><button data-r="120" class="on">2h 30</button><button data-r="any">Any</button></div>
+<span class="stick tmp" id="rstick" style="visibility:hidden">today only</span></div>
+<button class="rst" id="rst">Back to 2h 30</button>
+<span class="res" id="res"></span>
+</div>
+
+<div class="body">
+<div class="pane on" id="plan">
+
+<div class="promo snowp">
+<div class="ph"><span class="k">❄ Snow × clear sky</span><span class="t">Fresh snow on the Lakeland tops with a clear sunrise</span><span class="rule"></span><span class="rare">first coincidence since 2 Mar · 2h 05 out</span></div>
+<div class="pb drive"><div class="fig">drive<b>2h 05</b>96 mi · leave 03:10</div><div class="fig">alpenglow<b>05:04–05:31</b>27 min of it</div><div class="fig">rated excellent<b>23 of 57</b>sites evaluated</div><div class="why">tops white, valleys clear — the combination you drive for</div></div>
+<div class="pfoot"><span>4 cm above 500 m · near-still air · no valley cloud</span><span>Wasdale · Great Gable · Blencathra</span><span class="go">Plan the drive →</span></div>
+</div>
+
+<div class="promo tidep">
+<div class="ph"><span class="k">≈ Biggest tides of the month</span><span class="t">The biggest of the three lands on tomorrow's sunset</span><span class="rule"></span><span class="rare">tonight · <b style="color:#F2E7D3">tomorrow</b> · Monday — 61 coastal locations, 2 regions</span></div>
+<div class="pb">
+<div class="fig">range<b>4.9 m</b>+1.2 avg</div>
+<div class="chart"><svg viewBox="0 0 320 44" preserveAspectRatio="none" aria-hidden="true"><path d="M0 34 C 24 34 34 6 60 6 C 86 6 96 38 120 38 C 144 38 156 8 182 8 C 208 8 218 36 244 36 C 270 36 282 10 320 10" fill="none" stroke="#6FA8B0" stroke-width="1.6"></path><line x1="108" y1="0" x2="108" y2="44" stroke="#E0A542" stroke-width="1" stroke-dasharray="3 3"></line><line x1="248" y1="0" x2="248" y2="44" stroke="#E0A542" stroke-width="1" stroke-dasharray="3 3"></line></svg><span class="lab" style="left:0">LW 01:34</span><span class="lab" style="left:24%">HW 07:35</span><span class="lab" style="left:50%">LW 14:01</span><span class="lab" style="left:76%">HW 20:03</span></div>
+<div class="why">low water bares the foreground 3h40 before sunrise</div>
+</div>
+<div class="pfoot"><span>Around each new and full moon the tides run bigger for two or three nights — this is the middle one, and the largest</span><span class="go">◍ Show the 61 on map →</span></div>
+</div>
+
+<div id="wins"><div id="winlist" style="display:flex;flex-direction:column;gap:10px"></div></div>
+
+<div class="links">
+<div class="lk"><div class="t">Regional planner<span class="ar">4 regions →</span></div><div class="d">heatmap · full briefing</div></div>
+<div class="lk"><div class="t">Hot topics<span class="ar">3 live →</span></div><div class="d">enriched science reads</div></div>
+</div>
+
+</div>
+<div class="pane" id="cu"><div class="win" style="padding:50px 14px;text-align:center"><span style="font-family:var(--mono);font-size:11.5px;color:var(--ink-3)">Coming up — see previous version</span></div></div>
+<div class="pane" id="map"><div class="mapv" id="mapv"><div class="mh"><span class="t">Map</span><span class="w">all windows · 27 pins in reach</span></div><div class="plot"><span class="pin"></span><span class="cap">map view — unchanged from today</span></div></div></div>
+</div>
+</div>
+</div>
+
+<div class="sheet" id="sheet"><div class="scrim" data-close="1"></div><div class="card2" id="card2"></div></div>
+
+<div class="notes">
+<div class="nt"><b>One row, not a wrapping grid</b><span>Spots are a film strip now: three and a half cards visible, the half one faded at the edge to say there is more, arrows and a "7 of 18 loaded" readout in the footer. A wrapping grid implied the list had ended at four and left ragged empty cells; a strip says the opposite, and the whole loaded set is reachable without leaving the window.</span></div>
+<div class="nt"><b>Region, not type, on the card</b><span>The type word was a leftover from the filter it belonged to — it told you Blyth Beach is coast, which you knew. The region tells you which way you are driving and matches the Best Bet's own region line, so it goes back in that slot. Type survives in the drilldown, next to the control that uses it.</span></div>
+<div class="nt"><b>No invented vocabulary</b><span>"Spring tide run 2 of 3" asked you to learn a word and count something you cannot see. It now says the biggest tides of the month, names the three nights, marks which is largest, and explains why in one clause. "11 aligned" is gone too — a count of alignments is a number about the data, not about tonight.</span></div>
+<div class="nt"><b>One control on the page, three in the drilldown</b><span>The bar holds only reach, because reach is the only thing that changes today's decision. Rating is already the sort order and location type is a word on each card. Click <em>All N for this window</em> and the browsing filters appear where you are actually browsing — reach, rating floor, type — over the whole list rather than the top four.</span></div>
+<div class="nt"><b>Pre-pilot cut: one plain control</b><span>"Close to home · 30 mi" became <em>How far tonight · 45 min / 1h 30 / 2h 30</em> — time, because that is how the decision is actually made, and the miles are on every card anyway. The explainer link is gone: nothing left to explain. Reach is stated once, in the control, and the rail no longer repeats it.</span></div>
+<div class="nt"><b>Pre-pilot cut: nothing depends on history</b><span>Signal decay keeps the half that needs no memory — copy that states the delta ("clearest in 11 nights", "biggest tides of the month"), computed from the data alone. The per-user exposure counter is out until after the pilot: five friends reporting bugs need to be looking at the same page on the same night, and silence must never mean "you have been told before".</span></div>
+<div class="nt"><b>With users, generation stops being personal</b><span>Scoring is per <em>site and window</em>, not per person — so 4 regions × 2 windows × 4 days is generated once and serves everyone. Your home address and calendar only decide what you are <em>shown</em>: drive times cached per user, reach as a lens, away days muted. The one genuinely per-user cost is the written briefing, and even that is regional prose — everyone in the Dales shares tonight's Best Bet paragraph. Marginal cost per user stays near flat, which is the commercially interesting part.</span></div>
+<div class="nt"><b>Availability is all a user needs to see</b><span>Away days are marked in the rail — muted with the forecast still there once you have users, not generated at all while you are solo. Coverage, spend and the regions/windows levers stay in the existing Manage tab; none of it belongs in a normal user's view.</span></div>
+<div class="nt"><b>Hover peeks, click opens the map</b><span>Hovering a spot after 140ms gives the <em>why</em>: rating, drive, one clause of reasoning, and the two scores — framed with header and footer so it reads as a panel, not a glitch. Clicking goes straight to the map centred on that spot with its window preserved. On the phone there is no hover, so a tap opens the same peek full-width and its footer link carries you to the map.</span></div>
+</div>
+<div class="h">Desktop: <b>≈1,180px</b> with 3 events, <b>≈1,500px</b> with 6 · phone: <b>≈1,900px</b> with 6 · today ≈2,600px with 3</div>
+
+<script>
+const WINS=[
+ {id:'w1',lbl:'Tonight',when:'Sunset',time:'21:11',verd:'Worth it',best:'4.0★',counts:{30:7,60:14,120:23,any:31},open:true,lead:true,
+  badges:[{c:'nlc',t:'✦ NLC · clearest in 11 nights'}],
+  tide:{k:'≈ Tide',f:'mid tide, <b>falling</b>|HW 19:28 · <b>1h43 before sunset</b>|<span class="dim">4.9 m · 1.2 m above an average tide</span>',go:'61 coastal locations →',
+   path:'M0 19 C 12 19 17 4 30 4 C 43 4 48 20 61 20 C 74 20 79 5 104 5',mx:41,my:12.5},
+  snow:{k:'❄ Snow on the tops',f:'lying above <b>650 m</b>|<b>3 days old</b> · wind-scoured|<span class="dim">Cheviot &amp; Simonside · 7 sites</span>',go:'Filter to high ground →'},
+  bb:{reg:'Northumberland &amp; Tyneside',h:'Breaking clear with the antisolar canvas alight',p:'Low cloud clears from the west and mid-level cloud catches fire on cue. The strongest window before the front arrives.',lc:'The River Wansbeck, Bothal · 45 min · 23 mi'},
+  alt:{reg:'The Yorkshire Dales',h:'Thin high cloud inland, lower confidence',p:'Provisional — 12 of 31 rated sites score well if the overcast thins before golden hour.',lc:'High Force · 58 min · 29 mi'},
+  spots:[['The River Wansbeck, Bothal','4.0★','45 min · 23 mi',0,23,'river'],['Bothal Weir','3.5★','45 min · 23 mi',0,23,'river'],['Blyth Beach','3.0★','41 min · 19 mi',0,19,'coast'],['Simonside','3.0★','19 min · 10 mi',0,10,'upland'],['Infinity Bridge','3.0★','38 min · 21 mi',0,21,'river'],['Sycamore Gap ridge','4.0★','1h 06 · 47 mi · beyond weekday reach',1,47,'upland'],['Sandsend Ness','3.0★','1h 48 · 78 mi · weekend only',1,78,'coast']],
+  foot:'Ranked by rating, then drive time'},
+ {id:'w2',lbl:'',when:'Tomorrow sunrise',time:'05:17',verd:'Worth it',best:'4.0★',counts:{30:18,60:29,120:41,any:57},open:true,
+  badges:[{c:'aur',t:'Best window of the weekend'}],
+  tide:{k:'≈ Tide',f:'<b>Low water</b> on the window|LW 01:34 · <b>3h43 before sunrise</b>|<span class="dim">seas 0.3 m, smooth</span>',go:'Low water bares the foreground →',
+   path:'M0 6 C 10 6 15 20 27 20 C 40 20 45 4 58 4 C 71 4 76 20 89 20 C 97 20 100 14 104 11',mx:27,my:20},
+  snow:{k:'❄ Fresh snow',f:'<b>4 cm</b> overnight above 500 m|tops white, <b>valleys clear</b>|<span class="dim">alpenglow 05:04–05:31 · 22 sites</span>',go:'Filter to high ground →'},
+  bb:{reg:'The Lake District',h:'Best-evaluated window of the weekend — calm, clear conditions',p:'Twenty-three locations rated excellent across 57 fully evaluated sites, with near-still air and clear skies. Conditions are TRANSITIONAL, so check before heading out — early mornings often hold ahead of a front.'},
+  spots:[['Buttermere','4.0★','2h 05 · 96 mi · leave 03:10',1,96,'lake'],['Roker Pier &amp; Lighthouse','3.5★','25 min · 9 mi',0,9,'coast'],['Simonside','3.0★','19 min · 10 mi',0,10,'upland'],['Infinity Bridge','4.0★','38 min · 21 mi',0,21,'river'],['Copt Hill','3.0★','10 min · 4 mi',0,4,'upland'],['Angel of the North','3.0★','16 min · 5 mi',0,5,'landmark']],
+  foot:'The Best Bet sits 2h 05 out'},
+ {id:'w3',lbl:'',when:'Tomorrow sunset',time:'21:08',verd:'Worth it',best:'4.0★',counts:{30:14,60:22,120:34,any:44},open:false,
+  badges:[{c:'aur',t:'▣ Aurora Kp 4 · 21:57'}],
+  tide:{k:'≈ Tide · biggest',f:'<b>High water</b> on the window|HW 20:03 · <b>1h05 before sunset</b>|<span class="dim">4.9 m — biggest range this month</span>',go:'Why it is the biggest →',
+   path:'M0 20 C 12 20 17 3 30 3 C 43 3 48 21 61 21 C 74 21 79 2 92 2 C 99 2 102 8 104 12',mx:92,my:2},
+  bb:{reg:'Northumberland &amp; Tyneside',h:'Peak tide with an aurora watch on the same horizon',p:'Kp 4 · glow reaches ~58°N and north. Moon 82% will wash the low sky; look due north and low.'},
+  spots:[['Simonside','4.0★','19 min · 10 mi',0,10,'upland'],['Infinity Bridge','4.0★','38 min · 21 mi',0,21,'river'],['Blyth Beach','4.0★','41 min · 19 mi',0,19,'coast'],['Bothal Weir','4.0★','45 min · 23 mi',0,23,'river']],
+  foot:'Kp 4 · moon 82% · look due N, low'},
+ {id:'w4',lbl:'',when:'Monday sunrise',time:'05:25',verd:'Maybe',best:'3.0★',counts:{30:9,60:15,120:21,any:26},open:false,x6:true,
+  badges:[{c:'tide',t:'≈ Tide · mid, rising'}],
+  tide:{k:'≈ Tide',f:'mid tide, <b>rising</b>|LW 03:12 · <b>2h13 before sunrise</b>|<span class="dim">4.2 m · about average</span>',go:'34 coastal locations →',
+   path:'M0 20 C 12 20 17 5 30 5 C 43 5 48 20 61 20 C 74 20 79 6 104 6',mx:52,my:14},
+  bb:{reg:'North York Moors &amp; Coast',h:'Broken cloud with gaps to the east',p:'Nine sites within reach rate 3★ or better. Cloud base lifts through the window.'},
+  spots:[['Roker Pier &amp; Lighthouse','3.0★','25 min · 9 mi',0,9,'coast'],['Copt Hill','3.0★','10 min · 4 mi',0,4,'upland'],['Redcar','3.0★','52 min · 25 mi',0,25,'coast'],['Saltburn-the-Sea','2.5★','56 min · 27 mi',0,27,'coast']],
+  foot:'Ranked by rating, then drive time'},
+ {id:'w5',lbl:'',when:'Monday sunset',time:'20:59',verd:'Poor',best:'2.0★',counts:{30:3,60:5,120:8,any:11},open:false,x6:true,
+  badges:[],
+  bb:{reg:'—',h:'Thick overcast, no window',p:'Nothing within reach rates above 2★. Front clears overnight.'},
+  spots:[],foot:'Nothing worth the drive'},
+ {id:'w6',lbl:'',when:'Tuesday sunrise',time:'05:27',verd:'Worth it',best:'4.0★',counts:{30:12,60:20,120:28,any:35},open:false,x6:true,
+  badges:[{c:'nlc',t:'✦ NLC · top third of the season'},{c:'tide',t:'≈ Tide · LW on window'}],
+  tide:{k:'≈ Tide',f:'<b>Low water</b> on the window|LW 04:58 · <b>29 min before sunrise</b>|<span class="dim">4.6 m · above average</span>',go:'52 coastal locations →',
+   path:'M0 5 C 12 5 17 20 30 20 C 43 20 48 4 61 4 C 74 4 79 21 92 21 C 99 21 102 16 104 13',mx:92,my:21},
+  bb:{reg:'Northumberland &amp; Tyneside',h:'Clear behind the front with low water on the hour',go:'',p:'Twelve sites within 30 mi rate 4★. The cleanest air of the five days.'},
+  spots:[['Bothal Weir','4.0★','45 min · 23 mi',0,23,'river'],['Simonside','4.0★','19 min · 10 mi',0,10,'upland'],['Blyth Beach','4.0★','41 min · 19 mi',0,19,'coast'],['Roker Pier &amp; Lighthouse','3.5★','25 min · 9 mi',0,9,'coast']],
+  foot:'Ranked by rating, then drive time'}
+];
+const DAYS=[
+ {dow:'SAT',n:1,nm:'Today',sun:'↑ 05:22 ↓ 21:14',vd:'Maybe · sunset',vc:'',rc:'reach 2h30 · 120 mi',now:true},
+ {dow:'SUN',n:2,nm:'Tomorrow',sun:'↑ 05:23 ↓ 21:12',vd:'Worth it · both',vc:'g',rc:'reach 2h30 · 120 mi',flag:'◎ BEST'},
+ {dow:'MON',n:3,nm:'Monday',sun:'↑ 05:25 ↓ 20:59',vd:'Maybe · sunrise',vc:'',rc:'reach 45 min · 30 mi',wk:true,awd:true},
+ {dow:'TUE',n:4,nm:'Tuesday',sun:'↑ 05:27 ↓ 20:57',vd:'Worth it · sunrise',vc:'g',rc:'reach 45 min · 30 mi',wk:true,awd:true}
+];
+const LS='photocast.lens.v2',TODAY='2026-08-01';
+const DAYREACH='120';   /* today is Saturday — the rail's own weekend reach; weekdays would be '30' */
+function load(){try{const s=JSON.parse(localStorage.getItem(LS)||'{}');
+ if(s.reach&&s.day===TODAY)reach=s.reach;                 /* investigation — same day only */
+ if(s.dRate)dRate=s.dRate;                                /* drilldown taste — persists */
+}catch(e){}}
+function save(){try{localStorage.setItem(LS,JSON.stringify({reach,dRate,day:TODAY}))}catch(e){}}
+load()
+let dReach='120',dRate='any',dLoc='any',dWin=null;
+let six=false,reach=DAYREACH,openSet=new Set(['w1','w2']),away=false,multi=false;
+/* ── persistence: taste sticks, investigations expire at the day roll ── */
+;
+load();
+const DETAIL={
+ 'The River Wansbeck, Bothal':{why:'Mid-level cloud catches fire right on cue and the river holds the reflection — the strongest window tonight.',fs:62,gh:55},
+ 'Infinity Bridge':{why:'Clean western horizon and the arch gives you a subject even if the colour underdelivers.',fs:54,gh:58},
+ 'Sycamore Gap ridge':{why:'Ridge line clears the low cloud that will sit in the valleys, but the light goes early.',fs:58,gh:49},
+ 'Sandsend Ness':{why:'Coastal edge with the tide falling — wet sand takes the sky, and the cliff blocks the wind.',fs:57,gh:52},
+ 'Buttermere':{why:'Still water, snow on the tops and the first light hitting the far shoulder. The reason to set an alarm.',fs:66,gh:71},
+ 'Copt Hill':{why:'Two minutes from home with an unbroken eastern horizon. Modest, reliable, no drive.',fs:44,gh:47},
+ 'Angel of the North':{why:'Silhouette subject against a bright sky — works even when the colour is thin.',fs:41,gh:52},
+ 'Simonside':{why:'Clear western horizon from the crags; the light on the rock is the reason, not the sky.',fs:52,gh:61},
+ 'Blyth Beach':{why:'Low cloud clears from the west and mid tide leaves enough wet sand to double the sky.',fs:60,gh:53},
+ 'Bothal Weir':{why:'Moving water in the foreground and a sheltered aspect — forgiving in wind.',fs:55,gh:56},
+ 'Roker Pier &amp; Lighthouse':{why:'Pier leads the eye and the lighthouse lights before dusk — dependable in broken cloud.',fs:49,gh:54},
+ 'Redcar':{why:'Wide flat beach at mid tide; needs the cloud to break to be worth the 52 minutes.',fs:46,gh:44},
+ 'Saltburn-the-Sea':{why:'Pier and cliff together, though the forecast puts cloud on the horizon at the window.',fs:38,gh:41}
+};
+const FALLBACK={why:'Clear horizon at the window — modest colour, but the light will be usable.',fs:47,gh:45};
+const FSG='linear-gradient(90deg,#B5A06A,#E0A542 45%,#C8452F)',GHG='linear-gradient(90deg,#6B6453,#C88E2E 45%,#F5C518)';
+
+function renderRail(){
+document.getElementById('rail').innerHTML=DAYS.map(d=>{const sk=away&&d.awd;return `<div class="day${d.now?' now':''}${sk?' off':''}">
+ <div class="dt"><span class="dow">${d.dow}</span><span class="n">${d.n}</span><span class="nm">${d.nm}</span>${d.flag&&!sk?`<span class="flag">${d.flag}</span>`:''}</div>
+ <div class="sun">${sk?'✈ Away · business':d.sun}</div><div class="vd ${sk?'sk':d.vc}">${sk?(multi?'Muted · forecast exists':'Not forecast · saved'):d.vd}</div></div>`}).join('');
+}
+function mini(w){return `<div class="mini"><svg viewBox="0 0 104 24" preserveAspectRatio="none" aria-hidden="true"><path d="${w.tide.path}" fill="none" stroke="#6FA8B0" stroke-width="1.5"></path><line x1="${w.tide.mx}" y1="-1" x2="${w.tide.mx}" y2="24" stroke="#E0A542" stroke-width="1" stroke-dasharray="2 2"></line><circle cx="${w.tide.mx}" cy="${w.tide.my}" r="2.4" fill="#E0A542"></circle></svg></div>`}
+function facts(s){return `<div class="f">${s.split('|').map(x=>`<span>${x}</span>`).join('')}</div>`}
+function verdBdg(v){if(v==='Poor')return '<span class="bdg poor">Poor</span>';
+ return `<span class="bdg ${v==='Worth it'?'good':'verd'}">◎ ${v}</span>`}   /* green = go, amber = maybe, red = don't */
+const LIM={any:9999,'30':30,'60':60,'120':120};
+const byRank=(a,b)=>parseFloat(b[1])-parseFloat(a[1])||a[4]-b[4];   /* rating, then drive — the order both footers claim */
+function keep(sp){return sp[4]<=LIM[reach]}
+function keepD(sp){const st=parseFloat(sp[1]);
+ if(sp[4]>LIM[dReach]) return false;
+ if(dRate!=='any'&&st<parseFloat(dRate)) return false;
+ if(dLoc==='river'){if(sp[5]!=='river'&&sp[5]!=='lake') return false} else if(dLoc!=='any'&&sp[5]!==dLoc) return false;
+ return true}
+const TDL={coast:'coast',river:'river',lake:'lake',upland:'upland',landmark:'landmark'};
+const REG={'The River Wansbeck, Bothal':'Northumberland & Tyneside','Bothal Weir':'Northumberland & Tyneside','Blyth Beach':'Northumberland & Tyneside','Simonside':'Northumberland & Tyneside','Copt Hill':'Northumberland & Tyneside','Angel of the North':'Northumberland & Tyneside','Roker Pier &amp; Lighthouse':'Northumberland & Tyneside','Sycamore Gap ridge':'Northumberland & Tyneside','Infinity Bridge':'North York Moors & Coast','Redcar':'North York Moors & Coast','Saltburn-the-Sea':'North York Moors & Coast','Sandsend Ness':'North York Moors & Coast','Buttermere':'The Lake District'};
+
+function card(w){
+ const c=w.counts[reach], open=openSet.has(w.id);
+ const bdgs=[verdBdg(w.verd),...w.badges.map(b=>`<span class="bdg ${b.c}">${b.t}</span>`)].join('');
+ const head=`<div class="wh">${w.lbl?`<span class="lbl">${w.lbl}</span>`:''}<span class="when">${w.when}</span><span class="time">${w.time}</span><span class="best">best ${w.best} · ${c} within reach</span><span class="rule"></span><span class="badges">${bdgs}</span><button class="exp" data-w="${w.id}">${open?'Collapse ▴':'Open ▾'}</button></div>`;
+ if(!open) return `<div class="win collapsed">${head}</div>`;
+ const vis=(w.spots||[]).filter(keep).sort(byRank);
+ return `<div class="win${w.lead?' lead':''}">${head}
+ ${(w.tide||w.snow)?`<div class="rows">
+  ${w.tide?`<div class="frow"><span class="k">${w.tide.k}</span>${mini(w)}${facts(w.tide.f)}<span class="go">${w.tide.go}</span></div>`:''}
+  ${w.snow?`<div class="frow sn snowrow" style="display:none"><span class="k">${w.snow.k}</span>${facts(w.snow.f)}<span class="go">${w.snow.go}</span></div>`:''}
+ </div>`:''}
+ <div class="wtop${w.alt?'':' solo'}">
+  <div class="bb"><div class="k"><span>◎ Best bet</span><span class="reg">${w.bb.reg}</span></div><h4>${w.bb.h}</h4><p>${w.bb.p}</p>${w.bb.lc?`<div class="lc">${w.bb.lc}</div>`:''}</div>
+  ${w.alt?`<div class="bb alt"><div class="k"><span>○ Also good · same window</span><span class="reg">${w.alt.reg}</span></div><h4>${w.alt.h}</h4><p>${w.alt.p}</p><div class="lc">${w.alt.lc}</div></div>`:''}
+ </div>
+ ${vis.length?`<div class="strip"><div class="spots" data-strip="${w.id}">${vis.map(s=>`<div class="spot${s[3]?' far':''}"><div class="top"><span class="nm">${s[0]}</span><span class="st">${s[1]}</span></div><div class="rg">${REG[s[0]]||''}</div><div class="mt${s[3]?' far':''}">${s[2]}</div><div class="op">◍ Open on map →</div></div>`).join('')}</div></div>`
+ :`<div class="spots" style="padding:0 14px 11px"><div style="font-family:var(--mono);font-size:10.5px;color:var(--ink-3);padding:6px 0">Nothing matches the current lens in this window.</div></div>`}
+ <div class="wfoot"><span>${w.foot}</span><span class="filmctl"><button data-nudge="-1" data-for="${w.id}">‹</button><button data-nudge="1" data-for="${w.id}">›</button><span class="pos">${vis.length} of ${c} loaded</span></span><span class="go" data-all="${w.id}">See all ${c} →</span></div></div>`;
+}
+
+function render(){
+ const list=WINS.filter(w=>(six||!w.x6)&&!(away&&w.x6));
+ document.getElementById('winlist').innerHTML=list.map(card).join('')
+  +(away?`<div class="skipped"><span>✈ <b>Mon 3 – Tue 4</b> · away on business — ${multi?'3 windows muted, still generated':'3 windows not generated'}</span><span>${multi?'nothing saved by muting — the scoring is shared':'sun times still shown in the rail'}</span><span class="go">${multi?'Show them anyway →':'Mark yourself back →'}</span></div>`:'');
+ renderRail();
+ const tot=list.reduce((a,w)=>a+w.counts[reach],0);
+ const RL={'30':'45 min','60':'1h 30','120':'2h 30',any:'any distance'};
+ document.getElementById('res').textContent=`${RL[reach]}${reach===DAYREACH?' · weekend default':''} · ${tot} spots across ${list.length} windows`;
+ if(document.body.classList.contains('winter'))document.querySelectorAll('.snowrow').forEach(e=>e.style.display='grid');
+ if(typeof closePk==='function')closePk();
+ document.querySelectorAll('.spots[data-strip]').forEach(s=>{
+  const mark=()=>{const p=s.parentElement;p.classList.toggle('more',s.scrollWidth-s.clientWidth-s.scrollLeft>4);p.classList.toggle('back',s.scrollLeft>4);
+   const id=s.dataset.strip,f=document.querySelector(`[data-nudge="-1"][data-for="${id}"]`),n=document.querySelector(`[data-nudge="1"][data-for="${id}"]`);
+   if(f)f.disabled=s.scrollLeft<=4; if(n)n.disabled=s.scrollWidth-s.clientWidth-s.scrollLeft<=4};
+  s.addEventListener('scroll',mark); requestAnimationFrame(mark);
+ });
+ document.querySelectorAll('[data-nudge]').forEach(b=>b.addEventListener('click',()=>{
+  const s=document.querySelector(`.spots[data-strip="${b.dataset.for}"]`); if(!s) return;
+  const card=s.querySelector('.spot'); s.scrollBy({left:(card.offsetWidth+8)*+b.dataset.nudge*2});   /* snap does the easing; a smooth animation gets re-snapped away */
+ }));
+ document.querySelectorAll('.exp').forEach(b=>b.addEventListener('click',()=>{
+  const id=b.dataset.w; openSet.has(id)?openSet.delete(id):openSet.add(id); render();
+ }));
+}
+function syncLens(){
+ document.querySelectorAll('#reach button').forEach(b=>b.classList.toggle('on',b.dataset.r===reach));
+ document.getElementById('rstick').style.visibility=reach!==DAYREACH?'visible':'hidden';
+ document.getElementById('rst').classList.toggle('on',reach!==DAYREACH);
+}
+document.querySelectorAll('#reach button').forEach(b=>b.addEventListener('click',()=>{reach=b.dataset.r;save();syncLens();render()}));
+document.getElementById('rst').addEventListener('click',()=>{reach=DAYREACH;save();syncLens();render()});
+document.querySelectorAll('.tab[data-p]').forEach(t=>t.addEventListener('click',()=>{
+ document.querySelectorAll('.tab').forEach(o=>o.classList.remove('on'));t.classList.add('on');
+ document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id===t.dataset.p))}));
+document.getElementById('bu').addEventListener('click',e=>{multi=!multi;e.currentTarget.classList.toggle('on',multi);e.currentTarget.textContent=multi?'● Multi-user':'○ Solo';render()});
+document.getElementById('ba').addEventListener('click',e=>{away=!away;e.currentTarget.classList.toggle('on',away);render()});
+document.getElementById('b6').addEventListener('click',e=>{six=!six;e.currentTarget.classList.toggle('on',six);e.currentTarget.textContent=six?'Three solar events':'Six solar events';render()});
+document.getElementById('bw').addEventListener('click',e=>{const on=document.body.classList.toggle('winter');e.currentTarget.classList.toggle('on',on);render()});
+document.getElementById('bm').addEventListener('click',e=>{const on=document.getElementById('wrap').classList.toggle('mob');e.currentTarget.classList.toggle('on',on);closePk()});
+
+/* ── peek + map ── */
+const wins=document.getElementById('wins'),pk=document.createElement('div');
+pk.className='pk';pk.innerHTML='<div class="pk-arrow"></div><div class="pk-shell"></div>';wins.appendChild(pk);
+const pkShell=pk.querySelector('.pk-shell'),pkArrow=pk.querySelector('.pk-arrow');
+let showT=null,hideT=null,pkFor=null;
+function stars(n){const r=Math.round(n);return '★'.repeat(r)+'☆'.repeat(5-r)}
+function closePk(){clearTimeout(showT);pk.classList.remove('show');pkFor=null}
+function openPk(el){
+ const name=el.querySelector('.nm').innerHTML,st=parseFloat(el.querySelector('.st').textContent),
+  meta=el.querySelector('.mt').textContent,when=el.closest('.win').querySelector('.when').textContent+' · '+el.closest('.win').querySelector('.time').textContent,
+  d=DETAIL[name]||FALLBACK;
+ pkFor=name;
+ pkShell.innerHTML=`<div class="pk-head"><span class="pk-name">${name}</span><span class="pk-when">${when}</span></div>
+ <div class="pk-body"><div class="pk-line"><span class="g">${stars(st)}</span><span class="n">${st.toFixed(1)}/5</span><span class="n">· ${meta}</span></div>
+  <div class="pk-why">${d.why}</div>
+  <div class="pk-scores">
+   <div><div class="sc-top"><span>Fiery Sky</span><span class="v" style="color:#E0A542">${d.fs}</span></div><div class="sc-track"><div class="sc-fill" style="width:${d.fs}%;background:${FSG}"></div></div></div>
+   <div><div class="sc-top"><span>Golden Hour</span><span class="v" style="color:#C88E2E">${d.gh}</span></div><div class="sc-track"><div class="sc-fill" style="width:${d.gh}%;background:${GHG}"></div></div></div></div></div>
+ <div class="pk-foot"><span class="hint">Click the card for the map</span><span class="go" data-map="${name}">◍ Open on map →</span></div>`;
+ const r=el.getBoundingClientRect(),wr=wins.getBoundingClientRect(),mob=document.getElementById('wrap').classList.contains('mob');
+ const w=mob?wr.width-24:300;
+ let left=mob?12:r.left-wr.left+r.width/2-w/2;
+ left=Math.max(8,Math.min(left,wr.width-w-8));
+ pk.style.width=w+'px';pk.style.left=left+'px';pk.style.top=(r.bottom-wr.top+9)+'px';
+ pkArrow.style.left=Math.max(12,Math.min(r.left-wr.left+r.width/2-left-5.5,w-22))+'px';
+ pk.classList.add('show');
+}
+function goMap(name,when){
+ document.querySelectorAll('.tab').forEach(o=>o.classList.remove('on'));
+ document.querySelector('.tab[data-p="map"]').classList.add('on');
+ document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='map'));
+ document.getElementById('mapv').innerHTML=`<div class="mh"><span class="t">${name}</span><span class="w">${when} · window kept from Plan</span><span class="bk" id="bk">← Back to Plan</span></div>
+ <div class="plot"><span class="pin"></span><span class="cap">map centred on the spot, its window and lens carried over</span></div>`;
+ document.getElementById('bk').addEventListener('click',()=>{
+  document.querySelectorAll('.tab').forEach(o=>o.classList.remove('on'));
+  document.querySelector('.tab[data-p="plan"]').classList.add('on');
+  document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='plan'));
+ });
+ closePk();
+}
+wins.addEventListener('mouseover',e=>{
+ if(document.getElementById('wrap').classList.contains('mob'))return;
+ const el=e.target.closest('.spot');if(!el)return;
+ clearTimeout(hideT);clearTimeout(showT);
+ if(pkFor===el.querySelector('.nm').innerHTML)return;
+ showT=setTimeout(()=>openPk(el),140);
+});
+wins.addEventListener('mouseleave',()=>{clearTimeout(showT);hideT=setTimeout(closePk,160)});
+pk.addEventListener('mouseenter',()=>clearTimeout(hideT));
+pk.addEventListener('mouseleave',()=>{hideT=setTimeout(closePk,120)});
+wins.addEventListener('click',e=>{
+ const all=e.target.closest('[data-all]');
+ if(all){openSheet(all.dataset.all);return}
+ const go=e.target.closest('[data-map]');
+ if(go){goMap(go.dataset.map,pk.querySelector('.pk-when').textContent);return}
+ const el=e.target.closest('.spot');if(!el)return;
+ const name=el.querySelector('.nm').innerHTML,when=el.closest('.win').querySelector('.when').textContent+' · '+el.closest('.win').querySelector('.time').textContent;
+ if(document.getElementById('wrap').classList.contains('mob')){pkFor===name?goMap(name,when):openPk(el);return}
+ goMap(name,when);
+});
+
+/* ── drilldown: browsing lives here, with the filters that only matter while browsing ── */
+const TYPES=[['any','Any'],['coast','Coast'],['river','River &amp; lake'],['upland','Upland'],['landmark','Landmark']];
+const REACHES=[['30','45 min'],['60','1h 30'],['120','2h 30'],['any','Any']];
+const RATES=[['any','Any rating'],['3','3★+'],['4','4★+']];
+function openSheet(id){
+ dWin=WINS.find(w=>w.id===id); if(!dWin) return;
+ dReach=reach;   /* the drilldown opens on the same reach, then you widen it */
+ drawSheet(); document.getElementById('sheet').classList.add('on'); closePk();
+}
+function drawSheet(){
+ const w=dWin, all=(w.spots||[]), vis=all.filter(keepD).sort(byRank);
+ const seg=(id,opts,cur)=>`<div class="seg" id="${id}">${opts.map(([v,l])=>`<button data-v="${v}"${v===cur?' class="on"':''}>${l}</button>`).join('')}</div>`;
+ document.getElementById('card2').innerHTML=`
+ <div class="sh2"><span class="t">${w.when} · ${w.time}</span><span class="w">${w.counts[dReach]} spots · best ${w.best}${dReach!==reach?' · widened for browsing':''}</span><button class="x" data-close="1">Close · Esc</button></div>
+ <div class="fbar">${seg('dr',REACHES,dReach)}${seg('dt',RATES,dRate)}${seg('dl',TYPES,dLoc)}</div>
+ <div class="list">${vis.length?vis.map(s=>`<div class="spot${s[3]?' far':''}"><div class="top"><span class="nm">${s[0]}</span><span class="st">${s[1]}</span></div><div class="rg">${REG[s[0]]||''}${s[5]?' · '+TDL[s[5]]:''}</div><div class="mt${s[3]?' far':''}">${s[2]}</div><div class="op">◍ Open on map →</div></div>`).join(''):'<div class="none">Nothing matches — widen the reach or drop the rating floor.</div>'}</div>
+ <div class="ft"><span>Showing ${vis.length} of ${all.length} loaded · ranked by rating, then drive</span><span>Rating floor is remembered · reach and type reset each visit</span></div>`;
+ document.querySelectorAll('#dr button').forEach(b=>b.addEventListener('click',()=>{dReach=b.dataset.v;drawSheet()}));
+ document.querySelectorAll('#dt button').forEach(b=>b.addEventListener('click',()=>{dRate=b.dataset.v;save();drawSheet()}));
+ document.querySelectorAll('#dl button').forEach(b=>b.addEventListener('click',()=>{dLoc=b.dataset.v;drawSheet()}));
+}
+function closeSheet(){document.getElementById('sheet').classList.remove('on');dLoc='any'}
+document.getElementById('sheet').addEventListener('click',e=>{if(e.target.closest('[data-close]'))closeSheet()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSheet()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closePk()});
+syncLens();
+render();
+</script>
+</body>
+</html>

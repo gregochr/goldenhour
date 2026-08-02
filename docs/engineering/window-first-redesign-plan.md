@@ -1,9 +1,10 @@
 # Window-first Plan tab — implementation plan
 
-**Status:** plan, agreed 2026-08-01. No code written yet.
+**Status:** agreed 2026-08-01. **P0 built and reviewed 2026-08-02**; P1 is next.
 **Reviewed:** adversarially, 2026-08-01 — two rounds, 29 charges raised, 16 upheld after refutation.
 Every upheld finding is applied below. Where a finding reversed an earlier decision, the reversal and
-its reason are recorded rather than silently overwritten.
+its reason are recorded rather than silently overwritten. Each phase gets the same treatment before it
+lands — see CLAUDE.md § UI Work — Review Cadence.
 **Spec:** `docs/design/window-first/` (the handoff bundle — README.md is the written spec,
 `Plan Window First v2.html` the design of record). Copy it in as step P0.
 
@@ -313,11 +314,11 @@ Backend first for anything shared, so the frontend stays a render layer.
 
 | Phase | Work | Notes |
 |---|---|---|
-| **P0** | Handoff into `docs/design/window-first/`; tokens (incl. the `--panel` decision); Mono 600; flag scaffold | Strip the five demo buttons and the annotation cards — they are marked not-for-production |
+| **P0** | Handoff into `docs/design/window-first/`; tokens (incl. the `--panel` decision); Mono 600; flag scaffold | Handoff copied **verbatim**. The five demo buttons and the annotation cards stay in the reference — they show the states (six solar events, a winter day, an away week) August cannot produce — and are stripped per screen as each is built. §6 is the enforcement; nothing under `docs/` reaches the build |
 | **P1** | Backend: window projection — verdict, best rating, nullable `confidence` (§2.7), **region ranking by `averageRating` desc** (nothing upstream orders regions), Best Bet / Also good from region gloss with the ≥3.0 + within-0.5 floor, badges **and promoted-strip rarity rank** from bucketed topics | Assembled at **serve time**, like `enrichWithCachedScores`; rides `days`, no carrier. Test: a window whose top-region gloss was nulled by `verdictChanged` projects with no Best Bet, the rest intact |
 | **P2** | Backend: tide rollup derivation — `TideExtremeRepository` extraction, interpolation, `selectRepresentative`, `marine_wave` sea state (§2.4) | Part of P1's serve-time assembly. `List<Double>`, never `double[]`; no representative → no rollup |
 | **P3** | Backend: `GET /api/user/settings/reach` (§2.2) | Whole roster, not radius-gated |
-| **P4** | Shell — masthead, **inert** day rail, tabs | `border-bottom-width: 0`, never `border-bottom: none` |
+| **P4** | Shell — masthead, **inert** day rail, tabs. **Moves the flag branch out of `<main>`** and suppresses the app header for v2 | `border-bottom-width: 0`, never `border-bottom: none`. P0 left the branch inside `<main className="max-w-4xl">` — 896px, ~200px under the design's 1080px frame, and below the app's own `<header>`. Both must move together, since the design's masthead carries its own ⚙ and Sign out. Open at that point: the design separates frame from page with `body{background:#0e0b09}`, which §1 rules out as a product token, while this app's page is already `--plex-bg` |
 | **P5** | Window card — header, verdict badges + confidence fill decay, Best Bet, footer | Verdict colours identical everywhere they appear; the score-bar `width` transition gets a `prefers-reduced-motion` clause |
 | **P6** | Spot film strip | **Copy** `CloseToHome`'s filmstrip machinery into a new shared component; `CloseToHome` is not rewired. **Geometry from the spec, not `.cth-window-grid`** — see below. No `ScrollRail`. One shared comparator (rating desc, then drive asc); footer states what is *drawn* |
 | **P7** | Attribute rows — tide, then snow | Cap at two per window; anything further folds into a badge |

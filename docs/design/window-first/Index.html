@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PhotoCast — this week's explorations</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,0.66);--ink-3:rgba(242,231,211,0.42);--go:#8AAE72;--marginal:#E0A542;--tide:#6FA8B0;--home:#C9A24B;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:34px 20px 80px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+.doc{max-width:900px;margin:0 auto}
+.brandrow{display:flex;align-items:center;gap:11px;margin-bottom:18px}
+.logo{width:28px;height:28px;border-radius:50%;background:conic-gradient(from 200deg,#E0A542,#C8452F,#C9A24B,#E0A542)}
+.brand{font-size:19px;font-weight:700;letter-spacing:-.02em}
+.brandrow .sub{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-left:auto}
+h2{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin:22px 0 9px}
+.card{display:block;border:1px solid var(--border);border-radius:11px;background:var(--surface);padding:14px 16px;margin-bottom:8px;transition:border-color .14s,transform .12s}
+.card:hover{border-color:var(--border-light);transform:translateY(-2px)}
+.card.main{border-color:rgba(201,162,75,.45);background:linear-gradient(180deg,rgba(201,162,75,.07),transparent 65%),var(--surface)}
+.ct{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.ct .t{font-size:15px;font-weight:700;letter-spacing:-.01em;color:var(--ink)}
+.ct .tag{font-family:var(--mono);font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;padding:2px 6px;border-radius:5px;background:rgba(201,162,75,.16);color:#EBD9A8}
+.ct .ar{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.card:hover .ar{color:var(--tide)}
+.cd{font-size:12.5px;color:var(--ink-2);line-height:1.55;margin-top:5px}
+.cm{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:7px}
+.tip{border:1px solid var(--border);border-left:3px solid var(--go);border-radius:9px;background:var(--surface);padding:11px 14px;margin-top:20px}
+.tip b{display:block;font-size:12.5px;font-weight:600;margin-bottom:3px}
+.tip span{font-size:12px;color:var(--ink-2);line-height:1.55}
+</style>
+</head>
+<body>
+<div class="doc">
+<div class="brandrow"><div class="logo"></div><div class="brand">PhotoCast</div><span class="sub">explorations · 1 Aug 2026</span></div>
+
+<h2>The live thread</h2>
+<a class="card main" href="Plan Window First v2.html"><div class="ct"><span class="t">Plan — Window First v2</span><span class="tag">current</span><span class="ar">open →</span></div><div class="cd">The main mock. Window-first agenda, rail in the shell, Close to home as a global lens, coincidence promotion, hover peeks, sticky-filter policy, coverage/spend line.</div><div class="cm">demo buttons: Multi-user · Away Mon–Tue · Six solar events · Winter day · iPhone</div></a>
+
+<h2>Supporting thinking</h2>
+<a class="card" href="Unit Economics.html"><div class="ct"><span class="t">Unit Economics</span><span class="ar">open →</span></div><div class="cd">Why a day of forecast is a fixed cost, what actually scales per user, and the one thing that would break the model.</div><div class="cm">sliders: users · regions · windows · prose sharing · price</div></a>
+<a class="card" href="Signal Decay.html"><div class="ct"><span class="t">Signal Decay</span><span class="ar">open →</span></div><div class="cd">The 60th night of NLC season. Treatment as a function of how much tonight beats the baseline, and how often you have already been told.</div><div class="cm">slider: night of season · switch: tonight vs season</div></a>
+<a class="card" href="Plan Length Options.html"><div class="ct"><span class="t">Plan Length Options</span><span class="ar">open →</span></div><div class="cd">Where this started: window-first agenda vs your four-tab split, side by side, with the height difference and the trade-offs.</div><div class="cm">pannable canvas · two frames</div></a>
+<a class="card" href="Plan Window First.html"><div class="ct"><span class="t">Plan — Window First (v1)</span><span class="ar">open →</span></div><div class="cd">First build of the winning direction. Kept for comparison — v2 supersedes it.</div><div class="cm">includes the Coming up tab in full</div></a>
+
+<div class="tip"><b>Getting around</b><span>Each file you open stays as a tab at the top of your view, so you can flick between them. This index is the hub — every page links back to it from the top-left. Ask me any time to open a specific one.</span></div>
+</div>
+</body>
+</html>
