@@ -2450,5 +2450,38 @@ class BriefingServiceTest {
             assertThat(findRegion(briefingService.getCachedBriefing(), "North East")
                     .displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
         }
+
+        @Test
+        @DisplayName("the served payload carries a window on every event summary")
+        void servedPayloadIsProjected() {
+            // The wiring tripwire. PlanWindowProjectorTest proves the projection; this proves the
+            // serve path applies it. Without this, removing the call from getCachedBriefingForApi
+            // leaves every projector test green and the whole feature absent from the API.
+            stubFullRefresh(bamburgh());
+            stubBuildScores(5);
+            briefingService.refreshBriefing();
+            stubServeScores(5);
+
+            assertThat(briefingService.getCachedBriefingForApi().days())
+                    .isNotEmpty()
+                    .flatMap(com.gregochr.goldenhour.model.BriefingDay::eventSummaries)
+                    .isNotEmpty()
+                    .allSatisfy(es -> assertThat(es.window()).isNotNull());
+        }
+
+        @Test
+        @DisplayName("the internal path carries no window")
+        void internalPathIsNotProjected() {
+            // Internal callers read the untransformed triage data. A window there would be derived
+            // from pre-honesty-filter regions, which is the wrong-but-plausible failure the
+            // projector's placement exists to avoid.
+            stubFullRefresh(bamburgh());
+            stubBuildScores(5);
+            briefingService.refreshBriefing();
+
+            assertThat(briefingService.getCachedBriefing().days())
+                    .flatMap(com.gregochr.goldenhour.model.BriefingDay::eventSummaries)
+                    .allSatisfy(es -> assertThat(es.window()).isNull());
+        }
     }
 }

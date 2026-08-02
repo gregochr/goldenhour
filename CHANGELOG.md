@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — one card per shooting window, assembled where the payload is honest (P1)
+
+- **Every solar event now carries a `window`** — verdict, best rating, confidence, a Best Bet, an optional Also good, and the hot topics landing on it. Derived per request and never persisted: it rides `days`, which the serve path passes through untouched, so there is no carrier, no migration, and the stored cache JSON is byte-identical.
+- **The projection is the outermost step of the serve path, and that placement is the whole design.** The honesty filter blanks a zero-coverage region to STAND_DOWN with an empty slot list on the way past; projected any earlier, a window confidently recommends a region the same response reports as unevaluable — and it renders perfectly, visible only by opening the drill-down. A test asserts both directions: wrong order produces the phantom recommendation, right order does not.
+- **"Also good" gained the quality floor it never had.** The plan called for lifting an existing rule; there wasn't one. `BriefingBestBetAdvisor.PICK_TWO_RATING_FLOOR` is private and its own Javadoc says it "never gates selection or ranking" — its only use is a log line, and the 0.5 band had no Java representation at all. So `AlsoGoodFloor` **authors** it: within 0.5 of the top region's average and at least 3.0 absolute. The two surfaces now share a constant; they cannot share an enforcement, because the other path's rule is prose that Claude follows, and the class says so rather than claiming they cannot drift.
+- **Regions are ranked here because nothing upstream ranks them.** The hierarchy builder appends them in grid-fetch order. Average rating, then scored coverage, then name — the coverage tie-break is load-bearing rather than decorative, since averages are rounded to one decimal place across a handful of regions, so ties are routine.
+- **A gloss headline is only usable if it is a headline.** Keyed on the headline and never the detail, because the honesty filter nulls the headline while *setting* the detail to canned "too unsettled to evaluate" copy — a detail-first rule promotes that failure text into a recommendation. The literal string `"null"` is rejected too: the gloss parser accepts a JSON node whose value is an explicit null, and reading it as text yields four characters that would otherwise headline a card.
+
+### Fixed — a woodland score could have headlined a sky window, two ways
+
+Both found by adversarial review before the code landed, both reproduced by failing tests first.
+
+- **The canopy exclusion keyed on whether a sky slot was *rated*, not on whether one *existed*.** A misty sunrise is exactly where that bites: the woodland lane is deliberately exempt from the sky triage, so the fog that leaves every sky slot unrated is the same fog that scores the wood well — and the window took the wood's 5 as its headline star. Now keyed on presence, window-wide, so a wood in one region cannot headline a window whose sky slots live in another.
+- **The Best Bet named the location the header star had just refused.** With a wood at 5 and a beach at 3, the star read 3 and the "where to drive" line read the wood — under sky prose. The two now read one population, decided once per window, because deciding it twice is how they came to disagree. An all-canopy region inside a mixed window is excluded from the ranking entirely rather than naming its wood.
+- Out-of-range ratings no longer reach the header. The ranking already discarded them; a header printing a value the ranking refused let one bad row be both rejected and displayed.
+- `BriefingSlot`'s Javadoc claimed a canopy slot was "structurally unable to carry a Claude rating". It is not — the woodland and bluebell mini-batches score these sites with their own prompt — and that sentence is what made both defects above look defensible.
+
 ### Fixed — the tide run's verdict named a low water five hours away instead of the high water on sunrise
 
 - **Two thresholds were answering one question.** `aligned` asks whether the useful water is within `ALIGNED_WINDOW_MINUTES` (60) of a solar event; the "other extremum" branch asked whether it was within the much tighter `COINCIDENT_MINUTES` (30). A high water landing **58 minutes after sunrise** fell between the two, was discarded, and the run instead stated the nearest *low* water — five hours earlier, at 00:12, in the dark. The reported line read `peak range · LW 5h03 before sunrise` on a morning whose one actionable fact was high water on the sunrise.
