@@ -209,6 +209,39 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 
 ---
 
+## Where a rating lives — three stores, one of them a different engine
+
+Reach for the wrong one and you will build something that compares two engines and calls the
+difference a change. This cost a day on 2026-08-03.
+
+| store | per-run history | written by | read by |
+|---|---|---|---|
+| `cached_evaluation` (briefing evaluation cache) | **no** — overwritten each run | `BriefingEvaluationService.writeFromBatch`, from the batch pipeline | `BriefingService.enrichSlot` — **this is the rating the UI displays**, keyed by location *name* |
+| `forecast_score` (V108) | **no** — `uq_forecast_score_component` is UNIQUE on (forecast_type, location, date, event); latest evaluation wins, deliberately matching `cached_evaluation` semantics | the Pass-2 dual write in `ForecastResultHandler` | Pass-2 consumers |
+| `forecast_evaluation` | **yes**, insert-only and never pruned | the **synchronous** engine | `GET /api/forecast` (the map's primary endpoint), `EvaluationViewService`, `ForecastCalibrationService` |
+
+Two consequences worth stating plainly:
+
+- **`forecast_evaluation` is not legacy dead weight — it is a second live engine.** The map view and
+  the calibration gate both read it, and V128 (one of the newest migrations) indexes it. Do not
+  "clean it up". The duplication is real and is already on the architecture review's list as the
+  dual-engine consolidation; until that lands, both are load-bearing.
+- **No store retains a per-location per-run history that the live pipeline writes.** Any feature
+  needing "what was this rated last time" — a trend, a sparkline, a since-last-forecast diff —
+  needs a new append-only sink first. `forecast_evaluation` looks like the answer and is not.
+- ⚠️ **`forecast_evaluation` has stopped being a scoring table, whatever its name says.** Measured
+  2026-08-03 over the preceding fourteen days: rows were written on **all fourteen**, and ratings on
+  **one** (31 Jul, 207 of 268 rows; every other day zero). Roughly three quarters of the table's
+  33k rows carry a null rating. It is now, in practice, a triage and base-forecast table. The batch
+  pipeline does the scoring, and its two sinks (`cached_evaluation`, `forecast_score`) last wrote
+  within 0.3 seconds of each other — the dual write is healthy.
+- **This starves the calibration gate.** `ForecastCalibrationService` joins `forecast_evaluation` to
+  `actual_outcome`; with ratings landing one day in fourteen it has almost nothing to score, before
+  even reaching the fact that `actual_outcome` has no rows. Not broken — starved. Worth knowing
+  before anyone cites it as evidence of forecast accuracy.
+
+---
+
 ## Roles
 
 | Role | Permissions |
