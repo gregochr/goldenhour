@@ -298,15 +298,18 @@ not reopen it from the handoff text alone.
 - **Run-history sparkline: DEFERRED to P16 — and the strongest reason is how little of it would
   render.** Measured against production on 2026-08-03, over 16,416 slots in `forecast_evaluation`:
 
-  | runs per slot | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 9 |
-  |---|---|---|---|---|---|---|---|---|
-  | slots | 8,280 | 3,098 | 2,470 | 1,837 | 564 | 111 | 55 | 1 |
+  ⚠️ **Count RATED rows, not rows.** Three quarters of `forecast_evaluation` rows are triage rows
+  carrying a null rating. Counting rows overstates both features by four to five times, and the
+  first pass at these numbers made exactly that mistake.
 
-  `runBars()` renders nothing below two points, so **half of all spots (50.4%) would show no
-  sparkline at all**, and only **15.6% have the four runs the design draws**. A feature absent from
-  half the surface it is meant to enrich is a poor trade for the query it costs — a better argument
-  for waiting than the bundle's self-contradiction, though that stands too. The distribution also
-  caps sensibly: the busiest slot has nine runs, so "last four" truncates nothing meaningful.
+  | rated runs per slot | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 9 |
+  |---|---|---|---|---|---|---|---|---|---|
+  | slots | **12,319** | 2,561 | 576 | 291 | 332 | 170 | 111 | 55 | 1 |
+
+  `runBars()` renders nothing below two points, so **90.6% of spots would show no sparkline at
+  all**, and only **4.1% have the four rated runs the design draws**. That is not a feature waiting
+  on a query; it is a feature with almost no input. Defer it, and revisit only if the evaluation
+  rate changes.
 
   **The data was never the obstacle.**
   `forecast_evaluation` is **insert-only and never pruned** (V128's own comment), and V128 indexes
@@ -318,9 +321,14 @@ not reopen it from the handoff text alone.
   design bundle contradicts itself**: `Plan Window First v2.html:400` shows it shipped, `:402` says
   it "waits until after the pilot", and `Change Since Last Run.html` says hold it back. `runBars()`
   returns empty without history, so a pilot build without it is spec-conformant. Ask the designer.
-- **The change row HAS input, unlike the sparkline.** Measured the same day: **49.6%** of slots
-  carry a previous run, so about half the spots in a window can genuinely show movement and the rest
-  honestly report no history. That asymmetry is why one is built and the other deferred.
+- ⚠️ **The change row's input is thin, and thinner than first measured: 9.4%.** Only 1,536 of
+  16,416 slots carry two or more *rated* runs, so roughly one spot in eleven can ever show movement.
+  An earlier note here said 49.6%, which counted rows rather than rated rows — see the table below.
+  Whether a row that is empty for nine spots in ten earns its place on the card is a product
+  question, and it should be answered before P5 builds it, not after.
+- **Any query for a prior rating must exclude null-rating rows.** Taking the second-newest *row*
+  returns a triage row three quarters of the time, stamping a null prior on a slot that genuinely
+  has one — under-reporting movement even within the 9.4%.
 - **The change row is client-side.** Its content derives from the spots actually drawn, which depend
   on the per-user reach lens — so it can never be a backend-composed sentence on `/api/briefing`.
   The backend supplies a nullable `priorRating`; the row is assembled where reach already lives.
@@ -488,7 +496,7 @@ Backend first for anything shared, so the frontend stays a render layer.
 | **P13** | Coming up tab | Unchanged |
 | **P14** | Responsive pass — real media queries, including the taller rail tile on phone | Keep control labels at 9px |
 | **P15** | Pre-pilot sweep (§6), then flip the flag default | |
-| **P16** | *(post-pilot, conditional)* Run-history sparkline | Deferred because only **15.6%** of slots have the four runs it draws and **half have none** — measured, see §2.8. Not for want of data or query |
+| **P16** | *(post-pilot, conditional)* Run-history sparkline | Deferred because only **4.1%** of slots have the four *rated* runs it draws and **90.6% have none** — measured, see §2.8. Not for want of data or query |
 
 **P6 — copy, don't extract, and take the geometry from the spec.** An extraction would rewire
 `CloseToHome` to consume it, which breaks the one thing §4 rests on: the v1 arm of the flag comparison
