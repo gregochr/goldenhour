@@ -2000,6 +2000,41 @@ class BriefingServiceTest {
         }
 
         @Test
+        @DisplayName("Slots reach the gloss service ALREADY enriched — the ordering its stats depend on")
+        void glossReceivesEnrichedSlots() {
+            // refreshBriefing enriches, then glosses. BriefingGlossService computes the score
+            // distribution it feeds Claude (claudeRatedCount, claudeAverageRating, the coverage
+            // hedge) from the slots it is handed — deliberately, so the italic paragraph counts
+            // the same ratings as the list rendered beneath it rather than re-reading a cache
+            // that can disagree.
+            //
+            // Swap those two statements and nothing throws, nothing logs and no other test
+            // notices: every slot arrives unrated, BriefingRatingStats.compute returns empty, the
+            // score fields are silently omitted from the prompt, and the region quietly degrades
+            // to weather-only prose. This is the only thing standing between that reorder and
+            // production.
+            LocationEntity loc = locationWithRegion("Bamburgh", "North East");
+            stubFullRefresh(loc);
+            when(evaluationViewService.getScoresForEnrichment(
+                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of("Bamburgh", new BriefingEvaluationResult(
+                            "Bamburgh", 4, 78, 52, "Dramatic light expected.", null, null)));
+
+            briefingService.refreshBriefing();
+
+            ArgumentCaptor<List<BriefingDay>> captor = ArgumentCaptor.captor();
+            verify(glossService).generateGlosses(captor.capture(), any());
+            BriefingSlot asSeenByGloss = captor.getValue().stream()
+                    .flatMap(day -> day.eventSummaries().stream())
+                    .flatMap(es -> es.regions().stream())
+                    .flatMap(region -> region.slots().stream())
+                    .filter(slot -> "Bamburgh".equals(slot.locationName()))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("Bamburgh never reached the gloss"));
+            assertThat(asSeenByGloss.claudeRating()).isEqualTo(4);
+        }
+
+        @Test
         @DisplayName("Region confidence is derived and decays with horizon on the build path")
         void regionConfidence_decaysWithHorizon() {
             // The core behavioural claim of Change B: a same-day 'Worth it' is more certain than a
