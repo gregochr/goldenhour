@@ -33,9 +33,8 @@ class BriefingEventSummaryWindowSerializationTest {
                 DisplayVerdict.WORTH_IT,
                 4,
                 Confidence.HIGH,
-                new BriefingWindow.Pick("North East", "Breaking clear", "Detail.", 4.0,
-                        "Bamburgh", 42L),
-                null,
+                new BriefingWindow.Pick(BriefingWindow.PickKind.BEST, "North East",
+                        "Breaking clear", "Detail.", 4.0, "Bamburgh", 42L),
                 List.of(new BriefingWindow.Badge("NLC", "Clearest in 11 nights", null, "22:04", 14)),
                 14);
     }
@@ -75,14 +74,16 @@ class BriefingEventSummaryWindowSerializationTest {
     }
 
     @Test
-    @DisplayName("the picks and badges a window has none of are omitted, not written as null")
-    void absentPicksAreOmitted() {
-        // The card reads absence as "omit the block". A serialised null would still be absence to
-        // JavaScript, but an explicit null in the payload invites a consumer to render it.
+    @DisplayName("a pick serialises with its kind; a window without one omits the field")
+    void pickCarriesItsKindAndIsOmittedWhenAbsent() {
+        // Absence is the normal case — exactly two windows in a forecast carry a pick — so the
+        // field must be omitted rather than written as null, which invites a consumer to render it.
+        assertThat(mapper.valueToTree(new BriefingWindow(null, DisplayVerdict.AWAITING, null, null,
+                null, List.of(), null)).has("pick")).isFalse();
         var node = mapper.valueToTree(window());
 
-        assertThat(node.has("alsoGood")).isFalse();
-        assertThat(node.has("bestBet")).isTrue();
+        assertThat(node.has("pick")).isTrue();
+        assertThat(node.get("pick").get("kind").asText()).isEqualTo("BEST");
     }
 
     @Test
@@ -90,14 +91,14 @@ class BriefingEventSummaryWindowSerializationTest {
         // Empty is a normal state and must not be confused with "we had no topic data at all",
         // so the list is always serialised rather than dropped.
         BriefingWindow empty = new BriefingWindow(null, DisplayVerdict.AWAITING, null, null,
-                null, null, List.of(), null);
+                null, List.of(), null);
 
         assertThat(mapper.readTree(mapper.writeValueAsString(empty)).get("badges")).isEmpty();
     }
 
     @Test
     void nullBadgesNormaliseToEmptyRatherThanThrowing() {
-        assertThat(new BriefingWindow(null, DisplayVerdict.AWAITING, null, null, null, null,
+        assertThat(new BriefingWindow(null, DisplayVerdict.AWAITING, null, null, null,
                 null, null).badges()).isEmpty();
     }
 }

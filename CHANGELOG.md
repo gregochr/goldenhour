@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the two picks now rank whole windows against each other, not regions within one
+
+- **Best Bet and Also good became forecast-wide**, per the second handoff. They rank every *rendered* window in the forecast and name exactly two, each carried on the window it falls on — so a Best Bet on tomorrow's sunrise and an Also good on Thursday's sunset is the normal shape. The window card carries no narrative block at all.
+- **`bestBet`/`alsoGood` became one `pick` with a `kind`.** Leaving a field called `bestBet` holding the Also-good would have been a half-true name, and those are what the reviews on this project keep catching.
+- **The prose is authored once and cannot disagree with itself.** The pick rides the window it belongs to rather than a separate top-level object, so the rail chip and the window badge read one value — there is no second copy to drift.
+- **The runner-up still clears `AlsoGoodFloor`.** The comparands moved from two regions in one window to two windows in a forecast; the rule did not. An honest silence beats a padded second recommendation.
+
+### Fixed — a pick could have been spent on a window that had already happened
+
+Both found by adversarial review before the code landed; both mutation-verified after.
+
+- **Eligibility was keyed on list position, not time.** The day list is built from the *build* day, so on a next-day serve `days[0]` is yesterday — indexing admitted an elapsed day and excluded a rendered one at the far end. Worse, the tie-break actively preferred the lowest index, i.e. the window most likely to be past. Under the old per-window model this was survivable, because a client could just drop a past window and lose nothing; forecast-wide it is fatal, since every non-winning candidate is discarded at selection and cannot be recovered. Eligibility is now temporal, with the same 30-minute afterglow `CloseToHomeService` uses, and the horizon counts *surviving dates* rather than payload positions.
+- **A window with no solar time counts as current, never as past** — reading a missing time as elapsed would have published no picks at all for a briefing whose slots carry no time, a silent and total failure.
+- **The "exactly two picks" invariant had no test that could fail.** The fixture guarding it used a third window the quality floor rejected on its own, so the cap could be deleted with the suite green — and the reshape had removed the one test at HEAD that did guard it. The fixture now uses a third window that clears the floor, so only the cap can refuse it.
+- A test fixture put every day's windows on day zero's clock. Invisible while eligibility was positional; wrong the moment it became temporal.
+
 ### Fixed — the stale fallback picks were the one list never checked against blanked regions
 
 - **The honesty filter now wraps `applyBestBetFallback` instead of sitting inside it.** v2.17.10 taught the filter to withdraw a Best Bet naming a region the same response reports as unevaluable, but the serve path applied it *before* the fallback swapped in stale picks — so those picks went out unchecked. They are the list most likely to fail that check: an earlier forecast's recommendations, offered precisely because this cycle's advisor failed. The stale chip tells a reader the picks are old; it does not tell them the region behind one has no forecast at all.
