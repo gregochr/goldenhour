@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — every shooting window now states its tide, and names the coast it means (P2)
+
+- **A per-window tide rollup**, derived at serve time and hung off each window: state and direction, the nearest extreme with its offset from the window, the day's range, how that compares with normal, the sea state, the day's tide shape, and — the part the spec's data contract does not carry — **the coastal location all of it is measured at**. Alignment differs 20–30 minutes across a coastline and the row states offsets to the minute, so an unattributed high-water time is a claim this project cannot make.
+- **One location for the whole forecast, not one per window.** Choosing per window lets the curve jump coastlines between Tuesday and Thursday, so a reader comparing two windows compares two places. The anchor-first, biggest-range-otherwise rule is now shared with the tide-run pill via `TideRepresentativeSelector` — an extraction proved pure by `TideRunBuilderTest` passing unedited.
+- **The sea state degrades on its own.** `marine_wave` reaches T+4; `tide_extreme` reaches T+13. A window past the wave horizon is the normal case at the far end of the rail, so a missing sea state must never suppress the row.
+- **Nothing is synthesised.** No coastal roster, no stored extremes, no resolvable representative, or no day carrying both a high and a low water means no rollup at all, and the row falls back to the per-location tide fact line. One undrawable date loses its own windows and no others.
+- **The projector stays dependency-free.** The rollup is assembled by a `@Component` and handed in as a map keyed by window, exactly as the badges arrive — a repository injected into a pure projection would make every future window field look like a licence for another one.
+- **One vocabulary for two surfaces.** `TideWording` now owns the clock, metre and offset forms, so the tide-run pill and this row cannot spell the same measurement two ways on one screen.
+
+### Fixed — findings from the adversarial review, before the code landed
+
+Twenty-one charges filed across six prosecutor lenses, nine upheld after per-charge refutation.
+
+- **An average tide read as above average.** The stated range is the day's biggest swing — `max(highs) − min(lows)`, an extreme — while the baseline is `AVG(highs) − AVG(lows)`, a mean. Subtracting one from the other is biased upward by the day's own diurnal inequality, by +0.25 m on the fixture coast: five times the display threshold. Because this row renders on *every* window of every day, that bias was the normal case, not an edge one — "about average" was effectively unreachable. The comparison is now mean against mean; the headline stays the biggest swing, and the two figures measure different things on purpose. `TideRunBuilder` still uses the biased form and is deliberately left alone: it fires only on spring and king days, where the day genuinely is above average.
+- **The row and the drill-down beneath it could call the same water HIGH and MID.** The rollup classified tide state at a fixed ±60 minutes while `BriefingSlot.tide` uses an elevation-derived window — half the blue+golden span, ~41 minutes at 54.5°N around the equinox. A high water 50 minutes off sunset read HIGH in the row and MID in the slot directly beneath it, one location, one evening. Both now size the window the same way. The `public` widening of `classifyTideState` made to justify the old claim is reverted: both callers were in the same package all along.
+- **Close to home paid for a rollup it discards.** `getCachedBriefingForApi` had two callers, and the panel one holds no `BriefingWindow` at all — so the Plan tab, which fetches both endpoints on load, built the rollup twice per page and threw one copy away. The window projection now sits behind its own accessor; `getServedBriefing` is the shared, un-projected payload the panel wanted.
+- **Two things claimed by prose had no test that could fail.** The bookend extension that stops a day's leading hours drawing as slack water could be deleted with the whole suite green, and the ±1-day fetch margin was stubbed with `any()` so shrinking it changed nothing. Both are now pinned relationally.
+- **`windowLevel` could fall outside the 0–1 range it documents** — the trace is normalised over its own samples and the solar event almost never lands on one, so a peak between samples put the mark a fraction off the scale.
+- A `@param` justified `List<Double>` by a cache-equality check this record can never reach; the type is right and the recorded reason was not, in a repo where Javadoc rationale is the architecture record.
 ### Security — Frontend dependency audit fixes (brace-expansion, fast-uri)
 
 - Newly-disclosed high advisory GHSA-rgw5-rvv9-x895 in `brace-expansion` 4.0.0–5.0.8 (DoS via unbounded intermediate arrays), which **bypasses the mitigation for CVE-2026-14257** — the advisory the existing `overrides` pin at `5.0.8` was added for. The pin was therefore itself the vulnerable version. Bumped to `5.0.9`, the first release outside the range.

@@ -46,11 +46,19 @@ import java.util.Set;
  * <p><b>Ratings come from the enriched briefing, not a second source.</b> The client preferred a
  * separately-fetched evaluation-score map over the payload's own {@code claudeRating}, which
  * looked like a freshness fix worth reproducing here. It is not needed:
- * {@code BriefingService.getCachedBriefingForApi} already runs {@code enrichWithCachedScores} on
+ * {@code BriefingService.getServedBriefing} already runs {@code enrichWithCachedScores} on
  * the SERVE path, from the same {@code getCachedScores} source the separate endpoint reads. Taking
  * the enriched payload therefore yields exactly the ratings the Plan grid shows — which is the
  * property that matters, since two panels disagreeing about the same location is the failure this
  * whole contract exists to prevent.
+ *
+ * <p><b>{@code getServedBriefing}, not {@code getCachedBriefingForApi}.</b> They differ by the
+ * Plan-tab window projection alone, which this panel cannot consume — it holds no
+ * {@code BriefingWindow} and reads only {@code days()} and {@code bestBets()}. That projection now
+ * derives a per-window tide rollup costing several queries, and the Plan tab fetches this endpoint
+ * and {@code /api/briefing} together, so sharing the projecting accessor paid for the rollup twice
+ * per page load and discarded one copy. The shared-snapshot guarantee above is unaffected: the
+ * projection only attaches a window and rewrites nothing this panel reads.
  */
 @Service
 public class CloseToHomeService {
@@ -148,7 +156,7 @@ public class CloseToHomeService {
             // No home postcode is the normal state for a new user, not a failure.
             return CloseToHomeResponse.empty(radiusMiles, HORIZON_DAYS);
         }
-        DailyBriefingResponse briefing = briefingService.getCachedBriefingForApi();
+        DailyBriefingResponse briefing = briefingService.getServedBriefing();
         if (briefing == null || briefing.days() == null || briefing.days().isEmpty()) {
             return CloseToHomeResponse.empty(radiusMiles, HORIZON_DAYS);
         }

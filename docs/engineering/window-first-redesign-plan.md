@@ -244,6 +244,40 @@ rule — both are `private`, so P2 extracts them. It is already a hard precondit
 `Map.of()` when none resolves). Render the name in the dim fact span the row already has (`4.9 m · 1.2 m above an average tide · at Whitby`), so no grid column changes.
 One test pins the fail-soft.
 
+### 2.4a What P2 actually decided — read before P7 renders the row
+
+Three of the nine upheld review findings changed behaviour rather than wording. Recorded here so P7
+does not re-derive them from the row's appearance.
+
+- **The row's two numbers measure different things, deliberately.** `range` is the day's biggest
+  swing (`max(highs) − min(lows)`); `rangeAnomaly` compares the day's *mean* range against the
+  location's mean-based climatology. Subtracting a mean baseline from an extreme is biased upward by
+  the day's own diurnal inequality — +0.25 m on the fixture coast, five times the 0.05 m display
+  threshold — and because this row renders on **every** window of every day, that bias is the normal
+  case: "about average" becomes unreachable and every window claims an above-average tide. Do not
+  "simplify" the two into one statistic. ⚠️ `TideRunBuilder` and `CoastalTideFactsBuilder` still use
+  the biased extreme-minus-mean form. Left alone on purpose: they fire only on spring and king days,
+  where the day genuinely is above average and the bias is swamped. Unifying them is a change to a
+  shipped surface and belongs with whatever next touches the tide-run pill.
+- **The tide state is classified at the per-slot facts' own window, not a fixed hour.**
+  `TideFactDeriver.tightAlignmentWindowMinutes` — half the blue+golden span for that location, date
+  and event — is ~41 minutes at 54.5°N around the equinox. Under a fixed ±60 a high water 50 minutes
+  off sunset read HIGH in the row and MID in the drill-down slot directly beneath it. `TideService`'s
+  3-arg `classifyTideState` is the single rule and the width is the caller's to choose; the 2-arg
+  ±60 overload has **no production caller** and is test-only.
+- **The window projection is behind its own accessor.** `getCachedBriefingForApi` projects windows
+  and derives the tide; `getServedBriefing` is the same enriched, filtered payload without them, and
+  is what `CloseToHomeService` reads. They differ by the projection alone — which only *attaches* a
+  window and rewrites nothing a panel reads — so the shared-snapshot guarantee of §2.2 is intact.
+  Anything rendering windows must use the former, or the Plan tab silently loses its verdict badges,
+  its picks and its tide rows.
+
+Also settled, and not worth re-opening: the **payload is renderable as pure geometry** —
+`x = i/(n−1)·104`, `y = (1−curve[i])·24`, the mark at `windowPosition·104` / `(1−windowLevel)·24` —
+so no backend rule leaks into the client. The design's action line ("61 coastal locations →") and
+its `≈ Tide · biggest` kicker are **not** in the payload: the first is a count of our own data (§6)
+and the second needs a month-wide scan §2.4 never asked for. Both are P7's call, not omissions.
+
 ### 2.5 Reach lens
 
 CloseToHome gates by `localRadiusMiles` with a client chip cycling 15/30/45 min. The design wants
@@ -516,7 +550,7 @@ Backend first for anything shared, so the frontend stays a render layer.
 |---|---|---|
 | **P0′** | Re-cut `docs/design/window-first/` **verbatim** from the second bundle — `Plan Window First v2.html`, `README.md`, `PROMPTS.md`, plus new `DELTA.md`, `Change Since Last Run.html`, `spec-plan-picks/`. Add `--color-runbar-1`…`-5` (§2.9) | Six of the nine shared files are byte-identical; leave them. **Do not hand-edit the vendored README** — verbatim is what keeps the next re-cut a diff. Its stale per-window pick text at `:118`/`:210` is neutralised by this plan's header pointer instead. Mark `Change Since Last Run.html` superseded or omit it: it contradicts the current spec on three points. **No `--blue` token** — see §2.8 |
 | **P1′** | Reshape the merged projection: delete `alsoGood`; hoist the picks to a forecast-wide rank-1/rank-2 **over the rendered window set** (§2.3), each bound to its window; add nullable `priorRating` to the slot for the change row | Keep `rank()`, `pick()`, `Pick`, `AlsoGoodFloor`, badges, rarity, and all of `73e20f5d`'s fixes. **No `regionId`** (§2.8). Update `BriefingWindow:36-37` and `PlanWindowProjector:274-275` in the *same* change as the field, never before it |
-| **P2** | Backend: tide rollup derivation (§2.4) | Unchanged. ⚠️ `TideRunBuilder` has taken three merges recently — re-read it, and prefer extracting `selectRepresentative`/`findAnchor` into a shared helper over restructuring in place |
+| **P2** | ~~Backend: tide rollup derivation (§2.4)~~ **DONE.** `BriefingWindowTide` on every window, built by `WindowTideRollupBuilder` and passed to the projector as a map. `selectRepresentative`/`findAnchor` extracted to `TideRepresentativeSelector` (per-instance warn state), formatters to `TideWording` | Extraction proved pure — `TideRunBuilderTest` passes unedited. Three review findings changed the design, not just the prose: the anomaly estimator, the tide-state window, and the projection's placement on the serve path (§2.4a) |
 | **P3** | Backend: `GET /api/user/settings/reach` (§2.2) | Unchanged |
 | **P4a** | Shell — masthead, tabs, move the flag branch out of `<main>`, suppress the app header for v2 | Unchanged in substance. `border-bottom-width: 0`, never `border-bottom: none` |
 | **P4b** | Generalised popover host — one body-parented `position:fixed` panel with document-level delegation | Smaller than first assessed. The region-chip gloss **already ships** inside the component P4c copies (`BriefingSummaryStrip:196-215` + `:233-247`): `role="button"`, keyboard, focus parity, a portalled `role="tooltip"`. Copy the tile and the gloss comes with it. Pick-chip content belongs to P5 |

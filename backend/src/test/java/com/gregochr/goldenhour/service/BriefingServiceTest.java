@@ -58,6 +58,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -84,6 +85,13 @@ class BriefingServiceTest {
     private LocationService locationService;
     @Mock
     private MarineWaveRefreshService marineWaveRefreshService;
+    /**
+     * The serve-time tide rollup. Left unstubbed throughout: Mockito answers a {@code Map} return
+     * with an empty map, which is the "no coastal roster" degrade — every window then carries a null
+     * tide, exactly as it did before P2. {@code WindowTideRollupBuilderTest} owns the derivation.
+     */
+    @Mock
+    private WindowTideRollupBuilder windowTideRollupBuilder;
     @Mock
     private SolarService solarService;
     @Mock
@@ -156,7 +164,8 @@ class BriefingServiceTest {
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService);
+                BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
+                windowTideRollupBuilder);
     }
 
     /**
@@ -741,7 +750,8 @@ class BriefingServiceTest {
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService);
+                BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
+                windowTideRollupBuilder);
         freshService.loadPersistedBriefing();
 
         DailyBriefingResponse cached = freshService.getCachedBriefing();
@@ -774,7 +784,8 @@ class BriefingServiceTest {
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService);
+                BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
+                windowTideRollupBuilder);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -800,7 +811,8 @@ class BriefingServiceTest {
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService);
+                BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
+                windowTideRollupBuilder);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -1340,7 +1352,8 @@ class BriefingServiceTest {
                     new BriefingHierarchyBuilder(verdictEvaluator),
                     slotBuilder, eventPublisher, hotTopicAggregator,
                     briefingEvaluationService, evaluationViewService, bestBetFallbackService,
-                    BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService);
+                    BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
+                    windowTideRollupBuilder);
             freshService.loadPersistedBriefing();
 
             // Trigger below-threshold refresh: 1 location, batch throws → succeeded=0, failed=1
@@ -2673,6 +2686,79 @@ class BriefingServiceTest {
                     .flatMap(com.gregochr.goldenhour.model.BriefingDay::eventSummaries)
                     .isNotEmpty()
                     .allSatisfy(es -> assertThat(es.window()).isNotNull());
+        }
+
+        @Test
+        @DisplayName("the tide rollup is derived from the FILTERED days and reaches the window")
+        void servedPayloadCarriesTheTideRollup() {
+            // Two failures this catches, both of which leave every other test green. Dropping the
+            // rollup call leaves the tide row absent from the API with WindowTideRollupBuilderTest
+            // still passing. And deriving it from the UNFILTERED days would key rollups to a day
+            // list the honesty filter may since have rewritten, so a rollup could be attached to a
+            // window the same response no longer describes.
+            stubFullRefresh(bamburgh());
+            stubBuildScores(5);
+            briefingService.refreshBriefing();
+            stubServeScores(5);
+            ArgumentCaptor<java.util.List<com.gregochr.goldenhour.model.BriefingDay>> days =
+                    ArgumentCaptor.forClass(java.util.List.class);
+            com.gregochr.goldenhour.model.BriefingWindowTide rollup =
+                    new com.gregochr.goldenhour.model.BriefingWindowTide(
+                            "Bamburgh", com.gregochr.goldenhour.entity.TideState.MID,
+                            com.gregochr.goldenhour.model.BriefingWindowTide.Direction.FALLING,
+                            "HW", "19:28", "1h43 before sunset", "4.9 m",
+                            "1.2 m above an average tide", null,
+                            java.util.List.of(0.0, 1.0), 0.8, 0.4);
+            when(windowTideRollupBuilder.build(days.capture())).thenAnswer(inv -> {
+                java.util.List<com.gregochr.goldenhour.model.BriefingDay> given = inv.getArgument(0);
+                return given.stream()
+                        .flatMap(d -> d.eventSummaries().stream()
+                                .map(es -> new PlanWindowProjector.WindowKey(d.date(),
+                                        es.targetType())))
+                        .collect(java.util.stream.Collectors.toMap(k -> k, k -> rollup));
+            });
+
+            var served = briefingService.getCachedBriefingForApi();
+
+            assertThat(served.days())
+                    .flatMap(com.gregochr.goldenhour.model.BriefingDay::eventSummaries)
+                    .isNotEmpty()
+                    .allSatisfy(es -> assertThat(es.window().tide()).isEqualTo(rollup));
+            // The list handed to the builder is the one the windows were projected from, so no
+            // rollup can survive onto a window the served payload does not contain.
+            assertThat(days.getValue().stream().map(
+                    com.gregochr.goldenhour.model.BriefingDay::date).toList())
+                    .isEqualTo(served.days().stream().map(
+                            com.gregochr.goldenhour.model.BriefingDay::date).toList());
+        }
+
+        @Test
+        @DisplayName("the panel path is the same payload without the window projection, and pays nothing for it")
+        void panelPathSkipsTheWindowProjectionEntirely() {
+            // CloseToHomeService shares this accessor so two panels cannot disagree about the same
+            // location — but it holds no BriefingWindow and reads only days() and bestBets(). The
+            // Plan tab fetches both endpoints on load, so while the projection rode the shared
+            // accessor the tide rollup — a roster query, a multi-day tide_extreme scan, the
+            // representative's whole height history and a marine_wave lookup per window — was built
+            // twice per page and one copy thrown away. What must NOT change is everything else:
+            // same enrichment, same fallback, same honesty filter, same order.
+            stubFullRefresh(bamburgh());
+            stubBuildScores(5);
+            briefingService.refreshBriefing();
+            stubServeScores(5);
+
+            var panel = briefingService.getServedBriefing();
+
+            assertThat(panel.days())
+                    .flatMap(com.gregochr.goldenhour.model.BriefingDay::eventSummaries)
+                    .isNotEmpty()
+                    .allSatisfy(es -> assertThat(es.window()).isNull());
+            verifyNoInteractions(windowTideRollupBuilder);
+            // The shared-snapshot guarantee: the projection attaches a window and rewrites nothing
+            // this panel reads, so the two accessors must agree slot for slot.
+            assertThat(findRegion(panel, "North East").displayVerdict())
+                    .isEqualTo(findRegion(briefingService.getCachedBriefingForApi(), "North East")
+                            .displayVerdict());
         }
 
         @Test

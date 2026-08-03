@@ -91,6 +91,7 @@ public class BriefingService {
     private final SurgeCurveService surgeCurveService;
     private final java.time.Clock clock;
     private final MarineWaveRefreshService marineWaveRefreshService;
+    private final WindowTideRollupBuilder windowTideRollupBuilder;
 
     /** UK civil-date zone for "today" derivation. */
     private static final ZoneId LONDON = ZoneId.of("Europe/London");
@@ -170,6 +171,7 @@ public class BriefingService {
      *                                   weather this build has already fetched
      * @param clock                      UTC clock supplying "now" and (via London) "today"
      * @param marineWaveRefreshService   fetches + persists coastal sea-state each briefing cycle
+     * @param windowTideRollupBuilder    derives the Plan tab's per-window tide rollup at serve time
      */
     public BriefingService(LocationService locationService,
             OpenMeteoClient openMeteoClient,
@@ -192,7 +194,8 @@ public class BriefingService {
             MeteorClarityService meteorClarityService,
             SurgeCurveService surgeCurveService,
             java.time.Clock clock,
-            MarineWaveRefreshService marineWaveRefreshService) {
+            MarineWaveRefreshService marineWaveRefreshService,
+            WindowTideRollupBuilder windowTideRollupBuilder) {
         this.locationService = locationService;
         this.openMeteoClient = openMeteoClient;
         this.jobRunService = jobRunService;
@@ -217,6 +220,7 @@ public class BriefingService {
         this.surgeCurveService = surgeCurveService;
         this.clock = clock;
         this.marineWaveRefreshService = marineWaveRefreshService;
+        this.windowTideRollupBuilder = windowTideRollupBuilder;
     }
 
     /**
@@ -322,11 +326,45 @@ public class BriefingService {
         // The fallback still runs on the ENRICHED response, so its FAILED test and the filter's
         // coverage test both read current state. Nothing else about it is order-sensitive: it
         // reads only bestBetStatus and passes the day hierarchy through untouched.
+        DailyBriefingResponse filtered = getServedBriefing();
+        // The tide rollup is derived here rather than inside the projector so the projector stays a
+        // pure function of the response: it needs three repositories, and the projector has none.
+        // It is fed the FILTERED days for one reason only — the same day list the windows are
+        // projected from, so a rollup can never be keyed to a window that no longer exists.
         return PlanWindowProjector.apply(
-                BriefingHonestyFilter.apply(
-                        applyBestBetFallback(reEnrichVerdicts(getCachedBriefing())),
-                        minCoverageRatio),
-                LocalDateTime.now(clock.withZone(LONDON)));
+                filtered,
+                LocalDateTime.now(clock.withZone(LONDON)),
+                filtered == null ? java.util.Map.of()
+                        : windowTideRollupBuilder.build(filtered.days()));
+    }
+
+    /**
+     * The served briefing <b>without</b> the Plan-tab window projection — for panels that read
+     * slots and never read {@link BriefingEventSummary#window()}.
+     *
+     * <p>Identical to {@link #getCachedBriefingForApi()} in every other respect: the same
+     * re-enrichment, the same serve-time best-bet fallback, and the same honesty filter, in the
+     * same order. That matters, because the whole point of a panel sharing this accessor is that
+     * two panels cannot disagree about the same location — and the window projection only
+     * <em>attaches</em> a window, leaving slots, verdicts and {@code bestBets} untouched.
+     *
+     * <p>It exists because the projection is no longer free. Deriving the per-window tide rollup
+     * costs a coastal-roster query, a multi-day {@code tide_extreme} scan, the representative's
+     * historical statistics and a {@code marine_wave} lookup per window — and
+     * {@code CloseToHomeService}, the one other caller, discards every byte of it. The Plan tab
+     * fetches both endpoints on load, so leaving them joined paid that cost twice per page.
+     *
+     * <p>⚠️ This is <em>not</em> the API payload. Anything served to a client that renders windows
+     * must go through {@link #getCachedBriefingForApi()}, or the Plan tab silently loses its
+     * verdict badges, its picks and its tide rows.
+     *
+     * @return the enriched, filtered briefing with no windows attached, or {@code null} if none has
+     *         been built yet
+     */
+    public DailyBriefingResponse getServedBriefing() {
+        return BriefingHonestyFilter.apply(
+                applyBestBetFallback(reEnrichVerdicts(getCachedBriefing())),
+                minCoverageRatio);
     }
 
     /**

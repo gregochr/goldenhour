@@ -3,11 +3,13 @@ package com.gregochr.goldenhour.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingWindow;
+import com.gregochr.goldenhour.model.BriefingWindowTide;
 import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
@@ -18,6 +20,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -776,26 +779,90 @@ class PlanWindowProjectorTest {
                                 List.of())))),
                 List.of());
 
-        BriefingWindow wrongOrder = PlanWindowProjector.apply(raw, NOW)
+        BriefingWindow wrongOrder = PlanWindowProjector.apply(raw, NOW, Map.of())
                 .days().get(0).eventSummaries().get(0).window();
         BriefingWindow rightOrder =
-                PlanWindowProjector.apply(BriefingHonestyFilter.apply(raw), NOW)
+                PlanWindowProjector.apply(BriefingHonestyFilter.apply(raw), NOW, Map.of())
                         .days().get(0).eventSummaries().get(0).window();
 
         assertThat(wrongOrder.pick()).isNotNull();
         assertThat(rightOrder.pick()).isNull();
     }
 
+    // ── The tide rollup ──────────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("the tide rollup")
+    class Tide {
+
+        @Test
+        @DisplayName("each window carries the rollup keyed to its own date and event")
+        void eachWindowCarriesItsOwnRollup() {
+            // The rollup is derived by a component and handed in, so the projector stays a pure
+            // function of the response. What must hold is that the two agree about which window is
+            // which: a key built from a different notion of window identity would silently attach
+            // the sunrise's tide to the sunset.
+            BriefingWindowTide sunrise = tide("HW", "05:44");
+            BriefingWindowTide sunset = tide("LW", "19:28");
+
+            DailyBriefingResponse out = PlanWindowProjector.apply(
+                    response(twoWindowDay(), List.of()), NOW,
+                    Map.of(new PlanWindowProjector.WindowKey(TODAY, TargetType.SUNRISE), sunrise,
+                            new PlanWindowProjector.WindowKey(TODAY, TargetType.SUNSET), sunset));
+
+            List<BriefingEventSummary> summaries = out.days().get(0).eventSummaries();
+            assertThat(summaries.get(0).targetType()).isEqualTo(TargetType.SUNRISE);
+            assertThat(summaries.get(0).window().tide()).isEqualTo(sunrise);
+            assertThat(summaries.get(1).window().tide()).isEqualTo(sunset);
+        }
+
+        @Test
+        @DisplayName("a window with no rollup carries a null tide, and everything else")
+        void aWindowWithoutARollupIsOtherwiseWhole() {
+            // tide_extreme reaches T+13 but a single date can still be undrawable, and an inland
+            // deployment has no coastal roster at all. Neither may cost the window its verdict,
+            // its rating or its pick — the row simply falls back to its per-slot facts.
+            BriefingWindow w = projectOne(region("Northumberland", 4, 4, 4));
+
+            assertThat(w.tide()).isNull();
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(w.bestRating()).isEqualTo(4);
+            assertThat(w.pick()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("a rollup keyed to a window the response does not contain is dropped")
+        void aRollupForAnAbsentWindowIsIgnored() {
+            // The map is built from the same day list the windows are projected from, so this
+            // cannot arise on the serve path — but a projector that scattered unmatched entries
+            // anywhere would be a hard defect to see, since every rendered window would look fine.
+            DailyBriefingResponse out = PlanWindowProjector.apply(
+                    response(twoWindowDay(), List.of()), NOW,
+                    Map.of(new PlanWindowProjector.WindowKey(TODAY.plusDays(9), TargetType.SUNSET),
+                            tide("LW", "19:28")));
+
+            assertThat(out.days().get(0).eventSummaries())
+                    .allSatisfy(es -> assertThat(es.window().tide()).isNull());
+        }
+
+        private BriefingWindowTide tide(String nearestType, String nearestTime) {
+            return new BriefingWindowTide("Whitby", TideState.MID,
+                    BriefingWindowTide.Direction.FALLING, nearestType, nearestTime,
+                    "1h43 before sunset", "4.9 m", "1.2 m above an average tide", null,
+                    List.of(0.0, 0.5, 1.0), 0.88, 0.42);
+        }
+    }
+
     @Test
     void aNullResponsePassesThrough() {
-        assertThat(PlanWindowProjector.apply(null, NOW)).isNull();
+        assertThat(PlanWindowProjector.apply(null, NOW, Map.of())).isNull();
     }
 
     @Test
     void everyOtherComponentOfTheResponseSurvives() {
         DailyBriefingResponse in = response(twoWindowDay(), List.of(topic("DUST", "SUNSET")));
 
-        DailyBriefingResponse out = PlanWindowProjector.apply(in, NOW);
+        DailyBriefingResponse out = PlanWindowProjector.apply(in, NOW, Map.of());
 
         assertThat(out.headline()).isEqualTo(in.headline());
         assertThat(out.generatedAt()).isEqualTo(in.generatedAt());
@@ -823,7 +890,7 @@ class PlanWindowProjectorTest {
 
     private static DailyBriefingResponse projectAt(List<BriefingDay> days, List<HotTopic> topics,
             LocalDateTime now) {
-        return PlanWindowProjector.apply(response(days, topics), now);
+        return PlanWindowProjector.apply(response(days, topics), now, Map.of());
     }
 
     /** Every pick on the response, so an invariant about their number can be stated as one. */
