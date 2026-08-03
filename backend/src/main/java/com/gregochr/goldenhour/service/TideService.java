@@ -643,7 +643,9 @@ public class TideService {
     /**
      * Classifies the tide state at {@code eventTime} given a list of stored extremes.
      *
-     * <p>Package-private for unit testing.
+     * <p>Package-private for unit testing. Every production caller supplies its own window through
+     * the overload below — the ±{@value #HIGH_LOW_THRESHOLD_MINUTES}-minute default is the
+     * documented rule, not a path anything currently takes.
      *
      * @param extremes  stored tide extremes around the event time
      * @param eventTime UTC time of the solar event
@@ -655,6 +657,12 @@ public class TideService {
 
     /**
      * Classifies the tide state using an elevation-based window width.
+     *
+     * <p><b>This overload is the single tide-state rule</b>, and the width is the caller's to
+     * choose. Two production callers pass the same one: {@code TideFactDeriver} for the per-slot
+     * tide facts, and {@code WindowTideRollupBuilder} for the Plan tab's per-window tide row. Both
+     * size it with {@code TideFactDeriver.tightAlignmentWindowMinutes}, so a row and the
+     * drill-down beneath it cannot call the same water HIGH and MID.
      */
     TideState classifyTideState(List<TideExtremeEntity> extremes, LocalDateTime eventTime,
             long windowMinutes) {

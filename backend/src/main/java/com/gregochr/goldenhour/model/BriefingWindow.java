@@ -35,6 +35,10 @@ import java.util.List;
  *       that the window has no good region.</li>
  *   <li>{@code topRarityRank} — no badges. Advice for the client's promoted strip; nothing here
  *       enforces the one-strip rule.</li>
+ *   <li>{@code tide} — no coastal location could be resolved, or the one that was has no day with
+ *       both a high and a low water on this date. The row falls back to {@code BriefingSlot.tide}'s
+ *       per-location fact line. It is <em>not</em> a statement that the tide is unremarkable, and
+ *       nothing is ever synthesised to fill the gap.</li>
  * </ul>
  *
  * <p>{@code verdict} is never null. {@code AWAITING} is reachable and means the window has neither
@@ -48,6 +52,7 @@ import java.util.List;
  * @param pick          this window's forecast-wide pick, or null on the windows that are neither
  * @param badges        hot topics landing on this window; never null, often empty
  * @param topRarityRank the rarest badge's rarity rank, or null
+ * @param tide          the window's tide rollup at one named coastal location, or null
  */
 public record BriefingWindow(
         @JsonInclude(JsonInclude.Include.NON_NULL) LocalDateTime eventTime,
@@ -56,7 +61,8 @@ public record BriefingWindow(
         @JsonInclude(JsonInclude.Include.NON_NULL) Confidence confidence,
         @JsonInclude(JsonInclude.Include.NON_NULL) Pick pick,
         List<Badge> badges,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Integer topRarityRank) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) Integer topRarityRank,
+        @JsonInclude(JsonInclude.Include.NON_NULL) BriefingWindowTide tide) {
 
     public BriefingWindow {
         badges = badges == null ? List.of() : List.copyOf(badges);

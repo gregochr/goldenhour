@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingWindow;
+import com.gregochr.goldenhour.model.BriefingWindowTide;
 import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
@@ -34,11 +35,17 @@ import java.util.Set;
  * and is visible only by opening the drill-down, which is why the ordering is pinned by a test
  * rather than by this paragraph.
  *
- * <p><b>Serve-time, and no carrier.</b> Every input is already on the response. Nothing here is
- * persisted, nothing is written back to the cache, and the build path does not call it. The
- * {@code AtomicReference} pattern used by {@code NlcClarityService} and {@code SurgeCurveService}
- * exists because hot topics are recomputed live and would overwrite a persisted field; {@code days}
- * is passed straight through, so a field hung off a window needs no such protection.
+ * <p><b>Serve-time, and no carrier.</b> Every input is already on the response, or is handed in as a
+ * map derived alongside it. Nothing here is persisted, nothing is written back to the cache, and the
+ * build path does not call it. The {@code AtomicReference} pattern used by {@code NlcClarityService}
+ * and {@code SurgeCurveService} exists because hot topics are recomputed live and would overwrite a
+ * persisted field; {@code days} is passed straight through, so a field hung off a window needs no
+ * such protection.
+ *
+ * <p><b>Dependency-free, and kept that way.</b> Anything needing a repository is derived by a
+ * component and passed in — {@code WindowTideRollupBuilder} supplies the tide rollups exactly as the
+ * badges arrive on the response. Injecting a repository here would turn every future window field
+ * into a licence for another one, and would put a DB read inside a pure projection.
  *
  * <p><b>Two rules the design did not state, decided here and recorded so they can be argued with.</b>
  * <ul>
@@ -121,10 +128,13 @@ public final class PlanWindowProjector {
      * Returns the response with a window attached to every event summary.
      *
      * @param response the fully filtered served briefing, or null when none has been built
-     * @param now       the request instant, used to refuse a pick on an elapsed window
+     * @param now      the request instant, used to refuse a pick on an elapsed window
+     * @param tides    the tide rollup per window; empty when none could be derived, and missing
+     *                 individual keys for any window whose date has no drawable tide
      * @return the same response with windows projected, or null when given null
      */
-    public static DailyBriefingResponse apply(DailyBriefingResponse response, LocalDateTime now) {
+    public static DailyBriefingResponse apply(DailyBriefingResponse response, LocalDateTime now,
+            Map<WindowKey, BriefingWindowTide> tides) {
         if (response == null) {
             return null;
         }
@@ -147,7 +157,8 @@ public final class PlanWindowProjector {
             List<BriefingEventSummary> summaries = new ArrayList<>(day.eventSummaries().size());
             for (BriefingEventSummary summary : day.eventSummaries()) {
                 Draft dr = drafts.get(cursor++);
-                summaries.add(summary.withWindow(dr.toWindow(picks.get(dr.key()))));
+                summaries.add(summary.withWindow(
+                        dr.toWindow(picks.get(dr.key()), tides.get(dr.key()))));
             }
             projected.add(new BriefingDay(day.date(), summaries));
         }
@@ -483,9 +494,9 @@ public final class PlanWindowProjector {
             List<BriefingWindow.Badge> badges,
             Integer topRarityRank) {
 
-        BriefingWindow toWindow(BriefingWindow.Pick awarded) {
+        BriefingWindow toWindow(BriefingWindow.Pick awarded, BriefingWindowTide tide) {
             return new BriefingWindow(eventTime, verdict, bestRating, confidence,
-                    awarded, badges, topRarityRank);
+                    awarded, badges, topRarityRank, tide);
         }
     }
 
@@ -493,7 +504,17 @@ public final class PlanWindowProjector {
     private record RankedRegion(BriefingRegion region, BriefingRatingStats.Stats stats) {
     }
 
-    /** Identifies one window — the date and the solar event. */
-    private record WindowKey(LocalDate date, TargetType targetType) {
+    /**
+     * Identifies one window — the date and the solar event.
+     *
+     * <p>Public because it is the key of the tide-rollup map handed in from
+     * {@code WindowTideRollupBuilder}. Window identity is defined here, in the class that defines
+     * the window, so a second producer of per-window data cannot key its map on a different notion
+     * of which window it belongs to.
+     *
+     * @param date       the window's local date
+     * @param targetType the solar event
+     */
+    public record WindowKey(LocalDate date, TargetType targetType) {
     }
 }

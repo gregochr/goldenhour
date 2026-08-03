@@ -10,16 +10,12 @@ import com.gregochr.goldenhour.model.TideRunDay;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.repository.MarineWaveRepository;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
-import com.gregochr.goldenhour.util.LogSanitizer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -30,7 +26,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.OptionalDouble;
 
 /**
  * Builds the per-day {@link TideRunDay} rows behind a spring or king tide pill's 24-hour chart.
@@ -64,8 +60,6 @@ import java.util.concurrent.atomic.AtomicReference;
 @Component
 public class TideRunBuilder {
 
-    private static final Logger LOG = LoggerFactory.getLogger(TideRunBuilder.class);
-
     /** The run chip text for an ordinary spring run. */
     public static final String SPRING_RUN_LABEL = "SPRING RUN";
 
@@ -79,7 +73,6 @@ public class TideRunBuilder {
     public static final String KING_PHRASE = "causeways & foreshore submerged — shoot reflections";
 
     private static final ZoneId LONDON = ZoneId.of("Europe/London");
-    private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm");
     private static final DateTimeFormatter DAY_LABEL =
             DateTimeFormatter.ofPattern("EEE d", Locale.UK);
 
@@ -89,41 +82,19 @@ public class TideRunBuilder {
     /** Within this many minutes, the *other* extremum is close enough to say "at sunrise". */
     private static final long COINCIDENT_MINUTES = 30;
 
-    /** Below this, an offset is not worth stating as a duration — the water is simply on the event. */
-    private static final long COINCIDENT_ROUNDING_MINUTES = 5;
-
-    /** Below this, a range anomaly is display noise rather than a signal. */
-    private static final double MIN_ANOMALY_METRES = 0.05;
-
     private final TideExtremeRepository tideExtremeRepository;
     private final MarineWaveRepository marineWaveRepository;
     private final TideService tideService;
     private final SolarService solarService;
 
     /**
-     * Everything that is not a letter or a digit, for comparing two spellings of one place name.
+     * This builder's own representative selector.
      *
-     * <p>The anchor is matched by name because ids are environment-specific, and matching by name
-     * means matching how somebody typed it. {@code St. Mary's Lighthouse} in the Admin UI against
-     * {@code St Mary's Lighthouse} in configuration is one missing full stop, and under a plain
-     * {@code equalsIgnoreCase} that single character silently disabled the whole feature: the run
-     * fell back to biggest-range and drew itself at a cove 90 miles away, with nothing anywhere
-     * saying why. Punctuation and spacing are exactly the part of a place name people disagree
-     * about — {@code St}/{@code St.}, {@code Marys}/{@code Mary's}, hyphen or space — and none of
-     * those disagreements mean a different place.
+     * <p>Constructed here rather than injected because it carries warn-once state: sharing one
+     * instance with the Plan tab's window rollup would warn for whichever caller ran first and stay
+     * silent for the other. See {@link TideRepresentativeSelector}.
      */
-    private static final String NON_ALPHANUMERIC = "[^\\p{L}\\p{N}]";
-
-    /**
-     * The last unresolved anchor name warned about, so the WARN below fires once rather than once
-     * per request. Hot topics are recomputed live on every serve, so an unguarded warning here
-     * would write a line per briefing fetch — and a message that noisy stops being read, which is
-     * how a silent fallback becomes a silent fallback again.
-     */
-    private final AtomicReference<String> warnedAnchor = new AtomicReference<>();
-
-    /** Location name the run is drawn for when present and drawable; blank means biggest range. */
-    private final String preferredAnchor;
+    private final TideRepresentativeSelector representativeSelector;
 
     /**
      * Constructs a {@code TideRunBuilder}.
@@ -145,7 +116,7 @@ public class TideRunBuilder {
         this.marineWaveRepository = marineWaveRepository;
         this.tideService = tideService;
         this.solarService = solarService;
-        this.preferredAnchor = preferredAnchor;
+        this.representativeSelector = new TideRepresentativeSelector(preferredAnchor);
     }
 
     /** A day's extrema at one location, already reduced to local clock minutes. */
@@ -180,7 +151,8 @@ public class TideRunBuilder {
             return Map.of();
         }
 
-        LocationEntity representative = selectRepresentative(coastalLocations, byLocation, ordered);
+        LocationEntity representative = representativeSelector.select(
+                coastalLocations, byLocation, ordered, TideRunBuilder::rangeOn);
         if (representative == null) {
             return Map.of();
         }
@@ -234,141 +206,23 @@ public class TideRunBuilder {
     }
 
     /**
-     * Picks the location the run is drawn for: the configured anchor when it is in this run and
-     * has a drawable day, otherwise the biggest single-day range anywhere in the run.
+     * This builder's drawability and range probe, handed to the shared representative selector.
      *
-     * <p><b>Why an anchor exists at all.</b> Biggest-range is not a neutral rule on a roster that
-     * spans a coastline. Tidal range on this coast grows southward toward the Humber approaches,
-     * so the maximum reliably lands at the southern end of the roster — a 53-location set running
-     * Bamburgh to Bridlington anchored every spring run to a cove on Flamborough Head, ~90 miles
-     * from the reader. The footer names the representative as the honest caveat, but naming a
-     * place the reader cannot locate carries no information: it makes the numbers read as
-     * arbitrary rather than as measurements of somewhere. Range picks the most dramatic version
-     * of the event; the anchor picks the most legible one, and legibility is what the footer was
-     * for.
+     * <p>A run needs a chartable curve, which needs both a high and a low water in the local day —
+     * exactly what {@link #dayTides} already decides. Supplying it as a probe rather than letting
+     * the selector own the rule keeps the run's definition of "drawable" the run's own.
      *
-     * <p>The anchor must still be <em>drawable</em> — matching by name is not enough, since a
-     * location with no extremes for any date in the run would yield an anchored row with no
-     * curve. A run that does not reach the anchor (a Yorkshire-only topic, say) falls back
-     * silently rather than claiming a coastline it never covered.
-     *
-     * <p>Matched on name rather than id because ids are environment-specific: the same anchor has
-     * different ids in local H2 and production, so a configured id would be a foot-gun that
-     * silently selects the wrong coast. The trade is that renaming a location in the Admin UI
-     * quietly disables the preference — the fallback then applies, so the row degrades to the
-     * previous behaviour rather than breaking.
+     * @param extremes one location's stored extremes, or null when it has none
+     * @param date     the local day to measure
+     * @return the day's range in metres, or empty when the day cannot be drawn
      */
-    private LocationEntity selectRepresentative(List<LocationEntity> coastalLocations,
-            Map<Long, List<TideExtremeEntity>> byLocation, List<LocalDate> ordered) {
-        LocationEntity anchor = findAnchor(coastalLocations, byLocation, ordered);
-        if (anchor != null) {
-            return anchor;
-        }
-        LocationEntity best = null;
-        double bestRange = Double.NEGATIVE_INFINITY;
-        for (LocationEntity location : coastalLocations.stream()
-                .sorted(Comparator.comparing(LocationEntity::getName,
-                        Comparator.nullsLast(Comparator.naturalOrder())))
-                .toList()) {
-            List<TideExtremeEntity> extremes = byLocation.get(location.getId());
-            if (extremes == null) {
-                continue;
-            }
-            for (LocalDate date : ordered) {
-                DayTides day = dayTides(extremes, date);
-                if (day != null && day.range() > bestRange) {
-                    bestRange = day.range();
-                    best = location;
-                }
-            }
-        }
-        return best;
-    }
-
-    /**
-     * The configured anchor, when it is in this run and has at least one drawable day.
-     *
-     * @param coastalLocations the run's candidate locations
-     * @param byLocation       extremes keyed by location id
-     * @param ordered          the run's dates, ascending
-     * @return the anchor location, or null when unconfigured, absent from this run, or undrawable
-     */
-    private LocationEntity findAnchor(List<LocationEntity> coastalLocations,
-            Map<Long, List<TideExtremeEntity>> byLocation, List<LocalDate> ordered) {
-        if (preferredAnchor == null || preferredAnchor.isBlank()) {
-            return null;
-        }
-        String wanted = preferredAnchor.trim();
-
-        // Exact first, always. A configuration that names a roster entry outright must never be
-        // resolved by the tolerant pass below, so a deliberate exact name cannot be beaten by a
-        // punctuation-equal neighbour.
-        LocationEntity named = matching(coastalLocations,
-                name -> name.equalsIgnoreCase(wanted));
-        if (named == null) {
-            String normalised = normalise(wanted);
-            named = normalised.isEmpty() ? null
-                    : matching(coastalLocations, name -> normalise(name).equals(normalised));
-            if (named != null) {
-                warnOnce(wanted, "resolved to '" + LogSanitizer.sanitize(named.getName())
-                        + "' by ignoring punctuation and spacing. The run still draws correctly;"
-                        + " align photocast.tide-run.preferred-anchor with the location's name to"
-                        + " silence this.");
-            }
-        }
-        if (named == null) {
-            warnOnce(wanted, "is not in this run's coastal roster of " + coastalLocations.size()
-                    + " location(s); falling back to the biggest single-day range, which may be"
-                    + " far from the reader. Check the name in Location Management.");
-            return null;
-        }
-
-        List<TideExtremeEntity> extremes = byLocation.get(named.getId());
-        for (LocalDate date : ordered) {
-            if (dayTides(extremes, date) != null) {
-                return named;
-            }
-        }
-        // Named but undrawable: stop looking rather than matching a same-named location
-        // elsewhere in the roster, and let the caller fall back to biggest range.
-        warnOnce(wanted, "is in the run but has no day with both a high and a low water, so it"
-                + " cannot be drawn; falling back to the biggest single-day range. This usually"
-                + " means its tide extremes have not been refreshed for these dates.");
-        return null;
-    }
-
-    /** First roster entry whose non-null name satisfies {@code test}, or null. */
-    private static LocationEntity matching(List<LocationEntity> coastalLocations,
-            java.util.function.Predicate<String> test) {
-        for (LocationEntity location : coastalLocations) {
-            if (location.getName() != null && test.test(location.getName())) {
-                return location;
-            }
-        }
-        return null;
-    }
-
-    /** A place name reduced to its letters and digits, lower-cased — see {@link #NON_ALPHANUMERIC}. */
-    private static String normalise(String name) {
-        return name.replaceAll(NON_ALPHANUMERIC, "").toLowerCase(Locale.UK);
-    }
-
-    /**
-     * Logs an anchor problem once per distinct configured name.
-     *
-     * <p>The anchor's whole job is to keep the run legible, so when it does not apply the reader
-     * gets a place they cannot locate and no indication that anything went wrong. That silence is
-     * the defect worth fixing, not the fallback itself — the fallback is correct behaviour for a
-     * run the anchor genuinely does not reach.
-     */
-    private void warnOnce(String wanted, String problem) {
-        if (!wanted.equals(warnedAnchor.getAndSet(wanted))) {
-            LOG.warn("[TIDE RUN] Configured anchor '{}' {}", LogSanitizer.sanitize(wanted), problem);
-        }
+    private static OptionalDouble rangeOn(List<TideExtremeEntity> extremes, LocalDate date) {
+        DayTides day = dayTides(extremes, date);
+        return day == null ? OptionalDouble.empty() : OptionalDouble.of(day.range());
     }
 
     /** Reduces one location's extrema to the given local day, or null when the day is incomplete. */
-    private DayTides dayTides(List<TideExtremeEntity> extremes, LocalDate date) {
+    private static DayTides dayTides(List<TideExtremeEntity> extremes, LocalDate date) {
         if (extremes == null) {
             return null;
         }
@@ -418,20 +272,20 @@ public class TideRunBuilder {
                 dayCount,
                 DAY_LABEL.format(date).toUpperCase(Locale.UK),
                 location.getName(),
-                metres(day.range()),
+                TideWording.metres(day.range()),
                 rangeAnomaly(day.range(), avgRange),
                 // King runs carry the absolute high water as well. The range against the mean is a
                 // SPRING framing — what makes a tide king is how far the water clears the spring
                 // threshold, and swapping the chart in for the fact chips would otherwise lose the
                 // one number that distinguishes the two events.
-                king ? metres(day.high()) : null,
+                king ? TideWording.metres(day.high()) : null,
                 king ? springExcess(day.high(), springThreshold) : null,
-                clock(sunriseMinutes),
-                clock(sunsetMinutes),
+                TideWording.clock(sunriseMinutes),
+                TideWording.clock(sunsetMinutes),
                 seas(location.getId(), date, usefulPoint, sunriseMinutes, sunsetMinutes),
                 day.points().stream()
                         .map(p -> new TideRunDay.Extreme(
-                                p.type() == TideExtremeType.HIGH ? "H" : "L", clock(p.minutes())))
+                                p.type() == TideExtremeType.HIGH ? "H" : "L", TideWording.clock(p.minutes())))
                         .toList(),
                 verdict(usefulPoint, otherPoint, sunriseMinutes, sunsetMinutes, aligned, peak, king),
                 aligned,
@@ -497,10 +351,10 @@ public class TideRunBuilder {
         String usefulLabel = king ? "HW" : "LW";
         String otherLabel = king ? "LW" : "HW";
         long gap = signedGap(useful.minutes(), sunriseMinutes, sunsetMinutes);
-        String against = offsetPhrase(gap, solarWord(useful.minutes(), sunriseMinutes, sunsetMinutes));
+        String against = TideWording.offsetPhrase(gap, solarWord(useful.minutes(), sunriseMinutes, sunsetMinutes));
 
         if (aligned) {
-            return usefulLabel + " " + clock(useful.minutes()) + " · " + against;
+            return usefulLabel + " " + TideWording.clock(useful.minutes()) + " · " + against;
         }
         if (other != null) {
             long otherGap = signedGap(other.minutes(), sunriseMinutes, sunsetMinutes);
@@ -518,32 +372,16 @@ public class TideRunBuilder {
             // clock time on the chart directly below, and the one the reader can act on is the one
             // the sentence should be about.
             if (Math.abs(otherGap) <= ALIGNED_WINDOW_MINUTES) {
-                String offset = offsetPhrase(otherGap, otherWord);
+                String offset = TideWording.offsetPhrase(otherGap, otherWord);
                 return peak
                         ? "peak range · " + otherLabel + " " + offset
-                        : otherLabel + " " + clock(other.minutes()) + " · " + offset;
+                        : otherLabel + " " + TideWording.clock(other.minutes()) + " · " + offset;
             }
         }
         if (peak) {
             return "peak range · " + usefulLabel + " " + against;
         }
         return usefulLabel + " " + timeOfDay(useful.minutes()) + " · " + against;
-    }
-
-    /**
-     * {@code "34m after sunrise"} / {@code "2h31 before sunset"} — or {@code "at sunrise"} when the
-     * water lands on the event. "0m after sunrise" is a null statement dressed as a measurement,
-     * and it fires on the single most emphatic day a run can have.
-     */
-    private static String offsetPhrase(long signedMinutes, String solarWord) {
-        long magnitude = Math.abs(signedMinutes);
-        if (magnitude <= COINCIDENT_ROUNDING_MINUTES) {
-            return "at " + solarWord;
-        }
-        String duration = magnitude < 60
-                ? magnitude + "m"
-                : String.format(Locale.UK, "%dh%02d", magnitude / 60, magnitude % 60);
-        return duration + (signedMinutes >= 0 ? " after " : " before ") + solarWord;
     }
 
     /** Places an unaligned extremum in the day without repeating its clock time. */
@@ -587,7 +425,7 @@ public class TideRunBuilder {
                 ? TargetType.SUNRISE : TargetType.SUNSET;
         return sample(locationId, date, preferred)
                 .or(() -> sample(locationId, date, fallback))
-                .map(hs -> metres(hs) + " · " + SeaState.fromHs(hs).label())
+                .map(hs -> TideWording.metres(hs) + " · " + SeaState.fromHs(hs).label())
                 .orElse(null);
     }
 
@@ -607,7 +445,7 @@ public class TideRunBuilder {
             return null;
         }
         double excess = highWater - springThreshold.doubleValue();
-        return excess > MIN_ANOMALY_METRES ? "+" + metres(excess) + " over spring" : null;
+        return excess > TideWording.MIN_ANOMALY_METRES ? "+" + TideWording.metres(excess) + " over spring" : null;
     }
 
     private static String rangeAnomaly(double range, BigDecimal avgRangeMetres) {
@@ -615,7 +453,7 @@ public class TideRunBuilder {
             return null;
         }
         double anomaly = range - avgRangeMetres.doubleValue();
-        if (Math.abs(anomaly) < MIN_ANOMALY_METRES) {
+        if (Math.abs(anomaly) < TideWording.MIN_ANOMALY_METRES) {
             return null;
         }
         return String.format(Locale.UK, "%+.1f", anomaly);
@@ -624,13 +462,5 @@ public class TideRunBuilder {
     private static int localMinutes(LocalDateTime utc) {
         return utc.atOffset(ZoneOffset.UTC).atZoneSameInstant(LONDON)
                 .toLocalTime().toSecondOfDay() / 60;
-    }
-
-    private static String clock(int minutes) {
-        return LocalTime.ofSecondOfDay(Math.floorMod(minutes, 1440) * 60L).format(CLOCK);
-    }
-
-    private static String metres(double value) {
-        return String.format(Locale.UK, "%.1f m", value);
     }
 }

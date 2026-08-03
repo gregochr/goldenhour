@@ -108,7 +108,7 @@ class CloseToHomeServiceTest {
         List<BriefingDay> days = byDate.entrySet().stream()
                 .map(e -> new BriefingDay(e.getKey(), e.getValue()))
                 .toList();
-        when(briefingService.getCachedBriefingForApi()).thenReturn(
+        when(briefingService.getServedBriefing()).thenReturn(
                 new DailyBriefingResponse(LocalDateTime.of(2026, 4, 22, 4, 0), "Headline",
                         days, bestBets, null, null, false, false, 0, "Opus",
                         List.of(), List.of()));
@@ -139,7 +139,7 @@ class CloseToHomeServiceTest {
                 DisplayVerdict.WORTH_IT, slots.length);
         BriefingEventSummary es = new BriefingEventSummary(
                 TargetType.SUNSET, List.of(region), List.of());
-        when(briefingService.getCachedBriefingForApi()).thenReturn(
+        when(briefingService.getServedBriefing()).thenReturn(
                 new DailyBriefingResponse(LocalDateTime.of(2026, 4, 22, 4, 0),
                         "Headline", List.of(new BriefingDay(TODAY, List.of(es))), List.of(),
                         null, null, false, false, 0, "Opus", List.of(), List.of()));
