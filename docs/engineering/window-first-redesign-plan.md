@@ -1,12 +1,17 @@
 # Window-first Plan tab — implementation plan
 
-**Status:** agreed 2026-08-01. **P0 built and reviewed 2026-08-02**; P1 is next.
-**Reviewed:** adversarially, 2026-08-01 — two rounds, 29 charges raised, 16 upheld after refutation.
-Every upheld finding is applied below. Where a finding reversed an earlier decision, the reversal and
-its reason are recorded rather than silently overwritten. Each phase gets the same treatment before it
-lands — see CLAUDE.md § UI Work — Review Cadence.
-**Spec:** `docs/design/window-first/` (the handoff bundle — README.md is the written spec,
-`Plan Window First v2.html` the design of record). Copy it in as step P0.
+**Status:** agreed 2026-08-01. **P0 merged** (`aedaa5f4`) and **P1 merged** (`1d293912`).
+A **second handoff arrived 2026-08-02** and reverses part of P1 — see §2.3 and §5. P1′ is next.
+**Reviewed:** adversarially throughout — the plan (2 rounds, 29 charges, 16 upheld), P0 (2 rounds,
+25 charges, 7 upheld), P1 (2 rounds, 30 + 21 charges, 11 upheld), and the second handoff (2 rounds,
+42 + 14 findings). Every upheld finding is applied below; where one reversed an earlier decision, the
+reversal and its reason are recorded rather than silently overwritten. Each phase gets the same
+treatment before it lands — see CLAUDE.md § UI Work — Review Cadence.
+**Spec:** `docs/design/window-first/`. ⚠️ **Read `DELTA.md` first, then this plan — not `README.md`
+alone.** The bundle is vendored verbatim so the next re-cut stays a diffable copy, which means its
+`README.md` still describes the *superseded* per-window pick model at `:118` and `:210`. Where the
+README and this plan disagree, DELTA.md and this plan win. `Plan Window First v2.html` is the design
+of record.
 
 The design inverts the Plan tab's loop: **time is the outer loop, features are attributes**. One card
 per solar window carrying its own verdict, narrative, tide state, snow state, badges and nearby spots.
@@ -102,7 +107,34 @@ per tier behind a four-way instant control, and its `qualifies()` gate (`CloseTo
 drops exactly the below-floor spots the drilldown's rating filter has to be able to show. (Its `Card`
 does carry both miles and minutes — the payload is not the problem, the gate is.)
 
-### 2.3 Per-window Best Bet and "Also good"
+### 2.3 Best Bet and "Also good" — ~~per window~~ **forecast-wide**
+
+> ⚠️ **Superseded by the second handoff (DELTA §3), 2026-08-02.** Everything below the rule box was
+> written for a per-window pick and is kept because its *reasoning* still governs the replacement —
+> the gloss-usability rule, the quality floor and the degrade paths are unchanged. What changed is
+> **scope**, and only scope.
+>
+> **The rule now:** the picks rank **every rendered window in the forecast against each other** and
+> name two — one Best Bet, one Also good — each bound to the window it falls on. They may fall on
+> different days. There is no per-window narrative block, and the window card carries no prose;
+> the two chosen windows get a header badge instead, and the picks surface as chips on the day tile.
+>
+> **The old argument was valid but conditional, not wrong.** It ran: a cross-day "also good" is
+> redundant *because every window already carries its own Best Bet*. DELTA §3 withdraws that premise,
+> so the conclusion lapses. It was not refuted, and it should not be re-derived from scratch.
+>
+> **Rank over the RENDERED window set, not the whole payload.** The briefing carries five days; the
+> rail renders four (`DailyBriefing.jsx` `STRIP_MAX_DAYS = 4`). An unscoped fold can select a pick
+> that lands on no tile — the precise failure this note exists to prevent.
+>
+> **Do not route this through `bestBets`.** It looks like the obvious vehicle — it is already a
+> global rank-1/rank-2 list — and it is wrong on four counts: it is build-time Claude output with a
+> stale-fallback path that can be 30h old; its `event` can be `aurora_tonight` or null for a
+> stay-home pick, neither of which lands on a window; it runs *before* `BriefingHonestyFilter`; and
+> it is PRO-gated in the UI today, which would make the pilot's headline feature PRO-only against §7.
+> Implement it as a selection pass over P1's existing per-window picks: same comparator, same floor,
+> one extra fold, keeping the serve-time-after-the-filter guarantee a test already pins.
+
 
 `bestBets` today is a *global* rank-1/rank-2 list that can span days, with `relationship`/`differsBy`.
 The design forbids a cross-day "also good" outright — a cross-day alternative is simply the Best Bet
@@ -237,6 +269,113 @@ No marker glyph — the badge already carries `◎`, and a second hollow circle 
 render site: not the rail, not the drilldown header. Marking the same fact twice breaks "one uniform
 channel" as surely as omitting it.
 
+**The second handoff makes that concrete.** The new rail tile is copied from `BriefingSummaryStrip`,
+which renders a `ProvisionalMark` conditional at `:160-161`. **Delete it in the copy, and do not
+carry over its two tests** (`BriefingSummaryStrip.test.jsx:44`, `:49`). The window card's verdict
+badge remains the single render site. Note the channel survives the handoff intact — DELTA §3 removes
+the window card's *narrative*, not its verdict badge, so the field P1 shipped still has its home.
+
+---
+
+### 2.8 Decisions taken on the second handoff — do not re-litigate
+
+Each of these was argued and settled on 2026-08-02. Recorded with the reason so a later phase does
+not reopen it from the handoff text alone.
+
+- **Stable region ids: DECLINED.** DELTA §2 and `spec-plan-picks/README.md` both ask for them
+  ("resolve each pick to a stable region id… do **not** hard-code names in production"). The failure
+  they guard against cannot occur here: `BriefingRollupBuilder:159` builds `validRegions` from
+  `region.regionName()` and `BestBetPickValidator:85` rejects any pick whose region is not in that
+  set, so a served pick's region string is byte-identical to the rendered region's by construction.
+  `shortRegionName` is applied *after* matching, for display only. Costing was also wrong: the other
+  side of any id match is Claude-authored, so ids would mean a name→id resolution server-side, and
+  the one path where names could drift — the stale fallback replaying `pipeline_run_pick.region` —
+  needs a new column, i.e. a migration. The shipped feature deliberately matches on name.
+- **`--blue #7C8DD6`: NOT a new token.** It ships as `--color-pick-also` (`index.css:58`), and the
+  whole chip treatment ships with it — `data-pick` accents at `index.css:655-669`, the `◎` `rn-mark`,
+  both 0.6-alpha underlines, `brightness(1.14)`. Reuse them; author nothing. Under Tailwind v4
+  `@theme static` a duplicate token survives review quietly, which is why this is written down.
+- **Run-history sparkline: DEFERRED to P16, and the data was never the obstacle.**
+  `forecast_evaluation` is **insert-only and never pruned** (V128's own comment), and V128 indexes
+  `(location_id, target_date, target_type, forecast_run_at)` — exactly the key for "the last N runs
+  for this slot". `findByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtAsc` already exists
+  "to plot forecast convergence over time". What is missing is a last-N-per-slot read instead of the
+  latest-1 (`findLatestRunPerSlotByLocationIds` takes `MAX(...)`) and a nullable `List<Integer>` on
+  the projection — `List`, never `int[]`, per §2.4's identity rule. It is deferred because **the
+  design bundle contradicts itself**: `Plan Window First v2.html:400` shows it shipped, `:402` says
+  it "waits until after the pilot", and `Change Since Last Run.html` says hold it back. `runBars()`
+  returns empty without history, so a pilot build without it is spec-conformant. Ask the designer.
+- **The change row is client-side.** Its content derives from the spots actually drawn, which depend
+  on the per-user reach lens — so it can never be a backend-composed sentence on `/api/briefing`.
+  The backend supplies a nullable `priorRating`; the row is assembled where reach already lives.
+  `evaluation_delta_log` (V97) already stores `old_rating`/`new_rating` per
+  (location_name, date, target_type) and is written on both batch paths — only a read is missing.
+- **"updated 52m ago" needs no backend work.** `DailyBriefingResponse.generatedAt` is already on the
+  wire; format it client-side. A server-rendered relative string would mutate the ETagged body on
+  every request, and `/api/briefing` sits in `HttpCachingConfig`'s revalidatable set. Only
+  "next 12:00" needs anything new, and that is the scheduler's next fire time.
+- **A skipped slot reads as *held*, never as moved.** `OptimisationSkipEvaluator` (SKIP_LOW_RATED,
+  SKIP_EXISTING) and the freshness thresholds mean a slot can carry an unchanged rating purely
+  because it was not re-evaluated. "Since last forecast" is a window-level claim over slots that are
+  not all re-evaluated on the same cycle.
+- **A departure is claimed only when the location has no current evaluation for that window.** Never
+  for a rank change, and never for a spot that simply was not loaded — the mock filters departures by
+  reach while the strip has no rating floor, so the two readings disagree.
+
+---
+
+### 2.9 Two rating scales, two jobs — do not unify them
+
+A rating gets coloured in two different places for two different reasons, and one palette cannot do
+both. Say which is which here, so a later tidy-up does not "unify" them and break one.
+
+**The medallion palette — `RATING_COLOURS` (`frontend/src/components/markerUtils.js:23-29`).**
+`1 #A32D2D · 2 #D85A30 · 3 #FAC775 · 4 #97C459 · 5 #3B6D11`. Used by the map marker and by the spot
+card's **rating badge**. Its job is *status*: the number is printed on the mark, so the colour
+reinforces a label that is already there. It is a hue ramp, and correct as one. **Unchanged.**
+
+⚠️ It is **not** a magnitude ramp and must never be used as one. Relative luminance runs
+`0.099 · 0.221 · 0.625 · 0.468 · 0.119` — it peaks at 3★ and falls away on both sides, so the best
+and worst ratings are the two dimmest. Flipping 4★ and 5★ does not fix it (it becomes a zigzag,
+`0.099 · 0.221 · 0.625 · 0.119 · 0.468`), and 1★ and 5★ both sit under 3:1 against the card surface.
+Considered and declined 2026-08-02: the flip buys nothing and would churn a shipped, tested palette.
+
+⚠️ DELTA §5's citation for this is **wrong** — there is no `ratingColour()` anywhere in the repo, it
+is not in `HeatmapGrid.jsx`, and its five hexes (`#B91C1C … #22C55E`) are a different palette
+entirely. Follow its *intent* ("use the medallion scale, do not hard-code green") and take the values
+from `markerUtils.js`.
+
+**The run-bar ramp — new, single-hue, for the sparkline only.**
+
+| ★ | hex | luminance | worst-case contrast |
+|---|---|---|---|
+| 1 | `#736B5F` | 0.150 | 3.08:1 |
+| 2 | `#A19789` | 0.315 | 5.63:1 |
+| 3 | `#C1B7A6` | 0.480 | 8.17:1 |
+| 4 | `#DBD1BE` | 0.644 | 10.70:1 |
+| 5 | `#F2E7D3` | 0.807 | 13.22:1 |
+
+Ship as `--color-runbar-1` … `-5` with the other window-first tokens.
+
+- **Why bone.** Every coloured family here already means something — verdicts, tide, nlc, snow,
+  close-to-home. CLAUDE.md's rule is that chrome is bone and never colour, so bone is the only family
+  that can carry magnitude without asserting a second meaning. Step 5 *is* `--color-plex-text`, so
+  the ramp is anchored to an existing token rather than inventing an endpoint.
+- **Why brighter = higher, not darker.** The canonical sequential rule is one hue light→dark; on a
+  dark surface the perceptual equivalent is that contrast against the surface rises with magnitude.
+  Dark mode is *selected*, never an automatic flip.
+- **Why solid hexes and not opacity.** Each step is bone pre-composited over the panel and rounded to
+  a literal. DELTA §5's "never apply opacity to a bar" is right — opacity composites toward the
+  background and corrupts the value the colour encodes — and precomputing removes the runtime
+  compositing entirely while keeping the visual family.
+- **Derivation, so it can be regenerated if the panel colour changes.** Floor is the alpha at which
+  bone clears 3:1 against the *lightest* backdrop a bar can sit on — `rgba(201,162,75,.06)` over
+  `--color-plex-panel`, i.e. tonight's lead card, which is the case that breaks a floor tuned to the
+  plain panel. The remaining four steps are spaced evenly in **luminance** (0.164–0.165 apart), not
+  in alpha; even alpha steps bunch at the top. Every step clears 3:1 on every backdrop.
+- Step 5 equals body text. On a 7px bar that is the maximum prominence available and is intended; if
+  it ever competes with an adjacent label, lower the top step — do not recolour the scale.
+
 ---
 
 ## 3. "Coming up" — the 90-day almanac feed
@@ -314,23 +453,26 @@ Backend first for anything shared, so the frontend stays a render layer.
 
 | Phase | Work | Notes |
 |---|---|---|
-| **P0** | Handoff into `docs/design/window-first/`; tokens (incl. the `--panel` decision); Mono 600; flag scaffold | Handoff copied **verbatim**. The five demo buttons and the annotation cards stay in the reference — they show the states (six solar events, a winter day, an away week) August cannot produce — and are stripped per screen as each is built. §6 is the enforcement; nothing under `docs/` reaches the build |
-| **P1** | Backend: window projection — verdict, best rating, nullable `confidence` (§2.7), **region ranking by `averageRating` desc** (nothing upstream orders regions), Best Bet / Also good from region gloss with the ≥3.0 + within-0.5 floor, badges **and promoted-strip rarity rank** from bucketed topics | Assembled at **serve time**, like `enrichWithCachedScores`; rides `days`, no carrier. Test: a window whose top-region gloss was nulled by `verdictChanged` projects with no Best Bet, the rest intact |
-| **P2** | Backend: tide rollup derivation — `TideExtremeRepository` extraction, interpolation, `selectRepresentative`, `marine_wave` sea state (§2.4) | Part of P1's serve-time assembly. `List<Double>`, never `double[]`; no representative → no rollup |
-| **P3** | Backend: `GET /api/user/settings/reach` (§2.2) | Whole roster, not radius-gated |
-| **P4** | Shell — masthead, **inert** day rail, tabs. **Moves the flag branch out of `<main>`** and suppresses the app header for v2 | `border-bottom-width: 0`, never `border-bottom: none`. P0 left the branch inside `<main className="max-w-4xl">` — 896px, ~200px under the design's 1080px frame, and below the app's own `<header>`. Both must move together, since the design's masthead carries its own ⚙ and Sign out. Open at that point: the design separates frame from page with `body{background:#0e0b09}`, which §1 rules out as a product token, while this app's page is already `--plex-bg` |
-| **P5** | Window card — header, verdict badges + confidence fill decay, Best Bet, footer | Verdict colours identical everywhere they appear; the score-bar `width` transition gets a `prefers-reduced-motion` clause |
-| **P6** | Spot film strip | **Copy** `CloseToHome`'s filmstrip machinery into a new shared component; `CloseToHome` is not rewired. **Geometry from the spec, not `.cth-window-grid`** — see below. No `ScrollRail`. One shared comparator (rating desc, then drive asc); footer states what is *drawn* |
-| **P7** | Attribute rows — tide, then snow | Cap at two per window; anything further folds into a badge |
-| **P7b** | Promoted strip — both mocked variants; chart as a 42px curve with the 16px label band **below** it, never overlapping | Single-strip cap enforced in code. After P7, because the cap is what decides whether a second attribute stays a row or folds into a badge |
-| **P8** | Lens bar + reach filtering + persistence policy | Reach expires at the day roll; rating floor persists; type never persists |
-| **P9** | Collapse/expand, six-window case, away-day row, **the two doors** | Verify ~1,500px with six windows, two open. Door sub-lines need no endpoint: "4 regions" from the briefing payload, "3 live" from P1's bucketed topics; `Modal` is already on the reuse list |
-| **P10** | Peek + click-to-map | New `WindowSpotPeek` — see below |
-| **P11** | Drilldown sheet | Same cards, same comparator; type filter resets on close |
-| **P12** | Backend: almanac feed (§3) | Includes the fetch-horizon decision and its fallout — see below |
-| **P13** | Coming up tab | |
-| **P14** | Responsive pass — real media queries | Keep control labels at 9px; never hide them |
+| **P0′** | Re-cut `docs/design/window-first/` **verbatim** from the second bundle — `Plan Window First v2.html`, `README.md`, `PROMPTS.md`, plus new `DELTA.md`, `Change Since Last Run.html`, `spec-plan-picks/`. Add `--color-runbar-1`…`-5` (§2.9) | Six of the nine shared files are byte-identical; leave them. **Do not hand-edit the vendored README** — verbatim is what keeps the next re-cut a diff. Its stale per-window pick text at `:118`/`:210` is neutralised by this plan's header pointer instead. Mark `Change Since Last Run.html` superseded or omit it: it contradicts the current spec on three points. **No `--blue` token** — see §2.8 |
+| **P1′** | Reshape the merged projection: delete `alsoGood`; hoist the picks to a forecast-wide rank-1/rank-2 **over the rendered window set** (§2.3), each bound to its window; add nullable `priorRating` to the slot for the change row | Keep `rank()`, `pick()`, `Pick`, `AlsoGoodFloor`, badges, rarity, and all of `73e20f5d`'s fixes. **No `regionId`** (§2.8). Update `BriefingWindow:36-37` and `PlanWindowProjector:274-275` in the *same* change as the field, never before it |
+| **P2** | Backend: tide rollup derivation (§2.4) | Unchanged. ⚠️ `TideRunBuilder` has taken three merges recently — re-read it, and prefer extracting `selectRepresentative`/`findAnchor` into a shared helper over restructuring in place |
+| **P3** | Backend: `GET /api/user/settings/reach` (§2.2) | Unchanged |
+| **P4a** | Shell — masthead, tabs, move the flag branch out of `<main>`, suppress the app header for v2 | Unchanged in substance. `border-bottom-width: 0`, never `border-bottom: none` |
+| **P4b** | Generalised popover host — one body-parented `position:fixed` panel with document-level delegation | Smaller than first assessed. The region-chip gloss **already ships** inside the component P4c copies (`BriefingSummaryStrip:196-215` + `:233-247`): `role="button"`, keyboard, focus parity, a portalled `role="tooltip"`. Copy the tile and the gloss comes with it. Pick-chip content belongs to P5 |
+| **P4c** | Day rail as the full Plan summary tile | **Copy `BriefingSummaryStrip`'s tile** — medallion, sun times, verdict line, identity-ordered chips with the `◎` mark, show-on-map and the away variant all exist. `pickKindOf`/`pickOrder` *are* the spec's `nameList()`/`pickRank()`. Genuinely new: the two-line pick flag chip, today's border tint, a px/token restyle. **Delete the `ProvisionalMark` conditional** (`:160-161`) and do not copy its two tests (§2.7) |
+| **P5** | Window card — header, verdict badge + confidence fill decay, **pick badge on the two chosen windows** (with its peek content and both footer actions), **change-since-last-forecast row**, footer. **No narrative block** | Net smaller than the original P5. The row states what moved and claims no total; when nothing moved it says so, so an unchanged forecast never reads as missing data |
+| **P6** | Spot film strip | Geometry from the spec, not `.cth-window-grid`; no `ScrollRail`; one shared comparator; footer states what is *drawn*. Rating badge from `RATING_COLOURS` (§2.9). **No sparkline** — deferred to P16 |
+| **P7** | Attribute rows — tide, then snow | Cap of two per window; the change row is P5's and does not count against it |
+| **P7b** | Promoted strip — both variants; chart 42px curve + 16px label band | Single-strip cap enforced in code. Also owns `UNKNOWN_RANK`'s wire semantics |
+| **P8** | Lens bar — **reach only** + persistence policy | Shrunk: rating floor and type move to P11. Day-derived default; reach expires at the day roll |
+| **P9** | Collapse/expand, six-window case, away-day row + its rail variant, the two doors | Re-measure the height budget: the rail grew, the window card shrank |
+| **P10′** | Peek content kind 1 (spot) + click-to-map | Split — the host is P4b, the pick-chip kind is P5. New `WindowSpotPeek`; **on touch the card activates the map**; phone peek via `BottomSheet`; 140/160/120ms |
+| **P11** | Drilldown sheet — **plus the rating floor and type controls** and their persistence | Grown by what P8 shed |
+| **P12** | Backend: almanac feed (§3) + the tide fetch-horizon decision | Unchanged |
+| **P13** | Coming up tab | Unchanged |
+| **P14** | Responsive pass — real media queries, including the taller rail tile on phone | Keep control labels at 9px |
 | **P15** | Pre-pilot sweep (§6), then flip the flag default | |
+| **P16** | *(post-pilot, conditional)* Run-history sparkline | Deferred on the design's own authority, not for want of data (§2.8) |
 
 **P6 — copy, don't extract, and take the geometry from the spec.** An extraction would rewire
 `CloseToHome` to consume it, which breaks the one thing §4 rests on: the v1 arm of the flag comparison
@@ -425,6 +567,14 @@ something goes in.
   ungated today and `freemium_ui_strategy.md:79-80` lists scores and the Claude summary as
   LITE-included. Open question for P7: `HotTopicStrip` blurs tide metres for LITE today, and the tide
   row states them — decide which way that goes rather than letting the two surfaces disagree.
+- **The day rail is no longer inert.** The first handoff specified a read-out with no hover and no
+  click. The second makes it the page's densest interactive surface: region chips open a gloss, pick
+  chips open the pick's prose, and the tile carries a show-on-map action. Anywhere this plan still
+  calls the rail inert, the second handoff wins.
+- **A LITE user sees a hole where the picks are.** The rail now carries pick chips and the window
+  card a pick badge, and the underlying prose is PRO-gated today. Decide the LITE treatment at P4,
+  not at P15 — a blank space in the shell is worse than either the greyed-out pattern or a clean
+  omission, and it is a shell-layout question, not a sweep item.
 - **Styling.** CLAUDE.md says Tailwind only, no inline styles; the spec is written in exact px
   (12.5 / 10.5 / 9.5). Follow the existing precedent — `index.css` component classes plus tokens, with
   inline style for one-off exact values, which is what `CloseToHome`, `TideRunRow` and `ViewToggle`
