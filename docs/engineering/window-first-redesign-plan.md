@@ -203,6 +203,33 @@ Two rules that **do** still bind:
 2. **Never synthesise.** No resolvable representative location, or no extremes → no rollup, and the row
    falls back to `BriefingSlot.tide`'s per-location fact line.
 
+**The `selectRepresentative` extraction is bigger than two private methods.** `findAnchor` drags
+the `photocast.tide-run.preferred-anchor` config, an exact-then-tolerant matching pass,
+`normalise`/`matching`, `LogSanitizer`, and per-instance **warn-once** state
+(`AtomicReference<String> warnedAnchor`). Sharing one instance between the tide run and the window
+rollup changes that semantic — a misconfigured anchor would warn for whichever caller ran first and
+stay silent for the other. Extract the *selection* (anchor-first, biggest-range fallback) and leave
+each caller its own warn state, or accept the shared warning deliberately and say so in the class.
+⚠️ `TideRunBuilder` has taken three merges recently (#396, #397, #402); read it before editing.
+
+**Keep the projector dependency-free.** `PlanWindowProjector` is a static utility and P1′b is the
+argument for keeping it that way. Tide data needs repositories, so compute the rollups in a
+`@Component` and pass them in as a map, exactly as the badges are — never inject a repository into
+the projector.
+
+**Both inputs verified against production, 2026-08-03** — the check P1′b skipped, and the reason
+this phase is safe to build:
+
+| input | coverage | freshness | shape |
+|---|---|---|---|
+| `tide_extreme` | to **T+13** (2026-08-16), 61 locations | fetched **today** | ~4 extremes per location per day, no gaps |
+| `marine_wave` | to **T+4** (2026-08-07) only | evaluated today | per (location, date, event) |
+
+⚠️ **Sea state is independently nullable.** Tides reach T+13; waves reach T+4, exactly the briefing
+window and no further. A window beyond T+4 has a full tide rollup and no sea state, so the field must
+degrade on its own rather than being assumed present whenever the rollup exists. Do not let a missing
+sea state suppress the rollup.
+
 **The rollup names its representative coastal location.** The row asserts `HW 19:28 · 1h43 before
 sunset` and `4.9 m · 1.2 m above an average tide` over a set its own action line calls "61 coastal
 locations". Alignment differs ~20–30 min across a coastline and the design states offsets to the minute
