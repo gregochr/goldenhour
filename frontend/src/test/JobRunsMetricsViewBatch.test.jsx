@@ -65,6 +65,19 @@ function setupDefaultMocks() {
   getAvailableModels.mockResolvedValue({ optimisationStrategies: {} });
 }
 
+/**
+ * Opens the batch dialog and waits for the regions fetch to land.
+ *
+ * The batch button renders immediately from static markup, so awaiting it says nothing about
+ * `getRegions()`. Every assertion about region toggles has to wait for the regions themselves, or
+ * it is racing the fetch — which is exactly how this file produced an intermittent failure.
+ */
+async function openBatchDialog() {
+  await waitFor(() => screen.getByTestId('run-scheduled-batch-btn'));
+  fireEvent.click(screen.getByTestId('run-scheduled-batch-btn'));
+  await screen.findByTestId('batch-region-toggle-1');
+}
+
 function renderView() {
   return render(
     <JobRunsMetricsView
@@ -111,8 +124,7 @@ describe('Batch Evaluation buttons', () => {
 describe('Batch dialog', () => {
   it('opens scheduled dialog with all regions pre-selected', async () => {
     renderView();
-    await waitFor(() => screen.getByTestId('run-scheduled-batch-btn'));
-    fireEvent.click(screen.getByTestId('run-scheduled-batch-btn'));
+    await openBatchDialog();
 
     expect(screen.getByText('Run Scheduled Batch')).toBeInTheDocument();
     expect(screen.getByText(/triage and stability gates/)).toBeInTheDocument();
@@ -133,16 +145,14 @@ describe('Batch dialog', () => {
 
   it('confirm button shows region count', async () => {
     renderView();
-    await waitFor(() => screen.getByTestId('run-scheduled-batch-btn'));
-    fireEvent.click(screen.getByTestId('run-scheduled-batch-btn'));
+    await openBatchDialog();
 
     expect(screen.getByTestId('confirm-dialog-confirm')).toHaveTextContent('Submit (3 regions)');
   });
 
   it('shows total location count in "All regions" label', async () => {
     renderView();
-    await waitFor(() => screen.getByTestId('run-scheduled-batch-btn'));
-    fireEvent.click(screen.getByTestId('run-scheduled-batch-btn'));
+    await openBatchDialog();
 
     // 5 + 3 + 2 = 10 locations
     expect(screen.getByTestId('batch-region-toggle-all')).toHaveTextContent('All regions (10 locations)');
@@ -150,8 +160,7 @@ describe('Batch dialog', () => {
 
   it('shows summary text with selected count', async () => {
     renderView();
-    await waitFor(() => screen.getByTestId('run-scheduled-batch-btn'));
-    fireEvent.click(screen.getByTestId('run-scheduled-batch-btn'));
+    await openBatchDialog();
 
     expect(screen.getByText('3 of 3 regions selected')).toBeInTheDocument();
   });
@@ -162,8 +171,7 @@ describe('Batch dialog', () => {
 describe('Region toggle', () => {
   it('unchecking a region reduces selected count', async () => {
     renderView();
-    await waitFor(() => screen.getByTestId('run-scheduled-batch-btn'));
-    fireEvent.click(screen.getByTestId('run-scheduled-batch-btn'));
+    await openBatchDialog();
 
     // Uncheck region 1
     fireEvent.click(screen.getByTestId('batch-region-toggle-1').querySelector('input'));
@@ -173,10 +181,33 @@ describe('Region toggle', () => {
     expect(screen.getByTestId('confirm-dialog-confirm')).toHaveTextContent('Submit (2 regions)');
   });
 
-  it('"All regions" toggle deselects all when all are selected', async () => {
+  it('regions arriving after the dialog opens are all selected, not none', async () => {
+    // The flake, made deterministic. The batch button renders before getRegions() resolves, so an
+    // admin can open the dialog against an empty roster. The old code snapshotted the selection at
+    // that instant, so the regions then rendered UNCHECKED — and clicking one ADDED it rather than
+    // removing it, which is how the intermittent "expected not to be checked, received checked"
+    // failure arose. Submitting from that state sent an empty region list.
+    let resolveRegions;
+    getRegions.mockReturnValue(new Promise((resolve) => { resolveRegions = resolve; }));
     renderView();
     await waitFor(() => screen.getByTestId('run-scheduled-batch-btn'));
+
     fireEvent.click(screen.getByTestId('run-scheduled-batch-btn'));
+    await act(async () => { resolveRegions(MOCK_REGIONS); });
+
+    expect(screen.getByText('3 of 3 regions selected')).toBeInTheDocument();
+    expect(screen.getByTestId('batch-region-toggle-1').querySelector('input')).toBeChecked();
+
+    // And the toggle now REMOVES, which is the half that was inverted.
+    fireEvent.click(screen.getByTestId('batch-region-toggle-1').querySelector('input'));
+
+    expect(screen.getByTestId('batch-region-toggle-1').querySelector('input')).not.toBeChecked();
+    expect(screen.getByText('2 of 3 regions selected')).toBeInTheDocument();
+  });
+
+  it('"All regions" toggle deselects all when all are selected', async () => {
+    renderView();
+    await openBatchDialog();
 
     // All checked initially — clicking "All" should uncheck all
     fireEvent.click(screen.getByTestId('batch-region-toggle-all').querySelector('input'));
@@ -187,10 +218,24 @@ describe('Region toggle', () => {
     expect(screen.getByText('0 of 3 regions selected')).toBeInTheDocument();
   });
 
+  it('submitting with nothing selected is refused, because the API reads [] as ALL', async () => {
+    // The footgun: ForecastTaskCollector:729 documents "null or empty means all regions", so an
+    // empty list on the wire runs the WHOLE roster. Deselect everything, hit Submit, and the screen
+    // says "0 of 3 regions selected" while the backend evaluates all three — at full batch cost.
+    // ConfirmDialog has no disabled support, so the button is live; the guard is in the handler.
+    renderView();
+    await openBatchDialog();
+    fireEvent.click(screen.getByTestId('batch-region-toggle-all').querySelector('input'));
+    expect(screen.getByText('0 of 3 regions selected')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
+
+    expect(submitScheduledBatch).not.toHaveBeenCalled();
+  });
+
   it('"All regions" toggle selects all when none are selected', async () => {
     renderView();
-    await waitFor(() => screen.getByTestId('run-scheduled-batch-btn'));
-    fireEvent.click(screen.getByTestId('run-scheduled-batch-btn'));
+    await openBatchDialog();
 
     // Deselect all first
     fireEvent.click(screen.getByTestId('batch-region-toggle-all').querySelector('input'));
@@ -205,8 +250,7 @@ describe('Region toggle', () => {
 
   it('confirm button shows singular "region" for single selection', async () => {
     renderView();
-    await waitFor(() => screen.getByTestId('run-scheduled-batch-btn'));
-    fireEvent.click(screen.getByTestId('run-scheduled-batch-btn'));
+    await openBatchDialog();
 
     // Deselect all, then select just one
     fireEvent.click(screen.getByTestId('batch-region-toggle-all').querySelector('input'));
@@ -217,8 +261,7 @@ describe('Region toggle', () => {
 
   it('re-checking a region adds it back', async () => {
     renderView();
-    await waitFor(() => screen.getByTestId('run-scheduled-batch-btn'));
-    fireEvent.click(screen.getByTestId('run-scheduled-batch-btn'));
+    await openBatchDialog();
 
     // Uncheck then re-check region 2
     fireEvent.click(screen.getByTestId('batch-region-toggle-2').querySelector('input'));
@@ -384,8 +427,7 @@ describe('Batch submission', () => {
 describe('Region display in dialog', () => {
   it('shows each region name and location count', async () => {
     renderView();
-    await waitFor(() => screen.getByTestId('run-scheduled-batch-btn'));
-    fireEvent.click(screen.getByTestId('run-scheduled-batch-btn'));
+    await openBatchDialog();
 
     expect(screen.getByTestId('batch-region-toggle-1')).toHaveTextContent('Cumbria (5)');
     expect(screen.getByTestId('batch-region-toggle-2')).toHaveTextContent('Ayrshire (3)');

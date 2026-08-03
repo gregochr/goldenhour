@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the admin batch dialog could open with nothing selected, and submit everything
+
+- **A race between the batch button and the regions fetch.** The button renders immediately from static markup while `getRegions()` is still in flight, and `openBatchDialog` snapshotted the selection at click time — so an admin who clicked quickly opened the dialog against an empty roster. The regions then arrived and rendered every box **unchecked** above "0 of 3 regions selected", and clicking one *checked* it rather than unchecking. `selectedIds: null` now means "all regions", resolved against the current roster at render, toggle and submit time, so the default follows the data whenever it lands.
+- **This was the intermittent CI failure** in `JobRunsMetricsViewBatch.test.jsx > Region toggle > unchecking a region reduces selected count` ("expected not to be checked, received checked") — a real product bug surfacing as a flake, not a flaky test. The new regression test reproduces the ordering deterministically; reverting only the fix fails that test and nothing else.
+- **Submitting with nothing selected ran every region.** Found by the review while fixing the above, and pre-existing rather than introduced: deselecting all sent `regionIds: []`, and the API reads an empty list exactly as null — `ForecastTaskCollector:729`, "null or empty means all regions". So "0 of 3 regions selected" submitted the whole roster at full batch cost, and `ConfirmDialog` has no `disabled` support to stop it. The handler now refuses an explicitly emptied selection. A visibly disabled confirm button is the better UX and is left as a follow-up, since it changes a shared component.
+- The region-toggle tests waited on the batch button — static markup — and then asserted on region content that has its own async source. They now wait for the regions themselves.
+
+
 ### Added — every shooting window now states its tide, and names the coast it means (P2)
 
 - **A per-window tide rollup**, derived at serve time and hung off each window: state and direction, the nearest extreme with its offset from the window, the day's range, how that compares with normal, the sea state, the day's tide shape, and — the part the spec's data contract does not carry — **the coastal location all of it is measured at**. Alignment differs 20–30 minutes across a coastline and the row states offsets to the minute, so an unattributed high-water time is a claim this project cannot make.
