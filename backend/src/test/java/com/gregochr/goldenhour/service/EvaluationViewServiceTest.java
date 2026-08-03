@@ -595,6 +595,13 @@ class EvaluationViewServiceTest {
     @DisplayName("getScoresForEnrichment — Plan tab delegate")
     class GetScoresForEnrichment {
 
+        /** Stubs the region's single bulk forecast query with the given rows. */
+        private void forecastRows(ForecastEvaluationEntity... rows) {
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of(rows));
+        }
+
         @Test
         @DisplayName("returns cached scores supplemented with forecast_evaluation fallback")
         void mergedResult() {
@@ -605,14 +612,12 @@ class EvaluationViewServiceTest {
                     .thenReturn(Map.of("Bamburgh",
                             new BriefingEvaluationResult("Bamburgh", 4, 75, 65, "Good")));
 
-            when(forecastEvaluationRepository
-                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            2L, DATE, SUNRISE))
-                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
-                            .rating(3).fierySkyPotential(50).goldenHourPotential(45)
-                            .summary("OK").evaluationModel(EvaluationModel.HAIKU)
-                            .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
-                            .build()));
+            forecastRows(ForecastEvaluationEntity.builder()
+                    .location(sandsend).targetDate(DATE).targetType(SUNRISE)
+                    .rating(3).fierySkyPotential(50).goldenHourPotential(45)
+                    .summary("OK").evaluationModel(EvaluationModel.HAIKU)
+                    .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
+                    .build());
 
             Map<String, BriefingEvaluationResult> result =
                     service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE);
@@ -631,7 +636,8 @@ class EvaluationViewServiceTest {
                     .thenReturn(Map.of("Bamburgh",
                             new BriefingEvaluationResult("Bamburgh", 5, 90, 80, "Stunning")));
 
-            // forecast_evaluation should NOT be queried for Bamburgh since cache has it
+            // The row IS now loaded for Bamburgh — gating needs one for every location, not only
+            // for cache misses — but an unknown-freshness cache still wins the merge.
 
             Map<String, BriefingEvaluationResult> result =
                     service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE);
@@ -647,13 +653,11 @@ class EvaluationViewServiceTest {
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
                     .thenReturn(Map.of());
 
-            when(forecastEvaluationRepository
-                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
-                            .triage(new TriageDetails(TriageReason.PRECIPITATION, "Rain expected"))
-                            .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
-                            .build()));
+            forecastRows(ForecastEvaluationEntity.builder()
+                    .location(bamburgh).targetDate(DATE).targetType(SUNRISE)
+                    .triage(new TriageDetails(TriageReason.PRECIPITATION, "Rain expected"))
+                    .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
+                    .build());
 
             Map<String, BriefingEvaluationResult> result =
                     service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE);
@@ -665,18 +669,28 @@ class EvaluationViewServiceTest {
         }
 
         @Test
-        @DisplayName("cached location is not queried from forecast repo")
-        void cachedLocationSkipsForecastQuery() {
-            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+        @DisplayName("resolves the whole region in ONE query — never a findTop per location")
+        void resolvesTheWholeRegionInOneQuery() {
+            // This nest used to pin the opposite: that a cached location was never queried at all.
+            // Freshness gating ended that — a cached rating cannot be compared against a row that
+            // was never loaded — so the guarantee worth keeping is the one about fan-out. The build
+            // path calls this once per region x date x event, so a per-location point lookup here
+            // would be ~550 round trips on a five-day plan.
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh, sandsend));
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
                     .thenReturn(Map.of("Bamburgh",
                             new BriefingEvaluationResult("Bamburgh", 4, 70, 60, "Good")));
+            forecastRows();
 
             service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE);
 
+            ArgumentCaptor<Collection<Long>> idsCaptor = ArgumentCaptor.captor();
+            verify(forecastEvaluationRepository, times(1))
+                    .findLatestRunPerSlotByLocationIds(idsCaptor.capture(), eq(DATE), eq(DATE));
+            assertThat(idsCaptor.getValue()).containsExactlyInAnyOrder(1L, 2L);
             verify(forecastEvaluationRepository, never())
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            eq(1L), eq(DATE), eq(SUNRISE));
+                            any(), any(), any());
         }
 
         @Test
@@ -687,12 +701,10 @@ class EvaluationViewServiceTest {
                     .thenReturn(Map.of());
 
             // A forecast row that has no rating AND no triageReason (e.g. incomplete)
-            when(forecastEvaluationRepository
-                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
-                            .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
-                            .build()));
+            forecastRows(ForecastEvaluationEntity.builder()
+                    .location(bamburgh).targetDate(DATE).targetType(SUNRISE)
+                    .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
+                    .build());
 
             Map<String, BriefingEvaluationResult> result =
                     service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE);
@@ -707,14 +719,12 @@ class EvaluationViewServiceTest {
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
                     .thenReturn(Map.of());
 
-            when(forecastEvaluationRepository
-                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            2L, DATE, SUNRISE))
-                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
-                            .rating(3).fierySkyPotential(55).goldenHourPotential(45)
-                            .summary("Decent").evaluationModel(EvaluationModel.SONNET)
-                            .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
-                            .build()));
+            forecastRows(ForecastEvaluationEntity.builder()
+                    .location(sandsend).targetDate(DATE).targetType(SUNRISE)
+                    .rating(3).fierySkyPotential(55).goldenHourPotential(45)
+                    .summary("Decent").evaluationModel(EvaluationModel.SONNET)
+                    .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
+                    .build());
 
             Map<String, BriefingEvaluationResult> result =
                     service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE);
@@ -724,6 +734,24 @@ class EvaluationViewServiceTest {
             assertThat(r.locationName()).isEqualTo("Sandsend");
             assertThat(r.fierySkyPotential()).isEqualTo(55);
             assertThat(r.goldenHourPotential()).isEqualTo(45);
+        }
+
+        @Test
+        @DisplayName("a cached entry for a location no longer in the roster is still carried")
+        void cachedEntryOutsideRosterSurvives() {
+            // The map used to START as a copy of the cache, so an entry for a renamed, disabled or
+            // moved location came along for the ride. Rebuilding it per roster location would drop
+            // those silently — an unrelated behaviour change riding on the freshness fix.
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Retired Cove",
+                            new BriefingEvaluationResult("Retired Cove", 3, 60, 55, "Fine")));
+            forecastRows();
+
+            Map<String, BriefingEvaluationResult> result =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNRISE);
+
+            assertThat(result.get("Retired Cove").rating()).isEqualTo(3);
         }
     }
 
@@ -1239,6 +1267,182 @@ class EvaluationViewServiceTest {
 
             assertThat(v.source()).isEqualTo(Source.CACHED_EVALUATION);
             assertThat(v.rating()).isEqualTo(5);
+        }
+    }
+
+    @Nested
+    @DisplayName("Enrichment freshness gate — the briefing payload obeys the same rule as the view")
+    class EnrichmentFreshness {
+
+        private static final String KEY = REGION_NAME + "|" + DATE + "|" + SUNSET;
+
+        /** A cached rating for Bamburgh written at the given instant. */
+        private void cachedRatingAt(int rating, Instant writtenAt) {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", rating, 80, 70, "Worth it")));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNSET))
+                    .thenReturn(Optional.ofNullable(writtenAt));
+        }
+
+        /** A scored Bamburgh row run at the given LONDON-naive local time. */
+        private void scoredRunAt(int rating, LocalDateTime runAt) {
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
+                            .location(bamburgh).targetDate(DATE).targetType(SUNSET)
+                            .rating(rating).fierySkyPotential(30).goldenHourPotential(25)
+                            .summary("Low cloud builds into the solar horizon")
+                            .evaluationModel(EvaluationModel.HAIKU)
+                            .forecastRunAt(runAt)
+                            .build()));
+        }
+
+        @Test
+        @DisplayName("Stale 4-star cache loses to a newer scored row — the Close to home case")
+        void staleCacheLosesToNewerScoredRow() {
+            // Observed 2026-08-02: Angel of the North read 4.0 stars on the Close to home panel and
+            // 2 on both the region drill-down and the map popup, for one location on one evening.
+            // The cached rating was written before the newest forecast row and lost the merge on
+            // the view path (which gates) while winning it here (which did not).
+            cachedRatingAt(4, Instant.parse("2026-07-31T09:00:00Z"));
+            scoredRunAt(2, LocalDateTime.of(2026, 7, 31, 22, 29));
+
+            Map<String, BriefingEvaluationResult> result =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNSET);
+
+            assertThat(result.get("Bamburgh").rating()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("Stale 4-star cache loses to a newer scored row on the BULK serve path too")
+        void staleCacheLosesToNewerScoredRowInBulk() {
+            // The serve path resolves through the bulk index, so gating one method and not the
+            // other would leave every re-served briefing — i.e. the panel as users actually load
+            // it — carrying the stale rating.
+            cachedRatingAt(4, Instant.parse("2026-07-31T09:00:00Z"));
+            scoredRunAt(2, LocalDateTime.of(2026, 7, 31, 22, 29));
+
+            Map<String, Map<String, BriefingEvaluationResult>> index =
+                    service.getScoresForEnrichmentBulk(DATE, DATE, Set.of(SUNSET));
+
+            assertThat(index.get(KEY).get("Bamburgh").rating()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("Stale cache loses to a newer TRIAGE row, surfacing the stand-down")
+        void staleCacheLosesToNewerTriage() {
+            cachedRatingAt(4, Instant.parse("2026-07-29T09:00:00Z"));
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
+                            .location(bamburgh).targetDate(DATE).targetType(SUNSET)
+                            .triage(new TriageDetails(TriageReason.HIGH_CLOUD, "94% low cloud"))
+                            .forecastRunAt(LocalDateTime.of(2026, 7, 31, 22, 29))
+                            .build()));
+
+            Map<String, BriefingEvaluationResult> result =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNSET);
+
+            BriefingEvaluationResult r = result.get("Bamburgh");
+            assertThat(r.rating()).isNull();
+            assertThat(r.triageReason()).isEqualTo(TriageReason.HIGH_CLOUD);
+        }
+
+        @Test
+        @DisplayName("A fresher cached rating still wins — the gate is not a forecast-always rule")
+        void fresherCacheStillWins() {
+            cachedRatingAt(4, Instant.parse("2026-08-01T06:00:00Z"));
+            scoredRunAt(2, LocalDateTime.of(2026, 7, 31, 22, 29));
+
+            Map<String, BriefingEvaluationResult> result =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNSET);
+
+            assertThat(result.get("Bamburgh").rating()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("A tie goes to the cache — one run writing both halves")
+        void tieGoesToTheCache() {
+            // 22:29 London on 31 July is 21:29Z (BST). Same instant, so this is one run writing
+            // the forecast row and the cache together. The tie resolves to the cache for
+            // determinism and to match mergeToView, NOT because the row is poorer — a scored row
+            // carries its own summary and headline too.
+            cachedRatingAt(4, Instant.parse("2026-07-31T21:29:00Z"));
+            scoredRunAt(2, LocalDateTime.of(2026, 7, 31, 22, 29));
+
+            Map<String, BriefingEvaluationResult> result =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNSET);
+
+            assertThat(result.get("Bamburgh").rating()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("The winning row brings its OWN headline — it must not blank the card header")
+        void winningRowCarriesItsHeadline() {
+            // enrichSlot ASSIGNS the headline it is handed, and the drill-down renders that header
+            // with no fallback, so returning null here would silently delete a card title for every
+            // slot the gate routes to a newer row. Both stores carry a headline; the winner's must
+            // travel with the rating and summary it belongs to.
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
+                    .thenReturn(Map.of("Bamburgh", new BriefingEvaluationResult(
+                            "Bamburgh", 4, 80, 70, "Worth it", null, null, "Fiery skies at dusk")));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNSET))
+                    .thenReturn(Optional.of(Instant.parse("2026-07-31T09:00:00Z")));
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
+                            .location(bamburgh).targetDate(DATE).targetType(SUNSET)
+                            .rating(2).fierySkyPotential(30).goldenHourPotential(25)
+                            .summary("Low cloud builds into the solar horizon")
+                            .headline("Low cloud builds in")
+                            .evaluationModel(EvaluationModel.HAIKU)
+                            .forecastRunAt(LocalDateTime.of(2026, 7, 31, 22, 29))
+                            .build()));
+
+            BriefingEvaluationResult r =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNSET).get("Bamburgh");
+
+            assertThat(r.rating()).isEqualTo(2);
+            assertThat(r.headline()).isEqualTo("Low cloud builds in");
+            assertThat(r.summary()).isEqualTo("Low cloud builds into the solar horizon");
+        }
+
+        @Test
+        @DisplayName("forecast_run_at is LONDON-naive, so BST cannot invert the comparison here either")
+        void bstDoesNotInvertTheComparison() {
+            // 23:00 London on 31 July is 22:00Z. A cache written at 22:30Z is half an hour AFTER
+            // the run and must win; compared raw, 22:30 reads as earlier than 23:00 and a live
+            // rating would be thrown away for a superseded row.
+            cachedRatingAt(4, Instant.parse("2026-07-31T22:30:00Z"));
+            scoredRunAt(2, LocalDateTime.of(2026, 7, 31, 23, 0));
+
+            Map<String, BriefingEvaluationResult> result =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNSET);
+
+            assertThat(result.get("Bamburgh").rating()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("A newer but unusable row does not blank a location the cache can describe")
+        void newerUnusableRowKeepsTheCachedEntry() {
+            // Losing the freshness comparison is not the same as having something to say. A row
+            // carrying neither a rating nor a triage reason must not delete the only description
+            // of the slot that exists.
+            cachedRatingAt(4, Instant.parse("2026-07-29T09:00:00Z"));
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
+                            .location(bamburgh).targetDate(DATE).targetType(SUNSET)
+                            .forecastRunAt(LocalDateTime.of(2026, 7, 31, 22, 29))
+                            .build()));
+
+            Map<String, BriefingEvaluationResult> result =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNSET);
+
+            assertThat(result.get("Bamburgh").rating()).isEqualTo(4);
         }
     }
 

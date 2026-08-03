@@ -389,7 +389,9 @@ public class BriefingService {
                 fallback, response.auroraTonight(), response.auroraTomorrow(),
                 response.stale(), response.partialFailure(), response.failedLocationCount(),
                 response.bestBetModel(), response.hotTopics(), response.seasonalFeatures(),
-                response.bestBetStatus());
+                // These picks are a stale set replacing whatever survived the honesty filter, so
+                // any withdrawal it recorded describes a list that is no longer here.
+                response.bestBetStatus(), null);
     }
 
     /**
@@ -816,14 +818,37 @@ public class BriefingService {
     }
 
     /**
-     * Enriches a single slot with cached Claude scores if available.
+     * Enriches a single slot from the resolved evaluation for its location.
+     *
+     * <p><b>A resolved triage clears the rating.</b> The resolver returns the winner of a merge
+     * across both evaluation stores, so a triaged entry is a positive statement — "the freshest
+     * thing known about this slot is that it stood down before Claude was ever called" — and not
+     * merely an absence. This used to overwrite only on a non-null rating, which meant it could
+     * raise a rating but never retract one: a slot scored 4★ by an overnight batch kept that 4★ on
+     * the payload after a later run triaged it, while the map and the region drill-down (which
+     * merge through {@code EvaluationViewService.mergeToView}) already showed the stand-down. That
+     * is the same rating reading two ways on one screen, and it is the half of the divergence that
+     * gating the resolver alone cannot reach.
+     *
+     * <p>The prose goes with the rating. A summary written to explain a 4★ is worse than no
+     * summary at all once the 4★ is gone — the same reasoning that drops a region gloss when
+     * re-enrichment moves its verdict.
+     *
+     * <p>An absent entry still leaves the slot untouched: not being in the map is an absence, and
+     * only a resolved triage is evidence.
      */
     private BriefingSlot enrichSlot(BriefingSlot slot,
             Map<String, BriefingEvaluationResult> cached) {
         BriefingEvaluationResult eval = cached.get(slot.locationName());
-        if (eval != null && eval.rating() != null) {
+        if (eval == null) {
+            return slot;
+        }
+        if (eval.rating() != null) {
             return slot.withClaudeScores(eval.rating(), eval.fierySkyPotential(),
                     eval.goldenHourPotential(), eval.summary(), eval.headline());
+        }
+        if (eval.triageReason() != null && slot.claudeRating() != null) {
+            return slot.withClaudeScores(null, null, null, null, null);
         }
         return slot;
     }

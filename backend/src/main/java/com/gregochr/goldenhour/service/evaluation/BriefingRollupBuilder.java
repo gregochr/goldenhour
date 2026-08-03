@@ -137,7 +137,12 @@ public final class BriefingRollupBuilder {
                     break;
                 }
                 eventCount++;
-                String eventId = day.date().toString() + "_" + es.targetType().name().toLowerCase();
+                // Locale.ROOT, not the default locale: this id is matched key-for-key by
+                // BriefingHonestyFilter's Best Bet withdrawal. Under a Turkish default locale
+                // SUNRISE lowercases with a dotless i, the keys stop matching, and the
+                // withdrawal silently no-ops for sunrise picks while still working for sunset.
+                String eventId = day.date() + "_"
+                        + es.targetType().name().toLowerCase(java.util.Locale.ROOT);
                 String dayName = day.date().getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH);
                 validEvents.add(eventId);
                 validDayNames.add(dayName);
@@ -231,7 +236,7 @@ public final class BriefingRollupBuilder {
         for (BriefingDay day : days) {
             for (BriefingEventSummary es : day.eventSummaries()) {
                 String eventId = day.date().toString() + "_"
-                        + es.targetType().name().toLowerCase();
+                        + es.targetType().name().toLowerCase(java.util.Locale.ROOT);
                 if (!validEvents.contains(eventId)) {
                     continue;
                 }

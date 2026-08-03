@@ -2397,6 +2397,147 @@ class BriefingServiceTest {
             assertThat(served.slots().get(0).claudeRating()).isEqualTo(1);
         }
 
+        /** A second location in the same region, so one retraction does not zero its coverage. */
+        private LocationEntity seahouses() {
+            return LocationEntity.builder()
+                    .id(2L).name("Seahouses").lat(55.0).lon(-1.5)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of())
+                    .solarEventType(Set.of(SolarEventType.SUNSET))
+                    .region(RegionEntity.builder().name("North East").build())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+        }
+
+        private void stubFullRefresh(List<LocationEntity> locations) {
+            when(locationService.findAllEnabled()).thenReturn(locations);
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            org.mockito.Mockito.lenient().when(
+                    solarService.sunsetUtc(org.mockito.ArgumentMatchers.anyDouble(),
+                            org.mockito.ArgumentMatchers.anyDouble(), any(LocalDate.class)))
+                    .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
+        }
+
+        /**
+         * A scored result for one location, carrying a headline — without one, the retraction
+         * test's claudeHeadline assertion would pass against a field that was never populated.
+         */
+        private BriefingEvaluationResult scored(String name, int rating) {
+            return new BriefingEvaluationResult(name, rating, 50, 50, "Conditions.", null, null,
+                    "Fiery skies at dusk");
+        }
+
+        /**
+         * A TRIAGE result — what the merge in {@code EvaluationViewService} returns once the newest
+         * forecast row is triaged and the cached rating is older than it.
+         */
+        private BriefingEvaluationResult triaged(String name) {
+            return new BriefingEvaluationResult(name, null, null, null, null,
+                    com.gregochr.goldenhour.model.TriageReason.HIGH_CLOUD,
+                    "Low cloud 94% — sun blocked");
+        }
+
+        /** Stubs serve-time bulk re-enrichment with the given per-location results. */
+        private void stubServeIndex(Map<String, BriefingEvaluationResult> results) {
+            when(evaluationViewService.getScoresForEnrichmentBulk(
+                    any(LocalDate.class), any(LocalDate.class), any()))
+                    .thenAnswer(inv -> {
+                        LocalDate start = inv.getArgument(0);
+                        LocalDate end = inv.getArgument(1);
+                        Map<String, Map<String, BriefingEvaluationResult>> index =
+                                new java.util.HashMap<>();
+                        for (LocalDate d = start; !d.isAfter(end); d = d.plusDays(1)) {
+                            index.put("North East|" + d + "|SUNSET", results);
+                        }
+                        return index;
+                    });
+        }
+
+        private BriefingSlot slotNamed(BriefingRegion region, String name) {
+            return region.slots().stream()
+                    .filter(s -> s.locationName().equals(name))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("No slot " + name));
+        }
+
+        @Test
+        @DisplayName("A resolved triage RETRACTS a rating the build had already scored")
+        void serveTimeTriageRetractsBuiltRating() {
+            // Enrichment could previously raise a rating but never retract one, so a slot scored
+            // 4★ overnight kept that 4★ on the payload after a later run triaged it — while the
+            // map and the drill-down, which merge through mergeToView, already showed the
+            // stand-down. Gating the resolver alone cannot reach this: the resolver returns the
+            // triage correctly and the slot ignored it.
+            //
+            // Two locations, because retracting the only rating in a region takes coverage to zero
+            // and BriefingHonestyFilter then suppresses the slots outright — a real behaviour, but
+            // one that would hide whether the retraction itself happened. Seahouses keeps its
+            // rating so the region survives to be inspected.
+            stubFullRefresh(List.of(bamburgh(), seahouses()));
+            when(evaluationViewService.getScoresForEnrichment(
+                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of("Bamburgh", scored("Bamburgh", 4),
+                            "Seahouses", scored("Seahouses", 4)));
+            stubServeIndex(Map.of("Bamburgh", triaged("Bamburgh"),
+                    "Seahouses", scored("Seahouses", 4)));
+
+            briefingService.refreshBriefing();
+            assertThat(slotNamed(findRegion(briefingService.getCachedBriefing(), "North East"),
+                    "Bamburgh").claudeRating()).isEqualTo(4);
+
+            BriefingRegion served =
+                    findRegion(briefingService.getCachedBriefingForApi(), "North East");
+
+            BriefingSlot retracted = slotNamed(served, "Bamburgh");
+            assertThat(retracted.claudeRating()).isNull();
+            // The prose explained the 4★. Keeping it beside no rating is worse than dropping it —
+            // and that means BOTH prose fields, since the drill-down renders the headline as a
+            // card title with no fallback. This is the only writer of claudeHeadline in the
+            // backend, so nothing downstream would put it back.
+            assertThat(retracted.claudeSummary()).isNull();
+            assertThat(retracted.claudeHeadline()).isNull();
+            // The retraction is per slot, not per region.
+            assertThat(slotNamed(served, "Seahouses").claudeRating()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("Retracting a region's LAST rating hands it to the honesty filter, not a stale star")
+        void serveTimeTriageOnLastRatingYieldsHonestRegion() {
+            // The user-visible end of the fix. Before it, this region kept reading 4★ on the Plan
+            // grid and the Close to home panel while the map and drill-down showed the stand-down.
+            // It now reaches zero coverage honestly and the existing filter says so.
+            stubFullRefresh(bamburgh());
+            stubBuildScores(4);
+            stubServeIndex(Map.of("Bamburgh", triaged("Bamburgh")));
+
+            briefingService.refreshBriefing();
+
+            BriefingRegion served =
+                    findRegion(briefingService.getCachedBriefingForApi(), "North East");
+
+            assertThat(served.slots()).isEmpty();
+            assertThat(served.summary()).isEqualTo(BriefingHonestyFilter.REPLACEMENT_SUMMARY);
+        }
+
+        @Test
+        @DisplayName("An ABSENT entry leaves the built rating alone — absence is not evidence")
+        void serveTimeAbsenceKeepsBuiltRating() {
+            // The retraction above must key on a resolved triage, never on a missing key. A region
+            // the bulk index does not cover (a restart before the first batch of the day, say)
+            // would otherwise blank every rating the briefing had.
+            stubFullRefresh(bamburgh());
+            stubBuildScores(4);
+            when(evaluationViewService.getScoresForEnrichmentBulk(
+                    any(LocalDate.class), any(LocalDate.class), any()))
+                    .thenReturn(Map.of());
+
+            briefingService.refreshBriefing();
+            BriefingRegion served =
+                    findRegion(briefingService.getCachedBriefingForApi(), "North East");
+
+            assertThat(served.slots().get(0).claudeRating()).isEqualTo(4);
+        }
+
         @Test
         @DisplayName("Stale gloss is dropped when the re-enriched verdict changes")
         void staleGlossClearedWhenVerdictChanges() {
