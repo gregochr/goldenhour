@@ -34,7 +34,7 @@
     "eslint-plugin-react": {
       "eslint": "$eslint"
     },
-    "brace-expansion": "5.0.8"
+    "brace-expansion": "5.0.9"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
