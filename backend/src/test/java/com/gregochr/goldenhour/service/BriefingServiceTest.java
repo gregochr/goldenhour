@@ -383,7 +383,12 @@ class BriefingServiceTest {
 
         /** Drives a refresh whose advisor returns the given outcome, leaving it in the cache. */
         private void refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult result) {
-            LocationEntity loc = location("Durham", null);
+            refreshWithAdvisorResult(result, location("Durham", null));
+        }
+
+        /** As above, with the location supplied — so a test can put it in a nameable region. */
+        private void refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult result,
+                LocationEntity loc) {
             when(locationService.findAllEnabled()).thenReturn(List.of(loc));
             when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
                     .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
@@ -415,6 +420,31 @@ class BriefingServiceTest {
                     .isEqualTo(com.gregochr.goldenhour.model.BestBetStatus.FAILED);
             assertThat(api.bestBets()).hasSize(1);
             assertThat(api.bestBets().get(0).headline()).isEqualTo("Last good pick");
+        }
+
+        @Test
+        @DisplayName("A stale FALLBACK pick naming a blanked region is withdrawn too")
+        void fallbackPickOnBlankedRegion_isWithdrawn() {
+            // The fallback is the list MOST likely to name a region this serve cannot evaluate:
+            // it is picks from an earlier forecast, offered precisely because this one's advisor
+            // failed. While the honesty filter ran inside the fallback rather than around it,
+            // this was the one list that never passed the coverage check — so a stale pick could
+            // still crown a region the same response reports as unevaluable. The stale chip tells
+            // a reader the picks are old; it does not tell them the region has no forecast.
+            //
+            // Nothing stubs the evaluation scores, so the region's only slot is unrated and the
+            // filter blanks it — the same state the withdrawal exists for.
+            refreshWithAdvisorResult(com.gregochr.goldenhour.model.BestBetResult.failed(),
+                    location("Bamburgh", "Northumberland"));
+            when(bestBetFallbackService.findFreshFallback()).thenReturn(List.of(
+                    new BestBet(1, "Last good pick", "From earlier.",
+                            FIXED_TODAY + "_sunset", "Northumberland",
+                            Confidence.HIGH, null, "Today", "sunset", null)));
+
+            DailyBriefingResponse api = briefingService.getCachedBriefingForApi();
+
+            assertThat(api.bestBets()).isEmpty();
+            assertThat(api.bestBetsWithdrawn()).isTrue();
         }
 
         @Test
