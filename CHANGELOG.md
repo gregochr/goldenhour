@@ -5,11 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Security — Frontend dependency audit fix (brace-expansion)
+### Security — Frontend dependency audit fixes (brace-expansion, fast-uri)
 
 - Newly-disclosed high advisory GHSA-rgw5-rvv9-x895 in `brace-expansion` 4.0.0–5.0.8 (DoS via unbounded intermediate arrays), which **bypasses the mitigation for CVE-2026-14257** — the advisory the existing `overrides` pin at `5.0.8` was added for. The pin was therefore itself the vulnerable version. Bumped to `5.0.9`, the first release outside the range.
 - **Transitive and dev-only**, so nothing shipped to users was affected: the paths are `eslint`, `eslint-plugin-jsx-a11y`, and `vite-plugin-pwa → workbox-build` (build-time). The lockfile marks the resolved node `"dev": true`.
 - **The failure was time-triggered, not code-triggered.** `npm audit` queries the live advisory database, so the same lockfile passed on `main` at 14:34 and failed at 19:17 the same day. Every open PR was blocked by it, which is why this is its own change rather than folded into whichever PR happened to notice.
+- **A second advisory landed while the first fix was in CI.** GHSA-7p8r-x3mc-p8w7 in `fast-uri` 3.0.0–3.1.4 (host confusion via a backslash authority introducer), bumped to `3.1.5`. Also transitive and dev-only — `vite-plugin-pwa → workbox-build → ajv` — and lockfile-only, since `ajv`'s `^3.0.1` range already permits it. Two high advisories publishing within an hour is the reason this gate failed twice in a row on unrelated PRs; neither was caused by a code change.
 - Four lines: the `overrides` entry and the one resolved lockfile node. Deliberately **not** `npm audit fix`, which wanted seven unrelated packages including a major `@testing-library/jest-dom` bump and still left two paths unresolved. `npm ci` from the edited lockfile succeeds, `npm audit --audit-level=high` reports 0 vulnerabilities, and lint, 2048 tests and the production build are all green.
 
 
