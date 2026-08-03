@@ -50,7 +50,7 @@ class PlanWindowProjectorTest {
                     region("Dales", 3, 3, 3),
                     region("Northumberland", 4, 4, 4));
 
-            assertThat(w.bestBet().regionName()).isEqualTo("Northumberland");
+            assertThat(w.pick().regionName()).isEqualTo("Northumberland");
         }
 
         @Test
@@ -62,7 +62,7 @@ class PlanWindowProjectorTest {
                     region("Dales", 4, 4),
                     region("Northumberland", 4, 4, 4));
 
-            assertThat(w.bestBet().regionName()).isEqualTo("Northumberland");
+            assertThat(w.pick().regionName()).isEqualTo("Northumberland");
         }
 
         @Test
@@ -72,7 +72,7 @@ class PlanWindowProjectorTest {
                     region("Northumberland", 4, 4),
                     region("Dales", 4, 4));
 
-            assertThat(w.bestBet().regionName()).isEqualTo("Dales");
+            assertThat(w.pick().regionName()).isEqualTo("Dales");
         }
 
         @Test
@@ -108,7 +108,7 @@ class PlanWindowProjectorTest {
                     regionWithSlots("Aaa blanked", List.of()),
                     region("Zzz scored", 3, 3));
 
-            assertThat(w.bestBet().regionName()).isEqualTo("Zzz scored");
+            assertThat(w.pick().regionName()).isEqualTo("Zzz scored");
         }
     }
 
@@ -199,7 +199,7 @@ class PlanWindowProjectorTest {
 
             assertThat(projectOne(r).bestRating()).isEqualTo(3);
             // The destination must refuse the same row the star did — it was still naming it.
-            assertThat(projectOne(r).bestBet().locationName()).isEqualTo("Ok");
+            assertThat(projectOne(r).pick().locationName()).isEqualTo("Ok");
         }
 
         @Test
@@ -229,7 +229,7 @@ class PlanWindowProjectorTest {
 
             assertThat(w.verdict()).isEqualTo(DisplayVerdict.AWAITING);
             assertThat(w.bestRating()).isNull();
-            assertThat(w.bestBet()).isNull();
+            assertThat(w.pick()).isNull();
             assertThat(w.badges()).isEmpty();
             assertThat(w.topRarityRank()).isNull();
         }
@@ -293,10 +293,11 @@ class PlanWindowProjectorTest {
         void carriesTheTopRegionsGlossAndItsRankedAverage() {
             BriefingWindow w = projectOne(region("Northumberland", 4, 4));
 
-            assertThat(w.bestBet().regionName()).isEqualTo("Northumberland");
-            assertThat(w.bestBet().headline()).isEqualTo(HEADLINE);
-            assertThat(w.bestBet().detail()).isEqualTo(DETAIL);
-            assertThat(w.bestBet().averageRating()).isEqualTo(4.0);
+            assertThat(w.pick().kind()).isEqualTo(BriefingWindow.PickKind.BEST);
+            assertThat(w.pick().regionName()).isEqualTo("Northumberland");
+            assertThat(w.pick().headline()).isEqualTo(HEADLINE);
+            assertThat(w.pick().detail()).isEqualTo(DETAIL);
+            assertThat(w.pick().averageRating()).isEqualTo(4.0);
         }
 
         @Test
@@ -305,7 +306,7 @@ class PlanWindowProjectorTest {
                     ratedSlot("Bothal Weir", 3, false),
                     ratedSlot("Blyth Beach", 5, false)));
 
-            assertThat(projectOne(r).bestBet().locationName()).isEqualTo("Blyth Beach");
+            assertThat(projectOne(r).pick().locationName()).isEqualTo("Blyth Beach");
         }
 
         @Test
@@ -321,9 +322,9 @@ class PlanWindowProjectorTest {
             BriefingWindow w = projectOne(mixed);
 
             assertThat(w.bestRating()).isEqualTo(3);
-            assertThat(w.bestBet().locationName()).isEqualTo("Beach");
+            assertThat(w.pick().locationName()).isEqualTo("Beach");
             // Id and name come from ONE slot — never Wood's id under Beach's name.
-            assertThat(w.bestBet().locationId()).isEqualTo(BEACH_ID);
+            assertThat(w.pick().locationId()).isEqualTo(BEACH_ID);
         }
 
         @Test
@@ -334,8 +335,8 @@ class PlanWindowProjectorTest {
             BriefingRegion r = regionWithSlots("R", List.of(ratedSlot("Loc", 4, false)));
 
             assertThat(r.slots().get(0).locationId()).isNull();
-            assertThat(projectOne(r).bestBet().locationName()).isEqualTo("Loc");
-            assertThat(projectOne(r).bestBet().locationId()).isNull();
+            assertThat(projectOne(r).pick().locationName()).isEqualTo("Loc");
+            assertThat(projectOne(r).pick().locationId()).isNull();
         }
 
         @Test
@@ -349,8 +350,8 @@ class PlanWindowProjectorTest {
 
             BriefingWindow w = projectOne(woods, sky);
 
-            assertThat(w.bestBet().regionName()).isEqualTo("B sky");
-            assertThat(w.bestBet().locationName()).isEqualTo("Beach");
+            assertThat(w.pick().regionName()).isEqualTo("B sky");
+            assertThat(w.pick().locationName()).isEqualTo("Beach");
             assertThat(w.bestRating()).isEqualTo(3);
         }
 
@@ -363,8 +364,8 @@ class PlanWindowProjectorTest {
 
             BriefingWindow w = projectOne(woods);
 
-            assertThat(w.bestBet().regionName()).isEqualTo("Woods");
-            assertThat(w.bestBet().locationName()).isEqualTo("Wood");
+            assertThat(w.pick().regionName()).isEqualTo("Woods");
+            assertThat(w.pick().locationName()).isEqualTo("Wood");
             assertThat(w.bestRating()).isEqualTo(5);
         }
 
@@ -373,7 +374,7 @@ class PlanWindowProjectorTest {
             BriefingRegion r = regionWithSlots("R", List.of(unratedSlot("Loc")),
                     DisplayVerdict.MAYBE, null, HEADLINE);
 
-            assertThat(projectOne(r).bestBet().locationName()).isNull();
+            assertThat(projectOne(r).pick().locationName()).isNull();
         }
 
         @Test
@@ -386,7 +387,7 @@ class PlanWindowProjectorTest {
 
             BriefingWindow w = projectOne(r);
 
-            assertThat(w.bestBet()).isNull();
+            assertThat(w.pick()).isNull();
             assertThat(w.bestRating()).isEqualTo(4);
             assertThat(w.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
             assertThat(w.confidence()).isEqualTo(Confidence.HIGH);
@@ -395,7 +396,7 @@ class PlanWindowProjectorTest {
         @Test
         void blankHeadlineYieldsNoBestBet() {
             assertThat(projectOne(regionWithSlots("R", ratedSlots(4),
-                    DisplayVerdict.WORTH_IT, null, "   ")).bestBet()).isNull();
+                    DisplayVerdict.WORTH_IT, null, "   ")).pick()).isNull();
         }
 
         @Test
@@ -405,9 +406,9 @@ class PlanWindowProjectorTest {
             // explicit null, and reading that as text gives the four-character string. A bare
             // != null check ships a card headlined "null".
             assertThat(projectOne(regionWithSlots("R", ratedSlots(4),
-                    DisplayVerdict.WORTH_IT, null, "null")).bestBet()).isNull();
+                    DisplayVerdict.WORTH_IT, null, "null")).pick()).isNull();
             assertThat(projectOne(regionWithSlots("R", ratedSlots(4),
-                    DisplayVerdict.WORTH_IT, null, "NULL")).bestBet()).isNull();
+                    DisplayVerdict.WORTH_IT, null, "NULL")).pick()).isNull();
         }
 
         @Test
@@ -420,77 +421,178 @@ class PlanWindowProjectorTest {
                     ratedSlots(4), 14.0, 13.0, 4.5, 3, HEADLINE, null,
                     DisplayVerdict.WORTH_IT, 1, null, false, null);
 
-            assertThat(projectOne(r).bestBet().headline()).isEqualTo(HEADLINE);
-            assertThat(projectOne(r).bestBet().detail()).isNull();
+            assertThat(projectOne(r).pick().headline()).isEqualTo(HEADLINE);
+            assertThat(projectOne(r).pick().detail()).isNull();
         }
     }
 
     // ── Also good ────────────────────────────────────────────────────────────
 
     @Nested
-    @DisplayName("Also good")
-    class AlsoGood {
+    @DisplayName("forecast-wide picks")
+    class Picks {
 
         @Test
-        void isOfferedWhenTheSecondRegionClearsTheFloor() {
-            BriefingWindow w = projectOne(region("Top", 4, 4), region("Second", 4, 3));
+        @DisplayName("the two picks can fall on different days")
+        void picksSpanDays() {
+            // The whole point of the reversal: picks rank windows against each other, so a Best Bet
+            // on one day and an Also good on another is the normal shape, not an anomaly.
+            DailyBriefingResponse out = projectDays(
+                    dayOf(TODAY, region("Strong", 5, 5)),
+                    dayOf(TODAY.plusDays(1), region("Nearly", 5, 4)));
 
-            assertThat(w.alsoGood()).isNotNull();
-            assertThat(w.alsoGood().regionName()).isEqualTo("Second");
+            BriefingWindow d0 = firstWindow(out, 0);
+            BriefingWindow d1 = firstWindow(out, 1);
+            assertThat(d0.pick().kind()).isEqualTo(BriefingWindow.PickKind.BEST);
+            assertThat(d1.pick().kind()).isEqualTo(BriefingWindow.PickKind.ALSO);
         }
 
         @Test
-        void isRefusedWhenTheSecondRegionIsTooFarBehind() {
-            BriefingWindow w = projectOne(region("Top", 5, 5), region("Second", 3, 3));
+        @DisplayName("exactly two picks, even when a third window would clear the floor")
+        void onlyTwoWindowsCarryAPick() {
+            // Every candidate here clears AlsoGoodFloor against the leader (5.0 vs 4.5 vs 4.5), so
+            // the floor cannot be what refuses the third — only the two-pick cap can. An earlier
+            // fixture had the third at 4.0, which the floor rejected on its own, and the cap could
+            // then be deleted with the whole suite green.
+            DailyBriefingResponse out = projectDays(
+                    dayOf(TODAY, region("A", 5, 5)),
+                    dayOf(TODAY.plusDays(1), region("B", 5, 4)),
+                    dayOf(TODAY.plusDays(2), region("C", 5, 4)));
 
-            assertThat(w.bestBet()).isNotNull();
-            assertThat(w.alsoGood()).isNull();
+            assertThat(picksOf(out))
+                    .extracting(BriefingWindow.Pick::kind)
+                    .containsExactlyInAnyOrder(
+                            BriefingWindow.PickKind.BEST, BriefingWindow.PickKind.ALSO);
+            // A window without a pick is not thereby a poor window.
+            assertThat(firstWindow(out, 2).pick()).isNull();
+            assertThat(firstWindow(out, 2).bestRating()).isEqualTo(5);
         }
 
         @Test
-        void isRefusedWhenTheSecondRegionIsBelowTheAbsoluteFloor() {
-            BriefingWindow w = projectOne(region("Top", 3, 3), region("Second", 2, 3));
+        @DisplayName("the runner-up must still clear the floor")
+        void runnerUpMustClearTheFloor() {
+            // Same rule as before the reversal; only the comparands changed.
+            DailyBriefingResponse out = projectDays(
+                    dayOf(TODAY, region("Strong", 5, 5)),
+                    dayOf(TODAY.plusDays(1), region("Weak", 3, 3)));
 
-            assertThat(w.alsoGood()).isNull();
+            assertThat(firstWindow(out, 0).pick().kind()).isEqualTo(BriefingWindow.PickKind.BEST);
+            assertThat(firstWindow(out, 1).pick()).isNull();
         }
 
         @Test
-        @DisplayName("is refused when the second region has no usable gloss")
-        void isRefusedWithoutAGloss() {
-            // Names chosen so the alphabetical tie-break agrees with the intended rank: these two
-            // tie on both average and coverage, so the name is what orders them.
-            BriefingRegion second = regionWithSlots("B second", ratedSlots(4),
+        @DisplayName("a window beyond the rail's horizon can never be picked")
+        void picksNeverLandOnAnUnrenderedWindow() {
+            // The briefing carries more days than the rail renders. A pick bound to a window with
+            // no tile is a recommendation nobody can reach.
+            DailyBriefingResponse out = projectDays(
+                    dayOf(TODAY, region("Modest", 3, 3)),
+                    dayOf(TODAY.plusDays(1), region("Modest2", 3, 3)),
+                    dayOf(TODAY.plusDays(2), region("Modest3", 3, 3)),
+                    dayOf(TODAY.plusDays(3), region("Modest4", 3, 3)),
+                    dayOf(TODAY.plusDays(4), region("Brilliant", 5, 5)));
+
+            assertThat(firstWindow(out, 4).pick()).isNull();
+            assertThat(firstWindow(out, 0).pick().kind()).isEqualTo(BriefingWindow.PickKind.BEST);
+            assertThat(picksOf(out)).hasSize(2);
+        }
+
+        @Test
+        @DisplayName("a window whose top region has no gloss is not a candidate")
+        void noGlossMeansNoCandidate() {
+            BriefingRegion mute = regionWithSlots("Mute", ratedSlots(5, 5),
                     DisplayVerdict.WORTH_IT, null, null);
 
-            BriefingWindow w = projectOne(region("A top", 4), second);
+            DailyBriefingResponse out = projectDays(
+                    dayOf(TODAY, mute),
+                    dayOf(TODAY.plusDays(1), region("Spoken", 4, 4)));
 
-            assertThat(w.bestBet()).isNotNull();
-            assertThat(w.alsoGood()).isNull();
+            assertThat(firstWindow(out, 0).pick()).isNull();
+            assertThat(firstWindow(out, 1).pick().kind()).isEqualTo(BriefingWindow.PickKind.BEST);
+        }
+
+
+    }
+
+    @Nested
+    @DisplayName("picks and time")
+    class PicksAndTime {
+
+        @Test
+        @DisplayName("an elapsed window cannot be picked")
+        void anElapsedWindowIsNotEligible() {
+            // Under the per-window model a client could just drop a past window and lose nothing.
+            // Forecast-wide, the runner-up is discarded at selection, so spending BEST on a window
+            // that has already happened cannot be recovered client-side.
+            DailyBriefingResponse out = projectAt(
+                    List.of(dayOf(TODAY, region("Gone", 5, 5)),
+                            dayOf(TODAY.plusDays(1), region("Ahead", 4, 4))),
+                    List.of(),
+                    LocalDateTime.of(TODAY, LocalTime.of(23, 0)));
+
+            assertThat(firstWindow(out, 0).pick()).isNull();
+            assertThat(firstWindow(out, 1).pick().kind()).isEqualTo(BriefingWindow.PickKind.BEST);
         }
 
         @Test
-        @DisplayName("is refused when there is no Best Bet — an alternative to nothing is incoherent")
-        void isRefusedWithoutABestBet() {
-            BriefingRegion top = regionWithSlots("A top", ratedSlots(4, 4),
-                    DisplayVerdict.WORTH_IT, null, null);
+        @DisplayName("a window is still pickable through its afterglow")
+        void afterglowKeepsAWindowEligible() {
+            // 21:11 fixture event, 30 minutes of afterglow: at 21:40 it is gone, at 21:39 it is not.
+            assertThat(pickedAt(LocalTime.of(21, 41))).isNotNull();   // exactly +30, still current
+            assertThat(pickedAt(LocalTime.of(21, 42))).isNull();      // one minute past
+        }
 
-            BriefingWindow w = projectOne(top, region("B second", 4, 4));
-
-            assertThat(w.bestBet()).isNull();
-            assertThat(w.alsoGood()).isNull();
+        private BriefingWindow.Pick pickedAt(LocalTime at) {
+            return projectAt(List.of(dayOf(TODAY, region("R", 4, 4))), List.of(),
+                    LocalDateTime.of(TODAY, at))
+                    .days().get(0).eventSummaries().get(0).window().pick();
         }
 
         @Test
-        void isNeverAThirdRegion() {
-            BriefingWindow w = projectOne(
-                    region("A top", 4, 4), region("B second", 4, 4), region("C third", 4, 4));
+        @DisplayName("a window with no time at all counts as current, not as past")
+        void aTimelessWindowIsStillEligible() {
+            // Reading a missing time as elapsed would publish no picks at all for a briefing whose
+            // slots happen to carry no solar time — a silent, total failure.
+            BriefingRegion timeless = new BriefingRegion("R", Verdict.GO, "summary", List.of(),
+                    List.of(new BriefingSlot("Loc", null, Verdict.GO, null,
+                            BriefingSlot.TideInfo.NONE, List.of(), null)
+                            .withClaudeScores(4, 60, 55, "s")),
+                    14.0, 13.0, 4.5, 3, HEADLINE, DETAIL,
+                    DisplayVerdict.WORTH_IT, 1, null, false, null);
 
-            assertThat(w.alsoGood().regionName()).isEqualTo("B second");
+            DailyBriefingResponse out = projectAt(List.of(dayOf(TODAY, timeless)), List.of(),
+                    LocalDateTime.of(TODAY, LocalTime.of(23, 59)));
+
+            assertThat(firstWindow(out, 0).pick()).isNotNull();
         }
 
         @Test
-        void isAbsentWhenOnlyOneRegionExists() {
-            assertThat(projectOne(region("Only", 4)).alsoGood()).isNull();
+        @DisplayName("the horizon counts surviving dates, not payload positions")
+        void horizonCountsSurvivingDates() {
+            // The day list is built from the BUILD day, so on a next-day serve days[0] is
+            // yesterday. Counting positions would admit the elapsed day and exclude a rendered one
+            // at the far end — here, the day-4 window that the rail does show.
+            DailyBriefingResponse out = projectAt(
+                    List.of(dayOf(TODAY, region("Yesterday", 3, 3)),
+                            dayOf(TODAY.plusDays(1), region("D1", 3, 3)),
+                            dayOf(TODAY.plusDays(2), region("D2", 3, 3)),
+                            dayOf(TODAY.plusDays(3), region("D3", 3, 3)),
+                            dayOf(TODAY.plusDays(4), region("D4", 5, 5))),
+                    List.of(),
+                    LocalDateTime.of(TODAY, LocalTime.of(23, 59)));
+
+            assertThat(firstWindow(out, 0).pick()).isNull();
+            assertThat(firstWindow(out, 4).pick().kind()).isEqualTo(BriefingWindow.PickKind.BEST);
+        }
+
+        @Test
+        @DisplayName("ties break on the sooner event time")
+        void tiesBreakOnEventTime() {
+            DailyBriefingResponse out = projectDays(
+                    dayOf(TODAY.plusDays(1), region("Later", 4, 4)),
+                    dayOf(TODAY, region("Sooner", 4, 4)));
+
+            assertThat(firstWindow(out, 1).pick().kind()).isEqualTo(BriefingWindow.PickKind.BEST);
         }
     }
 
@@ -629,7 +731,7 @@ class PlanWindowProjectorTest {
 
             BriefingWindow w = projectOne(top);
 
-            assertThat(w.bestBet()).isNull();
+            assertThat(w.pick()).isNull();
             assertThat(w.confidence()).isEqualTo(Confidence.LOW);
         }
 
@@ -674,25 +776,26 @@ class PlanWindowProjectorTest {
                                 List.of())))),
                 List.of());
 
-        BriefingWindow wrongOrder = PlanWindowProjector.apply(raw)
+        BriefingWindow wrongOrder = PlanWindowProjector.apply(raw, NOW)
                 .days().get(0).eventSummaries().get(0).window();
-        BriefingWindow rightOrder = PlanWindowProjector.apply(BriefingHonestyFilter.apply(raw))
-                .days().get(0).eventSummaries().get(0).window();
+        BriefingWindow rightOrder =
+                PlanWindowProjector.apply(BriefingHonestyFilter.apply(raw), NOW)
+                        .days().get(0).eventSummaries().get(0).window();
 
-        assertThat(wrongOrder.bestBet()).isNotNull();
-        assertThat(rightOrder.bestBet()).isNull();
+        assertThat(wrongOrder.pick()).isNotNull();
+        assertThat(rightOrder.pick()).isNull();
     }
 
     @Test
     void aNullResponsePassesThrough() {
-        assertThat(PlanWindowProjector.apply(null)).isNull();
+        assertThat(PlanWindowProjector.apply(null, NOW)).isNull();
     }
 
     @Test
     void everyOtherComponentOfTheResponseSurvives() {
         DailyBriefingResponse in = response(twoWindowDay(), List.of(topic("DUST", "SUNSET")));
 
-        DailyBriefingResponse out = PlanWindowProjector.apply(in);
+        DailyBriefingResponse out = PlanWindowProjector.apply(in, NOW);
 
         assertThat(out.headline()).isEqualTo(in.headline());
         assertThat(out.generatedAt()).isEqualTo(in.generatedAt());
@@ -702,6 +805,7 @@ class PlanWindowProjectorTest {
 
     // ── Fixtures ─────────────────────────────────────────────────────────────
 
+    /** Projects a single sunset window. A lone window with a gloss wins BEST by default. */
     private static BriefingWindow projectOne(BriefingRegion... regions) {
         DailyBriefingResponse out = project(
                 List.of(new BriefingDay(TODAY, List.of(
@@ -710,8 +814,25 @@ class PlanWindowProjectorTest {
         return out.days().get(0).eventSummaries().get(0).window();
     }
 
+    /** Dawn on the fixture day — before every fixture event, so only tests that opt in see the gate. */
+    private static final LocalDateTime NOW = LocalDateTime.of(TODAY, LocalTime.of(4, 0));
+
     private static DailyBriefingResponse project(List<BriefingDay> days, List<HotTopic> topics) {
-        return PlanWindowProjector.apply(response(days, topics));
+        return projectAt(days, topics, NOW);
+    }
+
+    private static DailyBriefingResponse projectAt(List<BriefingDay> days, List<HotTopic> topics,
+            LocalDateTime now) {
+        return PlanWindowProjector.apply(response(days, topics), now);
+    }
+
+    /** Every pick on the response, so an invariant about their number can be stated as one. */
+    private static List<BriefingWindow.Pick> picksOf(DailyBriefingResponse r) {
+        return r.days().stream()
+                .flatMap(d -> d.eventSummaries().stream())
+                .map(es -> es.window().pick())
+                .filter(java.util.Objects::nonNull)
+                .toList();
     }
 
     private static DailyBriefingResponse response(List<BriefingDay> days, List<HotTopic> topics) {
@@ -723,6 +844,48 @@ class PlanWindowProjectorTest {
     private static List<BriefingDay> twoWindowDay() {
         return List.of(new BriefingDay(TODAY,
                 List.of(summary(TargetType.SUNRISE), summary(TargetType.SUNSET))));
+    }
+
+    /**
+     * One day holding a single sunset window built from the given regions.
+     *
+     * <p>Slot times are remapped onto this day's own date. The slot helpers stamp {@link #TODAY},
+     * so without this every fixture across every day claimed to happen on day zero — invisible
+     * while pick eligibility was positional, and wrong the moment it became temporal.
+     */
+    private static BriefingDay dayOf(LocalDate date, BriefingRegion... regions) {
+        List<BriefingRegion> onDate = java.util.Arrays.stream(regions)
+                .map(r -> new BriefingRegion(r.regionName(), r.verdict(), r.summary(),
+                        r.tideHighlights(),
+                        r.slots().stream().map(sl -> shiftTo(sl, date)).toList(),
+                        r.regionTemperatureCelsius(), r.regionApparentTemperatureCelsius(),
+                        r.regionWindSpeedMs(), r.regionWeatherCode(), r.glossHeadline(),
+                        r.glossDetail(), r.displayVerdict(), r.scoredLocationCount(),
+                        r.verdictLabel(), r.lightlyEvaluated(), r.confidence()))
+                .toList();
+        return new BriefingDay(date, List.of(
+                new BriefingEventSummary(TargetType.SUNSET, onDate, List.of())));
+    }
+
+    /** Re-stamps a slot's solar time onto the given date, keeping its clock time. */
+    private static BriefingSlot shiftTo(BriefingSlot slot, LocalDate date) {
+        if (slot.solarEventTime() == null) {
+            return slot;
+        }
+        BriefingSlot moved = new BriefingSlot(slot.locationId(), slot.locationName(),
+                LocalDateTime.of(date, slot.solarEventTime().toLocalTime()), slot.verdict(),
+                slot.weather(), slot.tide(), slot.flags(), slot.standdownReason());
+        return slot.claudeRating() == null ? moved
+                : moved.withClaudeScores(slot.claudeRating(), slot.fierySkyPotential(),
+                        slot.goldenHourPotential(), slot.claudeSummary());
+    }
+
+    private static DailyBriefingResponse projectDays(BriefingDay... days) {
+        return project(List.of(days), List.of());
+    }
+
+    private static BriefingWindow firstWindow(DailyBriefingResponse r, int dayIndex) {
+        return r.days().get(dayIndex).eventSummaries().get(0).window();
     }
 
     private static BriefingEventSummary summary(TargetType type) {

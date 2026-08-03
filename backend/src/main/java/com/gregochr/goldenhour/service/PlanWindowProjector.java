@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingWindow;
+import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
@@ -14,8 +15,10 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Projects each solar event in a served briefing into the {@link BriefingWindow} the window-first
@@ -71,6 +74,38 @@ public final class PlanWindowProjector {
                     .thenComparing(BriefingSlot::locationName,
                             Comparator.nullsLast(Comparator.naturalOrder()));
 
+    /**
+     * How many <em>dates</em> of windows the picks may be chosen from.
+     *
+     * <p>Mirrors the rail's own window (`STRIP_MAX_DAYS` in `DailyBriefing.jsx`). Counted over the
+     * dates that still have a live window, never over list positions: the briefing's day list is
+     * built from the <em>build</em> day, so on a next-day serve `days[0]` is yesterday. Indexing
+     * would then admit an elapsed day and exclude a rendered one at the far end.
+     */
+    private static final int RENDERED_DAY_COUNT = 4;
+
+    /**
+     * How long a window stays pickable after its solar event.
+     *
+     * <p>Same value and same reason as {@code CloseToHomeService} — the colour does not stop at the
+     * instant of sunset, and a pick that vanishes while you are still standing in it is worse than
+     * one that lingers half an hour.
+     */
+    private static final long AFTERGLOW_MINUTES = 30;
+
+    /**
+     * Ranks one window's candidate above another's: better region average, then sooner.
+     *
+     * <p>Chronology is the tie-break rather than a second quality term because the picks exist to
+     * be acted on — between two equally good windows the nearer one is the one you can still make.
+     */
+    private static final Comparator<Draft> BY_PICK_RANK =
+            Comparator.comparingDouble(Draft::averageRating).reversed()
+                    .thenComparing(Draft::eventTime,
+                            Comparator.nullsLast(Comparator.naturalOrder()))
+                    .thenComparing(d -> d.key().date())
+                    .thenComparing(d -> d.key().targetType());
+
     /** Claude's rating scale, inclusive — anything outside it is a bad row, not a score. */
     private static final int MIN_RATING = 1;
     private static final int MAX_RATING = 5;
@@ -86,25 +121,40 @@ public final class PlanWindowProjector {
      * Returns the response with a window attached to every event summary.
      *
      * @param response the fully filtered served briefing, or null when none has been built
+     * @param now       the request instant, used to refuse a pick on an elapsed window
      * @return the same response with windows projected, or null when given null
      */
-    public static DailyBriefingResponse apply(DailyBriefingResponse response) {
+    public static DailyBriefingResponse apply(DailyBriefingResponse response, LocalDateTime now) {
         if (response == null) {
             return null;
         }
         Map<WindowKey, List<BriefingWindow.Badge>> badges = bucketTopics(response.hotTopics());
+
+        // Pass 1: draft every window with its candidate — the best region it could offer.
+        List<Draft> drafts = new ArrayList<>();
+        for (BriefingDay day : response.days()) {
+            for (BriefingEventSummary summary : day.eventSummaries()) {
+                drafts.add(draft(day.date(), summary, badges));
+            }
+        }
+
+        // Pass 2: one fold across the whole forecast chooses the two picks, then each window is
+        // emitted carrying its own or nothing.
+        Map<WindowKey, BriefingWindow.Pick> picks = selectPicks(drafts, now);
+        int cursor = 0;
         List<BriefingDay> projected = new ArrayList<>(response.days().size());
         for (BriefingDay day : response.days()) {
             List<BriefingEventSummary> summaries = new ArrayList<>(day.eventSummaries().size());
             for (BriefingEventSummary summary : day.eventSummaries()) {
-                summaries.add(summary.withWindow(project(day.date(), summary, badges)));
+                Draft dr = drafts.get(cursor++);
+                summaries.add(summary.withWindow(dr.toWindow(picks.get(dr.key()))));
             }
             projected.add(new BriefingDay(day.date(), summaries));
         }
         return response.withDays(projected);
     }
 
-    private static BriefingWindow project(LocalDate date, BriefingEventSummary summary,
+    private static Draft draft(LocalDate date, BriefingEventSummary summary,
             Map<WindowKey, List<BriefingWindow.Badge>> badgesByWindow) {
         // Decided once for the whole window, because the header star and the location it names
         // must read the same slots. Deciding it twice is how they came to disagree.
@@ -115,16 +165,65 @@ public final class PlanWindowProjector {
         List<BriefingWindow.Badge> badges =
                 badgesByWindow.getOrDefault(new WindowKey(date, summary.targetType()), List.of());
 
-        BriefingWindow.Pick bestBet = pick(top, canopyCounts);
-        return new BriefingWindow(
+        return new Draft(
+                new WindowKey(date, summary.targetType()),
                 earliestEventTime(summary),
                 verdict(bestRating, top),
                 bestRating,
                 top == null ? null : top.region().confidence(),
-                bestBet,
-                bestBet == null ? null : alsoGood(ranked, top, canopyCounts),
+                candidate(top, canopyCounts),
+                top == null ? 0.0 : top.stats().averageRating(),
                 badges,
                 rarestRank(badges));
+    }
+
+    /**
+     * Chooses the forecast's two picks and binds each to the window it falls on.
+     *
+     * <p><b>Ranked across windows, not within one.</b> The picks answer "which window in this
+     * forecast is worth planning for", so a Best Bet on Tuesday's sunrise and an Also good on
+     * Thursday's sunset is the normal shape, not an anomaly.
+     *
+     * <p><b>Scoped to the windows the rail actually renders.</b> The briefing carries more days than
+     * the rail shows, and a pick bound to a window with no tile is a recommendation the reader
+     * cannot reach — the one failure this scoping exists to prevent.
+     *
+     * <p>The runner-up must still clear {@link AlsoGoodFloor}, exactly as it did when the two picks
+     * were regions within one window: the comparands changed, the rule did not. An honest silence is
+     * better than a padded second recommendation.
+     */
+    private static Map<WindowKey, BriefingWindow.Pick> selectPicks(List<Draft> drafts,
+            LocalDateTime now) {
+        // Order matters here. The horizon is a fact about DATES, so it is resolved chronologically
+        // BEFORE anything is ranked — resolving it after the rank sort let the highest-rated window
+        // claim a date slot whatever its date, which is the opposite of a horizon.
+        List<Draft> live = drafts.stream()
+                .filter(d -> d.candidate() != null)
+                .filter(d -> !isPast(d, now))
+                .toList();
+        Set<LocalDate> rendered = live.stream()
+                .map(d -> d.key().date())
+                .distinct()
+                .sorted()
+                .limit(RENDERED_DAY_COUNT)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        List<Draft> eligible = live.stream()
+                .filter(d -> rendered.contains(d.key().date()))
+                .sorted(BY_PICK_RANK)
+                .toList();
+        if (eligible.isEmpty()) {
+            return Map.of();
+        }
+        Draft best = eligible.get(0);
+        Map<WindowKey, BriefingWindow.Pick> picks = new HashMap<>();
+        picks.put(best.key(), best.candidate().withKind(BriefingWindow.PickKind.BEST));
+        if (eligible.size() > 1) {
+            Draft also = eligible.get(1);
+            if (AlsoGoodFloor.qualifies(best.averageRating(), also.averageRating())) {
+                picks.put(also.key(), also.candidate().withKind(BriefingWindow.PickKind.ALSO));
+            }
+        }
+        return picks;
     }
 
     /**
@@ -252,39 +351,38 @@ public final class PlanWindowProjector {
         return ranked;
     }
 
-    /** The Best Bet, or null when the top region has no usable gloss headline. */
-    private static BriefingWindow.Pick pick(RankedRegion ranked, boolean canopyCounts) {
+    /**
+     * This window's candidate for the forecast-wide pick — its top region's narrative — or null when
+     * that region has no usable gloss headline.
+     *
+     * <p>A candidate is not a recommendation. Most windows have one and publish nothing.
+     */
+    /**
+     * Whether this window's moment has gone.
+     *
+     * <p>A window with no time at all counts as <b>current</b>, never as past — the same choice
+     * {@code CloseToHomeService} makes. Reading a missing time as elapsed would silently publish no
+     * picks at all for a briefing whose slots happen to carry no solar time.
+     */
+    private static boolean isPast(Draft draft, LocalDateTime now) {
+        LocalDateTime time = draft.eventTime();
+        return time != null && time.plusMinutes(AFTERGLOW_MINUTES).isBefore(now);
+    }
+
+    private static BriefingWindow.Pick candidate(RankedRegion ranked, boolean canopyCounts) {
         if (ranked == null || !usable(ranked.region().glossHeadline())) {
             return null;
         }
         BriefingRegion region = ranked.region();
         BriefingSlot destination = topSlot(region, canopyCounts);
         return new BriefingWindow.Pick(
+                null,
                 region.regionName(),
                 region.glossHeadline(),
                 region.glossDetail(),
                 ranked.stats().averageRating(),
                 destination == null ? null : destination.locationName(),
                 destination == null ? null : destination.locationId());
-    }
-
-    /**
-     * The second region worth the drive for this same window, or null.
-     *
-     * <p>Never widened to a third region and never crossed to another window: a cross-day
-     * alternative is the Best Bet of the window it belongs to, not an "also good" here.
-     */
-    private static BriefingWindow.Pick alsoGood(List<RankedRegion> ranked, RankedRegion top,
-            boolean canopyCounts) {
-        if (ranked.size() < 2) {
-            return null;
-        }
-        RankedRegion candidate = ranked.get(1);
-        if (!AlsoGoodFloor.qualifies(top.stats().averageRating(),
-                candidate.stats().averageRating())) {
-            return null;
-        }
-        return pick(candidate, canopyCounts);
     }
 
     /**
@@ -365,6 +463,30 @@ public final class PlanWindowProjector {
         List<BriefingSlot> slots = new ArrayList<>(regionSlots(summary));
         slots.addAll(summary.unregioned());
         return slots;
+    }
+
+    /**
+     * One window, fully derived except for whether it won a pick.
+     *
+     * <p>The projection is two-pass because a forecast-wide choice cannot be made while walking the
+     * days one at a time. Everything here is final at the end of pass one; only the pick is
+     * outstanding.
+     */
+    private record Draft(
+            WindowKey key,
+            LocalDateTime eventTime,
+            DisplayVerdict verdict,
+            Integer bestRating,
+            Confidence confidence,
+            BriefingWindow.Pick candidate,
+            double averageRating,
+            List<BriefingWindow.Badge> badges,
+            Integer topRarityRank) {
+
+        BriefingWindow toWindow(BriefingWindow.Pick awarded) {
+            return new BriefingWindow(eventTime, verdict, bestRating, confidence,
+                    awarded, badges, topRarityRank);
+        }
     }
 
     /** A region paired with the rating statistics it was ranked on. */

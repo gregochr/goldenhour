@@ -30,10 +30,9 @@ import java.util.List;
  *       means the same thing everywhere, so it is recorded rather than fixed here.</li>
  *   <li>{@code confidence} — unknown. Deliberately nullable: an unknown signal must read
  *       provisional rather than falsely confident.</li>
- *   <li>{@code bestBet} — the top region has no usable gloss headline, and the card omits the
- *       block rather than substituting anything.</li>
- *   <li>{@code alsoGood} — no second region cleared the floor. Never a different window: a
- *       cross-day alternative is the Best Bet of the window it belongs to.</li>
+ *   <li>{@code pick} — this window is neither of the forecast's two picks, which is the normal
+ *       case: exactly two windows in the whole forecast carry one. It is <em>not</em> a statement
+ *       that the window has no good region.</li>
  *   <li>{@code topRarityRank} — no badges. Advice for the client's promoted strip; nothing here
  *       enforces the one-strip rule.</li>
  * </ul>
@@ -46,8 +45,7 @@ import java.util.List;
  * @param verdict       the window's verdict; never null
  * @param bestRating    the highest rating in the window, or null
  * @param confidence    the top region's confidence, or null
- * @param bestBet       the window's recommendation, or null
- * @param alsoGood      a second region for this same window, or null
+ * @param pick          this window's forecast-wide pick, or null on the windows that are neither
  * @param badges        hot topics landing on this window; never null, often empty
  * @param topRarityRank the rarest badge's rarity rank, or null
  */
@@ -56,8 +54,7 @@ public record BriefingWindow(
         DisplayVerdict verdict,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer bestRating,
         @JsonInclude(JsonInclude.Include.NON_NULL) Confidence confidence,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Pick bestBet,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Pick alsoGood,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Pick pick,
         List<Badge> badges,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer topRarityRank) {
 
@@ -65,8 +62,21 @@ public record BriefingWindow(
         badges = badges == null ? List.of() : List.copyOf(badges);
     }
 
+    /** Which of the forecast's two picks this is. */
+    public enum PickKind {
+        /** The single window worth planning for across the whole forecast. */
+        BEST,
+        /** The runner-up, which may fall on a different day entirely. */
+        ALSO
+    }
+
     /**
-     * One region's narrative for this window — the Best Bet, or the Also good beside it.
+     * A forecast-wide pick — one of exactly two across the whole briefing, carried on the window it
+     * falls on.
+     *
+     * <p><b>Authored once.</b> The rail's pick chip and the window card's header badge both read
+     * this same object; nothing duplicates the prose. The two picks may land on the same day or on
+     * different days, and either may be a sunrise or a sunset.
      *
      * <p>{@code headline} is never null: a Pick exists only when the headline is usable, so the
      * absence of a Pick is the only way this payload says "no narrative". {@code detail} is
@@ -87,6 +97,7 @@ public record BriefingWindow(
      * already paid for once: a rename silently empties the block for every user. Null is possible
      * on a slot cached before slots carried an id; prefer the id, fall back to the name.
      *
+     * @param kind          whether this is the Best Bet or the Also good
      * @param regionName    the region this describes; the card names it beside the kicker
      * @param headline      Claude's gloss headline. Never null: a Pick exists only when the
      *                      headline is usable, so the absence of a Pick is the only way to say
@@ -98,12 +109,27 @@ public record BriefingWindow(
      * @param locationId    that location's id, or null on a slot cached before slots carried one
      */
     public record Pick(
+            PickKind kind,
             String regionName,
             String headline,
             @JsonInclude(JsonInclude.Include.NON_NULL) String detail,
             double averageRating,
             @JsonInclude(JsonInclude.Include.NON_NULL) String locationName,
             @JsonInclude(JsonInclude.Include.NON_NULL) Long locationId) {
+
+        /**
+         * Returns this pick stamped with the kind it was awarded.
+         *
+         * <p>A candidate is built before anything knows whether it won, and only two of them ever
+         * do — so the kind is applied at award time rather than guessed at construction.
+         *
+         * @param awarded BEST or ALSO
+         * @return a copy carrying the kind
+         */
+        public Pick withKind(PickKind awarded) {
+            return new Pick(awarded, regionName, headline, detail, averageRating,
+                    locationName, locationId);
+        }
     }
 
     /**

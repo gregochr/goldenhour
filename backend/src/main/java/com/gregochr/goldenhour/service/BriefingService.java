@@ -325,7 +325,8 @@ public class BriefingService {
         return PlanWindowProjector.apply(
                 BriefingHonestyFilter.apply(
                         applyBestBetFallback(reEnrichVerdicts(getCachedBriefing())),
-                        minCoverageRatio));
+                        minCoverageRatio),
+                LocalDateTime.now(clock.withZone(LONDON)));
     }
 
     /**
