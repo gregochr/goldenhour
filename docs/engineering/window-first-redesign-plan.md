@@ -203,6 +203,20 @@ Two rules that **do** still bind:
 2. **Never synthesise.** No resolvable representative location, or no extremes → no rollup, and the row
    falls back to `BriefingSlot.tide`'s per-location fact line.
 
+**The `selectRepresentative` extraction is bigger than two private methods.** `findAnchor` drags
+the `photocast.tide-run.preferred-anchor` config, an exact-then-tolerant matching pass,
+`normalise`/`matching`, `LogSanitizer`, and per-instance **warn-once** state
+(`AtomicReference<String> warnedAnchor`). Sharing one instance between the tide run and the window
+rollup changes that semantic — a misconfigured anchor would warn for whichever caller ran first and
+stay silent for the other. Extract the *selection* (anchor-first, biggest-range fallback) and leave
+each caller its own warn state, or accept the shared warning deliberately and say so in the class.
+⚠️ `TideRunBuilder` has taken three merges recently (#396, #397, #402); read it before editing.
+
+**Keep the projector dependency-free.** `PlanWindowProjector` is a static utility and P1′b is the
+argument for keeping it that way. Tide data needs repositories, so compute the rollups in a
+`@Component` and pass them in as a map, exactly as the badges are — never inject a repository into
+the projector.
+
 **Both inputs verified against production, 2026-08-03** — the check P1′b skipped, and the reason
 this phase is safe to build:
 
