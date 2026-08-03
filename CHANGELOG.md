@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the stale fallback picks were the one list never checked against blanked regions
+
+- **The honesty filter now wraps `applyBestBetFallback` instead of sitting inside it.** v2.17.10 taught the filter to withdraw a Best Bet naming a region the same response reports as unevaluable, but the serve path applied it *before* the fallback swapped in stale picks — so those picks went out unchecked. They are the list most likely to fail that check: an earlier forecast's recommendations, offered precisely because this cycle's advisor failed. The stale chip tells a reader the picks are old; it does not tell them the region behind one has no forecast at all.
+- **Ordering was the whole fix.** `applyBestBetFallback` reads only `bestBetStatus` and passes the day hierarchy through untouched, so it has no dependency on the filter having run — the two simply had to be nested the other way. `PlanWindowProjector` stays outermost for the reason it always was. Confirmed by mutation: restoring the old order fails exactly one test of the 88 in `BriefingServiceTest`, the new one, so nothing else depended on the old nesting.
+- The fallback now carries `bestBetsWithdrawn` through rather than clearing it — running first, it has no withdrawal to describe, and the filter sets the flag afterwards against whichever list it ends up seeing.
+- Three pieces of prose asserting the old ordering are corrected, including `applyBestBetFallback`'s own `@param`, which had described its input as "the honesty-filtered response". It was accurate until this change and would have licensed hoisting the filter straight back inside — the same shape of stale rationale that let the original rating divergence sit unnoticed.
+
 ## [v2.17.10] - 2026-08-03
 
 ### Added — one card per shooting window, assembled where the payload is honest (P1)

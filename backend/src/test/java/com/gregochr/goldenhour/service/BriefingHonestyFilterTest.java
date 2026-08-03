@@ -535,8 +535,10 @@ class BriefingHonestyFilterTest {
     @Test
     @DisplayName("Withdrawal does not touch bestBetStatus — the advisor did not fail")
     void withdrawalLeavesStatusAlone() {
-        // Flipping it to FAILED would both libel the advisor and invite applyBestBetFallback —
-        // which runs after this filter — to serve stale picks that never passed through here.
+        // Flipping it to FAILED would libel an advisor that succeeded, and would invite
+        // applyBestBetFallback to replace these picks with a stale set for no reason. (Since the
+        // reorder that set is now filtered too, so it would no longer smuggle in a phantom — but
+        // the claim about the advisor would still be false, which is reason enough.)
         DailyBriefingResponse in = responseWith(TargetType.SUNSET,
                 zeroCoverageRegion("Northumberland"),
                 List.of(bet(1, "Northumberland", "2026-05-23_sunset")));

@@ -311,10 +311,21 @@ public class BriefingService {
         // filter blanks a zero-coverage region to STAND_DOWN with an empty slot list on the way
         // past. Projected any earlier, a window would confidently describe a region the same
         // response reports as unevaluable. See PlanWindowProjector.
+        //
+        // The honesty filter wraps the fallback rather than sitting inside it, so that EVERY pick
+        // on the way out has been checked against the regions blanked on this serve. With the
+        // order reversed, a fallback swapped in afterwards was the one list never checked — and it
+        // is the most likely to fail the check, being picks from an earlier forecast offered
+        // precisely because this one's advisor failed. The stale chip tells a reader the picks are
+        // old; it does not tell them the region behind one has no forecast at all.
+        //
+        // The fallback still runs on the ENRICHED response, so its FAILED test and the filter's
+        // coverage test both read current state. Nothing else about it is order-sensitive: it
+        // reads only bestBetStatus and passes the day hierarchy through untouched.
         return PlanWindowProjector.apply(
-                applyBestBetFallback(
-                        BriefingHonestyFilter.apply(
-                                reEnrichVerdicts(getCachedBriefing()), minCoverageRatio)));
+                BriefingHonestyFilter.apply(
+                        applyBestBetFallback(reEnrichVerdicts(getCachedBriefing())),
+                        minCoverageRatio));
     }
 
     /**
@@ -373,7 +384,15 @@ public class BriefingService {
      * empty state, and a {@code FAILED} with no fresh-enough prior pick falls through to the
      * honest empty state rather than resurrecting a stale or passed pick.
      *
-     * @param response the honesty-filtered response (may be null)
+     * <p><b>Runs BEFORE {@link BriefingHonestyFilter}, and must stay there.</b> Picks substituted
+     * here are therefore still subject to withdrawal, which is the whole reason the filter wraps
+     * this method rather than sitting inside it: a stale list is the one most likely to name a
+     * region this serve cannot evaluate, being picks from an earlier forecast offered precisely
+     * because this cycle's advisor failed. Hoist the filter back inside and this list becomes the
+     * only one never coverage-checked — which is how a stale pick came to crown a blanked region.
+     * One test guards the ordering: {@code fallbackPickOnBlankedRegion_isWithdrawn}.
+     *
+     * @param response the re-enriched response, not yet honesty-filtered (may be null)
      * @return the response, possibly decorated with fallback picks
      */
     private DailyBriefingResponse applyBestBetFallback(DailyBriefingResponse response) {
@@ -389,9 +408,10 @@ public class BriefingService {
                 fallback, response.auroraTonight(), response.auroraTomorrow(),
                 response.stale(), response.partialFailure(), response.failedLocationCount(),
                 response.bestBetModel(), response.hotTopics(), response.seasonalFeatures(),
-                // These picks are a stale set replacing whatever survived the honesty filter, so
-                // any withdrawal it recorded describes a list that is no longer here.
-                response.bestBetStatus(), null);
+                // Carried, not cleared: this now runs BEFORE the honesty filter, so there is no
+                // withdrawal yet to describe — the filter sets the flag afterwards, against
+                // whichever list it ends up seeing, including this one.
+                response.bestBetStatus(), response.bestBetsWithdrawn());
     }
 
     /**

@@ -34,8 +34,11 @@ import java.util.List;
  *                           this window scored well enough to be worth a second trip — that's the
  *                           forecast, not a missing recommendation", which is true when the
  *                           advisor withheld a runner-up and false when one was withdrawn here.
- *                           {@code bestBetStatus} cannot carry this: it describes what the
- *                           <em>advisor</em> did, and the advisor succeeded.
+ *                           {@code bestBetStatus} cannot carry this: it describes what this
+ *                           cycle's <em>advisor</em> did, which is a different question. The two
+ *                           are orthogonal — a withdrawal can accompany a successful advisor, and
+ *                           equally a {@code FAILED} one whose stale fallback list is what got
+ *                           withdrawn.
  */
 public record DailyBriefingResponse(
         LocalDateTime generatedAt,

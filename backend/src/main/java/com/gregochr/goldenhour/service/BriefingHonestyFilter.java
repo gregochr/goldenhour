@@ -176,7 +176,8 @@ final class BriefingHonestyFilter {
      * exists to suppress, made louder — the response would crown a destination it simultaneously
      * reports as unevaluable, and the pick renders perfectly, so nothing looks wrong until someone
      * opens the drill-down. Best Bets are chosen at briefing BUILD time and frozen into the
-     * payload; the coverage they were chosen on is re-derived at SERVE time.
+     * payload; the coverage they were chosen on is re-derived at SERVE time. (Or they are a stale
+     * fallback list swapped in on this serve — older still, and checked here for the same reason.)
      *
      * <p><b>Losing rank 1 withdraws the whole block.</b> Rank 2 is defined relative to rank 1 —
      * {@code relationship} and {@code differsBy} describe how it differs from that pick, and its
@@ -187,13 +188,17 @@ final class BriefingHonestyFilter {
      * rewritten, which cannot be done without another Claude call. Withdrawing rank 2 alone is
      * safe and keeps rank 1.
      *
-     * <p>{@code bestBetStatus} is deliberately untouched. Setting it to {@code FAILED} would be a
-     * lie about the advisor — it succeeded — and worse, {@code applyBestBetFallback} runs after
-     * this filter and would answer that status by serving <em>stale</em> picks that never passed
-     * through here, reintroducing the phantom this method removes. An empty list leaves the client
-     * on its honest empty state.
+     * <p>{@code bestBetStatus} is deliberately untouched: setting it to {@code FAILED} would be a
+     * lie about the advisor, which succeeded. An empty list leaves the client on its honest empty
+     * state, distinguished from a flat week by {@code bestBetsWithdrawn}.
      *
-     * @param bets    the frozen build-time picks, possibly null or empty
+     * <p>This runs <em>after</em> {@code BriefingService.applyBestBetFallback}, so a stale
+     * fallback list is subject to withdrawal like any other. It used to run before it, which left
+     * the fallback as the one list never checked — and it is the most likely to fail the check,
+     * being picks from an earlier forecast served precisely because this one's advisor failed.
+     *
+     * @param bets    the picks to check — the frozen build-time list, or the stale fallback
+     *                that replaced it; possibly null or empty
      * @param blanked keys of the regions blanked on this serve, from {@link #betKey}
      * @return the picks that still describe something this response stands behind
      */
