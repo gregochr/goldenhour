@@ -123,13 +123,19 @@ final class BriefingHonestyFilter {
         List<BriefingDay> rewrittenDays = response.days().stream()
                 .map(day -> rewriteDay(day, minCoverageRatio, blanked))
                 .toList();
+        List<BestBet> keptBets = withdrawUnsupportedBets(response.bestBets(), blanked);
+        // Flagged rather than inferred: a one-pick list means "the advisor withheld a runner-up"
+        // in every other case, and the banner says so in prose. Only this method knows the
+        // difference, and only on this serve.
+        Boolean withdrawn = response.bestBets() != null
+                && keptBets.size() != response.bestBets().size() ? Boolean.TRUE : null;
         return new DailyBriefingResponse(
                 response.generatedAt(), response.headline(), rewrittenDays,
-                withdrawUnsupportedBets(response.bestBets(), blanked),
+                keptBets,
                 response.auroraTonight(), response.auroraTomorrow(),
                 response.stale(), response.partialFailure(), response.failedLocationCount(),
                 response.bestBetModel(), response.hotTopics(), response.seasonalFeatures(),
-                response.bestBetStatus());
+                response.bestBetStatus(), withdrawn);
     }
 
     private static BriefingDay rewriteDay(BriefingDay day, double minCoverageRatio,

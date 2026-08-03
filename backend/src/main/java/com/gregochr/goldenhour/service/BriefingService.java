@@ -389,7 +389,9 @@ public class BriefingService {
                 fallback, response.auroraTonight(), response.auroraTomorrow(),
                 response.stale(), response.partialFailure(), response.failedLocationCount(),
                 response.bestBetModel(), response.hotTopics(), response.seasonalFeatures(),
-                response.bestBetStatus());
+                // These picks are a stale set replacing whatever survived the honesty filter, so
+                // any withdrawal it recorded describes a list that is no longer here.
+                response.bestBetStatus(), null);
     }
 
     /**

@@ -36,6 +36,16 @@ Both found by adversarial review before the code landed, both reproduced by fail
 - Unknown cache freshness still keeps the cache, exactly as on the view path: both `cached_evaluation` stamps are non-null and every in-memory writer sets `Instant.now()`, so it is a cannot-happen that resolves to the prior behaviour rather than a newly invented one.
 - Not fixed in the commit above, and addressed in the next one: the drill-down's italic Claude paragraph drew its "averages N stars, with M rated highly" from `BriefingGlossService`'s direct `getCachedScores` read.
 
+### Fixed — a withdrawn Best Bet was explained by two sentences that were not true
+
+Follow-up to the withdrawal below, from the adversarial review of it. Removing a pick is only half the job: the UI explains an absent pick in prose, and both explanations it had were written for a different cause.
+
+- **A surviving rank 1 read as advisor silence.** With rank 2 withdrawn the payload carries one pick and `SUCCESS_WITH_PICKS` — indistinguishable from "the advisor withheld a runner-up", which the banner states outright: "Nothing else in this window scored well enough to be worth a second trip. That's the forecast, not a missing recommendation." On this path a runner-up *did* exist, *did* clear its floor, and *is* missing. Both clauses false.
+- **An emptied block blamed a flat week.** Losing rank 1 withdraws the whole list, and the empty state then reads "conditions are similar across all regions" — a positive claim about every region, asserted at the moment we know least about one of them.
+- **`DailyBriefingResponse.bestBetsWithdrawn`** (nullable, serve-path only, never persisted, absent from legacy payloads) records that a withdrawal happened. `bestBetStatus` cannot carry it: that field describes what the *advisor* did, and the advisor succeeded. The banner falls silent on the note; the empty state gains a third variant that says a recommendation was withheld and why.
+- The flag is threaded through `withDays`, because `PlanWindowProjector` rebuilds the response as the outermost serve step and dropping it there would silently restore the sentence. `applyBestBetFallback` deliberately nulls it — those are stale picks replacing the withdrawn list, so a withdrawal no longer describes what is on screen.
+- **Event ids are now lowercased with `Locale.ROOT`** in `BriefingRollupBuilder`, matching the withdrawal's key. Under a Turkish default locale `SUNRISE` lowercases with a dotless i, the keys stop matching, and the withdrawal silently no-ops for sunrise picks while still working for sunset — a silent failure inside a filter whose whole job is not making unsupported claims.
+
 ### Fixed — a Best Bet could crown a region the same response called unevaluable
 
 - **Picks are chosen at build time and frozen; coverage is re-derived at serve time.** When a region drops to zero coverage the honesty filter replaces it with "No per-location forecast — conditions too unsettled to evaluate" and an empty slot list — but it forwarded `bestBets` untouched, so the response could recommend that exact region and event while simultaneously reporting it as unevaluable. It renders perfectly; nothing looks wrong until the drill-down is opened.

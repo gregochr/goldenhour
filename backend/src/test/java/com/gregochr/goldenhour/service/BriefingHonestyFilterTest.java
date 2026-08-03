@@ -438,6 +438,9 @@ class BriefingHonestyFilterTest {
                 0.5);
 
         assertThat(out.bestBets()).isEmpty();
+        // An empty list has four producers and the client explains three of them as "the week was
+        // flat". Only the flag distinguishes this one, where a standout existed and was pulled.
+        assertThat(out.bestBetsWithdrawn()).isTrue();
     }
 
     @Test
@@ -452,6 +455,38 @@ class BriefingHonestyFilterTest {
         assertThat(out.bestBets()).hasSize(1);
         assertThat(out.bestBets().get(0).rank()).isEqualTo(1);
         assertThat(out.bestBets().get(0).region()).isEqualTo("The Lake District");
+        // The surviving list is now indistinguishable from "the advisor only ever had one pick",
+        // and the banner explains that case in prose — "nothing else scored well enough to be
+        // worth a second trip. That's the forecast, not a missing recommendation" — which is
+        // false here. The flag is what lets the client tell the two apart.
+        assertThat(out.bestBetsWithdrawn()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Withdrawing nothing leaves the flag null — the ordinary case stays quiet")
+    void noWithdrawalLeavesFlagNull() {
+        DailyBriefingResponse out = BriefingHonestyFilter.apply(
+                responseWith(TargetType.SUNSET,
+                        regionWith("Northumberland", Verdict.GO, "Clear at 3 of 3",
+                                DisplayVerdict.WORTH_IT, 3, threeSampleSlots()),
+                        List.of(bet(1, "Northumberland", "2026-05-23_sunset"))),
+                0.5);
+
+        assertThat(out.bestBetsWithdrawn()).isNull();
+    }
+
+    @Test
+    @DisplayName("The flag survives withDays — the projector rebuilds the response after this")
+    void flagSurvivesWithDays() {
+        // PlanWindowProjector is the OUTERMOST serve step and rebuilds via withDays. Dropping the
+        // flag there would silently restore the false note this whole mechanism suppresses.
+        DailyBriefingResponse out = BriefingHonestyFilter.apply(
+                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"),
+                        List.of(bet(1, "The Lake District", "2026-05-23_sunset"),
+                                bet(2, "Northumberland", "2026-05-23_sunset"))),
+                0.5);
+
+        assertThat(out.withDays(out.days()).bestBetsWithdrawn()).isTrue();
     }
 
     @Test

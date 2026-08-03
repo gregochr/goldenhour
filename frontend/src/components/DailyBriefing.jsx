@@ -684,21 +684,28 @@ function MobileRegionCard({ date, regionName, briefingDays, driveMap, typeMap, i
 
 // ── BestBetBanner (updated: side-by-side on sm+, pick ② muted) ───────────────
 
-// A single pick can mean two very different things, and silence looks the same either way:
+// A single pick can mean several very different things, and silence looks the same either way:
 // the advisor withholds an Also Good when no region clears its quality floor (honest — the week
-// was flat), but a stale fallback may carry one pick simply because that's all that survived.
-// Only claim the honest reading. A stay-home pick (no event/region) is its own message, and an
-// aurora pick has no colour-rated alternative to compare against, so neither gets the note.
-function lacksSecondPick(picks, stale) {
-  if (stale || picks.length !== 1) return false;
+// was flat); a stale fallback may carry one pick simply because that's all that survived; and the
+// honesty filter may have WITHDRAWN a runner-up at serve time because it named a region this same
+// response reports as unevaluable. Only claim the honest reading — in the withdrawn case there
+// really is a missing recommendation, so the note below would be false in both its clauses, and
+// the payload flag is the only thing that can tell that case apart. A stay-home pick (no
+// event/region) is its own message, and an aurora pick has no colour-rated alternative to compare
+// against, so neither gets the note.
+function lacksSecondPick(picks, stale, withdrawn) {
+  if (stale || withdrawn || picks.length !== 1) return false;
   const only = picks[0];
   if (only.event == null && only.region == null) return false;
   return !only.event?.endsWith('_aurora');
 }
 
-function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick, onViewOnMap = null, stale = false }) {
+function BestBetBanner({
+  picks, todayStr, tomorrowStr, onPickClick, onViewOnMap = null, stale = false,
+  withdrawn = false,
+}) {
   if (!picks || picks.length === 0) return null;
-  const showNoSecondPick = lacksSecondPick(picks, stale);
+  const showNoSecondPick = lacksSecondPick(picks, stale, withdrawn);
 
   return (
     <div className="mb-3" data-testid="best-bet-banner">
@@ -858,6 +865,7 @@ BestBetBanner.propTypes = {
   onPickClick: PropTypes.func.isRequired,
   onViewOnMap: PropTypes.func,
   stale: PropTypes.bool,
+  withdrawn: PropTypes.bool,
 };
 
 /**
@@ -1325,13 +1333,16 @@ export default function DailyBriefing({
           onPickClick={handlePickClick}
           onViewOnMap={handleBetViewOnMap}
           stale={briefing.bestBetStatus === 'FAILED'}
+          withdrawn={briefing.bestBetsWithdrawn === true}
         />
       ) : !isPro && briefing.bestBets?.length > 0 ? (
         <BestBetPlaceholder />
       ) : isPro && !loading ? (
         <div
           data-testid="best-bet-empty"
-          data-variant={allDaysAway ? 'away' : 'similar'}
+          data-variant={
+            allDaysAway ? 'away' : briefing.bestBetsWithdrawn === true ? 'withdrawn' : 'similar'
+          }
           className="mb-3 text-center rounded-lg"
           style={{
             padding: '16px 20px',
@@ -1341,9 +1352,15 @@ export default function DailyBriefing({
             fontSize: '14px',
           }}
         >
+          {/* Three different silences, and only one of them is "the week is flat". A withdrawal
+              means a pick existed and was pulled because its region has no per-location forecast
+              on this serve — saying conditions are level across regions would be a positive claim
+              about every region, made at the moment we know least about one of them. */}
           {allDaysAway
             ? "You're away for the whole forecast window, so no forecasts were generated."
-            : 'No standout recommendations right now — conditions are similar across all regions.'}
+            : briefing.bestBetsWithdrawn === true
+              ? 'A recommendation was withheld — the region behind it has no per-location forecast right now. The grid below still shows everything that was evaluated.'
+              : 'No standout recommendations right now — conditions are similar across all regions.'}
         </div>
       ) : null}
 

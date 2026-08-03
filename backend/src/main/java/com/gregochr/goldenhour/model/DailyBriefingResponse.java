@@ -24,6 +24,18 @@ import java.util.List;
  * @param bestBetStatus      explicit best-bet outcome so the UI distinguishes an honest empty
  *                           result from a failure; {@code null} on legacy payloads (frontend
  *                           then infers from {@code bestBets} length)
+ * @param bestBetsWithdrawn  {@code true} when the honesty filter removed at least one pick at
+ *                           serve time because it named a region the same response reports as
+ *                           unevaluable. Serve-path only — never persisted, {@code null}
+ *                           everywhere else, including on every stored payload.
+ *
+ *                           <p>It exists because a one-pick list is ambiguous and the UI resolves
+ *                           the ambiguity in prose. The banner tells a reader "nothing else in
+ *                           this window scored well enough to be worth a second trip — that's the
+ *                           forecast, not a missing recommendation", which is true when the
+ *                           advisor withheld a runner-up and false when one was withdrawn here.
+ *                           {@code bestBetStatus} cannot carry this: it describes what the
+ *                           <em>advisor</em> did, and the advisor succeeded.
  */
 public record DailyBriefingResponse(
         LocalDateTime generatedAt,
@@ -38,7 +50,8 @@ public record DailyBriefingResponse(
         String bestBetModel,
         List<HotTopic> hotTopics,
         List<String> seasonalFeatures,
-        BestBetStatus bestBetStatus) {
+        BestBetStatus bestBetStatus,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean bestBetsWithdrawn) {
 
     /** Null-safe compact constructor — defensive copies for list fields only. */
     public DailyBriefingResponse {
@@ -92,7 +105,36 @@ public record DailyBriefingResponse(
             List<String> seasonalFeatures) {
         this(generatedAt, headline, days, bestBets, auroraTonight, auroraTomorrow,
                 stale, partialFailure, failedLocationCount, bestBetModel, hotTopics,
-                seasonalFeatures, null);
+                seasonalFeatures, null, null);
+    }
+
+    /**
+     * Thirteen-component form, defaulting {@code bestBetsWithdrawn} to null.
+     *
+     * <p>Same caveat as the twelve-component form above, for the same reason: a copy that omits
+     * the flag silently un-suppresses the "no also good" note. It is retained because every
+     * <em>producer</em> of a response legitimately has nothing to say about withdrawal — only
+     * {@link com.gregochr.goldenhour.service.BriefingHonestyFilter}, which performs it, does.
+     *
+     * @param bestBetStatus whether the advisor produced picks, found none, or failed
+     */
+    public DailyBriefingResponse(
+            LocalDateTime generatedAt,
+            String headline,
+            List<BriefingDay> days,
+            List<BestBet> bestBets,
+            AuroraTonightSummary auroraTonight,
+            AuroraTomorrowSummary auroraTomorrow,
+            boolean stale,
+            boolean partialFailure,
+            int failedLocationCount,
+            String bestBetModel,
+            List<HotTopic> hotTopics,
+            List<String> seasonalFeatures,
+            BestBetStatus bestBetStatus) {
+        this(generatedAt, headline, days, bestBets, auroraTonight, auroraTomorrow,
+                stale, partialFailure, failedLocationCount, bestBetModel, hotTopics,
+                seasonalFeatures, bestBetStatus, null);
     }
 
     /**
@@ -100,12 +142,17 @@ public record DailyBriefingResponse(
      * (headline, best bets, aurora, hot topics, status flags) are preserved. Used by the
      * serve-time re-enrichment path to swap in regions with freshly re-derived verdicts.
      *
+     * <p>It must carry <b>every</b> component, {@code bestBetsWithdrawn} included. This method is
+     * how the outermost serve step ({@code PlanWindowProjector}) rebuilds the response, and the
+     * honesty filter has already run by then — dropping the flag here would silently restore the
+     * false "nothing else scored well enough" note it exists to suppress.
+     *
      * @param newDays the replacement day hierarchy
      * @return a copy carrying {@code newDays}
      */
     public DailyBriefingResponse withDays(List<BriefingDay> newDays) {
         return new DailyBriefingResponse(generatedAt, headline, newDays, bestBets,
                 auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
-                bestBetModel, hotTopics, seasonalFeatures, bestBetStatus);
+                bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn);
     }
 }

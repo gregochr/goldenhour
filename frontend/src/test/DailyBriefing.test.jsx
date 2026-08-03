@@ -1373,6 +1373,49 @@ describe('DailyBriefing', () => {
         expect(screen.queryByTestId('best-bet-no-second-pick')).toBeNull();
       });
 
+      it('withdrawing rank 1 empties the block, and the empty state says so rather than blaming a flat week', async () => {
+        // Losing rank 1 withdraws the whole list by design, so the banner never renders and the
+        // empty state speaks instead. Its default copy asserts conditions are similar across ALL
+        // regions — a positive claim about every region, made at the moment we know least about
+        // one of them, and false here because a standout existed and was pulled.
+        useAuth.mockReturnValue({ role: 'PRO_USER' });
+        getDailyBriefing.mockResolvedValue({
+          ...buildBriefing(),
+          bestBetStatus: 'SUCCESS_WITH_PICKS',
+          bestBetsWithdrawn: true,
+          bestBets: [],
+        });
+        render(<DailyBriefing />);
+        await waitFor(() => screen.getByTestId('daily-briefing'));
+        const empty = screen.getByTestId('best-bet-empty');
+        expect(empty).toHaveAttribute('data-variant', 'withdrawn');
+        expect(empty.textContent).toContain('withheld');
+        expect(empty.textContent).not.toContain('conditions are similar');
+      });
+
+      it('hides the note when the runner-up was withdrawn — there IS a missing recommendation', async () => {
+        // The honesty filter drops a pick naming a region the same response reports as
+        // unevaluable. What is left is one pick and a SUCCESS_WITH_PICKS status, which is
+        // indistinguishable from advisor silence — and the note would then assert both that
+        // nothing else scored well enough and that nothing is missing. Both are false here.
+        useAuth.mockReturnValue({ role: 'PRO_USER' });
+        getDailyBriefing.mockResolvedValue({
+          ...buildBriefing(),
+          bestBetStatus: 'SUCCESS_WITH_PICKS',
+          bestBetsWithdrawn: true,
+          bestBets: [
+            { rank: 1, headline: 'Survivor', detail: 'Clear.',
+              event: 'tomorrow_sunset', region: 'Northumberland', confidence: 'high' },
+          ],
+        });
+        render(<DailyBriefing />);
+        await waitFor(() => screen.getByTestId('best-bet-banner'));
+        expect(screen.queryByTestId('best-bet-no-second-pick')).toBeNull();
+        // The surviving pick is still shown — it is well supported, and withholding it would
+        // trade a wrong sentence for a lost recommendation.
+        expect(screen.getByTestId('best-bet-pick-1')).toBeInTheDocument();
+      });
+
       it('hides the note on a stay-home pick — that pick is already the message', async () => {
         useAuth.mockReturnValue({ role: 'PRO_USER' });
         getDailyBriefing.mockResolvedValue({
