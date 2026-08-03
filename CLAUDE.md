@@ -209,6 +209,30 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 
 ---
 
+## Where a rating lives — three stores, one of them a different engine
+
+Reach for the wrong one and you will build something that compares two engines and calls the
+difference a change. This cost a day on 2026-08-03.
+
+| store | per-run history | written by | read by |
+|---|---|---|---|
+| `cached_evaluation` (briefing evaluation cache) | **no** — overwritten each run | `BriefingEvaluationService.writeFromBatch`, from the batch pipeline | `BriefingService.enrichSlot` — **this is the rating the UI displays**, keyed by location *name* |
+| `forecast_score` (V108) | **no** — `uq_forecast_score_component` is UNIQUE on (forecast_type, location, date, event); latest evaluation wins, deliberately matching `cached_evaluation` semantics | the Pass-2 dual write in `ForecastResultHandler` | Pass-2 consumers |
+| `forecast_evaluation` | **yes**, insert-only and never pruned | the **synchronous** engine | `GET /api/forecast` (the map's primary endpoint), `EvaluationViewService`, `ForecastCalibrationService` |
+
+Two consequences worth stating plainly:
+
+- **`forecast_evaluation` is not legacy dead weight — it is a second live engine.** The map view and
+  the calibration gate both read it, and V128 (one of the newest migrations) indexes it. Do not
+  "clean it up". The duplication is real and is already on the architecture review's list as the
+  dual-engine consolidation; until that lands, both are load-bearing.
+- **No store retains a per-location per-run history that the live pipeline writes.** Any feature
+  needing "what was this rated last time" — a trend, a sparkline, a since-last-forecast diff —
+  needs a new append-only sink first. `forecast_evaluation` looks like the answer and is not: it is
+  the other engine, and about three quarters of its rows are triage rows carrying a null rating.
+
+---
+
 ## Roles
 
 | Role | Permissions |

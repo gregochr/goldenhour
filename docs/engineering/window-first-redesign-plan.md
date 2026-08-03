@@ -321,19 +321,29 @@ not reopen it from the handoff text alone.
   design bundle contradicts itself**: `Plan Window First v2.html:400` shows it shipped, `:402` says
   it "waits until after the pilot", and `Change Since Last Run.html` says hold it back. `runBars()`
   returns empty without history, so a pilot build without it is spec-conformant. Ask the designer.
-- ⚠️ **The change row's input is thin, and thinner than first measured: 9.4%.** Only 1,536 of
-  16,416 slots carry two or more *rated* runs, so roughly one spot in eleven can ever show movement.
-  An earlier note here said 49.6%, which counted rows rather than rated rows — see the table below.
-  Whether a row that is empty for nine spots in ten earns its place on the card is a product
-  question, and it should be answered before P5 builds it, not after.
-- **Any query for a prior rating must exclude null-rating rows.** Taking the second-newest *row*
-  returns a triage row three quarters of the time, stamping a null prior on a slot that genuinely
-  has one — under-reporting movement even within the 9.4%.
-- **The change row is client-side.** Its content derives from the spots actually drawn, which depend
-  on the per-user reach lens — so it can never be a backend-composed sentence on `/api/briefing`.
-  The backend supplies a nullable `priorRating`; the row is assembled where reach already lives.
-  `evaluation_delta_log` (V97) already stores `old_rating`/`new_rating` per
-  (location_name, date, target_type) and is written on both batch paths — only a read is missing.
+- ⛔ **The change-since-last-forecast row is DEFERRED with the sparkline. Nothing the live pipeline
+  writes retains a per-location history.** This was built (P1′b) and dropped on 2026-08-03 after the
+  data was traced properly. Three stores hold a per-location rating and none of them can answer
+  "what was it last time":
+
+  | store | per-location | per-run history | who writes it | who reads it |
+  |---|---|---|---|---|
+  | briefing evaluation cache (`cached_evaluation`) | yes — this is what the card shows | **no**, overwritten per run | `BriefingEvaluationService.writeFromBatch` | `BriefingService.enrichSlot`, keyed by location **name** |
+  | `forecast_score` (V108) | yes | **no** — `uq_forecast_score_component` is UNIQUE on (type, location, date, event); latest evaluation wins, by design | the batch dual-write in `ForecastResultHandler` | Pass-2 consumers |
+  | `forecast_evaluation` | yes | **yes**, insert-only — but it is the **other engine** | the synchronous path | `GET /api/forecast` (map), `EvaluationViewService`, the calibration gate |
+
+  The first attempt sourced the prior from `forecast_evaluation` because it is the one store that
+  keeps history. That is comparing **two different engines' outputs and calling the difference
+  movement**: the displayed rating comes from the batch cache, the prior would have come from the
+  synchronous table. Three quarters of that table's rows also carry a null rating, so the row would
+  have under-reported even within its own lineage.
+
+  **Both features need an append-only per-run sink that the live pipeline writes.** That is a schema
+  change and a pipeline change, not a query — so it is out of scope here and belongs with whatever
+  work consolidates the two engines. Earlier notes in this section quoted 49.6% and 9.4% for the
+  change row's input; both measured the legacy table and describe neither engine's live behaviour.
+  Ignore them.
+
 - **"updated 52m ago" needs no backend work.** `DailyBriefingResponse.generatedAt` is already on the
   wire; format it client-side. A server-rendered relative string would mutate the ETagged body on
   every request, and `/api/briefing` sits in `HttpCachingConfig`'s revalidatable set. Only
@@ -484,7 +494,7 @@ Backend first for anything shared, so the frontend stays a render layer.
 | **P4a** | Shell — masthead, tabs, move the flag branch out of `<main>`, suppress the app header for v2 | Unchanged in substance. `border-bottom-width: 0`, never `border-bottom: none` |
 | **P4b** | Generalised popover host — one body-parented `position:fixed` panel with document-level delegation | Smaller than first assessed. The region-chip gloss **already ships** inside the component P4c copies (`BriefingSummaryStrip:196-215` + `:233-247`): `role="button"`, keyboard, focus parity, a portalled `role="tooltip"`. Copy the tile and the gloss comes with it. Pick-chip content belongs to P5 |
 | **P4c** | Day rail as the full Plan summary tile | **Copy `BriefingSummaryStrip`'s tile** — medallion, sun times, verdict line, identity-ordered chips with the `◎` mark, show-on-map and the away variant all exist. `pickKindOf`/`pickOrder` *are* the spec's `nameList()`/`pickRank()`. Genuinely new: the two-line pick flag chip, today's border tint, a px/token restyle. **Delete the `ProvisionalMark` conditional** (`:160-161`) and do not copy its two tests (§2.7) |
-| **P5** | Window card — header, verdict badge + confidence fill decay, **pick badge on the two chosen windows** (with its peek content and both footer actions), **change-since-last-forecast row**, footer. **No narrative block** | Net smaller than the original P5. The row states what moved and claims no total; when nothing moved it says so, so an unchanged forecast never reads as missing data |
+| **P5** | Window card — header, verdict badge + confidence fill decay, **pick badge on the two chosen windows** (with its peek content and both footer actions), footer. **No narrative block, and no change row** — see §2.8 | Net smaller than the original P5. The row states what moved and claims no total; when nothing moved it says so, so an unchanged forecast never reads as missing data |
 | **P6** | Spot film strip | Geometry from the spec, not `.cth-window-grid`; no `ScrollRail`; one shared comparator; footer states what is *drawn*. Rating badge from `RATING_COLOURS` (§2.9). **No sparkline** — deferred to P16 |
 | **P7** | Attribute rows — tide, then snow | Cap of two per window; the change row is P5's and does not count against it |
 | **P7b** | Promoted strip — both variants; chart 42px curve + 16px label band | Single-strip cap enforced in code. Also owns `UNKNOWN_RANK`'s wire semantics |
@@ -496,7 +506,7 @@ Backend first for anything shared, so the frontend stays a render layer.
 | **P13** | Coming up tab | Unchanged |
 | **P14** | Responsive pass — real media queries, including the taller rail tile on phone | Keep control labels at 9px |
 | **P15** | Pre-pilot sweep (§6), then flip the flag default | |
-| **P16** | *(post-pilot, conditional)* Run-history sparkline | Deferred because only **4.1%** of slots have the four *rated* runs it draws and **90.6% have none** — measured, see §2.8. Not for want of data or query |
+| **P16** | *(post-pilot, conditional)* Run history — the sparkline **and** the change-since-last-forecast row, both blocked on an append-only per-run sink the live pipeline writes | Deferred because only **4.1%** of slots have the four *rated* runs it draws and **90.6% have none** — measured, see §2.8. Not for want of data or query |
 
 **P6 — copy, don't extract, and take the geometry from the spec.** An extraction would rewire
 `CloseToHome` to consume it, which breaks the one thing §4 rests on: the v1 arm of the flag comparison
