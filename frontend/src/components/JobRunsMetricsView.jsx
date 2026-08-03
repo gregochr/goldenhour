@@ -442,15 +442,29 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
     });
   };
 
+  /**
+   * Opens the batch dialog with every region selected.
+   *
+   * <p>`selectedIds: null` MEANS "all regions", and is not the same as an empty set. Snapshotting
+   * `batchRegions` here instead was a race: the button renders immediately while `getRegions()` is
+   * still in flight, so an admin who clicks quickly got a dialog built from an empty roster. The
+   * regions then arrived, rendered three unchecked boxes reading "0 of 3 regions selected", and
+   * unchecking one actually CHECKED it — the selection was empty, so the toggle added rather than
+   * removed. Submitting from that state sent an empty region list. Deferring the resolution to
+   * render time makes the default follow the data whenever it lands.
+   */
   const openBatchDialog = (mode) => {
-    const selectedIds = new Set(batchRegions.map((r) => r.id));
-    setBatchDialog({ mode, selectedIds });
+    setBatchDialog({ mode, selectedIds: null });
   };
+
+  /** The dialog's live selection: an explicit set once touched, otherwise every known region. */
+  const resolveBatchSelection = (selectedIds) =>
+    selectedIds ?? new Set(batchRegions.map((r) => r.id));
 
   const handleBatchToggleRegion = (regionId) => {
     setBatchDialog((prev) => {
       if (!prev) return prev;
-      const next = new Set(prev.selectedIds);
+      const next = new Set(resolveBatchSelection(prev.selectedIds));
       if (regionId === '__all__') {
         if (next.size === batchRegions.length) {
           next.clear();
@@ -467,7 +481,17 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   const handleBatchSubmit = async () => {
     if (!batchDialog) return;
     const { mode, selectedIds } = batchDialog;
-    const regionIds = selectedIds.size === batchRegions.length
+    // An explicitly emptied selection is NOT "all", and must never be submitted. The API reads an
+    // empty list exactly as it reads null — ForecastTaskCollector:729 says so outright, "null or
+    // empty means all regions" — so submitting from "0 of 3 regions selected" would run the whole
+    // roster the screen has just told the operator is excluded, at full batch cost. Pre-existing;
+    // found by review while fixing the selection race above.
+    if (selectedIds !== null && selectedIds.size === 0) {
+      return;
+    }
+    // null means "all regions", which the API expects as a null region list — the same thing an
+    // explicitly all-selected set means. An empty set is refused above and never reaches the wire.
+    const regionIds = selectedIds === null || selectedIds.size === batchRegions.length
       ? null
       : [...selectedIds];
     const setRunning = mode === 'scheduled' ? setRunningScheduledBatch : setRunningJfdiBatch;
@@ -526,6 +550,10 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
     const timer = setInterval(() => loadJobRuns(0), 60000);
     return () => clearInterval(timer);
   }, [hasInProgressBatch, loadJobRuns]);
+
+  // Resolved once per render: the dialog's null sentinel must never reach the JSX, and four
+  // separate call sites are four chances to miss one — which is exactly what happened.
+  const batchSelection = batchDialog ? resolveBatchSelection(batchDialog.selectedIds) : null;
 
   return (
     <div className="space-y-6">
@@ -883,7 +911,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
               ? 'Submit a batch with the same triage and stability gates as the overnight scheduled job.'
               : 'Submit a JFDI batch — all dates T+0 to T+3, both sunrise and sunset, no triage gates.'
           }
-          confirmLabel={`Submit (${batchDialog.selectedIds.size} region${batchDialog.selectedIds.size !== 1 ? 's' : ''})`}
+          confirmLabel={`Submit (${batchSelection.size} region${batchSelection.size !== 1 ? 's' : ''})`}
           onConfirm={handleBatchSubmit}
           onCancel={() => setBatchDialog(null)}
         >
@@ -891,7 +919,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
             <label className="flex items-center gap-2 text-plex-text font-medium cursor-pointer" data-testid="batch-region-toggle-all">
               <input
                 type="checkbox"
-                checked={batchDialog.selectedIds.size === batchRegions.length}
+                checked={batchSelection.size === batchRegions.length}
                 onChange={() => handleBatchToggleRegion('__all__')}
                 className="accent-blue-400"
               />
@@ -901,7 +929,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
               <label key={r.id} className="flex items-center gap-2 text-plex-text cursor-pointer" data-testid={`batch-region-toggle-${r.id}`}>
                 <input
                   type="checkbox"
-                  checked={batchDialog.selectedIds.has(r.id)}
+                  checked={batchSelection.has(r.id)}
                   onChange={() => handleBatchToggleRegion(r.id)}
                   className="accent-blue-400"
                 />
@@ -909,7 +937,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
               </label>
             ))}
             <p className="text-plex-text-secondary font-medium pt-1 border-t border-plex-border">
-              {batchDialog.selectedIds.size} of {batchRegions.length} region{batchRegions.length !== 1 ? 's' : ''} selected
+              {batchSelection.size} of {batchRegions.length} region{batchRegions.length !== 1 ? 's' : ''} selected
             </p>
           </div>
         </ConfirmDialog>
