@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.17.10] - 2026-08-03
+
 ### Added — one card per shooting window, assembled where the payload is honest (P1)
 
 - **Every solar event now carries a `window`** — verdict, best rating, confidence, a Best Bet, an optional Also good, and the hot topics landing on it. Derived per request and never persisted: it rides `days`, which the serve path passes through untouched, so there is no carrier, no migration, and the stored cache JSON is byte-identical.
