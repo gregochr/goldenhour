@@ -228,8 +228,17 @@ Two consequences worth stating plainly:
   dual-engine consolidation; until that lands, both are load-bearing.
 - **No store retains a per-location per-run history that the live pipeline writes.** Any feature
   needing "what was this rated last time" — a trend, a sparkline, a since-last-forecast diff —
-  needs a new append-only sink first. `forecast_evaluation` looks like the answer and is not: it is
-  the other engine, and about three quarters of its rows are triage rows carrying a null rating.
+  needs a new append-only sink first. `forecast_evaluation` looks like the answer and is not.
+- ⚠️ **`forecast_evaluation` has stopped being a scoring table, whatever its name says.** Measured
+  2026-08-03 over the preceding fourteen days: rows were written on **all fourteen**, and ratings on
+  **one** (31 Jul, 207 of 268 rows; every other day zero). Roughly three quarters of the table's
+  33k rows carry a null rating. It is now, in practice, a triage and base-forecast table. The batch
+  pipeline does the scoring, and its two sinks (`cached_evaluation`, `forecast_score`) last wrote
+  within 0.3 seconds of each other — the dual write is healthy.
+- **This starves the calibration gate.** `ForecastCalibrationService` joins `forecast_evaluation` to
+  `actual_outcome`; with ratings landing one day in fourteen it has almost nothing to score, before
+  even reaching the fact that `actual_outcome` has no rows. Not broken — starved. Worth knowing
+  before anyone cites it as evidence of forecast accuracy.
 
 ---
 
