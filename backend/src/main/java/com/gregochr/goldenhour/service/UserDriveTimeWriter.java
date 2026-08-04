@@ -48,4 +48,25 @@ public class UserDriveTimeWriter {
             userDriveTimeRepository.saveAll(driveTimes);
         }
     }
+
+    /**
+     * Discards a user's drive times outright, leaving them unknown until the next refresh.
+     *
+     * <p><b>Unknown is safe here; wrong is not.</b> A drive time is measured from one origin, and
+     * the moment the user's home moves every stored row describes a journey nobody is going to
+     * make. The rest of this product treats an absent drive time as <em>unknown</em> — the spot
+     * still renders, it simply shows no drive line, and the reach lens passes it at every tier —
+     * so discarding degrades gracefully. Keeping the old numbers instead would gate a location in
+     * or out on a figure that is quietly forty minutes wrong, and nothing on screen would say so.
+     *
+     * <p>Deliberately not a re-route. Recalculating means an external routing call per location,
+     * which is slow, rate-limited and able to fail — none of which belongs inside saving a
+     * postcode. The user refreshes when they are ready.
+     *
+     * @param userId the user's primary key
+     */
+    @Transactional
+    public void clearForUser(Long userId) {
+        userDriveTimeRepository.deleteAllByUserId(userId);
+    }
 }

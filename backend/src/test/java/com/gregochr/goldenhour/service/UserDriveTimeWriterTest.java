@@ -55,4 +55,19 @@ class UserDriveTimeWriterTest {
         verify(userDriveTimeRepository).deleteAllByUserId(USER_ID);
         verify(userDriveTimeRepository, never()).saveAll(anyList());
     }
+
+    @Test
+    @DisplayName("clearForUser discards that user's rows and inserts nothing in their place")
+    void clearForUser_deletesAllRowsForThatUser() {
+        // The action, not the decision. UserSettingsServiceTest mocks this writer, so all five of
+        // its tests assert only that the service ASKED for a clear — emptying this method's body
+        // left every one of them green while a moved-house user kept every drive time measured
+        // from their old address, with the log line and the cleared timestamp both claiming
+        // otherwise.
+        writer.clearForUser(USER_ID);
+
+        verify(userDriveTimeRepository).deleteAllByUserId(USER_ID);
+        // A discard, not a replace: the distinction from replaceForUser is that nothing goes back.
+        verify(userDriveTimeRepository, never()).saveAll(anyList());
+    }
 }
