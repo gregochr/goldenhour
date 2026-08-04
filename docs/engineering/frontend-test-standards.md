@@ -51,6 +51,12 @@ pointer sequences, tab order. Do not convert existing `fireEvent` calls in passi
 many are a `findBy*` written the long way. `findBy*` is the same wait with a better failure message —
 it names the element it could not find.
 
+**And wait on something the fetch actually gates.** A wait is only worth what the element you waited
+for proves. `SkyRatingEvalView.test.jsx` waited for the run button and then asserted the charts
+synchronously — but the button sits *above* the component's `loading ?` gate, so it is on screen
+from the first paint and the wait was satisfied before any data arrived. It passed on a quiet
+machine and failed roughly one full-suite run in six. Wait for the thing the response renders.
+
 ---
 
 ## Queries: roles where there is a role contract, test-ids elsewhere

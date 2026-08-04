@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the sky-rating eval test waited on a control the fetch does not gate
+
+- **A real intermittent failure, roughly one full-suite run in six.** `SkyRatingEvalView.test.jsx > renders controls and a per-fixture drift chart for each fixture` waited for `sky-eval-run-btn` and then asserted the two drift charts *synchronously*. The run button and the model picker sit **above** the component's `loading ?` gate — they are on screen from the first paint — so the wait was satisfied before `getSkyRatingEvalRuns()` and `getSkyRatingEvalTrend()` had landed, and the charts they render were not there yet. On a quiet machine the already-resolved mocks settled before `waitFor`'s first poll and it passed; under full-suite contention it did not.
+- The same shape as the batch-dialog race — a control rendered from static markup while a fetch is still in flight — but test-only this time: a run button available while the trend loads is correct product behaviour. The test now waits for a chart, which is the only thing on that screen the fetch actually produces.
+- Proved rather than counted: with the mocked fetch resolving 150 ms late, the old assertion fails with the exact error seen in the flaky run (`Unable to find an element by: [data-testid="sky-eval-chart-strong-clearing-canvas"]`) and the new one passes.
+
 ### Fixed — three frontend suites that only passed in declaration order
 
 - **A save that never settles freezes every later submit in the file.** `OutcomeModal.test.jsx` and `LoginPage.test.jsx` each stubbed their in-progress state with `new Promise(() => {})`. React 19 entangles async actions process-wide: while one is in flight, the state a *later* `useActionState` returns waits on it. So the never-settled action did not stay inside its own test — every subsequent submit sat on "Saving…" / "Signing in…" with its error state never committing. Measured rather than inferred: after the poisoned test the mock is still called exactly once and the new component still renders the pending label, so the action runs and only its returned state is lost. Both tests now hand the resolver out and settle it before they end, with an `afterEach` net so an assertion that throws mid-test cannot poison the file either.
