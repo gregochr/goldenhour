@@ -18,7 +18,9 @@ import PropTypes from 'prop-types';
  * @param {string}      [props.narrativeHead] verdict-coloured narrative head (e.g. "◎ Worth it sunset · Region")
  * @param {string}      [props.narrativeTone] 'go' | 'marginal' | 'standdown' — colours the head
  * @param {Function}    props.onClose         close the overlay (stay on Plan)
- * @param {Function}    props.onOpenFullMap   switch to the full Map tab, focused where the overlay was
+ * @param {Function}    [props.onOpenFullMap] switch to the full Map tab, focused where the overlay
+ *        was. Optional: omitted by an arm with no Map pane, which hides the escape hatch rather
+ *        than offering a route it cannot take
  */
 export default function MapOverlay({
   title,
@@ -165,15 +167,23 @@ export default function MapOverlay({
           <span className="font-mono text-plex-text-muted" style={{ fontSize: '11px' }}>
             Esc to close · you stay on the Plan tab
           </span>
-          <button
-            type="button"
-            data-testid="map-overlay-open-full"
-            onClick={onOpenFullMap}
-            className="ml-auto font-semibold"
-            style={{ fontSize: '12px', color: 'var(--color-tide)' }}
-          >
-            Open the full Map tab →
-          </button>
+          {/* Rendered only when a caller supplied the handler. The window-first arm does not — it
+              owns its own tab state and has no Map pane yet, so `openFullMapTab` would set a view
+              mode that arm ignores: the overlay would close and the user would still be looking at
+              Plan, having pressed a control that named a destination it cannot reach. Hiding it
+              there is honest; making it also flip the layout flag would silently undo the user's
+              own choice, which is worse. */}
+          {onOpenFullMap && (
+            <button
+              type="button"
+              data-testid="map-overlay-open-full"
+              onClick={onOpenFullMap}
+              className="ml-auto font-semibold"
+              style={{ fontSize: '12px', color: 'var(--color-tide)' }}
+            >
+              Open the full Map tab →
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -189,5 +199,5 @@ MapOverlay.propTypes = {
   narrativeHead: PropTypes.string,
   narrativeTone: PropTypes.oneOf(['go', 'marginal', 'standdown']),
   onClose: PropTypes.func.isRequired,
-  onOpenFullMap: PropTypes.func.isRequired,
+  onOpenFullMap: PropTypes.func,
 };

@@ -1,9 +1,13 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import PropTypes from 'prop-types';
 import BrandLockup from './shared/BrandLockup.jsx';
+import WindowFirstDayRail from './WindowFirstDayRail.jsx';
+import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
+import { formatRelativeAge } from '../utils/relativeTime.js';
 
 /** The design's frame: 1080px, against the v1 arm's 896px `max-w-4xl`. */
 const WRAP_MAX_WIDTH = '1080px';
+
 
 /**
  * The window-first Plan tab's own shell — masthead, tab bar, and the frame both sit in.
@@ -41,6 +45,27 @@ const WRAP_MAX_WIDTH = '1080px';
  * <p>{@code border-bottom-width: 0} on the tab, never {@code border-bottom: none} — the shorthand
  * would also clear the colour the active state needs.
  *
+ * <h2>The day rail sits above the tabs, not inside the Plan pane</h2>
+ *
+ * <p>That is where the design puts it, and the reason is that the rail is the whole screen's date
+ * context rather than one pane's content: Coming up and Map answer questions about the same days.
+ * Putting it inside the pane would make it disappear on a tab that still needs it, and would
+ * re-mount it on every tab change.
+ *
+ * <p>It takes the {@code contentDisabled} greying with the pane, because it is forecast data and
+ * data from a DOWN backend is exactly what that treatment exists to mark. The tab bar does not:
+ * it is navigation, and so is the masthead.
+ *
+ * <h2>The rail footer carries the forecast's age and nothing else yet</h2>
+ *
+ * <p>The design's footer has two halves. The left one — {@code Home · <place> · reach set per day}
+ * — belongs to the reach lens (plan §2.5) and lands with it at P8; drawn now it would be a control
+ * gating on data no endpoint yet serves, which §6 bans outright. The right half is
+ * {@code generatedAt} formatted on the client (§2.8 — a server-rendered relative string would
+ * mutate the ETagged body on every request) through the shared {@code formatRelativeAge}, which
+ * already knows the instant is UTC. The design's {@code by Sonnet} is dropped: the model name is
+ * admin-only today and is not a pilot user's business (§7).
+ *
  * @param {object}   props
  * @param {function} props.onExit restores the v1 layout. It does not change the selected tab, so a
  *        user who switched into v2 from the Map tab returns to the Map tab — hence the label says
@@ -56,7 +81,30 @@ const WRAP_MAX_WIDTH = '1080px';
  *        cog, Sign out and the exit hatch with it — leaving a user staring at a greyed page with
  *        no route anywhere, at exactly the moment they most need one.
  */
-export default function WindowFirstShell({ onExit, onOpenSettings, onSignOut, contentDisabled }) {
+export default function WindowFirstShell({
+  onExit, onOpenSettings, onSignOut, contentDisabled, onShowOnMap, onEvaluationScoresChange,
+}) {
+  const { railTiles, loading, briefing, evaluationScores } = useWindowFirstBriefing();
+
+  // Lifted to App for the map overlay, exactly as DailyBriefing does it in the v1 arm. Without this
+  // a tile handed to the map opens an overlay with no narrative over a map that has filtered out
+  // every unrated pin — see the provider's note on why this arm fetches them at all.
+  useEffect(() => {
+    onEvaluationScoresChange?.(evaluationScores);
+  }, [evaluationScores, onEvaluationScoresChange]);
+
+  const dimmed = contentDisabled ? ' opacity-50 pointer-events-none' : '';
+  // The shared tiers, not a local copy: `generatedAt` is a zone-less UTC instant, and the one
+  // formatter that already knows that is the one that appends the Z. Hand-rolling it here read an
+  // hour young in BST — parsing bare takes the string as local, so a 34-minute-old forecast said
+  // "1h ago". Caught by looking at the running app, not by a test.
+  const age = formatRelativeAge(briefing?.generatedAt);
+  // The map handoff's object form, matching the v1 strip's region chips exactly — `onShowOnMap`
+  // reads a positional (date, eventType) or a `{region, …}` object, and a region chip is the
+  // latter. Passing the tile handler for both would open the map on the day, not the region.
+  const handleRegion = (regionName, date, targetType) => (
+    onShowOnMap?.({ region: regionName, date, eventType: targetType })
+  );
   return (
     <div
       data-testid="window-first-shell"
@@ -92,6 +140,28 @@ export default function WindowFirstShell({ onExit, onOpenSettings, onSignOut, co
         </div>
       </div>
 
+      <div data-testid="window-first-rail-region" className={dimmed.trim() || undefined}>
+        <WindowFirstDayRail tiles={railTiles} onTileClick={onShowOnMap} onRegionClick={handleRegion} />
+        {!loading && railTiles.length === 0 && (
+          <p
+            data-testid="window-first-rail-empty"
+            className="font-mono text-plex-text-muted"
+            style={{ fontSize: '10.5px', padding: '13px 18px 0' }}
+          >
+            No forecast days to show yet.
+          </p>
+        )}
+        {age && (
+          <div
+            data-testid="window-first-railfoot"
+            className="flex font-mono text-plex-text-muted"
+            style={{ fontSize: '10px', padding: '6px 18px 0' }}
+          >
+            <span className="ml-auto">forecast {age}</span>
+          </div>
+        )}
+      </div>
+
       <div
         data-testid="window-first-tabs"
         role="tablist"
@@ -121,7 +191,7 @@ export default function WindowFirstShell({ onExit, onOpenSettings, onSignOut, co
 
       <div
         data-testid="window-first-pane"
-        className={`px-5 py-8 text-center${contentDisabled ? ' opacity-50 pointer-events-none' : ''}`}
+        className={`px-5 py-8 text-center${dimmed}`}
       >
         <p className="text-plex-text" style={{ fontSize: '15.5px', fontWeight: 700 }}>
           Window-first Plan
@@ -130,8 +200,8 @@ export default function WindowFirstShell({ onExit, onOpenSettings, onSignOut, co
           className="text-plex-text-muted font-mono mx-auto"
           style={{ fontSize: '10.5px', marginTop: '7px', maxWidth: '46ch', lineHeight: 1.6 }}
         >
-          The day rail, window cards and spot strips arrive in later phases. The shell around them
-          is real, and the flag that put you here works.
+          The window cards and spot strips arrive in later phases. The day rail above them is
+          real, and so is the forecast it reads.
         </p>
         <button
           type="button"
@@ -152,4 +222,6 @@ WindowFirstShell.propTypes = {
   onOpenSettings: PropTypes.func.isRequired,
   onSignOut: PropTypes.func.isRequired,
   contentDisabled: PropTypes.bool,
+  onShowOnMap: PropTypes.func,
+  onEvaluationScoresChange: PropTypes.func,
 };

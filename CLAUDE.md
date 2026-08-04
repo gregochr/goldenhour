@@ -382,9 +382,17 @@ phases — then one refutation agent per charge, prompted to *refute*, defaultin
 citable evidence, then a synthesis pass. Report what was *not* examined as plainly as what was; a
 charge that fell below a verification cut is not a finding.
 
-**Verify in the browser rather than asserting.** ⚠️ There is currently no local browser path past the
-login page — see the H2 note under Dev Setup — so say plainly which claims are tested and which are
-merely built.
+**Verify in the browser rather than asserting — the local path works now, and it earns its keep.**
+Run the backend with `./mvnw -Plocal-dev spring-boot:run -Dspring-boot.run.profiles=local` (port
+**8083**, not the 8082 this file records elsewhere) and the frontend with `npm run dev`; sign in as
+`admin` / `golden2026`. The first phase built with it (P4c) found three defects a green suite, a
+clean lint and a successful build had all passed over — a theme token pruned to the empty string, a
+12px baseline drift across a rail, and a label rendered twice — plus one that P4a's adversarial
+review had explicitly **refuted**. Weigh a reviewer's confidence against a screenshot accordingly.
+
+Where the browser cannot reach, say so rather than implying otherwise: a local DB with no evaluation
+run has no ratings, so the rich states need a fixture. State which claims were seen and which were
+tested.
 
 ⚠️ **Review agents must never write to the working tree.** A reviewer that probes by mutating source
 — stripping a guard to see whether a test catches it, then tidying up with `git checkout --` — will
