@@ -56,12 +56,14 @@ describe('SkyRatingEvalView', () => {
 
   it('renders controls and a per-fixture drift chart for each fixture', async () => {
     render(<SkyRatingEvalView />);
-    await waitFor(() => {
-      expect(screen.getByTestId('sky-eval-run-btn')).toBeInTheDocument();
-    });
-    expect(screen.getByTestId('sky-eval-model-SONNET')).toBeInTheDocument();
-    expect(screen.getByTestId('sky-eval-chart-strong-clearing-canvas')).toBeInTheDocument();
+    // Wait on a chart, not on the run button. The button and the model picker sit ABOVE the
+    // component's `loading ?` gate, so they are on screen from the first paint and waiting for one
+    // says nothing about whether the runs/trend fetch has landed. The charts are what that fetch
+    // produces, so they are the only honest signal that it has.
+    expect(await screen.findByTestId('sky-eval-chart-strong-clearing-canvas')).toBeInTheDocument();
     expect(screen.getByTestId('sky-eval-chart-flat-grey-overcast')).toBeInTheDocument();
+    expect(screen.getByTestId('sky-eval-run-btn')).toBeInTheDocument();
+    expect(screen.getByTestId('sky-eval-model-SONNET')).toBeInTheDocument();
   });
 
   it('shows the run pass rate and direction-bucketed misses in the runs table', async () => {

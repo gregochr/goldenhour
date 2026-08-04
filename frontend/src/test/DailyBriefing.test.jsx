@@ -193,6 +193,10 @@ describe('DailyBriefing', () => {
     // Default: not away. clearAllMocks leaves implementations intact, so re-assert the
     // baseline here to keep a per-test travel-range override from leaking.
     fetchTravelDayRanges.mockResolvedValue([]);
+    // Same reason, and it bites harder: the Close to home fixture carries a card named Keswick,
+    // so a leaked panel puts a second "Keswick" on screen and breaks unscoped text queries in
+    // tests that have nothing to do with it.
+    getCloseToHome.mockResolvedValue(null);
   });
 
   // ────── Rendering ──────
@@ -761,8 +765,10 @@ describe('DailyBriefing', () => {
     const goEvent = eventRows.find((r) => !r.disabled && r.getAttribute('role') === 'button');
     fireEvent.click(goEvent);
 
-    expect(screen.getByTestId('region-slots')).toBeInTheDocument();
-    expect(screen.getByText('Keswick')).toBeInTheDocument();
+    // Scoped to the slot list: the claim is that the slots name the location, and an unscoped
+    // query here answers "Keswick is somewhere on the Plan tab", which the Close to home panel
+    // can also satisfy.
+    expect(within(screen.getByTestId('region-slots')).getByText('Keswick')).toBeInTheDocument();
   });
 
   it('clicking a MARGINAL event row shows its location slots', async () => {
@@ -2269,6 +2275,18 @@ describe('DailyBriefing', () => {
 // ── Lightly-evaluated framing (mobile/shared drill list) ───────────────────────
 
 describe('DailyBriefing — lightly-evaluated framing', () => {
+  // This block used to carry no setup at all, borrowing whatever the sibling describes had left
+  // behind — including useAuth's implementation, which clearAllMocks does not remove. Run these
+  // tests first and useAuth() returns undefined, so the component throws on destructuring `role`.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    sessionStorage.clear();
+    useAuth.mockReturnValue({ role: 'ADMIN' });
+    fetchTravelDayRanges.mockResolvedValue([]);
+    getCloseToHome.mockResolvedValue(null);
+  });
+
   function buildDalesBriefing({ lightlyEvaluated = true, allScored = false } = {}) {
     const dateStr = futureDateStr();
     const scored = (name, rating) => ({
@@ -2348,6 +2366,10 @@ describe('DailyBriefing — summary strip', () => {
     // Default: not away. clearAllMocks leaves implementations intact, so re-assert the
     // baseline here to keep a per-test travel-range override from leaking.
     fetchTravelDayRanges.mockResolvedValue([]);
+    // Same reason, and it bites harder: the Close to home fixture carries a card named Keswick,
+    // so a leaked panel puts a second "Keswick" on screen and breaks unscoped text queries in
+    // tests that have nothing to do with it.
+    getCloseToHome.mockResolvedValue(null);
   });
 
   function stripBriefing(date, sunsetRegions, sunriseRegions = []) {

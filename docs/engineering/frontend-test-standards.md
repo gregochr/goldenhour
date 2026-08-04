@@ -51,6 +51,12 @@ pointer sequences, tab order. Do not convert existing `fireEvent` calls in passi
 many are a `findBy*` written the long way. `findBy*` is the same wait with a better failure message —
 it names the element it could not find.
 
+**And wait on something the fetch actually gates.** A wait is only worth what the element you waited
+for proves. `SkyRatingEvalView.test.jsx` waited for the run button and then asserted the charts
+synchronously — but the button sits *above* the component's `loading ?` gate, so it is on screen
+from the first paint and the wait was satisfied before any data arrived. It passed on a quiet
+machine and failed roughly one full-suite run in six. Wait for the thing the response renders.
+
 ---
 
 ## Queries: roles where there is a role contract, test-ids elsewhere
@@ -182,3 +188,20 @@ Two traps specific to this codebase:
 - Do not skip or disable a test. Fix it or delete it.
 - Do not assert on a snapshot of the whole tree. Nobody reads the diff, and it fails on every
   unrelated change.
+- Do not stub an async action with a promise that never settles. React 19 entangles async actions
+  process-wide: while one is in flight, the state a *later* `useActionState` returns waits on it. So
+  one `new Promise(() => {})` does not stay inside its own test — every subsequent submit in the
+  file sits on its pending label with its error state never committing. Hand the test the resolver
+  and settle it before the test ends; `OutcomeModal.test.jsx` and `LoginPage.test.jsx` both do, with
+  an `afterEach` net so an assertion that throws first cannot poison the rest of the file.
+- Do not depend on a mock implementation some other test installed. `vi.clearAllMocks()` clears
+  calls, not implementations, so a `mockResolvedValue` is still in force in the next test and in the
+  next `describe`. Re-assert every default a suite relies on in its own `beforeEach`, and give every
+  `describe` its own setup rather than borrowing a sibling's. `DailyBriefing.test.jsx` failed both
+  ways at once: a leaked Close-to-home panel put a second "Keswick" on screen and broke an unscoped
+  `getByText` elsewhere, and a block with no `beforeEach` got `undefined` back from `useAuth`.
+- Do not assume file order protects you, and do not assume it can hurt you either. `isolate: true`
+  gives every test *file* its own process — nothing leaks between files — so a suspected flake is
+  either inside one file or is not a flake at all. `--sequence.shuffle.tests --sequence.seed=N`
+  reproduces an intra-file order dependency deterministically; use it before reaching for anything
+  cleverer.
