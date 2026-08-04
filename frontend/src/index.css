@@ -94,6 +94,37 @@
      the full-strength channel colour does not carry — these are the lifted versions that do. Two
      families rather than one, because fill and text have different jobs: the fill names the
      channel, the text has to be read. Never use a --color-badge-* as a fill or a border. */
+  /* Run-bar ramp — a SECOND rating scale, single-hue, and deliberately not the medallion one.
+     RATING_COLOURS (markerUtils.js) is a status ramp: the number is printed on the mark, so hue
+     reinforces a label already there. Its luminance runs 0.099 · 0.221 · 0.625 · 0.468 · 0.119 —
+     it PEAKS at 3★, so the best and worst ratings are the two dimmest. That is fine for a badge
+     and useless for a bar, where the colour IS the value. Never use one scale for the other job.
+
+     Bone because every coloured family here already means something (verdicts, tide, nlc, snow,
+     close-to-home), and chrome is bone, never colour — so bone is the only family that can carry
+     magnitude without asserting a second meaning. Step 5 IS --color-plex-text, anchoring the ramp
+     to an existing token rather than inventing an endpoint.
+
+     Brighter = higher: the canonical sequential rule is one hue light-to-dark, and on a dark
+     surface the perceptual equivalent is that contrast against the surface rises with magnitude.
+
+     Solid hexes, not opacity: opacity composites toward the background and corrupts the value the
+     colour encodes. Each step is bone pre-composited over the panel and rounded to a literal.
+
+     Regenerating them: the floor is the alpha at which bone clears 3:1 against the LIGHTEST
+     backdrop a bar can sit on — rgba(201,162,75,.06) over --color-plex-panel, i.e. tonight's lead
+     card, which is the case that breaks a floor tuned to the plain panel. The remaining four are
+     spaced evenly in LUMINANCE (0.164-0.165 apart), not in alpha; even alpha steps bunch at the
+     top. Every step clears 3:1 on every backdrop.
+
+     Unused until P16 (run history), which is deferred post-pilot and conditional. Kept because the
+     derivation above is the expensive part, and it is recorded here rather than re-run. */
+  --color-runbar-1: #736B5F;
+  --color-runbar-2: #A19789;
+  --color-runbar-3: #C1B7A6;
+  --color-runbar-4: #DBD1BE;
+  --color-runbar-5: #F2E7D3;
+
   --color-badge-go: #A8C795;
   --color-badge-maybe: #EFC377;
   --color-badge-poor: #E58C7A;
