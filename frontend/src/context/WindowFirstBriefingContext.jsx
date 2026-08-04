@@ -10,6 +10,7 @@ import { cacheGeneration, readSwrCache, writeSwrCache } from '../utils/swrCache.
 import { isTravelDate } from '../utils/conversions.js';
 import { isEventPast } from '../utils/briefingDisplay.js';
 import { buildRailTiles } from '../utils/windowFirstRail.js';
+import { buildWindowCards } from '../utils/windowFirstCards.js';
 
 /** Matched to v1's. The payload regenerates every ~8–10h; polling faster only adds revalidations. */
 const POLL_INTERVAL_MS = 10 * 60 * 1000;
@@ -27,6 +28,7 @@ const WindowFirstBriefingContext = createContext({
   briefing: null,
   loading: false,
   railTiles: [],
+  windowCards: [],
   evaluationScores: EMPTY_SCORES,
   todayStr: '',
   tomorrowStr: '',
@@ -192,17 +194,37 @@ export function WindowFirstBriefingProvider({ children }) {
   // responses can carry the same generatedAt and different content, and the memo would hold the
   // stale one. What it bought was not re-running a fold over four days and a handful of regions,
   // which is nothing; it gates no fetch. Correctness at no measurable cost.
-  const railTiles = useMemo(() => {
-    if (!briefing) return [];
+  // One evaluation of the event window, shared by the rail and the cards. The past-event rule and
+  // the six-event cap have to be applied ONCE: if the rail and the pane each ran their own, a
+  // change to either could leave a card describing a day the rail does not draw, or the reverse —
+  // and the pick badge and the rail's pick flag would then point at different sets.
+  const { upcomingEvents, travelDayDates } = useMemo(() => {
+    if (!briefing) return { upcomingEvents: [], travelDayDates: new Set() };
     const upcoming = selectUpcomingEvents(briefing.days);
     const dates = [...new Set(upcoming.map((e) => e.date))];
-    const travelDayDates = new Set(dates.filter((d) => isTravelDate(d, travelRanges)));
-    return buildRailTiles(upcoming, briefing.days, todayStr, tomorrowStr, travelDayDates);
-  }, [briefing, travelRanges, todayStr, tomorrowStr]);
+    return {
+      upcomingEvents: upcoming,
+      travelDayDates: new Set(dates.filter((d) => isTravelDate(d, travelRanges))),
+    };
+  }, [briefing, travelRanges]);
+
+  const railTiles = useMemo(
+    () => (briefing
+      ? buildRailTiles(upcomingEvents, briefing.days, todayStr, tomorrowStr, travelDayDates)
+      : []),
+    [briefing, upcomingEvents, travelDayDates, todayStr, tomorrowStr],
+  );
+
+  const windowCards = useMemo(
+    () => (briefing
+      ? buildWindowCards(upcomingEvents, briefing.days, todayStr, tomorrowStr, travelDayDates)
+      : []),
+    [briefing, upcomingEvents, travelDayDates, todayStr, tomorrowStr],
+  );
 
   const value = useMemo(
-    () => ({ briefing, loading, railTiles, evaluationScores, todayStr, tomorrowStr }),
-    [briefing, loading, railTiles, evaluationScores, todayStr, tomorrowStr],
+    () => ({ briefing, loading, railTiles, windowCards, evaluationScores, todayStr, tomorrowStr }),
+    [briefing, loading, railTiles, windowCards, evaluationScores, todayStr, tomorrowStr],
   );
 
   return (

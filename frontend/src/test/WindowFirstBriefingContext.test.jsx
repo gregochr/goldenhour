@@ -52,7 +52,7 @@ function londonToday() {
 
 /** A real consumer rather than a bespoke harness: this is what the shell reads. */
 function Consumer() {
-  const { briefing, loading, railTiles, evaluationScores } = useWindowFirstBriefing();
+  const { briefing, loading, railTiles, windowCards, evaluationScores } = useWindowFirstBriefing();
   return (
     <div>
       <span data-testid="loading">{String(loading)}</span>
@@ -61,6 +61,8 @@ function Consumer() {
       <span data-testid="labels">{railTiles.map((t) => t.peakLabel).join('|')}</span>
       <span data-testid="dates">{railTiles.map((t) => t.date).join('|')}</span>
       <span data-testid="scores">{[...evaluationScores.keys()].join('|') || 'none'}</span>
+      <span data-testid="cards">{windowCards.length}</span>
+      <span data-testid="card-keys">{windowCards.map((c) => c.key).join('|')}</span>
     </div>
   );
 }
@@ -128,7 +130,7 @@ describe('WindowFirstBriefingProvider', () => {
     getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
     renderProvider();
 
-    expect(await screen.findByText('1')).toBeInTheDocument();
+    expect(await screen.findByText('Worth it · sunset')).toBeInTheDocument();
     expect(screen.getByTestId('tiles')).toHaveTextContent('1');
     expect(screen.getByTestId('labels')).toHaveTextContent('Worth it · sunset');
     expect(getDailyBriefing).toHaveBeenCalledTimes(1);
@@ -332,6 +334,44 @@ describe('WindowFirstBriefingProvider', () => {
       await act(async () => {});
 
       expect(screen.getByTestId('tiles')).toHaveTextContent('4');
+    });
+  });
+
+  describe('the window cards', () => {
+    it('derives a card for every window the rail rolled up, from ONE event evaluation', async () => {
+      // The past-event rule and the six-event cap are applied once and shared. Run separately, the
+      // rail and the pane could disagree about which windows exist — and the card's pick badge and
+      // the rail's pick flag would then point at different sets.
+      getDailyBriefing.mockResolvedValue(multiDayPayload('2026-08-04', 5));
+      renderProvider();
+
+      // 09:00Z: today's 04:15Z sunrise is past, so the six live events are SS,SR,SS,SR,SS,SR.
+      expect(await screen.findByText(
+        '2026-08-04:SUNSET|2026-08-05:SUNRISE|2026-08-05:SUNSET|2026-08-06:SUNRISE|2026-08-06:SUNSET|2026-08-07:SUNRISE',
+      )).toBeInTheDocument();
+      expect(screen.getByTestId('dates')).toHaveTextContent(
+        '2026-08-04|2026-08-05|2026-08-06|2026-08-07',
+      );
+    });
+
+    it('draws no card for a day the rail is showing as Away', async () => {
+      // The travel day still carries slots, so the projector gives it a verdict — a naive card list
+      // would put a "Poor" card under a rail tile reading "Not forecast".
+      const today = londonToday();
+      getDailyBriefing.mockResolvedValue(multiDayPayload(today, 2));
+      fetchTravelDayRanges.mockResolvedValue([{ startDate: today, endDate: today }]);
+      renderProvider();
+
+      await act(async () => {});
+      expect(screen.getByTestId('card-keys').textContent).not.toContain(today);
+      // And the rail still shows the day, so the absence is explained on screen.
+      expect(screen.getByTestId('labels')).toHaveTextContent('✈ Away');
+    });
+
+    it('is empty with no briefing, rather than undefined', () => {
+      getDailyBriefing.mockReturnValue(new Promise(() => {}));
+      renderProvider();
+      expect(screen.getByTestId('cards')).toHaveTextContent('0');
     });
   });
 
