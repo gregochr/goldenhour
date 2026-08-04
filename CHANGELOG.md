@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the local browser path, which had never worked past the login screen
+
+Two independent config bugs, either of which alone was enough to make the app unreachable in a browser on a dev machine. Between them they are why UI work on this project has been verified by unit test and build rather than by looking at it.
+
+- **`vite.config.js` read `process.env.VITE_API_TARGET`.** That is the *shell* environment: Vite's `.env` files populate `import.meta.env` for client code, not `process.env` inside the config, so the `VITE_API_TARGET` mechanism **this CHANGELOG has documented since the Vite-proxy work has never actually worked from a file**. The proxy silently fell back to the Docker port 8082 while `application-local.yml` listens on **8083**, so every API call returned 502 and the login screen reported "Invalid username or password" — the generic client message for a failed request, not a real 401. Now uses `loadEnv`, so `frontend/.env.local` works as documented.
+- **H2 is `test` scope, so `spring-boot:run` had no driver** and failed with `Cannot load driver class: org.h2.Driver`. That scope is deliberate and load-bearing — it is what keeps H2 out of the production Docker image, which runs PostgreSQL — so it is *not* widened. A new `local-dev` Maven profile re-adds H2 at runtime scope instead: `./mvnw -Plocal-dev spring-boot:run -Dspring-boot.run.profiles=local`. Nothing activates it by default, so `package`, CI and the Docker build are unchanged.
+
+Verified end to end: the backend starts, `POST /api/auth/login` returns 200 through the Vite proxy, and the app renders signed in. Note the local backend port is **8083**, not the 8082 recorded in CLAUDE.md and `.claude/launch.json`.
 ### Added — one shared popover panel for the window-first subtree (P4b)
 
 - **`usePopoverHost` + `PopoverHost`**: exactly one body-parented `position: fixed` panel, owned above every trigger rather than one per trigger. That is the lifetime guarantee — a panel rendered inside the chip that opened it dies when that chip re-renders, and on the Plan screen a chip re-renders whenever the briefing refreshes underneath it. `CloseToHome` already learned this and keeps one peek node at its panel root; this generalises the shape.
