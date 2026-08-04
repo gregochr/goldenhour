@@ -24,6 +24,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -44,13 +45,16 @@ class UserSettingsServiceTest {
     @Mock
     private DriveDurationService driveDurationService;
     @Mock
+    private UserDriveTimeWriter driveTimeWriter;
+    @Mock
     private Authentication auth;
 
     private UserSettingsService service;
 
     @BeforeEach
     void setUp() {
-        service = new UserSettingsService(userRepository, postcodesIoClient, driveDurationService);
+        service = new UserSettingsService(userRepository, postcodesIoClient, driveDurationService,
+                driveTimeWriter);
     }
 
     /** Stub {@code auth.getName()} — call in every test that passes {@code auth} to the service. */
@@ -65,6 +69,143 @@ class UserSettingsServiceTest {
                 .email("test@example.com")
                 .role(UserRole.PRO_USER)
                 .build();
+    }
+
+    // ── moving home invalidates the drive times measured from the old one ────────
+
+    @Test
+    @DisplayName("moving home discards drive times measured from the old one")
+    void saveHome_originMoved_clearsDriveTimes() {
+        // A drive time is measured FROM an origin. The moment the origin moves, every stored row
+        // describes a journey nobody is going to make — and unlike a missing one, a wrong one is
+        // invisible: the reach lens gates a spot in or out on a figure tens of minutes off, with
+        // nothing on screen saying so. Unknown is safe here; wrong is not.
+        stubAuth();
+        AppUserEntity user = buildUser();
+        user.setHomePostcode("DH1 3LE");
+        user.setHomeLatitude(54.7761);
+        user.setHomeLongitude(-1.5733);
+        user.setDriveTimesCalculatedAt(Instant.now().minusSeconds(3600));
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+
+        service.saveHome(auth, new SaveHomeRequest("NE1 4ST", 54.9714, -1.6174, null));
+
+        verify(driveTimeWriter).clearForUser(42L);
+        ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+        verify(userRepository).save(captor.capture());
+        assertThat(captor.getValue().getDriveTimesCalculatedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("dragging the radius slider does NOT throw away a full set of routed drive times")
+    void saveHome_sameHome_keepsDriveTimes() {
+        // saveHome is also the radius slider's save path: the settings modal re-sends the user's
+        // EXISTING postcode and coordinates whenever the radius changes. Clearing unconditionally
+        // would bin a whole roster of routed times every time somebody moved that slider — and
+        // each refresh is an external routing call per location.
+        stubAuth();
+        AppUserEntity user = buildUser();
+        user.setHomePostcode("DH1 3LE");
+        user.setHomeLatitude(54.7761);
+        user.setHomeLongitude(-1.5733);
+        Instant calculated = Instant.now().minusSeconds(3600);
+        user.setDriveTimesCalculatedAt(calculated);
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+
+        // new String, not the literal: two compile-time literals are interned, so a reference
+        // comparison would pass here and the guard would look correct while being blind to any
+        // postcode that arrived off the wire rather than out of the constant pool.
+        service.saveHome(auth, new SaveHomeRequest(new String("DH1 3LE"), 54.7761, -1.5733, 45));
+
+        verify(driveTimeWriter, never()).clearForUser(anyLong());
+        ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+        verify(userRepository).save(captor.capture());
+        assertThat(captor.getValue().getDriveTimesCalculatedAt()).isEqualTo(calculated);
+        assertThat(captor.getValue().getLocalRadiusMiles()).isEqualTo(45);
+    }
+
+    // Each of the three fields gets its own case, varying that field ALONE. `originMoved` is a
+    // three-way OR, so a test that moves two fields at once leaves either term deletable: the
+    // other one still fires and the suite stays green.
+
+    @Test
+    @DisplayName("a re-geocode that shifts the latitude alone counts as moving")
+    void saveHome_onlyLatitudeChanged_clearsDriveTimes() {
+        // Distance and routing are computed from the COORDINATES, not the postcode text, so a
+        // postcode-only comparison would keep drive times measured from a different point.
+        assertMoved(home("DH1 3LE", 54.7761, -1.5733),
+                new SaveHomeRequest("DH1 3LE", 54.9714, -1.5733, null));
+    }
+
+    @Test
+    @DisplayName("a re-geocode that shifts the longitude alone counts as moving")
+    void saveHome_onlyLongitudeChanged_clearsDriveTimes() {
+        assertMoved(home("DH1 3LE", 54.7761, -1.5733),
+                new SaveHomeRequest("DH1 3LE", 54.7761, -1.6174, null));
+    }
+
+    @Test
+    @DisplayName("a new postcode counts as moving even if the coordinates are unchanged")
+    void saveHome_onlyPostcodeChanged_clearsDriveTimes() {
+        // Two postcodes can geocode to the same point, and the postcode is what the user sees and
+        // reasons about. Dropping the postcode term would make that move invisible.
+        assertMoved(home("DH1 3LE", 54.7761, -1.5733),
+                new SaveHomeRequest("NE1 4ST", 54.7761, -1.5733, null));
+    }
+
+    /** A stored home to move away from. */
+    private AppUserEntity home(String postcode, double lat, double lon) {
+        AppUserEntity user = buildUser();
+        user.setHomePostcode(postcode);
+        user.setHomeLatitude(lat);
+        user.setHomeLongitude(lon);
+        return user;
+    }
+
+    /** Saves {@code request} over {@code stored} and asserts the drive times were discarded. */
+    private void assertMoved(AppUserEntity stored, SaveHomeRequest request) {
+        stubAuth();
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(stored));
+
+        service.saveHome(auth, request);
+
+        verify(driveTimeWriter).clearForUser(42L);
+    }
+
+    @Test
+    @DisplayName("a first home is a move from nothing, and clears nothing that exists")
+    void saveHome_firstHome_isTreatedAsAMove() {
+        // From null there is nothing to discard, but the branch must not NPE on the comparison —
+        // this is the path every new user takes.
+        stubAuth();
+        AppUserEntity user = buildUser();
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+
+        service.saveHome(auth, new SaveHomeRequest("DH1 3LE", 54.7761, -1.5733, null));
+
+        verify(driveTimeWriter).clearForUser(42L);
+    }
+
+    @Test
+    @DisplayName("clearing the stamp releases the refresh cooldown, so a mover is not locked out")
+    void saveHome_originMoved_releasesTheRefreshCooldown() {
+        // The 30-minute cooldown reads driveTimesCalculatedAt. Leaving it set while discarding the
+        // times would put a user who has just moved house in the worst state available: no drive
+        // times at all, AND a 429 when they try to recalculate. Clearing the stamp is what makes
+        // the discard recoverable.
+        stubAuth();
+        AppUserEntity user = buildUser();
+        user.setHomePostcode("DH1 3LE");
+        user.setHomeLatitude(54.7761);
+        user.setHomeLongitude(-1.5733);
+        user.setDriveTimesCalculatedAt(Instant.now());
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+        when(driveDurationService.refreshForUser(42L, 54.9714, -1.6174)).thenReturn(17);
+
+        service.saveHome(auth, new SaveHomeRequest("NE1 4ST", 54.9714, -1.6174, null));
+
+        // Immediately afterwards — well inside the cooldown that was running a moment ago.
+        assertThat(service.refreshDriveTimes(auth).locationsUpdated()).isEqualTo(17);
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.model.DriveTimeRefreshResponse;
 import com.gregochr.goldenhour.model.PostcodeLookupResult;
+import com.gregochr.goldenhour.model.ReachEntry;
 import com.gregochr.goldenhour.model.UserSettingsResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,6 +13,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -144,5 +146,45 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/user/settings/drive-times"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/user/settings/reach returns an entry per location, omitting absent figures")
+    void getReach_returnsRosterWithNullsOmitted() throws Exception {
+        // The client joins this to the briefing on locationId, so the id is the one field that must
+        // always be present. The two figures are independently absent, and NON_NULL keeps them off
+        // the wire entirely rather than as nulls a consumer might render as a zero.
+        when(reachService.getReach(any())).thenReturn(List.of(
+                new ReachEntry(1L, 62, 44),
+                new ReachEntry(2L, null, 24)));
+
+        mockMvc.perform(get("/api/user/settings/reach"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].locationId").value(1))
+                .andExpect(jsonPath("$[0].driveMinutes").value(62))
+                .andExpect(jsonPath("$[0].distanceMiles").value(44))
+                .andExpect(jsonPath("$[1].locationId").value(2))
+                .andExpect(jsonPath("$[1].driveMinutes").doesNotExist())
+                .andExpect(jsonPath("$[1].distanceMiles").value(24));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/user/settings/reach returns the roster even with no home set")
+    void getReach_noHome_stillReturnsTheRoster() throws Exception {
+        // The normal first-run state. An empty body here would make the reach lens look broken to
+        // exactly the user it most needs to be honest with.
+        when(reachService.getReach(any())).thenReturn(List.of(
+                new ReachEntry(1L, null, null),
+                new ReachEntry(2L, null, null)));
+
+        mockMvc.perform(get("/api/user/settings/reach"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].locationId").value(1))
+                .andExpect(jsonPath("$[0].driveMinutes").doesNotExist())
+                .andExpect(jsonPath("$[0].distanceMiles").doesNotExist());
     }
 }

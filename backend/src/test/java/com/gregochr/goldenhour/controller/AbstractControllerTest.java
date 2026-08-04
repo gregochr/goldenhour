@@ -17,6 +17,7 @@ import com.gregochr.goldenhour.service.BriefingModelTestService;
 import com.gregochr.goldenhour.service.BatchSummaryDeriver;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
+import com.gregochr.goldenhour.service.ReachService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.CloudVerificationBackfillRunner;
@@ -117,6 +118,9 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected DriveTimeResolver driveTimeResolver;
+
+    @MockitoBean
+    protected ReachService reachService;
 
     @MockitoBean
     protected DynamicSchedulerService schedulerService;

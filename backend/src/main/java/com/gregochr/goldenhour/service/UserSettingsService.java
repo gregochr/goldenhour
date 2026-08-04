@@ -17,6 +17,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Objects;
 import java.util.NoSuchElementException;
 
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
@@ -46,6 +47,7 @@ public class UserSettingsService {
     private final AppUserRepository userRepository;
     private final PostcodesIoClient postcodesIoClient;
     private final DriveDurationService driveDurationService;
+    private final UserDriveTimeWriter driveTimeWriter;
 
     /**
      * Constructs a {@code UserSettingsService}.
@@ -53,13 +55,16 @@ public class UserSettingsService {
      * @param userRepository       the user repository
      * @param postcodesIoClient    the postcodes.io client for geocoding
      * @param driveDurationService the drive duration calculation service
+     * @param driveTimeWriter      discards stored drive times when the home moves
      */
     public UserSettingsService(AppUserRepository userRepository,
             PostcodesIoClient postcodesIoClient,
-            DriveDurationService driveDurationService) {
+            DriveDurationService driveDurationService,
+            UserDriveTimeWriter driveTimeWriter) {
         this.userRepository = userRepository;
         this.postcodesIoClient = postcodesIoClient;
         this.driveDurationService = driveDurationService;
+        this.driveTimeWriter = driveTimeWriter;
     }
 
     /**
@@ -125,6 +130,7 @@ public class UserSettingsService {
     @Transactional
     public UserSettingsResponse saveHome(Authentication auth, SaveHomeRequest request) {
         AppUserEntity user = getUser(auth);
+        boolean originMoved = originMoved(user, request);
         user.setHomePostcode(request.postcode());
         user.setHomeLatitude(request.latitude());
         user.setHomeLongitude(request.longitude());
@@ -135,10 +141,41 @@ public class UserSettingsService {
             user.setLocalRadiusMiles(Math.clamp(request.localRadiusMiles(),
                     MIN_LOCAL_RADIUS_MILES, MAX_LOCAL_RADIUS_MILES));
         }
+        if (originMoved) {
+            // Every stored drive time was measured from the OLD home, so each one now describes a
+            // journey nobody is going to make. Discarding leaves them unknown, which this product
+            // renders honestly — no drive line, and the reach lens passes the spot at every tier.
+            // Keeping them would gate a location on a figure quietly tens of minutes wrong.
+            driveTimeWriter.clearForUser(user.getId());
+            // Clearing the stamp is not bookkeeping. It is what the UI reads to say when times
+            // were last calculated — and it is the refresh COOLDOWN's own input, so leaving it set
+            // would lock a user who has just moved house out of recalculating for up to
+            // REFRESH_COOLDOWN_MINUTES while they are served nothing at all.
+            user.setDriveTimesCalculatedAt(null);
+        }
         userRepository.save(user);
-        LOG.info("User '{}' saved home location: {} ({}, {})",
-                user.getUsername(), request.postcode(), request.latitude(), request.longitude());
+        LOG.info("User '{}' saved home location: {} ({}, {}){}",
+                user.getUsername(), request.postcode(), request.latitude(), request.longitude(),
+                originMoved ? " — drive times cleared" : "");
         return mapToResponse(user, null);
+    }
+
+    /**
+     * Whether this save moves the origin drive times were measured from.
+     *
+     * <p>Compared rather than assumed, because {@code saveHome} is also the radius slider's save
+     * path: the settings modal re-sends the user's existing postcode and coordinates whenever the
+     * "close to home" radius changes. Clearing on every call would throw away a full set of routed
+     * drive times every time somebody dragged that slider.
+     *
+     * <p>Coordinates count as well as the postcode. Distance and routing are computed from the
+     * coordinates, so a re-geocode that lands somewhere new has moved the origin whatever the
+     * postcode text says.
+     */
+    private static boolean originMoved(AppUserEntity user, SaveHomeRequest request) {
+        return !Objects.equals(user.getHomePostcode(), request.postcode())
+                || !Objects.equals(user.getHomeLatitude(), request.latitude())
+                || !Objects.equals(user.getHomeLongitude(), request.longitude());
     }
 
     /**

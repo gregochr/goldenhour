@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — moving house no longer leaves drive times measured from the old address
+
+- **Changing the home postcode now discards the stored drive times.** A drive time is measured *from* an origin, so the moment the home moves every stored row describes a journey nobody is going to make. This product treats an absent drive time as **unknown** — the spot still renders, shows no drive line, and the reach lens passes it at every tier — so discarding degrades gracefully. Keeping the old numbers gates a location in or out on a figure tens of minutes wrong, with nothing on screen saying so. Unknown is safe; wrong is not.
+- **The stale stamp went too, and that half is not bookkeeping.** `driveTimesCalculatedAt` is the refresh cooldown's own input, so clearing the times while leaving it set would have put a user who has just moved house in the worst state available: no drive times at all, *and* a 429 for up to 30 minutes when they tried to recalculate.
+- **Only when the origin actually moved.** `saveHome` is also the radius slider's save path — the settings modal re-sends the existing postcode and coordinates whenever the radius changes — so clearing unconditionally would have binned a full roster of routed drive times every time somebody dragged that slider. Postcode *and* both coordinates are compared, since routing is computed from the coordinates whatever the postcode text says.
+- Deliberately a discard rather than a re-route: recalculating is an external routing call per location, which is slow, rate-limited and able to fail, none of which belongs inside saving a postcode.
+- Adversarial review before landing: 16 charges across four lenses, 1 upheld — `clearForUser` had no test of its own, which left it at 0/2 lines and the class at 77.8%, **below the 80% per-class JaCoCo gate**. It would have failed CI. Two further mutants the review had refuted were killed anyway: comparing postcodes with `==` (both fixtures used interned literals) and deleting a term of the three-way comparison (no test varied one field alone).
+
+### Added — the reach lens gets its own contract, deliberately away from the briefing (P3)
+
+- **`GET /api/user/settings/reach`** returns `{locationId, driveMinutes, distanceMiles}` for every enabled location. Shared window content stays on `/api/briefing`; per-user reach comes from here, and the client joins the two on `locationId`.
+- **The path is load-bearing, not tidiness.** `HttpCachingConfig`'s revalidatable set is an exact-match allow-list, so anything under `/api/user/settings` is excluded from ETag caching by construction — and ETag revalidation would persist home-derived data to a browser HTTP cache JavaScript cannot evict on logout. The new path joins `HttpCachingConfigTest`'s pinned list so a future whitelist edit cannot quietly start caching it.
+- **The whole roster, never radius-gated.** Reach is a lens over everything; `localRadiusMiles` gates only "Close to home". A pre-filtered payload would silently decide what the lens may reveal, and the widest tier could never show what it promises.
+- **Absence means "unknown", never "out of reach".** A caller with no home postcode — the normal first-run state — gets the full roster with null figures rather than an empty list, a 204, or a `homeSet` flag that could disagree with `GET /api/user/settings`. A half-saved home yields no distance at all, since latitude without longitude would otherwise measure to lon 0 and print a real-looking number wrong by hundreds of miles.
+- Not a reshape of `/drive-times`, which `DailyBriefing` still consumes as a flat id→minutes map and which carries no distance; and not `close-to-home`, whose gate is a distance radius rather than drive-time tiers.
+- Adversarial review before landing: 16 charges across five lenses, 1 upheld — a test comment that excluded the one fixture whose `round` and `ceil` differ, on a figure that was itself wrong. Including it kills a `Math.round → Math.ceil` mutation that had been surviving the whole class.
+
+
 ### Fixed — the admin batch dialog could open with nothing selected, and submit everything
 
 - **A race between the batch button and the regions fetch.** The button renders immediately from static markup while `getRegions()` is still in flight, and `openBatchDialog` snapshotted the selection at click time — so an admin who clicked quickly opened the dialog against an empty roster. The regions then arrived and rendered every box **unchecked** above "0 of 3 regions selected", and clicking one *checked* it rather than unchecking. `selectedIds: null` now means "all regions", resolved against the current roster at render, toggle and submit time, so the default follows the data whenever it lands.
