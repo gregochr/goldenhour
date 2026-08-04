@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the window-first arm gets its own masthead and frame (P4a)
+
+- **The flag branch moved out of `<main>`.** That column is `max-w-4xl` — 896px, about 200px under the design's 1080px frame — so a masthead grown inside it would have rendered at the wrong width beneath the app's own header. The v1 arm keeps its 896px column untouched; v2 gets its own frame.
+- **The app header is suppressed for v2**, because the shell now carries the wordmark, settings cog and Sign out itself. Rendering both would stack two headers and two wordmarks.
+- **`BrandLockup` gains a `compact` variant** rather than the design's conic-gradient disc and sans wordmark. That component's own docs record why `logo.png` went — it "belonged to no part of the Kodachrome Field Guide system" — and drawing the disc would reintroduce exactly that as the only mark of its kind. It also matters that the flag runs both layouts at once so they can be judged on the same night's data: a different wordmark in one arm makes every comparison a brand comparison. Compact drops the kicker and tagline, never the spine — the spine is the device, the prose is what costs height. The wordmark stays an `<h1>` at every size, because `forecast.spec.js:46` finds the signed-in app by that heading and would otherwise break the moment the flag default flips at P15.
+- **No status pill**, and **the tab bar carries Plan only** — three of the design's four panes do not exist yet, and a tab that renders nothing is a demo control, which §6 bans from the shipped build.
+
+### Fixed — a DOWN backend no longer traps a window-first user
+
+- Found by the adversarial review of the above (20 charges, 4 upheld). In the v1 arm the header sits **outside** the element carrying the health-DOWN `pointer-events-none` treatment, so a dead backend has never been able to disable Settings or Sign out. P4a moved the masthead **inside** that element, so a DOWN backend took the cog, Sign out and the exit hatch with it — a greyed page with no route anywhere, at exactly the moment a user most needs one. The treatment now applies to the pane only.
+- The masthead shipped the design's **phone** padding at the 1080px desktop frame while the tab bar beneath it shipped the desktop value; both now share an 18px gutter. The `◉` glyph leaked into the tab's accessible name, which `ViewToggle` already had a rule against. Two tests were strengthened: the masthead buttons were clicked by test-id (which passes while the accessible name rots), and the 1080px frame — one of P4a's two deliverables — had no test at all.
+
+
 ### Changed — P0′: the run-bar tokens ship, and the spec pointer stops lying
 
 - **`--color-runbar-1`…`-5`** added to the `@theme static` block. A *second* rating scale, single-hue and deliberately not the medallion `RATING_COLOURS`: that one is a status ramp whose luminance **peaks at 3★** (`0.099 · 0.221 · 0.625 · 0.468 · 0.119`), so its best and worst ratings are the two dimmest — correct for a badge with the number printed on it, useless for a bar where the colour *is* the value. Bone, because every other colour family here already means something and chrome is bone; step 5 *is* `--color-plex-text`, anchoring the ramp rather than inventing an endpoint. Solid hexes rather than opacity, since opacity composites toward the background and corrupts the encoded value. The derivation is recorded in the comment so the ramp can be regenerated if the panel colour changes.

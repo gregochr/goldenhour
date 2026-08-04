@@ -18,12 +18,22 @@ import PropTypes from 'prop-types';
  * into the heading. The wordmark text must stay exactly {@code PhotoCast} and must stay inside a
  * heading — {@code src/test/e2e/forecast.spec.js} locates the signed-in app by it.
  *
+ * <p><b>The compact variant drops the kicker and tagline, never the spine.</b> The spine is the
+ * whole visual device — without it the wordmark is just a serif word, and the lockup stops being a
+ * lockup. What goes instead is the prose, because the window-first masthead is ~50px tall against
+ * this one's ~90px and that budget is the entire point of the redesign. The wordmark stays an
+ * {@code <h1>} at every size: {@code src/test/e2e/forecast.spec.js:46} finds the signed-in app with
+ * {@code getByRole('heading', {name: /PhotoCast/})}, so a variant that demoted it would break that
+ * suite the moment the window-first layout became the default.
+ *
  * @param {object} props
- * @param {'header'|'auth'} [props.variant] - `header` (40px wordmark) for the signed-in app
- *   masthead; `auth` (34px) for the sign-in, register and change-password screens.
+ * @param {'header'|'auth'|'compact'} [props.variant] - `header` (40px wordmark) for the signed-in
+ *   app masthead; `auth` (34px) for the sign-in, register and change-password screens; `compact`
+ *   (20px, no kicker or tagline) for the window-first masthead.
  */
 export default function BrandLockup({ variant = 'header' }) {
   const isHeader = variant === 'header';
+  const isCompact = variant === 'compact';
   return (
     <div data-testid="brand-lockup" data-variant={variant} className="relative pl-[26px]">
       <span
@@ -35,23 +45,27 @@ export default function BrandLockup({ variant = 'header' }) {
             'repeating-linear-gradient(180deg, var(--color-plex-border-light) 0 7px, transparent 7px 15px)',
         }}
       />
-      <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-plex-coral">
-        Field guide to light
-      </p>
+      {!isCompact && (
+        <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-plex-coral">
+          Field guide to light
+        </p>
+      )}
       <h1
-        className={`font-serif font-semibold text-plex-text leading-none tracking-[-0.025em] mt-[7px] ${
-          isHeader ? 'text-[40px]' : 'text-[34px]'
-        }`}
+        className={`font-serif font-semibold text-plex-text leading-none tracking-[-0.025em] ${
+          isCompact ? 'text-[20px]' : 'mt-[7px]'
+        } ${isHeader ? 'text-[40px]' : ''} ${variant === 'auth' ? 'text-[34px]' : ''}`}
       >
         PhotoCast
       </h1>
-      <p className="font-serif italic text-base text-plex-text-secondary mt-[7px]">
-        Golden hour, forecast and ranked by AI
-      </p>
+      {!isCompact && (
+        <p className="font-serif italic text-base text-plex-text-secondary mt-[7px]">
+          Golden hour, forecast and ranked by AI
+        </p>
+      )}
     </div>
   );
 }
 
 BrandLockup.propTypes = {
-  variant: PropTypes.oneOf(['header', 'auth']),
+  variant: PropTypes.oneOf(['header', 'auth', 'compact']),
 };
