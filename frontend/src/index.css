@@ -13,11 +13,6 @@
   --color-plex-bg: #181210;
   --color-plex-surface: #221A15;
   --color-plex-surface-light: #2A2019;
-  /* The CARD surface, and a real token rather than a collapse onto --surface. It sits only
-     (4,3,3) from it, so substituting would have been defensible — but the window-first design
-     uses it ten times as the thing that distinguishes a card from the frame it sits in, and a
-     surface the design names is not a surface two components should each approximate. */
-  --color-plex-panel: #1E1712;
   --color-plex-border: #3A2C23;
   --color-plex-border-light: #4A3A2E;
   --color-plex-text: #F2E7D3;
@@ -75,15 +70,29 @@
    These land a dozen phases ahead of the components that use them, so nothing mentions them yet
    and in the plain block above they are simply absent from :root — the handoff palette cannot be
    inspected in devtools until P5 builds the first badge. Measured: 9 of the 10 window-first
-   tokens prune without `static`, at 254 bytes to keep them. The tenth is --color-plex-panel, in
-   the ordinary block above and kept alive by a utility class, which is why it is not in here.
-   Fold these in once they are all in use.
+   tokens prune without `static`, at 254 bytes to keep them. The tenth, --color-plex-panel, is
+   now in here too — see its own note below. Fold these in once they are all in use.
 
    The failure mode worth knowing, because it is the one that IS silent: a name assembled at
    runtime is invisible to the scanner, so a token referenced only as a template string built from
    a prefix and a variable is pruned however many times it is used, and the property just
    inherits. Build badge colours as classes here, referencing each token by its whole name. */
 @theme static {
+  /* The CARD surface, and a real token rather than a collapse onto --surface. It sits only
+     (4,3,3) from it, so substituting would have been defensible — but the window-first design
+     uses it ten times as the thing that distinguishes a card from the frame it sits in, and a
+     surface the design names is not a surface two components should each approximate.
+
+     It was in the plain block above until P4c, under a comment claiming a utility class kept it
+     alive. Checked in a browser rather than reasoned about: getPropertyValue('--color-plex-panel')
+     returned the EMPTY STRING on the running app — nothing in the tree referenced it, so every
+     card that reached for it would have got no background at all and silently shown the frame
+     through. The claim had never been true. It lives here now because this is the block whose
+     whole purpose is surviving with no consumers, and because "one component happens to use it"
+     is not a guarantee — the next refactor to drop that one class prunes the surface out from
+     under the entire window-first subtree, and nothing fails loudly when it does. */
+  --color-plex-panel: #1E1712;
+
   /* Condition channels — objective, independent of the sky verdict, and each its own hue so a
      tide, a noctilucent display and lying snow never read as three grades of one thing.
      (--color-tide is the third member and already lives above, where it is in use today.) */
@@ -129,6 +138,14 @@
   --color-badge-maybe: #EFC377;
   --color-badge-poor: #E58C7A;
   --color-badge-tide: #9CCBD1;
+  /* The pick channel's lifted text variant, added at P4c when the rail's ALSO flag became the
+     first place --color-pick-also was asked to be *type* rather than an accent on body-sized text.
+     At 9.5px on its own 16% tint it measures 4.47:1, and 4.13:1 over today's gold-washed tile —
+     both under the 4.5:1 AA floor for normal text, which is exactly the failure the paragraph
+     above predicts. #B3BEEA clears it at 7.7:1 / 7.1:1 and keeps the second line legible at 80%
+     opacity. The FILL stays --color-pick-also: the fill names the channel, the text has to be
+     read. */
+  --color-badge-also: #B3BEEA;
   --color-badge-nlc: #BFB6E8;
   --color-badge-snow: #C6D8E3;
   /* The active segment of a segmented control — the one non-badge member, here because it is the
@@ -660,6 +677,54 @@
      as entitled to the reduced-motion preference as a pointer user. */
   .cth-next-window:hover,
   .cth-next-window:focus-visible { transform: none; }
+}
+
+/* ── Window-first day rail ──
+   One tile per upcoming day. The mock makes the rail a scroller only on the phone
+   (`.wrap.mob .rail{overflow-x:auto}` + `.wrap.mob .day{flex:0 0 150px}`) and leaves it a plain
+   flex row on desktop (`.day{flex:1}`). Both fall out of ONE declaration instead of a breakpoint:
+   the tiles carry `flex: 1 0 150px` inline, so four of them fit and grow to equal quarters at
+   1080px and refuse to shrink below 150px on a 390px phone, where this scroller then earns its
+   overflow. A media query would have to restate the tile width in two places to say the same. */
+.rail-scroller {
+  overflow-x: auto;
+  scrollbar-width: none;
+  /* `overflow-x: auto` computes overflow-y to auto as well, so the rail clips its own children's
+     focus rings — 1px of outline at 2px offset needs ~4px of room. The top and side padding
+     already have it; only the bottom edge is tight, so it is bought here and given straight back
+     to the layout, keeping the rail flush with whatever follows. Same technique as
+     `.cth-window-grid` above, different numbers. */
+  padding-bottom: 4px;
+  margin-bottom: -4px;
+}
+.rail-scroller::-webkit-scrollbar { display: none; }
+
+/* The tile itself is a read-out, as the design draws it — the ACTION inside it is the widget, so
+   the hover treatment belongs there. The v1 pill this is copied from lifts the whole card because
+   the whole card is its button; here that would be a container inviting a press it cannot take. */
+.rail-day-show-on-map {
+  color: var(--color-tide);
+  transition: color 0.14s ease;
+}
+.rail-day-show-on-map:hover {
+  color: var(--color-plex-text);
+}
+/* Bone at 2px, not --color-plex-border-light at 1px. This file already made this exact fix once,
+   160 lines up: border-light "measures ~1.6:1 and fails WCAG 2.2 SC 1.4.11's 3:1 for a non-text
+   indicator... replacing the UA ring with something invisible is worse than not styling it at
+   all." Measured here: 1.71:1 against the page the ring is drawn on, and on today's tile the
+   RESTING gold border is brighter than it, so focus read as noise beside an unfocused edge. Bone
+   is the palette's stated interactive accent and clears ~13.9:1. Not --color-close-to-home, which
+   passes but is the same hue as today's border — a gold ring 2px outside a gold border reads
+   worst on the one tile that most needs it. */
+.rail-day-show-on-map:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-day-show-on-map { transition: none; }
 }
 
 /* Briefing summary strip — actionable pills lift on hover */

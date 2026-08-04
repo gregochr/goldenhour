@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import React from 'react';
 import usePlanLayout, { PLAN_LAYOUT_KEY, PLAN_V1, PLAN_V2 } from '../hooks/usePlanLayout.js';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
+import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 
 /**
  * A harness rather than a real consumer, deliberately: the only component that reads this hook is
@@ -142,5 +143,153 @@ describe('WindowFirstShell', () => {
     expect(screen.getByTestId('window-first-masthead').className)
       .not.toContain('pointer-events-none');
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+  });
+
+  it('greys the day rail with the pane, because the rail is forecast data too', () => {
+    // The rail sits outside the pane (it is the whole screen's date context, not one pane's
+    // content), so it needs the treatment applied to it explicitly. A DOWN backend leaving a
+    // live-looking rail beside a greyed pane says the days are current when they may not be.
+    renderShell({ contentDisabled: true });
+
+    expect(screen.getByTestId('window-first-rail-region').className).toContain('pointer-events-none');
+    expect(screen.getByTestId('window-first-tabs').className).not.toContain('pointer-events-none');
+  });
+
+  it('says so plainly when there are no days to show', () => {
+    // The provider's default value is an empty rail, which is also what a 204 and a failed first
+    // fetch produce. Rendering nothing at all leaves a gap above the tabs that reads as a broken
+    // layout rather than as an absent forecast.
+    renderShell();
+    expect(screen.getByTestId('window-first-rail-empty')).toBeInTheDocument();
+  });
+
+  it('shows no forecast age until there is a forecast to age', () => {
+    // The footer states a fact about the payload. With no payload the honest thing is silence —
+    // an empty "forecast" line is a claim with nothing behind it.
+    renderShell();
+    expect(screen.queryByTestId('window-first-railfoot')).toBeNull();
+  });
+});
+
+describe('WindowFirstShell — the rail it hosts', () => {
+  const briefingWith = (generatedAt, evaluationScores = new Map()) => ({
+    briefing: generatedAt ? { generatedAt } : null,
+    loading: false,
+    evaluationScores,
+    railTiles: [{
+      date: '2026-08-04',
+      isToday: true,
+      targetType: 'SUNSET',
+      dow: 'Tue',
+      dayNum: '4',
+      dayLabel: 'Today',
+      sunriseTime: '05:15',
+      sunsetTime: '21:11',
+      peak: 'go',
+      peakLabel: 'Worth it · sunset',
+      countLabel: null,
+      pick: null,
+      regions: [{
+        regionName: 'Northumberland & Tyneside', shortName: 'N&T', targetType: 'SUNSET',
+        verdictLabel: 'Worth it sunset', wx: '', summary: 's', glossHeadline: '', glossDetail: '',
+        pickKind: null,
+      }],
+      ratedCount: 1,
+      isAway: false,
+      confidence: 'high',
+    }],
+    todayStr: '2026-08-04',
+    tomorrowStr: '2026-08-05',
+  });
+
+  const renderWithBriefing = (ctx, props = {}) => {
+    vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx);
+    const handlers = {
+      onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), ...props,
+    };
+    render(<WindowFirstShell {...handlers} />);
+    return handlers;
+  };
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('places the rail above the tab bar, where every tab can still see it', () => {
+    // The rail is the screen's date context, not the Plan pane's content: Coming up and Map ask
+    // about the same days. Inside the pane it would vanish on a tab that still needs it.
+    renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+
+    const rail = screen.getByTestId('window-first-day-rail');
+    const tabs = screen.getByTestId('window-first-tabs');
+    expect(rail.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('hands a day to the map with that day and its best event', () => {
+    const { onShowOnMap } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+    fireEvent.click(screen.getByTestId('rail-day-show-on-map'));
+    expect(onShowOnMap).toHaveBeenCalledWith('2026-08-04', 'SUNSET');
+  });
+
+  it('hands a region chip to the map as a region, not as a day', () => {
+    // `onShowOnMap` reads a positional (date, eventType) OR a {region, …} object, and the two open
+    // different things. Passing the tile's handler for both would silently drop the region the
+    // user pointed at and open the whole day instead.
+    const { onShowOnMap } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+    fireEvent.click(screen.getByTestId('rail-region-chip'));
+
+    expect(onShowOnMap).toHaveBeenCalledWith({
+      region: 'Northumberland & Tyneside', date: '2026-08-04', eventType: 'SUNSET',
+    });
+  });
+
+  it('states the forecast\'s age, and never the model that produced it', () => {
+    // §7: the model name is admin-only today and is not a pilot user's business, so the design's
+    // "forecast 52m ago by Sonnet" ships as the age alone.
+    vi.setSystemTime(new Date('2026-08-04T12:34:00Z'));
+    renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+
+    const foot = screen.getByTestId('window-first-railfoot');
+    expect(foot).toHaveTextContent('forecast 34m ago');
+    expect(foot.textContent).not.toMatch(/sonnet|haiku|opus/i);
+    vi.useRealTimers();
+  });
+
+  it('reads the age as UTC, which is how the backend writes it', () => {
+    // Parsing the zone-less instant as local time made a 34-minute-old forecast read "1h ago"
+    // through a British summer. The shared formatter appends the Z; a local copy did not.
+    vi.setSystemTime(new Date('2026-08-04T12:05:00Z'));
+    renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+
+    expect(screen.getByTestId('window-first-railfoot')).toHaveTextContent('forecast 5m ago');
+    vi.useRealTimers();
+  });
+
+  it('drops the empty-state line once there are days', () => {
+    renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+    expect(screen.queryByTestId('window-first-rail-empty')).toBeNull();
+  });
+
+  it('says nothing about days while the first fetch is still in flight', () => {
+    // "No forecast days to show yet" during a cold load is a claim about the forecast made before
+    // anyone has asked it. Silence until the answer arrives.
+    renderWithBriefing({
+      briefing: null,
+      loading: true,
+      railTiles: [],
+      evaluationScores: new Map(),
+      todayStr: '2026-08-04',
+      tomorrowStr: '2026-08-05',
+    });
+    expect(screen.queryByTestId('window-first-rail-empty')).toBeNull();
+  });
+
+  it('lifts the batch scores to App, which is what the map handoff reads', () => {
+    // Nothing in the rail renders these. They feed `buildMapOverlay`'s narrative and MapView's
+    // visibility filter — and MapView treats a location with no rating as stood down and hides it,
+    // so without the lift a tile that says "Worth it" opens an overlay over an all-but-empty map.
+    const scores = new Map([['N&T|2026-08-04|SUNSET|Bamburgh', { rating: 4 }]]);
+    const onEvaluationScoresChange = vi.fn();
+    renderWithBriefing(briefingWith('2026-08-04T12:00:00', scores), { onEvaluationScoresChange });
+
+    expect(onEvaluationScoresChange).toHaveBeenCalledWith(scores);
   });
 });

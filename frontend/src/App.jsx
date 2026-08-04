@@ -22,6 +22,7 @@ import { useRunNotifications } from './hooks/useRunNotifications.js';
 import useAfterFirstPaint from './hooks/useAfterFirstPaint.js';
 import usePlanLayout, { PLAN_V1, PLAN_V2 } from './hooks/usePlanLayout.js';
 import WindowFirstShell from './components/WindowFirstShell.jsx';
+import { WindowFirstBriefingProvider } from './context/WindowFirstBriefingContext.jsx';
 
 // Code-split the heavy, rarely-first-viewed subtrees so they stay out of the initial bundle:
 // the Leaflet map stack (Plan is the default tab; the map is a drill-down) and the admin-only
@@ -383,12 +384,21 @@ function AppInner() {
               Sign out and the exit hatch, and greying the whole subtree would strand a user with no
               route out of a broken app. The v1 arm has never had this problem because its header
               sits outside the gated element. */}
-          <WindowFirstShell
-            onExit={() => setPlanLayout(PLAN_V1)}
-            onOpenSettings={() => setShowSettings(true)}
-            onSignOut={logout}
-            contentDisabled={isDown}
-          />
+          {/* The provider is mounted HERE rather than beside AuroraStatusProvider so it exists only
+              while the v2 arm is on screen. Hoisted, it would poll /api/briefing for every v1 user
+              too — a second request on the same 10-minute tick as DailyBriefing's, and a second
+              focus listener firing both. App.jsx's flag branch is a hard either/or, and this keeps
+              it one. */}
+          <WindowFirstBriefingProvider>
+            <WindowFirstShell
+              onExit={() => setPlanLayout(PLAN_V1)}
+              onOpenSettings={() => setShowSettings(true)}
+              onSignOut={logout}
+              contentDisabled={isDown}
+              onShowOnMap={handleShowOnMap}
+              onEvaluationScoresChange={handleEvaluationScoresChange}
+            />
+          </WindowFirstBriefingProvider>
         </main>
       ) : (
         <main className={`max-w-4xl mx-auto px-4 py-6${isDown ? ' opacity-50 pointer-events-none' : ''}`}>
@@ -547,7 +557,9 @@ function AppInner() {
             narrativeHead={mapOverlay.narrativeHead}
             narrativeTone={mapOverlay.narrativeTone}
             onClose={() => setMapOverlay(null)}
-            onOpenFullMap={openFullMapTab}
+            // The v2 arm renders no Map pane, so the hatch is withheld rather than naming a
+            // destination it cannot reach. MapOverlay drops the button when no handler arrives.
+            onOpenFullMap={planLayout === PLAN_V2 ? undefined : openFullMapTab}
           >
             <MapView
               locations={visibleLocations}

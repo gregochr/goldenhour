@@ -32,6 +32,51 @@ describe('BrandLockup', () => {
     expect(screen.queryByText(/Golden hour, forecast/)).not.toBeInTheDocument();
   });
 
+  /**
+   * The compact spine's gauge, and why it is asserted as arithmetic rather than as a literal.
+   *
+   * The defect these pin: `compact` shipped at P4a carrying the header's 15px pitch beside a 20px
+   * wordmark, which fits one perforation and 5px of a severed second — visibly a stray dash, and
+   * the exact thing the component's "always flush left" rule exists to prevent. The fix changes the
+   * gauge, not the height, so what has to hold is the *relationship* between the two numbers. A
+   * literal assertion would pass a later bump of the wordmark to 22px, which is the realistic way
+   * this breaks again.
+   */
+  const pitchOf = (spine) => Number(/transparent [\d.]+px ([\d.]+)px\)/.exec(spine.style.background)[1]);
+
+  it('fits at least three whole perforations in the compact lockup, ending on a gap', () => {
+    render(<BrandLockup variant="compact" />);
+    const pitch = pitchOf(screen.getByTestId('brand-lockup-spine'));
+    // The Tailwind arbitrary value is the only place the compact lockup's height is stated — the
+    // wordmark is `leading-none`, so its font size IS the lockup height. Read it from there rather
+    // than restating it, so the two cannot drift apart silently.
+    const heightPx = Number(/text-\[(\d+)px\]/.exec(screen.getByRole('heading', { level: 1 }).className)[1]);
+
+    expect(heightPx % pitch).toBe(0); // ends on a gap, never on a clipped perforation
+    expect(heightPx / pitch).toBeGreaterThanOrEqual(3); // enough repeats to read as a pattern
+  });
+
+  it('gives compact a tighter gauge than header rather than the same one at a smaller size', () => {
+    // Both variants sharing a pitch is precisely the shipped bug. Asserted as an inequality because
+    // the header's own gauge is not this test's business — only that compact no longer inherits it.
+    const { rerender } = render(<BrandLockup variant="compact" />);
+    const compactPitch = pitchOf(screen.getByTestId('brand-lockup-spine'));
+    rerender(<BrandLockup variant="header" />);
+    const headerPitch = pitchOf(screen.getByTestId('brand-lockup-spine'));
+
+    expect(compactPitch).toBeLessThan(headerPitch);
+  });
+
+  it('keeps the header gauge on the auth variant, which has the prose to carry it', () => {
+    // `auth` drops nothing — it is the header lockup at 34px — so it must not pick up the compact
+    // gauge by being lumped in with "not header".
+    const { rerender } = render(<BrandLockup variant="auth" />);
+    const authPitch = pitchOf(screen.getByTestId('brand-lockup-spine'));
+    rerender(<BrandLockup variant="header" />);
+
+    expect(authPitch).toBe(pitchOf(screen.getByTestId('brand-lockup-spine')));
+  });
+
   it('renders the kicker and the tagline', () => {
     render(<BrandLockup />);
     expect(screen.getByText('Field guide to light')).toBeInTheDocument();

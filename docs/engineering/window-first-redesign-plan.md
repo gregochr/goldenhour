@@ -51,6 +51,14 @@ colours, `--color-tide`, and `--color-close-to-home: #C9A24B` (the design's `--h
   `--color-plex-panel` alongside the two above, or state that panel collapses onto
   `--color-plex-surface`. Both are legitimate at (4,3,3) apart — the point is that P5's window card and
   P8's lens bar must not each pick a substitute independently.
+  ⚠️ **P0 added it to the *plain* `@theme` block, and it was pruned to the empty string.** The
+  comment beside it claimed a utility class kept it alive; nothing in the tree referenced it, so
+  every card reaching for it would have rendered with no background at all and shown the frame
+  through. Found by reading `getPropertyValue('--color-plex-panel')` off the running app at P4c —
+  a build, a lint and 2,000 green tests all passed over it. It now lives in `@theme static` with
+  the rest of the window-first palette. **The general rule: a window-first token belongs in the
+  static block until it has several consumers, because "one component happens to use it" is not a
+  guarantee — the next refactor to drop that one class prunes the token and nothing fails loudly.**
 - **IBM Plex Mono 600** in `frontend/src/fonts.js` — the design's kickers are mono/600 and only 400/500
   are bundled, so the browser is currently synthesising it.
 
@@ -562,8 +570,8 @@ Backend first for anything shared, so the frontend stays a render layer.
 | **P2** | ~~Backend: tide rollup derivation (§2.4)~~ **DONE.** `BriefingWindowTide` on every window, built by `WindowTideRollupBuilder` and passed to the projector as a map. `selectRepresentative`/`findAnchor` extracted to `TideRepresentativeSelector` (per-instance warn state), formatters to `TideWording` | Extraction proved pure — `TideRunBuilderTest` passes unedited. Three review findings changed the design, not just the prose: the anomaly estimator, the tide-state window, and the projection's placement on the serve path (§2.4a) |
 | **P3** | Backend: `GET /api/user/settings/reach` (§2.2) | Unchanged |
 | **P4a** | Shell — masthead, tabs, move the flag branch out of `<main>`, suppress the app header for v2 | Unchanged in substance. `border-bottom-width: 0`, never `border-bottom: none` |
-| **P4b** | Generalised popover host — one body-parented `position:fixed` panel with document-level delegation | Smaller than first assessed. The region-chip gloss **already ships** inside the component P4c copies (`BriefingSummaryStrip:196-215` + `:233-247`): `role="button"`, keyboard, focus parity, a portalled `role="tooltip"`. Copy the tile and the gloss comes with it. Pick-chip content belongs to P5 |
-| **P4c** | Day rail as the full Plan summary tile | **Copy `BriefingSummaryStrip`'s tile** — medallion, sun times, verdict line, identity-ordered chips with the `◎` mark, show-on-map and the away variant all exist. `pickKindOf`/`pickOrder` *are* the spec's `nameList()`/`pickRank()`. Genuinely new: the two-line pick flag chip, today's border tint, a px/token restyle. **Delete the `ProvisionalMark` conditional** (`:160-161`) and do not copy its two tests (§2.7) |
+| **P4b** | Generalised popover host — one body-parented `position:fixed` panel with document-level delegation | Smaller than first assessed. The region-chip gloss **already ships** inside the component P4c copies (`BriefingSummaryStrip:196-215` + `:233-247`): `role="button"`, keyboard, focus parity, a portalled `role="tooltip"`. Copy the tile and the gloss comes with it. Pick-chip content belongs to P5. ⚠️ **P4c became the host's first caller after all**, not P5: the copied panel is placed once from a viewport rect and never recomputed, and on phone the rail is a horizontal scroller — so a swipe leaves it pointing at nothing. The host dismisses on scroll and on Escape; the copied panel does neither. Using it changes nothing in `BriefingSummaryStrip`, so the v1 arm is untouched either way |
+| **P4c** | ~~Day rail as the full Plan summary tile~~ **DONE.** `WindowFirstDayRail` + `utils/windowFirstRail.js` (the copied derivation) + `WindowFirstBriefingProvider` (the arm's own `/api/briefing` fetch, §4) | Tile copied, `ProvisionalMark` deleted and its two tests not carried. Picks read `window.pick`, never `bestBets` (§2.3). **Three decisions worth not re-deriving:** the pick flag names the **event** as well as the kind, because a pick is a window and a tile is a day; every tile **reserves** the two-line chip's height or the rail's lines go ragged; and an away day **keeps its sun times** — the mock replaces them, but its own away banner says the rail keeps them, and they are almanac. LITE gating settled in §7. The rail sits **above the tab bar**: it is the screen's date context, not the Plan pane's content |
 | **P5** | Window card — header, verdict badge + confidence fill decay, **pick badge on the two chosen windows** (with its peek content and both footer actions), footer. **No narrative block, and no change row** — see §2.8 | Net smaller than the original P5. The row states what moved and claims no total; when nothing moved it says so, so an unchanged forecast never reads as missing data |
 | **P6** | Spot film strip | Geometry from the spec, not `.cth-window-grid`; no `ScrollRail`; one shared comparator; footer states what is *drawn*. Rating badge from `RATING_COLOURS` (§2.9). **No sparkline** — deferred to P16 |
 | **P7** | Attribute rows — tide, then snow | Cap of two per window; the change row is P5's and does not count against it |
@@ -675,10 +683,28 @@ something goes in.
   click. The second makes it the page's densest interactive surface: region chips open a gloss, pick
   chips open the pick's prose, and the tile carries a show-on-map action. Anywhere this plan still
   calls the rail inert, the second handoff wins.
-- **A LITE user sees a hole where the picks are.** The rail now carries pick chips and the window
-  card a pick badge, and the underlying prose is PRO-gated today. Decide the LITE treatment at P4,
-  not at P15 — a blank space in the shell is worse than either the greyed-out pattern or a clean
-  omission, and it is a shell-layout question, not a sweep item.
+- **~~A LITE user sees a hole where the picks are.~~ SETTLED AT P4c: no gate, and neither option
+  above.** The premise this bullet rested on — "the underlying prose is PRO-gated today" — is true
+  of `BestBet.headline` (Claude best-bet-advisor output on the `bestBets` path) and **false** of
+  what the rail and the window card actually read. `BriefingWindow.Pick` is region gloss, and the
+  evidence is one-sided: no role check touches it anywhere on the `/api/briefing` path
+  (`SecurityConfig` gates that path at `.authenticated()` only, and nothing downstream strips by
+  role); LITE already reads the same gloss in two places on the v1 Plan tab
+  (`HeatmapGrid.jsx:452`, `BriefingSummaryStrip.jsx:244`); `freemium_ui_strategy.md:79-80` lists
+  the one-line Claude summary as LITE-included and `:99` forbids truncating it; §2.3 rejected the
+  `bestBets` vehicle *partly because* routing through it "would make the pilot's headline feature
+  PRO-only against §7"; and the role-gating bullet above already says Best Bet needs no new gating.
+  So the two bullets contradicted each other and §2.3 breaks the tie.
+
+  The one real counter-argument, recorded because it becomes live again if the arms ever merge:
+  v1 shows a LITE user a blurred `BestBetPlaceholder` (`DailyBriefing.jsx:875-896`) and gates the
+  strip chips' pick accents on `isPro` (`:1206-1215`), so an ungated chip would contradict them one
+  row apart, and would also make `CloseToHome`'s deliberate withholding of the region name
+  (`CloseToHome.jsx:585-588`, pinned by `CloseToHome.test.jsx:209-221`) pointless. **It does not
+  reach the v2 arm**: the flag branches above `<main>` (`App.jsx:380`), so `DailyBriefing`, its
+  placeholder and `CloseToHome` never render beside the rail. The two stories are never on screen
+  together. Reconverging the arms after the flag default flips means making this one decision
+  once, across both — not splitting it across two surfaces.
 - **Styling.** CLAUDE.md says Tailwind only, no inline styles; the spec is written in exact px
   (12.5 / 10.5 / 9.5). Follow the existing precedent — `index.css` component classes plus tokens, with
   inline style for one-off exact values, which is what `CloseToHome`, `TideRunRow` and `ViewToggle`
