@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — one shared popover panel for the window-first subtree (P4b)
+
+- **`usePopoverHost` + `PopoverHost`**: exactly one body-parented `position: fixed` panel, owned above every trigger rather than one per trigger. That is the lifetime guarantee — a panel rendered inside the chip that opened it dies when that chip re-renders, and on the Plan screen a chip re-renders whenever the briefing refreshes underneath it. `CloseToHome` already learned this and keeps one peek node at its panel root; this generalises the shape.
+- **Portalled, not merely fixed.** `position: fixed` escapes a scroller's `overflow` clipping, which is necessary but not sufficient: a `transform`, `filter` or `will-change` on *any* ancestor silently re-bases fixed positioning onto that ancestor. Portalling to `document.body` takes the ancestor chain out of the question, so a later phase adding a transition to a window card cannot break it.
+- **Dismissal is document-level, and closes a latent defect the shipped region-chip gloss still has.** Placement is computed once from the anchor's viewport rect and nothing recomputes it, so the instant anything scrolls the panel describes a position the anchor has left — hanging in empty space pointing at nothing. It now dismisses on scroll (registered in the **capture** phase, because scroll does not bubble and the scroller here is an inner element), on resize, and on **Escape** — which the shipped gloss offers no way to do at all, stranding a keyboard user who opened one by focusing a chip.
+- **Keyed dismissal.** A pointer sweeping a row of chips fires the outgoing chip's leave *after* the incoming chip's enter, so an unkeyed close lets the chip just left cancel the panel for the chip now under the cursor.
+- `BriefingSummaryStrip` is deliberately **not** rewired: it is the v1 arm, and §4 rests on that arm staying byte-identical while both layouts are judged against the same night's data. P4c copies its tile and the existing gloss comes with it.
+
+
 ### Added — the window-first arm gets its own masthead and frame (P4a)
 
 - **The flag branch moved out of `<main>`.** That column is `max-w-4xl` — 896px, about 200px under the design's 1080px frame — so a masthead grown inside it would have rendered at the wrong width beneath the app's own header. The v1 arm keeps its 896px column untouched; v2 gets its own frame.
