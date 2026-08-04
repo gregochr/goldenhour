@@ -7,11 +7,20 @@ A **second handoff arrived 2026-08-02** and reverses part of P1 — see §2.3 an
 42 + 14 findings). Every upheld finding is applied below; where one reversed an earlier decision, the
 reversal and its reason are recorded rather than silently overwritten. Each phase gets the same
 treatment before it lands — see CLAUDE.md § UI Work — Review Cadence.
-**Spec:** `docs/design/window-first/`. ⚠️ **Read `DELTA.md` first, then this plan — not `README.md`
-alone.** The bundle is vendored verbatim so the next re-cut stays a diffable copy, which means its
-`README.md` still describes the *superseded* per-window pick model at `:118` and `:210`. Where the
-README and this plan disagree, DELTA.md and this plan win. `Plan Window First v2.html` is the design
-of record.
+**Spec:** `docs/design/window-first/`. ⚠️ **`DELTA.md` IS NOT VENDORED — do not go looking for it.**
+It has never existed in this repo on any branch, and neither have `Change Since Last Run.html` or
+`spec-plan-picks/`; only the nine shared files of the second bundle landed, `Plan Window First
+v2.html` among them. Earlier revisions of this header told the reader to read DELTA.md first, which
+sent them after a file that was never there.
+
+**§2.8 and §2.3's rule box are the record of the second handoff**, and they win over anything in the
+bundle. That matters because the bundle is vendored *verbatim* — so the next re-cut stays a diffable
+copy — which means its `README.md` still describes the **superseded** per-window pick model at
+`:118` and `:210`, with nothing beside it saying so. `Plan Window First v2.html` is the design of
+record for layout; where it and this plan disagree, this plan wins.
+
+If the second handoff's three missing files are ever recovered, vendor them **unedited** and delete
+this note — a re-cut is only worth having if it is a diff.
 
 The design inverts the Plan tab's loop: **time is the outer loop, features are attributes**. One card
 per solar window carrying its own verdict, narrative, tide state, snow state, badges and nearby spots.
@@ -548,7 +557,7 @@ Backend first for anything shared, so the frontend stays a render layer.
 
 | Phase | Work | Notes |
 |---|---|---|
-| **P0′** | Re-cut `docs/design/window-first/` **verbatim** from the second bundle — `Plan Window First v2.html`, `README.md`, `PROMPTS.md`, plus new `DELTA.md`, `Change Since Last Run.html`, `spec-plan-picks/`. Add `--color-runbar-1`…`-5` (§2.9) | Six of the nine shared files are byte-identical; leave them. **Do not hand-edit the vendored README** — verbatim is what keeps the next re-cut a diff. Its stale per-window pick text at `:118`/`:210` is neutralised by this plan's header pointer instead. Mark `Change Since Last Run.html` superseded or omit it: it contradicts the current spec on three points. **No `--blue` token** — see §2.8 |
+| **P0′** | ⚠️ **PART DONE, part impossible.** Tokens `--color-runbar-1`…`-5` shipped (§2.9), and the header's dangling `DELTA.md` pointer replaced with the truth. The re-cut itself CANNOT be done: `DELTA.md`, `Change Since Last Run.html` and `spec-plan-picks/` have never been in the repo, and authoring them would fabricate a spec rather than vendor one. Original scope: re-cut `docs/design/window-first/` **verbatim** from the second bundle — `Plan Window First v2.html`, `README.md`, `PROMPTS.md`, plus new `DELTA.md`, `Change Since Last Run.html`, `spec-plan-picks/`. Add `--color-runbar-1`…`-5` (§2.9) | Six of the nine shared files are byte-identical; leave them. **Do not hand-edit the vendored README** — verbatim is what keeps the next re-cut a diff. Its stale per-window pick text at `:118`/`:210` is neutralised by this plan's header pointer instead. Mark `Change Since Last Run.html` superseded or omit it: it contradicts the current spec on three points. **No `--blue` token** — see §2.8 |
 | **P1′** | Reshape the merged projection: delete `alsoGood`; hoist the picks to a forecast-wide rank-1/rank-2 **over the rendered window set** (§2.3), each bound to its window; add nullable `priorRating` to the slot for the change row | Keep `rank()`, `pick()`, `Pick`, `AlsoGoodFloor`, badges, rarity, and all of `73e20f5d`'s fixes. **No `regionId`** (§2.8). Update `BriefingWindow:36-37` and `PlanWindowProjector:274-275` in the *same* change as the field, never before it |
 | **P2** | ~~Backend: tide rollup derivation (§2.4)~~ **DONE.** `BriefingWindowTide` on every window, built by `WindowTideRollupBuilder` and passed to the projector as a map. `selectRepresentative`/`findAnchor` extracted to `TideRepresentativeSelector` (per-instance warn state), formatters to `TideWording` | Extraction proved pure — `TideRunBuilderTest` passes unedited. Three review findings changed the design, not just the prose: the anomaly estimator, the tide-state window, and the projection's placement on the serve path (§2.4a) |
 | **P3** | Backend: `GET /api/user/settings/reach` (§2.2) | Unchanged |
