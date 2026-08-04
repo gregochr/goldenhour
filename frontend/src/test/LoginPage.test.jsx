@@ -23,12 +23,22 @@ const renderWithAuth = (component) =>
   render(<AuthProvider>{component}</AuthProvider>);
 
 describe('LoginPage', () => {
+  // React 19 entangles async actions process-wide: while one is in flight, the state a LATER
+  // useActionState returns waits on it. So a login promise that never settles does not just affect
+  // its own test — every subsequent submit in this file stays stuck on "Signing in…" and the error
+  // it returns never commits. That is what made "shows error message when login fails" fail
+  // whenever the shuffler put it after the loading test. Any test that leaves a login pending
+  // parks its resolver here so the action scope is released even when an assertion throws first.
+  let releasePendingLogin = null;
+
   beforeEach(() => {
     vi.clearAllMocks();
     installTurnstileMock();
+    releasePendingLogin = null;
   });
 
   afterEach(() => {
+    releasePendingLogin?.();
     delete window.turnstile;
   });
 
@@ -80,7 +90,9 @@ describe('LoginPage', () => {
 
   it('disables submit button while loading', async () => {
     const user = userEvent.setup();
-    vi.spyOn(AuthApi, 'login').mockReturnValue(new Promise(() => {})); // never resolves
+    vi.spyOn(AuthApi, 'login').mockReturnValue(new Promise((resolve) => {
+      releasePendingLogin = () => resolve(undefined);
+    }));
     renderWithAuth(<LoginPage />);
 
     await user.type(screen.getByTestId('login-username'), 'testuser');
@@ -90,6 +102,10 @@ describe('LoginPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /signing in/i })).toBeDisabled();
     });
+
+    // Let the login finish before the test ends — see the note on releasePendingLogin above.
+    releasePendingLogin();
+    await screen.findByRole('button', { name: 'Sign in' });
   });
 
   it('renders the Turnstile widget', () => {

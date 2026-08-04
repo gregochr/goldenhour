@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — three frontend suites that only passed in declaration order
+
+- **A save that never settles freezes every later submit in the file.** `OutcomeModal.test.jsx` and `LoginPage.test.jsx` each stubbed their in-progress state with `new Promise(() => {})`. React 19 entangles async actions process-wide: while one is in flight, the state a *later* `useActionState` returns waits on it. So the never-settled action did not stay inside its own test — every subsequent submit sat on "Saving…" / "Signing in…" with its error state never committing. Measured rather than inferred: after the poisoned test the mock is still called exactly once and the new component still renders the pending label, so the action runs and only its returned state is lost. Both tests now hand the resolver out and settle it before they end, with an `afterEach` net so an assertion that throws mid-test cannot poison the file either.
+- **`vi.clearAllMocks()` clears calls, not implementations.** `DailyBriefing.test.jsx` already re-asserted `fetchTravelDayRanges`'s baseline for exactly that reason, but not `getCloseToHome`'s — so once the Close-to-home block had run, every later test rendered that panel too. Its fixture carries a card named **Keswick**, which is also a location in the main briefing fixture, so an unscoped `getByText('Keswick')` found two. Baseline restored in both `beforeEach`s, and that assertion is now scoped to the slot list, which is the claim it was ever making.
+- **A `describe` with no setup at all.** `DailyBriefing — lightly-evaluated framing` borrowed whatever a sibling block had left behind. Run it first and `useAuth()` returns `undefined`, so the component throws destructuring `role`. It has its own `beforeEach` now.
+- **These are intra-file order dependencies, not flakes.** Declaration order happens to be safe in all three, which is why the suite has always been green. Found while investigating a reported `TopicFacts.test.jsx` flake that turned out to be unrelated: that test is synchronous over static props, and `isolate: true` gives every test file its own process, so nothing in the suite can reach it. Reproduced deterministically with `--sequence.shuffle.tests --sequence.seed=N` and verified with 12 whole-suite shuffled runs plus the normal one.
+
 ### Fixed — the local browser path, which had never worked past the login screen
 
 Two independent config bugs, either of which alone was enough to make the app unreachable in a browser on a dev machine. Between them they are why UI work on this project has been verified by unit test and build rather than by looking at it.

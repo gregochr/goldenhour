@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import OutcomeModal from '../components/OutcomeModal.jsx';
@@ -25,8 +25,21 @@ function renderModal(overrides = {}) {
 }
 
 describe('OutcomeModal', () => {
+  // React 19 entangles async actions process-wide: while one is in flight, the state a LATER
+  // useActionState returns waits on it. So a save promise that never settles does not just affect
+  // its own test — every subsequent submit in this file stays stuck on "Saving…" and its error
+  // state never commits. That is what made "shows error message on failed save" fail whenever the
+  // shuffler put it after the in-progress test. Any test that leaves a save pending parks its
+  // resolver here so the action scope is released even when an assertion throws first.
+  let releasePendingSave = null;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    releasePendingSave = null;
+  });
+
+  afterEach(() => {
+    releasePendingSave?.();
   });
 
   it('renders the modal with a title containing date and type', () => {
@@ -87,7 +100,9 @@ describe('OutcomeModal', () => {
 
   it('shows "Saving..." while save is in progress', async () => {
     const user = userEvent.setup();
-    recordOutcome.mockReturnValue(new Promise(() => {})); // never resolves
+    recordOutcome.mockReturnValue(new Promise((resolve) => {
+      releasePendingSave = () => resolve({});
+    }));
     renderModal();
 
     await user.click(screen.getByTestId('outcome-submit'));
@@ -95,6 +110,10 @@ describe('OutcomeModal', () => {
     await waitFor(() => {
       expect(screen.getByText('Saving…')).toBeInTheDocument();
     });
+
+    // Let the save finish before the test ends — see the note on releasePendingSave above.
+    releasePendingSave();
+    await screen.findByTestId('outcome-saved-message');
   });
 
   it('shows success message after successful save', async () => {
