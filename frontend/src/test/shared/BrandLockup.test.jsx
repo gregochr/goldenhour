@@ -20,6 +20,18 @@ describe('BrandLockup', () => {
     expect(screen.getAllByText('PhotoCast')).toHaveLength(1);
   });
 
+  it('compact keeps the wordmark a heading and the spine, and drops only the prose', () => {
+    // The window-first masthead is ~50px against the header variant's ~90px, and that budget is
+    // the point of the redesign — but the spine is the whole visual device, so what goes is the
+    // prose. The heading must survive at every size or the e2e locator above breaks.
+    render(<BrandLockup variant="compact" />);
+
+    expect(screen.getByRole('heading', { level: 1, name: 'PhotoCast' })).toBeInTheDocument();
+    expect(screen.getByTestId('brand-lockup-spine')).toBeInTheDocument();
+    expect(screen.queryByText('Field guide to light')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Golden hour, forecast/)).not.toBeInTheDocument();
+  });
+
   it('renders the kicker and the tagline', () => {
     render(<BrandLockup />);
     expect(screen.getByText('Field guide to light')).toBeInTheDocument();

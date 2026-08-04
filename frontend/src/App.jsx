@@ -293,6 +293,9 @@ function AppInner() {
 
   return (
     <div className="min-h-screen bg-plex-bg">
+      {/* Suppressed for the window-first arm, which renders its own masthead carrying the same
+          wordmark, cog and Sign out. Rendering both would stack two headers and two wordmarks. */}
+      {planLayout !== PLAN_V2 && (
       <header className="border-b border-plex-border px-4 py-6">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <BrandLockup variant="header" />
@@ -326,6 +329,7 @@ function AppInner() {
           </div>
         </div>
       </header>
+      )}
 
       <SessionExpiryBanner />
       <div className="max-w-4xl mx-auto px-4 mt-4">
@@ -373,10 +377,16 @@ function AppInner() {
           window-first design has its own tabs — a different control from ViewToggle — and its
           subtree owns its own shell and tab state, so branching here is what keeps DailyBriefing
           and ViewToggle untouched while both layouts are alive. */}
-      <main className={`max-w-4xl mx-auto px-4 py-6${isDown ? ' opacity-50 pointer-events-none' : ''}`}>
-        {planLayout === PLAN_V2 ? (
-          <WindowFirstShell onExit={() => setPlanLayout(PLAN_V1)} />
-        ) : (
+      {planLayout === PLAN_V2 ? (
+        <main className={`px-4 py-6${isDown ? ' opacity-50 pointer-events-none' : ''}`}>
+          <WindowFirstShell
+            onExit={() => setPlanLayout(PLAN_V1)}
+            onOpenSettings={() => setShowSettings(true)}
+            onSignOut={logout}
+          />
+        </main>
+      ) : (
+        <main className={`max-w-4xl mx-auto px-4 py-6${isDown ? ' opacity-50 pointer-events-none' : ''}`}>
           <>
           {/* Tab shell — always visible; needs no server data, so it paints instantly on refresh. */}
           <div className="mb-6">
@@ -476,8 +486,8 @@ function AppInner() {
             </Suspense>
           )}
           </>
-        )}
-      </main>
+        </main>
+      )}
 
       <footer className="border-t border-plex-border px-4 py-4 mt-8">
         <div className="max-w-4xl mx-auto text-center text-xs text-plex-text-muted">

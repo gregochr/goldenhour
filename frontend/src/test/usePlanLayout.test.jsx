@@ -62,12 +62,57 @@ describe('usePlanLayout', () => {
 });
 
 describe('WindowFirstShell', () => {
-  // The shorter of the two routes back — the app header's ⚙ renders in both arms and also reaches
-  // the toggle. This one exists because the arm below it is empty while the shell is a stub.
+  const renderShell = (props = {}) => {
+    const handlers = { onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), ...props };
+    render(<WindowFirstShell {...handlers} />);
+    return handlers;
+  };
+
+  // The shorter of the two routes back — the masthead's ⚙ opens the settings modal, which owns the
+  // toggle. This one exists because the arm below it is empty while the shell is a stub.
   it('offers a way back to the current Plan', () => {
-    const onExit = vi.fn();
-    render(<WindowFirstShell onExit={onExit} />);
+    const { onExit } = renderShell();
     fireEvent.click(screen.getByRole('button', { name: /back to the current plan/i }));
     expect(onExit).toHaveBeenCalledTimes(1);
+  });
+
+  it('carries the wordmark as the page heading, because it replaces the app header', () => {
+    // App suppresses its own <header> for this arm, so if the masthead did not carry the wordmark
+    // the signed-in app would have no h1 at all — and src/test/e2e/forecast.spec.js:46 finds the
+    // app with getByRole('heading', { name: /PhotoCast/ }). That e2e would break the moment the
+    // flag default flips at P15, which is far too late to notice.
+    renderShell();
+    expect(screen.getByRole('heading', { level: 1, name: 'PhotoCast' })).toBeInTheDocument();
+  });
+
+  it('carries the cog and Sign out the suppressed header used to own', () => {
+    // Both are lifted handlers, not new state. Losing either would strand a v2 user with no route
+    // to settings — which is the only route back once the temporary exit button goes.
+    const { onOpenSettings, onSignOut } = renderShell();
+
+    fireEvent.click(screen.getByTestId('window-first-settings'));
+    fireEvent.click(screen.getByTestId('window-first-signout'));
+
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(onSignOut).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders one tab, selected, and no tab whose pane does not exist', () => {
+    // The design draws four. Coming up is P13; Map and Manage arrive when this subtree takes over
+    // view state. A tab that renders nothing is a demo control and §6 bans those from the shipped
+    // build — so this pins that each tab lands WITH its pane rather than ahead of it.
+    renderShell();
+
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs).toHaveLength(1);
+    expect(tabs[0]).toHaveTextContent('Plan');
+    expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('does not reproduce the design\'s build/health pill', () => {
+    // The mock shows "● UP v2.17.7" unconditionally. Build version and service health are not a
+    // pilot user's business, and HealthIndicator is admin-only today (plan §7).
+    renderShell();
+    expect(screen.queryByText(/UP v/i)).not.toBeInTheDocument();
   });
 });
