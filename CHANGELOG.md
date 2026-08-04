@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the reach lens gets its own contract, deliberately away from the briefing (P3)
+
+- **`GET /api/user/settings/reach`** returns `{locationId, driveMinutes, distanceMiles}` for every enabled location. Shared window content stays on `/api/briefing`; per-user reach comes from here, and the client joins the two on `locationId`.
+- **The path is load-bearing, not tidiness.** `HttpCachingConfig`'s revalidatable set is an exact-match allow-list, so anything under `/api/user/settings` is excluded from ETag caching by construction — and ETag revalidation would persist home-derived data to a browser HTTP cache JavaScript cannot evict on logout. The new path joins `HttpCachingConfigTest`'s pinned list so a future whitelist edit cannot quietly start caching it.
+- **The whole roster, never radius-gated.** Reach is a lens over everything; `localRadiusMiles` gates only "Close to home". A pre-filtered payload would silently decide what the lens may reveal, and the widest tier could never show what it promises.
+- **Absence means "unknown", never "out of reach".** A caller with no home postcode — the normal first-run state — gets the full roster with null figures rather than an empty list, a 204, or a `homeSet` flag that could disagree with `GET /api/user/settings`. A half-saved home yields no distance at all, since latitude without longitude would otherwise measure to lon 0 and print a real-looking number wrong by hundreds of miles.
+- Not a reshape of `/drive-times`, which `DailyBriefing` still consumes as a flat id→minutes map and which carries no distance; and not `close-to-home`, whose gate is a distance radius rather than drive-time tiers.
+- Adversarial review before landing: 16 charges across five lenses, 1 upheld — a test comment that excluded the one fixture whose `round` and `ceil` differ, on a figure that was itself wrong. Including it kills a `Math.round → Math.ceil` mutation that had been surviving the whole class.
+
+
 ### Fixed — the admin batch dialog could open with nothing selected, and submit everything
 
 - **A race between the batch button and the regions fetch.** The button renders immediately from static markup while `getRegions()` is still in flight, and `openBatchDialog` snapshotted the selection at click time — so an admin who clicked quickly opened the dialog against an empty roster. The regions then arrived and rendered every box **unchecked** above "0 of 3 regions selected", and clicking one *checked* it rather than unchecking. `selectedIds: null` now means "all regions", resolved against the current roster at render, toggle and submit time, so the default follows the data whenever it lands.

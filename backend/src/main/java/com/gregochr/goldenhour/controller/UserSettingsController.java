@@ -6,6 +6,8 @@ import com.gregochr.goldenhour.model.PostcodeLookupResult;
 import com.gregochr.goldenhour.model.SaveHomeRequest;
 import com.gregochr.goldenhour.model.UserSettingsResponse;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
+import com.gregochr.goldenhour.model.ReachEntry;
+import com.gregochr.goldenhour.service.ReachService;
 import com.gregochr.goldenhour.service.UserSettingsService;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -28,17 +31,21 @@ public class UserSettingsController {
 
     private final UserSettingsService settingsService;
     private final DriveTimeResolver driveTimeResolver;
+    private final ReachService reachService;
 
     /**
      * Constructs a {@code UserSettingsController}.
      *
      * @param settingsService    the user settings service
      * @param driveTimeResolver  the drive time resolver for fetching per-user drive times
+     * @param reachService       the caller's reach over the whole roster
      */
     public UserSettingsController(UserSettingsService settingsService,
-            DriveTimeResolver driveTimeResolver) {
+            DriveTimeResolver driveTimeResolver,
+            ReachService reachService) {
         this.settingsService = settingsService;
         this.driveTimeResolver = driveTimeResolver;
+        this.reachService = reachService;
     }
 
     /**
@@ -98,5 +105,24 @@ public class UserSettingsController {
     public Map<Long, Integer> getDriveTimes(Authentication auth) {
         Long userId = settingsService.getUserId(auth);
         return driveTimeResolver.getAllMinutes(userId);
+    }
+
+    /**
+     * Returns the caller's reach — drive minutes and distance — for every enabled location.
+     *
+     * <p>Deliberately under {@code /api/user/settings}, and not merely for tidiness:
+     * {@code HttpCachingConfig}'s revalidatable set is an exact-match allow-list, so a path here is
+     * excluded from ETag caching by construction. Reach is home-derived personal data, and ETag
+     * revalidation would persist it to a browser HTTP cache JavaScript cannot evict on logout.
+     *
+     * <p>Bearer, with no role gate: this is the caller's own data, and gating it would break the
+     * reach lens for the very users it exists to serve.
+     *
+     * @param auth the current authentication context
+     * @return one entry per enabled location, in id order
+     */
+    @GetMapping("/reach")
+    public List<ReachEntry> getReach(Authentication auth) {
+        return reachService.getReach(auth);
     }
 }
