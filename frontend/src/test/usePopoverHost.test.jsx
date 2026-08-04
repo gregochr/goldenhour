@@ -55,6 +55,46 @@ describe('usePopoverHost', () => {
     expect(tip).toHaveTextContent('detail for A');
     expect(tip.parentElement).toBe(document.body);
     expect(screen.getByTestId('chip-a')).not.toContainElement(tip);
+    // The computed placement must REACH the node. Positioning is this component's whole job, and
+    // without these two the `style` and `data-align` attributes were both deletable with the suite
+    // green — the panel would land in document.body as position:static, full-width at the foot of
+    // the page, and nothing would say so until P5 wired the first caller.
+    expect(tip).toHaveStyle({ position: 'fixed' });
+    expect(tip).toHaveAttribute('data-align', 'left');
+  });
+
+  it('carries the edge flip through to the panel, not just out of the maths', () => {
+    // Every other open-panel test omits `width`, and the flip short-circuits without one — so none
+    // of them can ever observe alignRight === true. This is the only test that sees a flipped panel
+    // rendered, which is what P5's caret will be drawn from.
+    const nearRight = window.innerWidth - 40;
+    function FlipHarness() {
+      const { popover, show } = usePopoverHost();
+      return (
+        <div>
+          <button
+            type="button"
+            data-testid="chip-edge"
+            onFocus={() => show(
+              'e',
+              anchorAt({ left: nearRight, top: 200, right: nearRight + 30 }),
+              'edge detail',
+              { width: 260 },
+            )}
+          >
+            E
+          </button>
+          <PopoverHost popover={popover} className="tip" />
+        </div>
+      );
+    }
+    render(<FlipHarness />);
+    fireEvent.focus(screen.getByTestId('chip-edge'));
+
+    const tip = screen.getByRole('tooltip');
+    expect(tip).toHaveAttribute('data-align', 'right');
+    expect(tip).toHaveStyle({ position: 'fixed', right: '10px', width: '260px' });
+    expect(tip.style.left).toBe('');
   });
 
   it('shows exactly one panel however many triggers have been used', () => {
@@ -176,6 +216,31 @@ describe('computePopoverPlacement', () => {
     expect(alignRight).toBe(true);
     expect(style.right).toBeDefined();
     expect(style.left).toBeUndefined();
+  });
+
+  it('does not flip while the panel still fits, including exactly at the threshold', () => {
+    // The boundary itself. Flip fires on `left + width + margin > innerWidth`, so at exactly
+    // innerWidth - width - margin the panel fits to the pixel and must NOT flip. This is what
+    // makes `>` distinguishable from `>=`.
+    const exact = window.innerWidth - 260 - 10;
+    const { alignRight } = computePopoverPlacement(
+      anchorAt({ left: exact, top: 200, right: exact + 30 }).getBoundingClientRect(),
+      { width: 260 },
+    );
+
+    expect(alignRight).toBe(false);
+  });
+
+  it('flips one pixel past the threshold, which is where the margin earns its place', () => {
+    // One px above the boundary. Deleting `+ margin` moves the threshold 10px right, so this case
+    // would stop flipping — which is the mutation the far-past-the-line case could never catch.
+    const justOver = window.innerWidth - 260 - 10 + 1;
+    const { alignRight } = computePopoverPlacement(
+      anchorAt({ left: justOver, top: 200, right: justOver + 30 }).getBoundingClientRect(),
+      { width: 260 },
+    );
+
+    expect(alignRight).toBe(true);
   });
 
   it('never flips when no width is given, because there is nothing to overrun-test', () => {
