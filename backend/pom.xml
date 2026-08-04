@@ -43,6 +43,28 @@
                 </plugins>
             </build>
         </profile>
+
+        <!--
+            Local dev against the H2 file DB:
+              ./mvnw -Plocal-dev spring-boot:run -Dspring-boot.run.profiles=local
+
+            H2 is declared `test` scope above so it cannot reach the production Docker image, which
+            runs PostgreSQL. That scope is the exclusion mechanism and must not be widened — but it
+            also keeps the driver off the RUNTIME classpath, so `spring-boot:run` failed with
+            "Cannot load driver class: org.h2.Driver" and there was no way to reach the app in a
+            browser at all. This profile re-adds it at runtime scope for local dev only. Nothing
+            activates it by default, so `./mvnw package`, CI and the Docker build are unchanged.
+        -->
+        <profile>
+            <id>local-dev</id>
+            <dependencies>
+                <dependency>
+                    <groupId>com.h2database</groupId>
+                    <artifactId>h2</artifactId>
+                    <scope>runtime</scope>
+                </dependency>
+            </dependencies>
+        </profile>
     </profiles>
 
     <repositories>
