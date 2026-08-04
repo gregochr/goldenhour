@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import React from 'react';
 import usePlanLayout, { PLAN_LAYOUT_KEY, PLAN_V1, PLAN_V2 } from '../hooks/usePlanLayout.js';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
@@ -90,8 +90,10 @@ describe('WindowFirstShell', () => {
     // to settings — which is the only route back once the temporary exit button goes.
     const { onOpenSettings, onSignOut } = renderShell();
 
-    fireEvent.click(screen.getByTestId('window-first-settings'));
-    fireEvent.click(screen.getByTestId('window-first-signout'));
+    // By ROLE AND NAME, not test-id: a test-id keeps passing while the accessible name rots, and
+    // these two are the only route out of the arm once the temporary exit button goes.
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
 
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
     expect(onSignOut).toHaveBeenCalledTimes(1);
@@ -105,14 +107,40 @@ describe('WindowFirstShell', () => {
 
     const tabs = screen.getAllByRole('tab');
     expect(tabs).toHaveLength(1);
-    expect(tabs[0]).toHaveTextContent('Plan');
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
+    // Exactly "Plan": the ◉ is decorative and must not leak into the accessible name, which is the
+    // rule ViewToggle:56 already follows for its own glyphs.
+    expect(tabs[0]).toHaveAccessibleName('Plan');
   });
 
-  it('does not reproduce the design\'s build/health pill', () => {
-    // The mock shows "● UP v2.17.7" unconditionally. Build version and service health are not a
-    // pilot user's business, and HealthIndicator is admin-only today (plan §7).
+  it('carries exactly two masthead controls, so no build/health pill creeps in', () => {
+    // The mock shows "● UP v2.17.7" unconditionally; §7 drops it, because build version and
+    // service health are not a pilot user's business and HealthIndicator is admin-only. Asserting
+    // the ABSENCE of that string would pass whether or not anything was ever built — this counts
+    // what the masthead actually offers instead, so an added control has to be argued for.
     renderShell();
-    expect(screen.queryByText(/UP v/i)).not.toBeInTheDocument();
+    const masthead = screen.getByTestId('window-first-masthead');
+    const names = within(masthead).getAllByRole('button').map((b) => b.textContent.trim());
+    expect(names).toEqual(['⚙', 'Sign out']);
+  });
+
+  it('renders at the design\'s 1080px frame, not the v1 arm\'s 896px column', () => {
+    // One of P4a's two deliverables, and nothing else pinned it. The v1 arm is max-w-4xl (896px);
+    // a shell that inherited that would be ~200px under the frame every later phase is drawn to.
+    renderShell();
+    expect(screen.getByTestId('window-first-shell')).toHaveStyle({ maxWidth: '1080px' });
+  });
+
+  it('greys the pane when the backend is DOWN, but never the way out', () => {
+    // The v1 header sits OUTSIDE the element carrying the DOWN treatment, so it has never been
+    // able to disable Settings or Sign out. Here the masthead is inside the shell: gating the
+    // whole subtree would strand a user on a dead page with no cog, no Sign out and no exit —
+    // exactly when they most need one.
+    renderShell({ contentDisabled: true });
+
+    expect(screen.getByTestId('window-first-pane').className).toContain('pointer-events-none');
+    expect(screen.getByTestId('window-first-masthead').className)
+      .not.toContain('pointer-events-none');
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
   });
 });

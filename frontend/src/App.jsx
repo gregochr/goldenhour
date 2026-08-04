@@ -378,11 +378,16 @@ function AppInner() {
           subtree owns its own shell and tab state, so branching here is what keeps DailyBriefing
           and ViewToggle untouched while both layouts are alive. */}
       {planLayout === PLAN_V2 ? (
-        <main className={`px-4 py-6${isDown ? ' opacity-50 pointer-events-none' : ''}`}>
+        <main className="px-4 py-6">
+          {/* isDown is passed DOWN rather than applied here: the shell's masthead carries the cog,
+              Sign out and the exit hatch, and greying the whole subtree would strand a user with no
+              route out of a broken app. The v1 arm has never had this problem because its header
+              sits outside the gated element. */}
           <WindowFirstShell
             onExit={() => setPlanLayout(PLAN_V1)}
             onOpenSettings={() => setShowSettings(true)}
             onSignOut={logout}
+            contentDisabled={isDown}
           />
         </main>
       ) : (

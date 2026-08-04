@@ -48,8 +48,15 @@ const WRAP_MAX_WIDTH = '1080px';
  * @param {function} props.onOpenSettings opens the shared settings modal, which owns the flag
  *        toggle — so this is the route back that survives once the temporary exit button goes.
  * @param {function} props.onSignOut ends the session; the same handler the v1 header uses.
+ * @param {boolean}  [props.contentDisabled] greys the pane when the backend is DOWN.
+ *
+ *        <p><b>The pane, never the chrome.</b> In the v1 arm the header sits OUTSIDE the element
+ *        carrying that treatment, so a DOWN backend has never been able to disable Settings or
+ *        Sign out. Here the masthead is inside the shell, so gating the whole thing would take the
+ *        cog, Sign out and the exit hatch with it — leaving a user staring at a greyed page with
+ *        no route anywhere, at exactly the moment they most need one.
  */
-export default function WindowFirstShell({ onExit, onOpenSettings, onSignOut }) {
+export default function WindowFirstShell({ onExit, onOpenSettings, onSignOut, contentDisabled }) {
   return (
     <div
       data-testid="window-first-shell"
@@ -59,7 +66,7 @@ export default function WindowFirstShell({ onExit, onOpenSettings, onSignOut }) 
       <div
         data-testid="window-first-masthead"
         className="flex items-center gap-3 border-b border-plex-border"
-        style={{ padding: '13px 14px 12px' }}
+        style={{ padding: '16px 18px 14px' }}
       >
         <BrandLockup variant="compact" />
         <div className="ml-auto flex items-center gap-2">
@@ -107,12 +114,15 @@ export default function WindowFirstShell({ onExit, onOpenSettings, onSignOut }) 
             boxShadow: 'inset 0 2px 0 var(--color-close-to-home)',
           }}
         >
-          ◉ Plan
+          <span aria-hidden="true" style={{ fontSize: '12px', opacity: 0.8 }}>◉</span> Plan
         </button>
       </div>
       <div data-testid="window-first-tabrule" className="h-px bg-plex-border" />
 
-      <div className="px-5 py-8 text-center">
+      <div
+        data-testid="window-first-pane"
+        className={`px-5 py-8 text-center${contentDisabled ? ' opacity-50 pointer-events-none' : ''}`}
+      >
         <p className="text-plex-text" style={{ fontSize: '15.5px', fontWeight: 700 }}>
           Window-first Plan
         </p>
@@ -141,4 +151,5 @@ WindowFirstShell.propTypes = {
   onExit: PropTypes.func.isRequired,
   onOpenSettings: PropTypes.func.isRequired,
   onSignOut: PropTypes.func.isRequired,
+  contentDisabled: PropTypes.bool,
 };
