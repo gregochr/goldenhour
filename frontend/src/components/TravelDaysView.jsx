@@ -160,7 +160,11 @@ export default function TravelDaysView() {
         <button
           type="submit"
           disabled={saving}
-          className="bg-plex-accent text-black text-sm font-semibold px-4 py-1.5 rounded disabled:opacity-50"
+          // `bg-plex-accent` named a token that has never existed, so Tailwind emitted no rule at
+          // all and this rendered as black text on no background — an invisible button, not a
+          // mis-tinted one. `plex-gold` is the palette's actual interactive accent and is what
+          // `.btn-primary` already pairs with dark text.
+          className="bg-plex-gold hover:bg-plex-gold-light text-gray-900 text-sm font-semibold px-4 py-1.5 rounded transition-colors disabled:opacity-50"
           data-testid="travel-day-add"
         >
           {saving ? 'Adding…' : 'Add range'}

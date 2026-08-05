@@ -1719,6 +1719,8 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
         return (
           <BottomSheet
             open
+            // The sheet is the phone's marker popup, so its name is the place it describes.
+            label={loc.name}
             onClose={() => { setSelectedLocationName(null); void 0; }}
           >
             <div key={`${date}-${eventType}`} className="animate-popup-refresh">

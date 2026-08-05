@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import PropTypes from 'prop-types';
+import useDialogFocus from '../hooks/useDialogFocus.js';
 
 /**
  * Modal that opens the map *over* the Plan tab (instead of a full tab switch), focused on whatever
@@ -39,6 +40,11 @@ export default function MapOverlay({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // Focus in and back out again, as every dialog now does. Deliberately no containment here even
+  // by the shared hook's standards: the panel holds a Leaflet map, which owns its own keyboard
+  // handling and mutates its tab stops as layers come and go.
+  const dialogRef = useDialogFocus(true);
+
   const headColour = narrativeTone === 'go'
     ? 'var(--color-verdict-go)'
     : narrativeTone === 'marginal'
@@ -64,11 +70,13 @@ export default function MapOverlay({
       }}
     >
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         data-testid="map-overlay-panel"
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="map-overlay-panel"
+        className="map-overlay-panel focus:outline-none"
         style={{
           width: 'min(920px, 94vw)',
           maxHeight: '88vh',

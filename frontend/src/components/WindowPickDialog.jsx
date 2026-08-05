@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import PropTypes from 'prop-types';
 import Modal from './shared/Modal.jsx';
 
@@ -15,11 +15,10 @@ import Modal from './shared/Modal.jsx';
  * ways (Escape, the close control, the backdrop), and reachable by keyboard and touch alike, which
  * a hover peek is not.
  *
- * <p><b>Focus is not trapped, and saying so would be a lie.</b> {@code role="dialog"} and
- * {@code aria-modal} are semantics; nothing in {@code Modal} moves focus in, holds it, or restores
- * it on close. That is an app-wide gap rather than this component's, so it is recorded here instead
- * of being half-fixed in one dialog — but the dismissal is not optional, and that part is fixed
- * below.
+ * <p><b>Focus is moved in and restored, but not trapped</b> — {@code Modal} now does both for every
+ * dialog in the app, and {@link useDialogFocus} records why containment was left out. Escape is
+ * opt-in per caller and this one opts in: the panel is read-only prose plus two navigations, so
+ * dismissing it loses nothing.
  *
  * <p>That is a deviation from the mock's {@code .pk} hover peek, and a deliberate one. The mock's
  * peek belongs to a <em>spot card</em>, which is itself a link — the peek is a shortcut past a
@@ -58,23 +57,13 @@ export default function WindowPickDialog({
   const isBest = pick.kind === 'best';
   const accent = isBest ? 'var(--color-badge-go)' : 'var(--color-badge-also)';
 
-  // Escape, at the document. `Modal` puts its own key handler on the backdrop — an empty div with
-  // no tabIndex and no children, so it can never be a keydown target nor an ancestor of one; it is
-  // there to satisfy a lint rule about click handlers. Without this the only ways out of this
-  // dialog were a pointer on the backdrop or taking an action nobody asked for, and the two
-  // remaining controls both navigate off the Plan screen. Registered here rather than lifted into
-  // `Modal`, which would quietly add discard-on-Escape to four dialogs holding unsaved form state.
-  useEffect(() => {
-    const onKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
-
   return (
     <Modal
       label={`${isBest ? 'Best bet' : 'Also good'} — ${pick.regionName}`}
       onClose={onClose}
       bare
+      // Nothing here is lost by dismissing: the panel is read-only prose plus two navigations.
+      closeOnEscape
       data-testid="window-pick-dialog"
     >
       {/* `bare` rather than the default panel plus overrides: the panel ships `p-6 gap-4`, and this

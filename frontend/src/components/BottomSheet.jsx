@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
+import useDialogFocus from '../hooks/useDialogFocus.js';
 
 /**
  * Mobile bottom sheet overlay. Slides up from the bottom of the viewport
@@ -9,9 +10,10 @@ import PropTypes from 'prop-types';
  * @param {object} props
  * @param {boolean} props.open - Whether the sheet is visible.
  * @param {function} props.onClose - Called when the user dismisses the sheet.
+ * @param {string} [props.label] - The sheet's accessible name.
  * @param {React.ReactNode} props.children - Content rendered inside the sheet.
  */
-export default function BottomSheet({ open, onClose, children }) {
+export default function BottomSheet({ open, onClose, label = 'Details', children }) {
   // Prevent body scroll while open
   useEffect(() => {
     if (!open) return;
@@ -19,6 +21,10 @@ export default function BottomSheet({ open, onClose, children }) {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = prev; };
   }, [open]);
+
+  // Gated on `open`, unlike Modal's — this component returns null rather than unmounting, so the
+  // hook has to be told when the sheet is actually on screen.
+  const dialogRef = useDialogFocus(open);
 
   if (!open) return null;
 
@@ -38,10 +44,15 @@ export default function BottomSheet({ open, onClose, children }) {
 
       {/* Sheet */}
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
+        // Named at last. A role="dialog" with no accessible name announces as "dialog" and nothing
+        // else, so a screen-reader user was told something had opened but not what.
+        aria-label={label}
         data-testid="bottom-sheet"
-        className="fixed bottom-0 left-0 right-0 rounded-t-2xl bg-plex-surface border-t border-plex-border animate-slide-up"
+        className="fixed bottom-0 left-0 right-0 rounded-t-2xl bg-plex-surface border-t border-plex-border animate-slide-up focus:outline-none"
         style={{ zIndex: 10000, maxHeight: '60vh' }}
       >
         {/* Drag handle */}
@@ -72,5 +83,6 @@ export default function BottomSheet({ open, onClose, children }) {
 BottomSheet.propTypes = {
   open: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
+  label: PropTypes.string,
   children: PropTypes.node,
 };
