@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-## [v2.7.11] - 2026-08-05
+## [v2.17.11] - 2026-08-05
 
 ### Fixed — every dialog now takes focus and gives it back, and every focus ring meets 3:1
 
