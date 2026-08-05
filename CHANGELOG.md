@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.7.11] - 2026-08-05
+
 ### Fixed — every dialog now takes focus and gives it back, and every focus ring meets 3:1
 
 **Focus.** No dialog in the app moved focus into itself or restored it on close. `role="dialog"` and `aria-modal` are semantics, not behaviour: opening a dialog left focus behind the backdrop, so a keyboard user had to Tab through the whole page to reach what had just appeared over it, and closing left focus on a detached node. A new `useDialogFocus` hook does focus-in and restore, wired into `Modal` (15 render sites across 10 importers, plus `ConfirmDialog`), `MapOverlay` and `BottomSheet`.
