@@ -636,7 +636,11 @@ const ModelTestView = () => {
             </p>
             <input
               type="text"
-              className="w-full px-3 py-2 rounded bg-plex-bg border border-plex-border text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:border-plex-accent"
+              // `focus:border-plex-accent` named a token that has never existed, so it emitted
+              // nothing: `focus:outline-none` took the UA ring away and put back no indicator at
+              // all. The same defect the quality slider carried, and the reason this one is caught
+              // here rather than left — a focus fix that leaves a live instance behind is not one.
+              className="w-full px-3 py-2 rounded bg-plex-bg border border-plex-border text-sm text-plex-text placeholder-plex-text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-plex-gold"
               placeholder="Filter locations\u2026"
               value={locationFilter}
               onChange={(e) => setLocationFilter(e.target.value)}
@@ -651,7 +655,9 @@ const ModelTestView = () => {
                     key={loc.id}
                     className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${
                       selectedLocationId === loc.id
-                        ? 'bg-plex-accent/20 border border-plex-accent text-plex-text'
+                        // Same dead token: the selected row had no tint and no border, so the
+                        // picker gave no sign of what was selected.
+                        ? 'bg-plex-gold/20 border border-plex-gold text-plex-text'
                         : 'hover:bg-plex-surface-light text-plex-text-secondary'
                     }`}
                     onClick={() => setSelectedLocationId(loc.id)}

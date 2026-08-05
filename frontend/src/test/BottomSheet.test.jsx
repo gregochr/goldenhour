@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import BottomSheet from '../components/BottomSheet.jsx';
 
 describe('BottomSheet', () => {
@@ -54,6 +54,18 @@ describe('BottomSheet', () => {
     const sheet = screen.getByTestId('bottom-sheet');
     expect(sheet).toHaveAttribute('role', 'dialog');
     expect(sheet).toHaveAttribute('aria-modal', 'true');
+  });
+
+  it('names itself, so a screen reader says more than "dialog"', () => {
+    // It carried role="dialog" with no accessible name at all: a user was told something had
+    // opened but not what it was.
+    render(<BottomSheet open onClose={vi.fn()} label="Bamburgh Beach"><p>Body</p></BottomSheet>);
+    expect(screen.getByRole('dialog', { name: 'Bamburgh Beach' })).toBeInTheDocument();
+  });
+
+  it('takes focus when it opens', async () => {
+    render(<BottomSheet open onClose={vi.fn()}><p>Body</p></BottomSheet>);
+    await waitFor(() => expect(screen.getByTestId('bottom-sheet')).toHaveFocus());
   });
 
   it('applies slide-up animation class', () => {

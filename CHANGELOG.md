@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — every dialog now takes focus and gives it back, and every focus ring meets 3:1
+
+**Focus.** No dialog in the app moved focus into itself or restored it on close. `role="dialog"` and `aria-modal` are semantics, not behaviour: opening a dialog left focus behind the backdrop, so a keyboard user had to Tab through the whole page to reach what had just appeared over it, and closing left focus on a detached node. A new `useDialogFocus` hook does focus-in and restore, wired into `Modal` (15 render sites across 10 importers, plus `ConfirmDialog`), `MapOverlay` and `BottomSheet`.
+
+- **Focus-in and restore, deliberately not containment.** A trap buys one extra thing — Tab cannot leave — and costs a live focusable query that would have to cope with Leaflet mutating its own tab stops inside the map overlay, a containment rule special-casing two `document.body` portals, and a fallback for a dialog with no focusable children (the settings modal's refresh spinner is exactly that). Every plausible failure mode lives in the containment half.
+- **Not the native `<dialog>` element or `inert` either, and that is empirical.** In this project's jsdom, `HTMLDialogElement.prototype.showModal` is `undefined` and `'inert' in HTMLElement.prototype` is `false`. A rewrite onto either breaks every dialog test, and `inert`'s absence is the worse of the two — it fails as a *silent no-op*, so the tests would go green while asserting nothing. `showModal` also puts the dialog in the top layer, which `BottomSheet` at `z-index: 10000` is not, so the sheet would render behind the map overlay on mobile.
+- **The container takes focus, not the first control.** That is what makes it safe across fifteen heterogeneous sites: it works with nothing focusable inside, it works while content is still loading, and it leaves a consumer free to place focus itself.
+- **Escape now works, and is opt-in.** The handler it replaces sat on the backdrop — an empty `div` with no `tabIndex` and no children, so it could never be the keydown target nor an ancestor of one; it existed to satisfy a lint rule and never fired. Turning dismissal on everywhere would have converted a dead handler into a **data-loss** handler: eleven of the fifteen sites hold something a reader would lose, including a generated password that must be copied before it is gone. Only `WindowPickDialog` opts in.
+- **`BottomSheet` had `role="dialog"` with no accessible name at all** — a screen-reader user was told something had opened, but not what. It now takes the location's name.
+
+**Focus rings.** Three failed SC 1.4.11's 3:1 for a non-text indicator; all three now use bone at 2px, the token this file already nominates three times.
+
+- `.summary-region-chip` — 1px border-light, measured 1.47:1 on the v1 pill, 1.63:1 on the v2 rail tile and 1.52:1 on today's gold-washed tile. On that last one the *resting* border was brighter than the focus ring, so focus read as noise beside an unfocused edge. **Changed globally rather than scoped to the v2 rail**: the class is shared by both flag arms, v1 is the shipped default, and the plan's §4 comparison is layout and information architecture over one night's data — a focus-ring colour changes nothing it compares, while scoping would have left the default arm failing.
+- `.quality-slider` — `outline: none` with no replacement at all, which is strictly worse than a dim ring. (Nothing renders it today; fixed so whoever mounts it next inherits a working indicator.)
+- `.btn-secondary` — 1.38:1 on the page and 1.28:1 on a card, across 25 call sites, and on `focus:` rather than `focus-visible:` so every mouse press flashed a ring no pointer user asked for.
+
+**Two dead tokens, found while checking the first three.** `--color-plex-accent` has never existed, so Tailwind emitted nothing for it: `TravelDaysView`'s submit button rendered as black text on **no background** — invisible, not mis-tinted — and `ModelTestView`'s filter input removed the UA ring and put back no replacement, the same defect `.quality-slider` had. Its location picker also showed no selected state.
+
+**One bug of my own from P4c.** `WindowFirstDayRail` set an inline `padding` *shorthand*, which zeroed `.rail-scroller`'s `padding-bottom: 4px` at inline priority while its paired `margin-bottom: -4px` still applied — so the class's ring room was silently zero and the rail sat 4px tighter to its footer than the CSS believed. The same trap this file's sibling comments warn about for `border`, one property over.
+
+
 ### Added — the window card (P5)
 
 One card per rendered solar window, in the Plan pane, replacing the placeholder that stood there since P4a. `WindowFirstWindowCard` + `WindowPickDialog` + a pure `utils/windowFirstCards.js`, following P4c's shape exactly.

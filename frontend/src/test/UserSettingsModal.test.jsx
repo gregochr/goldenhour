@@ -107,6 +107,14 @@ describe('UserSettingsModal', () => {
     await waitFor(() => expect(screen.getByTestId('settings-home-current')).toHaveTextContent('Edinburgh'));
   });
 
+  it('still autofocuses the postcode field when asked, over the dialog\'s own focus', async () => {
+    // The shared Modal focuses its container on open. This consumer's own effect runs after and
+    // must win — the whole point of focusing the CONTAINER rather than hunting for a first control
+    // was that a consumer stays free to place focus itself.
+    renderModal({ focusField: 'postcode' });
+    await waitFor(() => expect(screen.getByTestId('settings-postcode-input')).toHaveFocus());
+  });
+
   it('postcode input is enabled for PRO user', async () => {
     getSettings.mockResolvedValue(PRO_SETTINGS);
     renderModal();
