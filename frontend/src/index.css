@@ -703,6 +703,8 @@
    the hover treatment belongs there. The v1 pill this is copied from lifts the whole card because
    the whole card is its button; here that would be a container inviting a press it cannot take. */
 .rail-day-show-on-map {
+  /* Same Preflight gap as the window card's controls below — this one shipped without it at P4c. */
+  cursor: pointer;
   color: var(--color-tide);
   transition: color 0.14s ease;
 }
@@ -1138,4 +1140,48 @@
 .cth-filter:focus-visible {
   outline: 2px solid var(--color-close-to-home);
   outline-offset: 2px;
+}
+
+/* ── Window-first window card ──
+   The card itself is a read-out; the two controls it can carry (the pick badge, and from P9 the
+   expander) are real buttons and own their own states. Focus rings are bone at 2px for the reason
+   written above .rail-day-show-on-map: the border-light ring measures 1.71:1 and fails SC 1.4.11. */
+.window-card-pick,
+.window-pick-action,
+.window-pick-close {
+  /* Tailwind v4's Preflight no longer sets `button { cursor: pointer }` and nothing else here
+     restores it — the rule this file already states 480 lines up. It matters most on the pick
+     badge, which sits in a row of inert pills with identical geometry and the same ◎ glyph. */
+  cursor: pointer;
+  transition: filter 0.14s ease, color 0.14s ease;
+}
+.window-card-pick:hover {
+  filter: brightness(1.14);
+}
+.window-card-pick:focus-visible,
+.window-pick-action:focus-visible,
+.window-pick-close:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+  border-radius: 999px;
+}
+.window-pick-action,
+.window-pick-close {
+  color: var(--color-tide);
+}
+.window-pick-close {
+  color: var(--color-plex-text-muted);
+}
+.window-pick-action:hover,
+.window-pick-close:hover {
+  color: var(--color-plex-text);
+}
+.window-pick-action:focus-visible {
+  border-radius: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .window-card-pick,
+  .window-pick-action,
+  .window-pick-close { transition: none; }
 }

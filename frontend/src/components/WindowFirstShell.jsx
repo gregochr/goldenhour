@@ -1,7 +1,9 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import BrandLockup from './shared/BrandLockup.jsx';
 import WindowFirstDayRail from './WindowFirstDayRail.jsx';
+import WindowFirstWindowCard from './WindowFirstWindowCard.jsx';
+import WindowPickDialog from './WindowPickDialog.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { formatRelativeAge } from '../utils/relativeTime.js';
 
@@ -84,7 +86,8 @@ const WRAP_MAX_WIDTH = '1080px';
 export default function WindowFirstShell({
   onExit, onOpenSettings, onSignOut, contentDisabled, onShowOnMap, onEvaluationScoresChange,
 }) {
-  const { railTiles, loading, briefing, evaluationScores } = useWindowFirstBriefing();
+  const { railTiles, windowCards, loading, briefing, evaluationScores, todayStr } = useWindowFirstBriefing();
+  const [openPick, setOpenPick] = useState(null);
 
   // Lifted to App for the map overlay, exactly as DailyBriefing does it in the v1 arm. Without this
   // a tile handed to the map opens an overlay with no narrative over a map that has filtered out
@@ -191,28 +194,63 @@ export default function WindowFirstShell({
 
       <div
         data-testid="window-first-pane"
-        className={`px-5 py-8 text-center${dimmed}`}
+        className={`flex flex-col${dimmed}`}
+        style={{ padding: '14px 18px 20px', gap: '10px' }}
       >
-        <p className="text-plex-text" style={{ fontSize: '15.5px', fontWeight: 700 }}>
-          Window-first Plan
-        </p>
-        <p
-          className="text-plex-text-muted font-mono mx-auto"
-          style={{ fontSize: '10.5px', marginTop: '7px', maxWidth: '46ch', lineHeight: 1.6 }}
-        >
-          The window cards and spot strips arrive in later phases. The day rail above them is
-          real, and so is the forecast it reads.
-        </p>
+        {windowCards.map((card) => (
+          <WindowFirstWindowCard
+            key={card.key}
+            card={card}
+            todayStr={todayStr}
+            onOpenPick={setOpenPick}
+          />
+        ))}
+        {!loading && windowCards.length === 0 && (
+          <p
+            data-testid="window-first-pane-empty"
+            className="font-mono text-plex-text-muted"
+            style={{ fontSize: '10.5px' }}
+          >
+            No windows to show.
+          </p>
+        )}
+      </div>
+
+      {/* OUTSIDE the pane, and that is a fix rather than a placement preference. The DOWN treatment
+          is `pointer-events: none`, so while the exit button lived inside the pane a dead backend
+          made the visible way back inert — the same trap P4a fixed for the masthead, re-created one
+          level down. The cog still opens the settings modal that owns the durable toggle, but the
+          button that names the route must work too. */}
+      <div style={{ padding: '0 18px 20px' }}>
         <button
           type="button"
           onClick={onExit}
           data-testid="window-first-exit"
           className="font-mono border border-plex-border text-plex-text-secondary hover:text-plex-text hover:border-plex-border-light transition-colors"
-          style={{ fontSize: '10.5px', borderRadius: '7px', padding: '6px 11px', marginTop: '16px' }}
+          style={{ fontSize: '10.5px', borderRadius: '7px', padding: '6px 11px' }}
         >
           ← Back to the current Plan
         </button>
       </div>
+
+      {openPick?.pick && (
+        <WindowPickDialog
+          pick={openPick.pick}
+          when={openPick.when}
+          time={openPick.time}
+          onClose={() => setOpenPick(null)}
+          onShowRegion={() => {
+            onShowOnMap?.({
+              region: openPick.pick.regionName, date: openPick.date, eventType: openPick.targetType,
+            });
+            setOpenPick(null);
+          }}
+          onShowLocation={() => {
+            onShowOnMap?.(openPick.date, openPick.targetType, openPick.pick.locationName);
+            setOpenPick(null);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -172,9 +172,33 @@ describe('WindowFirstShell', () => {
 });
 
 describe('WindowFirstShell — the rail it hosts', () => {
-  const briefingWith = (generatedAt, evaluationScores = new Map()) => ({
+  const CARD = {
+    key: '2026-08-04:SUNSET',
+    date: '2026-08-04',
+    targetType: 'SUNSET',
+    lead: true,
+    kicker: 'Tonight',
+    when: 'Sunset',
+    time: '21:11',
+    verdict: 'WORTH_IT',
+    verdictLabel: 'Worth it',
+    bestRating: 4,
+    confidence: 'high',
+    badges: [],
+    pick: {
+      kind: 'best',
+      regionName: 'Northumberland & Tyneside',
+      headline: 'Breaking clear',
+      detail: 'Low cloud clears.',
+      locationName: 'Bamburgh Beach',
+      locationId: 1,
+    },
+  };
+
+  const briefingWith = (generatedAt, evaluationScores = new Map(), windowCards = [CARD]) => ({
     briefing: generatedAt ? { generatedAt } : null,
     loading: false,
+    windowCards,
     evaluationScores,
     railTiles: [{
       date: '2026-08-04',
@@ -275,11 +299,91 @@ describe('WindowFirstShell — the rail it hosts', () => {
       briefing: null,
       loading: true,
       railTiles: [],
+      windowCards: [],
       evaluationScores: new Map(),
       todayStr: '2026-08-04',
       tomorrowStr: '2026-08-05',
     });
     expect(screen.queryByTestId('window-first-rail-empty')).toBeNull();
+    expect(screen.queryByTestId('window-first-pane-empty')).toBeNull();
+  });
+
+  it('renders one card per window in the Plan pane', () => {
+    renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+    expect(screen.getAllByTestId('window-card')).toHaveLength(1);
+    expect(screen.getByTestId('window-card-when')).toHaveTextContent('Sunset');
+  });
+
+  it('carries no placeholder prose above the cards', () => {
+    // The pane shipped an explanatory paragraph while it was a stub. That is an annotation card by
+    // any reading of §6, and it must not survive the phase that gives the pane real content.
+    renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+    expect(screen.getByTestId('window-first-pane').textContent)
+      .not.toMatch(/arrive in later phases|Window-first Plan/);
+  });
+
+  it('keeps the way back working when the backend is DOWN', () => {
+    // The DOWN treatment is `pointer-events: none`, and the exit button used to live INSIDE the
+    // pane that carries it — so a dead backend made the visible route back inert. That is the same
+    // trap P4a fixed one level up, re-created inside the pane.
+    renderWithBriefing(briefingWith('2026-08-04T12:00:00'), { contentDisabled: true });
+
+    expect(screen.getByTestId('window-first-pane').className).toContain('pointer-events-none');
+    const exit = screen.getByTestId('window-first-exit');
+    expect(screen.getByTestId('window-first-pane')).not.toContainElement(exit);
+    fireEvent.click(exit);
+  });
+
+  it('lets a reader close the pick dialog without going anywhere', () => {
+    // Every control left in that dialog navigates off the Plan screen, so a cancel-less dialog
+    // forces an unwanted map handoff. `onClose` was wired but nothing pinned it: replacing it with
+    // a no-op left the whole suite green.
+    const { onShowOnMap } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+    fireEvent.click(screen.getByTestId('window-card-pick'));
+
+    fireEvent.click(screen.getByTestId('window-pick-dialog-backdrop'));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(onShowOnMap).not.toHaveBeenCalled();
+  });
+
+  it('hands the dialog the window it belongs to, in the right order', () => {
+    // The header reads "<when> · <time>". Swapping the two props left the suite green and the
+    // header reading "21:11 · Sunset".
+    renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+    fireEvent.click(screen.getByTestId('window-card-pick'));
+
+    expect(screen.getByTestId('window-pick-dialog')).toHaveTextContent('Sunset · 21:11');
+  });
+
+  it('opens the pick dialog from a card and routes both of its destinations', () => {
+    const { onShowOnMap } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+
+    fireEvent.click(screen.getByTestId('window-card-pick'));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('window-pick-dialog-region'));
+    expect(onShowOnMap).toHaveBeenCalledWith({
+      region: 'Northumberland & Tyneside', date: '2026-08-04', eventType: 'SUNSET',
+    });
+    // Opening a destination closes the dialog — leaving it over the map it just opened would hide
+    // the thing the user asked to see.
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('routes the pick\'s location as a location, not as a region', () => {
+    // The two calls take different shapes and open different things: a positional
+    // (date, eventType, locationName) focuses one spot, an object focuses a region.
+    const { onShowOnMap } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+
+    fireEvent.click(screen.getByTestId('window-card-pick'));
+    fireEvent.click(screen.getByTestId('window-pick-dialog-location-action'));
+
+    expect(onShowOnMap).toHaveBeenCalledWith('2026-08-04', 'SUNSET', 'Bamburgh Beach');
+  });
+
+  it('says so plainly when there are no windows', () => {
+    renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), []));
+    expect(screen.getByTestId('window-first-pane-empty')).toBeInTheDocument();
   });
 
   it('lifts the batch scores to App, which is what the map handoff reads', () => {
