@@ -433,7 +433,7 @@ public class BriefingGlossService {
                     // silently dropped it (13-arg convenience ctor → confidence null on the build path).
                     newRegions.add(r.withGloss(headline, detail));
                 }
-                newEvents.add(new BriefingEventSummary(es.targetType(), newRegions, es.unregioned()));
+                newEvents.add(es.withRegions(newRegions));
             }
             enriched.add(new BriefingDay(day.date(), newEvents));
         }

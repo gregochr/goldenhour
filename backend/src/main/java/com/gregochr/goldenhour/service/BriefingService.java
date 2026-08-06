@@ -828,8 +828,7 @@ public class BriefingService {
                             glossHeadline, glossDetail,
                             freshVerdict, stats.count()).withConfidence(confidence));
                 }
-                enrichedEvents.add(new BriefingEventSummary(
-                        es.targetType(), enrichedRegions, es.unregioned()));
+                enrichedEvents.add(es.withRegions(enrichedRegions));
             }
             enrichedDays.add(new BriefingDay(day.date(), enrichedEvents));
         }

@@ -46,7 +46,10 @@ function selectUpcomingEvents(briefingDays) {
   const events = [];
   for (const day of briefingDays || []) {
     for (const es of day.eventSummaries || []) {
-      if (!isEventPast(es)) {
+      // day.date is passed for the same reason as v1's copy in DailyBriefing.jsx: a day whose
+      // slots the coverage filter withdrew carries no time inside its regions, and an elapsed
+      // event read as upcoming spends one of the six slots this cap allows.
+      if (!isEventPast(es, day.date)) {
         events.push({ date: day.date, targetType: es.targetType });
         if (events.length === MAX_VISIBLE_EVENTS) return events;
       }

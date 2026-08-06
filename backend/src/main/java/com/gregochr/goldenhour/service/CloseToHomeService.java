@@ -582,7 +582,20 @@ public class CloseToHomeService {
         return earliest.plusMinutes(AFTERGLOW_MINUTES).isBefore(LocalDateTime.now(clock.withZone(UTC)));
     }
 
-    /** The earliest slot time in an event group, across regioned and unregioned slots. */
+    /**
+     * The earliest slot time in an event group, across regioned and unregioned slots, falling back
+     * to the event's own time.
+     *
+     * <p>The fallback is not optional garnish — it is what keeps the promise made by
+     * {@link #isEventPast}'s Javadoc above. {@code BriefingHonestyFilter} empties the slot list of
+     * any region with zero Claude coverage, so on a day nothing was evaluated this walk finds
+     * nothing and the event reads as still to come. The client resolves the same event from
+     * {@code BriefingEventSummary.solarEventTime}, so without this the two do not disagree for
+     * thirty minutes after a sunrise — they disagree for the whole day, and "Next local window"
+     * offers an elapsed event directly above a grid that has correctly skipped it.
+     *
+     * <p>Slots first, deliberately: it must resolve exactly as it always has for a covered event.
+     */
     private static LocalDateTime earliestTime(BriefingEventSummary es) {
         LocalDateTime earliest = null;
         for (BriefingRegion region : es.regions()) {
@@ -593,7 +606,7 @@ public class CloseToHomeService {
         for (BriefingSlot slot : es.unregioned()) {
             earliest = earlier(earliest, slot.solarEventTime());
         }
-        return earliest;
+        return earliest != null ? earliest : es.solarEventTime();
     }
 
     private static LocalDateTime earlier(LocalDateTime a, LocalDateTime b) {

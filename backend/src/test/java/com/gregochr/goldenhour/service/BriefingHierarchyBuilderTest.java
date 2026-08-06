@@ -159,6 +159,67 @@ class BriefingHierarchyBuilderTest {
         }
     }
 
+    /**
+     * The event's time must survive independently of its slots, because a later pass is entitled
+     * to remove them: {@code BriefingHonestyFilter} empties the slot list of any region with zero
+     * Claude coverage. While the slots were the only carrier, such a day served with no time at
+     * all, and the client — which treats a timeless event as one that has not happened yet — kept
+     * an elapsed sunrise in a fixed-size list of upcoming events, pushing the last day of the
+     * window off the screen.
+     */
+    @Nested
+    @DisplayName("Event time, carried independently of the slots")
+    class SolarEventTimeTests {
+
+        private static final Map<String, String> ONE_REGION = Map.of("A", "North", "B", "North");
+
+        @Test
+        @DisplayName("The summary carries the earliest event time across its slots")
+        void carriesEarliestEventTime() {
+            List<BriefingSlot> slots = List.of(
+                    slotAt("B", Verdict.GO, LocalDateTime.of(2026, 8, 5, 5, 27)),
+                    slotAt("A", Verdict.GO, LocalDateTime.of(2026, 8, 5, 5, 20)));
+
+            BriefingEventSummary summary =
+                    builder.buildEventSummary(TargetType.SUNRISE, slots, ONE_REGION);
+
+            // Earliest, not first-encountered: the old client-side rule read whichever slot the
+            // region grouping happened to put first, so the same data could answer differently.
+            assertThat(summary.solarEventTime()).isEqualTo(LocalDateTime.of(2026, 8, 5, 5, 20));
+        }
+
+        @Test
+        @DisplayName("An event with no slots carries no time rather than a fabricated one")
+        void noSlotsMeansNoTime() {
+            BriefingEventSummary summary =
+                    builder.buildEventSummary(TargetType.SUNRISE, List.of(), Map.of());
+
+            assertThat(summary.solarEventTime()).isNull();
+        }
+
+        @Test
+        @DisplayName("Every day in the window gets both events timed")
+        void everyDayInTheWindowIsTimed() {
+            LocalDate first = LocalDate.of(2026, 8, 5);
+            List<BriefingSlot> slots = List.of(
+                    slotAt("A", Verdict.GO, first.atTime(5, 20)),
+                    slotAt("A", Verdict.GO, first.atTime(21, 2)),
+                    slotAt("A", Verdict.GO, first.plusDays(1).atTime(5, 22)),
+                    slotAt("A", Verdict.GO, first.plusDays(1).atTime(21, 0)));
+
+            List<BriefingDay> days = builder.buildDays(slots, List.of(),
+                    List.of(first, first.plusDays(1)));
+
+            assertThat(days).allSatisfy(day ->
+                    assertThat(day.eventSummaries()).allSatisfy(es ->
+                            assertThat(es.solarEventTime()).isNotNull()));
+            assertThat(days.get(0).eventSummaries().get(0).solarEventTime())
+                    .isEqualTo(first.atTime(5, 20));
+            assertThat(days.get(0).eventSummaries().get(1).solarEventTime())
+                    .isEqualTo(first.atTime(21, 2));
+        }
+    }
+
     private static BriefingSlot slot(String name, Verdict verdict) {
         return new BriefingSlot(name,
                 LocalDateTime.of(2026, 3, 25, 18, 0), verdict,

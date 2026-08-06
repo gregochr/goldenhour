@@ -115,7 +115,10 @@ function selectUpcomingEvents(briefingDays) {
   const events = [];
   for (const day of briefingDays) {
     for (const es of day.eventSummaries || []) {
-      if (!isEventPast(es)) {
+      // day.date is passed so an event whose slots were withdrawn by the coverage filter can
+      // still be placed in time. Without it an elapsed event spends one of the six slots below,
+      // and the window loses a day off its far end for every such event at its near end.
+      if (!isEventPast(es, day.date)) {
         events.push({ date: day.date, targetType: es.targetType });
         if (events.length === MAX_VISIBLE_EVENTS) return events;
       }
@@ -332,8 +335,8 @@ function getDayCellData(date, regionName, briefingDays) {
   for (const es of day.eventSummaries || []) {
     const region = (es.regions || []).find((r) => r.regionName === regionName);
     if (!region) continue;
-    allEvents.push({ es, region, past: isEventPast(es) });
-    if (isEventPast(es)) continue;
+    allEvents.push({ es, region, past: isEventPast(es, date) });
+    if (isEventPast(es, date)) continue;
     const dv = resolveRegionDisplay(region);
     const dOrder = DISPLAY_ORDER[dv] ?? 4;
     const bestOrder = bestDisplay != null ? (DISPLAY_ORDER[bestDisplay] ?? 4) : 5;
@@ -1431,7 +1434,7 @@ export default function DailyBriefing({
                   const sunsetEs = (selectedDay?.eventSummaries || []).find((es) => es.targetType === 'SUNSET');
 
                   const renderSection = (es, label, emoji) => {
-                    if (!es || isEventPast(es)) return null;
+                    if (!es || isEventPast(es, selectedDate)) return null;
                     const visibleRegions = sortedRegions.filter((regionName) => {
                       const region = (es.regions || []).find((r) => r.regionName === regionName);
                       if (!region) return false;

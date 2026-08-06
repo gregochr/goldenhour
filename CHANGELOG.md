@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — a day nobody forecast was stealing a day nobody could see
+
+The Plan screen renders the next six solar events. A day the batch pipeline skipped was spending those slots anyway, so the far end of the window fell off the screen — with two travel days at the front, Saturday's forecast existed in full (513 `forecast_score` rows, four regions, a five-star sunrise) and appeared on no surface of the app at all.
+
+- **The seam, not either side of it.** `BriefingHonestyFilter` empties the slot list of any region with zero Claude coverage, which is right — no per-location claim may outlive the coverage it rests on. But the slots were also the only carrier of *when* the event happens, and the client reads pastness from that time, treating an event it cannot place as one still to come. So a sunrise fourteen hours gone counted as upcoming, took one of the six slots, and `selectUpcomingEvents` hit its cap a day early. Both halves were individually correct and separately tested; nothing tested them together.
+- **A solar event time is almanac data.** It is true whether or not anything was evaluated, so `BriefingEventSummary` now carries its own `solarEventTime`, taken from the ungrouped slots before any pass can withdraw them. Nullable, rides the existing `daily_briefing_cache` JSON, no migration; a payload cached before this deserializes it to null.
+- **Three rebuild sites were reconstructing the record positionally**, which is how a new component gets silently defaulted away — the same trap `BriefingRegion.withGloss` was added for after it happened to `confidence`. They now use a `withRegions` wither, and the component order makes the one remaining positional call a compile error rather than a silent null.
+- **The client keeps a floor.** `isEventPast` takes the day's date and, when no time is resolvable at all, decides from it: past before today, current after, and for today a sunrise is past once local time is past noon — the same boundary `BriefingHierarchyBuilder` already uses to tell a sunrise from a sunset. Only reachable for a payload cached before the backend change, but without it a stored briefing carries the old defect until the next refresh overwrites it.
+- **`CloseToHomeService` had the same defect, and the fix here exposed it.** Its `earliestTime` walked only slots, and its `isEventPast` Javadoc promises it and the client "agree about which event is next" — true to within thirty minutes while both read the same slots, false for a whole day once only one of them could see a blanked event's time. It would have announced "Today sunrise", with no time beside it, above a grid that had correctly moved on. Same one-line precedence: slots first, then the event's own time.
+- **An away day now shows its sunrise and sunset times.** A consequence of the time surviving, and left in: the sun still rises on a day you are not photographing.
+
+**Not changed:** `MAX_VISIBLE_EVENTS` is still 6. At two events per day the visible horizon oscillates between three and four days as events elapse, so a Wednesday evening reaches Saturday's sunrise and not its sunset. Widening that is a product decision, and the comment claiming `STRIP_MAX_DAYS` is the knob for it is wrong — that constant can never bind at six events.
+
 ## [v2.17.11] - 2026-08-05
 
 ### Fixed — every dialog now takes focus and gives it back, and every focus ring meets 3:1

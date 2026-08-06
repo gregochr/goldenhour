@@ -702,6 +702,48 @@ class CloseToHomeServiceTest {
                 .isEqualTo(TODAY);
     }
 
+    @Test
+    @DisplayName("The breadcrumb skips an elapsed event whose slots the coverage filter withdrew")
+    void elapsedBlankedEventIsNotTheNextEvent() {
+        // BriefingHonestyFilter empties the slot list of a zero-coverage region, and the slots
+        // used to be the only place this service could read the event's time. So a sunrise long
+        // gone read as still to come and became the breadcrumb's "next" — announced with no time
+        // beside it, because there was no slot to take one from, and directly above a grid that
+        // had correctly skipped it once the client learned to read the summary's own time.
+        //
+        // Asserted on the breadcrumb's own date/targetType/eventTime rather than on nextWindow:
+        // nextWindow is derived from in-radius CANDIDATES, which a blanked region cannot produce,
+        // so it never named the elapsed event and is not where this defect shows.
+        LocationEntity a = loc(1L, "Alpha", 54.80, -1.58, "Durham");
+        when(locationService.findAllEnabled()).thenReturn(List.of(a));
+
+        BriefingRegion blanked = new BriefingRegion("Durham", Verdict.GO, "No per-location forecast",
+                List.of(), List.of(), 10.5, 8.0, 3.2, 1, null, null, DisplayVerdict.STAND_DOWN, 0);
+        BriefingRegion scored = new BriefingRegion("Durham", Verdict.GO, "Clear nearby",
+                List.of(), List.of(slotAt(1L, "Alpha", 4, TODAY, 21)), 10.5, 8.0, 3.2, 1,
+                null, null, DisplayVerdict.WORTH_IT, 1);
+        when(briefingService.getServedBriefing()).thenReturn(new DailyBriefingResponse(
+                LocalDateTime.of(2026, 4, 22, 4, 0), "Headline",
+                List.of(new BriefingDay(TODAY, List.of(
+                        new BriefingEventSummary(TargetType.SUNRISE, List.of(blanked), List.of(),
+                                TODAY.atTime(5, 20), null),
+                        new BriefingEventSummary(TargetType.SUNSET, List.of(scored), List.of(),
+                                TODAY.atTime(21, 15), null)))),
+                List.of(), null, null, false, false, 0, "Opus", List.of(), List.of()));
+
+        // Midday: the 05:20 sunrise is seven hours gone, the 21:15 sunset is still to come.
+        CloseToHomeService midday = new CloseToHomeService(briefingService, locationService,
+                driveTimeResolver,
+                Clock.fixed(Instant.parse("2026-04-22T12:00:00Z"), ZoneOffset.UTC), 22);
+
+        CloseToHomeResponse.Breadcrumb breadcrumb =
+                midday.build(1L, HOME_LAT, HOME_LON).breadcrumb();
+
+        assertThat(breadcrumb.targetType()).isEqualTo(TargetType.SUNSET);
+        // And it names a time, which the elapsed-sunrise answer never could.
+        assertThat(breadcrumb.eventTime()).isEqualTo(TODAY.atTime(21, 15));
+    }
+
     // ── location types, for the card icons ────────────────────────────────────
 
     @Test

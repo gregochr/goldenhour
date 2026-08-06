@@ -326,6 +326,34 @@ describe('WindowFirstBriefingProvider', () => {
       expect(screen.getByTestId('dates')).toHaveTextContent('2026-08-04|2026-08-05|2026-08-06');
     });
 
+    it('does not spend an event slot on an elapsed event whose slots were withdrawn', async () => {
+      // v1's defect, in v2's copy of the same selector. BriefingHonestyFilter empties the slot
+      // list of a zero-coverage region, and the slots carried the event's time — so an elapsed
+      // sunrise read as upcoming, took one of the six slots, and the window lost a day off its
+      // far end. This fixture is the harder half of it: a payload cached before the backend
+      // carried solarEventTime, where the date is the only evidence the event has happened.
+      const payload = multiDayPayload('2026-08-04', 5);
+      payload.days[0].eventSummaries = payload.days[0].eventSummaries.map((es) => ({
+        ...es,
+        regions: [{ ...es.regions[0], displayVerdict: 'STAND_DOWN', scoredLocationCount: 0, slots: [] }],
+      }));
+
+      getDailyBriefing.mockResolvedValue(payload);
+      // 14:00 London. Past noon, which is all the floor has to go on — with no time in the
+      // payload it cannot know the sunrise was at 04:15, so it uses the same noon boundary
+      // BriefingHierarchyBuilder uses to tell a sunrise from a sunset. Deliberately coarse: at
+      // 10:00 this same fixture still counts the sunrise as current, and that is the safe
+      // direction to be wrong in.
+      vi.setSystemTime(new Date('2026-08-04T13:00:00Z'));
+      renderProvider();
+      await act(async () => {});
+
+      // Drop the date argument in selectUpcomingEvents and this stops at 2026-08-06.
+      expect(screen.getByTestId('dates')).toHaveTextContent(
+        '2026-08-04|2026-08-05|2026-08-06|2026-08-07',
+      );
+    });
+
     it('never draws more than four days however many the briefing carries', async () => {
       // The cap belongs to the rail, not to the event window: six events could in principle span
       // six dates if a day ever carried one event.

@@ -149,8 +149,69 @@ describe('briefingDisplay', () => {
       expect(isEventPast(es)).toBe(true);
     });
 
-    it('an event with no resolvable time counts as current', () => {
-      expect(isEventPast({ regions: [] })).toBe(false);
+    it('getEventTime falls back to the summary time when every slot was withdrawn', () => {
+      // The shape BriefingHonestyFilter serves for a zero-coverage region: the region survives,
+      // its slots do not. Before the summary carried its own time this returned null.
+      const blanked = {
+        targetType: 'SUNRISE',
+        solarEventTime: '2026-07-16T05:20:00',
+        regions: [{ regionName: 'R', slots: [] }],
+        unregioned: [],
+      };
+      expect(getEventTime(blanked)).toBe('2026-07-16T05:20:00');
+    });
+
+    it('a slot time still wins over the summary time', () => {
+      expect(getEventTime({ ...es, solarEventTime: '2026-07-16T04:00:00' }))
+        .toBe('2026-07-16T20:30:00');
+    });
+
+    it('a withdrawn-slot event is judged past from its own summary time', () => {
+      const blanked = {
+        targetType: 'SUNRISE',
+        solarEventTime: '2026-07-16T05:20:00',
+        regions: [{ regionName: 'R', slots: [] }],
+        unregioned: [],
+      };
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-07-16T19:00:00Z'));
+      // The regression: this read false, so a sunrise 14 hours gone consumed a visible-event slot.
+      expect(isEventPast(blanked, '2026-07-16')).toBe(true);
+    });
+
+    describe('an event with no resolvable time at all', () => {
+      // Only reachable for a briefing cached before the backend carried solarEventTime.
+      const timeless = (targetType) => ({ targetType, regions: [], unregioned: [] });
+
+      it('counts as current when the caller cannot say which day it is', () => {
+        expect(isEventPast(timeless('SUNRISE'))).toBe(false);
+      });
+
+      it('is past when its date is before today', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-07-16T19:00:00Z'));
+        expect(isEventPast(timeless('SUNRISE'), '2026-07-15')).toBe(true);
+        expect(isEventPast(timeless('SUNSET'), '2026-07-15')).toBe(true);
+      });
+
+      it('is not past when its date is after today', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-07-16T19:00:00Z'));
+        expect(isEventPast(timeless('SUNRISE'), '2026-07-17')).toBe(false);
+      });
+
+      it('is past for today\'s sunrise once local time is past noon, but never for sunset', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-07-16T19:00:00Z')); // 20:00 BST
+        expect(isEventPast(timeless('SUNRISE'), '2026-07-16')).toBe(true);
+        expect(isEventPast(timeless('SUNSET'), '2026-07-16')).toBe(false);
+      });
+
+      it('is not past for today\'s sunrise before noon', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-07-16T09:00:00Z')); // 10:00 BST
+        expect(isEventPast(timeless('SUNRISE'), '2026-07-16')).toBe(false);
+      });
     });
   });
 

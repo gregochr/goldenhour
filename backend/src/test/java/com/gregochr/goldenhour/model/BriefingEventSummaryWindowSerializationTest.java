@@ -45,7 +45,33 @@ class BriefingEventSummaryWindowSerializationTest {
     }
 
     private static BriefingEventSummary summary(BriefingWindow w) {
-        return new BriefingEventSummary(TargetType.SUNSET, List.of(), List.of(), w);
+        return new BriefingEventSummary(TargetType.SUNSET, List.of(), List.of(), EVENT_TIME, w);
+    }
+
+    /** The event's own time, carried independently of any slot. */
+    private static final LocalDateTime EVENT_TIME = LocalDateTime.of(2026, 5, 23, 21, 11);
+
+    @Test
+    void solarEventTimeRoundTrips() throws Exception {
+        // It rides the same cached JSON as the window, and the client's ordering now depends on
+        // it surviving the round trip — a summary that loses it is one the client cannot place
+        // in time once the coverage filter has taken its slots away.
+        String json = mapper.writeValueAsString(summary(window()));
+
+        BriefingEventSummary back = mapper.readValue(json, BriefingEventSummary.class);
+
+        assertThat(back.solarEventTime()).isEqualTo(EVENT_TIME);
+    }
+
+    @Test
+    void solarEventTimeIsOmittedWhenAbsentAndDeserialisesToNull() throws Exception {
+        // Legacy payloads: a briefing cached before this component existed has no such key, and
+        // must still deserialise rather than failing the whole serve.
+        String json = mapper.writeValueAsString(
+                new BriefingEventSummary(TargetType.SUNSET, List.of(), List.of()));
+
+        assertThat(json).doesNotContain("solarEventTime");
+        assertThat(mapper.readValue(json, BriefingEventSummary.class).solarEventTime()).isNull();
     }
 
     @Test

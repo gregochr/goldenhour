@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import DailyBriefing, { bestConfidence } from '../components/DailyBriefing.jsx';
 
@@ -1958,6 +1958,119 @@ describe('DailyBriefing', () => {
       const headers = screen.getAllByTestId('heatmap-day-header');
       // Only 1 future day column
       expect(headers).toHaveLength(1);
+    });
+
+    // The seam between BriefingHonestyFilter (which empties a zero-coverage region's slot list)
+    // and the event walk (which reads the event's time out of those slots). Each side is tested
+    // on its own and both were correct; together they cost the window its far end.
+    describe('the visible-event budget, when a day has been blanked for zero coverage', () => {
+      // Wednesday 2026-08-05, 20:00 BST: after that day's sunrise, before its sunset.
+      const EVENING = new Date('2026-08-05T19:00:00Z');
+
+      beforeEach(() => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(EVENING);
+      });
+
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      const region = (slots) => ({
+        regionName: 'North',
+        verdict: 'GO',
+        summary: '',
+        tideHighlights: [],
+        slots,
+        scoredLocationCount: slots.length,
+      });
+
+      /** What the serve path returns for a day nothing was evaluated on: region kept, slots gone. */
+      const blankedDay = (date) => ({
+        date,
+        eventSummaries: [
+          { targetType: 'SUNRISE', solarEventTime: `${date}T05:20:00`, regions: [region([])], unregioned: [] },
+          { targetType: 'SUNSET', solarEventTime: `${date}T21:02:00`, regions: [region([])], unregioned: [] },
+        ],
+      });
+
+      const scoredDay = (date) => ({
+        date,
+        eventSummaries: [
+          {
+            targetType: 'SUNRISE',
+            solarEventTime: `${date}T05:25:00`,
+            regions: [region([{ locationName: 'A', solarEventTime: `${date}T05:25:00`, verdict: 'GO', tideAligned: false, flags: [] }])],
+            unregioned: [],
+          },
+          {
+            targetType: 'SUNSET',
+            solarEventTime: `${date}T21:00:00`,
+            regions: [region([{ locationName: 'A', solarEventTime: `${date}T21:00:00`, verdict: 'GO', tideAligned: false, flags: [] }])],
+            unregioned: [],
+          },
+        ],
+      });
+
+      it('spends no slot on its elapsed sunrise, so the last day of the window keeps its column', async () => {
+        getDailyBriefing.mockResolvedValue({
+          generatedAt: '2026-08-05T14:02:47',
+          headline: '',
+          days: [blankedDay('2026-08-05'), scoredDay('2026-08-06'), scoredDay('2026-08-07'), scoredDay('2026-08-08')],
+        });
+        render(<DailyBriefing />);
+        await openFullGrid();
+        const headers = screen.getAllByTestId('heatmap-day-header');
+        // The six are: tonight's sunset, both events on the 6th and 7th, and the 8th's sunrise.
+        // Before the fix, today's fourteen-hour-old sunrise took the sixth and Saturday — the
+        // best-rated day in the window — never reached the screen at all.
+        expect(headers).toHaveLength(4);
+        expect(headers[0].textContent).toMatch(/Today/);
+        expect(headers[3].textContent).toMatch(/Saturday/);
+      });
+
+      /**
+       * The same day as served by a briefing cached BEFORE the backend carried solarEventTime —
+       * no time anywhere in the event. This is the only shape that reaches the date-derived floor,
+       * and it is real for one refresh cycle after deploy because the payload survives a restart.
+       */
+      const legacyBlankedDay = (date) => ({
+        date,
+        eventSummaries: [
+          { targetType: 'SUNRISE', regions: [region([])], unregioned: [] },
+          { targetType: 'SUNSET', regions: [region([])], unregioned: [] },
+        ],
+      });
+
+      it('falls back to the date when the cached payload predates the event time', async () => {
+        getDailyBriefing.mockResolvedValue({
+          generatedAt: '2026-08-05T14:02:47',
+          headline: '',
+          days: [legacyBlankedDay('2026-08-05'), scoredDay('2026-08-06'), scoredDay('2026-08-07'), scoredDay('2026-08-08')],
+        });
+        render(<DailyBriefing />);
+        await openFullGrid();
+        const headers = screen.getAllByTestId('heatmap-day-header');
+        // Nothing in the payload says when today's sunrise was; it is past because the date is
+        // today and the clock is past noon. Drop the dateStr argument at the call site and this
+        // returns 3 headers ending on Friday.
+        expect(headers).toHaveLength(4);
+        expect(headers[3].textContent).toMatch(/Saturday/);
+      });
+
+      it('still shows the blanked day, rather than dropping it along with its elapsed event', async () => {
+        getDailyBriefing.mockResolvedValue({
+          generatedAt: '2026-08-05T14:02:47',
+          headline: '',
+          days: [blankedDay('2026-08-05'), scoredDay('2026-08-06')],
+        });
+        render(<DailyBriefing />);
+        await openFullGrid();
+        const headers = screen.getAllByTestId('heatmap-day-header');
+        // Its sunset has not happened; suppressing the whole day would lose a real event.
+        expect(headers).toHaveLength(2);
+        expect(headers[0].textContent).toMatch(/Today/);
+      });
     });
 
     it('renders heatmap cells for each region × day combination', async () => {

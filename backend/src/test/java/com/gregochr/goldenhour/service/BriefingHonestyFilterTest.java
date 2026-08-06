@@ -73,6 +73,34 @@ class BriefingHonestyFilterTest {
     }
 
     @Test
+    @DisplayName("Zero-coverage region: the event keeps its own time after its slots are emptied")
+    void zeroCoverageRegion_preservesTheEventTime() {
+        // The regression this filter caused elsewhere. Emptying the slot list is correct — no
+        // per-location claim may survive — but the slots were also the only carrier of WHEN the
+        // event happens. A blanked day therefore served with no time anywhere in it, and the
+        // client, which treats a timeless event as one still to come, kept a long-elapsed sunrise
+        // in its fixed-size list of upcoming events and lost the far end of the window.
+        //
+        // A solar event time is almanac data: it is true whether or not anything was evaluated,
+        // so nothing about the honesty argument requires withholding it.
+        LocalDateTime eventTime = LocalDateTime.of(2026, 8, 5, 5, 20);
+        BriefingRegion zeroCov = regionWith(
+                "The Lake District", Verdict.GO, "Clear at 16 of 49 locations",
+                DisplayVerdict.WORTH_IT, 0, threeSampleSlots());
+        DailyBriefingResponse response = new DailyBriefingResponse(
+                LocalDateTime.now(), "headline",
+                List.of(new BriefingDay(TODAY, List.of(new BriefingEventSummary(
+                        TargetType.SUNRISE, List.of(zeroCov), List.of(), eventTime, null)))),
+                List.of(), null, null, false, false, 0, null, List.of(), List.of());
+
+        DailyBriefingResponse out = BriefingHonestyFilter.apply(response);
+
+        BriefingEventSummary rewritten = out.days().get(0).eventSummaries().get(0);
+        assertThat(rewritten.regions().get(0).slots()).isEmpty();
+        assertThat(rewritten.solarEventTime()).isEqualTo(eventTime);
+    }
+
+    @Test
     @DisplayName("Covered region: response is returned unchanged (same instance)")
     void coveredRegion_isUntouched() {
         BriefingRegion covered = regionWith(
