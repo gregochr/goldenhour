@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.17.12] - 2026-08-06
+
 ### Added — the window card's spot film strip, with the reach data on it (window-first Plan, P6)
 
 **One row, not a wrapping grid.** Each window card now carries its spots as a horizontal film strip
