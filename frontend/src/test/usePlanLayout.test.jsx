@@ -185,6 +185,7 @@ describe('WindowFirstShell — the rail it hosts', () => {
     bestRating: 4,
     confidence: 'high',
     badges: [],
+    rows: [],
     pick: {
       kind: 'best',
       regionName: 'Northumberland & Tyneside',

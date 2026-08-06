@@ -1,6 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import WindowSpotStrip from './WindowSpotStrip.jsx';
+import WindowAttributeRow from './WindowAttributeRow.jsx';
 import { badgeChannel, CONFIDENCE_VERDICTS } from '../utils/windowFirstCards.js';
 import { confidenceTreatment, daysOut, resolveConfidence, scaleRgbaAlpha } from '../utils/confidenceUtils.js';
 
@@ -66,6 +67,16 @@ const CHANNEL = {
  * element, "See all N →", opens P11's drill-down and is still absent: it is the same demo control
  * the expander would have been. A window with no spots at all renders neither strip nor footer,
  * rather than a bar counting nothing.
+ *
+ * <h2>The attribute rows sit between the header and the strip, and the header may be short a badge</h2>
+ *
+ * <p>Where the design puts them. A topic promoted to a row is filtered out of {@code card.badges}
+ * upstream, so this component renders whatever it is given and nothing here decides badge-or-row —
+ * {@code windowFirstRows.js} owns that rule and the reason for it. A card with no tide rollup and no
+ * factful topic renders no {@code .wf-rows} container at all, rather than an empty one.
+ *
+ * <p><b>Everything the rows carry is inside the card's own bounds and above the strip</b>, which is
+ * what lets P9 wrap the header's siblings in one collapsible region without moving anything.
  *
  * @param {object}   props
  * @param {object}   props.card       a descriptor from {@code buildWindowCards}
@@ -227,6 +238,12 @@ export default function WindowFirstWindowCard({ card, todayStr, onOpenPick, onOp
         </span>
       </div>
 
+      {card.rows.length > 0 && (
+        <div data-testid="window-card-rows" className="wf-rows">
+          {card.rows.map((row) => <WindowAttributeRow key={row.key} row={row} />)}
+        </div>
+      )}
+
       {card.spots.length > 0 && (
         <WindowSpotStrip
           spots={card.spots}
@@ -263,6 +280,10 @@ WindowFirstWindowCard.propTypes = {
       headline: PropTypes.string.isRequired,
     }),
     spots: PropTypes.arrayOf(PropTypes.object).isRequired,
+    rows: PropTypes.arrayOf(PropTypes.shape({
+      key: PropTypes.string.isRequired,
+      channel: PropTypes.oneOf(['tide', 'snow']).isRequired,
+    })).isRequired,
   }).isRequired,
   todayStr: PropTypes.string.isRequired,
   onOpenPick: PropTypes.func,
