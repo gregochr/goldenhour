@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
   ANY_TIER_ID,
-  REACH_LENS_KEY,
+  PLAN_REACH_KEY,
   REACH_TIERS,
   WEEKDAY_TIER_ID,
   WEEKEND_TIER_ID,
@@ -97,48 +97,64 @@ describe('reachLens — persistence', () => {
   });
 
   it('returns null when the stored JSON is corrupt', () => {
-    localStorage.setItem(REACH_LENS_KEY, '{not json');
+    localStorage.setItem(PLAN_REACH_KEY, '{not json');
     expect(readStoredTierId(TUESDAY)).toBeNull();
   });
 
   it('returns null when the stamp is not today, and does not write the expiry back', () => {
     // Plan §5: "reach expires at the day roll". A read that re-persisted the expired value would
     // turn a today-only setting into a permanent one the moment the page was opened.
-    localStorage.setItem(REACH_LENS_KEY, JSON.stringify({ reach: '150', reachDay: '2026-08-03' }));
+    localStorage.setItem(PLAN_REACH_KEY, JSON.stringify({ reach: '150', reachDay: '2026-08-03' }));
 
     expect(readStoredTierId(TUESDAY)).toBeNull();
-    expect(JSON.parse(localStorage.getItem(REACH_LENS_KEY)))
+    expect(JSON.parse(localStorage.getItem(PLAN_REACH_KEY)))
       .toEqual({ reach: '150', reachDay: '2026-08-03' });
   });
 
   it('returns null for a tier id this build no longer has', () => {
-    localStorage.setItem(REACH_LENS_KEY, JSON.stringify({ reach: '999', reachDay: TUESDAY }));
+    localStorage.setItem(PLAN_REACH_KEY, JSON.stringify({ reach: '999', reachDay: TUESDAY }));
     expect(readStoredTierId(TUESDAY)).toBeNull();
   });
 
   it('returns a choice made today', () => {
-    localStorage.setItem(REACH_LENS_KEY, JSON.stringify({ reach: '150', reachDay: TUESDAY }));
+    localStorage.setItem(PLAN_REACH_KEY, JSON.stringify({ reach: '150', reachDay: TUESDAY }));
     expect(readStoredTierId(TUESDAY)).toBe('150');
   });
 
   it('writes the tier with the day it was chosen on', () => {
     writeStoredTierId('90', TUESDAY);
-    expect(JSON.parse(localStorage.getItem(REACH_LENS_KEY)))
+    expect(JSON.parse(localStorage.getItem(PLAN_REACH_KEY)))
       .toEqual({ reach: '90', reachDay: TUESDAY });
   });
 
-  it('keeps fields it does not own, because P11 shares this key under a different expiry', () => {
-    // The rating floor "persists" where reach "expires at the day roll" (plan §5), so a blind
-    // overwrite here would silently drop a setting with a different policy.
-    localStorage.setItem(REACH_LENS_KEY, JSON.stringify({ rating: 3, reach: '45', reachDay: '2026-08-01' }));
+  it('writes only its own two fields, echoing nothing that was already there', () => {
+    // This key holds reach and NOTHING else, so the write is a whole-value overwrite that never
+    // reads storage back. The read-modify-write it replaced re-persisted whatever it found —
+    // harmless in fact, since nothing else writes here, but it is the shape CodeQL's
+    // `js/clear-text-storage-of-sensitive-data` flags: that model has no notion of keys, so a
+    // getItem feeding a setItem is a conduit from every other write in the app. P11's rating floor
+    // gets its own key, which is also where its different expiry policy belongs.
+    localStorage.setItem(
+      PLAN_REACH_KEY,
+      JSON.stringify({ reach: '45', reachDay: '2026-08-01', smuggled: 'must not survive' }),
+    );
     writeStoredTierId('150', TUESDAY);
 
-    expect(JSON.parse(localStorage.getItem(REACH_LENS_KEY)))
-      .toEqual({ rating: 3, reach: '150', reachDay: TUESDAY });
+    expect(JSON.parse(localStorage.getItem(PLAN_REACH_KEY)))
+      .toEqual({ reach: '150', reachDay: TUESDAY });
+  });
+
+  it('never reads storage on the write path at all', () => {
+    // The assertion above would still pass on an implementation that read, filtered and rewrote.
+    // What must hold is that no read happens, because the read IS the flagged conduit.
+    const getItem = vi.spyOn(Storage.prototype, 'getItem');
+    writeStoredTierId('90', TUESDAY);
+    expect(getItem).not.toHaveBeenCalled();
+    getItem.mockRestore();
   });
 
   it('overwrites a corrupt existing value rather than refusing to store', () => {
-    localStorage.setItem(REACH_LENS_KEY, 'garbage');
+    localStorage.setItem(PLAN_REACH_KEY, 'garbage');
     writeStoredTierId('90', TUESDAY);
     expect(readStoredTierId(TUESDAY)).toBe('90');
   });

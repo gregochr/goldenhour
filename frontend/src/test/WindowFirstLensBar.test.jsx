@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import WindowFirstLensBar from '../components/WindowFirstLensBar.jsx';
 import useReachLens from '../hooks/useReachLens.js';
-import { REACH_LENS_KEY } from '../utils/reachLens.js';
+import { PLAN_REACH_KEY } from '../utils/reachLens.js';
 
 const TUESDAY = '2026-08-04';
 const SATURDAY = '2026-08-08';
@@ -202,6 +202,6 @@ describe('WindowFirstLensBar — the LITE treatment', () => {
 
     expect(screen.getByRole('button', { name: '45 min' })).toBeDisabled();
     expect(pressed()).toEqual(['Any']);
-    expect(localStorage.getItem(REACH_LENS_KEY)).toBeNull();
+    expect(localStorage.getItem(PLAN_REACH_KEY)).toBeNull();
   });
 });

@@ -858,9 +858,18 @@ beside P6's and P7's.
   applying — no timer, no midnight `useEffect`, no window in which the stale value is still live.
   The provider re-renders on its ten-minute poll, which is what supplies the new date. A read that
   re-persisted an expired choice would turn a today-only setting into a permanent one.
-  Key: **`photocast.planLens`**, holding `{reach, reachDay}` — named for the whole lens and written
-  read–modify–write, because P11's rating floor lands in the same object under the opposite policy
-  ("taste persists"), and the stamp is named `reachDay` so it can never be read as covering both.
+  Key: **`photocast.planReach`**, holding `{reach, reachDay}` and **nothing else**, written as a
+  whole value that never reads storage back. ⚠️ **This was one `photocast.planLens` key holding
+  every lens setting, merged read–modify–write so P11's fields could ride along, and it was the
+  wrong shape twice over.** On design: reach expires daily and P11's controls persist, so one object
+  made the policy a naming convention (the stamp had to be `reachDay` to disambiguate) where two
+  keys make it structural — and one key per concern is what `PLAN_LAYOUT_KEY` already does. On
+  mechanics: CodeQL's `js/clear-text-storage-of-sensitive-data` flagged the write, and correctly as
+  a *shape* — it models `localStorage` as a single store with no notion of keys, so a `getItem`
+  feeding a `setItem` is a conduit from every other write in the app, `AuthContext`'s
+  `passwordChangeRequired` among them. A false positive about this key; a fair comment about the
+  pattern, which re-persisted whatever it found, unvalidated. **P11 takes its own key**, and gets
+  its own expiry policy with it.
 - **LITE is pinned to "Any", so the gate is provably a no-op for it.** §7 makes the bar a PRO control
   and settles the *chrome*; what the gate then does was P8's to decide. A tier a LITE user cannot
   widen would withhold forecast content — on a weekday, every spot past 45 minutes, with no route

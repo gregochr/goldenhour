@@ -60,17 +60,30 @@ export const WEEKDAY_TIER_ID = REACH_TIERS[0].id;
 export const WEEKEND_TIER_ID = REACH_TIERS[2].id;
 
 /**
- * Storage key for the Plan tab's lens choices.
+ * Storage key for the reach tier, and <b>for nothing else</b>.
  *
- * <p>Named for the whole lens rather than for reach alone because P11 adds a rating floor and a
- * location type to the same bar, and plan §5 gives them a <em>different</em> policy — "drilldown
- * taste — persists" against reach's "expires at the day roll". One key, one read, and the expiry
- * stamp is named {@code reachDay} so it can never be mistaken for a stamp over the whole object.
+ * <p>This started as one {@code photocast.planLens} key holding every lens setting, so that P11's
+ * rating floor and location type could ride along — which meant writing it read–modify–write, to
+ * avoid dropping fields this module does not own. <b>That was the wrong shape twice over.</b>
+ *
+ * <p>The design reason: reach "expires at the day roll" and P11's controls are "drilldown taste —
+ * persists" (plan §5). Two settings with two different expiry policies in one object made the
+ * policy a naming convention — the stamp had to be called {@code reachDay} so it could not be read
+ * as covering the whole object — where separate keys make it structural. One key per concern is
+ * also what {@code PLAN_LAYOUT_KEY} already does.
+ *
+ * <p>The mechanical reason: a read–modify–write on shared storage re-persists whatever it finds
+ * under that key, unvalidated. Nothing writes anything else there today, so nothing was actually
+ * echoed — but CodeQL's {@code js/clear-text-storage-of-sensitive-data} flagged it, and correctly
+ * as a <em>shape</em>: it models {@code localStorage} as a single store with no notion of keys, so
+ * a {@code getItem} feeding a {@code setItem} is a conduit from every other write in the app,
+ * {@code AuthContext}'s among them. The finding is a false positive about this key and a fair
+ * comment about the pattern. Writing only the two fields this module owns removes both.
  *
  * <p>Convention follows {@code PLAN_LAYOUT_KEY}: no version suffix until the stored shape changes
  * meaning, at which point bump the name rather than reinterpreting the old value.
  */
-export const REACH_LENS_KEY = 'photocast.planLens';
+export const PLAN_REACH_KEY = 'photocast.planReach';
 
 /** Saturday and Sunday, as {@code Date.getUTCDay} numbers them. */
 const SATURDAY = 6;
@@ -125,7 +138,7 @@ export function defaultTierIdFor(todayStr) {
  */
 export function readStoredTierId(todayStr) {
   try {
-    const raw = localStorage.getItem(REACH_LENS_KEY);
+    const raw = localStorage.getItem(PLAN_REACH_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || parsed.reachDay !== todayStr) return null;
@@ -138,24 +151,18 @@ export function readStoredTierId(todayStr) {
 /**
  * Records a tier choice against the day it was made on.
  *
- * <p>Read–modify–write rather than a bare overwrite, because P11's fields live in the same object
- * under a different expiry policy and a blind write would drop them.
+ * <p><b>A whole-value write of the two fields this module owns — it never reads storage back.</b>
+ * Both come from arguments a caller controls: {@code tierId} is rejected by {@link tierById} before
+ * it gets here, and {@code todayStr} is the provider's own Europe/London date. Nothing that was
+ * previously stored, under this key or any other, can survive into what is written. See
+ * {@link PLAN_REACH_KEY} for why that matters more than the field-preserving merge it replaced.
  *
  * @param {string} tierId   the chosen tier
  * @param {string} todayStr ISO `YYYY-MM-DD` in Europe/London
  */
 export function writeStoredTierId(tierId, todayStr) {
   try {
-    let existing = {};
-    try {
-      existing = JSON.parse(localStorage.getItem(REACH_LENS_KEY)) || {};
-    } catch {
-      existing = {};
-    }
-    localStorage.setItem(
-      REACH_LENS_KEY,
-      JSON.stringify({ ...existing, reach: tierId, reachDay: todayStr }),
-    );
+    localStorage.setItem(PLAN_REACH_KEY, JSON.stringify({ reach: tierId, reachDay: todayStr }));
   } catch {
     // Quota exceeded or private-browsing restriction — the choice still applies for this session
   }

@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import WindowFirstLensBar from '../components/WindowFirstLensBar.jsx';
 import useReachLens from '../hooks/useReachLens.js';
-import { REACH_LENS_KEY } from '../utils/reachLens.js';
+import { PLAN_REACH_KEY } from '../utils/reachLens.js';
 
 const MONDAY = '2026-08-03';
 const TUESDAY = '2026-08-04';
@@ -46,7 +46,7 @@ const pressed = () => within(screen.getByTestId('window-first-lens-tiers'))
   .filter((b) => b.getAttribute('aria-pressed') === 'true')
   .map((b) => b.textContent);
 
-const stored = () => JSON.parse(localStorage.getItem(REACH_LENS_KEY) || 'null');
+const stored = () => JSON.parse(localStorage.getItem(PLAN_REACH_KEY) || 'null');
 
 describe('useReachLens — the default', () => {
   beforeEach(() => localStorage.clear());
@@ -79,7 +79,7 @@ describe('useReachLens — persistence', () => {
   });
 
   it('restores a choice made earlier the same day', () => {
-    localStorage.setItem(REACH_LENS_KEY, JSON.stringify({ reach: '90', reachDay: TUESDAY }));
+    localStorage.setItem(PLAN_REACH_KEY, JSON.stringify({ reach: '90', reachDay: TUESDAY }));
     render(<Lens todayStr={TUESDAY} />);
     expect(pressed()).toEqual(['1h 30min']);
   });
@@ -87,13 +87,13 @@ describe('useReachLens — persistence', () => {
   it('ignores a choice made yesterday, which is the whole expiry policy', () => {
     // Plan §5: "Day-derived default; reach expires at the day roll." A Saturday's "2h 30min" that
     // survived into Monday morning would quietly widen every weekday page thereafter.
-    localStorage.setItem(REACH_LENS_KEY, JSON.stringify({ reach: '150', reachDay: MONDAY }));
+    localStorage.setItem(PLAN_REACH_KEY, JSON.stringify({ reach: '150', reachDay: MONDAY }));
     render(<Lens todayStr={TUESDAY} />);
     expect(pressed()).toEqual(['45 min']);
   });
 
   it('leaves the expired entry alone rather than rewriting it as today\'s', () => {
-    localStorage.setItem(REACH_LENS_KEY, JSON.stringify({ reach: '150', reachDay: MONDAY }));
+    localStorage.setItem(PLAN_REACH_KEY, JSON.stringify({ reach: '150', reachDay: MONDAY }));
     render(<Lens todayStr={TUESDAY} />);
     expect(stored()).toEqual({ reach: '150', reachDay: MONDAY });
   });
