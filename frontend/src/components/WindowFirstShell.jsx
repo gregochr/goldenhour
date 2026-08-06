@@ -108,6 +108,12 @@ export default function WindowFirstShell({
   const handleRegion = (regionName, date, targetType) => (
     onShowOnMap?.({ region: regionName, date, eventType: targetType })
   );
+  // The POSITIONAL form, which centres the map on one location — the same call the pick dialog's
+  // "show location" already makes. The object form above opens a whole region, which is a different
+  // destination: a spot card names one place and must land on it.
+  const handleSpot = (card, spot) => (
+    onShowOnMap?.(card.date, card.targetType, spot.locationName)
+  );
   return (
     <div
       data-testid="window-first-shell"
@@ -203,6 +209,7 @@ export default function WindowFirstShell({
             card={card}
             todayStr={todayStr}
             onOpenPick={setOpenPick}
+            onOpenSpot={handleSpot}
           />
         ))}
         {!loading && windowCards.length === 0 && (

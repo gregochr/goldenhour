@@ -7,11 +7,13 @@ import { WindowFirstBriefingProvider, useWindowFirstBriefing } from '../context/
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
+import { getReach } from '../api/settingsApi.js';
 import { storageKey, writeSwrCache } from '../utils/swrCache.js';
 
 vi.mock('../api/briefingApi.js', () => ({ getDailyBriefing: vi.fn() }));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn() }));
 vi.mock('../api/briefingEvaluationApi.js', () => ({ getAllEvaluationScores: vi.fn() }));
+vi.mock('../api/settingsApi.js', () => ({ getReach: vi.fn() }));
 
 let mockRole = 'PRO_USER';
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: mockRole }) }));
@@ -29,7 +31,9 @@ function payloadFor(dateStr, { generatedAt = null } = {}) {
     glossDetail: 'Low cloud clears.',
     regionTemperatureCelsius: 18,
     scoredLocationCount: 3,
-    slots: [{ locationName: 'Bamburgh', solarEventTime: `${dateStr}T20:11:00`, claudeRating: 4 }],
+    slots: [{
+      locationId: 7, locationName: 'Bamburgh', solarEventTime: `${dateStr}T20:11:00`, claudeRating: 4,
+    }],
   };
   return {
     generatedAt: generatedAt ?? `${dateStr}T12:00:00`,
@@ -63,6 +67,10 @@ function Consumer() {
       <span data-testid="scores">{[...evaluationScores.keys()].join('|') || 'none'}</span>
       <span data-testid="cards">{windowCards.length}</span>
       <span data-testid="card-keys">{windowCards.map((c) => c.key).join('|')}</span>
+      <span data-testid="spots">{windowCards[0]?.spots?.map((s) => s.locationName).join('|') || 'none'}</span>
+      <span data-testid="spot-reach">
+        {windowCards[0]?.spots?.map((s) => `${s.driveMinutes}/${s.distanceMiles}`).join('|') || 'none'}
+      </span>
     </div>
   );
 }
@@ -120,6 +128,8 @@ describe('WindowFirstBriefingProvider', () => {
     fetchTravelDayRanges.mockResolvedValue([]);
     getAllEvaluationScores.mockReset();
     getAllEvaluationScores.mockResolvedValue([]);
+    getReach.mockReset();
+    getReach.mockResolvedValue([]);
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(NOON_ISH);
   });
@@ -436,6 +446,114 @@ describe('WindowFirstBriefingProvider', () => {
       renderProvider();
 
       expect(await screen.findByText('Worth it · sunset')).toBeInTheDocument();
+    });
+  });
+
+  describe('per-user reach — the spot strip\'s second contract', () => {
+    it('joins reach onto the window\'s spots by location id', async () => {
+      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getReach.mockResolvedValue([{ locationId: 7, driveMinutes: 66, distanceMiles: 47 }]);
+      renderProvider();
+
+      await act(async () => {});
+      expect(screen.getByTestId('spots')).toHaveTextContent('Bamburgh');
+      expect(screen.getByTestId('spot-reach')).toHaveTextContent('66/47');
+    });
+
+    it('fetches it from its own endpoint, never from the briefing', async () => {
+      // Plan §2.2: /api/briefing is ETag-revalidated, which persists the body to a browser HTTP
+      // cache JavaScript cannot evict on logout. Drive times must not ride it.
+      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      renderProvider();
+
+      await act(async () => {});
+      expect(getReach).toHaveBeenCalledTimes(1);
+    });
+
+    it('never writes reach to the SWR cache, which is keyed by role and shared between users', async () => {
+      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getReach.mockResolvedValue([{ locationId: 7, driveMinutes: 66, distanceMiles: 47 }]);
+      renderProvider();
+
+      await act(async () => {});
+      expect(Object.keys(localStorage).join(',')).not.toMatch(/reach/i);
+      expect(localStorage.getItem(storageKey(CACHE_KEY))).not.toMatch(/driveMinutes/);
+    });
+
+    it('renders every spot without its reach line when the request fails', async () => {
+      // Indistinguishable from the first-run state — no home postcode — which is the normal one.
+      // The strip must still render; a lens with no data is not a gate.
+      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getReach.mockRejectedValue(new Error('nope'));
+      renderProvider();
+
+      await act(async () => {});
+      expect(screen.getByTestId('spots')).toHaveTextContent('Bamburgh');
+      expect(screen.getByTestId('spot-reach')).toHaveTextContent('null/null');
+    });
+
+    it('renders every spot without its reach line when the roster is empty', async () => {
+      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getReach.mockResolvedValue([]);
+      renderProvider();
+
+      await act(async () => {});
+      expect(screen.getByTestId('spot-reach')).toHaveTextContent('null/null');
+    });
+
+    it('ignores a reach entry with no location id while keeping the ones beside it', async () => {
+      // Both halves in one payload deliberately. With only the malformed entry the test passes
+      // whether the loop skips it or abandons the whole list, so the good entry is what makes the
+      // `continue` load-bearing.
+      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getReach.mockResolvedValue([
+        { driveMinutes: 99, distanceMiles: 99 },
+        { locationId: 7, driveMinutes: 66, distanceMiles: 47 },
+      ]);
+      renderProvider();
+
+      await act(async () => {});
+      expect(screen.getByTestId('spot-reach')).toHaveTextContent('66/47');
+    });
+
+    it('refetches when the user saves a home postcode, without a page reload', async () => {
+      // The defect this guards is one this app has already shipped once, on the v1 arm: a bare []
+      // dep list meant "a user who widened their radius saw the block keep its old contents until
+      // a full reload — the setting appeared to do nothing". It is worse here, because the modal
+      // that saves the postcode is a SIBLING of this provider in App — so it re-renders it and
+      // never remounts it, and a first-run user would wait forever.
+      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getReach.mockResolvedValue([]);
+      const { rerender } = render(
+        <WindowFirstBriefingProvider homeSettingsVersion={0}><Consumer /></WindowFirstBriefingProvider>,
+      );
+      await act(async () => {});
+      expect(screen.getByTestId('spot-reach')).toHaveTextContent('null/null');
+
+      getReach.mockResolvedValue([{ locationId: 7, driveMinutes: 66, distanceMiles: 47 }]);
+      rerender(
+        <WindowFirstBriefingProvider homeSettingsVersion={1}><Consumer /></WindowFirstBriefingProvider>,
+      );
+      await act(async () => {});
+
+      expect(getReach).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId('spot-reach')).toHaveTextContent('66/47');
+    });
+
+    it('does not refetch on an ordinary re-render', async () => {
+      // The counter is the signal, not every render. Refetching on each one would put an
+      // uncacheable per-user request behind the 10-minute poll and every focus event.
+      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      const { rerender } = render(
+        <WindowFirstBriefingProvider homeSettingsVersion={3}><Consumer /></WindowFirstBriefingProvider>,
+      );
+      await act(async () => {});
+      rerender(
+        <WindowFirstBriefingProvider homeSettingsVersion={3}><Consumer /></WindowFirstBriefingProvider>,
+      );
+      await act(async () => {});
+
+      expect(getReach).toHaveBeenCalledTimes(1);
     });
   });
 

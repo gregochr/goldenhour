@@ -389,7 +389,7 @@ function AppInner() {
               too — a second request on the same 10-minute tick as DailyBriefing's, and a second
               focus listener firing both. App.jsx's flag branch is a hard either/or, and this keeps
               it one. */}
-          <WindowFirstBriefingProvider>
+          <WindowFirstBriefingProvider homeSettingsVersion={homeSettingsVersion}>
             <WindowFirstShell
               onExit={() => setPlanLayout(PLAN_V1)}
               onOpenSettings={() => setShowSettings(true)}

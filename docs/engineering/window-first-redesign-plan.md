@@ -573,7 +573,7 @@ Backend first for anything shared, so the frontend stays a render layer.
 | **P4b** | Generalised popover host — one body-parented `position:fixed` panel with document-level delegation | Smaller than first assessed. The region-chip gloss **already ships** inside the component P4c copies (`BriefingSummaryStrip:196-215` + `:233-247`): `role="button"`, keyboard, focus parity, a portalled `role="tooltip"`. Copy the tile and the gloss comes with it. Pick-chip content belongs to P5. ⚠️ **P4c became the host's first caller after all**, not P5: the copied panel is placed once from a viewport rect and never recomputed, and on phone the rail is a horizontal scroller — so a swipe leaves it pointing at nothing. The host dismisses on scroll and on Escape; the copied panel does neither. Using it changes nothing in `BriefingSummaryStrip`, so the v1 arm is untouched either way |
 | **P4c** | ~~Day rail as the full Plan summary tile~~ **DONE.** `WindowFirstDayRail` + `utils/windowFirstRail.js` (the copied derivation) + `WindowFirstBriefingProvider` (the arm's own `/api/briefing` fetch, §4) | Tile copied, `ProvisionalMark` deleted and its two tests not carried. Picks read `window.pick`, never `bestBets` (§2.3). **Three decisions worth not re-deriving:** the pick flag names the **event** as well as the kind, because a pick is a window and a tile is a day; every tile **reserves** the two-line chip's height or the rail's lines go ragged; and an away day **keeps its sun times** — the mock replaces them, but its own away banner says the rail keeps them, and they are almanac. LITE gating settled in §7. The rail sits **above the tab bar**: it is the screen's date context, not the Plan pane's content |
 | **P5** | ~~Window card~~ **DONE.** `WindowFirstWindowCard` + `WindowPickDialog` + `utils/windowFirstCards.js`; the Plan pane renders the list | Header, verdict badge with the confidence decay, pick badge on the two chosen windows, topic badges. **Five decisions worth not re-deriving:** the header says `best N★` and **no count** — reach is P8 and the spots it would count are P6, so any number here describes a set that was never filtered (§6); **no expander** (P9's, and collapsed vs open would differ by a few pixels of padding, making it a demo control); **no footer bar** rather than an empty one, since everything the design puts in it is P6/P11; `AWAITING` renders as "Awaiting" on the **neutral** badge, never the red one; and the lead card is `index === 0 && date === todayStr`, which is the only predicate that yields exactly one and always agrees with the rail's gold tile. "Tonight" is the kicker only on a lead **sunset**; a lead sunrise carries none and keeps the day in its title. ⚠️ The Notes cell here used to describe the change-since-last-forecast row — stale since §2.8 deferred it, and the P1′ row's `priorRating` is stale in the same way (it never shipped and `grep` finds nothing) |
-| **P6** | Spot film strip — **and the reach data on the card** | Geometry from the spec, not `.cth-window-grid`; no `ScrollRail`; one shared comparator; footer states what is *drawn*. Rating badge from `RATING_COLOURS` (§2.9). **No sparkline** — deferred to P16. ⚠️ **Reach moved here from P8, agreed 2026-08-05.** The design has always drawn `41 min · 19 mi` on every spot card and a `far` variant beside it; only the *implementation* was scheduled with the lens. P3's `GET /api/user/settings/reach` has shipped and had no consumer, so the strip would otherwise render visibly incomplete cards for two phases. P8 keeps the **gate**; P6 takes the **display**. The count stays `N spots` — §2.5's rule is that the word *reach* arrives with the filter, not with the number |
+| **P6** | ~~Spot film strip — **and the reach data on the card**~~ **DONE.** `WindowSpotStrip` + `utils/windowFirstSpots.js`; `GET /api/user/settings/reach` gets its first consumer, fetched by the arm's own provider | Geometry from the spec, not `.cth-window-grid`; no `ScrollRail`; one shared comparator; footer states what is *drawn*. Rating badge from `RATING_COLOURS` (§2.9). **No sparkline** — P16. **Reach moved here from P8, agreed 2026-08-05**: the design has always drawn `41 min · 19 mi` on every spot card, and P3's endpoint had no consumer, so the strip would otherwise render visibly incomplete cards for two phases. P8 keeps the **gate**; P6 takes the **display**. **Seven decisions worth not re-deriving — see §5a** |
 | **P7** | Attribute rows — tide, then snow | Cap of two per window; the change row is P5's and does not count against it |
 | **P7b** | Promoted strip — both variants; chart 42px curve + 16px label band | Single-strip cap enforced in code. Also owns `UNKNOWN_RANK`'s wire semantics |
 | **P8** | Lens bar — **reach only** + persistence policy | Shrunk: rating floor and type move to P11. Day-derived default; reach expires at the day roll |
@@ -585,6 +585,76 @@ Backend first for anything shared, so the frontend stays a render layer.
 | **P14** | Responsive pass — real media queries, including the taller rail tile on phone | Keep control labels at 9px |
 | **P15** | Pre-pilot sweep (§6), then flip the flag default | |
 | **P16** | *(post-pilot, conditional)* Run history — the sparkline **and** the change-since-last-forecast row, both blocked on an append-only per-run sink the live pipeline writes | Deferred because only **4.1%** of slots have the four *rated* runs it draws and **90.6% have none** — measured, see §2.8. Not for want of data or query |
+
+### 5a. What P6 decided — read before P8, P9, P10′ and P11
+
+Seven decisions that changed behaviour rather than wording, recorded so a later phase does not
+re-derive them from the strip's appearance.
+
+- **No `far` variant, and that is not an omission.** The design draws a `far` spot card (tide-tinted
+  border, tinted meta line) beside the ordinary one. `far` is a judgement *against a reach tier*,
+  and the tier is P8's control. A card asserting "beyond weekday reach" while nothing on screen can
+  widen it is the same failure as a header counting a set that was never filtered — §6 bans both,
+  and §2.5's rule ("the word *reach* arrives with the filter") applies one level down. **P8 ships
+  the tier and the `far` variant together.**
+- **Click-to-map was pulled forward from P10′.** §5 lists it there, but the spot card is drawn as a
+  button, lifts on hover and ends in `◍ Open on map →`; shipping that inert for a phase is exactly
+  the demo control §6 bans. It reuses the positional `onShowOnMap(date, targetType, locationName)`
+  the pick dialog already calls — nothing new. **P10′ still owns `WindowSpotPeek`**, which is the
+  part that is actually new.
+- **The strip reads the projector's slot population, not the region's.** Unregioned slots are
+  dropped (never Claude-enriched, so always unrated) and canopy slots are dropped unless the whole
+  window is canopy — mirroring `PlanWindowProjector.bestRating`/`canopyCounts` exactly. Otherwise a
+  wood's 4★ out-ranks the header's own `best 3★` on the same card, and a woodland GO (heavy cloud
+  and mist) sits in the same badge as a sky 4★ meaning the opposite. The cost is real and accepted:
+  a bluebell wood is a good destination this strip will not list. **P11's drill-down, which can
+  carry a type control, is where that belongs.**
+- **The footer's sort sentence is derived, never hard-coded.** A sort key no spot carries never
+  fires, so `spotOrderStatement` emits one of four sentences — "Ranked by rating, then drive time",
+  "Ranked by rating", "Ranked by drive time", "Listed alphabetically". All four are reachable: no
+  drive times is the first-run state, no ratings is an unevaluated briefing. `compareSpots` is
+  exported for P11 so the two can never disagree.
+- **No "See all N →", and no "N of M loaded".** The first opens P11's drill-down; the second needs a
+  set that is loaded but not drawn, and with no reach gate and no rating floor N *is* M. **Both land
+  with P11**, and the count then stops being of "what was drawn".
+- **The focus-ring room comes out of the wrapper's inset, not out of a negative margin — and the
+  vertical half is bigger than the ring.** `.cth-window-grid` buys its room with
+  `padding: 4px; margin: -4px`, which cannot be copied: the card basis is a *percentage* of the
+  scroller's content box, so a negative margin leaves `calc((100% - 24px)/3.5)` resolving against a
+  box 8px narrower than the spec sized against. `.wf-strip` uses `padding: 0 10px` and the scroller
+  `padding: 8px 4px 11px` — the horizontal 10 + 4 restores the spec's 14 exactly (measured 282.86px
+  against the spec's 282.857), and the top is **8px, not 4**: 2px outline + 2px offset + the 2px
+  `.wf-spot:hover` lift + 2px of slack. ⚠️ **4px was measured wrong twice** — flush at rest and 2px
+  *outside* the clip while lifted, erasing the ring's whole top edge. It is reachable by mouse
+  alone, because closing the map overlay restores focus to the card the pointer is still on.
+  `.cth-window-grid` carries the same 4px-plus-lift pairing and is left alone deliberately.
+- **A focused spot card is `position: relative; z-index: 3`, and that is load-bearing.** The two
+  edge fades are absolutely positioned on the wrapper and end on an opaque `--color-plex-panel`,
+  while `.wf-spot` is a static button — so both gradients painted *over* every card. Tabbing along
+  the strip parks the focused card against the left fade's opaque band, which erased the ring's
+  left stroke: a three-sided ring on a card fully inside the scrollport. 3 clears
+  `back::before`'s 2. This is occlusion, not clipping, so it and the padding above are independent
+  defects and neither fix covers the other.
+- **Per-user reach is invalidated by `homeSettingsVersion`, never by a bare `[]`.** The provider is
+  mounted for the whole life of the v2 arm and `UserSettingsModal` is its *sibling* in `App`, so
+  saving a home postcode re-renders it and never remounts it — a first-run user who set one would
+  have watched every reach line stay absent indefinitely, and a user who moved would have kept stale
+  drive times forever. `App` already keeps the counter for exactly this, after `DailyBriefing`'s
+  close-to-home fetch shipped the same bug ("the setting appeared to do nothing"). It also gives a
+  swallowed boot-time failure a route back.
+- **Every 10px sub-line is `--color-plex-text-secondary`, not the spec's `--ink-3`.** Measured on
+  the running app: muted lands at 3.54:1 on the spot card's surface and fails AA; secondary measures
+  7.03:1. This is the third time this project has made the same correction (CloseToHome's region
+  line, its ordering explainer) — the design's `--ink-3` is not usable for 10px type on this
+  surface.
+
+**⚠️ Height budget, measured at P6 rather than estimated — this is P9's problem now.** Six windows,
+1280×720, all expanded: each card is **201px** (header 45 + strip 115 + footer 39), the pane is
+**1,285px** and the shell **1,563px** — 2.17 viewports, against P5's 645px. P7's two attribute rows
+put it near **2,000px**, which is within sight of the 2,600px §3 names as the failure the whole
+redesign exists to undo. So: **collapse cannot be optional and the default must be lead-open,
+rest-collapsed** (201 + 5×47 + chrome ≈ one viewport). And the strip and its footer must sit *inside*
+the collapsible region — a collapsed card that kept the strip would save 39px of the 150.
 
 **P6 — copy, don't extract, and take the geometry from the spec.** An extraction would rewire
 `CloseToHome` to consume it, which breaks the one thing §4 rests on: the v1 arm of the flag comparison

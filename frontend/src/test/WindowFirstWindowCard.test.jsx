@@ -20,6 +20,21 @@ function card(overrides = {}) {
     confidence: 'high',
     badges: [],
     pick: null,
+    spots: [],
+    ...overrides,
+  };
+}
+
+/** A spot as `buildWindowSpots` emits one. */
+function spot(overrides = {}) {
+  return {
+    key: '1',
+    locationId: 1,
+    locationName: 'Bamburgh Castle',
+    regionName: 'Northumberland & Tyneside',
+    rating: 4,
+    driveMinutes: 66,
+    distanceMiles: 47,
     ...overrides,
   };
 }
@@ -63,12 +78,78 @@ describe('WindowFirstWindowCard', () => {
     expect(within(head).queryByRole('button', { name: /open|collapse/i })).toBeNull();
   });
 
-  it('carries no footer bar, rather than an empty one', () => {
-    // Everything the design puts in it — the strip's sort statement, the film controls, "See all
-    // N →" — is P6 and P11. A bar claiming a sort over a set that is not on screen is exactly the
-    // failure §6 names.
-    renderCard();
-    expect(screen.getByTestId('window-card').textContent).not.toMatch(/ranked by|see all|loaded/i);
+  describe('the spot strip and its footer', () => {
+    it('renders the strip and a footer stating the order and the count', () => {
+      renderCard({ spots: [spot(), spot({ key: '2', locationId: 2, locationName: 'Simonside', rating: 3, driveMinutes: 19, distanceMiles: 10 })] });
+      expect(screen.getByTestId('window-spot-strip')).toBeInTheDocument();
+      expect(screen.getByTestId('window-spot-order')).toHaveTextContent('Ranked by rating, then drive time.');
+      expect(screen.getByTestId('window-spot-count')).toHaveTextContent('2 spots');
+    });
+
+    it('renders neither strip nor footer when the window has no spots', () => {
+      // Not an empty bar counting nothing: P5 drew no footer at all rather than an empty one, and
+      // the same rule holds one phase on. Reachable on real data — the local briefing's regions
+      // carry no slots at all, and a payload cached before slots existed would look the same.
+      renderCard({ spots: [] });
+      expect(screen.queryByTestId('window-spot-strip')).toBeNull();
+      expect(screen.queryByTestId('window-spot-foot')).toBeNull();
+    });
+
+    it('offers no "See all", because the sheet it would open does not exist yet', () => {
+      // The design's third footer element opens P11's drill-down. Shipping it inert is the demo
+      // control §6 bans — the same reason P5 shipped no expander.
+      renderCard({ spots: [spot()] });
+      expect(screen.getByTestId('window-card').textContent).not.toMatch(/see all/i);
+    });
+
+    it('claims nothing is "loaded", because everything the window has is drawn', () => {
+      // The design reads "7 of 18 loaded". There is no reach gate (P8) and no rating floor (P11),
+      // so that sentence would be "1 of 1" — a count of a set that was never filtered.
+      renderCard({ spots: [spot()] });
+      expect(screen.getByTestId('window-card').textContent).not.toMatch(/loaded|within reach/i);
+    });
+
+    it('names the strip\'s arrows after this window, not after "the strip"', () => {
+      // The card is the ONLY site that supplies windowLabel, and nothing else asserted it — so
+      // dropping the prop yielded "Scroll undefined spots left" with the suite green. P9 has to
+      // move this JSX inside a collapsible region, which is exactly how a prop gets lost.
+      //
+      // The arrows only exist while the strip overflows, and jsdom reports every element as 0×0,
+      // so the metrics have to be faked on the prototype before render — see WindowSpotStrip's own
+      // suite for the full note. Restored in `finally`, as CloseToHome.test.jsx does for its
+      // ResizeObserver.
+      const overflow = { scrollWidth: 1200, clientWidth: 400, scrollLeft: 0 };
+      for (const key of Object.keys(overflow)) {
+        Object.defineProperty(HTMLElement.prototype, key, {
+          configurable: true,
+          get() { return this.dataset.testid === 'window-spot-scroller' ? overflow[key] : 0; },
+        });
+      }
+      try {
+        renderCard({ when: 'Tomorrow sunrise', spots: [spot()] });
+        expect(screen.getByTestId('window-spot-prev'))
+          .toHaveAccessibleName('Scroll Tomorrow sunrise spots left');
+      } finally {
+        for (const key of Object.keys(overflow)) delete HTMLElement.prototype[key];
+      }
+    });
+
+    it('tells the strip when it is the lead card, so the fades can match the gold wash', () => {
+      // Same one-site wiring problem: the lead assertions elsewhere all target the card root, and
+      // the `the lead card` block renders with no spots at all, so the strip is not even mounted.
+      renderCard({ lead: true, spots: [spot()] });
+      expect(screen.getByTestId('window-spot-strip')).toHaveAttribute('data-lead', 'true');
+    });
+
+    it('opens the map on the spot, carrying the window it was clicked in', () => {
+      const onOpenSpot = vi.fn();
+      renderCard({ spots: [spot()] }, { onOpenSpot });
+      fireEvent.click(screen.getByRole('button', { name: /Bamburgh Castle/ }));
+      expect(onOpenSpot).toHaveBeenCalledWith(
+        expect.objectContaining({ date: TODAY, targetType: 'SUNSET' }),
+        expect.objectContaining({ locationName: 'Bamburgh Castle' }),
+      );
+    });
   });
 
   describe('the lead card', () => {
@@ -241,7 +322,17 @@ describe('WindowFirstWindowCard', () => {
       // the decision, not just its effect.
       renderCard({ pick });
       expect(screen.getByTestId('window-card-pick')).toBeInTheDocument();
-      expect(Object.keys(WindowFirstWindowCard.propTypes)).toEqual(['card', 'todayStr', 'onOpenPick']);
+      // Asserted as "no role prop exists" rather than as an exact key list. The list form broke on
+      // the first additive prop (P6's onOpenSpot) while the rule it protects had not changed — a
+      // test that fails for a reason it does not name is churn, not protection.
+      //
+      // Two separate `not.toContain`, NEVER `not.toEqual(expect.arrayContaining([...]))`: that
+      // matcher is conjunctive, so its negation passes unless EVERY listed name is present. The
+      // first attempt at this fix used it and went green with `isPro` added on its own — which is
+      // this codebase's actual gate-prop name, so the one idiomatic reversal was the one it let
+      // through.
+      expect(Object.keys(WindowFirstWindowCard.propTypes)).not.toContain('role');
+      expect(Object.keys(WindowFirstWindowCard.propTypes)).not.toContain('isPro');
       expect(screen.queryByText(/pro\b|upgrade/i)).toBeNull();
     });
   });

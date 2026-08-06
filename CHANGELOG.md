@@ -5,6 +5,54 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the window card's spot film strip, with the reach data on it (window-first Plan, P6)
+
+**One row, not a wrapping grid.** Each window card now carries its spots as a horizontal film strip
+— three and a half cards across on desktop, 72% on phone, so the half-visible card at the edge is
+itself the "there is more" signal. Every card names the place, its region, its rating and what it
+costs to get there, and opens the map centred on that spot.
+
+**Reach arrives a phase early, deliberately.** `GET /api/user/settings/reach` shipped at P3 with no
+consumer; the design has always drawn `41 min · 19 mi` on every spot card. Rather than ship visibly
+incomplete cards for two more phases, the *display* moves here and P8 keeps the *gate*. The join is
+on `locationId` and the reach payload never rides `/api/briefing` — that path is ETag-revalidated,
+which persists its body to a browser HTTP cache JavaScript cannot evict on logout.
+
+**Absence reads as unknown, never as "too far".** A user with no home postcode is the normal first
+run: their cards render without a reach line, the strip is unchanged, and the footer's own sentence
+stops naming drive time. The count stays `N spots` — the word *reach* arrives with the control that
+applies it.
+
+**The footer states only what is on screen.** The order sentence is derived from the keys the spots
+actually carry, so it reads "Ranked by rating, then drive time", "Ranked by rating", "Ranked by
+drive time" or "Listed alphabetically" — all four reachable. The count is of what was drawn, so the
+design's "7 of 18 loaded" would have been "7 of 7" and is not shown; and there is no "See all N →",
+because the drill-down it opens is P11. A window with no spots renders neither strip nor footer.
+
+**The strip reads the same slots the header star does.** Unregioned slots are dropped (never scored)
+and canopy slots are dropped unless the whole window is canopy — a woodland GO means heavy cloud and
+mist, so a wood's 4★ beside a coast's 4★ would put two opposite meanings in one badge, and would
+out-rank the header's own `best N★`.
+
+**Rating badges use the medallion palette, with the ink computed rather than picked.**
+`RATING_COLOURS` peaks in luminance at 3★ and falls away on both sides, so no single ink clears AA
+on all five steps. `readableInkOn` chooses per step, and every badge measures between 4.61:1 and
+11.47:1 at 10px in the browser.
+
+**Found by the adversarial review, before this landed.** Reach was fetched once with a bare `[]` dep
+list, so saving a home postcode did nothing until a full page reload — the same defect this app
+already shipped once on the v1 arm; it now takes `App`'s existing `homeSettingsVersion`. And the
+focus ring on a spot card failed twice over: the scroller's 4px gutter was exactly consumed by a 2px
+ring at 2px offset, so the 2px hover lift pushed its top edge outside the clip; and the edge fades,
+being absolutely positioned over static cards, erased the ring's left stroke on any card tabbed to
+against them. Both are fixed and both are now measured in a browser.
+
+Geometry is taken from the spec rather than from `CloseToHome`'s filmstrip, which disagrees at every
+breakpoint (`mandatory` vs `proximity`, 4.5 across vs 3.5, 100% vs 72% on phone). Only the technique
+is borrowed, and `CloseToHome` itself is untouched so the flag comparison stays honest. No
+`ScrollRail`: its justification is that it is "the only handle a mouse user has", which is false
+beside arrows and a count.
+
 ### Fixed — a day nobody forecast was stealing a day nobody could see
 
 The Plan screen renders the next six solar events. A day the batch pipeline skipped was spending those slots anyway, so the far end of the window fell off the screen — with two travel days at the front, Saturday's forecast existed in full (513 `forecast_score` rows, four regions, a five-star sunrise) and appeared on no surface of the app at all.
