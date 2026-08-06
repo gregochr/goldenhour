@@ -4,6 +4,7 @@ import React, {
 import PropTypes from 'prop-types';
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
+import { getReach } from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { cacheGeneration, readSwrCache, writeSwrCache } from '../utils/swrCache.js';
@@ -23,6 +24,9 @@ const MAX_VISIBLE_EVENTS = 6;
 
 /** Shared empty map, so the context default and the pre-fetch state are identity-stable. */
 const EMPTY_SCORES = new Map();
+
+/** Same, for reach — an identity-stable empty means the card memo does not re-run on mount. */
+const EMPTY_REACH = new Map();
 
 const WindowFirstBriefingContext = createContext({
   briefing: null,
@@ -99,9 +103,13 @@ function selectUpcomingEvents(briefingDays) {
  * <p>Travel days are not optional garnish: without them an away day rolls up as "All poor", which
  * says the forecast was bad when in fact none was run.
  *
- * @param {{children: React.ReactNode}} props
+ * @param {object} props
+ * @param {React.ReactNode} props.children the v2 subtree
+ * @param {number} [props.homeSettingsVersion] bumped by {@code App} whenever the user saves a home
+ *        postcode, a radius or a drive-time recalculation. It is the reach fetch's only
+ *        invalidation signal — see the effect below.
  */
-export function WindowFirstBriefingProvider({ children }) {
+export function WindowFirstBriefingProvider({ children, homeSettingsVersion }) {
   const { role } = useAuth();
   const briefingCacheKey = `briefing:${role || 'anon'}`;
 
@@ -117,6 +125,7 @@ export function WindowFirstBriefingProvider({ children }) {
   const [loading, setLoading] = useState(briefing === null);
   const [travelRanges, setTravelRanges] = useState([]);
   const [evaluationScores, setEvaluationScores] = useState(EMPTY_SCORES);
+  const [reachById, setReachById] = useState(EMPTY_REACH);
   const intervalRef = useRef(null);
 
   const fetchBriefing = useCallback(async () => {
@@ -148,6 +157,47 @@ export function WindowFirstBriefingProvider({ children }) {
   useEffect(() => {
     fetchTravelDayRanges().then(setTravelRanges).catch(() => {});
   }, []);
+
+  /**
+   * Per-user reach, keyed by location id — the other half of the spot strip's two-contract join.
+   *
+   * <p><b>Never written to the SWR cache, and that is the whole point of the separate endpoint.</b>
+   * Plan §2.2 keeps drive times off `/api/briefing` because that path is ETag-revalidated, which
+   * persists the body to a browser HTTP cache JavaScript cannot evict on logout. Parking the same
+   * data in localStorage instead would re-create the problem in a store this app CAN clear but
+   * currently would not: `swrCache` is keyed by role, not by user, so two accounts on one device
+   * share a key. It is a small payload on a page that already fetches four things; fetch it.
+   *
+   * <p>A rejection is swallowed, leaving the map empty. That is the same state as a user with no
+   * home postcode, which is the normal first run — so the failure mode is a strip with no reach
+   * lines rather than a strip with none, and the footer's own sentence stops naming drive time.
+   *
+   * <p><b>{@code homeSettingsVersion}, not a bare {@code []}.</b> This app has already paid for that
+   * mistake once: {@code DailyBriefing}'s close-to-home fetch shipped with an empty dep list and
+   * "a user who widened their radius saw the block keep its old contents until a full reload — the
+   * setting appeared to do nothing". The shape here is worse, because the provider is mounted for
+   * the whole life of the v2 arm and {@code UserSettingsModal} is its SIBLING in {@code App} — so
+   * saving a postcode re-renders but never remounts, and the first-run user who sets one would
+   * watch every reach line stay absent indefinitely. The counter {@code App} already keeps for
+   * exactly this is the signal; it also gives a boot-time failure a way back, which the swallowed
+   * rejection above otherwise makes permanent for the session.
+   */
+  useEffect(() => {
+    getReach()
+      .then((entries) => {
+        if (!entries || entries.length === 0) return;
+        const next = new Map();
+        for (const entry of entries) {
+          if (entry?.locationId == null) continue;
+          next.set(entry.locationId, {
+            driveMinutes: entry.driveMinutes ?? null,
+            distanceMiles: entry.distanceMiles ?? null,
+          });
+        }
+        setReachById(next);
+      })
+      .catch(() => {});
+  }, [homeSettingsVersion]);
 
   /**
    * Batch-scored ratings, keyed `regionName|date|targetType|locationName`.
@@ -220,9 +270,11 @@ export function WindowFirstBriefingProvider({ children }) {
 
   const windowCards = useMemo(
     () => (briefing
-      ? buildWindowCards(upcomingEvents, briefing.days, todayStr, tomorrowStr, travelDayDates)
+      ? buildWindowCards(
+        upcomingEvents, briefing.days, todayStr, tomorrowStr, travelDayDates, reachById,
+      )
       : []),
-    [briefing, upcomingEvents, travelDayDates, todayStr, tomorrowStr],
+    [briefing, upcomingEvents, travelDayDates, todayStr, tomorrowStr, reachById],
   );
 
   const value = useMemo(
@@ -239,6 +291,7 @@ export function WindowFirstBriefingProvider({ children }) {
 
 WindowFirstBriefingProvider.propTypes = {
   children: PropTypes.node,
+  homeSettingsVersion: PropTypes.number,
 };
 
 /**

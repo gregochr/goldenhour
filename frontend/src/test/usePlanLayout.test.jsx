@@ -193,6 +193,15 @@ describe('WindowFirstShell — the rail it hosts', () => {
       locationName: 'Bamburgh Beach',
       locationId: 1,
     },
+    spots: [{
+      key: '1',
+      locationId: 1,
+      locationName: 'Bamburgh Beach',
+      regionName: 'Northumberland & Tyneside',
+      rating: 4,
+      driveMinutes: 66,
+      distanceMiles: 47,
+    }],
   };
 
   const briefingWith = (generatedAt, evaluationScores = new Map(), windowCards = [CARD]) => ({
@@ -377,6 +386,16 @@ describe('WindowFirstShell — the rail it hosts', () => {
 
     fireEvent.click(screen.getByTestId('window-card-pick'));
     fireEvent.click(screen.getByTestId('window-pick-dialog-location-action'));
+
+    expect(onShowOnMap).toHaveBeenCalledWith('2026-08-04', 'SUNSET', 'Bamburgh Beach');
+  });
+
+  it('routes a spot card to the map as a location in its own window', () => {
+    // Same positional form as the pick's location, and deliberately not the object form the rail's
+    // region chip uses — a spot card names one place and must land on it, not on its region.
+    const { onShowOnMap } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+
+    fireEvent.click(screen.getByTestId('window-spot'));
 
     expect(onShowOnMap).toHaveBeenCalledWith('2026-08-04', 'SUNSET', 'Bamburgh Beach');
   });

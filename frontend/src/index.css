@@ -1214,3 +1214,183 @@
   .window-pick-action,
   .window-pick-close { transition: none; }
 }
+
+/* ── Window-first spot film strip ──
+   Geometry is the spec's, NOT `.cth-window-grid`'s: that one snaps `mandatory` where this snaps
+   `proximity`, sizes 4.5 across where this sizes 3.5, and drops to a full-width card on phone
+   where this drops to 72%. What is borrowed is the technique, not a single number — and
+   `CloseToHome` is deliberately left alone, because the flag comparison rests on the v1 arm
+   staying byte-identical while both views are judged on the same night's data. */
+.wf-strip {
+  position: relative;
+  /* 10px against the spec's 14, and the missing 4 is on the scroller below. `overflow-x: auto`
+     computes `overflow-y` to auto as well, so the scroller clips a focused card's 2px ring at 2px
+     offset on every side; it needs 4px of its own padding to keep it. `.cth-window-grid` buys that
+     with `padding: 4px; margin: -4px`, which cannot be copied here: the card basis is a PERCENTAGE
+     of the scroller's content box, and a negative margin would leave `calc((100% - 24px)/3.5)`
+     resolving against a box 8px narrower than the one the spec sized against. Moving the 4px out
+     of the wrapper's inset instead restores the spec's content box exactly — 10 + 4 = 14. */
+  padding: 0 10px;
+}
+/* Insets track the WRAPPER's padding, not the spec's 14: the scroller clips at its padding box,
+   which now sits 10px in, so a fade at 14px would leave a 4px unfaded sliver at each end. */
+.wf-strip.more::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 10px;
+  bottom: 11px;
+  width: 56px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--color-plex-panel) 78%);
+}
+.wf-strip.back::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 10px;
+  bottom: 11px;
+  width: 40px;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(270deg, transparent, var(--color-plex-panel) 78%);
+}
+/* The lead card's gold wash is `rgba(201,162,75,.06)` fading out by 55% of the card's height, and
+   the strip straddles that mark — so the backdrop under the fade is NOT the plain panel. Composited
+   at the strip's top the wash lands on rgb(35,27,20), which is the spec's own `#221b15` to within
+   a unit; a fade to `--color-plex-panel` here leaves a visible dark band across a tinted card. */
+.wf-strip[data-lead='true'].more::after {
+  background: linear-gradient(90deg, transparent, #221B15 78%);
+}
+.wf-strip[data-lead='true'].back::before {
+  background: linear-gradient(270deg, transparent, #221B15 78%);
+}
+
+.wf-spots {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  /* 8px of top room, not the 4px the ring alone needs: 2px outline + 2px offset = 4, plus the 2px
+     `.wf-spot:hover` lift, plus 2px of slack so the next change to either is not a silent regression.
+     At 4px the ring sat exactly flush on the padding-box clip at rest and 2px OUTSIDE it while
+     lifted — the whole top stroke and both top corners gone. Reachable by mouse alone, because
+     closing the map overlay restores focus to the card the pointer is still resting on, so hover
+     and focus-visible are live at once. `.cth-window-grid` has the identical 4px-plus-lift pairing
+     and is deliberately left alone (§5a: the v1 arm stays frozen for the flag comparison).
+     TOP ONLY — the card basis is a percentage of the WIDTH, so the horizontal 4px must stay 4px or
+     `calc((100% - 24px)/3.5)` stops resolving against the spec's content box; and nothing ever
+     moves the card down, so the spec's bottom value stands.
+     `scroll-padding` keeps a snapped card from landing under its own left gutter. */
+  padding: 8px 4px 11px;
+  scroll-padding: 4px;
+}
+.wf-spots::-webkit-scrollbar { display: none; }
+.wf-spots > .wf-spot {
+  flex: 0 0 calc((100% - 24px) / 3.5);
+  scroll-snap-align: start;
+}
+/* The app's own phone boundary (`useIsMobile`), expressed in CSS so the sizing has one source of
+   truth rather than a JS breakpoint agreeing with a media query. The 640–899px band keeps 3.5
+   across and is tight; widening it is the responsive pass's call, not a number to invent here. */
+@media (max-width: 639px) {
+  .wf-strip { padding: 0 8px; }
+  .wf-strip.more::after { right: 8px; bottom: 10px; }
+  .wf-strip.back::before { left: 8px; bottom: 10px; }
+  .wf-spots { padding: 8px 4px 10px; }
+  .wf-spots > .wf-spot { flex: 0 0 72%; }
+}
+
+.wf-spot {
+  border: 1px solid var(--color-plex-border);
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: rgba(0, 0, 0, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  min-height: 78px;
+  /* Preflight no longer sets `button { cursor: pointer }` — the rule this file states twice above. */
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.14s ease;
+}
+.wf-spot:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-plex-border-light);
+}
+.wf-spot:hover .wf-spot-open { color: var(--color-tide); }
+/* Bone at 2px, for the reason written above `.rail-day-show-on-map`: `--color-plex-border-light`
+   measures ~1.7:1 and fails SC 1.4.11's 3:1 for a non-text indicator.
+
+   `position: relative; z-index: 3` is NOT decoration — it is what keeps the ring visible. The two
+   edge fades above are absolutely positioned on the wrapper and `.wf-spot` is a static button, so
+   both gradients paint ABOVE every card, and each is fully opaque from its 78% stop (they end on
+   `--color-plex-panel`, a solid hex). Tabbing along the strip scrolls the focused card into view
+   right up against the left fade's opaque band, which then erased the ring's left stroke — a
+   three-sided ring on a card that was entirely inside the scrollport. 3 clears `back::before`'s
+   `z-index: 2`. This is occlusion rather than clipping, so it is a different defect from the
+   padding above and neither fix covers the other. */
+.wf-spot:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+  position: relative;
+  z-index: 3;
+}
+
+.wf-wfoot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--color-plex-border);
+  background: rgba(0, 0, 0, 0.16);
+  font-size: 10.5px;
+  flex-wrap: wrap;
+}
+.wf-film {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+/* Pointer-only, as the spec draws them: a touch user swipes, and on the tightest screen the arrows
+   would duplicate that in the space the count needs. Every spot stays reachable either way — the
+   cards are buttons, so tabbing scrolls the strip natively. */
+.wf-film-btn { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .wf-film-btn {
+    display: block;
+    width: 24px;
+    height: 22px;
+    border: 1px solid var(--color-plex-border);
+    background: var(--color-plex-panel);
+    color: var(--color-plex-text-secondary);
+    border-radius: 6px;
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+  }
+}
+@media (max-width: 639px) {
+  .wf-film-btn { display: none; }
+}
+.wf-film-btn:hover:not(:disabled) {
+  border-color: var(--color-plex-border-light);
+  color: var(--color-plex-text);
+}
+.wf-film-btn:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+.wf-film-btn:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wf-spot { transition: none; }
+  .wf-spot:hover { transform: none; }
+}

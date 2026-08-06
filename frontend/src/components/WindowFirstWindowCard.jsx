@@ -1,5 +1,6 @@
 import React from 'react';
 import PropTypes from 'prop-types';
+import WindowSpotStrip from './WindowSpotStrip.jsx';
 import { badgeChannel, CONFIDENCE_VERDICTS } from '../utils/windowFirstCards.js';
 import { confidenceTreatment, daysOut, resolveConfidence, scaleRgbaAlpha } from '../utils/confidenceUtils.js';
 
@@ -50,24 +51,35 @@ const CHANNEL = {
  * {@code confidenceTreatment(card.confidence)} — the latter returns the <em>medium</em> treatment
  * for an absent tier, which silently decays a high-confidence badge to 72%.
  *
- * <h2>No expander, and no footer</h2>
+ * <h2>No expander</h2>
  *
- * <p>Collapse/expand is P9's. It would also have nothing to collapse: the attribute rows are P7,
- * the spot strip P6, and §2.3 deleted the narrative block outright — so at P5 collapsed and
- * expanded differ by a few pixels of padding. A control whose only effect is that is a demo
- * control, which §6 bans. The header's markup puts the expander's slot last, after the badges, so
- * P9 inserts one element and reflows nothing.
+ * <p>Collapse/expand is P9's. The header's markup puts its slot last, after the badges, so P9
+ * inserts one element and reflows nothing. Note what P6 changed about the argument for waiting:
+ * at P5 a collapsed card and an open one differed by a few pixels of padding, which made the
+ * control a demo control; with the strip and its footer on the card there is now something real to
+ * collapse, and P9's own job is to decide the default given the height they cost.
  *
- * <p>The footer is absent for the same reason rather than being drawn empty: everything the design
- * puts in it — the strip's sort statement, the film controls, "See all N →" — belongs to P6 and
- * P11, and a bar claiming a sort over a set that is not on screen is the exact failure §6 names.
+ * <h2>The footer arrives with the strip, and still carries no "See all"</h2>
+ *
+ * <p>P5 drew no footer at all rather than an empty one. It exists now because the strip gives it
+ * two true things to say — the order the spots are in, and how many were drawn. The design's third
+ * element, "See all N →", opens P11's drill-down and is still absent: it is the same demo control
+ * the expander would have been. A window with no spots at all renders neither strip nor footer,
+ * rather than a bar counting nothing.
  *
  * @param {object}   props
  * @param {object}   props.card       a descriptor from {@code buildWindowCards}
  * @param {string}   props.todayStr   today in Europe/London, for the confidence horizon
  * @param {Function} [props.onOpenPick] opens the pick dialog for this window
+ * @param {Function} [props.onOpenSpot] opens the map centred on a spot in this window.
+ *
+ *        <p>Wired at P6 although §5 lists click-to-map under P10′, because the alternative is
+ *        worse: the spot card is drawn as a button, lifts on hover and ends in "◍ Open on map →",
+ *        and shipping that inert for a phase is precisely the demo control §6 bans. The handler is
+ *        the one this arm already passes to the pick dialog's "show location", so nothing new is
+ *        invented. P10′ keeps the part that is actually new — {@code WindowSpotPeek}.
  */
-export default function WindowFirstWindowCard({ card, todayStr, onOpenPick }) {
+export default function WindowFirstWindowCard({ card, todayStr, onOpenPick, onOpenSpot }) {
   const treatment = VERDICT_TREATMENT[card.verdict] || VERDICT_TREATMENT.AWAITING;
   const tier = resolveConfidence({ confidence: card.confidence }, daysOut(card.date, todayStr));
   const { fillScale } = confidenceTreatment(tier);
@@ -214,6 +226,15 @@ export default function WindowFirstWindowCard({ card, todayStr, onOpenPick }) {
           })}
         </span>
       </div>
+
+      {card.spots.length > 0 && (
+        <WindowSpotStrip
+          spots={card.spots}
+          windowLabel={card.when}
+          lead={card.lead}
+          onOpenSpot={(spot) => onOpenSpot?.(card, spot)}
+        />
+      )}
     </div>
   );
 }
@@ -241,7 +262,9 @@ WindowFirstWindowCard.propTypes = {
       regionName: PropTypes.string.isRequired,
       headline: PropTypes.string.isRequired,
     }),
+    spots: PropTypes.arrayOf(PropTypes.object).isRequired,
   }).isRequired,
   todayStr: PropTypes.string.isRequired,
   onOpenPick: PropTypes.func,
+  onOpenSpot: PropTypes.func,
 };

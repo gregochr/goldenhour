@@ -54,3 +54,22 @@ export async function getDriveTimes() {
   const response = await apiClient.get(`${BASE_URL}/drive-times`);
   return response.data;
 }
+
+/**
+ * Fetches the caller's reach — drive minutes and distance — for the whole enabled roster.
+ *
+ * <p>The per-user half of the window-first spot strip's two-contract join. It is deliberately
+ * separate from `/api/briefing`, which is ETag-revalidated and therefore persists its body to a
+ * browser HTTP cache JavaScript cannot evict on logout; `HttpCachingConfig` keeps
+ * `/api/user/settings*` out of that filter for exactly this reason. The client joins the two on
+ * `locationId`.
+ *
+ * <p>Every enabled location is present, with null figures for a caller who has saved no home
+ * postcode — the normal first-run state. An absent figure means "unknown", never "out of reach".
+ *
+ * @returns {Promise<Array<{locationId: number, driveMinutes?: number, distanceMiles?: number}>>}
+ */
+export async function getReach() {
+  const response = await apiClient.get(`${BASE_URL}/reach`);
+  return response.data;
+}

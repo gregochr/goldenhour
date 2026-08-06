@@ -1,4 +1,5 @@
 import { formatTime, getEventTime } from './briefingDisplay.js';
+import { buildWindowSpots } from './windowFirstSpots.js';
 
 /**
  * The window-card descriptors — one per rendered solar window.
@@ -14,12 +15,15 @@ import { formatTime, getEventTime } from './briefingDisplay.js';
  * <h2>What the header may claim</h2>
  *
  * <p>The design's meta reads {@code best 4.0★ · 23 within reach}. Neither half survives here.
- * <b>Reach is P8 and the spots it counts are P6</b>, so a count now would describe a set that is
- * not on screen — §6 bans exactly that ("no count describes a set that was never filtered", "no
- * counts of our own data"), and the plan has already applied the same reasoning once, dropping the
- * tide row's "61 coastal locations →". And the star is {@code best 4★}, not {@code 4.0★}:
- * {@code bestRating} is an {@code Integer} in 1–5, and a decimal asserts a precision the field
- * does not carry. The count arrives when the thing it counts does.
+ * The star is {@code best 4★}, not {@code 4.0★}: {@code bestRating} is an {@code Integer} in 1–5,
+ * and a decimal asserts a precision the field does not carry.
+ *
+ * <p><b>And the header still claims no count, now that the spots it would count ARE on screen.</b>
+ * That looks like it should have changed at P6 and has not, because the design's word is
+ * <em>reach</em> and the reach gate is P8's: a header reading "23 within reach" above an ungated
+ * strip would describe a set nothing filtered, which §6 bans. The strip's own footer states the
+ * count of what it drew, which is a different and true sentence. The word "reach" arrives with the
+ * control that applies it — plan §2.5.
  */
 
 /** Kickers and labels are day-relative; the rail speaks the same three words. */
@@ -86,9 +90,16 @@ export const CONFIDENCE_VERDICTS = new Set(['WORTH_IT', 'MAYBE']);
  * @param {string} todayStr       today's ISO date in Europe/London
  * @param {string} tomorrowStr    tomorrow's ISO date in Europe/London
  * @param {Set}    travelDayDates dates the operator is away
+ * @param {?Map}   reachById      per-user drive minutes and distance, keyed by location id. Empty
+ *                                until its own request resolves, and empty for the whole session
+ *                                for a user with no home postcode — in both cases every spot simply
+ *                                renders without its reach line, because a lens with no data is not
+ *                                a gate (plan §2.5).
  * @returns {Array} card descriptors for {@code WindowFirstWindowCard}
  */
-export function buildWindowCards(upcomingEvents, briefingDays, todayStr, tomorrowStr, travelDayDates) {
+export function buildWindowCards(
+  upcomingEvents, briefingDays, todayStr, tomorrowStr, travelDayDates, reachById,
+) {
   const live = (upcomingEvents || []).filter((e) => !travelDayDates?.has(e.date));
 
   return live.map(({ date, targetType }, index) => {
@@ -133,6 +144,10 @@ export function buildWindowCards(upcomingEvents, briefingDays, todayStr, tomorro
       // disagree. The rail derives its own and renders nothing from it precisely so this is the
       // single render site.
       confidence: CONFIDENCE_VERDICTS.has(verdict) ? (win?.confidence ?? null) : null,
+      // Derived from the SAME event summary the window projection was, so the strip's top card and
+      // the header's `best N★` read one population — see `buildWindowSpots` for the two filters
+      // that keep them in step.
+      spots: buildWindowSpots(es, reachById),
       badges: win?.badges || [],
       pick: win?.pick
         ? {
