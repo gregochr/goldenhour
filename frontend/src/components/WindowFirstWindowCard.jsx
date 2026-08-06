@@ -32,6 +32,24 @@ const CHANNEL = {
 };
 
 /**
+ * What a window whose every spot the lens gated says instead of a strip.
+ *
+ * <p>The design's line is "Nothing matches the current lens in this window." Two changes. The word
+ * <em>lens</em> is ours, not the product's — §6 bans inventing vocabulary — so the sentence names
+ * the threshold the reader can actually see on the control above. And it states how many are beyond
+ * it, because the useful fact is not that the window is empty but that widening would fill it; an
+ * empty card that says only "nothing" reads as a bad forecast rather than a tight filter.
+ *
+ * @param {number} total      how many spots the lens chose from
+ * @param {string} reachLabel the active tier's own label
+ * @returns {string} the sentence
+ */
+function emptyLensLine(total, reachLabel) {
+  const beyond = total === 1 ? '1 spot is further out.' : `${total} spots are further out.`;
+  return `Nothing within ${reachLabel} in this window. ${beyond}`;
+}
+
+/**
  * One shooting window, as a card.
  *
  * <h2>The verdict badge is the confidence channel's only render site</h2>
@@ -81,6 +99,9 @@ const CHANNEL = {
  * @param {object}   props
  * @param {object}   props.card       a descriptor from {@code buildWindowCards}
  * @param {string}   props.todayStr   today in Europe/London, for the confidence horizon
+ * @param {string}   [props.reachLabel] the active reach tier's own label, used only in the sentence
+ *        a fully gated window shows in place of its strip. The label rather than the threshold, so
+ *        the card names exactly what is written on the chip the reader would press.
  * @param {Function} [props.onOpenPick] opens the pick dialog for this window
  * @param {Function} [props.onOpenSpot] opens the map centred on a spot in this window.
  *
@@ -90,7 +111,9 @@ const CHANNEL = {
  *        the one this arm already passes to the pick dialog's "show location", so nothing new is
  *        invented. P10′ keeps the part that is actually new — {@code WindowSpotPeek}.
  */
-export default function WindowFirstWindowCard({ card, todayStr, onOpenPick, onOpenSpot }) {
+export default function WindowFirstWindowCard({
+  card, todayStr, reachLabel, onOpenPick, onOpenSpot,
+}) {
   const treatment = VERDICT_TREATMENT[card.verdict] || VERDICT_TREATMENT.AWAITING;
   const tier = resolveConfidence({ confidence: card.confidence }, daysOut(card.date, todayStr));
   const { fillScale } = confidenceTreatment(tier);
@@ -158,13 +181,33 @@ export default function WindowFirstWindowCard({ card, todayStr, onOpenPick, onOp
         )}
         {/* Omitted entirely rather than shown as a placeholder: a null best rating means nothing in
             the window is rated, which is a different statement from a low one. */}
+        {/* Secondary, not muted — and the star moved with the clause beside it. Measured on the
+            running app at this 11px: muted is 3.54:1 on a plain card and 3.48:1 on the lead card's
+            gold wash, both under AA; secondary is 6.87:1 and 6.50:1. The star has read muted since
+            P5 and the failure is inherited, but the P8 clause sits on the same line, so upgrading
+            one and not the other would leave two greys in one row — the reason this change already
+            gives for taking the whole rail footer at once. Sixth time on this redesign; the lead
+            card is the worse backdrop, which is why both were measured rather than one. */}
         {card.bestRating != null && (
           <span
             data-testid="window-card-best"
-            className="font-mono text-plex-text-muted"
+            className="font-mono text-plex-text-secondary"
             style={{ fontSize: '11px' }}
           >
             {`best ${card.bestRating}★`}
+          </span>
+        )}
+        {/* The design's second meta clause, earned at P8 and not before. Null whenever the word
+            "reach" would over-claim — under "Any" nothing was gated, and one unknown drive time
+            makes the drawn set part-measured — in which case the header says nothing rather than
+            restating the strip footer's own count one element lower. See `windowFirstCards.js`. */}
+        {card.withinReachCount != null && (
+          <span
+            data-testid="window-card-within-reach"
+            className="font-mono text-plex-text-secondary"
+            style={{ fontSize: '11px' }}
+          >
+            {`${card.withinReachCount} within reach`}
           </span>
         )}
         <span className="flex-1 min-w-[12px] h-px bg-plex-border" aria-hidden="true" />
@@ -248,9 +291,19 @@ export default function WindowFirstWindowCard({ card, todayStr, onOpenPick, onOp
         <WindowSpotStrip
           spots={card.spots}
           windowLabel={card.when}
+          total={card.reachTotal}
           lead={card.lead}
           onOpenSpot={(spot) => onOpenSpot?.(card, spot)}
         />
+      )}
+
+      {/* Only when the LENS emptied it. A window with no spots at all still renders neither strip
+          nor message — there is nothing the control could bring back, so the line would be a
+          statement about the lens on a card the lens never touched. */}
+      {card.spots.length === 0 && card.reachTotal > 0 && (
+        <p data-testid="window-card-lens-empty" className="wf-strip-empty">
+          {emptyLensLine(card.reachTotal, reachLabel)}
+        </p>
       )}
     </div>
   );
@@ -280,12 +333,15 @@ WindowFirstWindowCard.propTypes = {
       headline: PropTypes.string.isRequired,
     }),
     spots: PropTypes.arrayOf(PropTypes.object).isRequired,
+    reachTotal: PropTypes.number,
+    withinReachCount: PropTypes.number,
     rows: PropTypes.arrayOf(PropTypes.shape({
       key: PropTypes.string.isRequired,
       channel: PropTypes.oneOf(['tide', 'snow']).isRequired,
     })).isRequired,
   }).isRequired,
   todayStr: PropTypes.string.isRequired,
+  reachLabel: PropTypes.string,
   onOpenPick: PropTypes.func,
   onOpenSpot: PropTypes.func,
 };

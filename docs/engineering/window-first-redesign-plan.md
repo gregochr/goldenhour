@@ -303,7 +303,7 @@ fed by §2.2's endpoint. The default reach is a pure function of the date (weeke
 needs no storage, no column and no owner.
 
 Two rules make the lens honest when the per-user data is absent — which is the **normal first-run
-state**, not a failure (`CloseToHomeService.java:147-148` already says so in a comment):
+state**, not a failure (`CloseToHomeService.java:156` already says so in a comment):
 
 1. **A lens is not a gate when it has no data.** A location with no drive time is *unknown, not out of
    reach*: it passes every tier and renders without its drive line. The lens becomes a visible no-op
@@ -576,7 +576,7 @@ Backend first for anything shared, so the frontend stays a render layer.
 | **P6** | ~~Spot film strip — **and the reach data on the card**~~ **DONE.** `WindowSpotStrip` + `utils/windowFirstSpots.js`; `GET /api/user/settings/reach` gets its first consumer, fetched by the arm's own provider | Geometry from the spec, not `.cth-window-grid`; no `ScrollRail`; one shared comparator; footer states what is *drawn*. Rating badge from `RATING_COLOURS` (§2.9). **No sparkline** — P16. **Reach moved here from P8, agreed 2026-08-05**: the design has always drawn `41 min · 19 mi` on every spot card, and P3's endpoint had no consumer, so the strip would otherwise render visibly incomplete cards for two phases. P8 keeps the **gate**; P6 takes the **display**. **Seven decisions worth not re-deriving — see §5a** |
 | **P7** | ~~Attribute rows — tide, then snow~~ **DONE.** `WindowAttributeRow` + `utils/windowFirstRows.js` + `components/chart/WindowTideSparkline.jsx`; `BriefingWindow.Badge` gains `facts` | Cap of two per window, and it binds. ⚠️ The old Notes cell here said "the change row is P5's and does not count against it" — **stale since §2.8 deferred that row**, which is why two rows means tide + snow and nothing else. **Nine decisions worth not re-deriving — see §5b** |
 | **P7b** | Promoted strip — both variants; chart 42px curve + 16px label band | Single-strip cap enforced in code. Also owns `UNKNOWN_RANK`'s wire semantics |
-| **P8** | Lens bar — **reach only** + persistence policy | Shrunk: rating floor and type move to P11. Day-derived default; reach expires at the day roll |
+| **P8** | ~~Lens bar — **reach only** + persistence policy~~ **DONE.** `WindowFirstLensBar` + `utils/reachLens.js` + `hooks/useReachLens.js`; the gate rides `buildWindowCards`, and the `far` spot variant ships with it | Shrunk: rating floor and type move to P11. Day-derived default; reach expires at the day roll. **The labels are the spec and `LIM` is mock shorthand** — the label is now *derived* from the threshold so no second number exists to drift. First gated control in the arm; `role` enters at the provider only. **Nine decisions worth not re-deriving — see §5c** |
 | **P9** | Collapse/expand, six-window case, away-day row + its rail variant, the two doors | Re-measure the height budget: the rail grew, the window card shrank |
 | **P10′** | Peek content kind 1 (spot) + click-to-map | Split — the host is P4b, the pick-chip kind is P5. New `WindowSpotPeek`; **on touch the card activates the map**; phone peek via `BottomSheet`; 140/160/120ms |
 | **P11** | Drilldown sheet — **plus the rating floor and type controls** and their persistence | Grown by what P8 shed |
@@ -820,6 +820,151 @@ including this one.
 Read `docs/engineering/test-improvement-standards.md` before writing any test class. CI's gates
 (JaCoCo 80% per class, SpotBugs, Checkstyle, the Testcontainers integration classes, and the
 exit-code-not-grep rule) are documented in CLAUDE.md and are not restated here.
+
+---
+
+### 5c. What P8 decided — read before P9, P10′, P11 and P14
+
+Nine decisions that changed behaviour rather than wording. P8's height figures sit at the end,
+beside P6's and P7's.
+
+- **The labels are the spec; the thresholds are 45 / 90 / 150. And the label is now DERIVED from
+  the threshold rather than written beside it.** The mock contradicts itself —
+  `LIM={any:9999,'30':30,'60':60,'120':120}` at `:457` against
+  `RL={'30':'45 min','60':'1h 30','120':'2h 30'}` at `:494`, so every tier is wrong by a consistent
+  offset and the chip reading "45 min" gates at 30. §2.5 states the intent as "45 min / 1h 30 /
+  2h 30 as a **time** lens", so the labels win. Making the call was not enough: a chip that hides a
+  40-minute drive is the single most damaging thing this phase could ship, so `REACH_TIERS` computes
+  each label from its own `limitMinutes` through `formatDriveDuration` — the formatter every spot
+  card already prints its drive line with. There is no second number left to drift, and one test
+  pins the whole pairing. **Accepted deviation: the labels read `1h 30min` / `2h 30min`, not the
+  design's `1h 30` / `2h 30`** — three characters, in exchange for a chip and the cards it gates
+  speaking one vocabulary.
+- **`far` is measured against the day's DEFAULT tier, never the selected one.** Against the
+  selection it could never fire — the gate has already removed anything past it. Against a fixed
+  tightest tier it marks most of a Saturday's strip, and on a day the user has said 2h 30min is
+  fine, a one-hour drive is not a different kind of commitment: that turns a signal into a wash.
+  Against the default it marks exactly what widening bought, which is small by construction and is
+  the honest answer to "what did that control just do". One consequence worth knowing: the mark is
+  therefore invisible while the bar sits on its default, and that is correct rather than a gap.
+- **The day-derived default does two jobs on purpose.** It is the gate's starting point *and* the
+  line `far` measures against, because both are the same judgement — "what counts as an ordinary
+  outing today" — and splitting them would let a card call a drive long that the control had just
+  called ordinary. Friday is deliberately a weekday: the bar is one control over up to six windows
+  spanning four days, so an evening-versus-morning judgement cannot be expressed by a single
+  default, and the readout names which of the two derived it so the choice is never silent.
+- **The expiry needs no effect, and nothing is ever written back.** The choice is held *with the day
+  it was made on* and the active tier is derived, so a stamp that stops matching simply stops
+  applying — no timer, no midnight `useEffect`, no window in which the stale value is still live.
+  The provider re-renders on its ten-minute poll, which is what supplies the new date. A read that
+  re-persisted an expired choice would turn a today-only setting into a permanent one.
+  Key: **`photocast.planLens`**, holding `{reach, reachDay}` — named for the whole lens and written
+  read–modify–write, because P11's rating floor lands in the same object under the opposite policy
+  ("taste persists"), and the stamp is named `reachDay` so it can never be read as covering both.
+- **LITE is pinned to "Any", so the gate is provably a no-op for it.** §7 makes the bar a PRO control
+  and settles the *chrome*; what the gate then does was P8's to decide. A tier a LITE user cannot
+  widen would withhold forecast content — on a weekday, every spot past 45 minutes, with no route
+  to it — and CLAUDE.md's rule is breadcrumbs, not paywalls. Pinned to Any nothing is hidden, the
+  greyed control describes its own true state, and the "Pro" pill offers the ability to *narrow*.
+  It also keeps the override signals honest: `overridden` is false for a locked bar however far Any
+  sits from the default, because "today only" and the reset mark a choice the user made.
+- **The upsell sits OUTSIDE the greyed box.** Found in the browser, not by a test: with the "Pro"
+  pill inside the `opacity: 0.45` wrapper it composited to **3.68:1** against AA's 4.5:1, and
+  12.59:1 outside it. WCAG 1.4.3 exempts an *inactive* component, which is what licenses the greyed
+  tiers at 3.12:1 — it does not exempt the call to action that replaces them, and `HotTopicStrip`
+  already ships its own upsell as a sibling of the blurred content. The greying is scoped to
+  `.wf-lens-controls` for exactly this.
+- **`role` enters this arm at the provider and stops there.** P7 kept `role` out of the card subtree
+  and has a test pinning the absence of `role`/`isPro`/`isLiteUser` props. The provider already
+  reads `role` for the SWR cache key, so gating costs no new dependency, and what the cards receive
+  is a **threshold**, not a role. Nothing below the shell learns anything about roles.
+- **P8 earns the two counts P5 and P6 both withheld, and only where the words are true.** The header
+  gains `N within reach`, non-null only when the tier carried a threshold *and* every drawn spot has
+  a known drive time — §2.5 rule 1 passes an unknown through every tier, so a part-measured set is
+  not a set that is within reach. Where the word is unavailable the header stays silent rather than
+  printing a bare "N spots" that duplicates the footer one element lower: exactly one count when
+  nothing was gated, two complementary ones when something was. The footer's count becomes the
+  design's **`N of M`** only when M > N — "loaded" is dropped, since nothing here is lazily fetched.
+  A fully gated window replaces its strip with a line naming the threshold *and* the count beyond
+  it; a window that had no spots to begin with says nothing, because the lens never touched it.
+- **A sticky bar needs `scroll-margin-top`, and the browser will not work that out for you.** Found
+  in the browser, not by any reviewer or test: tabbing to a spot card sitting just above the fold
+  parked it **34px underneath the bar**, hiding the card's own name and the top of its focus ring —
+  the same ring §5a spent two measurements protecting from the scroller's clip, lost again by a
+  different mechanism. `.wf-spot`, `.window-card-pick` and `.wf-film-btn` now carry
+  `scroll-margin-top: 60px` (the bar's measured 53.5px plus the ring's 2 + 2). ⚠️ **It tracks the
+  bar's height**, so P11 — which adds a rating floor and a type control to the same row — and P14
+  must re-measure; a bar that wraps to two lines makes the number short. jsdom has no layout and
+  does not load `index.css`, so nothing can unit-test this: it is a browser-verified claim, 30
+  cards tested, 0 obscured after the fix.
+- **`bestRating` is not re-derived from the gated set**, so a header can read `best 5★ · 7 within
+  reach` over a strip topping at 4★. Two true claims about different things — the star is the
+  *window's* best, the count is what *this user* can drive to — and in that state the star usefully
+  says a better spot exists further out. Re-deriving it would make one window's "best" differ per
+  user for the same night and would move a quality signal when the reader touched a control about
+  distance. Seen live; §2.7's rule that the star is never touched applies for the same reason.
+
+**⚠️ Height budget, measured at P8 — and the honest finding is that the lens removes almost
+nothing.** The handoff expected P8 to be the first phase that could *give height back* by gating
+spots out. It cannot: the strip is a horizontal scroller, so seven cards and sixteen cards are the
+same height. Measured at 1280×720 against an injected payload: **201px** per card with a strip and
+no attribute rows (P6's figure exactly), **243px** with one snow row, **119px** for a window the
+lens emptied, and the bar itself **53.5px, once**. So P8 is **+53.5px of sticky chrome and 0px per
+card**, with a −124px saving only in the fully-gated case, which is rare by construction. Shell
+1,390px for that five-window mix. On a phone (375×812) the bar is **50px**, becomes a single
+horizontally scrolling row, drops the readout, and — checked — adds **no page-level horizontal
+overflow** (375 = 375). P9's collapse decision is unchanged by any of this.
+
+**The adversarial review before this landed** (six prosecutor lenses, one refuter per charge, then
+synthesis — 27 agents): **20 charges, 17 refuted, 3 real**, all low and all fixed before the commit.
+Every charge against the count semantics — §6's central rule, and the thing P8 changes most — was
+refuted, as were three separate charges against the `far` mark for a LITE user and two against the
+settings-refetch fallback. The three that survived:
+
+- **The new `N within reach` clause shipped in `--text-muted`, in the very commit that makes the
+  opposite correction twice.** 11px muted measures **3.54:1** on a plain card and **3.48:1** on the
+  lead card's gold wash; secondary is 6.87 / 6.50. The rail footer was upgraded in this same change
+  with that exact reasoning and the new card clause was missed. Fixing it took `best N★` with it —
+  it has read muted since P5 and had the same failure, and upgrading one and not the other leaves
+  two greys in one row. **Sixth instance of this correction.** Note the lead card is the *worse*
+  backdrop: measuring only the plain one would have understated it.
+- **The active tier's `.on` class had no test.** `.wf-seg-btn.on` is the only rule in `index.css`
+  that distinguishes the selected chip — there is no `[aria-pressed="true"]` selector — and every
+  test read `aria-pressed`, so deleting the class half of the ternary rendered four identical chips
+  with the whole file green. The same diff pins the `far` class *twice* for exactly this reason and
+  the argument was not carried across. Now pinned in both halves, and both mutations are caught.
+- **Two comment citations were off.** The gated-window line cited the mock's `:478`, which is a
+  closing `</div>`; the string is at `:484`. And `CloseToHomeService.java:147-148` is `@param`
+  Javadoc — the "no home postcode is the normal state" comment is at **`:156`**. That second number
+  came straight out of **§2.5 above, which had it wrong too**, so it was corrected there as well
+  rather than left to propagate into P11.
+
+**What the review could not see, and the browser could.** The single worst defect of the phase was
+found neither by the panel nor by any test: with the "Pro" pill inside the `opacity: 0.45` wrapper
+the upsell composited to **3.68:1**, and tabbing to a spot card just above the fold parked it 34px
+under the sticky bar. Both are facts about *composition and scroll*, invisible in a diff. The review
+itself executed nothing — no tests, build, lint, dev server or browser; every claim was source
+reading plus arithmetic.
+
+**What was verified live, and what was fixtured.** The local DB still has never had an evaluation
+run: `/api/briefing` returns five days whose regions carry **zero slots**, and
+`GET /api/user/settings/reach` returns all sixteen roster entries with **no** drive figures, because
+no home postcode is set. That made three things verifiable on **real data**: the bar renders and is
+never suppressed, the readout reads `45 min · weekday default · 0 spots across 5 windows`, and the
+rail footer reads `Home not set` beside `Edit reach` — i.e. §2.5's rule 1 in its normal first-run
+state. Everything else was seen in a real browser against an **injected payload**: the gate at its
+boundary (45 min kept, 46 min dropped), the `far` tint and its border, `7 within reach`, `7 of 16`,
+the gated-out window's line, the override pill and its named reset, persistence and the stored
+`{"reach":"45","reachDay":"2026-08-06"}`, the LITE treatment end to end, sticky pinning at
+`top: 0` across the scroll range with a clean ancestor chain, and every token resolving rather than
+being pruned. **Not verified:** the weekend default (the clock cannot be moved from the page — it is
+unit-tested only), any of it against real ratings or real drive times, and no screen reader, axe or
+Lighthouse pass — the same gap §5a and §5b both record. Chrome only.
+
+⚠️ **The Browser pane repaints only dirty regions while it is hidden**, so a screenshot taken after
+a programmatic scroll shows a torn composite that looks exactly like a sticky element failing to
+stick. Two screenshots reproduced it. The DOM is authoritative: read `getBoundingClientRect()` at
+several scroll positions instead of believing the picture.
 
 ---
 

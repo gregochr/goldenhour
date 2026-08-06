@@ -165,11 +165,43 @@ describe('WindowFirstShell', () => {
 
   it('shows no forecast age until there is a forecast to age', () => {
     // The footer states a fact about the payload. With no payload the honest thing is silence —
-    // an empty "forecast" line is a claim with nothing behind it.
+    // an empty "forecast" line is a claim with nothing behind it. The footer itself now survives,
+    // because P8 gave it a second half (the home prompt and "Edit reach") that is true regardless
+    // of whether a briefing has ever arrived.
     renderShell();
-    expect(screen.queryByTestId('window-first-railfoot')).toBeNull();
+    expect(screen.queryByTestId('window-first-age')).toBeNull();
+    expect(screen.getByTestId('window-first-railfoot')).not.toHaveTextContent('forecast');
   });
 });
+
+/**
+ * The nearest ancestor carrying the DOWN treatment, or null.
+ *
+ * <p>`pointer-events: none` inherits, so "is this control still live" is a question about the whole
+ * chain rather than about one className — and a test that asked only the element passed on a
+ * version wrapped in a greyed div.
+ */
+function dimmedAncestorOf(el) {
+  for (let node = el; node; node = node.parentElement) {
+    if (typeof node.className === 'string' && node.className.includes('pointer-events-none')) {
+      return node;
+    }
+  }
+  return null;
+}
+
+/** The reach lens exactly as `useReachLens` shapes it, sitting on a weekday default. */
+const LENS = {
+  tier: { id: '45', limitMinutes: 45, label: '45 min' },
+  tierId: '45',
+  defaultTier: { id: '45', limitMinutes: 45, label: '45 min' },
+  defaultTierId: '45',
+  weekend: false,
+  overridden: false,
+  locked: false,
+  selectTier: () => {},
+  resetToDefault: () => {},
+};
 
 describe('WindowFirstShell — the rail it hosts', () => {
   const CARD = {
@@ -234,6 +266,11 @@ describe('WindowFirstShell — the rail it hosts', () => {
     }],
     todayStr: '2026-08-04',
     tomorrowStr: '2026-08-05',
+    // The lens as the provider hands it over. A frozen value rather than the live hook: these
+    // tests are about the shell's wiring — where the bar sits, what it is fed and what it is not
+    // dimmed by — and the hook's own behaviour has its own file.
+    reachLens: LENS,
+    homePlace: undefined,
   });
 
   const renderWithBriefing = (ctx, props = {}) => {
@@ -415,5 +452,104 @@ describe('WindowFirstShell — the rail it hosts', () => {
     renderWithBriefing(briefingWith('2026-08-04T12:00:00', scores), { onEvaluationScoresChange });
 
     expect(onEvaluationScoresChange).toHaveBeenCalledWith(scores);
+  });
+
+  describe('the reach lens bar', () => {
+    it('sits between the tab rule and the pane, where the design puts it', () => {
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+
+      const rule = screen.getByTestId('window-first-tabrule');
+      const lens = screen.getByTestId('window-first-lens');
+      const pane = screen.getByTestId('window-first-pane');
+      expect(rule.compareDocumentPosition(lens) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(lens.compareDocumentPosition(pane) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('stays live when the backend is DOWN, because it filters what is already in memory', () => {
+      // The pane and the rail take the greying because they are forecast data. The lens is a
+      // client-side filter over data already fetched, so `pointer-events: none` would make a
+      // working control look broken in order to say nothing true.
+      //
+      // ⚠️ Checked up the ANCESTOR CHAIN, not on the element. `pointer-events: none` inherits, so
+      // asserting only the bar's own className passes on a version wrapped in a greyed div — a
+      // mutation doing exactly that survived the first draft of this test.
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00'), { contentDisabled: true });
+
+      expect(screen.getByTestId('window-first-pane').className).toContain('pointer-events-none');
+      expect(dimmedAncestorOf(screen.getByTestId('window-first-lens'))).toBeNull();
+    });
+
+    it('counts the spots the cards actually drew, never the set the lens chose from', () => {
+      // §6: "no count describes a set that was never filtered", and its mirror — no count
+      // describes a set the page is not showing. `reachTotal` is deliberately much larger than
+      // what each card drew here, so summing the wrong field gives 30 rather than 3; without
+      // that gap the two readings are numerically identical and the test cannot fail.
+      const first = { ...CARD, reachTotal: 12 };
+      const second = {
+        ...CARD, key: '2026-08-05:SUNRISE', spots: [CARD.spots[0], CARD.spots[0]], reachTotal: 18,
+      };
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [first, second]));
+
+      expect(screen.getByTestId('window-first-lens-readout'))
+        .toHaveTextContent('45 min · weekday default · 3 spots across 2 windows');
+    });
+
+    it('hands each card the tier\'s own label, for the sentence a gated window shows', () => {
+      const gated = { ...CARD, spots: [], reachTotal: 4 };
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [gated]));
+
+      expect(screen.getByTestId('window-card-lens-empty'))
+        .toHaveTextContent('Nothing within 45 min in this window. 4 spots are further out.');
+    });
+  });
+
+  describe('the rail footer\'s home prompt', () => {
+    it('names the home the reach figures are measured from', () => {
+      renderWithBriefing({ ...briefingWith('2026-08-04T12:00:00'), homePlace: 'Morpeth' });
+      expect(screen.getByTestId('window-first-home')).toHaveTextContent('Home · Morpeth');
+    });
+
+    it('says so when the settings response came back with no home', () => {
+      // The normal first-run state, and the reason the bar itself is never suppressed: the lens
+      // stays a visible no-op and the prompt that fixes it lives here.
+      renderWithBriefing({ ...briefingWith('2026-08-04T12:00:00'), homePlace: null });
+      expect(screen.getByTestId('window-first-home')).toHaveTextContent('Home not set');
+    });
+
+    it('says nothing at all while it does not know', () => {
+      // Telling a user who HAS a home that they have not set one, on the strength of a request
+      // that never came back, is a false claim where silence costs nothing. Plan §2.5 forbids a
+      // second source of truth for this, which is what makes the third state necessary.
+      renderWithBriefing({ ...briefingWith('2026-08-04T12:00:00'), homePlace: undefined });
+      expect(screen.queryByTestId('window-first-home')).toBeNull();
+      expect(screen.getByTestId('window-first-railfoot').textContent).not.toMatch(/home/i);
+    });
+
+    it('offers a route to the settings that set it', () => {
+      const { onOpenSettings } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+      fireEvent.click(screen.getByRole('button', { name: 'Edit reach' }));
+      expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps that route working when the backend is DOWN', () => {
+      // ⚠️ Asserted STRUCTURALLY, not by clicking. The DOWN treatment is `pointer-events: none`
+      // on an ancestor, and jsdom applies no CSS — so a `fireEvent.click` fires through it and
+      // passes whether the button is greyed or not. The footer lived inside the greyed rail
+      // region when this test was written and the click assertion passed anyway; only the
+      // containment check failed. The one control that fixes an empty lens must not go inert
+      // exactly when a user is most likely to be poking at it.
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00'), { contentDisabled: true });
+
+      expect(screen.getByTestId('window-first-rail-region').className)
+        .toContain('pointer-events-none');
+      expect(dimmedAncestorOf(screen.getByTestId('window-first-edit-reach'))).toBeNull();
+    });
+
+    it('keeps the forecast\'s age readable when the backend is DOWN', () => {
+      // The age becomes MORE useful with a dead backend, not less — it is the only thing on
+      // screen saying how stale what you are reading is.
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00'), { contentDisabled: true });
+      expect(dimmedAncestorOf(screen.getByTestId('window-first-age'))).toBeNull();
+    });
   });
 });

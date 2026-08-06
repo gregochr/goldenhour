@@ -97,9 +97,12 @@ function reachLine(driveMinutes, distanceMiles) {
  *
  * <h2>What the footer may claim</h2>
  *
- * <p>The count is of what is <b>drawn</b>, and at this phase that is everything the window has:
- * there is no reach gate yet (P8) and no rating floor (P11), so the design's "7 of 18 loaded" would
- * be "7 of 7". The word "loaded" arrives when a set exists that is loaded but not drawn.
+ * <p>The count is of what is <b>drawn</b>. P6 could only say "7 spots", because with no reach gate
+ * and no rating floor N <em>was</em> M; the tier ships at P8, so when it hides some the count
+ * becomes the design's <b>"7 of 18"</b> — a set that exists, is not drawn, and can be brought back
+ * by the control directly above. The design's word "loaded" is dropped: nothing here is lazily
+ * fetched, and the 18 were all in hand before the lens ran. When the lens hid nothing the count
+ * stays "7 spots", so the second number never appears unless it means something.
  *
  * <p><b>No "See all N →".</b> It opens P11's drill-down, which does not exist, and P5 already
  * settled this shape of question when it drew no footer at all rather than an empty one: a control
@@ -110,13 +113,16 @@ function reachLine(driveMinutes, distanceMiles) {
  * carries never fires — see {@link spotOrderStatement}.
  *
  * @param {object}   props
- * @param {Array}    props.spots     ordered descriptors from {@code buildWindowSpots}
+ * @param {Array}    props.spots     ordered descriptors from {@code buildWindowSpots}, already
+ *        gated by the reach lens
  * @param {string}   props.windowLabel the window's own heading, so the arrows' accessible names
  *        distinguish six otherwise identical pairs on one page
+ * @param {number}   [props.total]   how many the lens chose from. Defaults to what is drawn, which
+ *        is the no-gate case and keeps the count at P6's plain "N spots".
  * @param {boolean}  [props.lead]    whether this is the lead card, which tints the edge fades
  * @param {Function} [props.onOpenSpot] opens the map centred on that spot
  */
-export default function WindowSpotStrip({ spots, windowLabel, lead, onOpenSpot }) {
+export default function WindowSpotStrip({ spots, windowLabel, total, lead, onOpenSpot }) {
   const scrollerRef = useRef(null);
   const { back, more } = useStripEdges(scrollerRef, spots.length);
   const overflows = back || more;
@@ -128,7 +134,11 @@ export default function WindowSpotStrip({ spots, windowLabel, lead, onOpenSpot }
     el.scrollBy({ left: (card.offsetWidth + CARD_GAP) * CARDS_PER_NUDGE * direction });
   }, []);
 
-  const count = `${spots.length} spot${spots.length === 1 ? '' : 's'}`;
+  // `N of M` only where M is a real, reachable set the lens withheld — otherwise the plain count.
+  const hidden = (total ?? spots.length) > spots.length;
+  const count = hidden
+    ? `${spots.length} of ${total}`
+    : `${spots.length} spot${spots.length === 1 ? '' : 's'}`;
 
   return (
     <>
@@ -147,8 +157,9 @@ export default function WindowSpotStrip({ spots, windowLabel, lead, onOpenSpot }
                 type="button"
                 data-testid="window-spot"
                 data-rating={spot.rating ?? undefined}
+                data-far={spot.far ? 'true' : undefined}
                 onClick={() => onOpenSpot?.(spot)}
-                className="wf-spot"
+                className={`wf-spot${spot.far ? ' far' : ''}`}
               >
                 <span className="flex items-start justify-between" style={{ gap: '8px' }}>
                   <span
@@ -193,7 +204,7 @@ export default function WindowSpotStrip({ spots, windowLabel, lead, onOpenSpot }
                 {reach && (
                   <span
                     data-testid="window-spot-reach"
-                    className="font-mono text-plex-text-secondary"
+                    className={`wf-spot-reach font-mono${spot.far ? ' far' : ' text-plex-text-secondary'}`}
                     style={{ fontSize: '10px' }}
                   >
                     {reach}
@@ -255,8 +266,10 @@ WindowSpotStrip.propTypes = {
     rating: PropTypes.number,
     driveMinutes: PropTypes.number,
     distanceMiles: PropTypes.number,
+    far: PropTypes.bool,
   })).isRequired,
   windowLabel: PropTypes.string.isRequired,
+  total: PropTypes.number,
   lead: PropTypes.bool,
   onOpenSpot: PropTypes.func,
 };

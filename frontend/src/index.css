@@ -1215,6 +1215,197 @@
   .window-pick-close { transition: none; }
 }
 
+/* ── Window-first reach lens bar ──
+   One control, sticky above every window on the page. Geometry from the spec (`.lens` :60,
+   `.lgrp` :61, `.lens .k` :62, `.seg` :63-66, `.seg.home button.on` :67, `.lens .res` :70,
+   `.stick.tmp` :71-72, `.lens .rst` :73-74; phone at :250-253).
+
+   `position: sticky` here and nowhere above it: the v2 shell suppresses the app header, the
+   masthead and the tab bar scroll away, and no ancestor sets `overflow`, a `transform`, a `filter`
+   or a `will-change` — any of which would silently re-base the stick onto itself. */
+.wf-lens {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 18px;
+  background: var(--color-plex-surface);
+  border-bottom: 1px solid var(--color-plex-border);
+  flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  /* Above the spot strip's focused card (3) and its edge fades (2), which is the only thing on the
+     Plan pane that raises itself at all. */
+  z-index: 20;
+}
+.wf-lgrp {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* The control itself — kicker and tiers — as its own box, so the LITE greying can stop at exactly
+   the thing that is unavailable and leave the upsell beside it at full strength. */
+.wf-lens-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* CLAUDE.md's LITE treatment, verbatim: `opacity: 0.45` and `pointer-events: none`. The buttons
+   carry a real `disabled` as well, because pointer-events does not stop a keyboard.
+
+   Scoped to `.wf-lens-controls` and NOT to the whole `.wf-lgrp`: opacity composites the entire
+   subtree, and with the "Pro" pill inside it the upsell rendered at 3.68:1 against AA's 4.5:1
+   (measured on the running app). WCAG 1.4.3 exempts an inactive component, which is what licenses
+   the greyed tiers at 3.12:1 — it does not license the call to action that replaces them. */
+.wf-lens-locked {
+  opacity: 0.45;
+  pointer-events: none;
+}
+/* `--text-secondary`, not the spec's `--ink-3`. Measured on the running app: muted lands at
+   **3.52:1** on `--surface` and fails AA at 10px; secondary measures **6.72:1**. This is the FIFTH
+   time this project has made the same correction — CloseToHome's region line, its ordering
+   explainer, §5a's spot-card sub-lines, §5b's row tones. `--ink-3` is not usable for small type on
+   these surfaces, and the readout below takes the same tone for the same reason (6.72:1). */
+.wf-lens-k {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+  white-space: nowrap;
+}
+.wf-seg {
+  display: flex;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--color-plex-panel);
+}
+.wf-seg-btn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 6px 11px;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--color-plex-border);
+  color: var(--color-plex-text-secondary);
+  white-space: nowrap;
+  /* Preflight no longer sets `button { cursor: pointer }`. */
+  cursor: pointer;
+}
+.wf-seg-btn:last-child { border-right: none; }
+.wf-seg-btn:disabled { cursor: default; }
+.wf-seg-btn:hover:not(:disabled):not(.on) { color: var(--color-plex-text); }
+/* The spec's `.seg.home button.on` — .18 rather than the plain segment's .13. There is only one
+   segmented control on this bar and it is the home/reach one, so the two rules collapse into this
+   single state; P11's rating and type segments take the .13 variant when they arrive. */
+.wf-seg-btn.on {
+  background: rgba(201, 162, 75, 0.18);
+  color: var(--color-segment-active);
+  font-weight: 600;
+}
+.wf-seg-btn:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  /* Inside, not offset: the group clips at `overflow: hidden`, so an offset ring on the first or
+     last button loses its outer stroke to the rounded corner. */
+  outline-offset: -2px;
+}
+/* The design's `.stick.tmp`. Amber because the state it names is temporary, matching the MAYBE
+   verdict's own family — and it never appears beside a verdict, so the two cannot be confused. */
+.wf-lens-stick {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(224, 165, 66, 0.14);
+  color: var(--color-badge-maybe);
+  white-space: nowrap;
+}
+/* The upsell pill. Bone on the plain neutral badge fill the window card already uses for AWAITING,
+   because a "Pro" pill is chrome and chrome is bone — it must not borrow a channel that means
+   something about the sky. */
+.wf-lens-pro {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--color-plex-border-light);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-plex-text);
+  white-space: nowrap;
+}
+/* `--color-badge-tide`, not the spec's `--tide` — and NOT because the channel colour fails here.
+   Both were measured on the running app against this bar's own `--surface`: `--color-tide` lands
+   at **6.44:1** and clears AA at 10.5px (the tide-run footer already prints 10px type in it), and
+   `--color-badge-tide` at **9.68:1**. The reason for the lifted one is that this is the only
+   ACTIONABLE text on the bar, and an actionable element earns more separation than a static fact
+   line. Recorded with both figures so the choice does not read as a contrast fix it is not.
+
+   Teal on a control is not an overload of the tide channel: `.wf-spot:hover .wf-spot-open` is
+   already `--color-tide`, so teal is this arm's actionable accent as well as its tide hue. */
+.wf-lens-reset {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-badge-tide);
+  background: none;
+  border: none;
+  padding: 0;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.wf-lens-reset:hover { text-decoration: underline; }
+.wf-lens-reset:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.wf-lens-res {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+  white-space: nowrap;
+}
+/* A sticky bar overlaps whatever the browser scrolls into view, and the browser does not know it is
+   there. Measured on the running app: tabbing to a spot card sitting just above the fold parked it
+   **34px underneath the bar**, taking the card's own name and the top of its focus ring with it —
+   the same ring P6 spent two measurements protecting from the scroller's clip, lost again a
+   different way. `scroll-margin-top` is the reservation, applied to every focusable thing the pane
+   can scroll to.
+
+   60px = the bar's measured 53.5px plus the ring's 2px outline and 2px offset. ⚠️ It tracks the
+   bar's HEIGHT, so P11 (which adds a rating floor and a type control to the same row) and P14 must
+   re-measure — a bar that wraps to two lines makes this number short. jsdom has no layout and does
+   not load this file, so nothing can unit-test it; it is a browser-verified claim. */
+.wf-spot,
+.window-card-pick,
+.wf-film-btn {
+  scroll-margin-top: 60px;
+}
+
+/* The app's own phone boundary, as `.wf-spots` states it. The bar becomes a single scrolling row:
+   wrapping it would grow a sticky element to two or three lines and eat the viewport it is there
+   to keep clear. The readout goes rather than wraps — it is a summary of what is already visible
+   below, and it is the widest thing on the bar. */
+@media (max-width: 639px) {
+  .wf-lens {
+    padding: 9px 14px;
+    gap: 7px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .wf-lens::-webkit-scrollbar { display: none; }
+  .wf-lens-res { display: none; }
+  .wf-lens-k { font-size: 9px; }
+}
+
 /* ── Window-first attribute rows: the tide the light falls on, the snow underneath it ──
    The design's `.frow` is `auto auto 1fr auto`; the fourth column is its action link, and it is
    not built — see `WindowAttributeRow.jsx` for why both of the design's labels fail a rule this
@@ -1413,6 +1604,25 @@
   cursor: pointer;
   transition: transform 0.12s ease, border-color 0.14s ease;
 }
+/* The design's `far` card (:212, :217) — a spot beyond what today's default reach allows, which is
+   to say one the user only sees because they widened the lens. `isFarSpot` carries why it measures
+   against the default rather than the selection.
+
+   Teal is NOT an overload of the tide channel here, which is the objection worth answering: within
+   this strip teal is already the interactive accent — `.wf-spot:hover .wf-spot-open` below is
+   `--color-tide` and shipped at P6 — so the card's own vocabulary is where this borrows from, not
+   from the tide row above it. And the mark carries no information the card does not already state
+   in words: the drive time is printed on the very line that is tinted, so colour is a redundant
+   encoding rather than the sole carrier (SC 1.4.1).
+
+   Measured on the running app, and each variant on its own backdrop, because a spot card has two:
+   `--color-badge-tide` is **10.41:1** on a plain card and **9.70:1** on the lead card's gold wash.
+   (The tone it replaces, secondary, is 7.03:1 on the plain card.) The border is a non-text
+   indicator carrying nothing the text does not, so 1.4.11's 3:1 does not bind on it. */
+.wf-spot.far { border-color: rgba(111, 168, 176, 0.3); }
+.wf-spot.far:hover { border-color: rgba(111, 168, 176, 0.55); }
+.wf-spot .wf-spot-reach.far { color: var(--color-badge-tide); }
+
 .wf-spot:hover {
   transform: translateY(-2px);
   border-color: var(--color-plex-border-light);
@@ -1434,6 +1644,18 @@
   outline-offset: 2px;
   position: relative;
   z-index: 3;
+}
+
+/* The window whose every spot the lens gated out. The design's own answer (:484) and a better one
+   than an empty card: it names the threshold that did it and how many are beyond it, so the reader
+   can see what widening the control above would buy. It sits where the strip would have, and takes
+   the strip wrapper's own horizontal inset so the text lines up with the cards on every other
+   window. */
+.wf-strip-empty {
+  padding: 2px 14px 12px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
 }
 
 .wf-wfoot {

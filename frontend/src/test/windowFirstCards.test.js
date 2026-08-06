@@ -359,6 +359,111 @@ describe('buildWindowCards', () => {
       expect(card.badges.map((b) => b.label)).toEqual(['✦ NLC', 'King tide']);
     });
   });
+
+  describe('the reach lens', () => {
+    /** Three locations at 19, 41 and 66 minutes — either side of the 45-minute tier. */
+    const THREE_SPOTS = [
+      { locationId: 1, locationName: 'Simonside', claudeRating: 3, canopy: false },
+      { locationId: 2, locationName: 'Blyth Beach', claudeRating: 4, canopy: false },
+      { locationId: 3, locationName: 'Sycamore Gap', claudeRating: 5, canopy: false },
+    ];
+    const REACH = new Map([
+      [1, { driveMinutes: 19, distanceMiles: 10 }],
+      [2, { driveMinutes: 41, distanceMiles: 19 }],
+      [3, { driveMinutes: 66, distanceMiles: 47 }],
+    ]);
+
+    const withSpots = (slots) => ({
+      events: events([TODAY, 'SUNSET']),
+      days: [day(TODAY, [{
+        targetType: 'SUNSET',
+        regions: [{ regionName: 'Northumberland & Tyneside', slots }],
+        unregioned: [],
+        window: { verdict: 'WORTH_IT', badges: [] },
+      }])],
+    });
+
+    const buildWithLens = (slots, reachById, lens) => buildWindowCards(
+      events([TODAY, 'SUNSET']), withSpots(slots).days, TODAY, TOMORROW, new Set(), reachById, lens,
+    );
+
+    it('drops a spot beyond the tier and keeps the one exactly on it', () => {
+      const [card] = buildWithLens(THREE_SPOTS, REACH, { limitMinutes: 41, defaultLimitMinutes: 45 });
+      expect(card.spots.map((s) => s.locationName)).toEqual(['Blyth Beach', 'Simonside']);
+    });
+
+    it('states how many the lens chose from, so the strip can say "N of M"', () => {
+      const [card] = buildWithLens(THREE_SPOTS, REACH, { limitMinutes: 45, defaultLimitMinutes: 45 });
+      expect(card.spots).toHaveLength(2);
+      expect(card.reachTotal).toBe(3);
+    });
+
+    it('gates nothing under Any, and the two counts are then equal', () => {
+      const [card] = buildWithLens(THREE_SPOTS, REACH, { limitMinutes: null, defaultLimitMinutes: 45 });
+      expect(card.spots).toHaveLength(3);
+      expect(card.reachTotal).toBe(3);
+    });
+
+    it('gates nothing at all with no lens, rather than at some assumed distance', () => {
+      const [card] = buildWithLens(THREE_SPOTS, REACH);
+      expect(card.spots).toHaveLength(3);
+      expect(card.spots.every((s) => s.far === false)).toBe(true);
+    });
+
+    it('passes a spot with no drive time through every tier', () => {
+      // Plan §2.5 rule 1, at the level the card is built: this is the first-run user's whole
+      // experience of the control, and a gate here would empty their page.
+      const [card] = buildWithLens(THREE_SPOTS, new Map(), { limitMinutes: 45, defaultLimitMinutes: 45 });
+      expect(card.spots).toHaveLength(3);
+    });
+
+    it('marks the spots beyond today\'s default, and only those', () => {
+      const [card] = buildWithLens(THREE_SPOTS, REACH, { limitMinutes: null, defaultLimitMinutes: 45 });
+      expect(card.spots.filter((s) => s.far).map((s) => s.locationName)).toEqual(['Sycamore Gap']);
+    });
+
+    describe('what the header may claim', () => {
+      it('counts what is within reach once the tier gated a fully measured set', () => {
+        const [card] = buildWithLens(THREE_SPOTS, REACH, { limitMinutes: 45, defaultLimitMinutes: 45 });
+        expect(card.withinReachCount).toBe(2);
+      });
+
+      it('claims nothing under Any, where the word describes no act', () => {
+        const [card] = buildWithLens(THREE_SPOTS, REACH, { limitMinutes: null, defaultLimitMinutes: 45 });
+        expect(card.withinReachCount).toBeNull();
+      });
+
+      it('claims nothing when one drawn spot\'s drive time is unknown', () => {
+        // Rule 1 lets an unknown through every tier, so a drawn set can be part measured and part
+        // unknown. Calling the whole of it "within reach" is the same over-claim as counting a set
+        // nothing filtered — the one thing P5 and P6 both refused to do.
+        const partial = new Map([[1, { driveMinutes: 19, distanceMiles: 10 }]]);
+        const [card] = buildWithLens(THREE_SPOTS, partial, {
+          limitMinutes: 45, defaultLimitMinutes: 45,
+        });
+
+        expect(card.spots).toHaveLength(3);
+        expect(card.withinReachCount).toBeNull();
+      });
+
+      it('claims nothing when this user has no drive times at all', () => {
+        const [card] = buildWithLens(THREE_SPOTS, new Map(), {
+          limitMinutes: 45, defaultLimitMinutes: 45,
+        });
+        expect(card.withinReachCount).toBeNull();
+      });
+
+      it('claims nothing when the tier emptied the window', () => {
+        // Zero would render "0 within reach" beside a card that already says so at greater length,
+        // and `[].every()` is vacuously true, so the guard is load-bearing rather than cosmetic.
+        const [card] = buildWithLens(THREE_SPOTS, REACH, {
+          limitMinutes: 5, defaultLimitMinutes: 45,
+        });
+        expect(card.spots).toHaveLength(0);
+        expect(card.withinReachCount).toBeNull();
+      });
+    });
+  });
 });
 
 describe('badgeChannel', () => {

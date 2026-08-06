@@ -104,11 +104,18 @@ describe('WindowFirstWindowCard', () => {
       expect(screen.getByTestId('window-card').textContent).not.toMatch(/see all/i);
     });
 
-    it('claims nothing is "loaded", because everything the window has is drawn', () => {
-      // The design reads "7 of 18 loaded". There is no reach gate (P8) and no rating floor (P11),
-      // so that sentence would be "1 of 1" — a count of a set that was never filtered.
-      renderCard({ spots: [spot()] });
+    it('claims nothing is "loaded", and claims no reach the lens did not measure', () => {
+      // The design reads "7 of 18 loaded". "Loaded" never ships — nothing here is lazily fetched.
+      // And with no `withinReachCount` the header stays silent rather than restating the footer's
+      // own count one element higher: exactly one count when nothing was gated.
+      renderCard({ spots: [spot()], reachTotal: 1 });
       expect(screen.getByTestId('window-card').textContent).not.toMatch(/loaded|within reach/i);
+      expect(screen.queryByTestId('window-card-within-reach')).toBeNull();
+    });
+
+    it('hands the strip the set the lens chose from, so its count can say "N of M"', () => {
+      renderCard({ spots: [spot()], reachTotal: 6 });
+      expect(screen.getByTestId('window-spot-count')).toHaveTextContent('1 of 6');
     });
 
     it('names the strip\'s arrows after this window, not after "the strip"', () => {
@@ -151,6 +158,43 @@ describe('WindowFirstWindowCard', () => {
         expect.objectContaining({ date: TODAY, targetType: 'SUNSET' }),
         expect.objectContaining({ locationName: 'Bamburgh Castle' }),
       );
+    });
+  });
+
+  describe('the reach lens on the card', () => {
+    it('counts what is within reach beside the star, once the lens has earned the word', () => {
+      renderCard({ spots: [spot()], reachTotal: 6, withinReachCount: 1 });
+      expect(screen.getByTestId('window-card-within-reach')).toHaveTextContent('1 within reach');
+    });
+
+    it('says what the lens hid, and how much widening would bring back', () => {
+      // The design's line is "Nothing matches the current lens in this window." Two changes: the
+      // word "lens" is ours rather than the product's, so the threshold on the chip above is named
+      // instead; and the count is stated, because the useful fact is that widening would fill it.
+      renderCard({ spots: [], reachTotal: 12 }, { reachLabel: '45 min' });
+      expect(screen.getByTestId('window-card-lens-empty'))
+        .toHaveTextContent('Nothing within 45 min in this window. 12 spots are further out.');
+    });
+
+    it('agrees with itself when one spot is beyond the tier', () => {
+      renderCard({ spots: [], reachTotal: 1 }, { reachLabel: '1h 30min' });
+      expect(screen.getByTestId('window-card-lens-empty'))
+        .toHaveTextContent('Nothing within 1h 30min in this window. 1 spot is further out.');
+    });
+
+    it('says nothing about the lens on a window that had no spots to begin with', () => {
+      // The line is a statement about the control. On a window the lens never touched there is
+      // nothing widening could bring back, so it would blame a filter for an empty forecast.
+      renderCard({ spots: [], reachTotal: 0 }, { reachLabel: '45 min' });
+      expect(screen.queryByTestId('window-card-lens-empty')).toBeNull();
+      expect(screen.queryByTestId('window-spot-strip')).toBeNull();
+    });
+
+    it('draws no strip and no footer beside the gated-out line', () => {
+      // The footer would read "Listed alphabetically. 0 spots" over nothing at all.
+      renderCard({ spots: [], reachTotal: 12 }, { reachLabel: '45 min' });
+      expect(screen.queryByTestId('window-spot-strip')).toBeNull();
+      expect(screen.queryByTestId('window-spot-foot')).toBeNull();
     });
   });
 

@@ -1,0 +1,238 @@
+import { formatDriveDuration } from './briefingDisplay.js';
+
+/**
+ * The reach lens — how far the user is willing to drive, and what that hides.
+ *
+ * <h2>The label IS the threshold, and that is the point of deriving it</h2>
+ *
+ * <p>The design's mock disagrees with itself: {@code LIM={any:9999,'30':30,'60':60,'120':120}} at
+ * {@code Plan Window First v2.html:457} against {@code RL={'30':'45 min','60':'1h 30','120':'2h 30'}}
+ * at {@code :494}. Every tier is wrong by a consistent offset — the chip reading "45 min" gates at
+ * 30. Plan §2.5 states the intent as "45 min / 1h 30 / 2h 30 as a <em>time</em> lens", so the labels
+ * are the spec and {@code LIM} is mock shorthand for a fixture whose drive times happened to be
+ * round.
+ *
+ * <p><b>So the label is computed from the threshold rather than written beside it.</b> A chip reading
+ * "45 min" that hides a 40-minute drive is the single most damaging thing this control can do, and
+ * the only way to make it impossible is to leave no second number to drift. The formatter is the one
+ * every spot card already prints its drive line with, so a chip and the cards it gates speak one
+ * vocabulary — {@code 1h 30min} rather than the mock's {@code 1h 30}, which is the deviation this
+ * buys and is recorded in the plan's §5c.
+ *
+ * <h2>The day-derived default is the line between an outing and a trip</h2>
+ *
+ * <p>Plan §2.5: the default "is a pure function of the date (weekend vs weekday), so it needs no
+ * storage, no column and no owner". That same threshold does a second job here — it is what
+ * {@link isFarSpot} measures against, so a spot is marked <em>far</em> exactly when it is beyond
+ * what today would ordinarily allow. The two uses are deliberately one number: the gate's starting
+ * point and the mark's meaning are the same judgement, and splitting them would let a card call a
+ * drive long that the control had just called ordinary.
+ *
+ * <h2>A lens with no data is not a gate</h2>
+ *
+ * <p>Plan §2.5, rule 1, and it is the <b>normal first-run state</b> rather than a failure
+ * ({@code CloseToHomeService.java:156} says so in a comment). A spot with no drive time is
+ * <em>unknown</em>, not out of reach: it passes every tier and is never far. {@link gateSpotsByReach}
+ * and {@link isFarSpot} both key on {@code driveMinutes != null} for that reason, so a user with no
+ * home postcode sees the control move and nothing else — a visible no-op, never a silently empty page.
+ */
+
+/** The tier that gates nothing. Its own id, so a stored value can name it. */
+export const ANY_TIER_ID = 'any';
+
+/**
+ * The four tiers, tightest first — the order they are drawn in.
+ *
+ * <p>Ids are the threshold in minutes so a stored value is self-describing, and {@code label} is
+ * derived rather than authored (see the class comment). {@code limitMinutes} of null means the tier
+ * gates nothing at all, which is a different statement from a very large number: no arithmetic runs.
+ */
+export const REACH_TIERS = [45, 90, 150].map((limitMinutes) => ({
+  id: String(limitMinutes),
+  limitMinutes,
+  label: formatDriveDuration(limitMinutes),
+})).concat([{ id: ANY_TIER_ID, limitMinutes: null, label: 'Any' }]);
+
+/** The tightest tier, which is also the weekday default. */
+export const WEEKDAY_TIER_ID = REACH_TIERS[0].id;
+
+/** The weekend default — the third of four, as the design's own fixture sets it. */
+export const WEEKEND_TIER_ID = REACH_TIERS[2].id;
+
+/**
+ * Storage key for the Plan tab's lens choices.
+ *
+ * <p>Named for the whole lens rather than for reach alone because P11 adds a rating floor and a
+ * location type to the same bar, and plan §5 gives them a <em>different</em> policy — "drilldown
+ * taste — persists" against reach's "expires at the day roll". One key, one read, and the expiry
+ * stamp is named {@code reachDay} so it can never be mistaken for a stamp over the whole object.
+ *
+ * <p>Convention follows {@code PLAN_LAYOUT_KEY}: no version suffix until the stored shape changes
+ * meaning, at which point bump the name rather than reinterpreting the old value.
+ */
+export const REACH_LENS_KEY = 'photocast.planLens';
+
+/** Saturday and Sunday, as {@code Date.getUTCDay} numbers them. */
+const SATURDAY = 6;
+const SUNDAY = 0;
+
+/** The tier for an id, or null when nothing matches. */
+export function tierById(id) {
+  return REACH_TIERS.find((tier) => tier.id === id) || null;
+}
+
+/**
+ * Whether an ISO date falls at the weekend.
+ *
+ * <p>Read at noon UTC so no timezone can move the day; the caller's date string is already
+ * Europe/London's own. An unparseable string is <em>not</em> evidence of a weekend, so it reads as a
+ * weekday — the tighter default, which rule 1 then makes harmless for the user who has no drive
+ * times at all.
+ *
+ * @param {string} dateStr ISO `YYYY-MM-DD`
+ * @returns {boolean} true on Saturday or Sunday
+ */
+export function isWeekend(dateStr) {
+  const day = new Date(`${dateStr}T12:00:00Z`).getUTCDay();
+  return day === SATURDAY || day === SUNDAY;
+}
+
+/**
+ * Today's default tier id — the pure function of the date plan §2.5 specifies.
+ *
+ * <p>Friday is deliberately a weekday. The bar is one control over up to six windows spanning four
+ * days, so an evening-versus-morning judgement would have to be made per window and could not be
+ * expressed by a single default; the readout states which of the two it landed on so the choice is
+ * never silent.
+ *
+ * @param {string} todayStr ISO `YYYY-MM-DD` in Europe/London
+ * @returns {string} a tier id
+ */
+export function defaultTierIdFor(todayStr) {
+  return isWeekend(todayStr) ? WEEKEND_TIER_ID : WEEKDAY_TIER_ID;
+}
+
+/**
+ * The stored tier id, or null when there is none that still applies.
+ *
+ * <p>Null covers five different absences on purpose — no key, unparseable JSON, no {@code reach}
+ * field, a tier id this build no longer has, and a choice made on an earlier day. All five mean the
+ * same thing to the caller: fall back to today's derived default. Nothing is written back, so an
+ * expired choice does not resurrect itself the moment it is read.
+ *
+ * @param {string} todayStr ISO `YYYY-MM-DD` in Europe/London
+ * @returns {?string} a tier id, or null
+ */
+export function readStoredTierId(todayStr) {
+  try {
+    const raw = localStorage.getItem(REACH_LENS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || parsed.reachDay !== todayStr) return null;
+    return tierById(parsed.reach) ? parsed.reach : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Records a tier choice against the day it was made on.
+ *
+ * <p>Read–modify–write rather than a bare overwrite, because P11's fields live in the same object
+ * under a different expiry policy and a blind write would drop them.
+ *
+ * @param {string} tierId   the chosen tier
+ * @param {string} todayStr ISO `YYYY-MM-DD` in Europe/London
+ */
+export function writeStoredTierId(tierId, todayStr) {
+  try {
+    let existing = {};
+    try {
+      existing = JSON.parse(localStorage.getItem(REACH_LENS_KEY)) || {};
+    } catch {
+      existing = {};
+    }
+    localStorage.setItem(
+      REACH_LENS_KEY,
+      JSON.stringify({ ...existing, reach: tierId, reachDay: todayStr }),
+    );
+  } catch {
+    // Quota exceeded or private-browsing restriction — the choice still applies for this session
+  }
+}
+
+/**
+ * Whether a spot is beyond what today's default reach allows.
+ *
+ * <p>The design draws a {@code far} spot card — tide-tinted border, tinted meta line — and plan §5a
+ * held it back from P6 because "a card asserting 'beyond weekday reach' while nothing on screen can
+ * widen it is the same failure as a header counting a set that was never filtered". The tier ships
+ * here, so the mark ships with it.
+ *
+ * <p><b>Measured against today's default, not against the selected tier.</b> Against the selection
+ * the mark could never fire — {@link gateSpotsByReach} has already removed anything beyond it. And
+ * against a fixed tightest tier it would mark most of a Saturday's strip, which turns a signal into
+ * a wash: on a day the user has said 2h 30min is fine, a one-hour drive is not a different kind of
+ * commitment. Against the default it marks exactly what widening bought, which is a small set by
+ * construction and is the honest answer to "what did that control just do".
+ *
+ * <p>A null default limit — only reachable if the default were ever "Any" — marks nothing, and so
+ * does an unknown drive time (rule 1).
+ *
+ * @param {?number} driveMinutes    the spot's drive time, or null when unknown
+ * @param {?number} defaultLimitMinutes today's default tier's threshold
+ * @returns {boolean} true when the spot lies beyond today's ordinary reach
+ */
+export function isFarSpot(driveMinutes, defaultLimitMinutes) {
+  if (driveMinutes == null || defaultLimitMinutes == null) return false;
+  return driveMinutes > defaultLimitMinutes;
+}
+
+/**
+ * The spots a tier leaves on screen.
+ *
+ * <p>Inclusive at the boundary: a 45-minute drive is within "45 min". A null limit returns the input
+ * untouched, and so does a spot with no drive time — rule 1 again, and it is why this is a filter
+ * over a nullable field rather than a comparison with a default of zero.
+ *
+ * @param {Array} spots        ordered descriptors from {@code buildWindowSpots}
+ * @param {?number} limitMinutes the active tier's threshold, or null for "Any"
+ * @returns {Array} the spots that pass, in the order they arrived
+ */
+export function gateSpotsByReach(spots, limitMinutes) {
+  if (limitMinutes == null) return spots;
+  return spots.filter((spot) => spot.driveMinutes == null || spot.driveMinutes <= limitMinutes);
+}
+
+/**
+ * The bar's readout — what the lens is set to and how much is on screen because of it.
+ *
+ * <p>Every clause is checked against §6. The tier label is the control's own word. The default
+ * clause appears only when the active tier <em>is</em> the default, and names which of the two days
+ * derived it, so the reader can tell a deliberate choice from an inherited one. The count says
+ * "spots", never "within reach": plan §2.5's rule 2 keeps the word <em>reach</em> for a set that was
+ * actually gated, and this number is drawn cards — which it always truthfully is, gate or no gate.
+ *
+ * <p>"across N windows" is what makes the count honest when a location appears in several of them.
+ * {@code CloseToHome}'s block header counts unique locations because its heading names a radius and
+ * the number therefore has to mean "places you could drive to"; this one names the windows, so it
+ * means cards, and there are exactly that many on the page.
+ *
+ * @param {object}  args
+ * @param {string}  args.tierLabel  the active tier's label
+ * @param {boolean} args.isDefault  whether the active tier is today's derived default
+ * @param {boolean} args.weekend    whether today derived the weekend default
+ * @param {number}  args.spotCount  spots drawn across every window
+ * @param {number}  args.windowCount windows drawn
+ * @returns {string} the readout
+ */
+export function formatLensReadout({ tierLabel, isDefault, weekend, spotCount, windowCount }) {
+  const parts = [tierLabel];
+  if (isDefault) parts.push(`${weekend ? 'weekend' : 'weekday'} default`);
+  if (windowCount > 0) {
+    const spots = `${spotCount} spot${spotCount === 1 ? '' : 's'}`;
+    const windows = `${windowCount} window${windowCount === 1 ? '' : 's'}`;
+    parts.push(`${spots} across ${windows}`);
+  }
+  return parts.join(' · ');
+}
