@@ -2,18 +2,19 @@ import React from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import { WindowFirstBriefingProvider, useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
+import WindowFirstLensBar from '../components/WindowFirstLensBar.jsx';
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
-import { getReach } from '../api/settingsApi.js';
+import { getReach, getSettings } from '../api/settingsApi.js';
 import { storageKey, writeSwrCache } from '../utils/swrCache.js';
 
 vi.mock('../api/briefingApi.js', () => ({ getDailyBriefing: vi.fn() }));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn() }));
 vi.mock('../api/briefingEvaluationApi.js', () => ({ getAllEvaluationScores: vi.fn() }));
-vi.mock('../api/settingsApi.js', () => ({ getReach: vi.fn() }));
+vi.mock('../api/settingsApi.js', () => ({ getReach: vi.fn(), getSettings: vi.fn() }));
 
 let mockRole = 'PRO_USER';
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: mockRole }) }));
@@ -56,7 +57,9 @@ function londonToday() {
 
 /** A real consumer rather than a bespoke harness: this is what the shell reads. */
 function Consumer() {
-  const { briefing, loading, railTiles, windowCards, evaluationScores } = useWindowFirstBriefing();
+  const {
+    briefing, loading, railTiles, windowCards, evaluationScores, reachLens: lens, homePlace,
+  } = useWindowFirstBriefing();
   return (
     <div>
       <span data-testid="loading">{String(loading)}</span>
@@ -71,6 +74,16 @@ function Consumer() {
       <span data-testid="spot-reach">
         {windowCards[0]?.spots?.map((s) => `${s.driveMinutes}/${s.distanceMiles}`).join('|') || 'none'}
       </span>
+      <span data-testid="spot-far">
+        {windowCards[0]?.spots?.map((s) => String(s.far)).join('|') || 'none'}
+      </span>
+      <span data-testid="reach-total">{windowCards[0]?.reachTotal ?? 'none'}</span>
+      <span data-testid="lens-tier">{lens?.tierId ?? 'none'}</span>
+      <span data-testid="lens-locked">{String(lens?.locked)}</span>
+      <span data-testid="home-place">{homePlace === undefined ? 'unknown' : String(homePlace)}</span>
+      {/* The real pairing, not a bespoke control: the shell renders exactly this from exactly this
+          value, and it is the only way to move the tier the way a user does. */}
+      {lens && <WindowFirstLensBar lens={lens} spotCount={0} windowCount={0} />}
     </div>
   );
 }
@@ -130,6 +143,8 @@ describe('WindowFirstBriefingProvider', () => {
     getAllEvaluationScores.mockResolvedValue([]);
     getReach.mockReset();
     getReach.mockResolvedValue([]);
+    getSettings.mockReset();
+    getSettings.mockResolvedValue({ homePostcode: null, homePlaceName: null });
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(NOON_ISH);
   });
@@ -452,12 +467,12 @@ describe('WindowFirstBriefingProvider', () => {
   describe('per-user reach — the spot strip\'s second contract', () => {
     it('joins reach onto the window\'s spots by location id', async () => {
       getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
-      getReach.mockResolvedValue([{ locationId: 7, driveMinutes: 66, distanceMiles: 47 }]);
+      getReach.mockResolvedValue([{ locationId: 7, driveMinutes: 41, distanceMiles: 19 }]);
       renderProvider();
 
       await act(async () => {});
       expect(screen.getByTestId('spots')).toHaveTextContent('Bamburgh');
-      expect(screen.getByTestId('spot-reach')).toHaveTextContent('66/47');
+      expect(screen.getByTestId('spot-reach')).toHaveTextContent('41/19');
     });
 
     it('fetches it from its own endpoint, never from the briefing', async () => {
@@ -472,7 +487,7 @@ describe('WindowFirstBriefingProvider', () => {
 
     it('never writes reach to the SWR cache, which is keyed by role and shared between users', async () => {
       getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
-      getReach.mockResolvedValue([{ locationId: 7, driveMinutes: 66, distanceMiles: 47 }]);
+      getReach.mockResolvedValue([{ locationId: 7, driveMinutes: 41, distanceMiles: 19 }]);
       renderProvider();
 
       await act(async () => {});
@@ -508,12 +523,12 @@ describe('WindowFirstBriefingProvider', () => {
       getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
       getReach.mockResolvedValue([
         { driveMinutes: 99, distanceMiles: 99 },
-        { locationId: 7, driveMinutes: 66, distanceMiles: 47 },
+        { locationId: 7, driveMinutes: 41, distanceMiles: 19 },
       ]);
       renderProvider();
 
       await act(async () => {});
-      expect(screen.getByTestId('spot-reach')).toHaveTextContent('66/47');
+      expect(screen.getByTestId('spot-reach')).toHaveTextContent('41/19');
     });
 
     it('refetches when the user saves a home postcode, without a page reload', async () => {
@@ -530,14 +545,67 @@ describe('WindowFirstBriefingProvider', () => {
       await act(async () => {});
       expect(screen.getByTestId('spot-reach')).toHaveTextContent('null/null');
 
-      getReach.mockResolvedValue([{ locationId: 7, driveMinutes: 66, distanceMiles: 47 }]);
+      getReach.mockResolvedValue([{ locationId: 7, driveMinutes: 41, distanceMiles: 19 }]);
       rerender(
         <WindowFirstBriefingProvider homeSettingsVersion={1}><Consumer /></WindowFirstBriefingProvider>,
       );
       await act(async () => {});
 
       expect(getReach).toHaveBeenCalledTimes(2);
-      expect(screen.getByTestId('spot-reach')).toHaveTextContent('66/47');
+      expect(screen.getByTestId('spot-reach')).toHaveTextContent('41/19');
+    });
+
+    it('gates a spot beyond the day-derived tier, and marks nothing that survives it', async () => {
+      // The frozen clock is a Tuesday, so the default is 45 min. This is the gate running for
+      // real, end to end: the lens the provider derives reaching the cards it builds.
+      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getReach.mockResolvedValue([{ locationId: 7, driveMinutes: 66, distanceMiles: 47 }]);
+      renderProvider();
+
+      await act(async () => {});
+      expect(screen.getByTestId('lens-tier')).toHaveTextContent('45');
+      expect(screen.getByTestId('spots')).toHaveTextContent('none');
+      expect(screen.getByTestId('reach-total')).toHaveTextContent('1');
+    });
+
+    it('marks a spot the widened lens let through as beyond today\'s reach', async () => {
+      // The pairing that makes the `far` mark meaningful: at the default nothing past it is on
+      // screen, so the tint appears exactly when the user has widened to see it.
+      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getReach.mockResolvedValue([{ locationId: 7, driveMinutes: 66, distanceMiles: 47 }]);
+      renderProvider();
+      await act(async () => {});
+
+      fireEvent.click(screen.getByRole('button', { name: 'Any' }));
+
+      expect(screen.getByTestId('spots')).toHaveTextContent('Bamburgh');
+      expect(screen.getByTestId('spot-far')).toHaveTextContent('true');
+    });
+
+    it('pins a LITE user to Any, so the greyed control withholds no spot', async () => {
+      // Plan §7 gates the bar; `useReachLens` decides what the gate then DOES, and this is the
+      // half that is only observable from the provider — `role` enters the arm here and nowhere
+      // below it.
+      mockRole = 'LITE_USER';
+      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getReach.mockResolvedValue([{ locationId: 7, driveMinutes: 66, distanceMiles: 47 }]);
+      renderProvider();
+
+      await act(async () => {});
+      expect(screen.getByTestId('lens-locked')).toHaveTextContent('true');
+      expect(screen.getByTestId('lens-tier')).toHaveTextContent('any');
+      expect(screen.getByTestId('spots')).toHaveTextContent('Bamburgh');
+    });
+
+    it('leaves a PRO user\'s control live', async () => {
+      // The negative half. Without it the gating assertion above passes on a component that locks
+      // every role, which is a strictly worse product than one that locks none.
+      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      renderProvider();
+
+      await act(async () => {});
+      expect(screen.getByTestId('lens-locked')).toHaveTextContent('false');
+      expect(screen.getByTestId('lens-tier')).toHaveTextContent('45');
     });
 
     it('does not refetch on an ordinary re-render', async () => {
@@ -554,6 +622,77 @@ describe('WindowFirstBriefingProvider', () => {
       await act(async () => {});
 
       expect(getReach).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('the home the reach figures are measured from', () => {
+    it('prefers the resolved place name, which is what the design\'s slot reads', async () => {
+      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getSettings.mockResolvedValue({ homePostcode: 'NE61 1AA', homePlaceName: 'Morpeth' });
+      renderProvider();
+
+      await act(async () => {});
+      expect(screen.getByTestId('home-place')).toHaveTextContent('Morpeth');
+    });
+
+    it('falls back to the postcode when the lookup resolved no place name', async () => {
+      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getSettings.mockResolvedValue({ homePostcode: 'NE61 1AA', homePlaceName: null });
+      renderProvider();
+
+      await act(async () => {});
+      expect(screen.getByTestId('home-place')).toHaveTextContent('NE61 1AA');
+    });
+
+    it('says "no home" only on a response that actually said so', async () => {
+      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getSettings.mockResolvedValue({ homePostcode: null, homePlaceName: null });
+      renderProvider();
+
+      await act(async () => {});
+      expect(screen.getByTestId('home-place')).toHaveTextContent('null');
+    });
+
+    it('stays unknown when the settings request fails, rather than claiming no home', async () => {
+      // Plan §2.5 refuses a second source of truth for this, so a dropped request has no other
+      // answer to fall back on — and "Home not set" shown to a user who set one is a false claim
+      // where silence costs nothing.
+      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getSettings.mockRejectedValue(new Error('nope'));
+      renderProvider();
+
+      await act(async () => {});
+      expect(screen.getByTestId('home-place')).toHaveTextContent('unknown');
+    });
+
+    it('never rides the briefing payload, which is ETag-revalidated', async () => {
+      // Plan §2.2. The postcode is per-user data and the briefing body is persisted to a browser
+      // HTTP cache JavaScript cannot evict on logout.
+      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getSettings.mockResolvedValue({ homePostcode: 'NE61 1AA', homePlaceName: 'Morpeth' });
+      renderProvider();
+
+      await act(async () => {});
+      expect(getSettings).toHaveBeenCalledTimes(1);
+      expect(localStorage.getItem(storageKey(CACHE_KEY))).not.toMatch(/Morpeth|NE61/);
+    });
+
+    it('refetches when the user saves a home, without a page reload', async () => {
+      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getSettings.mockResolvedValue({ homePostcode: null, homePlaceName: null });
+      const { rerender } = render(
+        <WindowFirstBriefingProvider homeSettingsVersion={0}><Consumer /></WindowFirstBriefingProvider>,
+      );
+      await act(async () => {});
+      expect(screen.getByTestId('home-place')).toHaveTextContent('null');
+
+      getSettings.mockResolvedValue({ homePostcode: 'NE61 1AA', homePlaceName: 'Morpeth' });
+      rerender(
+        <WindowFirstBriefingProvider homeSettingsVersion={1}><Consumer /></WindowFirstBriefingProvider>,
+      );
+      await act(async () => {});
+
+      expect(screen.getByTestId('home-place')).toHaveTextContent('Morpeth');
     });
   });
 

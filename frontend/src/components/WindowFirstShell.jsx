@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import BrandLockup from './shared/BrandLockup.jsx';
 import WindowFirstDayRail from './WindowFirstDayRail.jsx';
+import WindowFirstLensBar from './WindowFirstLensBar.jsx';
 import WindowFirstWindowCard from './WindowFirstWindowCard.jsx';
 import WindowPickDialog from './WindowPickDialog.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
@@ -58,15 +59,36 @@ const WRAP_MAX_WIDTH = '1080px';
  * data from a DOWN backend is exactly what that treatment exists to mark. The tab bar does not:
  * it is navigation, and so is the masthead.
  *
- * <h2>The rail footer carries the forecast's age and nothing else yet</h2>
+ * <h2>The rail footer's two halves, both of them now</h2>
  *
- * <p>The design's footer has two halves. The left one — {@code Home · <place> · reach set per day}
- * — belongs to the reach lens (plan §2.5) and lands with it at P8; drawn now it would be a control
- * gating on data no endpoint yet serves, which §6 bans outright. The right half is
- * {@code generatedAt} formatted on the client (§2.8 — a server-rendered relative string would
- * mutate the ETagged body on every request) through the shared {@code formatRelativeAge}, which
- * already knows the instant is UTC. The design's {@code by Sonnet} is dropped: the model name is
- * admin-only today and is not a pilot user's business (§7).
+ * <p>The left one is the reach lens's prompt, and it lands here rather than on the bar itself for
+ * the reason plan §2.5 gives: the bar is {@code position: sticky} and must not be suppressed for a
+ * user with no home, so the thing that <em>varies</em> per user goes in the slot the design already
+ * reserves for it. {@code Home · <place>} when one is set, "Home not set" when the settings response
+ * says there is none, and <b>nothing at all</b> while that is still unknown — telling a user who has
+ * a home that they have not set one, on the strength of a dropped request, is worse than silence.
+ * "Edit reach" opens the same settings modal the cog does, which is where a postcode is entered.
+ *
+ * <p>The right half is {@code generatedAt} formatted on the client (§2.8 — a server-rendered
+ * relative string would mutate the ETagged body on every request) through the shared
+ * {@code formatRelativeAge}, which already knows the instant is UTC. The design's {@code by Sonnet}
+ * is dropped: the model name is admin-only today and is not a pilot user's business (§7). Its
+ * "· reach set per day" is dropped too — the bar's own "today only" pill and its named reset state
+ * that policy exactly when it applies, and §2.7's rule against marking one fact twice holds here as
+ * well as it does for confidence.
+ *
+ * <p>The footer's ink moved from muted to secondary in the same change. Measured on the running
+ * app: at 10px on {@code --color-plex-bg} muted is <b>3.55:1</b> and fails AA, secondary is
+ * <b>7.09:1</b>. This is the fifth time the redesign has had to make that correction; leaving one
+ * span of the row on the old tone to keep the diff smaller would have put two greys in one line
+ * for no reason.
+ *
+ * <h2>The lens bar sits between the tab rule and the pane, and is never dimmed</h2>
+ *
+ * <p>Where the design puts it, and outside the {@code contentDisabled} treatment on purpose. The
+ * lens is a pure client-side filter over data already in memory, so it keeps working when the
+ * backend does not — and {@code pointer-events: none} on a sticky bar would make a live control
+ * look broken to say nothing true. The tab bar and the masthead are excluded for the same reason.
  *
  * @param {object}   props
  * @param {function} props.onExit restores the v1 layout. It does not change the selected tab, so a
@@ -86,7 +108,9 @@ const WRAP_MAX_WIDTH = '1080px';
 export default function WindowFirstShell({
   onExit, onOpenSettings, onSignOut, contentDisabled, onShowOnMap, onEvaluationScoresChange,
 }) {
-  const { railTiles, windowCards, loading, briefing, evaluationScores, todayStr } = useWindowFirstBriefing();
+  const {
+    railTiles, windowCards, loading, briefing, evaluationScores, todayStr, reachLens, homePlace,
+  } = useWindowFirstBriefing();
   const [openPick, setOpenPick] = useState(null);
 
   // Lifted to App for the map overlay, exactly as DailyBriefing does it in the v1 arm. Without this
@@ -160,15 +184,36 @@ export default function WindowFirstShell({
             No forecast days to show yet.
           </p>
         )}
-        {age && (
-          <div
-            data-testid="window-first-railfoot"
-            className="flex font-mono text-plex-text-muted"
-            style={{ fontSize: '10px', padding: '6px 18px 0' }}
-          >
-            <span className="ml-auto">forecast {age}</span>
-          </div>
+      </div>
+
+      {/* OUTSIDE the greyed rail region, and that is a fix rather than a placement preference.
+          Everything in this row survives a dead backend: the home is a per-user setting, "Edit
+          reach" is the only route to fixing an empty lens — the same trap P4a fixed for the
+          masthead and this file fixed again for the exit button — and the forecast's AGE is the
+          one fact that becomes more useful when the backend is down, not less. Nothing here is
+          forecast content, so nothing here takes the treatment that marks it. */}
+      <div
+        data-testid="window-first-railfoot"
+        className="flex items-center font-mono text-plex-text-secondary"
+        style={{ fontSize: '10px', padding: '6px 18px 0', gap: '8px' }}
+      >
+        {/* Undefined is "we do not know yet", and it renders nothing. Only a settings response
+            that came back without a home says so out loud. */}
+        {homePlace !== undefined && (
+          <span data-testid="window-first-home">
+            {homePlace ? `Home · ${homePlace}` : 'Home not set'}
+          </span>
         )}
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          data-testid="window-first-edit-reach"
+          className="ml-auto hover:text-plex-text transition-colors"
+          style={{ textDecoration: 'underline', textUnderlineOffset: '2px' }}
+        >
+          Edit reach
+        </button>
+        {age && <span data-testid="window-first-age">forecast {age}</span>}
       </div>
 
       <div
@@ -198,6 +243,14 @@ export default function WindowFirstShell({
       </div>
       <div data-testid="window-first-tabrule" className="h-px bg-plex-border" />
 
+      {reachLens && (
+        <WindowFirstLensBar
+          lens={reachLens}
+          spotCount={windowCards.reduce((total, card) => total + card.spots.length, 0)}
+          windowCount={windowCards.length}
+        />
+      )}
+
       <div
         data-testid="window-first-pane"
         className={`flex flex-col${dimmed}`}
@@ -208,6 +261,7 @@ export default function WindowFirstShell({
             key={card.key}
             card={card}
             todayStr={todayStr}
+            reachLabel={reachLens?.tier?.label}
             onOpenPick={setOpenPick}
             onOpenSpot={handleSpot}
           />

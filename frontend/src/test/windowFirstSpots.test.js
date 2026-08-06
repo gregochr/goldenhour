@@ -77,6 +77,30 @@ describe('buildWindowSpots', () => {
     expect(buildWindowSpots(summary([slot()]), null)[0].distanceMiles).toBeNull();
   });
 
+  describe('the far mark', () => {
+    const withDrive = (driveMinutes) => new Map([[1, { driveMinutes, distanceMiles: 20 }]]);
+
+    it('marks a drive past today\'s default and not one exactly on it', () => {
+      // The mark is measured against the DEFAULT tier, not the selected one — against the
+      // selection it could never fire, because the gate has already removed anything past it.
+      expect(buildWindowSpots(summary([slot()]), withDrive(46), 45)[0].far).toBe(true);
+      expect(buildWindowSpots(summary([slot()]), withDrive(45), 45)[0].far).toBe(false);
+      expect(buildWindowSpots(summary([slot()]), withDrive(44), 45)[0].far).toBe(false);
+    });
+
+    it('marks nothing when this user has no drive times', () => {
+      // Rule 1: unknown is not out of reach. Marking it far would tint a card on a distance
+      // nobody measured, which is the normal first-run state.
+      expect(buildWindowSpots(summary([slot()]), new Map(), 45)[0].far).toBe(false);
+    });
+
+    it('marks nothing when no default was supplied', () => {
+      // The parameter defaults to null so a caller with no lens gets no mark rather than one at
+      // some assumed distance — the same rule the gate follows.
+      expect(buildWindowSpots(summary([slot()]), withDrive(500))[0].far).toBe(false);
+    });
+  });
+
   describe('the slot population, which must match the header star\'s', () => {
     it('drops a canopy slot from a window that also has sky slots', () => {
       // A woodland GO means heavy cloud and mist — the opposite claim. Its 5★ beside a coast's 4★

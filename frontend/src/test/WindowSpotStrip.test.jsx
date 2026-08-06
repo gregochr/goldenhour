@@ -120,6 +120,36 @@ describe('WindowSpotStrip', () => {
       expect(screen.getByTestId('window-spot-reach')).toHaveTextContent('🚗 1h 6min');
     });
 
+    it('marks a card beyond today\'s default reach, on the card and on its drive line', () => {
+      // The design's `far` variant (:212, :217) — held back at P6 because a card cannot assert a
+      // judgement against a tier while nothing on screen can widen it. Both selectors are pinned
+      // because they are two different rules in `index.css` and each can be deleted alone.
+      renderStrip([spot({ far: true })]);
+
+      const card = screen.getByTestId('window-spot');
+      expect(card).toHaveAttribute('data-far', 'true');
+      expect(card).toHaveClass('far');
+      expect(within(card).getByTestId('window-spot-reach')).toHaveClass('far');
+    });
+
+    it('leaves an ordinary card unmarked, and its drive line on the plain tone', () => {
+      renderStrip([spot({ far: false })]);
+
+      const card = screen.getByTestId('window-spot');
+      expect(card).not.toHaveAttribute('data-far');
+      expect(card).not.toHaveClass('far');
+      const reach = within(card).getByTestId('window-spot-reach');
+      expect(reach).not.toHaveClass('far');
+      expect(reach).toHaveClass('text-plex-text-secondary');
+    });
+
+    it('states the drive in words on the card it tints, so colour is never the only carrier', () => {
+      // SC 1.4.1. The tint is redundant encoding of a number printed on the very line it tints;
+      // if the reach line were ever dropped from a far card the mark would become the sole signal.
+      renderStrip([spot({ far: true, driveMinutes: 66, distanceMiles: 47 })]);
+      expect(screen.getByTestId('window-spot-reach')).toHaveTextContent('1h 6min · 47 mi');
+    });
+
     it('is a real button named for its place, and opens the map on it', () => {
       const onOpenSpot = vi.fn();
       renderStrip([spot()], { onOpenSpot });
@@ -157,6 +187,34 @@ describe('WindowSpotStrip', () => {
     it('states an order that matches the keys the spots actually carry', () => {
       renderStrip([spot({ driveMinutes: null, distanceMiles: null })]);
       expect(screen.getByTestId('window-spot-order')).toHaveTextContent('Ranked by rating.');
+    });
+
+    it('says how many the lens withheld, once there is a set that was loaded and not drawn', () => {
+      // P6 could only say "2 spots" because with no gate N was M. The tier ships at P8, so the
+      // design's second number finally means something the control above can undo.
+      renderStrip([spot(), SIMONSIDE], { total: 7 });
+      expect(screen.getByTestId('window-spot-count')).toHaveTextContent(/^2 of 7$/);
+    });
+
+    it('keeps the plain count when the lens withheld nothing', () => {
+      // The second number never appears unless it means something: "2 of 2" invites the reader to
+      // look for the other zero.
+      renderStrip([spot(), SIMONSIDE], { total: 2 });
+      expect(screen.getByTestId('window-spot-count')).toHaveTextContent(/^2 spots$/);
+    });
+
+    it('keeps the plain count when no total was supplied at all', () => {
+      // The default is what is drawn, so a caller with no lens gets P6's sentence unchanged rather
+      // than "2 of undefined".
+      renderStrip([spot(), SIMONSIDE]);
+      expect(screen.getByTestId('window-spot-count')).toHaveTextContent(/^2 spots$/);
+    });
+
+    it('never claims a total below what it drew', () => {
+      // A stale total from a previous lens would read "2 of 1". The comparison is strict, so the
+      // impossible case degrades to the plain count rather than printing it.
+      renderStrip([spot(), SIMONSIDE], { total: 1 });
+      expect(screen.getByTestId('window-spot-count')).toHaveTextContent(/^2 spots$/);
     });
   });
 

@@ -1,4 +1,5 @@
 import { RATING_COLOURS } from '../components/markerUtils.js';
+import { isFarSpot } from './reachLens.js';
 
 /**
  * The spots in a shooting window — the film strip's descriptors, its ordering, and its badge.
@@ -155,9 +156,13 @@ function usableRating(rating) {
  * @param {?Map<number, {driveMinutes: ?number, distanceMiles: ?number}>} reachById per-user reach,
  *        keyed by location id. Empty until the reach request resolves, and empty forever for a user
  *        with no home postcode — in both cases every card simply renders without its reach line.
+ * @param {?number} [farOverMinutes] today's default reach in minutes. A spot beyond it is marked
+ *        {@code far}; null marks nothing. Deliberately the DEFAULT tier rather than the selected
+ *        one — {@link isFarSpot} carries the reasoning, and the caller passes today's default so
+ *        that gating and marking are the same judgement made once.
  * @returns {Array} spot descriptors, ordered by {@link compareSpots}
  */
-export function buildWindowSpots(eventSummary, reachById) {
+export function buildWindowSpots(eventSummary, reachById, farOverMinutes = null) {
   const regioned = (eventSummary?.regions || []).flatMap(
     (region) => (region.slots || []).map((slot) => ({ slot, regionName: region.regionName })),
   );
@@ -172,14 +177,16 @@ export function buildWindowSpots(eventSummary, reachById) {
     .filter(({ slot }) => canopyCounts || !slot.canopy)
     .map(({ slot, regionName }) => {
       const reach = slot.locationId == null ? null : reachById?.get(slot.locationId);
+      const driveMinutes = reach?.driveMinutes ?? null;
       return {
         key: String(slot.locationId ?? slot.locationName),
         locationId: slot.locationId ?? null,
         locationName: slot.locationName,
         regionName: regionName || null,
         rating: usableRating(slot.claudeRating) ? slot.claudeRating : null,
-        driveMinutes: reach?.driveMinutes ?? null,
+        driveMinutes,
         distanceMiles: reach?.distanceMiles ?? null,
+        far: isFarSpot(driveMinutes, farOverMinutes),
       };
     })
     .sort(compareSpots);

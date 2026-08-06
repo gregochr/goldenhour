@@ -1,4 +1,5 @@
 import { formatTime, getEventTime } from './briefingDisplay.js';
+import { gateSpotsByReach } from './reachLens.js';
 import { buildWindowSpots } from './windowFirstSpots.js';
 import { badgeKey, buildWindowRows } from './windowFirstRows.js';
 
@@ -19,12 +20,26 @@ import { badgeKey, buildWindowRows } from './windowFirstRows.js';
  * The star is {@code best 4★}, not {@code 4.0★}: {@code bestRating} is an {@code Integer} in 1–5,
  * and a decimal asserts a precision the field does not carry.
  *
- * <p><b>And the header still claims no count, now that the spots it would count ARE on screen.</b>
- * That looks like it should have changed at P6 and has not, because the design's word is
- * <em>reach</em> and the reach gate is P8's: a header reading "23 within reach" above an ungated
- * strip would describe a set nothing filtered, which §6 bans. The strip's own footer states the
- * count of what it drew, which is a different and true sentence. The word "reach" arrives with the
- * control that applies it — plan §2.5.
+ * <p><b>The header's count arrives at P8, and only when the word it uses is true.</b> P5 and P6 both
+ * withheld it because the design's word is <em>reach</em> and nothing was gated: "23 within reach"
+ * above an ungated strip describes a set nothing filtered, which §6 bans. The tier ships now, so the
+ * sentence can be earned — but not unconditionally. {@code withinReachCount} is non-null only when
+ * the gate had a threshold to apply <em>and</em> every drawn spot has a known drive time, because
+ * plan §2.5 rule 1 lets an unknown drive time through every tier: a set containing one is a mix of
+ * "within reach" and "not known", and calling the whole of it the former over-claims. Where the word
+ * is not available the header stays as P5 shipped it — no count at all, rather than a bare "23
+ * spots" duplicating the strip footer verbatim one element lower. Exactly one count when nothing was
+ * gated, two complementary ones when something was.
+ *
+ * <p><b>And {@code bestRating} is deliberately NOT re-derived from the gated set</b>, which is
+ * visible the moment the lens bites: a header can read {@code best 5★ · 7 within reach} over a
+ * strip topping out at 4★, because the 5★ is beyond the tier. That is two true claims about two
+ * different things — the star is the <em>window's</em> best, the count is what <em>this user</em>
+ * can drive to — and it is useful in that state, since it says a better spot exists further out.
+ * Re-deriving it would make one window's "best" differ per user for the same night, put it out of
+ * step with every other surface that reads the projection, and move a quality signal when the
+ * reader touched a control explicitly about distance. Plan §2.7's rule that the star is never
+ * touched by the confidence channel applies here for the same reason.
  */
 
 /** Kickers and labels are day-relative; the rail speaks the same three words. */
@@ -74,6 +89,24 @@ const VERDICT_LABEL = {
 export const CONFIDENCE_VERDICTS = new Set(['WORTH_IT', 'MAYBE']);
 
 /**
+ * How many of the drawn spots the header may call "within reach", or null when it may not.
+ *
+ * <p>Two conditions, and both are about honesty rather than presentation. The tier has to carry a
+ * threshold — under "Any" nothing was gated, so the word describes no act. And every drawn spot has
+ * to carry a drive time, because plan §2.5 rule 1 passes an unknown one through every tier: a set
+ * that is part measured and part unknown is not a set that is within reach, and calling it one is
+ * the same over-claim as counting a set nothing filtered.
+ *
+ * @param {Array}   spots       the spots as drawn
+ * @param {?number} limitMinutes the active tier's threshold, or null for "Any"
+ * @returns {?number} the count, or null when the sentence is unavailable
+ */
+function withinReachCount(spots, limitMinutes) {
+  if (limitMinutes == null || spots.length === 0) return null;
+  return spots.every((spot) => spot.driveMinutes != null) ? spots.length : null;
+}
+
+/**
  * Builds the window cards for the rendered event set.
  *
  * <p><b>Away days are dropped, not drawn.</b> A travel day still carries slots — the pipeline skips
@@ -96,10 +129,16 @@ export const CONFIDENCE_VERDICTS = new Set(['WORTH_IT', 'MAYBE']);
  *                                for a user with no home postcode — in both cases every spot simply
  *                                renders without its reach line, because a lens with no data is not
  *                                a gate (plan §2.5).
+ * @param {object} [lens]         the reach lens. {@code limitMinutes} is the active tier's
+ *                                threshold, null for "Any"; {@code defaultLimitMinutes} is today's
+ *                                derived default and is what marks a spot {@code far}. The default
+ *                                gates nothing and marks nothing, which is what a caller with no
+ *                                lens should get — never a silent gate at some assumed distance.
  * @returns {Array} card descriptors for {@code WindowFirstWindowCard}
  */
 export function buildWindowCards(
   upcomingEvents, briefingDays, todayStr, tomorrowStr, travelDayDates, reachById,
+  lens = { limitMinutes: null, defaultLimitMinutes: null },
 ) {
   const live = (upcomingEvents || []).filter((e) => !travelDayDates?.has(e.date));
 
@@ -128,6 +167,13 @@ export function buildWindowCards(
     // rather than from a preference.
     const { rows, promoted } = buildWindowRows(win);
 
+    // Derived from the SAME event summary the window projection was, so the strip's top card and
+    // the header's `best N★` read one population — see `buildWindowSpots` for the two filters
+    // that keep them in step. The gate runs after, so `reachTotal` is the set the lens chose from
+    // and the card can say how many it left without either number describing a different thing.
+    const allSpots = buildWindowSpots(es, reachById, lens?.defaultLimitMinutes ?? null);
+    const spots = gateSpotsByReach(allSpots, lens?.limitMinutes ?? null);
+
     return {
       key: `${date}:${targetType}`,
       date,
@@ -150,10 +196,12 @@ export function buildWindowCards(
       // disagree. The rail derives its own and renders nothing from it precisely so this is the
       // single render site.
       confidence: CONFIDENCE_VERDICTS.has(verdict) ? (win?.confidence ?? null) : null,
-      // Derived from the SAME event summary the window projection was, so the strip's top card and
-      // the header's `best N★` read one population — see `buildWindowSpots` for the two filters
-      // that keep them in step.
-      spots: buildWindowSpots(es, reachById),
+      spots,
+      // How many the lens chose from. Equal to `spots.length` whenever nothing was gated, which is
+      // exactly when the strip footer keeps P6's plain count rather than the design's "N of M".
+      reachTotal: allSpots.length,
+      // The header's claim, or null when the word "reach" would over-claim — see the module comment.
+      withinReachCount: withinReachCount(spots, lens?.limitMinutes ?? null),
       rows,
       badges: (win?.badges || []).filter((b) => !promoted.has(badgeKey(b))),
       pick: win?.pick

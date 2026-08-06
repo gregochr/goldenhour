@@ -5,6 +5,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the reach lens: how far you are willing to drive tonight (window-first Plan, P8)
+
+**One sticky control above every window: 45 min / 1h 30min / 2h 30min / Any.** It gates the spot
+strip on each card, and its default is a pure function of the date — the tightest tier on a weekday,
+2h 30min at the weekend — so the page opens on a sensible answer without asking anyone to configure
+one. A tier chosen by hand is marked `today only`, offers a named way back (`Back to 45 min`), and
+**expires at the day roll**: a Saturday's willingness to drive two hours must not quietly widen
+Monday's page.
+
+**The label is the threshold.** The design's own mock disagrees with itself — it labels a tier
+"45 min" and gates it at 30, and every tier is wrong by the same offset. A chip that hides a
+40-minute drive is the worst thing this control could do, so the label is now *computed* from the
+threshold with the same formatter the spot cards print their drive lines with. There is no second
+number left to drift.
+
+**A lens with no data is not a gate.** A location with no drive time is unknown, not out of reach:
+it passes every tier and renders without its drive line. That is the normal first run — nobody has
+set a home postcode yet — and the control stays a visible no-op rather than silently emptying the
+page. The prompt that fixes it sits in the rail footer: `Home not set`, with `Edit reach` beside it.
+When the settings request has not answered, the footer says nothing at all rather than telling
+someone who *has* a home that they have not set one.
+
+**Two counts arrive with the control that earns them.** The window header now reads
+`best 4★ · 7 within reach`, and the strip footer `7 of 16` — but only where the words are true.
+Under "Any" nothing was gated, and one spot with an unknown drive time makes the drawn set part
+measured and part unknown, so in both cases the header stays silent instead. A window the lens
+empties says so and says what widening would buy: *"Nothing within 45 min in this window. 12 spots
+are further out."*
+
+**Spots beyond today's ordinary reach are tinted.** The design's `far` card, held back at P6 because
+a card cannot assert a judgement against a tier while nothing on screen can widen it. It is measured
+against the day's *default*, not the selection — so it marks exactly what widening the lens bought,
+and the drive time it encodes is printed in words on the very line it tints.
+
+**The lens is a Pro control, and it withholds a tool rather than a spot.** For LITE it is greyed and
+inert with a `Pro` pill, pinned to "Any" — every spot stays on screen, and what upgrading buys is
+the ability to narrow. The upsell itself sits outside the greyed box: inside it the pill measured
+3.68:1 against AA's 4.5:1 floor.
+
 ### Added — the window card's attribute rows: tide, then snow (window-first Plan, P7)
 
 **Every window card now says what the light will fall on.** A full-width tide row states where the

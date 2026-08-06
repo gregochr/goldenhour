@@ -4,9 +4,10 @@ import React, {
 import PropTypes from 'prop-types';
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
-import { getReach } from '../api/settingsApi.js';
+import { getReach, getSettings } from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import useReachLens from '../hooks/useReachLens.js';
 import { cacheGeneration, readSwrCache, writeSwrCache } from '../utils/swrCache.js';
 import { isTravelDate } from '../utils/conversions.js';
 import { isEventPast } from '../utils/briefingDisplay.js';
@@ -126,6 +127,11 @@ export function WindowFirstBriefingProvider({ children, homeSettingsVersion }) {
   const [travelRanges, setTravelRanges] = useState([]);
   const [evaluationScores, setEvaluationScores] = useState(EMPTY_SCORES);
   const [reachById, setReachById] = useState(EMPTY_REACH);
+  // Three states, not two: `undefined` is "not answered yet or the request failed", and it renders
+  // NOTHING. Collapsing it onto null would tell a user who has a home postcode that they have not
+  // set one, on nothing more than a dropped request — plan §2.5 forbids a second source of truth
+  // for exactly this reason, and a wrong answer is worse than silence.
+  const [homePlace, setHomePlace] = useState(undefined);
   const intervalRef = useRef(null);
 
   const fetchBriefing = useCallback(async () => {
@@ -200,6 +206,25 @@ export function WindowFirstBriefingProvider({ children, homeSettingsVersion }) {
   }, [homeSettingsVersion]);
 
   /**
+   * The user's home, for the rail footer's prompt.
+   *
+   * <p>Plan §2.5 is explicit that this must not be a new flag or a 204 on the reach endpoint:
+   * {@code GET /api/user/settings} already carries {@code homePostcode} and
+   * {@code driveTimesCalculatedAt}, and a second source of truth can disagree with the first. So
+   * the same response the settings modal reads answers it, and the place name is preferred over the
+   * postcode because the design's slot reads {@code Home · <place>}.
+   *
+   * <p>Same invalidation as the reach fetch above, and for the same reason — saving a postcode
+   * re-renders this provider without remounting it, so an empty dep list would leave a first-run
+   * user reading "Home not set" for the rest of the session immediately after setting one.
+   */
+  useEffect(() => {
+    getSettings()
+      .then((settings) => setHomePlace(settings?.homePlaceName || settings?.homePostcode || null))
+      .catch(() => setHomePlace(undefined));
+  }, [homeSettingsVersion]);
+
+  /**
    * Batch-scored ratings, keyed `regionName|date|targetType|locationName`.
    *
    * <p><b>Not for this arm's own rendering — for the map it hands off to.</b> P4c wires
@@ -240,6 +265,14 @@ export function WindowFirstBriefingProvider({ children, homeSettingsVersion }) {
   const todayStr = londonDate(0);
   const tomorrowStr = londonDate(1);
 
+  // The lens lives here rather than in the shell because the cards are built here: the gate has to
+  // run inside the same memo that derives them, or the shell would filter a list the provider had
+  // already counted. `role` is already in this component for the SWR cache key, so gating costs no
+  // new dependency — and P7's rule that no `role` reaches the card subtree is untouched, because
+  // what the cards receive is a threshold, not a role.
+  const reachLens = useReachLens(todayStr, role === 'LITE_USER');
+  const defaultLimitMinutes = reachLens.defaultTier.limitMinutes;
+
   // Keyed on the briefing OBJECT, not on generatedAt. Keying on the timestamp looks like the
   // cheaper choice — a poll returning a byte-identical payload still hands back a fresh object —
   // but generatedAt is the BUILD time, and this payload is re-derived at SERVE time: the window
@@ -272,14 +305,20 @@ export function WindowFirstBriefingProvider({ children, homeSettingsVersion }) {
     () => (briefing
       ? buildWindowCards(
         upcomingEvents, briefing.days, todayStr, tomorrowStr, travelDayDates, reachById,
+        { limitMinutes: reachLens.tier.limitMinutes, defaultLimitMinutes },
       )
       : []),
-    [briefing, upcomingEvents, travelDayDates, todayStr, tomorrowStr, reachById],
+    [briefing, upcomingEvents, travelDayDates, todayStr, tomorrowStr, reachById,
+      reachLens.tier.limitMinutes, defaultLimitMinutes],
   );
 
   const value = useMemo(
-    () => ({ briefing, loading, railTiles, windowCards, evaluationScores, todayStr, tomorrowStr }),
-    [briefing, loading, railTiles, windowCards, evaluationScores, todayStr, tomorrowStr],
+    () => ({
+      briefing, loading, railTiles, windowCards, evaluationScores, todayStr, tomorrowStr,
+      reachLens, homePlace,
+    }),
+    [briefing, loading, railTiles, windowCards, evaluationScores, todayStr, tomorrowStr,
+      reachLens, homePlace],
   );
 
   return (
@@ -295,10 +334,10 @@ WindowFirstBriefingProvider.propTypes = {
 };
 
 /**
- * The window-first briefing, its loading flag and the day rail's tiles.
+ * The window-first briefing, its loading flag, the day rail's tiles and the reach lens.
  *
- * @returns {{briefing: ?object, loading: boolean, railTiles: Array,
- *           todayStr: string, tomorrowStr: string}}
+ * @returns {{briefing: ?object, loading: boolean, railTiles: Array, windowCards: Array,
+ *           reachLens: object, homePlace: ?string, todayStr: string, tomorrowStr: string}}
  */
 export function useWindowFirstBriefing() {
   return useContext(WindowFirstBriefingContext);
