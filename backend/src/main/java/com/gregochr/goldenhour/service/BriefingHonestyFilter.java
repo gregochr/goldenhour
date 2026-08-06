@@ -157,7 +157,10 @@ final class BriefingHonestyFilter {
                     return rewritten;
                 })
                 .toList();
-        return new BriefingEventSummary(es.targetType(), rewrittenRegions, es.unregioned());
+        // withRegions, not a positional rebuild: this filter empties the slot list of a
+        // zero-coverage region, and the slots used to be the only carrier of the event's time.
+        // Dropping solarEventTime here would put that back exactly as it was.
+        return es.withRegions(rewrittenRegions);
     }
 
     /**

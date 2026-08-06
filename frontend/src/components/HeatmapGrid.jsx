@@ -49,7 +49,7 @@ function getSubCellData(date, regionName, targetType, briefingDays) {
     if (es.targetType !== targetType) continue;
     const region = (es.regions || []).find((r) => r.regionName === regionName);
     if (!region) continue;
-    return { region, es, past: isEventPast(es) };
+    return { region, es, past: isEventPast(es, date) };
   }
   return null;
 }
@@ -331,7 +331,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
       // When opened from a sub-column, show only that event type
       if (targetType && es.targetType !== targetType) continue;
       const region = (es.regions || []).find((r) => r.regionName === regionName);
-      if (region) events.push({ es, region, past: isEventPast(es) });
+      if (region) events.push({ es, region, past: isEventPast(es, date) });
     }
   }
 
