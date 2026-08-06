@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import WindowFirstWindowCard from '../components/WindowFirstWindowCard.jsx';
+import { buildWindowRows } from '../utils/windowFirstRows.js';
 
 const TODAY = '2026-08-04';
 
@@ -19,6 +20,7 @@ function card(overrides = {}) {
     bestRating: 4,
     confidence: 'high',
     badges: [],
+    rows: [],
     pick: null,
     spots: [],
     ...overrides,
@@ -371,6 +373,95 @@ describe('WindowFirstWindowCard', () => {
       // rule — so the card must not read it or act on it.
       renderCard({ badges: [{ type: 'AURORA', label: '▣ Aurora Kp 4' }] });
       expect(screen.getAllByTestId('window-card-badge')).toHaveLength(1);
+    });
+  });
+
+  describe('the attribute rows', () => {
+    const tideRow = () => buildWindowRows({
+      tide: {
+        locationName: 'Whitby',
+        state: 'MID',
+        direction: 'FALLING',
+        nearestType: 'HW',
+        nearestTime: '19:28',
+        nearestOffset: '1h43 before sunset',
+        range: '4.9 m',
+        rangeAnomaly: '1.2 m above an average tide',
+        seas: '0.3 m · smooth',
+        curve: [0, 0.5, 1],
+        windowPosition: 0.5,
+        windowLevel: 0.5,
+      },
+      badges: [],
+    }).rows[0];
+
+    const snowRow = () => buildWindowRows({
+      badges: [{
+        type: 'SNOW_TOPS',
+        label: 'Snow on the fells',
+        facts: [{ key: 'snow line', value: '~650 m', emphasis: true, optional: false }],
+        rarityRank: 8,
+      }],
+    }).rows[0];
+
+    it('renders one row per descriptor, in the order it was given them', () => {
+      renderCard({ rows: [tideRow(), snowRow()] });
+
+      expect(screen.getAllByTestId('window-attribute-row').map((r) => r.dataset.channel))
+        .toEqual(['tide', 'snow']);
+    });
+
+    it('renders no container at all when the window has no rows', () => {
+      // P5 drew no footer rather than an empty one, and the same call applies here: an empty
+      // bordered box is a bar with nothing to say.
+      renderCard({ rows: [] });
+
+      expect(screen.queryByTestId('window-card-rows')).toBeNull();
+      expect(screen.queryByTestId('window-attribute-row')).toBeNull();
+    });
+
+    it('places the rows between the header and the spot strip', () => {
+      // Where the design puts them, and the reason it matters beyond looks: P9 wraps the header's
+      // siblings in one collapsible region, so a row that landed outside that run would stay open
+      // on a collapsed card.
+      renderCard({ rows: [tideRow()], spots: [spot()] });
+
+      const card = screen.getByTestId('window-card');
+      const order = [...card.children].map((el) => el.dataset.testid);
+
+      expect(order).toEqual(['window-card-head', 'window-card-rows', 'window-spot-strip', 'window-spot-foot']);
+    });
+
+    it('states its own tide facts rather than borrowing the header badge\'s words', () => {
+      renderCard({ rows: [tideRow()] });
+
+      expect(screen.getByTestId('window-attribute-row'))
+        .toHaveTextContent('HW 19:28 ·1h43 before sunset');
+      expect(screen.getByTestId('window-attribute-row')).toHaveTextContent('at Whitby');
+    });
+
+    it('is not role-gated, which is P7\'s settled answer to the LITE question', () => {
+      // Plan §7. HotTopicStrip blurs every topic's fact chips for LITE; these rows are the window's
+      // own context, not that promotional surface, and tide is almanac. One rule for the block.
+      //
+      // The gate-prop assertion is the load-bearing half, in the idiom this file already uses 120
+      // lines up — two separate `not.toContain`, never the conjunctive
+      // `not.toEqual(expect.arrayContaining([...]))`. `isLiteUser` is listed as well as `isPro`
+      // because that is the name `HotTopicStrip` gates on, and it is the one a reconvergence at P9
+      // would most plausibly thread down here.
+      //
+      // The filter assertion below is deliberately on the FACTS container, not on the row root:
+      // `HotTopicStrip` applies `filter: blur(3.5px)` to the element carrying the chips
+      // (`TopicFacts`), one level inside its pill. An assertion on the row root would be inert
+      // against the one implementation this rule exists to forbid.
+      renderCard({ rows: [tideRow(), snowRow()] });
+
+      expect(Object.keys(WindowFirstWindowCard.propTypes)).not.toContain('role');
+      expect(Object.keys(WindowFirstWindowCard.propTypes)).not.toContain('isPro');
+      expect(Object.keys(WindowFirstWindowCard.propTypes)).not.toContain('isLiteUser');
+      expect(screen.getAllByTestId('window-attribute-facts').map((f) => f.style.filter))
+        .toEqual(['', '']);
+      expect(screen.getByTestId('window-card-rows').style.filter).toBe('');
     });
   });
 });

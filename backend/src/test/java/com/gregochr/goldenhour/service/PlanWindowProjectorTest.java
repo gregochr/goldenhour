@@ -14,6 +14,7 @@ import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.Verdict;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -679,6 +680,37 @@ class PlanWindowProjectorTest {
             assertThat(badge.label()).isEqualTo("DUST label");
             assertThat(badge.detail()).isEqualTo("DUST detail");
             assertThat(badge.eventTime()).isEqualTo("21:11");
+        }
+
+        @Test
+        @DisplayName("the topic's facts are copied verbatim — they decide badge or attribute row")
+        void carriesTheTopicsOwnFacts() {
+            // The Plan card promotes a topic to a full-width row only when it carries facts, so
+            // dropping them here would silently demote every snow topic back to a header chip.
+            // Verbatim, and never re-derived: a badge that reworded a fact could disagree with the
+            // same topic's pill in the same response.
+            HotTopic snow = topic("SNOW_TOPS", "SUNRISE")
+                    .withScience(List.of(HotTopicFact.metric("snow line", "~650 m"),
+                            new HotTopicFact(null, "240 m below the tops", null, false, true)),
+                            "shoot from low ground");
+
+            BriefingWindow.Badge badge =
+                    windowOf(project(twoWindowDay(), List.of(snow)), TargetType.SUNRISE).badges()
+                            .get(0);
+
+            assertThat(badge.facts()).containsExactly(
+                    HotTopicFact.metric("snow line", "~650 m"),
+                    new HotTopicFact(null, "240 m below the tops", null, false, true));
+        }
+
+        @Test
+        @DisplayName("a topic with no facts yields an empty list, never null")
+        void aTopicWithNoScienceCarriesNoFacts() {
+            // topic() never calls withScience, so its facts are null. The client's promotion rule
+            // is a length check; a null here would make it a null check in two places instead.
+            DailyBriefingResponse out = project(twoWindowDay(), List.of(topic("DUST", "SUNSET")));
+
+            assertThat(windowOf(out, TargetType.SUNSET).badges().get(0).facts()).isEmpty();
         }
 
         @Test

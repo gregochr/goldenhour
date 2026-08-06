@@ -5,6 +5,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the window card's attribute rows: tide, then snow (window-first Plan, P7)
+
+**Every window card now says what the light will fall on.** A full-width tide row states where the
+water is and which way it is going, the high or low water nearest the solar event and its offset to
+the minute, the sea state, and the day's range against that coast's own average — beside a 104px
+sparkline of the day's tide shape with the window marked on it. All of it was already derived by
+P2's `BriefingWindowTide`; this phase renders it.
+
+**The row names the coast it describes.** Alignment differs by twenty to thirty minutes along a
+coastline and the row states an offset to the minute, so the figures end `· at Whitby`. An
+unattributed high-water time would be a claim this project cannot make.
+
+**A topic is a row or a badge, never both.** The design draws a snow badge in the header *and* a
+snow row beneath it. A badge holds a label; a row holds a label plus measured facts — so a topic
+carrying facts becomes the row and leaves the header, and a topic carrying none stays a badge
+rather than rendering a row that repeats its own label forty pixels lower. `BriefingWindow.Badge`
+now carries the topic's `facts` verbatim, which is what makes that distinction real.
+
+**Two rows per window, and the cap has teeth.** Fresh snow and snow on the fells are separate
+detectors that both anchor to sunrise, so a winter dawn genuinely offers three rows. The third is
+dropped — and keeps its header badge, so the budget costs a row and never a fact.
+
+**Absence is stated, never filled in.** Sea state stops at T+4 while tides reach T+13, so the far
+half of the rail carries a full rollup and no sea; that field degrades on its own. A missing
+historical baseline drops the comparison rather than reading "about average". A curve too short or
+carrying a non-finite sample draws no picture at all, and the row's words still answer in full.
+
+**The chart is decorative and the words are the answer.** The sparkline is `aria-hidden`, as the
+tide run's is, because everything it shows is stated beside it. On a phone it goes entirely, the row
+stacks, and the sea-state chip drops.
+
+**Neither row is role-gated, which settles an open question.** `HotTopicStrip` blurs every topic's
+fact chips for Lite — a blanket tease over a promotional strip, not a judgement about tides. These
+rows are the window's own context, the equivalent of the v1 Plan tab's tide chips, which every role
+already reads unblurred; and tide is almanac. One rule for the block.
+
+**The design's action column is not built.** "61 coastal locations →" is a count of our own data,
+and "Filter to high ground →" is a control that would ship inert. Both are omissions with reasons,
+recorded in the plan.
+
 ## [v2.17.12] - 2026-08-06
 
 ### Added — the window card's spot film strip, with the reach data on it (window-first Plan, P6)

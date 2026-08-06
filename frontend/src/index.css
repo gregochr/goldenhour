@@ -1215,6 +1215,102 @@
   .window-pick-close { transition: none; }
 }
 
+/* ── Window-first attribute rows: the tide the light falls on, the snow underneath it ──
+   The design's `.frow` is `auto auto 1fr auto`; the fourth column is its action link, and it is
+   not built — see `WindowAttributeRow.jsx` for why both of the design's labels fail a rule this
+   project already holds. So tide is `auto auto 1fr` and snow, which has no chart, is `auto 1fr`. */
+.wf-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0 14px 11px;
+}
+/* Flex rather than the design's `grid-template-columns`, and that is a correctness fix, not a
+   preference. The chart column is conditional twice over — a window with no drawable curve, and
+   every window on a phone — so a fixed three-column template would leave the facts sitting in the
+   middle `auto` track with the `1fr` empty beside them whenever the chart was absent. Flex sizes
+   from the children that are actually there, and lands on the same picture when all three are. */
+.wf-frow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 11px;
+  border-radius: 8px;
+  /* The left edge is the channel at full strength and the rest of the frame a wash of it, so the
+     row is identifiable from the corner of the eye without competing with the verdict badge. */
+  border: 1px solid rgba(111, 168, 176, 0.28);
+  border-left: 2px solid var(--color-tide);
+  background: rgba(111, 168, 176, 0.055);
+}
+.wf-frow-snow {
+  border-color: rgba(183, 203, 216, 0.26);
+  border-left-color: var(--color-snow);
+  background: rgba(183, 203, 216, 0.05);
+}
+.wf-frow-k {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  /* The badge-text variants, not the channel hues: at 10px the full-strength channel colour does
+     not carry. Each is measured on the row it actually renders on — the two fills are mutually
+     exclusive, so quoting one surface for both would record a pairing that never appears. Tide ink
+     on the tide fill: 9.27:1, and 8.39:1 over the lead card's gold wash. Snow ink on the snow fill
+     (below): 10.99:1, and 9.92:1 on the lead card. */
+  color: var(--color-badge-tide);
+}
+.wf-frow-snow .wf-frow-k { color: var(--color-badge-snow); }
+
+/* The chart's box is fixed at exactly its viewBox, so nothing scales and the window mark stays a
+   circle — `WindowTideSparkline` carries the whole argument. `overflow: visible` is what lets the
+   dashed "when" rule overshoot the top edge. */
+.wf-mini { width: 104px; flex: none; }
+.wf-mini svg { display: block; width: 104px; height: 24px; overflow: visible; }
+
+.wf-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  /* Takes the row's remaining width and, crucially, is allowed to shrink below its content —
+     `min-width: 0` is what lets a long fact wrap instead of forcing the row wider than the card. */
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  /* Two tones, not the design's three. Bone at 0.42 (`--color-plex-text-muted`) measures 3.49:1
+     on this surface and 3.38:1 over the lead card's gold wash — under AA at 10.5px. Secondary is
+     6.57:1. The fourth time this correction has been needed; see `windowFirstRows.js`. */
+  color: var(--color-plex-text-secondary);
+}
+/* A chip's segments carry no separator of their own, so the space between them is this gap —
+   `mid tide,` and `falling` must not run together. Wrapping is deliberately allowed BETWEEN
+   segments and left as a last resort inside one: a flex item's default `min-width: auto` means the
+   text only breaks once the segment alone will not fit, so `1h43 before sunset` stays whole while
+   the chip still gives way rather than pushing the row wider than its card. */
+.wf-facts > span { display: inline-flex; flex-wrap: wrap; gap: 2px 4px; }
+.wf-facts [data-tone='strong'] {
+  color: var(--color-plex-text);
+  font-weight: 600;
+}
+@media (max-width: 639px) {
+  .wf-rows { margin: 0 12px 10px; }
+  /* Stacked and chartless, exactly as the design's phone rules do it: at this width the row has
+     nothing left to give the trace, and the facts already say everything it shows. */
+  .wf-frow {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 8px 10px;
+  }
+  .wf-mini { display: none; }
+  .wf-facts { gap: 3px 12px; }
+  /* The row's least-critical chip drops here, the same treatment `.hot-topic-facts .opt` gets and
+     for the same reason — the line stays to what the window is actually about. */
+  .wf-facts .opt { display: none; }
+}
+
 /* ── Window-first spot film strip ──
    Geometry is the spec's, NOT `.cth-window-grid`'s: that one snaps `mandatory` where this snaps
    `proximity`, sizes 4.5 across where this sizes 3.5, and drops to a full-width card on phone

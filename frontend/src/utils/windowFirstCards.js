@@ -1,5 +1,6 @@
 import { formatTime, getEventTime } from './briefingDisplay.js';
 import { buildWindowSpots } from './windowFirstSpots.js';
+import { badgeKey, buildWindowRows } from './windowFirstRows.js';
 
 /**
  * The window-card descriptors — one per rendered solar window.
@@ -122,6 +123,11 @@ export function buildWindowCards(
     const kicker = lead && targetType === 'SUNSET' ? 'Tonight' : null;
     const verdict = win?.verdict || 'AWAITING';
 
+    // The attribute rows, and the badges they took with them. A topic that became a row is not
+    // also a chip — see `windowFirstRows.js` for why that follows from what each surface can hold
+    // rather than from a preference.
+    const { rows, promoted } = buildWindowRows(win);
+
     return {
       key: `${date}:${targetType}`,
       date,
@@ -148,7 +154,8 @@ export function buildWindowCards(
       // the header's `best N★` read one population — see `buildWindowSpots` for the two filters
       // that keep them in step.
       spots: buildWindowSpots(es, reachById),
-      badges: win?.badges || [],
+      rows,
+      badges: (win?.badges || []).filter((b) => !promoted.has(badgeKey(b))),
       pick: win?.pick
         ? {
           kind: win.pick.kind === 'BEST' ? 'best' : 'also',

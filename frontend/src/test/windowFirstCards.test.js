@@ -283,6 +283,81 @@ describe('buildWindowCards', () => {
       const days = [day(TODAY, [{ targetType: 'SUNSET', regions: [], unregioned: [], window: { verdict: 'MAYBE' } }])];
       expect(build({ events: events([TODAY, 'SUNSET']), days })[0].badges).toEqual([]);
     });
+
+    it('gives every card a rows array, so the renderer never guards', () => {
+      const days = [day(TODAY, [{ targetType: 'SUNSET', regions: [], unregioned: [], window: { verdict: 'MAYBE' } }])];
+      expect(build({ events: events([TODAY, 'SUNSET']), days })[0].rows).toEqual([]);
+    });
+  });
+
+  describe('attribute rows and the badges they consume', () => {
+    /** A snow topic as the backend serialises one, with the facts its strategy emits. */
+    const snowBadge = (overrides = {}) => ({
+      type: 'SNOW_TOPS',
+      label: 'Snow on the fells',
+      detail: 'Tops white above the valleys',
+      facts: [{ key: 'snow line', value: '~650 m', emphasis: true, optional: false }],
+      eventTime: '05:31',
+      rarityRank: 8,
+      ...overrides,
+    });
+
+    const TIDE = {
+      locationName: 'Whitby',
+      state: 'MID',
+      direction: 'FALLING',
+      nearestType: 'HW',
+      nearestTime: '19:28',
+      nearestOffset: '1h43 before sunset',
+      range: '4.9 m',
+      rangeAnomaly: '1.2 m above an average tide',
+      seas: null,
+      curve: [0, 1],
+      windowPosition: 0.5,
+      windowLevel: 0.5,
+    };
+
+    it('turns the window tide rollup into the card\'s first row', () => {
+      const [card] = build(oneWindow({ tide: TIDE }));
+
+      expect(card.rows.map((r) => r.channel)).toEqual(['tide']);
+    });
+
+    it('drops a promoted topic from the header, so no card names it twice', () => {
+      // The rule the whole duplication question turns on. Asserting only that the row exists would
+      // pass with the badge still beside it, which is the failure.
+      const [card] = build(oneWindow({ badges: [snowBadge()] }));
+
+      expect(card.rows.map((r) => r.channel)).toEqual(['snow']);
+      expect(card.badges).toEqual([]);
+    });
+
+    it('keeps a factless topic as a badge, because a row would only repeat its label', () => {
+      const [card] = build(oneWindow({ badges: [snowBadge({ facts: [] })] }));
+
+      expect(card.rows).toEqual([]);
+      expect(card.badges.map((b) => b.label)).toEqual(['Snow on the fells']);
+    });
+
+    it('keeps a topic the two-row cap dropped, so the budget costs a row and never a fact', () => {
+      const fresh = snowBadge({ type: 'SNOW_FRESH', label: 'Fresh snow', rarityRank: 10 });
+      const tops = snowBadge();
+
+      const [card] = build(oneWindow({ tide: TIDE, badges: [fresh, tops] }));
+
+      expect(card.rows).toHaveLength(2);
+      expect(card.badges.map((b) => b.label)).toEqual(['Fresh snow']);
+    });
+
+    it('leaves every non-promotable badge in the header untouched', () => {
+      const nlc = snowBadge({ type: 'NLC', label: '✦ NLC', rarityRank: 14 });
+      const tide = snowBadge({ type: 'KING_TIDE', label: 'King tide', rarityRank: 3 });
+
+      const [card] = build(oneWindow({ badges: [nlc, tide] }));
+
+      expect(card.rows).toEqual([]);
+      expect(card.badges.map((b) => b.label)).toEqual(['✦ NLC', 'King tide']);
+    });
   });
 });
 

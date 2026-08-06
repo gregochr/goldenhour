@@ -141,17 +141,26 @@ public record BriefingWindow(
     /**
      * A hot topic that lands on this window.
      *
-     * <p>Label and detail are copied from the live topic in the same pass that buckets it, so a
-     * badge can never disagree with the {@code hotTopics} list in the same response.
+     * <p>Label, detail and facts are copied from the live topic in the same pass that buckets it,
+     * so a badge can never disagree with the {@code hotTopics} list in the same response.
      *
      * <p>A badge's own clock time is a <em>different anchor</em> from its window's: the topic's is
      * computed from the first enabled location in its regions, the window's is the earliest slot
      * across every region, so the two can differ by minutes. Render one or the other, never both
      * side by side.
      *
+     * <p><b>{@code facts} is what lets a topic become an attribute row rather than a chip.</b> The
+     * Plan card draws two kinds of surface for a topic: a header badge, which has room for the
+     * label alone, and a full-width row, which has room for measured quantities. A topic carrying
+     * facts has something the badge structurally cannot show, so the row is its expanded form and
+     * the badge is dropped; a topic carrying none would render a row whose whole content is its own
+     * label repeated, which is the duplication the design brief bans. Empty rather than null, so
+     * the client's rule is a length check and never a null check.
+     *
      * @param type       the topic kind, e.g. {@code NLC}
      * @param label      the topic's short label
      * @param detail     the topic's longer line, or null
+     * @param facts      the topic's "science showing" chips, verbatim; never null, often empty
      * @param eventTime  the topic's own local clock time, or null
      * @param rarityRank the kind's fixed rarity ordinal, 1 = rarest
      */
@@ -159,7 +168,12 @@ public record BriefingWindow(
             String type,
             String label,
             @JsonInclude(JsonInclude.Include.NON_NULL) String detail,
+            List<HotTopicFact> facts,
             @JsonInclude(JsonInclude.Include.NON_NULL) String eventTime,
             int rarityRank) {
+
+        public Badge {
+            facts = facts == null ? List.of() : List.copyOf(facts);
+        }
     }
 }

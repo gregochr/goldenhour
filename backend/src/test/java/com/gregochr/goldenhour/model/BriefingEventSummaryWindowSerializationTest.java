@@ -36,7 +36,9 @@ class BriefingEventSummaryWindowSerializationTest {
                 Confidence.HIGH,
                 new BriefingWindow.Pick(BriefingWindow.PickKind.BEST, "North East",
                         "Breaking clear", "Detail.", 4.0, "Bamburgh", 42L),
-                List.of(new BriefingWindow.Badge("NLC", "Clearest in 11 nights", null, "22:04", 14)),
+                List.of(new BriefingWindow.Badge("NLC", "Clearest in 11 nights", null,
+                        List.of(HotTopicFact.metric("clear at", "6 of 9 dark-sky spots")),
+                        "22:04", 14)),
                 14,
                 new BriefingWindowTide("Whitby", TideState.MID,
                         BriefingWindowTide.Direction.FALLING, "HW", "19:28", "1h43 before sunset",
@@ -170,5 +172,30 @@ class BriefingEventSummaryWindowSerializationTest {
     void nullBadgesNormaliseToEmptyRatherThanThrowing() {
         assertThat(new BriefingWindow(null, DisplayVerdict.AWAITING, null, null, null,
                 null, null, null).badges()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a badge's facts survive the round trip, since they decide badge-or-row")
+    void badgeFactsRoundTrip() throws Exception {
+        // The Plan card promotes a topic to a full-width attribute row only when it carries facts —
+        // a topic with none has nothing a badge cannot already show. So a round trip that dropped
+        // or emptied this list would silently demote every topic back to a chip, with no error.
+        BriefingEventSummary back = mapper.readValue(
+                mapper.writeValueAsString(summary(window())), BriefingEventSummary.class);
+
+        List<HotTopicFact> facts = back.window().badges().get(0).facts();
+
+        assertThat(facts).hasSize(1);
+        assertThat(facts.get(0).key()).isEqualTo("clear at");
+        assertThat(facts.get(0).value()).isEqualTo("6 of 9 dark-sky spots");
+        assertThat(facts.get(0).emphasis()).isTrue();
+    }
+
+    @Test
+    void nullBadgeFactsNormaliseToEmptyRatherThanThrowing() {
+        // A topic that never called withScience has null facts, and the client's promotion rule is
+        // a length check — so the normalisation is what keeps that rule from needing a null guard.
+        assertThat(new BriefingWindow.Badge("SNOW_TOPS", "Snow on the fells", "detail",
+                null, "05:31", 8).facts()).isEmpty();
     }
 }

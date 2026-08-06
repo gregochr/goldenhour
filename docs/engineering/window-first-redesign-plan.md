@@ -574,7 +574,7 @@ Backend first for anything shared, so the frontend stays a render layer.
 | **P4c** | ~~Day rail as the full Plan summary tile~~ **DONE.** `WindowFirstDayRail` + `utils/windowFirstRail.js` (the copied derivation) + `WindowFirstBriefingProvider` (the arm's own `/api/briefing` fetch, §4) | Tile copied, `ProvisionalMark` deleted and its two tests not carried. Picks read `window.pick`, never `bestBets` (§2.3). **Three decisions worth not re-deriving:** the pick flag names the **event** as well as the kind, because a pick is a window and a tile is a day; every tile **reserves** the two-line chip's height or the rail's lines go ragged; and an away day **keeps its sun times** — the mock replaces them, but its own away banner says the rail keeps them, and they are almanac. LITE gating settled in §7. The rail sits **above the tab bar**: it is the screen's date context, not the Plan pane's content |
 | **P5** | ~~Window card~~ **DONE.** `WindowFirstWindowCard` + `WindowPickDialog` + `utils/windowFirstCards.js`; the Plan pane renders the list | Header, verdict badge with the confidence decay, pick badge on the two chosen windows, topic badges. **Five decisions worth not re-deriving:** the header says `best N★` and **no count** — reach is P8 and the spots it would count are P6, so any number here describes a set that was never filtered (§6); **no expander** (P9's, and collapsed vs open would differ by a few pixels of padding, making it a demo control); **no footer bar** rather than an empty one, since everything the design puts in it is P6/P11; `AWAITING` renders as "Awaiting" on the **neutral** badge, never the red one; and the lead card is `index === 0 && date === todayStr`, which is the only predicate that yields exactly one and always agrees with the rail's gold tile. "Tonight" is the kicker only on a lead **sunset**; a lead sunrise carries none and keeps the day in its title. ⚠️ The Notes cell here used to describe the change-since-last-forecast row — stale since §2.8 deferred it, and the P1′ row's `priorRating` is stale in the same way (it never shipped and `grep` finds nothing) |
 | **P6** | ~~Spot film strip — **and the reach data on the card**~~ **DONE.** `WindowSpotStrip` + `utils/windowFirstSpots.js`; `GET /api/user/settings/reach` gets its first consumer, fetched by the arm's own provider | Geometry from the spec, not `.cth-window-grid`; no `ScrollRail`; one shared comparator; footer states what is *drawn*. Rating badge from `RATING_COLOURS` (§2.9). **No sparkline** — P16. **Reach moved here from P8, agreed 2026-08-05**: the design has always drawn `41 min · 19 mi` on every spot card, and P3's endpoint had no consumer, so the strip would otherwise render visibly incomplete cards for two phases. P8 keeps the **gate**; P6 takes the **display**. **Seven decisions worth not re-deriving — see §5a** |
-| **P7** | Attribute rows — tide, then snow | Cap of two per window; the change row is P5's and does not count against it |
+| **P7** | ~~Attribute rows — tide, then snow~~ **DONE.** `WindowAttributeRow` + `utils/windowFirstRows.js` + `components/chart/WindowTideSparkline.jsx`; `BriefingWindow.Badge` gains `facts` | Cap of two per window, and it binds. ⚠️ The old Notes cell here said "the change row is P5's and does not count against it" — **stale since §2.8 deferred that row**, which is why two rows means tide + snow and nothing else. **Nine decisions worth not re-deriving — see §5b** |
 | **P7b** | Promoted strip — both variants; chart 42px curve + 16px label band | Single-strip cap enforced in code. Also owns `UNKNOWN_RANK`'s wire semantics |
 | **P8** | Lens bar — **reach only** + persistence policy | Shrunk: rating floor and type move to P11. Day-derived default; reach expires at the day roll |
 | **P9** | Collapse/expand, six-window case, away-day row + its rail variant, the two doors | Re-measure the height budget: the rail grew, the window card shrank |
@@ -656,6 +656,21 @@ redesign exists to undo. So: **collapse cannot be optional and the default must 
 rest-collapsed** (201 + 5×47 + chrome ≈ one viewport). And the strip and its footer must sit *inside*
 the collapsible region — a collapsed card that kept the strip would save 39px of the 150.
 
+**Re-measured at P7, in the browser, and the prediction held.** Six windows, 1280×720, every card
+carrying its tide row and two of them a snow row as well: **234px** with one row and **273px** with
+two, against P6's 201px. One attribute row costs **51px** (a 40px row plus `.wf-rows`' 11px bottom
+margin) and a second costs 39 more. Shell **1,864px** — but that measurement's strip is 97px rather
+than P6's 115px, because the fixture carries no drive times and each spot card is a line shorter.
+Normalised to P6's strip the real figures are **252px per card and a ~1,970px shell, 2.74
+viewports** — the "near 2,000px" this section predicted, arrived at from a different direction.
+
+That settles P9's default rather than merely informing it: **lead-open, rest-collapsed**, with the
+rows *inside* the collapsible region alongside the strip and footer. A collapsed card that kept its
+rows would give back only 150 of the 207 it now costs above the header.
+
+On a phone (375×812) the same six cards run **2,448px**, with the chart dropped and each row's facts
+stacked. The responsive pass is P14's; the number is recorded so it is not discovered there.
+
 **P6 — copy, don't extract, and take the geometry from the spec.** An extraction would rewire
 `CloseToHome` to consume it, which breaks the one thing §4 rests on: the v1 arm of the flag comparison
 staying byte-identical while both views are judged against the same night's data. So copy the machinery
@@ -681,6 +696,113 @@ flag comparison stays as it is. **On touch the card itself stays the map activat
 the spot-centred deep link. The full-width phone peek renders through `BottomSheet` (`role="dialog"`,
 `aria-modal`, focusable close), never `CardHoverPreview`. Timings: 140ms open, 160ms strip-leave, 120ms
 panel-leave.
+
+---
+
+### 5b. What P7 decided — read before P7b, P9, P11 and P14
+
+Nine decisions that changed behaviour rather than wording. The height re-measurement is in §5a
+beside P6's, so the two sit together.
+
+- **A topic renders once: as a row when it carries numbers, as a badge otherwise.** This is the
+  duplication question the design leaves open — it draws a snow badge in the header *and* a snow row
+  beneath it — and the answer falls out of what each surface can hold. A badge has room for `label`;
+  a row has room for `label` plus the topic's measured facts. A topic with facts is therefore
+  strictly richer as a row and leaves the header; a topic with none would render a row whose whole
+  content is its own label repeated forty pixels lower, which is the noise §6 bans. Nothing is ever
+  lost: a topic the cap drops keeps its badge.
+- **`BriefingWindow.Badge` gained `facts`, and that is what makes the rule above real.** Without it
+  the "row" could only restate the badge, and the honest build would have been no snow row at all.
+  It is copied verbatim in the same pass that already copies label and detail, so a badge can never
+  disagree with the same topic's pill in the same response; normalised to empty rather than null, so
+  the client's promotion rule is a length check in one place. No migration — the window is derived at
+  serve time and never persisted.
+- **Only the snow channel is promotable, and that is a budget decision.** NLC carries a clear-count,
+  aurora a Kp; promoting every factful topic would put four rows on a busy window and blow the very
+  budget the cap defends. The design draws two rows; P7 ships two. **Widening the set is a design
+  call, not a refactor** — and P7b's promoted strip is the surface that should absorb the pressure.
+- **The cap binds, and it is not a vacuous "at most two".** `SNOW_FRESH` (or `SNOW_MIST`) and
+  `SNOW_TOPS` are separate strategies both anchored to SUNRISE, so a winter dawn genuinely offers a
+  tide row and two snow rows. Rows order tide-first — it renders on every window of every day, so a
+  card whose rows moved about would read as a different card — then by `rarityRank`, the ordering
+  advice the payload already publishes for the promoted strip, so the two surfaces cannot disagree
+  about which topic matters most.
+- **The design's fourth grid column is not built, and both of its labels say why.** "61 coastal
+  locations →" is a count of our own data, which §6 bans outright ("11 aligned is a fact about the
+  database, not about tonight"); "Filter to high ground →" is P11's type control and would ship
+  inert, which §6 also bans. So the tide row is three columns and the snow row two. Recorded here
+  rather than left as an apparent omission — §2.4a had already called both P7's call.
+- **The row is flexbox, not the design's `grid-template-columns`, and that is a correctness fix.**
+  The chart column is conditional twice over — no drawable curve, and every window on a phone — so a
+  fixed three-column template leaves the facts in the middle `auto` track with the `1fr` empty beside
+  them whenever the chart is absent. Flex sizes from the children that are there and lands on the
+  same picture when all three are.
+- **Two text tones, not the design's three.** Its `.dim` is `--ink-3`, and bone at 0.42 over the
+  row's surface measures **3.49:1** on a plain card and **3.38:1** over the lead card's gold wash —
+  under AA at the row's 10.5px. The caveat chips take the base tone (6.57:1) and lose their
+  de-emphasis, which is hierarchy rather than meaning. **This is the fourth time this project has
+  made the same correction** (`CloseToHome`'s region line, its ordering explainer, §5a's spot-card
+  sub-lines). Stop reaching for `--ink-3` at small sizes on these surfaces.
+- **The sparkline does not reuse `solarDayGeometry.js`, and does not carry
+  `preserveAspectRatio="none"`.** The payload is already normalised — `x = i/(n−1)·104`,
+  `y = (1−curve[i])·24`, mark at `windowPosition·104` — so no clock is parsed and borrowing that
+  module's constants would imply a shared axis these two charts do not have. The box is fixed at
+  exactly its viewBox, so nothing scales and the window mark stays a circle; the design's `none`
+  is inert at 1:1 and would turn the mark into an ellipse the moment a column stretched. A curve
+  under two points, or carrying anything non-finite, draws **nothing** rather than a path with `NaN`
+  in it, and an unplaceable instant drops the **mark alone** and keeps the trace.
+- **§7's LITE question, settled: neither row is gated.** `HotTopicStrip` blurs every topic's fact
+  chips for LITE — a blanket paywall tease over a promotional strip, not a judgement about tides —
+  and these rows are not that surface. They are the window's own context, the equivalent of the v1
+  Plan tab's tide chips and tide-aligned markers, ungated for every role today;
+  `freemium_ui_strategy.md` blurs cloud-layer breakdown, aerosol metrics and the technical panel, and
+  tide is almanac (the product's own `topicCertainty` says so, and `GET /api/tides` is Bearer rather
+  than ADMIN for the same reason). One rule for the whole block, and no `role` reaches this arm.
+  **`HotTopicStrip` is untouched**: it is not in this arm until P9 builds the hot-topics door, so
+  nothing disagrees on screen today, and editing it would perturb the v1 arm §4 rests on. **When P9
+  wires it in, that blanket blur is the single place to reconverge.**
+
+**The adversarial review before this landed** (six prosecutor lenses, one refuter per charge, then
+synthesis — 34 agents): **27 charges, 22 refuted, 3 real**, all fixed before the commit and all
+low-to-medium. Worth carrying, because two of the three are the same species this project keeps
+producing:
+
+- A **contrast figure recorded against a surface it never renders on.** The kicker comment quoted
+  `11.19:1` for the snow ink — correct arithmetic, wrong backdrop: that is the snow ink over the
+  *tide* row's fill, and `.wf-frow-snow` replaces the fill, so the pairing cannot appear. The true
+  figure is `10.99:1` (9.92 on a lead card). Every other number in the block reproduced exactly,
+  which is precisely why the odd one out was invisible. **When two variants of a class have
+  different backgrounds, measure each on its own.**
+- A **new test that could not fail.** "Is not role-gated" asserted `style.filter === ''` on a
+  component that takes no gate prop and never writes `filter` — true by construction. Worse, it
+  watched the wrong element: `HotTopicStrip` blurs the *facts container*, one level in. Now it
+  asserts the absent props (`role`, `isPro`, `isLiteUser` — two separate `not.toContain`, never the
+  conjunctive `arrayContaining`) **and** the facts container, and both halves were mutation-proven.
+- A **promoted topic's `optional` flag with no test at all** — every `.opt` assertion was built from
+  a tide row, so deleting `Boolean(f.optional)` left the suite green while a snow row stopped
+  dropping its context chip on a phone. Both snow strategies really do emit one.
+
+Seventeen mutations were run in total against the new tests before and after the review; every one
+was caught. ⚠️ Note for anyone doing the same: `-Dtest='Class#method'` on a JUnit `@Nested` method
+**runs nothing and exits 0** — it looks exactly like a test that failed to catch a mutation. Run the
+whole class.
+
+**What was verified live, and what was fixtured.** The local DB has never had an evaluation run, so
+`/api/briefing` returns ten windows with `{verdict, badges: []}` and no tide rollup, no badges and no
+hot topics — measured again at P7, unchanged from P6. Everything below was therefore seen in a real
+browser against an **injected payload**, not against live data: the row's layout and wrapping, the
+sparkline and its mark, promotion and the badge that leaves the header, the cap dropping a third row
+and leaving its badge, the factless topic staying a badge, the T+4 sea-state degrade, the phone
+stack with the chart and the droppable chip gone, the absence of horizontal overflow, every token
+resolving rather than being pruned, and the heights in §5a. What is **not** verified: any of it
+against real tide data, and no screen reader, axe or Lighthouse pass was run — the same gap §5a's
+own coverage note records. Chrome only.
+
+⚠️ **A fixture keyed to the payload's array index will silently land on nothing.** The cached local
+briefing was generated two days before it was read, and `selectUpcomingEvents` drops past events
+before any card is built — so badges injected at `days[0]` and `days[1]` were correct on the wire,
+correct in the provider's state, and invisible on screen. It looked exactly like a bug in the
+promotion filter for several rounds. Key a fixture to the **local date**, not to the index.
 
 **P12 — the tide fetch horizon and its fallout.** If `FETCH_LENGTH_SECONDS` is extended (§3):
 `TideServiceTest.java:365-367` pins the window at 13–14 days; "14 days" / "T+0 to T+13" prose lives at
@@ -747,8 +869,19 @@ something goes in.
 - **Role gating.** The lens bar is a PRO control and takes CLAUDE.md's LITE treatment (`opacity: 0.45`,
   `pointer-events: none`, "Pro" pill). Best Bet and the peek need no new gating — `glossHeadline` is
   ungated today and `freemium_ui_strategy.md:79-80` lists scores and the Claude summary as
-  LITE-included. Open question for P7: `HotTopicStrip` blurs tide metres for LITE today, and the tide
-  row states them — decide which way that goes rather than letting the two surfaces disagree.
+  LITE-included. **~~Open question for P7~~ SETTLED AT P7: the attribute rows are not gated, and
+  `HotTopicStrip` is not changed.** The premise the question rested on — that the strip "blurs tide
+  metres" — is true but mis-scoped: `TopicFacts` blurs *every* topic's fact chips regardless of kind,
+  so it is a blanket tease over a promotional strip rather than a judgement about tides. The window
+  card's rows are a different surface: the window's own context, the equivalent of the v1 Plan tab's
+  tide chips and tide-aligned markers, which every role already reads unblurred. The freemium split
+  blurs cloud-layer breakdown, aerosol metrics and the technical panel — tide is none of those, it is
+  almanac, and this project has already argued itself into that answer once (`GET /api/tides` is
+  Bearer, not ADMIN, because "tide extremes are astronomical data already surfaced in the forecast
+  UI"). One rule for the whole row block, which also keeps `role` out of this arm entirely. The two
+  surfaces are never on screen together today — `HotTopicStrip` arrives with P9's hot-topics door —
+  and editing it would perturb the v1 arm §4 rests on. **P9 owns the reconvergence, and the blanket
+  blur is the single place to make it.**
 - **The day rail is no longer inert.** The first handoff specified a read-out with no hover and no
   click. The second makes it the page's densest interactive surface: region chips open a gloss, pick
   chips open the pick's prose, and the tile carries a show-on-map action. Anywhere this plan still
