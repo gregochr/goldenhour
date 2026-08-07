@@ -129,8 +129,8 @@ export default function WindowFirstShell({
   locations,
 }) {
   const {
-    railTiles, windowCards, paneItems, loading, briefing, evaluationScores, todayStr, reachLens,
-    homePlace,
+    railTiles, windowCards, paneItems, loading, briefing, evaluationScores, scoreIndex, todayStr,
+    reachLens, homePlace,
   } = useWindowFirstBriefing();
   const [openPick, setOpenPick] = useState(null);
   // Only the cards the reader has TOGGLED. The default is not seeded into this map, so it stays a
@@ -319,6 +319,7 @@ export default function WindowFirstShell({
             onToggle={() => toggleCard(item.card.key, isCardOpen(item.card))}
             onOpenPick={setOpenPick}
             onOpenSpot={handleSpot}
+            scoreIndex={scoreIndex}
           />
         )))}
         {!loading && paneItems.length === 0 && (

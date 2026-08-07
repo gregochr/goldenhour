@@ -71,7 +71,7 @@ reuse the *mechanism*, and take every geometry constant from the spec:
 | Trap | Solved in |
 |---|---|
 | Snapping scroller eats the horizontal gutter | The padding + negative-margin + `scroll-padding` technique in `.cth-window-grid`. **The numbers there are wrong for this design** — see P6. |
-| Peek node destroyed on re-render | `CloseToHome` renders **one** peek node at the panel root, sibling to every window block, driven from panel-level state (`CloseToHome.jsx:805`, `:1215`). *That* is the lifetime guarantee. `position: fixed` is a separate concern and only stops a scroller's `overflow` clipping it (`index.css:459-467`). Note the React-specific trap the README omits: a `transform`, `filter` or `will-change` on any ancestor re-bases `position: fixed` onto that ancestor. |
+| Peek node destroyed on re-render | `CloseToHome` renders **one** peek node at the panel root, sibling to every window block, driven from panel-level state (`CloseToHome.jsx:805`, `:1215`). *That* is the lifetime guarantee. `position: fixed` is a separate concern and only stops a scroller's `overflow` clipping it. ⚠️ **The citation here was wrong** — `index.css:459-467` is the tide-run footer. The peek's own rule is `.cth-hover-preview` at **`index.css:580`**, `position: fixed` at **`:581`**, `z-index: 1200` at **`:582`**, and the reasoning that licenses all three at **`:571-579`**. Corrected at P10′, which is the phase that came here looking for exactly this. Note the React-specific trap the README omits: a `transform`, `filter` or `will-change` on any ancestor re-bases `position: fixed` onto that ancestor. |
 | Footer claims a sort/count the cards contradict | `CloseToHome` already pins `cards.size() == withinReach` with a test |
 | Click-to-map must carry the window | `buildMapOverlay` + `MapOverlay` already carry window, date, focus and a route back |
 
@@ -369,8 +369,8 @@ not reopen it from the handoff text alone.
   side of any id match is Claude-authored, so ids would mean a name→id resolution server-side, and
   the one path where names could drift — the stale fallback replaying `pipeline_run_pick.region` —
   needs a new column, i.e. a migration. The shipped feature deliberately matches on name.
-- **`--blue #7C8DD6`: NOT a new token.** It ships as `--color-pick-also` (`index.css:58`), and the
-  whole chip treatment ships with it — `data-pick` accents at `index.css:655-669`, the `◎` `rn-mark`,
+- **`--blue #7C8DD6`: NOT a new token.** It ships as `--color-pick-also` (`index.css:53`), and the
+  whole chip treatment ships with it — `data-pick` accents at `index.css:785`, `:790`, `:795`, `:796`, the `◎` `rn-mark`,
   both 0.6-alpha underlines, `brightness(1.14)`. Reuse them; author nothing. Under Tailwind v4
   `@theme static` a duplicate token survives review quietly, which is why this is written down.
 - **Run-history sparkline: DEFERRED to P16 — and the strongest reason is how little of it would
@@ -578,12 +578,12 @@ Backend first for anything shared, so the frontend stays a render layer.
 | **P7b** | Promoted strip — both variants; chart 42px curve + 16px label band | Single-strip cap enforced in code. Also owns `UNKNOWN_RANK`'s wire semantics |
 | **P8** | ~~Lens bar — **reach only** + persistence policy~~ **DONE.** `WindowFirstLensBar` + `utils/reachLens.js` + `hooks/useReachLens.js`; the gate rides `buildWindowCards`, and the `far` spot variant ships with it | Shrunk: rating floor and type move to P11. Day-derived default; reach expires at the day roll. **The labels are the spec and `LIM` is mock shorthand** — the label is now *derived* from the threshold so no second number exists to drift. First gated control in the arm; `role` enters at the provider only. **Nine decisions worth not re-deriving — see §5c** |
 | **P9** | ~~Collapse/expand, six-window case, away-day row + its rail variant, the two doors~~ **DONE.** `WindowAwayRow` + `utils/windowFirstAway.js`, `WindowFirstDoors` + `WindowFirstRegionalPanel` + `utils/windowFirstRegions.js`; the card gains `open`/`onToggle` and the shell owns the state | ⚠️ The old Notes cell said "the window card shrank" — **stale**, it had grown every phase since P6. Measured: six open windows are **1,969px / 2.74 viewports**, exactly the figure §5a predicted from a different direction; lead-open/rest-collapsed is **996px**, a 49.4% saving. The **rail variant already shipped at P4c** (`isAway`, `✈ Away`, `Not forecast`, and it keeps its sun times) — P9 owned only the pane row. The six-window case needed no feature: `MAX_VISIBLE_EVENTS` already caps it and the rail and cards share one evaluation. **Ten decisions worth not re-deriving — see §5d** |
-| **P10′** | Peek content kind 1 (spot) + click-to-map | Split — the host is P4b, the pick-chip kind is P5. New `WindowSpotPeek`; **on touch the card activates the map**; phone peek via `BottomSheet`; 140/160/120ms |
+| **P10′** | ~~Peek content kind 1 (spot)~~ **DONE.** `WindowSpotPeek` + `utils/windowSpotPeek.js` + `hooks/useSpotPeek.js`; the strip gains the trigger and the card drills the score index through | ⚠️ The Work cell used to add "+ click-to-map", which **shipped at P6** — §5a`:603` already corrected it. The host is **not** P4b's after all: the portal reasoning is taken and cited, the host itself does not fit (above-only placement, no slot for the panel's pointer handlers). **No phone peek** — the row named a `BottomSheet` and no trigger, and the same paragraph gives the phone's only tap to the map. Open delay stays at 180ms, not this row's 140; 160/120 adopted and split. A summary-less spot now *does* get a peek, because the bars are back. **Fifteen decisions worth not re-deriving — see §5e** |
 | **P11** | Drilldown sheet — **plus the rating floor and type controls** and their persistence | Grown by what P8 shed |
 | **P12** | Backend: almanac feed (§3) + the tide fetch-horizon decision | Unchanged |
 | **P13** | Coming up tab | Unchanged |
 | **P14** | Responsive pass — real media queries, including the taller rail tile on phone | Keep control labels at 9px |
-| **P15** | Pre-pilot sweep (§6), then flip the flag default | **Two items handed up by P9, both cross-arm and neither fixable inside one phase (§5d):** the `HotTopicStrip` LITE treatment, which the window card's ungated attribute rows already defeat for the tide and snow channels; and `HeatmapGrid`'s away band saying "no forecast generated" two elements below a row that deliberately says "not forecast". Both need one decision made once across both arms, which is the shape §2.8 settled for the pick gloss |
+| **P15** | Pre-pilot sweep (§6), then flip the flag default | **Four items handed up, all cross-arm and none fixable inside one phase.** From P10′ (§5e): the **LITE score split** — `freemium_ui_strategy.md:79-80` lists the two scores and the Claude summary as LITE-included and §7 relies on that, but `MarkerPopupContent.jsx:1165` gates them and `:1175` upsells them, so an ungated peek contradicts the map overlay one click away; and **`--color-marginal`, a token declared nowhere**, which leaves `CardHoverPreview`'s and `CloseToHome`'s stars silently inheriting body ink in the frozen v1 arm. From P9 (§5d): the `HotTopicStrip` LITE treatment, which the window card's ungated attribute rows already defeat for the tide and snow channels; and `HeatmapGrid`'s away band saying "no forecast generated" two elements below a row that deliberately says "not forecast". Both need one decision made once across both arms, which is the shape §2.8 settled for the pick gloss |
 | **P16** | *(post-pilot, conditional)* Run history — the sparkline **and** the change-since-last-forecast row, both blocked on an append-only per-run sink the live pipeline writes | Deferred because only **4.1%** of slots have the four *rated* runs it draws and **90.6% have none** — measured, see §2.8. Not for want of data or query |
 
 ### 5a. What P6 decided — read before P8, P9, P10′ and P11
@@ -684,14 +684,18 @@ at every breakpoint that matters: `scroll-snap-type: x mandatory` vs the spec's 
 the edge-fade insets), no horizontal padding on the scroller, `proximity`, 3.5 across desktop and 72% on
 phone. Reuse the hidden-scrollbar and snap-padding *technique*, not the numbers. `ScrollRail` stays out:
 the design's affordance set is native scroll, edge fades, `‹ ›` and the "5 of 7 loaded" readout, and
-`index.css:888` justifies the rail as "the only handle a mouse user has" — a premise that is false here.
+`index.css:1062` justifies the rail as "the only handle a mouse user has" (the line was cited as `:888`, which is `.map-home-control button`; corrected at P10′) — a premise that is false here.
 
 **P10 — the peek is a new component.** `CardHoverPreview` is `aria-hidden` under an explicitly
 conditional licence ("the card stays a button — the peek is a shortcut, never the only route"), and its
 Javadoc lists the score bars, header bar and footer as *deliberately removed*. The spec restores all
-three. So: new `WindowSpotPeek`, reusing `previewPlacement`, the fixed-position escape hatch and the
-open/hold/dismiss timers, leaving `CardHoverPreview` and `CloseToHome` untouched so the v1 arm of the
-flag comparison stays as it is. **On touch the card itself stays the map activation** — the spec's
+three. So: new `WindowSpotPeek`, **copying** `previewPlacement`, the fixed-position escape hatch and
+the open/hold/dismiss timers, leaving `CardHoverPreview` and `CloseToHome` untouched so the v1 arm of
+the flag comparison stays as it is. ("Reusing" was impossible and this line used to say it:
+`previewPlacement`, its geometry constants and both timers are module-private to `CloseToHome`, whose
+only export is the component, so exporting one would be an edit to the frozen arm. Read as copying —
+the rule §5a`:677` already applies to P6. Corrected at P10′, which also re-derived the height constant
+rather than transplanting it; see §5e.) **On touch the card itself stays the map activation** — the spec's
 "first tap opens the peek" would otherwise make an `aria-hidden`, pointer-only panel the sole route to
 the spot-centred deep link. The full-width phone peek renders through `BottomSheet` (`role="dialog"`,
 `aria-modal`, focusable close), never `CardHoverPreview`. Timings: 140ms open, 160ms strip-leave, 120ms
@@ -977,7 +981,7 @@ several scroll positions instead of believing the picture.
 
 ---
 
-### 5d. What P9 decided — read before P10′, P11, P14 and P15
+### 5d. What P9 decided — read before P11, P14 and P15
 
 Ten decisions that changed behaviour rather than wording. P9's height figures sit at the end, beside
 P6's, P7's and P8's.
@@ -1115,6 +1119,182 @@ same gap §5a, §5b and §5c all record. Chrome only.
 
 ---
 
+### 5e. What P10′ decided — read before P11, P14 and P15
+
+**The scope was one component, not two.** The §5 row's Work cell reads "Peek content kind 1 (spot)
+**+ click-to-map**", and click-to-map shipped at P6 — §5a`:603` already corrects the row. P10′ owns
+`WindowSpotPeek` and nothing else.
+
+**Three decisions the plan did not make.**
+
+- **Its own portal, not `PopoverHost`.** The row says "the host is P4b" and the portal *reasoning*
+  is taken from there verbatim — `position: fixed` is necessary and not sufficient, because a
+  `transform` on any ancestor re-bases a fixed descendant onto it. All three hazards are live on
+  this surface and were measured: `.wf-spots` is `overflow-x: auto` (so `overflow-y` computes to
+  auto and it clips on both axes), the window card sets `overflow: hidden` as an **inline** style no
+  stylesheet rule can outrank, and `.wf-spot:hover` applies `translateY(-2px)` to the very button the
+  panel hangs off. But the host itself does not fit: `computePopoverPlacement` anchors *above* and
+  never flips, and `PopoverHost` takes only `{popover, className}` — no slot for the pointer handlers
+  the 120ms panel grace needs, and no way to express an arrow offset. Using it would mean widening
+  two shared files to change behaviour the day rail depends on, for the four lines that are the
+  portal. So `WindowSpotPeek` calls `createPortal` itself and `useSpotPeek` re-states the
+  capture-phase scroll dismissal, both citing their source.
+- **No phone peek at all.** The row says "phone peek via `BottomSheet`" and names no trigger — not in
+  the row, not in §5a`:689-702`, not in §7`:1277-1282` — while the same paragraph gives the phone's
+  only tap to the map. Shipping the sheet with no trigger is dead code; inventing one adds an
+  affordance to the screen `Adversarial Review.html` charge c2 already convicted, competing with a
+  tap target that is 72% of the viewport. And the richer destination is one tap away and strictly
+  better: the map overlay carries the same two scores and the whole paragraph rather than a clause.
+  A consequence worth stating: `BottomSheet` still has no Escape handler (verified across
+  `BottomSheet.jsx`, `useDialogFocus.js` and its test — zero hits), and P10′ deliberately did not fix
+  it, because nothing P10′ ships uses it. If a phone peek is ever wanted it lands with P11's
+  drill-down, which is a sheet that already has a trigger and a reason.
+- **A summary-less spot now gets a peek.** `CloseToHome.jsx:835` returns early on a missing summary,
+  and its Javadoc gives the reason: with the score bars removed, the rating and the drive both come
+  from the card, so the panel "would restate what the reader can see and add a prompt". P10′ restores
+  the bars, so the premise is gone. The rule was re-decided rather than copied: the gate is
+  **"carries something the card does not"**, and under it scores-without-a-sentence qualifies. Seen
+  working in the browser. Triage is deliberately *not* a fourth key — a triage message states why the
+  pipeline did not look, which is a fact about the run rather than about the sky.
+
+**A position on all eight of `CardHoverPreview`'s deliberately-removed items**, where §7 reconciles
+only the first. **In:** the score bars (§7's reason, and §7's tripwire stands — if the pilot reports
+the panel feeling like a glitch they are the first thing back out). **Out:** the generated-at
+timestamp (the rail footer states the forecast's age once for the whole screen, and §2.7's rule
+against marking one fact twice binds harder here than in the v1 arm); the region line (the spot card
+prints it one element away); tide detail (P7's attribute row carries the window's tide directly above
+the strip, and the payload has no per-spot tide anyway); the header bar and the ✕ (modal furniture,
+and §7's tripwire is precisely that this must not read as modal weight — the panel closes on
+pointer-leave and on Escape, so a close button would be a control no assistive technology can reach);
+the footer bar, though the prompt it held stays as prose; and the location name, because the arrow
+tethers the panel to the card that just named it — measured, the panel is **280px** against a
+**283px** card, so it sits squarely under the name it would repeat.
+
+**Timings deviate from the row, and the deviation is the point.** The row says 140/160/120ms.
+160 (leaving the card) and 120 (leaving the panel) are adopted, and splitting them is new —
+`CloseToHome` uses one 140 for both, and they are not the same journey. The **open delay stays at
+`CloseToHome`'s 180, not the row's 140**: that Javadoc argues 180 is "the whole difference" between a
+panel that answers a question and one that fires at a mouse crossing the row, and the hazard is
+*larger* here — a grid is crossed one card at a time, where this strip is seven cards at 8px spacing
+that one sweep towards the `‹ ›` arrows crosses all of. Shortening it on the denser surface is the
+wrong direction.
+
+**`PEEK_ESTIMATED_HEIGHT` was re-derived, because `CloseToHome`'s 170 is licensed by a premise P10′
+removes** — its Javadoc says the content is "bounded by construction (a stars row, one clause, one
+prompt line)". Measured on the running app with both scores: **163px** with a one-line clause and
+**202px** at the three lines a 252px content box allows. 220 rounds that up. The rule the v1 CSS
+records — *deliberately no `max-height`*, because the panel before it "capped at 260px with overflow
+hidden, which is what cut the second score bar in half" — is the one most at risk here, since P10′
+puts those bars back. Confirmed `max-height: none` on the running app.
+
+**A defect found in the browser that no test could see: `--color-marginal` is declared nowhere.**
+`grep` finds three uses (`CloseToHome.jsx:48`, `CardHoverPreview.jsx:85` and the copy this phase
+started from) and no definition, and `getComputedStyle` returns the empty string — so the v1 peek's
+stars have never been amber, they have always fallen back to inherited body ink and looked plausible
+enough that nobody noticed. The new component names `--color-verdict-marginal`, which resolves to
+#E0A542 and measures **7.30:1** on the panel. The v1 arm is frozen for the flag comparison, so it is
+left alone and handed to P15.
+
+**⚠️ Handed up to P15 — a third cross-arm item, alongside §5d's two.** §7 says the peek needs no new
+gating, citing `freemium_ui_strategy.md:79` (§7 itself cites `:79-80`; an earlier draft of this
+section said `:78`, which is the table's separator row), which lists "Score (Fiery Sky %, Golden Hour %)" as
+LITE-included. **The shipped code disagrees with the policy doc**: `MarkerPopupContent.jsx:1165` gates
+both scores behind `role !== 'LITE_USER'` and `:1175` shows LITE an explicit "Upgrade to Pro for
+Fiery Sky & Golden Hour scores". So a LITE user with the flag on would read the two scores on the
+peek and, one click later, be told in the map overlay that they must upgrade to see them. P10′
+follows §7 rather than overturning it on the strength of one call site, because gating here would
+need either a role below the shell — which P7 pins against — or the decision baked into the score
+index, which is freemium policy decided in a data structure by one phase for one panel. It is the
+same shape as §5d's two items: **one decision, made once, across both arms.** Note the sharpened
+form: for a LITE user the peek would be the *only* place the scores appear, and it is `aria-hidden`.
+
+**What was verified live, and what was fixtured.** The local DB still has never had an evaluation
+run, and `BriefingHonestyFilter.fullRewrite` empties every region's slot list while
+`scoredLocationCount` is 0 — so the strip, and therefore the peek, has **no** real data path. Even
+after `POST /api/briefing/run` (which does work, ~43s, £0) the payload comes back with `slots: []`
+everywhere. Everything below was seen in a real browser against an injected payload: the peek opening
+on a pointer rest; the portal escaping all three clipping hazards, measured at **160px past the
+scroller's bottom and 120px past the window card's**, fully visible; the below placement at a **10px**
+gap with the arrow tip landing on the card's centre **to the pixel**; the above-flip at a 640px
+viewport with 138px of room below, anchored from the bottom and drawing over the sticky lens bar
+(z-index 60 against its 20); Escape, collapse (the strip unmounts and takes the panel with it) and
+capture-phase scroll all dismissing it; the click dismissing the peek *and* opening the map overlay
+with the full paragraph the prompt promises; the scores-without-a-sentence case rendering; and the
+contrast figures composited over the real `#2A2019` panel — stars **7.30:1**, drive chip **6.44:1**,
+score label **6.44:1**, score number **13.00:1**, clause **6.44:1**, prompt **5.99:1**, no muted ink
+anywhere. All eight `.wf-peek*` rules and the reduced-motion rule were read back out of
+`document.styleSheets`, because P9 lost a rule to a comment edit that lint, build and 2,636 tests all
+passed over.
+
+**What the adversarial review changed, because the pattern is worth carrying.** Six lenses filed 18
+charges; 12 survived refutation, 8 distinct after dedup, and **all 8 were fixed before the commit**.
+Five are worth not re-deriving:
+
+- **An unrated spot's peek drew `☆☆☆☆☆`.** `starGlyphs(rating ?? 0)` coerced *unknown* to *zero* and
+  then rendered the canonical glyph for zero — contradicting the card 10px above, which omits its
+  badge precisely because "an unrated spot is one nothing has looked at, which is a different
+  statement from a poor one", and contradicting the same file's own drive chip and score bars, both
+  already gated on absence. Reachable rather than theoretical: the score index is fetched **once**
+  while the briefing polls, so a slot can carry a score with no usable rating — the divergence
+  `resolveSpotPeek` is written to expect. It was **pinned green** by a test asserting the five hollow
+  glyphs under the comment "Absence, not zero", which is how it would have hardened into the baseline.
+- **Closing the map overlay re-opened the peek unbidden.** `MapOverlay` runs `useDialogFocus`, which
+  re-focuses whatever was active when it opened — the spot card the reader clicked — and `onFocus`
+  cannot tell that from a keyboard arrival. A panel painted 180ms after the ✕, anchored to a card the
+  pointer was nowhere near, and no *pointer* gesture could close it (no `mouseenter` ever fired, so no
+  `mouseleave` was pending). Inherited verbatim from `CloseToHome.jsx:525-528`, which ships in v1
+  today; fixed here because the hook is new and unfrozen. One `focusHandedBack` ref, cleared by the
+  pointer path so a browser that never restores focus cannot strand it.
+- **Two peeks could be on screen at once.** The hook's own Javadoc claimed the `focusin` listener
+  bought the "exactly one panel" guarantee back. It does not: `focusin` fires on a focus *change*, so
+  it covers open-by-pointer-then-Tab-away and **not** the reverse, and a pointer moving between two
+  expanded windows' strips sends the first strip nothing at all. A **new** regression — v1's single
+  `preview` state is structurally immune. Bought back properly with a module-scoped `openPeek`
+  dismisser that every `open()` closes first.
+- **A test that could not fail.** `expect(bar).toHaveTextContent('0')` for the lower clamp is a
+  substring match against the whole bar *including its label*, so `"Golden Hour-20"` contains `"0"` —
+  deleting `Math.max(0, …)` left all 26 tests green. Caught by the review, not by the 62-mutation
+  sweep, because the sweep's own expectation string was the test name rather than the assertion.
+- **Two contrast figures were wrong**, both by the same mistake this project has now made seven
+  times: measuring the *token* rather than the *composite*. The drive chip carries
+  `rgba(255,255,255,0.05)` of its own, which lifts its backdrop to rgb(53,43,37) and the ratio to
+  **5.82:1**, not the 6.44:1 the bare panel gives; and the muted figure quoted in a code comment as
+  3.9:1 is **3.46:1**, a number no backdrop in the palette produces. Both conclusions held, so nothing
+  rendered wrong — but §5e is what P15 reads *instead of* re-measuring.
+
+All eight fixes were then re-verified in the browser, since the review itself rendered nothing: the
+unrated card's peek draws **no star row at all** (the drive chip, the two bars and the prompt, and
+nothing where the zero-claim was), and closing the map overlay leaves the clicked card focused —
+`document.activeElement` is that card — with **no panel painted**, which is exactly the state that
+produced the phantom before. Sixty-five mutations were re-run afterwards and all sixty-five were
+killed; two of the first run's survivors were themselves informative and are worth carrying. One was
+an **equivalent mutant** (`?? 0` inside a branch now gated on `rating != null` is unreachable, so
+adding it back changes nothing and should kill nothing). The other was a **test that could not fail**:
+"a browser that never hands focus back" asserted that a hover opens a peek, which the guard never
+gated — the assertion has to be on a focus *after* a hover. And deleting the `focusin` listener
+stopped failing anything once the page-level token shipped, which meant the cross-strip test had been
+the only thing pinning it; the case only that listener covers is focus landing on a card whose slot
+resolves to **no** peek, where `open()` never runs and nothing hands the token on. That now has its
+own test.
+
+One charge the review raised as a possible fourth finding was **refuted by measurement**: whether
+Chrome fires `focusin` when focus reverts to `<body>`, which would dismiss the panel between
+`mousedown` and `click` and make its click-to-map silently do nothing. Probed on the running app —
+Chrome fires `focusout` on the button and **no** `focusin`. The card's `onBlur` still starts the
+160ms grace, and the click lands inside it.
+
+**Not verified, said plainly.** Real compositor-driven scroll dismissal: a hidden Browser pane
+dispatches **no** scroll events at all — `scrollLeft` moved from 0 to 291 and listeners fired zero
+times at window, document *and* element level — so the dismissal was exercised with a synthetic
+event, which proves the capture-phase path and not Chrome's dispatch. The same throttling freezes
+`setTimeout` in a hidden pane, which is why every timing check had to be sandwiched between
+screenshots; a peek that "failed to open" three times was `document.hidden`, not a defect. Touch and
+coarse-pointer gating (no touch device — pinned by three unit tests), the cross-strip `focusin` rule
+(only one window card is open by default — pinned by a unit test), any of it against real ratings or
+real drive times, and no screen reader, axe or Lighthouse pass. Chrome only.
+
+---
+
 ## 6. Pre-pilot sweep
 
 - No demo buttons, no annotation cards anywhere in the shipped build.
@@ -1196,7 +1376,7 @@ something goes in.
   strip chips' pick accents on `isPro` (`:1206-1215`), so an ungated chip would contradict them one
   row apart, and would also make `CloseToHome`'s deliberate withholding of the region name
   (`CloseToHome.jsx:585-588`, pinned by `CloseToHome.test.jsx:209-221`) pointless. **It does not
-  reach the v2 arm**: the flag branches above `<main>` (`App.jsx:380`), so `DailyBriefing`, its
+  reach the v2 arm**: the flag branches above `<main>` (`App.jsx:381`; `:380` is the comment's last line), so `DailyBriefing`, its
   placeholder and `CloseToHome` never render beside the rail. The two stories are never on screen
   together. Reconverging the arms after the flag default flips means making this one decision
   once, across both — not splitting it across two surfaces.
