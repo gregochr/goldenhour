@@ -14,6 +14,7 @@ import { isEventPast } from '../utils/briefingDisplay.js';
 import { buildRailTiles } from '../utils/windowFirstRail.js';
 import { buildWindowCards } from '../utils/windowFirstCards.js';
 import { buildPaneItems } from '../utils/windowFirstAway.js';
+import { buildBriefingScoreIndex } from '../utils/briefingScoreIndex.js';
 
 /** Matched to v1's. The payload regenerates every ~8–10h; polling faster only adds revalidations. */
 const POLL_INTERVAL_MS = 10 * 60 * 1000;
@@ -334,13 +335,22 @@ export function WindowFirstBriefingProvider({ children, homeSettingsVersion }) {
   const isPro = role === 'PRO_USER' || role === 'ADMIN';
   const isLiteUser = role === 'LITE_USER';
 
+  // Built once for the page rather than per strip: the spot peek looks a slot up by
+  // (locationName, date, targetType), and `evaluationScores` is keyed with the region name in
+  // front, so every lookup would otherwise be a linear scan of the whole map. Six window cards ×
+  // up to seven spots each is enough for that to matter, and the index is what
+  // `buildBriefingScoreIndex` exists for.
+  const scoreIndex = useMemo(() => buildBriefingScoreIndex(evaluationScores), [evaluationScores]);
+
   const value = useMemo(
     () => ({
       briefing, loading, railTiles, windowCards, paneItems, upcomingEvents, travelDayDates,
-      evaluationScores, reachById, todayStr, tomorrowStr, reachLens, homePlace, isPro, isLiteUser,
+      evaluationScores, scoreIndex, reachById, todayStr, tomorrowStr, reachLens, homePlace, isPro,
+      isLiteUser,
     }),
     [briefing, loading, railTiles, windowCards, paneItems, upcomingEvents, travelDayDates,
-      evaluationScores, reachById, todayStr, tomorrowStr, reachLens, homePlace, isPro, isLiteUser],
+      evaluationScores, scoreIndex, reachById, todayStr, tomorrowStr, reachLens, homePlace, isPro,
+      isLiteUser],
   );
 
   return (

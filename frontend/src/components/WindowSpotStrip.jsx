@@ -1,7 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
+import WindowSpotPeek from './WindowSpotPeek.jsx';
+import useSpotPeek from '../hooks/useSpotPeek.js';
+import { useIsCoarsePointer } from '../hooks/useIsCoarsePointer.js';
+import { useIsMobile } from '../hooks/useIsMobile.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { spotBadgeStyle, spotOrderStatement } from '../utils/windowFirstSpots.js';
+import { resolveSpotPeek } from '../utils/windowSpotPeek.js';
 
 /**
  * Cards per nudge. The spec's arrows move two, leaving 1.5 of the previous view on screen.
@@ -112,6 +117,27 @@ function reachLine(driveMinutes, distanceMiles) {
  * <p>The sort sentence is derived from the spots rather than hard-coded, because a sort key no spot
  * carries never fires — see {@link spotOrderStatement}.
  *
+ * <h2>The peek is a shortcut off this strip, and it is pointer-only</h2>
+ *
+ * <p>P10′. A pointer resting on a card, or a keyboard focusing one, opens {@link WindowSpotPeek} —
+ * the two Claude scores and one clause of the why, none of which the card itself carries. The state
+ * lives here rather than in the shell so that collapsing a window unmounts the peek with its own
+ * anchor; {@link useSpotPeek} carries that reasoning and the dismissal rules.
+ *
+ * <p><b>No touch peek, and the plan's {@code BottomSheet} sentence is why not.</b> §5 lists "phone
+ * peek via {@code BottomSheet}" and names no trigger for it — not in the row, not in §5a`:689-702`,
+ * not in §7`:1277-1282` — while the same paragraph gives the phone's only tap to the map. There is
+ * no gesture left, and inventing a second tappable control inside a card that is 72% of the viewport
+ * on phone would add an affordance to the screen `Adversarial Review.html` charge c2 already
+ * convicted, competing with the tap target it sits inside. The richer destination is one tap away
+ * and strictly better: the map overlay carries the same scores and the whole paragraph, not a
+ * clause. If the pilot asks for a phone peek it lands with P11's drill-down, which is a sheet that
+ * already has a trigger and a reason to exist. Recorded in plan §5e.
+ *
+ * <p>Two gates, because they catch different devices — the viewport query catches a phone, and the
+ * pointer query catches a tablet or touchscreen laptop wide enough to look like a desktop but where
+ * "hover" is a tap that has already committed.
+ *
  * @param {object}   props
  * @param {Array}    props.spots     ordered descriptors from {@code buildWindowSpots}, already
  *        gated by the reach lens
@@ -121,11 +147,72 @@ function reachLine(driveMinutes, distanceMiles) {
  *        is the no-gate case and keeps the count at P6's plain "N spots".
  * @param {boolean}  [props.lead]    whether this is the lead card, which tints the edge fades
  * @param {Function} [props.onOpenSpot] opens the map centred on that spot
+ * @param {string}   [props.date]       the window's date, for the peek's score lookup
+ * @param {string}   [props.targetType] SUNRISE or SUNSET, for the same
+ * @param {?Map}     [props.scoreIndex] briefing-score index. Absent or empty simply means no peek
+ *        opens — the scores arrive from a separate request that a first paint has not resolved.
  */
-export default function WindowSpotStrip({ spots, windowLabel, total, lead, onOpenSpot }) {
+export default function WindowSpotStrip({
+  spots, windowLabel, total, lead, onOpenSpot, date, targetType, scoreIndex,
+}) {
   const scrollerRef = useRef(null);
+  const wrapperRef = useRef(null);
   const { back, more } = useStripEdges(scrollerRef, spots.length);
   const overflows = back || more;
+  const isMobile = useIsMobile();
+  const isCoarsePointer = useIsCoarsePointer();
+  const noHoverPeek = isMobile || isCoarsePointer;
+  const { peek, open, hold, closeFromTrigger, closeFromPanel, dismiss } = useSpotPeek();
+
+  const openPeek = useCallback((event, spot) => {
+    const detail = resolveSpotPeek(spot, date, targetType, scoreIndex);
+    if (!detail) return;
+    open(event.currentTarget, wrapperRef.current, { ...detail, spot });
+  }, [open, date, targetType, scoreIndex]);
+
+  /**
+   * Set while the map overlay is the thing that has focus, so the focus it hands BACK on close opens
+   * nothing.
+   *
+   * <p>`MapOverlay` runs `useDialogFocus`, which captures `document.activeElement` on open and calls
+   * `.focus()` on it on close. Clicking a spot card focuses that card (mousedown does, in every
+   * browser but Safari), so closing the overlay re-focuses it — and `onFocus` cannot tell that from a
+   * reader arriving by keyboard. Without this a 280px panel paints 180ms after the ✕, anchored to a
+   * card the pointer is nowhere near, with no pointer gesture able to close it: no `mouseenter` ever
+   * fired, so no `mouseleave` is pending. It is dismissible (Escape, scroll, resize) and it is
+   * inherited verbatim from `CloseToHome.jsx:525-528`, which ships in v1 today — but the hook is new
+   * and unfrozen, so it is fixed here rather than reproduced.
+   */
+  const focusHandedBack = useRef(false);
+
+  // Dismiss first, for the reason `CloseToHome` gives at its own call site: the map overlay renders
+  // above the pane but the peek is portalled to the body, so a panel left standing would sit over
+  // the overlay it just opened. `.wf-peek`'s z-index is below the overlay's as a second line of
+  // defence — see index.css.
+  const openSpot = useCallback((spot) => {
+    dismiss();
+    focusHandedBack.current = true;
+    onOpenSpot?.(spot);
+  }, [dismiss, onOpenSpot]);
+
+  /** The focus path, minus the one focus the overlay gives back. */
+  const focusPeek = useCallback((event, spot) => {
+    if (focusHandedBack.current) {
+      focusHandedBack.current = false;
+      return;
+    }
+    openPeek(event, spot);
+  }, [openPeek]);
+
+  /**
+   * The pointer path. It also clears the flag, so a browser that never restores focus — Safari does
+   * not focus a button on mousedown, so `useDialogFocus` captures the body and gives it back there —
+   * cannot leave the flag set and swallow a later, genuine focus.
+   */
+  const hoverPeek = useCallback((event, spot) => {
+    focusHandedBack.current = false;
+    openPeek(event, spot);
+  }, [openPeek]);
 
   const nudge = useCallback((direction) => {
     const el = scrollerRef.current;
@@ -143,6 +230,7 @@ export default function WindowSpotStrip({ spots, windowLabel, total, lead, onOpe
   return (
     <>
       <div
+        ref={wrapperRef}
         data-testid="window-spot-strip"
         data-lead={lead ? 'true' : undefined}
         className={`wf-strip${more ? ' more' : ''}${back ? ' back' : ''}`}
@@ -158,7 +246,14 @@ export default function WindowSpotStrip({ spots, windowLabel, total, lead, onOpe
                 data-testid="window-spot"
                 data-rating={spot.rating ?? undefined}
                 data-far={spot.far ? 'true' : undefined}
-                onClick={() => onOpenSpot?.(spot)}
+                onClick={() => openSpot(spot)}
+                // Focus opens it too, so keyboard users get the same shortcut — through the same
+                // delay, which is what stops a Tab into a partly-offscreen card from flashing the
+                // panel before the browser's scroll-into-view dismisses it. See `useSpotPeek`.
+                onMouseEnter={noHoverPeek ? undefined : (e) => hoverPeek(e, spot)}
+                onMouseLeave={noHoverPeek ? undefined : closeFromTrigger}
+                onFocus={noHoverPeek ? undefined : (e) => focusPeek(e, spot)}
+                onBlur={noHoverPeek ? undefined : closeFromTrigger}
                 className={`wf-spot${spot.far ? ' far' : ''}`}
               >
                 <span className="flex items-start justify-between" style={{ gap: '8px' }}>
@@ -253,6 +348,26 @@ export default function WindowSpotStrip({ spots, windowLabel, total, lead, onOpe
           <span data-testid="window-spot-count">{count}</span>
         </span>
       </div>
+
+      {/* Portalled to the body from inside the component, so nothing is appended to `.wf-spots`.
+          That matters beyond clipping: `useStripEdges` derives the edge fades and the arrows'
+          disabled state from `scrollWidth`, so a panel inside the scroller would widen it and light
+          the right arrow on a strip that does not overflow. */}
+      {peek && (
+        <WindowSpotPeek
+          rating={peek.rating}
+          driveMinutes={peek.driveMinutes}
+          fierySky={peek.fierySky}
+          goldenHour={peek.goldenHour}
+          clause={peek.clause}
+          position={peek.position}
+          placement={peek.placement}
+          arrowLeft={peek.arrowLeft}
+          onOpen={() => openSpot(peek.spot)}
+          onPointerEnter={hold}
+          onPointerLeave={closeFromPanel}
+        />
+      )}
     </>
   );
 }
@@ -272,4 +387,7 @@ WindowSpotStrip.propTypes = {
   total: PropTypes.number,
   lead: PropTypes.bool,
   onOpenSpot: PropTypes.func,
+  date: PropTypes.string,
+  targetType: PropTypes.string,
+  scoreIndex: PropTypes.instanceOf(Map),
 };

@@ -124,9 +124,16 @@ function emptyLensLine(total, reachLabel) {
  *        and shipping that inert for a phase is precisely the demo control §6 bans. The handler is
  *        the one this arm already passes to the pick dialog's "show location", so nothing new is
  *        invented. P10′ keeps the part that is actually new — {@code WindowSpotPeek}.
+ * @param {?Map}     [props.scoreIndex] briefing-score index, drilled through to the strip's peek.
+ *
+ *        <p>A lookup structure rather than window content, which is why it is passed rather than
+ *        folded into each spot descriptor by {@code buildWindowSpots}: that record's join is
+ *        documented as briefing + reach, the scores arrive from a third request that resolves after
+ *        the first paint, and folding them in would rebuild every card's spot array when it lands.
+ *        It carries no role and gates nothing, so P7's pin on this component's props still holds.
  */
 export default function WindowFirstWindowCard({
-  card, todayStr, reachLabel, open = true, onToggle, onOpenPick, onOpenSpot,
+  card, todayStr, reachLabel, open = true, onToggle, onOpenPick, onOpenSpot, scoreIndex,
 }) {
   // The colon in `card.key` is a legal HTML5 id character and `aria-controls` is an IDREF, not a
   // selector, so it would work — but it silently breaks `querySelector('#…')` and any CSS id
@@ -334,6 +341,9 @@ export default function WindowFirstWindowCard({
                 total={card.reachTotal}
                 lead={card.lead}
                 onOpenSpot={(spot) => onOpenSpot?.(card, spot)}
+                date={card.date}
+                targetType={card.targetType}
+                scoreIndex={scoreIndex}
               />
             )}
 
@@ -389,4 +399,5 @@ WindowFirstWindowCard.propTypes = {
   onToggle: PropTypes.func,
   onOpenPick: PropTypes.func,
   onOpenSpot: PropTypes.func,
+  scoreIndex: PropTypes.instanceOf(Map),
 };

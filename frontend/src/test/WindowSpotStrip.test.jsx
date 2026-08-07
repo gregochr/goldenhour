@@ -358,4 +358,437 @@ describe('WindowSpotStrip', () => {
       expect(screen.getByTestId('window-spot-strip')).not.toHaveAttribute('data-lead');
     });
   });
+
+  /**
+   * The spot peek (P10′).
+   *
+   * <p>These are the tests that matter most, and the reason is what P9's review found: re-parenting
+   * or copying a component does not bring the guards its old call site wrapped it in. Every one of
+   * the four things `CloseToHome` does *around* `CardHoverPreview` — dismissing on the strip's
+   * scroll, dismissing before the map opens, wiring focus to parity with hover, and gating the whole
+   * thing off touch — is wiring in this file rather than behaviour in the panel, so a green
+   * `WindowSpotPeek.test.jsx` says nothing about any of them.
+   */
+  describe('the spot peek', () => {
+    const DATE = '2026-08-09';
+    const EVENT = 'SUNSET';
+
+    /** The delay before a peek opens, mirrored from `PEEK_OPEN_DELAY_MS`. */
+    const OPEN_DELAY = 180;
+    /** The grace after leaving the CARD, mirrored from `PEEK_TRIGGER_GRACE_MS`. */
+    const TRIGGER_GRACE = 160;
+    /** The grace after leaving the PANEL, mirrored from `PEEK_PANEL_GRACE_MS`. */
+    const PANEL_GRACE = 120;
+
+    const SCORES = new Map([
+      [`${DATE}|${EVENT}|Bamburgh Castle`, {
+        locationName: 'Bamburgh Castle',
+        fierySkyPotential: 68,
+        goldenHourPotential: 74,
+        summary: 'Mid-level cloud should catch the last light, with a clear western horizon.',
+      }],
+      [`${DATE}|${EVENT}|Simonside`, {
+        locationName: 'Simonside',
+        fierySkyPotential: 22,
+        goldenHourPotential: 55,
+        summary: 'Thick low cloud is forecast to sit on the ridge until well after sunset.',
+      }],
+    ]);
+
+    const peekable = (props = {}) => ({
+      date: DATE, targetType: EVENT, scoreIndex: SCORES, ...props,
+    });
+
+    /** Runs the timers React's state updates are scheduled behind. */
+    const tick = (ms) => act(() => { vi.advanceTimersByTime(ms); });
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    describe('opening it', () => {
+      it('opens once the pointer has rested on a card', () => {
+        renderStrip([spot()], peekable());
+        fireEvent.mouseEnter(screen.getByTestId('window-spot'));
+        tick(OPEN_DELAY);
+        expect(screen.getByTestId('wf-peek')).toBeInTheDocument();
+        expect(screen.getByTestId('wf-peek-fiery')).toHaveTextContent('68');
+      });
+
+      it('stays shut while the pointer is only crossing the strip', () => {
+        // The whole reason for the delay, and the hazard is larger here than on the grid it was
+        // derived against: one sweep towards the `‹ ›` arrows crosses every card in the row.
+        renderStrip([spot()], peekable());
+        fireEvent.mouseEnter(screen.getByTestId('window-spot'));
+        tick(OPEN_DELAY - 10);
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
+
+      it('opens on focus, so the keyboard gets the same shortcut', () => {
+        renderStrip([spot()], peekable());
+        act(() => screen.getByTestId('window-spot').focus());
+        tick(OPEN_DELAY);
+        expect(screen.getByTestId('wf-peek')).toBeInTheDocument();
+      });
+
+      it('takes the rating from the CARD and the scores from the index', () => {
+        // The single-source contract: a peek that disagreed with the card it hangs off is the
+        // failure the rule exists to prevent.
+        renderStrip([spot({ rating: 4 })], peekable());
+        fireEvent.mouseEnter(screen.getByTestId('window-spot'));
+        tick(OPEN_DELAY);
+        expect(screen.getByTestId('wf-peek-stars')).toHaveTextContent('★★★★☆');
+        expect(screen.getByTestId('wf-peek-golden')).toHaveTextContent('74');
+      });
+
+      it('stays shut for a spot the scores have nothing to say about', () => {
+        renderStrip([spot({ locationName: 'Dunstanburgh' })], peekable());
+        fireEvent.mouseEnter(screen.getByTestId('window-spot'));
+        tick(OPEN_DELAY);
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
+
+      it('stays shut before the scores request has resolved', () => {
+        // The normal state of a first paint: the briefing renders the strip, and the scores arrive
+        // from a separate request afterwards.
+        renderStrip([spot()], peekable({ scoreIndex: undefined }));
+        fireEvent.mouseEnter(screen.getByTestId('window-spot'));
+        tick(OPEN_DELAY);
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
+    });
+
+    describe('pointer-only, and gated on two queries because they catch different devices', () => {
+      /** Makes one media query match, leaving the setup stub's "no match" for everything else. */
+      const matchOnly = (matching) => {
+        vi.stubGlobal('matchMedia', (query) => ({
+          matches: query === matching,
+          media: query,
+          addEventListener() {},
+          removeEventListener() {},
+        }));
+      };
+
+      it('never opens on a coarse pointer, where hover is a tap that has committed', () => {
+        matchOnly('(pointer: coarse)');
+        renderStrip([spot()], peekable());
+        fireEvent.mouseEnter(screen.getByTestId('window-spot'));
+        tick(OPEN_DELAY);
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
+
+      it('never opens on a phone, where the panel would cover the strip it came from', () => {
+        matchOnly('(max-width: 639px)');
+        renderStrip([spot()], peekable());
+        fireEvent.mouseEnter(screen.getByTestId('window-spot'));
+        tick(OPEN_DELAY);
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
+
+      it('leaves the card itself working on touch, which is the phone\'s whole route', () => {
+        // Plan §5a: on touch the card activates the map, and that is why there is no phone peek.
+        matchOnly('(pointer: coarse)');
+        const onOpenSpot = vi.fn();
+        renderStrip([spot()], peekable({ onOpenSpot }));
+        fireEvent.click(screen.getByTestId('window-spot'));
+        expect(onOpenSpot).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    describe('closing it', () => {
+      /** Rests the pointer on the nth card and lets the open delay run. */
+      const openOn = (index = 0) => {
+        fireEvent.mouseEnter(screen.getAllByTestId('window-spot')[index]);
+        tick(OPEN_DELAY);
+      };
+
+      it('closes after the trigger grace when the pointer leaves the card', () => {
+        renderStrip([spot()], peekable());
+        openOn();
+        fireEvent.mouseLeave(screen.getByTestId('window-spot'));
+        tick(TRIGGER_GRACE - 10);
+        expect(screen.getByTestId('wf-peek')).toBeInTheDocument();
+        tick(20);
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
+
+      it('survives the pointer crossing the gap onto the panel', () => {
+        // The panel sits 10px below the card, so the card's mouseleave has already started the
+        // grace by the time the pointer arrives. Cancelling it is what makes the travel work.
+        renderStrip([spot()], peekable());
+        openOn();
+        fireEvent.mouseLeave(screen.getByTestId('window-spot'));
+        tick(80);
+        fireEvent.mouseEnter(screen.getByTestId('wf-peek'));
+        tick(TRIGGER_GRACE * 2);
+        expect(screen.getByTestId('wf-peek')).toBeInTheDocument();
+      });
+
+      it('closes on the SHORTER grace when the pointer leaves the panel', () => {
+        // 120 against the card's 160, and the split is the point: leaving the card means travelling
+        // towards the panel, leaving the panel means being done with it. `CloseToHome` uses one
+        // number for both and would keep this open at 130.
+        renderStrip([spot()], peekable());
+        openOn();
+        fireEvent.mouseEnter(screen.getByTestId('wf-peek'));
+        fireEvent.mouseLeave(screen.getByTestId('wf-peek'));
+        tick(PANEL_GRACE + 10);
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
+
+      it('closes when focus leaves the card', () => {
+        renderStrip([spot()], peekable());
+        act(() => screen.getByTestId('window-spot').focus());
+        tick(OPEN_DELAY);
+        act(() => screen.getByTestId('window-spot').blur());
+        tick(TRIGGER_GRACE + 10);
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
+
+      it('dismisses on the strip\'s own scroll, without waiting for any grace', () => {
+        // Placement is captured once from a viewport rect, so a horizontal scroll slides the card
+        // out from under a panel while no mouseleave fires. Dismiss rather than chase it.
+        renderStrip([spot(), SIMONSIDE], peekable());
+        openOn();
+        fireEvent.scroll(screen.getByTestId('window-spot-scroller'));
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
+
+      it('cancels a peek that has not opened yet when the strip scrolls', () => {
+        // The Tab-into-a-partly-offscreen-card case: focus fires, then the browser's own
+        // scroll-into-view. With the delay the scroll lands first and the panel is never painted —
+        // which is why the delay must not be dropped for the focus path.
+        renderStrip([spot(), SIMONSIDE], peekable());
+        act(() => screen.getAllByTestId('window-spot')[0].focus());
+        fireEvent.scroll(screen.getByTestId('window-spot-scroller'));
+        tick(OPEN_DELAY * 2);
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
+
+      it('dismisses when the page underneath scrolls', () => {
+        // Capture-phase on `window`, so one listener covers the strip, the pane and the rail.
+        // `CloseToHome` wires `onScroll` to its strip alone and does not cover this.
+        renderStrip([spot()], peekable());
+        openOn();
+        fireEvent.scroll(document);
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
+
+      it('dismisses on Escape', () => {
+        renderStrip([spot()], peekable());
+        openOn();
+        fireEvent.keyDown(document, { key: 'Escape' });
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
+
+      it('dismisses on resize, which moves every card at once', () => {
+        renderStrip([spot()], peekable());
+        openOn();
+        fireEvent.resize(window);
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
+
+      it('goes with the strip when a window is collapsed', () => {
+        // P9's expander unmounts this whole component, which is exactly why the peek's state lives
+        // here: the anchor and the panel are torn down together, with no toggle-aware dismissal to
+        // write or to forget. Nothing else on the page dismisses on collapse.
+        const { unmount } = renderStrip([spot()], peekable());
+        openOn();
+        expect(screen.getByTestId('wf-peek')).toBeInTheDocument();
+        unmount();
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
+    });
+
+    describe('one panel at a time, and never over the map it opens', () => {
+      it('takes the peek down before opening the map', () => {
+        // `CloseToHome`'s rule at its own call site: the overlay renders above the pane but the
+        // peek is portalled to the body. `.wf-peek`'s z-index sits below the overlay's as a second
+        // line of defence, and neither is sufficient alone.
+        const onOpenSpot = vi.fn();
+        renderStrip([spot()], peekable({ onOpenSpot }));
+        fireEvent.mouseEnter(screen.getByTestId('window-spot'));
+        tick(OPEN_DELAY);
+        fireEvent.click(screen.getByTestId('window-spot'));
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+        expect(onOpenSpot).toHaveBeenCalledTimes(1);
+      });
+
+      it('opens the same spot from the panel as from the card underneath it', () => {
+        // There is deliberately no second code path — clicking the panel is the card's own click.
+        const onOpenSpot = vi.fn();
+        renderStrip([spot(), SIMONSIDE], peekable({ onOpenSpot }));
+        fireEvent.mouseEnter(screen.getAllByTestId('window-spot')[1]);
+        tick(OPEN_DELAY);
+        fireEvent.click(screen.getByTestId('wf-peek'));
+        expect(onOpenSpot).toHaveBeenCalledWith(
+          expect.objectContaining({ locationName: 'Simonside' }),
+        );
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
+
+      it('replaces the panel when focus moves to another card, rather than leaving two', () => {
+        // The keyboard case the pointer handlers cannot cover: tabbing off a card the pointer is
+        // still resting on fires no mouseleave, so nothing else would take the first panel down.
+        renderStrip([spot(), SIMONSIDE], peekable());
+        fireEvent.mouseEnter(screen.getAllByTestId('window-spot')[0]);
+        tick(OPEN_DELAY);
+        expect(screen.getByTestId('wf-peek-fiery')).toHaveTextContent('68');
+
+        act(() => screen.getAllByTestId('window-spot')[1].focus());
+        expect(screen.queryAllByTestId('wf-peek')).toHaveLength(0);
+        tick(OPEN_DELAY);
+        expect(screen.getAllByTestId('wf-peek')).toHaveLength(1);
+        expect(screen.getByTestId('wf-peek-fiery')).toHaveTextContent('22');
+      });
+
+      it('does not survive the map overlay handing focus back on close', () => {
+        // `MapOverlay` runs `useDialogFocus`, which re-focuses whatever was active when it opened —
+        // the spot card the reader clicked. `onFocus` cannot tell that from a keyboard arrival, so
+        // without the guard a panel paints 180ms after the ✕, anchored to a card the pointer is
+        // nowhere near, with no pointer gesture able to close it.
+        renderStrip([spot()], peekable());
+        const card = screen.getByTestId('window-spot');
+        fireEvent.click(card);
+        act(() => card.focus());
+        tick(OPEN_DELAY * 2);
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
+
+      it('opens on the next genuine focus after that one', () => {
+        // The guard swallows exactly one focus, not every focus afterwards.
+        renderStrip([spot()], peekable());
+        const card = screen.getByTestId('window-spot');
+        fireEvent.click(card);
+        act(() => card.focus());
+        tick(OPEN_DELAY * 2);
+        act(() => card.blur());
+        act(() => card.focus());
+        tick(OPEN_DELAY);
+        expect(screen.getByTestId('wf-peek')).toBeInTheDocument();
+      });
+
+      it('does not swallow a focus in a browser that never hands one back', () => {
+        // Safari does not focus a button on mousedown, so `useDialogFocus` captures the body and
+        // gives focus back there — the guard's one-shot is never spent, and it would sit armed
+        // waiting to eat a genuine focus later. The POINTER path clears it for exactly this reason,
+        // so the assertion has to be on a focus AFTER a hover: asserting that the hover itself opens
+        // proves nothing, because the guard never gated the pointer path. (It did not, and mutation
+        // testing said so — the first version of this test passed with the clear deleted.)
+        renderStrip([spot()], peekable());
+        const card = screen.getByTestId('window-spot');
+        fireEvent.click(card);
+        fireEvent.mouseEnter(card);
+        fireEvent.mouseLeave(card);
+        tick(TRIGGER_GRACE + 10);
+
+        act(() => card.focus());
+        tick(OPEN_DELAY);
+        expect(screen.getByTestId('wf-peek')).toBeInTheDocument();
+      });
+
+      it('does not survive focus landing on a card that opens no peek of its own', () => {
+        // The case the page-level dismisser cannot reach, and therefore the only one that isolates
+        // the `focusin` rule: `resolveSpotPeek` returns null for a spot the scores say nothing
+        // about, so `open()` is never called and nothing hands the token on. Without the listener
+        // the first panel simply stays up while focus sits on an unrelated card. (Found by mutation
+        // testing: once the token shipped, deleting the listener stopped failing the cross-strip
+        // test, which had been the only thing pinning it.)
+        renderStrip([spot(), spot({ key: '9', locationId: 9, locationName: 'Dunstanburgh' })],
+          peekable());
+        fireEvent.mouseEnter(screen.getAllByTestId('window-spot')[0]);
+        tick(OPEN_DELAY);
+        expect(screen.getByTestId('wf-peek')).toBeInTheDocument();
+
+        act(() => screen.getAllByTestId('window-spot')[1].focus());
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+        tick(OPEN_DELAY * 2);
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
+
+      it('does not survive focus landing in a different window\'s strip', () => {
+        // Six strips hold six independent peeks — the cost of scoping the state here so that
+        // collapse unmounts it. This is how the "exactly one panel" guarantee is bought back.
+        render(
+          <>
+            <WindowSpotStrip spots={[spot()]} windowLabel="Tonight" {...peekable()} />
+            <WindowSpotStrip spots={[SIMONSIDE]} windowLabel="Tomorrow" {...peekable()} />
+          </>,
+        );
+        fireEvent.mouseEnter(screen.getAllByTestId('window-spot')[0]);
+        tick(OPEN_DELAY);
+        expect(screen.getAllByTestId('wf-peek')).toHaveLength(1);
+
+        act(() => screen.getAllByTestId('window-spot')[1].focus());
+        expect(screen.queryAllByTestId('wf-peek')).toHaveLength(0);
+      });
+
+      it('does not survive a POINTER opening one in a different window\'s strip', () => {
+        // The ordering the `focusin` rule cannot see: it fires on a focus CHANGE, and a pointer
+        // moving between two expanded windows sends the first strip nothing at all. Two correctly
+        // placed tooltips would sit on screen together. The page-level dismisser in `useSpotPeek`
+        // is what closes this, and it is the guarantee the per-strip state gave up.
+        render(
+          <>
+            <WindowSpotStrip spots={[spot()]} windowLabel="Tonight" {...peekable()} />
+            <WindowSpotStrip spots={[SIMONSIDE]} windowLabel="Tomorrow" {...peekable()} />
+          </>,
+        );
+        act(() => screen.getAllByTestId('window-spot')[0].focus());
+        tick(OPEN_DELAY);
+        expect(screen.getAllByTestId('wf-peek')).toHaveLength(1);
+
+        fireEvent.mouseEnter(screen.getAllByTestId('window-spot')[1]);
+        expect(screen.queryAllByTestId('wf-peek')).toHaveLength(0);
+        tick(OPEN_DELAY);
+        expect(screen.getAllByTestId('wf-peek')).toHaveLength(1);
+        expect(screen.getByTestId('wf-peek-fiery')).toHaveTextContent('22');
+      });
+    });
+
+    describe('what it must not disturb', () => {
+      it('renders outside the scroller, so the edge fades still describe the cards', () => {
+        // `useStripEdges` derives the arrows and the fades from `scrollWidth`. A panel appended
+        // inside `.wf-spots` would widen it and light the right arrow on a strip that does not
+        // overflow.
+        renderStrip([spot()], peekable());
+        fireEvent.mouseEnter(screen.getByTestId('window-spot'));
+        tick(OPEN_DELAY);
+        const scroller = screen.getByTestId('window-spot-scroller');
+        expect(scroller.contains(screen.getByTestId('wf-peek'))).toBe(false);
+        expect(screen.getByTestId('window-spot-strip').className).toBe('wf-strip');
+      });
+
+      it('is aria-hidden, and leaves the card the real route to everything it shows', () => {
+        // `frontend-test-standards.md:156`. The destination is on the card; the content — both
+        // scores and the whole paragraph — is in the map overlay that card opens.
+        const onOpenSpot = vi.fn();
+        renderStrip([spot()], peekable({ onOpenSpot }));
+        fireEvent.mouseEnter(screen.getByTestId('window-spot'));
+        tick(OPEN_DELAY);
+        expect(screen.getByTestId('wf-peek')).toHaveAttribute('aria-hidden', 'true');
+
+        const card = screen.getByTestId('window-spot');
+        expect(card.tagName).toBe('BUTTON');
+        fireEvent.click(card);
+        expect(onOpenSpot).toHaveBeenCalledTimes(1);
+      });
+
+      it('adds no confidence channel to the strip, which has exactly one render site', () => {
+        // §2.7 and §6: the window card's verdict badge is the only place confidence appears, and §6
+        // asks specifically that it be checked ABSENT from the spot strip.
+        renderStrip([spot()], peekable());
+        fireEvent.mouseEnter(screen.getByTestId('window-spot'));
+        tick(OPEN_DELAY);
+        const panel = screen.getByTestId('wf-peek');
+        expect(panel).not.toHaveAttribute('data-confidence');
+        expect(panel).not.toHaveTextContent('◎');
+        expect(document.querySelectorAll('[data-testid="provisional-mark"]')).toHaveLength(0);
+      });
+    });
+  });
 });

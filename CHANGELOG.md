@@ -5,6 +5,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the spot peek: what the strip cannot fit (window-first Plan, P10′)
+
+**Resting on a spot card now shows you why it is rated what it is.** A quiet 280px panel opens after
+a moment's hover — the stars, the drive, the two Claude scores as bars, and one clause of the
+forecast in Claude's own words. Click it, or the card, and the map opens on that spot with the whole
+paragraph. Nothing has moved and nothing has been taken away: the card still says everything it said,
+and the peek is a shortcut it is always possible to ignore.
+
+**The scores are the reason it exists.** Fiery Sky and Golden Hour appear nowhere else on the Plan
+screen, so a reader deciding between a 4★ two hours away and a 4★ down the road had no way to see
+*which kind* of evening each one was. The panel that does the same job elsewhere in the app
+deliberately dropped those bars — the reasoning was that without them a peek only restates the card
+it hangs off. With them restored, that premise no longer holds, so a spot with scores and no written
+summary now gets a panel too, where before it got nothing.
+
+**It is a shortcut, never the only route.** The panel is hidden from screen readers on purpose: the
+card behind it is a real button, everything the panel shows is in the map view it opens, and a
+floating duplicate a reader cannot dismiss is worse than no panel at all. It is pointer-only for the
+same reason — on a phone the card goes straight to the map, which carries more than the peek could.
+
+**Three quiet correctness rules, since a tooltip that lies about where it points is worse than none.**
+It closes the instant anything scrolls, because it is placed once and would otherwise hang over empty
+space; it goes when its window card is collapsed; and it is drawn outside the strip entirely, so it
+cannot be clipped by the scroller, by the card, or by the card's own hover animation.
+
+**Found, and deliberately not fixed here:** `--color-marginal`, a colour token two components name
+and nothing anywhere declares, which has been quietly rendering one row of stars in body ink instead
+of amber. Fixing it means editing the old Plan layout, which is being held byte-for-byte still while
+the two layouts are compared side by side — so the new panel names a token that exists, and the
+repair is booked for the sweep before the pilot.
+
 ### Added — collapse, the away day, and the two doors (window-first Plan, P9)
 
 **The Plan pane fits on one screen again.** Six shooting windows, every card open, ran to 1,969px —

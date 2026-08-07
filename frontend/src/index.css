@@ -1794,6 +1794,101 @@
   z-index: 3;
 }
 
+/* The spot peek (P10'). Portalled to <body> by the component, so `fixed` here is about coordinates
+   rather than about escaping anything — the portal is what escapes `.wf-spots`' two-axis clipping,
+   the window card's INLINE `overflow: hidden`, and `.wf-spot:hover`'s transform, which would
+   otherwise re-base a fixed descendant onto the very button the panel hangs off.
+
+   z-index 60 matches `.summary-region-tip`, this arm's other portalled panel, and clears everything
+   on the Plan screen: the sticky lens bar is 20, a hovered heatmap cell 40, a focused spot card 3,
+   the strip's edge fades 2. It sits BELOW `MapOverlay`'s 200 on purpose. `.cth-hover-preview` uses
+   1200, which is exactly why that component's dismiss-before-opening is load-bearing rather than a
+   precaution; here it is both, and neither alone.
+
+   Width is mirrored by PEEK_WIDTH in `windowSpotPeek.js`; keep the two in step.
+
+   Deliberately NO max-height, and this is the rule most at risk of being silently re-broken: the
+   panel that preceded `.cth-hover-preview` capped at 260px with overflow hidden, which is what cut
+   its second score bar in half. P10' restores the score bars, so the exact content that trap was
+   about is back on screen. */
+.wf-peek {
+  position: fixed;
+  z-index: 60;
+  width: 280px;
+  padding: 11px 13px 12px;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 10px;
+  background: var(--color-plex-surface-light);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+  text-align: left;
+  cursor: pointer;
+  /* The pointer MUST be able to reach it: the panel sits 10px below the card, and travel across
+     that gap has to keep it open (the card's mouseleave starts a grace the panel's mouseenter
+     cancels). It also carries the click through to the map. `.summary-region-tip` is
+     `pointer-events: none` for the opposite reason — nothing on it is reachable. */
+  pointer-events: auto;
+  /* The v1 peek's own keyframes, reused rather than renamed. Same gesture, same weight, so the two
+     arms' peeks are deliberately identical in motion; three duplicated @keyframes blocks under
+     `wf-` names would be two definitions free to drift. The `cth-` prefix on a `wf-` component is
+     the visible cost of that choice. */
+  animation:
+    cth-preview-fade 0.16s ease,
+    cth-preview-rise 0.18s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+/* Flipped above the card when there is no room below — the rise reverses with it. */
+.wf-peek[data-placement='above'] {
+  animation-name: cth-preview-fade, cth-preview-drop;
+}
+/* Arrow tethering the panel to the card centre. Same fill and border as the shell, so it reads as
+   one shape; --wf-peek-arrow-left is set inline from the card's centre, already clamped. */
+.wf-peek::after {
+  content: '';
+  position: absolute;
+  left: var(--wf-peek-arrow-left, 24px);
+  width: 11px;
+  height: 11px;
+  transform: rotate(45deg);
+  background: var(--color-plex-surface-light);
+}
+.wf-peek[data-placement='below']::after {
+  top: -6px;
+  border-left: 1px solid var(--color-plex-border-light);
+  border-top: 1px solid var(--color-plex-border-light);
+}
+.wf-peek[data-placement='above']::after {
+  bottom: -6px;
+  border-right: 1px solid var(--color-plex-border-light);
+  border-bottom: 1px solid var(--color-plex-border-light);
+}
+/* The drive chip on the peek's first line. `nowrap` because "1 hr 59 mins" otherwise breaks across
+   two lines inside a 280px panel and drags the score block down with it. */
+.wf-peek-chip {
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--color-plex-border-light);
+  color: var(--color-plex-text-secondary);
+  white-space: nowrap;
+}
+/* Score track. The gradient is the whole bar and a panel-coloured span masks the unfilled tail from
+   the right — the technique `PopupScoreRow` uses, so the two surfaces show one measurement the same
+   way. Masking rather than sizing the gradient matters: a gradient scaled to the value would change
+   the COLOUR at a given score, so 40 and 90 would print the same hue at their own right edge. */
+.wf-peek-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.wf-peek-bar-rest {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  background: var(--color-plex-surface-light);
+}
+
 /* The window whose every spot the lens gated out. The design's own answer (:484) and a better one
    than an empty card: it names the threshold that did it and how many are beyond it, so the reader
    can see what widening the control above would buy. It sits where the strip would have, and takes
@@ -1859,4 +1954,5 @@
 @media (prefers-reduced-motion: reduce) {
   .wf-spot { transition: none; }
   .wf-spot:hover { transform: none; }
+  .wf-peek { animation: none; }
 }
