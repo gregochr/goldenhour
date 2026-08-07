@@ -5,6 +5,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — collapse, the away day, and the two doors (window-first Plan, P9)
+
+**The Plan pane fits on one screen again.** Six shooting windows, every card open, ran to 1,969px —
+2.74 viewports, and within sight of the 2,600px that made the old Plan tab unreadable and started
+this redesign. Every card now carries an expander, the first one opens and the rest stay shut, and
+the same six windows measure **996px**: half the height, with nothing removed. The collapsed card is
+a row you can scan rather than a stub — it keeps its verdict, its pick, its topic badges, its star
+and its reach count, and gives up only what is below the header.
+
+The rule is *the first card*, not *tonight's card*. After the last window of the day has passed there
+is no "tonight", and a rule written the obvious way would have left six shut cards and nothing open
+every evening — which is exactly when someone is looking at tomorrow's dawn.
+
+**A day you are away no longer just disappears.** Travel days are not forecast, so they get no card;
+but they still spend one of the six slots the page has, so the old behaviour was a silent gap in the
+dates. A dashed row now stands where those windows would have been, **in date order rather than
+appended at the end**, with consecutive days folded into one: *"✈ Sat 8 – Sun 9 · away — 4 windows
+not forecast · Business trip · Sun times still show in the rail."* The reason is the trip's own note,
+never invented, and it is dropped entirely rather than guessed at when one day of the run is covered
+by a range that carries no note. The last clause is the useful part: sunrise and sunset are almanac,
+true whether or not a forecast ran, and the rail still shows them.
+
+**Two doors at the foot of the page** re-parent what the redesign moved out of the way: *Regional
+planner* opens the full heatmap with its per-region drill-down, and *Hot topics* opens the science
+strip. Neither carries a count. "4 regions" is a fact about our own database rather than about
+tonight — the same objection that removed "61 coastal locations" earlier in this work — and once one
+tile cannot carry a number, a number on the other one just reads as a bug. A door with nothing behind
+it is not drawn at all, which is the honest version of the count it replaces: no hot topics, no
+hot-topics door; no windows to plan over, no planner. Nothing behind a door is loaded until it is
+opened, and it stays loaded afterwards so closing and reopening costs nothing.
+
 ## [v2.17.13] - 2026-08-06
 
 ### Added — the reach lens: how far you are willing to drive tonight (window-first Plan, P8)

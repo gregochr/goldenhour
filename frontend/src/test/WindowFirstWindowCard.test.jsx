@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import WindowFirstWindowCard from '../components/WindowFirstWindowCard.jsx';
 import { buildWindowRows } from '../utils/windowFirstRows.js';
 
@@ -41,6 +41,25 @@ function spot(overrides = {}) {
   };
 }
 
+/** A tide attribute row, built through the real deriver so the shape can never drift from it. */
+const tideRow = () => buildWindowRows({
+  tide: {
+    locationName: 'Whitby',
+    state: 'MID',
+    direction: 'FALLING',
+    nearestType: 'HW',
+    nearestTime: '19:28',
+    nearestOffset: '1h43 before sunset',
+    range: '4.9 m',
+    rangeAnomaly: '1.2 m above an average tide',
+    seas: '0.3 m · smooth',
+    curve: [0, 0.5, 1],
+    windowPosition: 0.5,
+    windowLevel: 0.5,
+  },
+  badges: [],
+}).rows[0];
+
 const renderCard = (overrides = {}, props = {}) => render(
   <WindowFirstWindowCard card={card(overrides)} todayStr={TODAY} {...props} />,
 );
@@ -71,13 +90,97 @@ describe('WindowFirstWindowCard', () => {
     expect(screen.getByTestId('window-card-head').textContent).not.toMatch(/within reach|spots?\b/i);
   });
 
-  it('carries no expander, because there is nothing yet to collapse', () => {
-    // Collapse/expand is P9's. At P5 a collapsed card and an open one differ by a few pixels of
-    // padding — the rows are P7, the strip P6, the narrative deleted — so the control would be a
-    // demo control, which §6 bans from the shipped build.
-    renderCard();
-    const head = screen.getByTestId('window-card-head');
-    expect(within(head).queryByRole('button', { name: /open|collapse/i })).toBeNull();
+  describe('the expander', () => {
+    it('sits last in the header, after the badges, where P5 reserved its slot', () => {
+      // P5 put the slot there so P9 would insert one element and reflow nothing. If it drifts, the
+      // badge group stops being the last thing the eye reaches on a collapsed row.
+      renderCard({ badges: [{ type: 'NLC', label: '✦ NLC' }] });
+
+      const head = screen.getByTestId('window-card-head');
+      const order = [...head.children].map((el) => el.dataset.testid);
+      expect(order[order.length - 1]).toBe('window-card-expander');
+      expect(order[order.length - 2]).toBe('window-card-badges');
+    });
+
+    it('announces its state and names the window it controls', () => {
+      // `aria-expanded` carries the state; the window is in the accessible name because six
+      // identical "Open" buttons in a list are otherwise indistinguishable to a screen reader.
+      // The visible word leads the label, so WCAG 2.5.3's label-in-name holds.
+      renderCard({}, { open: false });
+
+      const button = screen.getByTestId('window-card-expander');
+      expect(button).toHaveAttribute('aria-expanded', 'false');
+      expect(button).toHaveAccessibleName('Open Tomorrow sunset');
+      expect(button).toHaveTextContent('Open');
+    });
+
+    it('reads Collapse when the region is open', () => {
+      renderCard({}, { open: true });
+      const button = screen.getByTestId('window-card-expander');
+      expect(button).toHaveAttribute('aria-expanded', 'true');
+      expect(button).toHaveAccessibleName('Collapse Tomorrow sunset');
+    });
+
+    it('points at a region that exists even while collapsed', () => {
+      // `aria-controls` is an IDREF: unmounting the whole container on collapse would leave five of
+      // six cards in the default state pointing at nothing.
+      renderCard({ rows: [tideRow()], spots: [spot()] }, { open: false });
+
+      const target = screen.getByTestId('window-card-expander').getAttribute('aria-controls');
+      expect(document.getElementById(target)).toBe(screen.getByTestId('window-card-body'));
+    });
+
+    it('takes the rows, the strip and its footer with it, not just the strip', () => {
+      // Plan §5a settled the split on measured heights: the rows cost 207px above the header and a
+      // collapsed card that kept them would give back only 150 of it. Asserted by absence of each,
+      // because a region that dropped only the strip would still look like it worked.
+      renderCard({ rows: [tideRow()], spots: [spot()] }, { open: false });
+
+      expect(screen.queryByTestId('window-card-rows')).toBeNull();
+      expect(screen.queryByTestId('window-spot-strip')).toBeNull();
+      expect(screen.queryByTestId('window-spot-foot')).toBeNull();
+    });
+
+    it('keeps the whole header on a collapsed card, which is what makes it scannable', () => {
+      // A collapsed card is a row you read, not a stub. The verdict, the pick, the topic badges,
+      // the star and the reach count are the reason it is worth collapsing rather than hiding.
+      renderCard({
+        bestRating: 4,
+        withinReachCount: 3,
+        badges: [{ type: 'NLC', label: '✦ NLC' }],
+        pick: { kind: 'best', regionName: 'N&T', headline: 'Breaking clear' },
+      }, { open: false });
+
+      expect(screen.getByTestId('window-card-verdict')).toHaveTextContent('Worth it');
+      expect(screen.getByTestId('window-card-pick')).toBeInTheDocument();
+      expect(screen.getByTestId('window-card-badge')).toHaveTextContent('✦ NLC');
+      expect(screen.getByTestId('window-card-best')).toHaveTextContent('best 4★');
+      expect(screen.getByTestId('window-card-within-reach')).toHaveTextContent('3 within reach');
+    });
+
+    it('tightens the header when collapsed, so the row reads as one line rather than a card', () => {
+      // The mock's own two changes (`.win.collapsed .wh` :157, `.wh .when` :160). Pinned because
+      // they are the only visual difference between the two states apart from what is missing, and
+      // an inline style is deletable without any test noticing.
+      renderCard({}, { open: false });
+      expect(screen.getByTestId('window-card-head')).toHaveStyle({ padding: '10px 14px' });
+      expect(screen.getByTestId('window-card-when')).toHaveStyle({ fontSize: '13.5px' });
+
+      renderCard({}, { open: true });
+      expect(screen.getAllByTestId('window-card-head')[1]).toHaveStyle({ padding: '12px 14px 10px' });
+      expect(screen.getAllByTestId('window-card-when')[1]).toHaveStyle({ fontSize: '15.5px' });
+    });
+
+    it('asks its owner to flip, and holds no state of its own', () => {
+      // The default is a fact about the LIST ("the first card is open"), which a card cannot see.
+      const onToggle = vi.fn();
+      renderCard({}, { open: false, onToggle });
+
+      fireEvent.click(screen.getByTestId('window-card-expander'));
+      expect(onToggle).toHaveBeenCalledTimes(1);
+      // Still collapsed: the card re-renders only when the owner hands back a new `open`.
+      expect(screen.getByTestId('window-card-expander')).toHaveAttribute('aria-expanded', 'false');
+    });
   });
 
   describe('the spot strip and its footer', () => {
@@ -421,24 +524,6 @@ describe('WindowFirstWindowCard', () => {
   });
 
   describe('the attribute rows', () => {
-    const tideRow = () => buildWindowRows({
-      tide: {
-        locationName: 'Whitby',
-        state: 'MID',
-        direction: 'FALLING',
-        nearestType: 'HW',
-        nearestTime: '19:28',
-        nearestOffset: '1h43 before sunset',
-        range: '4.9 m',
-        rangeAnomaly: '1.2 m above an average tide',
-        seas: '0.3 m · smooth',
-        curve: [0, 0.5, 1],
-        windowPosition: 0.5,
-        windowLevel: 0.5,
-      },
-      badges: [],
-    }).rows[0];
-
     const snowRow = () => buildWindowRows({
       badges: [{
         type: 'SNOW_TOPS',
@@ -464,16 +549,20 @@ describe('WindowFirstWindowCard', () => {
       expect(screen.queryByTestId('window-attribute-row')).toBeNull();
     });
 
-    it('places the rows between the header and the spot strip', () => {
-      // Where the design puts them, and the reason it matters beyond looks: P9 wraps the header's
-      // siblings in one collapsible region, so a row that landed outside that run would stay open
-      // on a collapsed card.
+    it('places the rows between the header and the spot strip, inside the collapsible region', () => {
+      // Where the design puts them, and the reason it matters beyond looks: P9 wrapped the header's
+      // siblings in one collapsible region, so a row that landed outside it would stay on screen
+      // with a collapsed card. Both halves are asserted — the card has exactly two children, and
+      // the rows are the first thing inside the second of them.
       renderCard({ rows: [tideRow()], spots: [spot()] });
 
       const card = screen.getByTestId('window-card');
-      const order = [...card.children].map((el) => el.dataset.testid);
+      expect([...card.children].map((el) => el.dataset.testid))
+        .toEqual(['window-card-head', 'window-card-body']);
 
-      expect(order).toEqual(['window-card-head', 'window-card-rows', 'window-spot-strip', 'window-spot-foot']);
+      const body = screen.getByTestId('window-card-body');
+      expect([...body.children].map((el) => el.dataset.testid))
+        .toEqual(['window-card-rows', 'window-spot-strip', 'window-spot-foot']);
     });
 
     it('states its own tide facts rather than borrowing the header badge\'s words', () => {

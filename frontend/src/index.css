@@ -1209,10 +1209,139 @@
   border-radius: 3px;
 }
 
+/* The expander (mock `.wh .exp` :164). `--color-badge-tide`, not the spec's `--tide`, for the same
+   reason `.wf-lens-reset` takes it: both were measured on the running app and both clear AA at
+   10.5px, but this is an ACTIONABLE control sitting in a row of inert pills, and an actionable
+   element earns the extra separation. Teal is already this arm's action accent
+   (`.wf-spot:hover .wf-spot-open`, `.wf-lens-reset`), so it overloads no channel.
+
+   `margin-left: 0`, and deliberately no `auto`: the header's `.rule` flex spacer already pushes the
+   badge group right, and a second auto margin would split the two apart with the rule collapsed
+   between them. On a phone P14 gives it `order: 7; margin-left: auto` — that is the wrapped layout,
+   where the rule is hidden and the auto is the only thing left to place it. */
+.wf-exp {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-badge-tide);
+  background: none;
+  border: none;
+  padding: 2px 0;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.wf-exp:hover { text-decoration: underline; }
+.wf-exp:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .window-card-pick,
   .window-pick-action,
   .window-pick-close { transition: none; }
+}
+
+/* ── Window-first away-day row (mock `.skipped` :48-50) ──
+   Dashed, because the border is the whole signal: this is the one thing in the pane that is not a
+   forecast, and it has to read as an absence at a glance rather than as a card with bad news in it.
+   The body tone is `--color-plex-text-secondary`, not the mock's `--ink-3` — see the component's
+   Javadoc for why muted keeps failing AA at this size on these surfaces. */
+.wf-away {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  border: 1px dashed var(--color-plex-border-light);
+  border-radius: 11px;
+  background: rgba(0, 0, 0, 0.14);
+  padding: 11px 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-away b {
+  color: var(--color-plex-text);
+  font-weight: 600;
+}
+
+/* ── Window-first doors (mock `.links` / `.lk` :223-228) ──
+   Two buttons, not the mock's `<div>`s: each opens a panel in place, so each is a disclosure and
+   owns `aria-expanded`/`aria-controls`. `align-items: stretch` on the row so a wrapped title on one
+   door does not leave the other short. */
+.wf-doors {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.wf-door {
+  flex: 1;
+  text-align: left;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 9px;
+  background: var(--color-plex-surface);
+  padding: 10px 13px;
+  cursor: pointer;
+}
+.wf-door:hover { border-color: var(--color-plex-border-light); }
+.wf-door:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+.wf-door-t {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+}
+/* The mock's `.ar` slot. Teal and not `--ink-3`: it is the only part of the tile that states the
+   control's state, and it takes the same actionable accent as `.wf-exp` and `.wf-lens-reset`. */
+.wf-door-ar {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--color-badge-tide);
+  white-space: nowrap;
+}
+.wf-door-d {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
+  margin-top: 3px;
+}
+.wf-door-panel {
+  border: 1px solid var(--color-plex-border);
+  border-radius: 9px;
+  background: var(--color-plex-surface);
+  padding: 12px 13px;
+}
+/* A re-parented component brings its own focusables, and the sticky lens bar does not know about
+   any of them. `HeatmapGrid`'s cells are `role="button" tabIndex={0}` divs with `min-height: 52px`
+   (HeatmapGrid.jsx:618-626) — SHORTER than the bar's 53.5px, so an unreserved one focused from
+   above is not partly obscured but obscured ENTIRELY. Its poor-regions toggle, the drill-down's
+   three buttons and every hot-topic pill are in the same position. None of them can take a `.wf-`
+   class without editing the v1 arm that plan §4's comparison needs frozen, so the reservation goes
+   on the panel that mounts them and reaches them by descent. Same 60px, same derivation, and it
+   tracks the bar's height exactly as the block below does. */
+.wf-door-panel :is(a[href], button, [tabindex]:not([tabindex='-1'])) {
+  scroll-margin-top: 60px;
+}
+/* `.heatmap-cell-hoverable:hover` is `z-index: 40` (:538) and `.wf-lens` is `z-index: 20` — values
+   that never met until P9 put the grid underneath a sticky bar, since `.wf-lens` is the only
+   `position: sticky` in the app and no ancestor between them creates a stacking context. A hovered
+   cell therefore painted OVER the bar and, because hit-testing follows paint order, swallowed
+   clicks aimed at the lens controls across the overlap band. Lowered here rather than raising the
+   bar: this is scoped to the v2 panel, so the v1 grid keeps 40 unchanged, and 10 still clears the
+   cell's siblings (which set no z-index) so the hover lift is unaffected. The cell's own tooltip is
+   portalled to `<body>` and is not in this stacking context at all. */
+.wf-door-panel .heatmap-cell-hoverable:hover {
+  z-index: 10;
+}
+@media (max-width: 639px) {
+  .wf-doors { flex-direction: column; }
 }
 
 /* ── Window-first reach lens bar ──
@@ -1376,16 +1505,35 @@
    **34px underneath the bar**, taking the card's own name and the top of its focus ring with it —
    the same ring P6 spent two measurements protecting from the scroller's clip, lost again a
    different way. `scroll-margin-top` is the reservation, applied to every focusable thing the pane
-   can scroll to.
+   OWNS. What the pane merely *mounts* — the two re-parented v1 components behind P9's doors — is
+   covered by the descendant rule on `.wf-door-panel` above, because those elements cannot take a
+   `.wf-` class without editing the v1 arm.
 
    60px = the bar's measured 53.5px plus the ring's 2px outline and 2px offset. ⚠️ It tracks the
    bar's HEIGHT, so P11 (which adds a rating floor and a type control to the same row) and P14 must
    re-measure — a bar that wraps to two lines makes this number short. jsdom has no layout and does
-   not load this file, so nothing can unit-test it; it is a browser-verified claim. */
+   not load this file, so nothing can unit-test it; it is a browser-verified claim.
+
+   P9 added three more focusable things to the same scrolling pane — the window card's expander and
+   the two doors — and every one of them can sit above the fold. A collapsed card is ALL header, so
+   an unreserved expander parks the whole card under the bar. The bar is untouched by P9 and still
+   measures 53.5px, so 60 still holds — re-measured rather than assumed. */
 .wf-spot,
 .window-card-pick,
-.wf-film-btn {
+.wf-film-btn,
+.wf-exp,
+.wf-door {
   scroll-margin-top: 60px;
+}
+/* The expander needs MORE than the shared 60, and the reason is what it is attached to. Every other
+   element in that list is the thing the reader is looking at, so reserving for the element reserves
+   for the content. The expander is a control on a card, and on a COLLAPSED card the card is a single
+   row — so parking the button at 60 put the card's own top edge at 45.3px, 8.2px behind the bar.
+   Measured on the running app: the button sits 14.8px below its card's top, so 76 = 60 + that, plus
+   a little slack. The name and the focus ring cleared the bar either way; this is the card's border,
+   which on a collapsed row is the thing that makes it read as a row at all. */
+.wf-exp {
+  scroll-margin-top: 76px;
 }
 
 /* The app's own phone boundary, as `.wf-spots` states it. The bar becomes a single scrolling row:

@@ -237,10 +237,22 @@ describe('WindowFirstShell — the rail it hosts', () => {
     }],
   };
 
-  const briefingWith = (generatedAt, evaluationScores = new Map(), windowCards = [CARD]) => ({
+  const briefingWith = (generatedAt, evaluationScores = new Map(), windowCards = [CARD],
+    paneItems = null) => ({
     briefing: generatedAt ? { generatedAt } : null,
     loading: false,
     windowCards,
+    // What `buildPaneItems` produces when no day is a travel day — the shell renders items, and a
+    // fixture that only supplied cards would exercise a path the provider never hands it. Callers
+    // that care about away rows pass their own.
+    paneItems: paneItems || windowCards.map((card) => ({ kind: 'card', key: card.key, card })),
+    // The doors read these. `upcomingEvents` empty keeps the regional door out of the tests that
+    // are about the rail and the pane; the two files that are about the doors supply their own.
+    upcomingEvents: [],
+    travelDayDates: new Set(),
+    reachById: new Map(),
+    isPro: true,
+    isLiteUser: false,
     evaluationScores,
     railTiles: [{
       date: '2026-08-04',
@@ -347,6 +359,12 @@ describe('WindowFirstShell — the rail it hosts', () => {
       loading: true,
       railTiles: [],
       windowCards: [],
+      paneItems: [],
+      upcomingEvents: [],
+      travelDayDates: new Set(),
+      reachById: new Map(),
+      isPro: true,
+      isLiteUser: false,
       evaluationScores: new Map(),
       todayStr: '2026-08-04',
       tomorrowStr: '2026-08-05',
@@ -359,6 +377,106 @@ describe('WindowFirstShell — the rail it hosts', () => {
     renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
     expect(screen.getAllByTestId('window-card')).toHaveLength(1);
     expect(screen.getByTestId('window-card-when')).toHaveTextContent('Sunset');
+  });
+
+  describe('the collapse default', () => {
+    const SECOND = { ...CARD, key: '2026-08-05:SUNRISE', date: '2026-08-05', lead: false, kicker: null, when: 'Tomorrow sunrise' };
+    const THIRD = { ...CARD, key: '2026-08-05:SUNSET', date: '2026-08-05', lead: false, kicker: null, when: 'Tomorrow sunset' };
+
+    it('opens the first card and collapses the rest', () => {
+      // Plan §5a settled it on measured heights: six open cards run to 2.74 viewports, against the
+      // 2,600px §3 names as the failure the whole redesign exists to undo.
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [CARD, SECOND, THIRD]));
+
+      const cards = screen.getAllByTestId('window-card');
+      expect(cards.map((c) => c.dataset.open)).toEqual(['true', 'false', 'false']);
+    });
+
+    it('opens the first card even when no card is the lead one', () => {
+      // `lead` is `index === 0 && date === todayStr`, so after today's last window has passed there
+      // is no lead card at all — and a rule keyed on it would leave every card collapsed, every
+      // evening, which is exactly when someone is checking tomorrow's dawn.
+      const noLead = [{ ...SECOND }, { ...THIRD }];
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), noLead));
+
+      expect(screen.getAllByTestId('window-card').map((c) => c.dataset.open))
+        .toEqual(['true', 'false']);
+    });
+
+    it('collapses the open card when its expander is pressed', () => {
+      // The flip is written against the EFFECTIVE state. Against the map's own default the first
+      // press on the open lead card would set it to open — a control that does nothing the one
+      // time it is most likely to be pressed.
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [CARD, SECOND]));
+
+      fireEvent.click(screen.getAllByTestId('window-card-expander')[0]);
+      expect(screen.getAllByTestId('window-card').map((c) => c.dataset.open))
+        .toEqual(['false', 'false']);
+    });
+
+    it('opens a collapsed card without closing the one already open', () => {
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [CARD, SECOND]));
+
+      fireEvent.click(screen.getAllByTestId('window-card-expander')[1]);
+      expect(screen.getAllByTestId('window-card').map((c) => c.dataset.open))
+        .toEqual(['true', 'true']);
+    });
+  });
+
+  describe('away days in the pane', () => {
+    const AWAY_ITEM = {
+      kind: 'away', key: 'away:2026-08-05', dates: ['2026-08-05'], label: 'Wed 5',
+      note: 'Business trip', windowCount: 2,
+    };
+
+    it('draws the away row in the place the pane items put it', () => {
+      // The shell chooses which component draws which item and nothing else — the ordering is
+      // `buildPaneItems`', so the two can never disagree about which days exist.
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [CARD],
+        [{ kind: 'card', key: CARD.key, card: CARD }, AWAY_ITEM]));
+
+      const pane = screen.getByTestId('window-first-pane');
+      const card = screen.getByTestId('window-card');
+      const away = screen.getByTestId('window-away-row');
+      expect(pane).toContainElement(away);
+      expect(card.compareDocumentPosition(away) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(away).toHaveTextContent('Wed 5 · away — 2 windows not forecast');
+    });
+
+    it('says nothing about missing windows when no day is a travel day', () => {
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+      expect(screen.queryByTestId('window-away-row')).toBeNull();
+    });
+
+    it('keeps the empty-state line for a pane with no items of either kind', () => {
+      // An away row is an item, so a fortnight away must NOT also print "No windows to show".
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [], [AWAY_ITEM]));
+      expect(screen.queryByTestId('window-first-pane-empty')).toBeNull();
+      expect(screen.getByTestId('window-away-row')).toBeInTheDocument();
+    });
+  });
+
+  describe('the two doors', () => {
+    it('sits at the foot of the pane, below every window', () => {
+      // Where the design puts them, and inside the pane rather than beside it: they open forecast
+      // content, so they take the DOWN treatment the pane carries. The exit button below them is
+      // the one thing that must stay outside it.
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+
+      const pane = screen.getByTestId('window-first-pane');
+      const doors = screen.getByTestId('window-first-doors');
+      expect(pane).toContainElement(doors);
+      expect(screen.getByTestId('window-card').compareDocumentPosition(doors)
+        & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('is absent when neither door has anything behind it', () => {
+      // No windows to plan over and no hot topics — an entirely-away horizon, or a briefing whose
+      // events have all elapsed. The regional door gates on `windowCards`, which is the set the
+      // travel filter has already run over.
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), []));
+      expect(screen.queryByTestId('window-first-doors')).toBeNull();
+    });
   });
 
   it('carries no placeholder prose above the cards', () => {
