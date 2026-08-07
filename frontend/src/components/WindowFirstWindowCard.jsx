@@ -70,13 +70,23 @@ function emptyLensLine(total, reachLabel) {
  * {@code confidenceTreatment(card.confidence)} — the latter returns the <em>medium</em> treatment
  * for an absent tier, which silently decays a high-confidence badge to 72%.
  *
- * <h2>No expander</h2>
+ * <h2>The expander is the last thing in the header, and everything else on the card is its region</h2>
  *
- * <p>Collapse/expand is P9's. The header's markup puts its slot last, after the badges, so P9
- * inserts one element and reflows nothing. Note what P6 changed about the argument for waiting:
- * at P5 a collapsed card and an open one differed by a few pixels of padding, which made the
- * control a demo control; with the strip and its footer on the card there is now something real to
- * collapse, and P9's own job is to decide the default given the height they cost.
+ * <p>P5 reserved this slot after the badges precisely so P9 would insert one element and reflow
+ * nothing, and that held. What it controls is <b>every sibling the header has</b> — the attribute
+ * rows, the spot strip, its footer, and the fully-gated window's line. Plan §5a settled the split on
+ * measured numbers rather than taste: the rows alone cost 207px above the header, and a collapsed
+ * card that kept them would give back only 150 of that. So the region is drawn wide, not narrow.
+ *
+ * <p><b>The region element is always rendered; only its children are conditional.</b>
+ * {@code aria-controls} must name an element that exists, and unmounting the whole container on
+ * collapse would leave every collapsed card pointing at nothing — a broken relationship on five of
+ * six cards in the default state, which is the state almost every reader will be in. Empty and
+ * unpadded it contributes no height, so this costs a DOM node and buys a valid relationship.
+ *
+ * <p>The collapsed header is the mock's: {@code padding} 12/14/10 → 10/14 and the title 15.5px →
+ * 13.5px. Nothing leaves it — the verdict badge, the pick, the topic badges, the star and the reach
+ * count are the whole point of a collapsed card, which is a row you can scan rather than a stub.
  *
  * <h2>The footer arrives with the strip, and still carries no "See all"</h2>
  *
@@ -102,6 +112,10 @@ function emptyLensLine(total, reachLabel) {
  * @param {string}   [props.reachLabel] the active reach tier's own label, used only in the sentence
  *        a fully gated window shows in place of its strip. The label rather than the threshold, so
  *        the card names exactly what is written on the chip the reader would press.
+ * @param {boolean}  [props.open] whether the collapsible region is showing. The shell owns the
+ *        state, not the card: the default is a judgement about the <em>list</em> ("the first card is
+ *        open"), and a card cannot see its own position.
+ * @param {Function} [props.onToggle] flips {@code open} for this card.
  * @param {Function} [props.onOpenPick] opens the pick dialog for this window
  * @param {Function} [props.onOpenSpot] opens the map centred on a spot in this window.
  *
@@ -112,8 +126,12 @@ function emptyLensLine(total, reachLabel) {
  *        invented. P10′ keeps the part that is actually new — {@code WindowSpotPeek}.
  */
 export default function WindowFirstWindowCard({
-  card, todayStr, reachLabel, onOpenPick, onOpenSpot,
+  card, todayStr, reachLabel, open = true, onToggle, onOpenPick, onOpenSpot,
 }) {
+  // The colon in `card.key` is a legal HTML5 id character and `aria-controls` is an IDREF, not a
+  // selector, so it would work — but it silently breaks `querySelector('#…')` and any CSS id
+  // selector for whoever reaches for one next. Cheaper to not lay the trap.
+  const bodyId = `window-card-body-${card.key.replace(/:/g, '-')}`;
   const treatment = VERDICT_TREATMENT[card.verdict] || VERDICT_TREATMENT.AWAITING;
   const tier = resolveConfidence({ confidence: card.confidence }, daysOut(card.date, todayStr));
   const { fillScale } = confidenceTreatment(tier);
@@ -132,6 +150,7 @@ export default function WindowFirstWindowCard({
       data-testid="window-card"
       data-verdict={card.verdict}
       data-lead={card.lead ? 'true' : undefined}
+      data-open={open ? 'true' : 'false'}
       className="window-card"
       style={{
         border: `1px solid ${card.lead ? 'rgba(201,162,75,0.42)' : 'var(--color-plex-border)'}`,
@@ -147,7 +166,7 @@ export default function WindowFirstWindowCard({
       <div
         data-testid="window-card-head"
         className="flex items-center flex-wrap"
-        style={{ gap: '10px', padding: '12px 14px 10px' }}
+        style={{ gap: '10px', padding: open ? '12px 14px 10px' : '10px 14px' }}
       >
         {card.kicker && (
           <span
@@ -166,7 +185,7 @@ export default function WindowFirstWindowCard({
         <span
           data-testid="window-card-when"
           className="font-bold text-plex-text"
-          style={{ fontSize: '15.5px', letterSpacing: '-0.01em' }}
+          style={{ fontSize: open ? '15.5px' : '13.5px', letterSpacing: '-0.01em' }}
         >
           {card.when}
         </span>
@@ -279,32 +298,56 @@ export default function WindowFirstWindowCard({
             );
           })}
         </span>
+
+        {/* The accessible name carries the window, because `aria-expanded` announces the STATE and
+            nothing else distinguishes six identical "Open" buttons in a list. The visible word is
+            the first word of the label, so WCAG 2.5.3's label-in-name holds; the caret is decorative
+            and is excluded rather than spoken as punctuation. */}
+        <button
+          type="button"
+          data-testid="window-card-expander"
+          className="wf-exp"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          aria-label={`${open ? 'Collapse' : 'Open'} ${card.when}`}
+          onClick={onToggle}
+        >
+          {open ? 'Collapse' : 'Open'}
+          <span aria-hidden="true">{open ? ' ▴' : ' ▾'}</span>
+        </button>
       </div>
 
-      {card.rows.length > 0 && (
-        <div data-testid="window-card-rows" className="wf-rows">
-          {card.rows.map((row) => <WindowAttributeRow key={row.key} row={row} />)}
-        </div>
-      )}
+      {/* Always rendered, so `aria-controls` above always resolves — see the class comment. */}
+      <div id={bodyId} data-testid="window-card-body">
+        {open && (
+          <>
+            {card.rows.length > 0 && (
+              <div data-testid="window-card-rows" className="wf-rows">
+                {card.rows.map((row) => <WindowAttributeRow key={row.key} row={row} />)}
+              </div>
+            )}
 
-      {card.spots.length > 0 && (
-        <WindowSpotStrip
-          spots={card.spots}
-          windowLabel={card.when}
-          total={card.reachTotal}
-          lead={card.lead}
-          onOpenSpot={(spot) => onOpenSpot?.(card, spot)}
-        />
-      )}
+            {card.spots.length > 0 && (
+              <WindowSpotStrip
+                spots={card.spots}
+                windowLabel={card.when}
+                total={card.reachTotal}
+                lead={card.lead}
+                onOpenSpot={(spot) => onOpenSpot?.(card, spot)}
+              />
+            )}
 
-      {/* Only when the LENS emptied it. A window with no spots at all still renders neither strip
-          nor message — there is nothing the control could bring back, so the line would be a
-          statement about the lens on a card the lens never touched. */}
-      {card.spots.length === 0 && card.reachTotal > 0 && (
-        <p data-testid="window-card-lens-empty" className="wf-strip-empty">
-          {emptyLensLine(card.reachTotal, reachLabel)}
-        </p>
-      )}
+            {/* Only when the LENS emptied it. A window with no spots at all still renders neither
+                strip nor message — there is nothing the control could bring back, so the line would
+                be a statement about the lens on a card the lens never touched. */}
+            {card.spots.length === 0 && card.reachTotal > 0 && (
+              <p data-testid="window-card-lens-empty" className="wf-strip-empty">
+                {emptyLensLine(card.reachTotal, reachLabel)}
+              </p>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -342,6 +385,8 @@ WindowFirstWindowCard.propTypes = {
   }).isRequired,
   todayStr: PropTypes.string.isRequired,
   reachLabel: PropTypes.string,
+  open: PropTypes.bool,
+  onToggle: PropTypes.func,
   onOpenPick: PropTypes.func,
   onOpenSpot: PropTypes.func,
 };

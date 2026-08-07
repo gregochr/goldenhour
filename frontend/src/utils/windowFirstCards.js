@@ -109,11 +109,17 @@ function withinReachCount(spots, limitMinutes) {
 /**
  * Builds the window cards for the rendered event set.
  *
- * <p><b>Away days are dropped, not drawn.</b> A travel day still carries slots — the pipeline skips
+ * <p><b>Away days get no card.</b> A travel day still carries slots — the pipeline skips
  * *evaluation*, not collection — so the projector turns them into STAND_DOWN or AWAITING and a
  * naive card list would put a "Poor" card under a rail tile reading "Not forecast". That is a
- * contradiction on one screen. The absence needs no explanation of its own: the rail tile for that
- * date says {@code ✈ Away · Not forecast} directly above. The dashed skipped-row treatment is P9's.
+ * contradiction on one screen, and it is still the rule.
+ *
+ * <p>What changed at P9 is that the absence is no longer silent. {@code buildPaneItems} in
+ * {@code windowFirstAway.js} folds a dashed row back in where the missing windows fall, because the
+ * six-event cap is applied <em>before</em> the travel filter — so an away day spends a slot and then
+ * vanishes, and the pane's date order skips a day with nothing to say why. This function stays
+ * unchanged: it still returns cards only, and the away rows are built from the same event array
+ * beside it rather than smuggled through as a fifth card variant.
  *
  * <p><b>The same event array the rail rolled up</b> is the input, so the two can never disagree
  * about which windows exist — which is also what lets the pick badge and the rail's pick flag point

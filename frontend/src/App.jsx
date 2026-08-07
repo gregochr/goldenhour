@@ -397,6 +397,7 @@ function AppInner() {
               contentDisabled={isDown}
               onShowOnMap={handleShowOnMap}
               onEvaluationScoresChange={handleEvaluationScoresChange}
+              locations={visibleLocations}
             />
           </WindowFirstBriefingProvider>
         </main>

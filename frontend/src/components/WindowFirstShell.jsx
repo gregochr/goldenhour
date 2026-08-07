@@ -4,6 +4,8 @@ import BrandLockup from './shared/BrandLockup.jsx';
 import WindowFirstDayRail from './WindowFirstDayRail.jsx';
 import WindowFirstLensBar from './WindowFirstLensBar.jsx';
 import WindowFirstWindowCard from './WindowFirstWindowCard.jsx';
+import WindowFirstDoors from './WindowFirstDoors.jsx';
+import WindowAwayRow from './WindowAwayRow.jsx';
 import WindowPickDialog from './WindowPickDialog.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { formatRelativeAge } from '../utils/relativeTime.js';
@@ -96,7 +98,24 @@ const WRAP_MAX_WIDTH = '1080px';
  *        "Plan", the layout, and not "Plan tab".
  * @param {function} props.onOpenSettings opens the shared settings modal, which owns the flag
  *        toggle — so this is the route back that survives once the temporary exit button goes.
+ * <h2>The pane renders items, not cards</h2>
+ *
+ * <p>An away day's windows are not drawn — the pipeline skips evaluation on them, so a card would
+ * read "Poor" under a rail tile reading "Not forecast" — but they still spend one of the six event
+ * slots, so simply omitting them left the pane's date order skipping a day with no account of it.
+ * {@code buildPaneItems} folds the two back into one ordered list; this component only chooses which
+ * component draws which item.
+ *
+ * <h2>Collapse state lives here because the default is a fact about the list</h2>
+ *
+ * <p>"The first card is open" is not something a card can evaluate about itself. What is stored is
+ * only what the reader has <b>changed</b>, so the rule keeps applying as the list moves under it —
+ * see {@code isCardOpen}.
+ *
  * @param {function} props.onSignOut ends the session; the same handler the v1 header uses.
+ * @param {Array} [props.locations] enabled locations, needed only by the regional-planner door for
+ *        its id→name and name→type joins. Not fetched by this arm's provider: {@code App} already
+ *        holds them for both arms, and a second request for a list the page has would be waste.
  * @param {boolean}  [props.contentDisabled] greys the pane when the backend is DOWN.
  *
  *        <p><b>The pane, never the chrome.</b> In the v1 arm the header sits OUTSIDE the element
@@ -107,11 +126,38 @@ const WRAP_MAX_WIDTH = '1080px';
  */
 export default function WindowFirstShell({
   onExit, onOpenSettings, onSignOut, contentDisabled, onShowOnMap, onEvaluationScoresChange,
+  locations,
 }) {
   const {
-    railTiles, windowCards, loading, briefing, evaluationScores, todayStr, reachLens, homePlace,
+    railTiles, windowCards, paneItems, loading, briefing, evaluationScores, todayStr, reachLens,
+    homePlace,
   } = useWindowFirstBriefing();
   const [openPick, setOpenPick] = useState(null);
+  // Only the cards the reader has TOGGLED. The default is not seeded into this map, so it stays a
+  // rule rather than a snapshot: a poll that adds tomorrow's sunrise, or an away day that removes a
+  // card, re-evaluates "the first card is open" without disturbing anything the reader chose. A
+  // seeded set would freeze yesterday's answer and would have to be reconciled on every poll.
+  const [cardOverrides, setCardOverrides] = useState(() => new Map());
+  // The toggle is written against the EFFECTIVE state, not against the map's own default. Flipping
+  // `map.get(key) ?? false` would make the first click on the open lead card set it to open —
+  // a control that does nothing the one time it is most likely to be pressed.
+  const toggleCard = (key, currentlyOpen) => setCardOverrides((prev) => {
+    const next = new Map(prev);
+    next.set(key, !currentlyOpen);
+    return next;
+  });
+  /**
+   * Lead-open, rest-collapsed — plan §5a, settled there on measured heights rather than taste.
+   *
+   * <p>The predicate is <b>the first card</b>, not {@code card.lead}, and the difference is the
+   * whole of its value. {@code lead} is `index === 0 && date === todayStr`, so after today's last
+   * window has passed there is no lead card at all — and a rule keyed on it would leave six
+   * collapsed headers with nothing open, every evening, which is the state a reader checking
+   * tomorrow's dawn is most often in. Where a lead card exists the two rules agree by construction,
+   * because a lead card is index 0.
+   */
+  const defaultOpenKey = windowCards[0]?.key ?? null;
+  const isCardOpen = (card) => cardOverrides.get(card.key) ?? (card.key === defaultOpenKey);
 
   // Lifted to App for the map overlay, exactly as DailyBriefing does it in the v1 arm. Without this
   // a tile handed to the map opens an overlay with no narrative over a map that has filtered out
@@ -256,17 +302,26 @@ export default function WindowFirstShell({
         className={`flex flex-col${dimmed}`}
         style={{ padding: '14px 18px 20px', gap: '10px' }}
       >
-        {windowCards.map((card) => (
+        {paneItems.map((item) => (item.kind === 'away' ? (
+          <WindowAwayRow
+            key={item.key}
+            label={item.label}
+            note={item.note}
+            windowCount={item.windowCount}
+          />
+        ) : (
           <WindowFirstWindowCard
-            key={card.key}
-            card={card}
+            key={item.key}
+            card={item.card}
             todayStr={todayStr}
             reachLabel={reachLens?.tier?.label}
+            open={isCardOpen(item.card)}
+            onToggle={() => toggleCard(item.card.key, isCardOpen(item.card))}
             onOpenPick={setOpenPick}
             onOpenSpot={handleSpot}
           />
-        ))}
-        {!loading && windowCards.length === 0 && (
+        )))}
+        {!loading && paneItems.length === 0 && (
           <p
             data-testid="window-first-pane-empty"
             className="font-mono text-plex-text-muted"
@@ -275,6 +330,10 @@ export default function WindowFirstShell({
             No windows to show.
           </p>
         )}
+
+        {/* The two doors, at the foot of the pane where the design puts them and inside the greyed
+            region: they open forecast content, which is exactly what that treatment marks. */}
+        <WindowFirstDoors locations={locations} onShowOnMap={onShowOnMap} />
       </div>
 
       {/* OUTSIDE the pane, and that is a fix rather than a placement preference. The DOWN treatment
@@ -323,4 +382,5 @@ WindowFirstShell.propTypes = {
   contentDisabled: PropTypes.bool,
   onShowOnMap: PropTypes.func,
   onEvaluationScoresChange: PropTypes.func,
+  locations: PropTypes.array,
 };

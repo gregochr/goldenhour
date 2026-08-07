@@ -577,13 +577,13 @@ Backend first for anything shared, so the frontend stays a render layer.
 | **P7** | ~~Attribute rows — tide, then snow~~ **DONE.** `WindowAttributeRow` + `utils/windowFirstRows.js` + `components/chart/WindowTideSparkline.jsx`; `BriefingWindow.Badge` gains `facts` | Cap of two per window, and it binds. ⚠️ The old Notes cell here said "the change row is P5's and does not count against it" — **stale since §2.8 deferred that row**, which is why two rows means tide + snow and nothing else. **Nine decisions worth not re-deriving — see §5b** |
 | **P7b** | Promoted strip — both variants; chart 42px curve + 16px label band | Single-strip cap enforced in code. Also owns `UNKNOWN_RANK`'s wire semantics |
 | **P8** | ~~Lens bar — **reach only** + persistence policy~~ **DONE.** `WindowFirstLensBar` + `utils/reachLens.js` + `hooks/useReachLens.js`; the gate rides `buildWindowCards`, and the `far` spot variant ships with it | Shrunk: rating floor and type move to P11. Day-derived default; reach expires at the day roll. **The labels are the spec and `LIM` is mock shorthand** — the label is now *derived* from the threshold so no second number exists to drift. First gated control in the arm; `role` enters at the provider only. **Nine decisions worth not re-deriving — see §5c** |
-| **P9** | Collapse/expand, six-window case, away-day row + its rail variant, the two doors | Re-measure the height budget: the rail grew, the window card shrank |
+| **P9** | ~~Collapse/expand, six-window case, away-day row + its rail variant, the two doors~~ **DONE.** `WindowAwayRow` + `utils/windowFirstAway.js`, `WindowFirstDoors` + `WindowFirstRegionalPanel` + `utils/windowFirstRegions.js`; the card gains `open`/`onToggle` and the shell owns the state | ⚠️ The old Notes cell said "the window card shrank" — **stale**, it had grown every phase since P6. Measured: six open windows are **1,969px / 2.74 viewports**, exactly the figure §5a predicted from a different direction; lead-open/rest-collapsed is **996px**, a 49.4% saving. The **rail variant already shipped at P4c** (`isAway`, `✈ Away`, `Not forecast`, and it keeps its sun times) — P9 owned only the pane row. The six-window case needed no feature: `MAX_VISIBLE_EVENTS` already caps it and the rail and cards share one evaluation. **Ten decisions worth not re-deriving — see §5d** |
 | **P10′** | Peek content kind 1 (spot) + click-to-map | Split — the host is P4b, the pick-chip kind is P5. New `WindowSpotPeek`; **on touch the card activates the map**; phone peek via `BottomSheet`; 140/160/120ms |
 | **P11** | Drilldown sheet — **plus the rating floor and type controls** and their persistence | Grown by what P8 shed |
 | **P12** | Backend: almanac feed (§3) + the tide fetch-horizon decision | Unchanged |
 | **P13** | Coming up tab | Unchanged |
 | **P14** | Responsive pass — real media queries, including the taller rail tile on phone | Keep control labels at 9px |
-| **P15** | Pre-pilot sweep (§6), then flip the flag default | |
+| **P15** | Pre-pilot sweep (§6), then flip the flag default | **Two items handed up by P9, both cross-arm and neither fixable inside one phase (§5d):** the `HotTopicStrip` LITE treatment, which the window card's ungated attribute rows already defeat for the tide and snow channels; and `HeatmapGrid`'s away band saying "no forecast generated" two elements below a row that deliberately says "not forecast". Both need one decision made once across both arms, which is the shape §2.8 settled for the pick gloss |
 | **P16** | *(post-pilot, conditional)* Run history — the sparkline **and** the change-since-last-forecast row, both blocked on an append-only per-run sink the live pipeline writes | Deferred because only **4.1%** of slots have the four *rated* runs it draws and **90.6% have none** — measured, see §2.8. Not for want of data or query |
 
 ### 5a. What P6 decided — read before P8, P9, P10′ and P11
@@ -974,6 +974,144 @@ Lighthouse pass — the same gap §5a and §5b both record. Chrome only.
 a programmatic scroll shows a torn composite that looks exactly like a sticky element failing to
 stick. Two screenshots reproduced it. The DOM is authoritative: read `getBoundingClientRect()` at
 several scroll positions instead of believing the picture.
+
+---
+
+### 5d. What P9 decided — read before P10′, P11, P14 and P15
+
+Ten decisions that changed behaviour rather than wording. P9's height figures sit at the end, beside
+P6's, P7's and P8's.
+
+- **The collapse default is "the first card", not "the lead card", and the difference is a whole
+  evening.** §5a settled *lead-open, rest-collapsed* on measured heights, and the obvious reading is
+  `card.lead`. But `lead` is `index === 0 && date === todayStr`, so once today's last window has
+  passed **no card is lead** — and a rule keyed on it leaves six collapsed headers with nothing open,
+  every evening, which is precisely when a reader is checking tomorrow's dawn. Where a lead card
+  exists the two rules agree by construction, because a lead card *is* index 0. Only what the reader
+  has toggled is stored, so the rule keeps applying as the list moves under it on the ten-minute
+  poll; a seeded map would freeze one moment's answer and need reconciling on every poll.
+- **The collapsible region is drawn wide, and the region element is never unmounted.** Everything
+  below the header goes — the attribute rows, the strip, its footer, the fully-gated line — because
+  §5a measured the rows alone at 207px above the header and a card that kept them would give back
+  only 150 of it. But the *container* is always rendered and only its children are conditional:
+  `aria-controls` is an IDREF, and unmounting would leave five of six cards in the default state
+  pointing at nothing. Empty and unpadded it contributes no height, so a valid relationship costs one
+  DOM node.
+- **The expander's accessible name carries the window; the reservation under the sticky bar is
+  bigger than everyone else's.** `aria-expanded` announces the state, but six identical "Open"
+  buttons are indistinguishable without the window in the name (the visible word leads it, so WCAG
+  2.5.3 holds). And `scroll-margin-top` is **76px** here against the shared 60: every other element
+  in that list *is* the thing the reader is looking at, whereas the expander is a control on a card —
+  and on a collapsed card the card is a single row, so parking the button at 60 put the card's own
+  top edge 8.2px behind the bar. 76 = 60 + the button's measured 14.8px offset from its card.
+- **The away row is chronological, not appended — and it exists because the cap is applied before the
+  travel filter.** The mock renders one skipped block after the whole window list; that reads as a
+  footnote and breaks the pane's only ordering spine, which is time (the same argument Hot Topics
+  settled for a multi-day tide run). More importantly the row is not decoration: `selectUpcomingEvents`
+  caps at six **before** away days are removed, so a travel day spends a slot and then vanishes, and
+  the pane's date order skipped a day with nothing to say why. `buildWindowCards` is unchanged and
+  still returns cards only; `buildPaneItems` folds the two together beside it.
+- **The run folds on calendar adjacency, not on event adjacency.** The walk is over events, so a date
+  contributing none of them is invisible to it — an away Wednesday and an away Friday either side of
+  a Thursday with no events folded into one row labelled `Wed 5 – Fri 7`, asserting Thursday was a
+  travel day when nothing said so. Found in review as an open question; the date arithmetic closes it.
+- **"Not forecast", never the mock's "not generated"** — generation is exactly what *did* happen on a
+  travel day; only the evaluation was skipped, and "Not forecast" is the rail tile's own word, so the
+  two surfaces agree. ⚠️ **`HeatmapGrid`'s away band says "no forecast generated"** and now renders
+  two doors below the row that rejects that phrase. It is v1 code and editing it perturbs the arm §4
+  rests on, so it is left and recorded: **reconcile at P15**, in the same pass as the item below.
+  Also dropped: the mock's multi-user/solo demo toggle, and "Mark yourself back →" (its surface is
+  `/api/admin/travel-days`, ADMIN-only and unrouted from this arm — the demo control §6 bans).
+- **The note is attributed per day, not per range.** Discarding un-noted ranges before testing
+  coverage let a block spanned by `[{05, 'Skye'}, {06, null}]` collect exactly one note and print it —
+  a sentence about Wednesday rendered against a row covering Thursday. Un-noted ranges are the
+  ordinary case and the backend does not merge adjacent ones, so this is a normal shape. Note the
+  naive repair (`some` → `every`) silences two adjacent ranges carrying the *same* note, which works
+  and should keep working; both cases are now pinned.
+- **Neither door carries a count, and a door with nothing behind it is not drawn.** "4 regions →" is
+  the species §6 bans outright — the same charge that removed P7's "61 coastal locations →". "3 live"
+  is arguably about tonight and is dropped anyway, for a reason about the *pair*: two tiles of
+  identical construction where one carries a number and the other cannot reads as a defect in the one
+  that does not. The zero case — the only thing a count would have protected the reader from — is
+  answered structurally instead, which is the honest form of "3 live".
+- **"Nothing behind it" has three terms for the grid, and review found two of them.** The first gate
+  was `upcomingEvents.length > 0`, wrong twice. **Viewport:** everything `HeatmapGrid` renders is
+  `hidden sm:*`, so below 640px the door drew a tile that opened an empty bordered box and fired one
+  astro request per date for content that cannot paint — the v1 arm wraps the same disclosure in
+  `hidden sm:block` (`DailyBriefing.jsx:1526`) and re-parenting dropped that guard. **Travel days:**
+  the grid drops away columns itself, so an operator away across the whole horizon got a door
+  promising "every region, every window" over a panel holding one dashed band. `windowCards` is the
+  travel-filtered set by construction and is the honest denominator; the viewport term is a hook
+  rather than CSS, because `display: none` would still mount the panel and fire the requests.
+- **The panels mount once and then hide, and the reservations they need go on the panel.** `hidden`
+  rather than unmount, because `aria-controls` must resolve and because the regional panel fetches one
+  astro request per date on mount. And a re-parented component brings focusables the sticky bar knows
+  nothing about — the grid's cells are `role="button"` divs with `min-height: 52px`, *shorter* than
+  the bar's 53.5px, so an unreserved one is not partly obscured but obscured entirely. None can take a
+  `.wf-` class without editing the v1 arm, so `scroll-margin-top` reaches them by descent from
+  `.wf-door-panel`. The same rule fixes a stacking collision that could not exist before P9:
+  `.heatmap-cell-hoverable:hover` is `z-index: 40` and `.wf-lens` is `20`, values that never met until
+  the grid was put under a sticky bar — lowered to 10 **scoped to the panel**, so the v1 grid keeps 40.
+- **§5b's LITE reconvergence is NOT made, because its premise is false.** The plan assigns P9 the
+  `HotTopicStrip` fact blur, calling it "the single place to make it". On inspection it is one of five
+  LITE treatments in that component — the pill is `opacity: 0.45`, `canExpandRich` and
+  `canRevealRegions` are both forced off, `handleClick` returns early, the tide chart is blurred as
+  well as the facts, and an "Upgrade to Pro" call to action replaces the lot. Editing only the blur
+  leaves a greyed, inert pill carrying sharp numbers, which is strictly *more* incoherent than today;
+  editing all of it is a freemium-policy change, not a layout fix — `freemium_ui_strategy.md` does not
+  mention hot topics at all, so there is no written policy to appeal to, and the strip as it stands is
+  exactly the treatment CLAUDE.md's role-gating pattern prescribes. **The rows were the argued
+  exception, not the strip.** What is left standing, recorded rather than hidden: for a LITE user in
+  this arm a tide's metres and a snow depth are readable on the window card's attribute row and
+  blurred on the same topic's pill, so for those two channels the tease is already defeated.
+  **Handed to P15**, decided once across both arms — the shape §2.8 settled for the pick gloss.
+
+**⚠️ Height budget, measured at P9 — and this is the phase that finally gives it back.** 1280×720
+against an injected payload. Six windows, every card open: per-card **201.3px** (strip, no rows),
+**252.3px** (one row), **291px** (two rows), shell **1,969.3px = 2.74 viewports** — reproducing P7's
+predicted 1,970px and 2.74 viewports *exactly*, from a different direction. The same six in the
+shipped default: a **45px** collapsed card, shell **996.3px = 1.38 viewports**. **Collapse removes
+973px, 49.4%.** The away row is **40.5px**, the doors **64.8px** closed, and the lens bar is unchanged
+at **53.5px** (which is why `scroll-margin-top`'s 60 still holds). On a phone (375×812) the bar is
+50px, the doors stack, six collapsed windows run **1,135px** against P7's 2,448px open, and there is
+no page-level horizontal overflow (375 = 375). ⚠️ A collapsed card is **75–105px on a phone**, not
+45px, because the badge group wraps to its own line — the mock's phone rule (`order: 7;
+margin-left: auto` on `.exp`, `.best` and `.badges` on their own flex-basis lines) is **P14's**, and
+the number is recorded here so it is not discovered there.
+
+**The adversarial review before this landed** (six prosecutor lenses, one refuter per charge, then
+synthesis — 38 agents): **31 charges, 25 refuted, 6 real**, all fixed before the commit. Every charge
+against the count semantics was refuted, as were four separate charges against the disclosure's ARIA
+and three against the collapse state model. What survived is worth carrying, because five of the six
+are one species:
+
+- **Re-parenting a component does not bring its guards.** Three of the six findings are this: the
+  `hidden sm:block` wrapper the v1 arm puts around the heatmap, the `scroll-margin-top` its new
+  neighbours need, and the `z-index` its hover state now collides with. None is visible in the diff,
+  because the diff shows the *new* call site and the defect lives in what the *old* one did around it.
+  **When re-parenting, read the v1 call site's wrapper, not just the component's props.**
+- **A charge can be right about the code and wrong about the failure.** Twenty-five were refuted, and
+  the refuters' most common ground was not "the code doesn't say that" but "the scenario cannot
+  occur". Prompting the skeptic to default to REFUTED without citable evidence is what kept the
+  signal-to-noise usable at this fleet size.
+- **Two of the six could only be reasoned to, not seen.** The obscured-cell case needs a document
+  tall enough to park a cell against the bar, and no fixture the browser could stage produced one:
+  the fix is demonstrably *active* (neutralising it at runtime moved the worst clearance from 118.1px
+  to 88.1px) but the failure itself was never reproduced. Said plainly rather than implied.
+
+**What was verified live, and what was fixtured.** The local DB still has never had an evaluation
+run — measured again at P9, unchanged since P6. Verified on **real data**: the doors' gates in their
+first-run state (regional door present at 1280 and absent at 375; hot-topics door absent, because the
+real payload carries zero topics), `Home not set`, and `45 min · weekday default · 0 spots across 3
+windows`. Everything else was seen in a real browser against an **injected payload**: every height
+above, the collapse default and its toggle, the away row's placement *between* two cards and its
+copy, the rail away tile keeping its sun times (the claim the row makes about another surface), both
+panels rendering, the hovered cell computing `z-index: 10` inside the panel while the v1 rule still
+reads 40, and the contrast figures — expander **10.01:1**, door title **13.98:1**, door state
+**9.68:1**, door description **6.75:1**, away row body **7.14:1**, away date range **15.47:1**, all
+composited over their real backdrops. **Not verified:** the obscured-cell failure itself (above), any
+of it against real ratings or real drive times, and no screen reader, axe or Lighthouse pass — the
+same gap §5a, §5b and §5c all record. Chrome only.
 
 ---
 

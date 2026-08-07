@@ -13,6 +13,7 @@ import { isTravelDate } from '../utils/conversions.js';
 import { isEventPast } from '../utils/briefingDisplay.js';
 import { buildRailTiles } from '../utils/windowFirstRail.js';
 import { buildWindowCards } from '../utils/windowFirstCards.js';
+import { buildPaneItems } from '../utils/windowFirstAway.js';
 
 /** Matched to v1's. The payload regenerates every ~8–10h; polling faster only adds revalidations. */
 const POLL_INTERVAL_MS = 10 * 60 * 1000;
@@ -34,9 +35,15 @@ const WindowFirstBriefingContext = createContext({
   loading: false,
   railTiles: [],
   windowCards: [],
+  paneItems: [],
+  upcomingEvents: [],
+  travelDayDates: new Set(),
   evaluationScores: EMPTY_SCORES,
+  reachById: EMPTY_REACH,
   todayStr: '',
   tomorrowStr: '',
+  isPro: false,
+  isLiteUser: false,
 });
 
 /** Today's ISO date in the forecast's own timezone. */
@@ -312,13 +319,28 @@ export function WindowFirstBriefingProvider({ children, homeSettingsVersion }) {
       reachLens.tier.limitMinutes, defaultLimitMinutes],
   );
 
+  // The pane's ordered contents — the cards with the away days folded back in where they fall. It
+  // is derived HERE rather than in the shell for the same reason the cards are: the away rows and
+  // the cards are two views of one event array, and a second evaluation of the travel filter is a
+  // second chance for them to disagree about which days exist.
+  const paneItems = useMemo(
+    () => buildPaneItems(upcomingEvents, windowCards, travelDayDates, travelRanges),
+    [upcomingEvents, windowCards, travelDayDates, travelRanges],
+  );
+
+  // Booleans, never the role. Plan §5c: `role` enters this arm at the provider and stops there, and
+  // what anything below receives is a decision already made — a threshold for the lens, a boolean
+  // for the two components behind the doors that were built for the v1 arm and take one.
+  const isPro = role === 'PRO_USER' || role === 'ADMIN';
+  const isLiteUser = role === 'LITE_USER';
+
   const value = useMemo(
     () => ({
-      briefing, loading, railTiles, windowCards, evaluationScores, todayStr, tomorrowStr,
-      reachLens, homePlace,
+      briefing, loading, railTiles, windowCards, paneItems, upcomingEvents, travelDayDates,
+      evaluationScores, reachById, todayStr, tomorrowStr, reachLens, homePlace, isPro, isLiteUser,
     }),
-    [briefing, loading, railTiles, windowCards, evaluationScores, todayStr, tomorrowStr,
-      reachLens, homePlace],
+    [briefing, loading, railTiles, windowCards, paneItems, upcomingEvents, travelDayDates,
+      evaluationScores, reachById, todayStr, tomorrowStr, reachLens, homePlace, isPro, isLiteUser],
   );
 
   return (
@@ -334,10 +356,13 @@ WindowFirstBriefingProvider.propTypes = {
 };
 
 /**
- * The window-first briefing, its loading flag, the day rail's tiles and the reach lens.
+ * The window-first briefing, its loading flag, the day rail's tiles, the pane's ordered contents
+ * and the reach lens.
  *
  * @returns {{briefing: ?object, loading: boolean, railTiles: Array, windowCards: Array,
- *           reachLens: object, homePlace: ?string, todayStr: string, tomorrowStr: string}}
+ *           paneItems: Array, upcomingEvents: Array, travelDayDates: Set, reachById: Map,
+ *           reachLens: object, homePlace: ?string, todayStr: string, tomorrowStr: string,
+ *           isPro: boolean, isLiteUser: boolean}}
  */
 export function useWindowFirstBriefing() {
   return useContext(WindowFirstBriefingContext);
