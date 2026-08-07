@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.17.13] - 2026-08-06
+
 ### Added — the reach lens: how far you are willing to drive tonight (window-first Plan, P8)
 
 **One sticky control above every window: 45 min / 1h 30min / 2h 30min / Any.** It gates the spot
