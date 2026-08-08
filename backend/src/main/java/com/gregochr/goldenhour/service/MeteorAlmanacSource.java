@@ -37,8 +37,8 @@ public class MeteorAlmanacSource implements AlmanacSource {
     /** Machine-readable discriminator. */
     static final String TYPE = "meteor";
 
-    /** Illumination fraction at or above which the moon meaningfully washes a shower out. */
-    private static final double WASHED_OUT_ILLUMINATION = 0.5;
+    /** Illumination percentage at or above which the moon meaningfully washes a shower out. */
+    private static final int WASHED_OUT_ILLUMINATION_PCT = 50;
 
     private static final String DETAIL_TEMPLATE =
             "%s peaks, around %d meteors an hour at best under a dark sky, radiating from the %s."
@@ -80,12 +80,18 @@ public class MeteorAlmanacSource implements AlmanacSource {
     }
 
     private AlmanacEvent toEvent(MeteorHotTopicStrategy.Shower shower, LocalDate peak) {
-        double illumination = lunarPhaseService.getIlluminationFraction(peak);
-        int illuminationPct = (int) Math.round(illumination * 100);
+        int illuminationPct = (int) Math.round(
+                lunarPhaseService.getIlluminationFraction(peak) * 100);
+
+        // The flag is tested against the SAME rounded figure that is reported, not the raw
+        // fraction. Comparing the unrounded value would let two rows both read "50% lit" while
+        // one carries the caveat and the other does not — a difference a reader can see and
+        // cannot explain.
+        boolean washedOut = illuminationPct >= WASHED_OUT_ILLUMINATION_PCT;
 
         String detail = DETAIL_TEMPLATE.formatted(
                 shower.name(), shower.zhrPeak(), shower.radiantCompass(), shower.bestHours());
-        if (illumination >= WASHED_OUT_ILLUMINATION) {
+        if (washedOut) {
             detail += MOONLIT_SUFFIX.formatted(illuminationPct);
         }
 
@@ -100,7 +106,7 @@ public class MeteorAlmanacSource implements AlmanacSource {
                         "radiant", shower.radiantCompass(),
                         "bestHours", shower.bestHours(),
                         "moonIllumination", illuminationPct + "%",
-                        "washedOut", illumination >= WASHED_OUT_ILLUMINATION ? "true" : null),
+                        "washedOut", washedOut ? "true" : null),
                 List.of());
     }
 }

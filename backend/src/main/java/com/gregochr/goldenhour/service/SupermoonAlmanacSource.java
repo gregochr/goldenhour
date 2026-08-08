@@ -33,6 +33,9 @@ public class SupermoonAlmanacSource implements AlmanacSource {
     /** Maximum days from perigee for a full moon to count — matches the hot-topic strategy. */
     private static final double PERIGEE_WINDOW_DAYS = 3.0;
 
+    /** Safety bound on the outward walk that finds a span's true first and last night. */
+    private static final int MAX_SPAN_WALK_DAYS = 10;
+
     private static final String TITLE = "Supermoon";
 
     private static final String DETAIL =
@@ -56,38 +59,62 @@ public class SupermoonAlmanacSource implements AlmanacSource {
         List<AlmanacEvent> events = new ArrayList<>();
         LocalDate spanStart = null;
         LocalDate spanEnd = null;
-        LocalDate closest = null;
-        double closestDistance = Double.MAX_VALUE;
 
         for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
-            // Full moon first: it excludes about twenty-six nights in twenty-nine, so the perigee
-            // distance is only worth computing for the handful that survive.
-            boolean fullMoon = lunarPhaseService.isFullMoon(date);
-            double fromPerigee = fullMoon
-                    ? lunarPhaseService.daysFromNearestPerigee(date)
-                    : Double.MAX_VALUE;
-            boolean qualifies = fullMoon && fromPerigee <= PERIGEE_WINDOW_DAYS;
-
-            if (qualifies) {
+            if (qualifies(date)) {
                 if (spanStart == null) {
                     spanStart = date;
-                    closestDistance = Double.MAX_VALUE;
                 }
                 spanEnd = date;
-                if (fromPerigee < closestDistance) {
-                    closestDistance = fromPerigee;
-                    closest = date;
-                }
             } else if (spanStart != null) {
-                events.add(toEvent(spanStart, spanEnd, closest));
+                events.add(completeSpan(spanStart, spanEnd));
                 spanStart = null;
             }
         }
 
         if (spanStart != null) {
-            events.add(toEvent(spanStart, spanEnd, closest));
+            events.add(completeSpan(spanStart, spanEnd));
         }
         return events;
+    }
+
+    /**
+     * Extends the span outwards to the supermoon's true first and last night, then names its peak.
+     *
+     * <p>Same reasoning as the tide source: {@link AlmanacSource} promises a true span, and a
+     * three-night supermoon straddling the edge of the feed would otherwise be reported as a
+     * one-night event whose named peak is simply the nearest night that happened to be visible
+     * rather than the one nearest perigee.
+     */
+    private AlmanacEvent completeSpan(LocalDate firstSeen, LocalDate lastSeen) {
+        LocalDate start = firstSeen;
+        for (int i = 0; i < MAX_SPAN_WALK_DAYS && qualifies(start.minusDays(1)); i++) {
+            start = start.minusDays(1);
+        }
+        LocalDate end = lastSeen;
+        for (int i = 0; i < MAX_SPAN_WALK_DAYS && qualifies(end.plusDays(1)); i++) {
+            end = end.plusDays(1);
+        }
+
+        LocalDate closest = null;
+        double closestDistance = Double.MAX_VALUE;
+        for (LocalDate date = start; !date.isAfter(end); date = date.plusDays(1)) {
+            double fromPerigee = lunarPhaseService.daysFromNearestPerigee(date);
+            if (fromPerigee < closestDistance) {
+                closestDistance = fromPerigee;
+                closest = date;
+            }
+        }
+        return toEvent(start, end, closest);
+    }
+
+    /**
+     * Full moon first: it excludes about twenty-six nights in twenty-nine, so the perigee distance
+     * is only worth computing for the handful that survive.
+     */
+    private boolean qualifies(LocalDate date) {
+        return lunarPhaseService.isFullMoon(date)
+                && lunarPhaseService.daysFromNearestPerigee(date) <= PERIGEE_WINDOW_DAYS;
     }
 
     private static AlmanacEvent toEvent(LocalDate start, LocalDate end, LocalDate closest) {

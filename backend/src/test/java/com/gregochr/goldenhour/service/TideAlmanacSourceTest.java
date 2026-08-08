@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -52,11 +53,18 @@ class TideAlmanacSourceTest {
         return new TideAlmanacSource(lunarPhaseService, tideRunBuilder, locationRepository);
     }
 
-    /** Marks the given offsets from MONDAY as the given type, everything else regular. */
+    /**
+     * Marks the given offsets from MONDAY as the given type, everything else regular.
+     *
+     * <p>Stubs one day either side of the span too, because the source walks outwards past the
+     * requested range to find a run's true first and last day. Without those the walk would hit an
+     * unstubbed call; with them defaulting to REGULAR_TIDE the walk stops at the range edge, which
+     * is what every test here except the straddle tests wants.
+     */
     private void classify(Map<Integer, LunarTideType> byOffset, int span) {
-        for (int i = 0; i < span; i++) {
+        for (int i = -1; i <= span; i++) {
             LocalDate date = MONDAY.plusDays(i);
-            when(lunarPhaseService.classifyTide(date))
+            lenient().when(lunarPhaseService.classifyTide(date))
                     .thenReturn(byOffset.getOrDefault(i, LunarTideType.REGULAR_TIDE));
         }
     }
@@ -107,6 +115,69 @@ class TideAlmanacSourceTest {
 
             assertThat(runs).hasSize(1);
             assertThat(runs.getFirst().king()).isTrue();
+        }
+
+        @Test
+        @DisplayName("a run that began before the range is reported with its true start, not "
+                + "clipped to look like it starts today")
+        void extendsBackwardsPastTheRangeStart() {
+            // Two days of the run are before the window; only the third is inside it.
+            when(lunarPhaseService.classifyTide(MONDAY.minusDays(2)))
+                    .thenReturn(LunarTideType.SPRING_TIDE);
+            when(lunarPhaseService.classifyTide(MONDAY.minusDays(1)))
+                    .thenReturn(LunarTideType.SPRING_TIDE);
+            when(lunarPhaseService.classifyTide(MONDAY)).thenReturn(LunarTideType.SPRING_TIDE);
+            when(lunarPhaseService.classifyTide(MONDAY.plusDays(1)))
+                    .thenReturn(LunarTideType.REGULAR_TIDE);
+            when(lunarPhaseService.classifyTide(MONDAY.minusDays(3)))
+                    .thenReturn(LunarTideType.REGULAR_TIDE);
+
+            List<TideAlmanacSource.Run> runs = source().detectRuns(MONDAY, MONDAY.plusDays(1));
+
+            assertThat(runs).hasSize(1);
+            assertThat(runs.getFirst().start()).isEqualTo(MONDAY.minusDays(2));
+            assertThat(runs.getFirst().end()).isEqualTo(MONDAY);
+        }
+
+        @Test
+        @DisplayName("a run continuing past the range is reported with its true end")
+        void extendsForwardsPastTheRangeEnd() {
+            when(lunarPhaseService.classifyTide(MONDAY.minusDays(1)))
+                    .thenReturn(LunarTideType.REGULAR_TIDE);
+            when(lunarPhaseService.classifyTide(MONDAY)).thenReturn(LunarTideType.SPRING_TIDE);
+            when(lunarPhaseService.classifyTide(MONDAY.plusDays(1)))
+                    .thenReturn(LunarTideType.SPRING_TIDE);
+            when(lunarPhaseService.classifyTide(MONDAY.plusDays(2)))
+                    .thenReturn(LunarTideType.SPRING_TIDE);
+            when(lunarPhaseService.classifyTide(MONDAY.plusDays(3)))
+                    .thenReturn(LunarTideType.REGULAR_TIDE);
+
+            List<TideAlmanacSource.Run> runs = source().detectRuns(MONDAY, MONDAY.plusDays(1));
+
+            assertThat(runs).hasSize(1);
+            assertThat(runs.getFirst().end()).isEqualTo(MONDAY.plusDays(2));
+        }
+
+        @Test
+        @DisplayName("a run whose only perigean day falls outside the range is still a king run — "
+                + "the perigean day defines the event, and it is the one most likely to be clipped")
+        void kingIsDecidedOverTheTrueSpanNotTheVisibleOne() {
+            // Perigee is a half-day window, so exactly one day of a run can be KING. Put it one
+            // day past the window: before the outward walk this entry came back as a spring run,
+            // with different copy and a different useful water, correcting itself the next day.
+            when(lunarPhaseService.classifyTide(MONDAY.minusDays(1)))
+                    .thenReturn(LunarTideType.REGULAR_TIDE);
+            when(lunarPhaseService.classifyTide(MONDAY)).thenReturn(LunarTideType.SPRING_TIDE);
+            when(lunarPhaseService.classifyTide(MONDAY.plusDays(1)))
+                    .thenReturn(LunarTideType.KING_TIDE);
+            when(lunarPhaseService.classifyTide(MONDAY.plusDays(2)))
+                    .thenReturn(LunarTideType.REGULAR_TIDE);
+
+            List<TideAlmanacSource.Run> runs = source().detectRuns(MONDAY, MONDAY);
+
+            assertThat(runs).hasSize(1);
+            assertThat(runs.getFirst().king()).isTrue();
+            assertThat(runs.getFirst().end()).isEqualTo(MONDAY.plusDays(1));
         }
 
         @Test
@@ -178,7 +249,8 @@ class TideAlmanacSourceTest {
         }
 
         @Test
-        @DisplayName("a partly derivable run falls back to its first real day rather than to nothing")
+        @DisplayName("a partly derivable run falls back to its first real day rather than to "
+                + "nothing, and does NOT call that day the peak")
         void fallsBackToTheFirstDerivableDay() {
             classify(Map.of(0, LunarTideType.SPRING_TIDE, 1, LunarTideType.SPRING_TIDE), 2);
             when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
@@ -190,7 +262,43 @@ class TideAlmanacSourceTest {
             AlmanacEvent event = source().events(MONDAY, MONDAY.plusDays(1)).getFirst();
 
             assertThat(event.meta()).containsEntry("range", "3.9 m");
-            assertThat(event.meta()).containsEntry("peakDate", MONDAY.toString());
+            // The figure is real and correctly attributed, but no maximum was computed — calling
+            // it peakDate would make it indistinguishable from a genuine run peak to a renderer.
+            assertThat(event.meta()).doesNotContainKey("peakDate");
+            assertThat(event.meta()).containsEntry("figuresFrom", MONDAY.toString());
+            assertThat(event.meta()).containsEntry("partialCoverage", "true");
+        }
+
+        @Test
+        @DisplayName("a genuine run peak is published as peakDate, with no partial-coverage flag")
+        void aTruePeakIsNamedAsSuch() {
+            classify(Map.of(0, LunarTideType.SPRING_TIDE, 1, LunarTideType.SPRING_TIDE), 2);
+            when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
+            when(tideRunBuilder.build(anyList(), anyList(), eq(false))).thenReturn(Map.of(
+                    MONDAY, runDay("3.9 m", false),
+                    MONDAY.plusDays(1), runDay("4.6 m", true)));
+
+            AlmanacEvent event = source().events(MONDAY, MONDAY.plusDays(1)).getFirst();
+
+            assertThat(event.meta()).containsEntry("peakDate", MONDAY.plusDays(1).toString());
+            assertThat(event.meta()).doesNotContainKey("figuresFrom");
+            assertThat(event.meta()).doesNotContainKey("partialCoverage");
+        }
+
+        @Test
+        @DisplayName("a spring run carries the spring type, title and detail — not the king ones")
+        void springRunsCarrySpringCopy() {
+            classify(Map.of(0, LunarTideType.SPRING_TIDE), 1);
+            when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
+            when(tideRunBuilder.build(anyList(), anyList(), eq(false))).thenReturn(Map.of());
+
+            AlmanacEvent event = source().events(MONDAY, MONDAY).getFirst();
+
+            // Every other assertion in this file feeds KING_TIDE, so without this a bare
+            // TYPE_KING in place of the ternary would ship green.
+            assertThat(event.type()).isEqualTo("spring-tide");
+            assertThat(event.title()).isEqualTo("Spring tide run");
+            assertThat(event.detail()).contains("foreshore is at its widest");
         }
 
         @Test
@@ -217,8 +325,9 @@ class TideAlmanacSourceTest {
 
             AlmanacEvent event = source().events(MONDAY, MONDAY).getFirst();
 
-            assertThat(event.type()).isEqualTo(TideAlmanacSource.TYPE_KING);
+            assertThat(event.type()).isEqualTo("king-tide");
             assertThat(event.title()).isEqualTo("King tide run");
+            assertThat(event.detail()).contains("closest approach");
             verify(tideRunBuilder).build(anyList(), anyList(), eq(true));
         }
 

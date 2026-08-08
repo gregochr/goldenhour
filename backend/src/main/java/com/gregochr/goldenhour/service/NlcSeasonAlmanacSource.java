@@ -68,13 +68,13 @@ public class NlcSeasonAlmanacSource implements AlmanacSource {
                 }
                 spanEnd = date;
             } else if (spanStart != null) {
-                events.add(toEvent(spanStart, spanEnd, from, to));
+                events.add(toEvent(spanStart, spanEnd));
                 spanStart = null;
             }
         }
 
         if (spanStart != null) {
-            events.add(toEvent(spanStart, spanEnd, from, to));
+            events.add(toEvent(spanStart, spanEnd));
         }
         return events;
     }
@@ -85,13 +85,21 @@ public class NlcSeasonAlmanacSource implements AlmanacSource {
      * <p>An eleven-week season seen through a ninety-day window is usually clipped at one end or
      * both, and a reader told "season: 25 May – 12 Aug" when the window simply stopped on the 12th
      * would take a rendering artefact for an astronomical fact. The flags say which ends are real.
+     *
+     * <p>⚠️ <strong>The flags ask the season, not the window.</strong> They were first written as
+     * {@code start.isEqual(from)}, which is true both when the season was clipped <em>and</em> when
+     * it genuinely opens on the feed's first day — so once a year the real season boundary was
+     * reported as an artefact. The test that was supposed to guard this stubbed every day in
+     * season and could not tell the two apart. Probing the day either side costs two calls and
+     * distinguishes them exactly.
      */
-    private static AlmanacEvent toEvent(LocalDate start, LocalDate end,
-            LocalDate from, LocalDate to) {
+    private AlmanacEvent toEvent(LocalDate start, LocalDate end) {
+        boolean clippedAtStart = nlcClarityService.isNlcSeason(start.minusDays(1));
+        boolean clippedAtEnd = nlcClarityService.isNlcSeason(end.plusDays(1));
         return new AlmanacEvent(start, end, AlmanacKind.ALMANAC, TYPE, TITLE, DETAIL,
                 AlmanacEvent.metaOf(
-                        "startsBeforeWindow", start.isEqual(from) ? "true" : null,
-                        "endsAfterWindow", end.isEqual(to) ? "true" : null),
+                        "startsBeforeWindow", clippedAtStart ? "true" : null,
+                        "endsAfterWindow", clippedAtEnd ? "true" : null),
                 List.of());
     }
 }

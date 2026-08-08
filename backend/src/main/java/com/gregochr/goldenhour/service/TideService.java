@@ -99,6 +99,17 @@ public class TideService {
     /** A HIGH tide exceeding 125% of average high is classified as a spring tide. */
     private static final BigDecimal SPRING_TIDE_FACTOR = new BigDecimal("1.25");
 
+    /**
+     * Fewest past high waters from which a spring or king threshold may be derived.
+     *
+     * <p>One spring–neap cycle is 14.77 days and a semidiurnal coast has about 1.93 high waters a
+     * day, so a full cycle is ~28. Below that the sample has not seen both a spring and a neap and
+     * cannot say what is unusual for the port: the mean sits wherever the fortnight happened to
+     * fall. This is a floor on the <em>threshold</em> only — the mean, max and min are reported
+     * from whatever history exists, because those describe the sample honestly at any size.
+     */
+    private static final long MIN_HIGHS_FOR_THRESHOLDS = 28;
+
     private final RestClient restClient;
     private final TideExtremeRepository tideExtremeRepository;
     private final WorldTidesProperties worldTidesProperties;
@@ -520,6 +531,13 @@ public class TideService {
      * depends on the fetch horizon is the worse failure, because nothing on screen
      * attributes a moved badge to it.
      *
+     * <p><strong>Thresholds need a whole cycle; averages do not.</strong> The spring and king
+     * thresholds are withheld until {@value #MIN_HIGHS_FOR_THRESHOLDS} past high waters exist
+     * — one spring–neap cycle — while the mean, max and min are reported from whatever history
+     * there is. Without that floor, bounding the sample would have replaced one silent failure
+     * with a louder one: a location fetched forward-only reports two high waters on its second
+     * day, and two neap samples put the spring threshold below almost every later high water.
+     *
      * @param locationId the location primary key
      * @return Optional containing TideStats if data is available, empty otherwise
      */
@@ -546,6 +564,15 @@ public class TideService {
             return Optional.empty();
         }
 
+        // A sample too short to contain a spring–neap cycle cannot describe one. Bounding the
+        // sample to past extremes removed an accidental floor: the forward fetch window used to
+        // guarantee roughly a fortnight of high waters even for a location with no history, and
+        // taking that away left nothing in its place. Two neap samples put the spring threshold
+        // under almost every subsequent high water — a standing king-tide flag on ordinary days,
+        // not an occasional false positive — and two spring samples put it above the port's own
+        // maximum so nothing fires at all. Both reach a persisted column and the Claude prompt.
+        boolean cycleObserved = highCount >= MIN_HIGHS_FOR_THRESHOLDS;
+
         BigDecimal avgHigh = highCount > 0 ? toBigDecimal(highStats[0]) : null;
         BigDecimal maxHigh = highCount > 0 ? toBigDecimal(highStats[1]) : null;
         BigDecimal avgLow = lowCount > 0 ? toBigDecimal(lowStats[0]) : null;
@@ -563,7 +590,7 @@ public class TideService {
         BigDecimal springThreshold = null;
         long kingCount = 0;
 
-        if (highCount > 0) {
+        if (cycleObserved) {
             List<BigDecimal> highHeights = tideExtremeRepository
                     .findHeightsByLocationIdAndTypeBeforeOrderByHeightAsc(
                             locationId, TideExtremeType.HIGH, statsCutoff);

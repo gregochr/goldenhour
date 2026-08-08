@@ -69,11 +69,21 @@ Both statistics queries now stop at the start of today (UTC), so the two can cha
 This is a prerequisite for extending the horizon rather than a user-visible feature: it is landing
 on its own, ahead of that change, so the shift it causes can be measured by itself.
 
-The trade is deliberate. A coastal location added yesterday has no history to draw on and reports no
-statistics until its backfill runs, where previously it would have borrowed a fortnight of forecast
-tides — the ten Durham Heritage Coast locations added in V138 are exactly this case. A threshold
-built from predictions nobody has checked is the weaker of the two, and a threshold that quietly
-tracks an unrelated setting is the more dangerous.
+**A location also needs enough history to have a threshold at all.** Bounding the sample to past
+tides removed something nobody had noticed was load-bearing: the forward window used to guarantee
+roughly a fortnight of high waters for every location, including one added yesterday. Without a
+floor, a location fetched for the first time would have derived "what counts as a big tide here"
+from two tides — and two ordinary ones would have put the bar under almost every tide that
+followed, marking every one of them a king tide, on the map, in the pills and in the text sent to
+Claude. So the spring and king thresholds are now withheld until a location has seen a full
+spring–neap cycle. Its average, highest and lowest tides are still reported from whatever history
+exists; only the "is this unusual" judgement waits.
+
+The trade is deliberate. A coastal location added yesterday reports averages but no spring or king
+classification until its history catches up — the ten Durham Heritage Coast locations added in V138
+are exactly this case — where previously it would have borrowed a fortnight of forecast tides. A
+threshold built from predictions nobody has checked is the weaker of the two, and a threshold that
+quietly tracks an unrelated setting is the more dangerous.
 
 ## [v2.17.13] - 2026-08-08
 

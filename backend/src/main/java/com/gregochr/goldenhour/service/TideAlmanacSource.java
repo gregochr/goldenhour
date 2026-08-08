@@ -57,6 +57,15 @@ public class TideAlmanacSource implements AlmanacSource {
     /** Machine-readable discriminator for a perigean (king) run. */
     static final String TYPE_KING = "king-tide";
 
+    /**
+     * Safety bound on the outward walk that finds a run's true first and last day.
+     *
+     * <p>A spring run is a couple of days and cannot approach this. It exists so a classifier
+     * change can never turn the walk into an unbounded loop — the walk's terminating condition is
+     * supplied by another class.
+     */
+    private static final int MAX_RUN_WALK_DAYS = 10;
+
     private static final String SPRING_TITLE = "Spring tide run";
     private static final String KING_TITLE = "King tide run";
 
@@ -120,35 +129,69 @@ public class TideAlmanacSource implements AlmanacSource {
         List<Run> runs = new ArrayList<>();
         LocalDate runStart = null;
         LocalDate runEnd = null;
-        boolean runIsKing = false;
 
         for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
-            LunarTideType type = lunarPhaseService.classifyTide(date);
-            boolean qualifies =
-                    type == LunarTideType.SPRING_TIDE || type == LunarTideType.KING_TIDE;
-
-            if (!qualifies) {
+            if (!qualifies(date)) {
                 if (runStart != null) {
-                    runs.add(new Run(runStart, runEnd, runIsKing));
+                    runs.add(completeRun(runStart, runEnd));
                     runStart = null;
-                    runIsKing = false;
                 }
                 continue;
             }
-
             if (runStart == null) {
                 runStart = date;
             }
             runEnd = date;
-            // One perigean day makes the whole run a king run: the run is one event, and the
-            // product already treats it that way rather than as n unrelated days.
-            runIsKing = runIsKing || type == LunarTideType.KING_TIDE;
         }
 
         if (runStart != null) {
-            runs.add(new Run(runStart, runEnd, runIsKing));
+            runs.add(completeRun(runStart, runEnd));
         }
         return runs;
+    }
+
+    /**
+     * Extends a run outwards past the requested range to its true first and last day, then
+     * classifies it.
+     *
+     * <p><strong>Why the walk exists.</strong> A run detected only within {@code [from, to]} is
+     * clipped at both edges, which breaks two things at once. The reported span becomes a lie —
+     * {@link AlmanacSource} promises a run's true dates precisely so "this began yesterday" does
+     * not render as "starts today" — and, worse, the <em>label</em> changes. Perigee is a
+     * half-day window, so exactly one day of a run can be perigean; clip that day off and a king
+     * tide is served as an ordinary spring tide, with different copy and a different useful
+     * water, one day before it corrects itself.
+     *
+     * <p>The walk is cheap and safe: {@code classifyTide} is pure arithmetic over two epochs with
+     * no horizon and no I/O, and a lunar run is a couple of days, so this costs a handful of extra
+     * calls per run. It is bounded by {@link #MAX_RUN_WALK_DAYS} anyway, so a hypothetical
+     * classifier that returned true forever cannot spin.
+     */
+    private Run completeRun(LocalDate firstSeen, LocalDate lastSeen) {
+        LocalDate start = firstSeen;
+        for (int i = 0; i < MAX_RUN_WALK_DAYS && qualifies(start.minusDays(1)); i++) {
+            start = start.minusDays(1);
+        }
+        LocalDate end = lastSeen;
+        for (int i = 0; i < MAX_RUN_WALK_DAYS && qualifies(end.plusDays(1)); i++) {
+            end = end.plusDays(1);
+        }
+
+        // King is decided over the true span, not the visible one — the perigean day is what
+        // defines the event, and it is the day most likely to fall outside the window.
+        boolean king = false;
+        for (LocalDate date = start; !date.isAfter(end); date = date.plusDays(1)) {
+            if (lunarPhaseService.classifyTide(date) == LunarTideType.KING_TIDE) {
+                king = true;
+                break;
+            }
+        }
+        return new Run(start, end, king);
+    }
+
+    private boolean qualifies(LocalDate date) {
+        LunarTideType type = lunarPhaseService.classifyTide(date);
+        return type == LunarTideType.SPRING_TIDE || type == LunarTideType.KING_TIDE;
     }
 
     private AlmanacEvent toEvent(Run run, List<LocationEntity> coastal) {
@@ -157,9 +200,17 @@ public class TideAlmanacSource implements AlmanacSource {
                 : tideRunBuilder.build(run.dates(), coastal, run.king());
 
         TideRunDay peak = pickPeak(run, enriched);
+        boolean isTruePeak = peak != null && peak.peak();
 
         // Absent keys rather than empty ones: metaOf drops anything null or blank, so a run beyond
         // the stored-extremes window arrives carrying dates and nothing else.
+        //
+        // "peakDate" is published only when the builder actually flagged that day as the run's
+        // peak. On the fallback path the figures are real and correctly attributed to their own
+        // day, but no maximum was computed — so they go out as "figuresFrom" with a
+        // "partialCoverage" flag instead. Reusing "peakDate" there would make a day that merely
+        // happened to be inside the stored-extremes window indistinguishable, to a renderer, from
+        // the biggest tide of the run.
         Map<String, String> meta = peak == null
                 ? Map.of()
                 : AlmanacEvent.metaOf(
@@ -168,7 +219,9 @@ public class TideAlmanacSource implements AlmanacSource {
                         "highWater", peak.highWater(),
                         "verdict", peak.verdict(),
                         "location", peak.locationName(),
-                        "peakDate", peakDateOf(run, enriched, peak));
+                        "peakDate", isTruePeak ? dateOf(run, enriched, peak) : null,
+                        "figuresFrom", isTruePeak ? null : dateOf(run, enriched, peak),
+                        "partialCoverage", isTruePeak ? null : "true");
 
         return new AlmanacEvent(
                 run.start(),
@@ -207,7 +260,7 @@ public class TideAlmanacSource implements AlmanacSource {
         return firstDerivable;
     }
 
-    private static String peakDateOf(Run run, Map<LocalDate, TideRunDay> enriched, TideRunDay peak) {
+    private static String dateOf(Run run, Map<LocalDate, TideRunDay> enriched, TideRunDay peak) {
         for (LocalDate date : run.dates()) {
             if (enriched.get(date) == peak) {
                 return date.toString();

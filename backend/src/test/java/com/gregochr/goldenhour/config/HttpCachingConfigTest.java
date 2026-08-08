@@ -62,6 +62,7 @@ class HttpCachingConfigTest {
         "/api/astro/conditions/available-dates",
         "/api/aurora/status",
         "/api/nlc/sighting",
+        "/api/almanac",
     })
     @DisplayName("Whitelisted read paths are ETag-filtered")
     void whitelistedReadPathsAreFiltered(String path) {

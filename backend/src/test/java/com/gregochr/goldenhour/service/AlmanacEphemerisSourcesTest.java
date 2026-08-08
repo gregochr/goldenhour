@@ -13,6 +13,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -116,7 +117,9 @@ class AlmanacEphemerisSourcesTest {
 
         /** Full-moon-at-perigee on the given offsets from start, over a span of days. */
         private void supermoonOn(int span, int... offsets) {
-            for (int i = 0; i < span; i++) {
+            // -1 and span are probed by the outward walk that finds a span's true first and last
+            // night; unstubbed they would be a strict-stubbing miss rather than "not a supermoon".
+            for (int i = -1; i <= span; i++) {
                 LocalDate date = start.plusDays(i);
                 boolean hit = false;
                 for (int offset : offsets) {
@@ -125,10 +128,9 @@ class AlmanacEphemerisSourcesTest {
                         break;
                     }
                 }
-                when(lunarPhaseService.isFullMoon(date)).thenReturn(hit);
-                if (hit) {
-                    when(lunarPhaseService.daysFromNearestPerigee(date)).thenReturn(1.0);
-                }
+                lenient().when(lunarPhaseService.isFullMoon(date)).thenReturn(hit);
+                lenient().when(lunarPhaseService.daysFromNearestPerigee(date))
+                        .thenReturn(hit ? 1.0 : 99.0);
             }
         }
 
@@ -226,7 +228,7 @@ class AlmanacEphemerisSourcesTest {
                 + "mistake the window edge for the season's end")
         void flagsAClippedEnd() {
             LocalDate from = LocalDate.of(2026, 6, 1);
-            for (int i = 0; i <= 3; i++) {
+            for (int i = -1; i <= 4; i++) {
                 when(nlcClarityService.isNlcSeason(from.plusDays(i))).thenReturn(true);
             }
 
@@ -238,6 +240,27 @@ class AlmanacEphemerisSourcesTest {
         }
 
         @Test
+        @DisplayName("a season that genuinely opens on the feed's first day is NOT flagged as "
+                + "clipped — the flags ask the season, not the window")
+        void doesNotFlagAGenuineSeasonBoundary() {
+            // The old test could not tell these apart: it stubbed every day in season, so
+            // "clipped" and "really starts here" produced identical input. Once a year the real
+            // boundary was reported as a rendering artefact.
+            LocalDate from = LocalDate.of(2026, 5, 25);
+            when(nlcClarityService.isNlcSeason(from.minusDays(1))).thenReturn(false);
+            for (int i = 0; i <= 3; i++) {
+                when(nlcClarityService.isNlcSeason(from.plusDays(i))).thenReturn(true);
+            }
+            when(nlcClarityService.isNlcSeason(from.plusDays(4))).thenReturn(true);
+
+            AlmanacEvent event = new NlcSeasonAlmanacSource(nlcClarityService)
+                    .events(from, from.plusDays(3)).getFirst();
+
+            assertThat(event.meta()).doesNotContainKey("startsBeforeWindow");
+            assertThat(event.meta()).containsEntry("endsAfterWindow", "true");
+        }
+
+        @Test
         @DisplayName("a season entirely inside the window carries neither clipping flag")
         void anUnclippedSeasonCarriesNoFlags() {
             LocalDate from = LocalDate.of(2026, 5, 1);
@@ -245,6 +268,8 @@ class AlmanacEphemerisSourcesTest {
                 when(nlcClarityService.isNlcSeason(from.plusDays(i)))
                         .thenReturn(i == 1 || i == 2 || i == 3);
             }
+            // Probed by the clip check; both ends are genuine season boundaries here.
+            when(nlcClarityService.isNlcSeason(from)).thenReturn(false);
 
             AlmanacEvent event = new NlcSeasonAlmanacSource(nlcClarityService)
                     .events(from, from.plusDays(4)).getFirst();

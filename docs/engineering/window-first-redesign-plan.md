@@ -1640,12 +1640,47 @@ are visible to it.
   days the question is *when*, not *from where*, and carrying a region list would mean a solar
   calculation per location per day to produce something unactionable.
 
-**Coverage, said plainly.** 96 new tests, all backend and all unit-level: five mutants aimed at the
-load-bearing claims (a synthesised range, a drifted equinox anchor, meteor single-emit, lost source
-isolation, blanks kept in `meta`) were each killed by their named test. **Nothing has been rendered
-or seen** — there is no UI for this yet, that is P13. Nothing has been run against production data;
-the local `tide_extreme` table is empty, so the enriched half of the tide path is verified only
-against a stubbed builder. `V139` is unexercised against Postgres because Docker was not running.
+**What the adversarial review changed, because three of these were real.** Nineteen agents — six
+prosecutor lenses, two refuters per lens defaulting to REFUTED without citable evidence, then
+synthesis. 64 charges laid, 12 put to a defence, 5 survived. All 5 fixed before the phase closed.
+
+- ⚠️ **The threshold decoupling removed an accidental minimum-sample floor and put nothing in its
+  place.** This is the finding worth remembering: the *fix* introduced the defect. Before, the
+  forward fetch window guaranteed every location ~27 high waters; bounding the sample to past
+  extremes meant a location fetched forward-only derived a spring threshold from two tides on its
+  second day. Two neap samples put the bar under almost every later high water — a **standing**
+  king-tide flag, not an occasional false positive — reaching `forecast_evaluation.surge_risk_level`
+  and the Claude prompt. `MIN_HIGHS_FOR_THRESHOLDS = 28` (one spring–neap cycle) now gates the
+  thresholds only; averages are reported at any sample size. **When you remove an implicit
+  invariant, check what was relying on it.**
+- **Spans were clipped at the window edge**, contradicting a contract stated in `AlmanacSource`, the
+  controller Javadoc *and* the CHANGELOG. Both tide and supermoon sources now walk outwards past the
+  requested range to the true first and last day.
+- **A king run was relabelled a spring run** when its perigean day fell outside the window. Perigee
+  is a half-day window so exactly one day of a run can be perigean, and clipping it flipped the
+  type, the copy and the useful water — correcting itself a day later. Fixed by the same walk.
+- `peakDate` on the fallback path named the first *derivable* day, not the biggest; it is now
+  `figuresFrom` + `partialCoverage` so a renderer cannot confuse the two. `washedOut` compared an
+  unrounded fraction against a rounded reported percentage, so two rows could read "50%" with
+  opposite flags.
+- The NLC clip flags asked the window rather than the season, so once a year a genuine season
+  boundary was reported as a rendering artefact — and the test that should have caught it stubbed
+  every day in season and could not distinguish the cases.
+
+Worth keeping: the review also **refuted** several alarming-sounding charges. The 97-day delete
+window does not destroy coverage on a short WorldTides response (pre-existing, and a static upstream
+cap leaves nothing beyond it to delete); `meta` key-order randomisation is real but harmless and is
+the existing house pattern; the feed's UTC `today` is the dominant backend idiom, not a violation of
+a London convention; and the feed's spring/king predicate is a strict *subset* of the Plan tab's, so
+this narrowed a pre-existing divergence rather than widening it. Do not re-raise these.
+
+**Coverage, said plainly.** 112 new tests, all backend and all unit-level; eight mutants aimed at the
+load-bearing claims — including three that revert exactly the defects above — each killed by their
+named test. **Nothing has been rendered or seen** — there is no UI for this yet, that is P13. Nothing
+has been run against production data; the local `tide_extreme` table is empty, so the enriched half
+of the tide path is verified only against a stubbed builder. `V139` is unexercised against Postgres
+because Docker was not running. The review itself was **static reading only** — no agent compiled,
+ran or rendered anything — and 52 of its 64 charges fell below the verification cut untested.
 
 ---
 
