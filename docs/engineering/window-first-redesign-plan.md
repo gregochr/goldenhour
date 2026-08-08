@@ -1506,6 +1506,21 @@ the suppression. Letting the focus move **settle** before the hover is what make
 and it is worth carrying: on this surface a dialog has two independent reasons to take a peek down,
 so any test of one of them has to neutralise the other first.
 
+**One charge was investigated and DISPROVED by measurement, which is worth recording because P14
+will meet it.** The review argued that at 400% zoom (a ~320x256 CSS-px viewport) the card's fixed
+chrome — header, a filter bar wrapped to three rows, footer — exceeds `max-height: calc(100dvh -
+32px)`, that `.wf-sheet-list` collapses to zero because a scroll container's automatic minimum is 0,
+and that the footer is then clipped with no scroll route anywhere in the stack (`Modal`'s overlay
+has no `overflow-y` either). The mechanism is real and the arithmetic was right **against the blob
+the reviewer read**. It is wrong against the tree, for two reasons that only became true during this
+same review: the ≤639px per-segment `overflow-x: auto` added for a *different* charge makes each
+`.wf-seg` a scroll container, so the filter bar's rows can compress; and above that width the bar
+does not wrap to three rows at all. Measured on the running app at **320x256** (head 88.8, bar
+128.5, foot 78.3, card 224) and **660x256** (head 55.5, bar 132.5, foot 34.8), the footer sits
+inside the card in both. A `.wf-sheet-body` scroll region was built for it and then **reverted** —
+it added a `max-height` breakpoint and made the filter bar scroll away below 520px tall, for a
+defect that no longer exists. Two fixes interacted; the second was measured rather than argued.
+
 **Not verified, said plainly.** Anything against real ratings or real drive times — the fixture is
 the whole data path, and the reach map had to be rewritten by hand to reach the gated case.
 `sheetOffersMore` returning false (unit-tested only; the local roster always has ratings). The residual on the shell's `sheetKey`: a window that vanishes and returns would
