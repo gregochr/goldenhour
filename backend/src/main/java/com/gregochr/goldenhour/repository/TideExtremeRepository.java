@@ -97,32 +97,56 @@ public interface TideExtremeRepository extends JpaRepository<TideExtremeEntity, 
     boolean existsByLocationIdAndEventTimeBetween(Long locationId, LocalDateTime from, LocalDateTime to);
 
     /**
-     * Returns aggregate height statistics for a location and tide type.
+     * Returns aggregate height statistics for a location and tide type, over stored
+     * extremes strictly before {@code cutoff}.
      *
      * <p>Result is a single-element array: {@code [avgHeight, maxHeight, minHeight, count]}.
      *
+     * <p><strong>Why the cutoff exists.</strong> These aggregates feed the spring-tide
+     * threshold ({@code 1.25 × avgHigh}) and the king-tide P95 in
+     * {@code TideService.getTideStats}. Without a bound they ran over every row in the
+     * table — including the forward extremes the weekly WorldTides fetch writes — which
+     * silently coupled the classification threshold to whatever
+     * {@code TideService.FETCH_LENGTH_SECONDS} happened to be. Lengthening the fetch
+     * horizon then moved spring/king classification for every coastal location, and the
+     * effect reached a persisted column ({@code forecast_evaluation.surge_risk_level}),
+     * the Claude prompt, hot-topic firing and rendered "N m above an average tide" copy.
+     * Bounding to observed history decouples the two permanently: the horizon may change
+     * again without moving the threshold.
+     *
      * @param locationId the location primary key
      * @param type       HIGH or LOW
+     * @param cutoff     exclusive upper bound on event time — extremes at or after this
+     *                   instant are excluded from the sample
      * @return Object array with avg, max, min BigDecimal heights and Long count
      */
     @Query("SELECT AVG(t.heightMetres), MAX(t.heightMetres), MIN(t.heightMetres), COUNT(t) "
-            + "FROM TideExtremeEntity t WHERE t.locationId = :locationId AND t.type = :type")
-    Object[] findHeightStatsByLocationIdAndType(
+            + "FROM TideExtremeEntity t WHERE t.locationId = :locationId AND t.type = :type "
+            + "AND t.eventTime < :cutoff")
+    Object[] findHeightStatsByLocationIdAndTypeBefore(
             @Param("locationId") Long locationId,
-            @Param("type") TideExtremeType type);
+            @Param("type") TideExtremeType type,
+            @Param("cutoff") LocalDateTime cutoff);
 
     /**
-     * Returns all heights for a location and tide type, ordered ascending.
+     * Returns all heights for a location and tide type strictly before {@code cutoff},
+     * ordered ascending.
      *
-     * <p>Used for percentile calculations in Java (H2 lacks PERCENTILE_CONT).
+     * <p>Used for percentile calculations in Java (H2 lacks PERCENTILE_CONT). Shares the
+     * cutoff rationale documented on {@link #findHeightStatsByLocationIdAndTypeBefore} —
+     * the two must sample the same population or the P95 and the mean describe different
+     * sets of tides.
      *
      * @param locationId the location primary key
      * @param type       HIGH or LOW
+     * @param cutoff     exclusive upper bound on event time
      * @return sorted list of heights
      */
     @Query("SELECT t.heightMetres FROM TideExtremeEntity t "
-            + "WHERE t.locationId = :locationId AND t.type = :type ORDER BY t.heightMetres ASC")
-    List<BigDecimal> findHeightsByLocationIdAndTypeOrderByHeightAsc(
+            + "WHERE t.locationId = :locationId AND t.type = :type AND t.eventTime < :cutoff "
+            + "ORDER BY t.heightMetres ASC")
+    List<BigDecimal> findHeightsByLocationIdAndTypeBeforeOrderByHeightAsc(
             @Param("locationId") Long locationId,
-            @Param("type") TideExtremeType type);
+            @Param("type") TideExtremeType type,
+            @Param("cutoff") LocalDateTime cutoff);
 }

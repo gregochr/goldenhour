@@ -470,18 +470,35 @@ public class TideService {
     }
 
     /**
-     * Computes aggregate tide height statistics for a location from all stored extremes.
+     * Computes aggregate tide height statistics for a location from stored extremes
+     * that have already occurred.
      *
-     * <p>Returns empty if no extremes are stored for the location.
+     * <p>Returns empty if no past extremes are stored for the location.
+     *
+     * <p><strong>Past extremes only, deliberately.</strong> The sample stops at the start
+     * of today (UTC), so the spring and king thresholds derived here are a climatology over
+     * observed history rather than a figure that moves with the forward fetch window. Before
+     * this bound the aggregates ran over every row in {@code tide_extreme}, which meant
+     * changing {@link #FETCH_LENGTH_SECONDS} silently re-classified spring and king tides
+     * everywhere they are read. See {@code TideExtremeRepository
+     * .findHeightStatsByLocationIdAndTypeBefore} for the full rationale.
+     *
+     * <p>Note this makes the statistics weakest for a newly added coastal location, which
+     * has no history until the first backfill runs — the same locations for which the old
+     * unbounded query was strongest. That trade is intended: a threshold that quietly
+     * depends on the fetch horizon is the worse failure, because nothing on screen
+     * attributes a moved badge to it.
      *
      * @param locationId the location primary key
      * @return Optional containing TideStats if data is available, empty otherwise
      */
     public Optional<TideStats> getTideStats(Long locationId) {
-        Object[] highStats = tideExtremeRepository.findHeightStatsByLocationIdAndType(
-                locationId, TideExtremeType.HIGH);
-        Object[] lowStats = tideExtremeRepository.findHeightStatsByLocationIdAndType(
-                locationId, TideExtremeType.LOW);
+        LocalDateTime statsCutoff = LocalDate.now(ZoneOffset.UTC).atStartOfDay();
+
+        Object[] highStats = tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                locationId, TideExtremeType.HIGH, statsCutoff);
+        Object[] lowStats = tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                locationId, TideExtremeType.LOW, statsCutoff);
 
         // H2 may return Object[1]{Object[4]{avg,max,min,count}} — unwrap if nested
         if (highStats.length == 1 && highStats[0] instanceof Object[]) {
@@ -517,7 +534,8 @@ public class TideService {
 
         if (highCount > 0) {
             List<BigDecimal> highHeights = tideExtremeRepository
-                    .findHeightsByLocationIdAndTypeOrderByHeightAsc(locationId, TideExtremeType.HIGH);
+                    .findHeightsByLocationIdAndTypeBeforeOrderByHeightAsc(
+                            locationId, TideExtremeType.HIGH, statsCutoff);
 
             p75 = percentile(highHeights, 75);
             p90 = percentile(highHeights, 90);

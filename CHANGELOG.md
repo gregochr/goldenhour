@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the spring and king tide thresholds no longer move with the tide fetch horizon (window-first Plan, P12)
+
+**A location's spring and king thresholds are now a climatology over tides that have actually
+happened.** They are derived from the stored extremes for that location — the spring threshold at
+125% of the mean high water, the king threshold at the 95th percentile — and until now that sample
+was every row in the table, including the forward extremes the weekly WorldTides fetch writes ahead
+of today. The horizon and the threshold were therefore the same dial. Lengthening the fetch window
+would have moved spring and king classification for every coastal location, and the move would have
+reached a persisted column, the text handed to Claude, whether the tide pills fire at all, and the
+"N m above an average tide" line on the window rows — with nothing on screen to connect a changed
+badge to a fetch setting altered weeks earlier.
+
+Both statistics queries now stop at the start of today (UTC), so the two can change independently.
+This is a prerequisite for extending the horizon rather than a user-visible feature: it is landing
+on its own, ahead of that change, so the shift it causes can be measured by itself.
+
+The trade is deliberate. A coastal location added yesterday has no history to draw on and reports no
+statistics until its backfill runs, where previously it would have borrowed a fortnight of forecast
+tides — the ten Durham Heritage Coast locations added in V138 are exactly this case. A threshold
+built from predictions nobody has checked is the weaker of the two, and a threshold that quietly
+tracks an unrelated setting is the more dangerous.
+
 ## [v2.17.13] - 2026-08-08
 
 ### Added — see all the spots in a window, and filter them while you browse (window-first Plan, P11)
