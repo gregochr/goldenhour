@@ -851,7 +851,7 @@ class PlanWindowProjectorTest {
         @Test
         @DisplayName("a window with no rollup carries a null tide, and everything else")
         void aWindowWithoutARollupIsOtherwiseWhole() {
-            // tide_extreme reaches T+13 but a single date can still be undrawable, and an inland
+            // tide_extreme reaches months ahead but a single date can still be undrawable, and an inland
             // deployment has no coastal roster at all. Neither may cost the window its verdict,
             // its rating or its pick — the row simply falls back to its per-slot facts.
             BriefingWindow w = projectOne(region("Northumberland", 4, 4, 4));

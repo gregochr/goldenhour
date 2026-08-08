@@ -242,10 +242,15 @@ this phase is safe to build:
 | `tide_extreme` | to **T+13** (2026-08-16), 61 locations | fetched **today** | ~4 extremes per location per day, no gaps |
 | `marine_wave` | to **T+4** (2026-08-07) only | evaluated today | per (location, date, event) |
 
-⚠️ **Sea state is independently nullable.** Tides reach T+13; waves reach T+4, exactly the briefing
-window and no further. A window beyond T+4 has a full tide rollup and no sea state, so the field must
-degrade on its own rather than being assumed present whenever the rollup exists. Do not let a missing
-sea state suppress the rollup.
+*(The tide row is a measurement taken 2026-08-03 and is left as it was recorded. P12 raised the fetch
+horizon to 97 days, so a re-measurement today would read T+96.)*
+
+⚠️ **Sea state is independently nullable.** Tides reach months ahead; waves reach T+4, exactly the
+briefing window and no further. A window beyond T+4 has a full tide rollup and no sea state, so the
+field must degrade on its own rather than being assumed present whenever the rollup exists. Do not let
+a missing sea state suppress the rollup. **P12 widened this gap from nine days to eighty-three** — a
+window with a tide rollup and no sea state is now the ordinary case rather than the far-end one, which
+raises the stakes on that degrade path without changing its logic.
 
 **The rollup names its representative coastal location.** The row asserts `HW 19:28 · 1h43 before
 sunset` and `4.9 m · 1.2 m above an average tide` over a set its own action line calls "61 coastal
@@ -499,9 +504,12 @@ and the reason is worth stating precisely, because the mock does not.
 `LunarPhaseService.classifyTide(LocalDate)` is pure arithmetic over two reference epochs, with no DB
 read and no horizon, already injected into `MeteorHotTopicStrategy` and `SupermoonHotTopicStrategy`.
 
-**What is not free past T+13 is any height, range, clock time or solar-alignment claim.** Those need
-stored extremes, and `tide_extreme` carries T+0..T+13 forward (`TideService.java:53-54` —
-`FETCH_LENGTH_SECONDS = 14L * 24 * 3600`; `:198` logs "T+0 to T+13"), decaying to ~T+7 by the weekend
+**What is not free past the fetch window is any height, range, clock time or solar-alignment claim.**
+Those need stored extremes. ⚠️ **Superseded by P12**, which raised the window to 97 days so the whole
+90-day feed carries figures; the degrade rule below still governs anything beyond it, and still
+governs every day if a refresh fails. As written, this said `tide_extreme` carries T+0..T+13 forward
+(`TideService.java:53-54` — `FETCH_LENGTH_SECONDS = 14L * 24 * 3600`; `:198` logs "T+0 to T+13"),
+decaying to ~T+7 by the weekend
 under the Monday cron. The 12-month backfill supplies the **threshold** (`SPRING_TIDE_FACTOR` × average
 high, P95 for king — `TideService:517-537`), not forward coverage: it writes strictly into the past
 (`:234-237` — `today.minusMonths(12)` … `chunkStart.isBefore(today)`).
@@ -511,12 +519,43 @@ nothing numeric. No metre figure and no alignment verdict is ever rendered for a
 extremes. Never synthesise. The handoff mock's "16–18 Aug · Spring tide run 3/3 · 4.6 m range ·
 alignment falls on sunrise" — dated 1 Aug — is exactly the row this rule governs.
 
-**Or extend the horizon.** `refreshTideExtremes` sends `length` as a query parameter, one request per
-coastal location per week (`ScheduledForecastService.java:74-92`, `TideService.java:141-150`), so a
-longer horizon changes response size, not request count. Raising `FETCH_LENGTH_SECONDS` to ~97 days
-(90 + a week's slack, so the window still reaches T+90 the day before the next Monday refresh) is
-viable subject to WorldTides' per-response length limit and billing model. Decide at P12; the windowed
-delete at `:187-190` scales off the same constant and needs no change. Do not do neither.
+**Or extend the horizon. ✅ DECIDED AND DONE at P12 — extended to 97 days.** The constant is now
+derived in code from `ALMANAC_HORIZON_DAYS = 90` plus `REFRESH_SLACK_DAYS = 7` rather than written as
+a literal, so the number cannot drift from the reason it has that value. The windowed delete scales
+off the same constant and needed no change, exactly as predicted; its lower bound is pinned to today
+independently, so backfilled history was never at risk.
+
+⚠️ **Two things this paragraph used to say were wrong, and one of them was the argument for the
+change.** They are corrected rather than deleted, because both are the kind of claim a later reader
+would otherwise re-derive the same wrong way.
+
+- **"A longer horizon changes response size, not request count" — false.** WorldTides bills
+  `extremes` at **one credit per seven days of data**, not one per request, so the horizon sets the
+  recurring cost: `ceil(97/7) = 14` credits per coastal location per week against the previous 2.
+  Across 61 coastal locations that is **122 → 854 credits a week**, roughly 3,700 a month, which sits
+  inside the cheapest paid tier (20,000) but is a 7× rise rather than a free one. Note the in-repo
+  comment at `TideService.java:68-69` — *"WorldTides charges per request, so 7 days is efficient"* —
+  is wrong on both halves and self-refuting: if it charged per request, 7-day chunks would be the
+  least efficient choice available. The backfill's chunking is cost-neutral by accident; only its
+  stated reason is wrong.
+- **No maximum `length` is documented.** A claimed 604,800 s cap is refuted by this repo already
+  sending 1,209,600 in production. **Still unverified: the actual server behaviour at 97 days** — the
+  API validates the key before the parameters, so an unauthenticated probe cannot reach a
+  length-specific error. Confirming it costs ~14 credits with a real key and is the highest-value
+  outstanding check.
+- **The cost dashboard will not show the rise.** `CostProperties` charges a flat
+  `world-tides-micro-dollars: 3000` per call regardless of window size, so real credit consumption
+  multiplies by seven while the admin figure is unchanged. The response already carries `callCount`
+  ("credits used by this request") and `WorldTidesResponse` discards it.
+
+**And one thing the paragraph never mentioned, which mattered more than either.** The spring and king
+thresholds were computed over *every* row in `tide_extreme`, forward rows included
+(`findHeightStatsByLocationIdAndType`, no `event_time` predicate), so the horizon and the
+classification threshold were the same dial. Extending the fetch window would have silently moved
+spring/king classification for every coastal location, into a persisted column
+(`forecast_evaluation.surge_risk_level`), the Claude prompt, hot-topic firing and the "N m above an
+average tide" copy. **That decoupling landed first and on its own** (`75217809`), so the shift it
+causes is measurable in isolation, and only then was the horizon raised.
 
 **The feed needs its own detection path.** `SpringTideHotTopicStrategy.java:92` reads
 `briefingService.getCachedDays()`, capped by `BRIEFING_WINDOW_DAYS = 5`, for consistency with the
@@ -808,18 +847,45 @@ before any card is built — so badges injected at `days[0]` and `days[1]` were 
 correct in the provider's state, and invisible on screen. It looked exactly like a bug in the
 promotion filter for several rounds. Key a fixture to the **local date**, not to the index.
 
-**P12 — the tide fetch horizon and its fallout.** If `FETCH_LENGTH_SECONDS` is extended (§3):
-`TideServiceTest.java:365-367` pins the window at 13–14 days; "14 days" / "T+0 to T+13" prose lives at
-`TideService.java:96, :111, :198`, `ScheduledForecastService.java:69` and
-`docs/pipeline-reference.html:1471`; and the `scheduler_job_config` description seeded by
-`V68__scheduler_job_config.sql:22` can only be corrected by an UPDATE migration. Either accept it as
-stale deliberately or write the migration — and if the latter, the "none expected" below stops being
-true.
+**P12 — the tide fetch horizon and its fallout. ✅ DONE.** The horizon was extended to 97 days and
+the sweep is complete. Two lessons from doing it are worth more than the list itself:
 
-**Migrations: none expected**, since everything rides existing tables and payloads — with the P12
-exception above. If one is needed, read the latest number off the tree on **main** —
-`ls backend/src/main/resources/db/migration/ | sort -V | tail -1` — never from a written-down number,
-including this one.
+- **This list was seven sites; the real count was 34 across 17 files.** It missed the *class*-level
+  Javadoc at `TideService.java:36` while catching the two method-level ones below it; the constant's
+  own comment at `:53`; a third "14 days" Javadoc at `ForecastController.java:408`; the
+  `@DisplayName` at `TideServiceTest.java:344`; `forecast-evaluation-architecture.md:486`; and —
+  because the search never covered `.js`/`.jsx` — **four production `T+13` rationale comments**
+  (`WindowTideRollupBuilder.java:52` and `:70`, `BriefingWindowTide.java:48`,
+  `frontend/src/utils/windowFirstRows.js:133`) plus four more in tests. When sweeping a constant's
+  prose, grep every extension, not just the language the constant is written in.
+- **Exactly one assertion actually failed** (`TideServiceTest.java:367`, the 13–14 day window span).
+  Everything else was a comment. A green suite is therefore no evidence at all that this sweep was
+  done — which is the argument for doing it by inventory rather than by running the tests and seeing
+  what breaks.
+
+Sites deliberately **not** changed: the three `CHANGELOG.md` entries (`:162`, `:405`, `:2888`). They
+are a dated record of what was true when written, and editing them would falsify it. The `:242`
+evidence table in this doc is annotated for the same reason rather than rewritten.
+
+Rephrased rather than renumbered: the four `T+13` rationale comments now say tides reach "months
+ahead". Their *reasoning* survives the change untouched — the wave horizon did not move, so a rollup
+with no sea state is still normal — and only the number rotted. Giving them a new number would
+guarantee a third sweep.
+
+**Migrations: one — `V139__tide_refresh_description_horizon.sql`.** It corrects the `tide_refresh`
+row's description, which `SchedulerController.toDto` serves and `SchedulerView.jsx:278` renders
+verbatim to an operator, so the stale text was a false statement on a screen rather than a dormant
+value. Nothing in the app ever writes that column — `DynamicSchedulerService.registerJobTarget` takes
+only `(jobKey, Runnable)` — so SQL is the only way to change it. ⚠️ **The day count was not the only
+thing wrong with it:** "for all coastal locations" has never been true, because
+`refreshTideExtremes` requires the SEASCAPE tag as well as a tide preference, so a coastal LANDSCAPE
+or WATERFALL location is skipped. The same wrong sentence was in the Javadoc the seed was copied
+from. ⚠️ **V139 cannot be verified locally** — `application-local.yml` disables Flyway and uses
+`ddl-auto: update` with no seed data, so the row does not exist on the local profile.
+
+Everything else rides existing tables and payloads. If another migration is needed, read the latest
+number off the tree on **main** — `ls backend/src/main/resources/db/migration/ | sort -V | tail -1` —
+never from a written-down number, including this one.
 
 Read `docs/engineering/test-improvement-standards.md` before writing any test class. CI's gates
 (JaCoCo 80% per class, SpotBugs, Checkstyle, the Testcontainers integration classes, and the

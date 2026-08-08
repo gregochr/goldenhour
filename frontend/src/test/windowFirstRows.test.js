@@ -115,7 +115,7 @@ describe('buildWindowRows — what a window may state as an attribute row', () =
     });
 
     it('still renders the row past T+4, where there is a tide and no sea state', () => {
-      // marine_wave reaches T+4 and tide_extreme reaches T+13, so the far half of the rail is
+      // marine_wave reaches T+4 and tide_extreme reaches months ahead, so most of the rail is
       // exactly this shape. A missing sea state must degrade on its own, never suppress the row.
       const [row] = buildWindowRows({ tide: tide({ seas: null }), badges: [] }).rows;
 

@@ -483,7 +483,7 @@ The evaluation flow is a state machine per `(regionName, date, targetType)` tupl
 | **Circuit breaker** | **None** |
 | **Timeout** | RestClient defaults (no explicit configuration) |
 | **Error handling** | Non-200 responses logged at WARN; exceptions caught and logged; existing DB data preserved on failure |
-| **Fetch window** | 14 days per fetch; 7-day backfill chunks |
+| **Fetch window** | 97 days per fetch (90-day almanac horizon + a week of refresh slack); 7-day backfill chunks |
 
 ### NOAA SWPC (Aurora only)
 

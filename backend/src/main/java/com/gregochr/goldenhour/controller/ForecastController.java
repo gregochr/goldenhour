@@ -405,7 +405,7 @@ public class ForecastController {
      * Restricted to ADMIN only.
      *
      * <p>Delegates to {@link ScheduledForecastService#refreshTideExtremes()}, which
-     * fetches 14 days of high/low extremes from WorldTides and stores them in the
+     * fetches the forward tide window of high/low extremes from WorldTides and stores them in the
      * {@code tide_extreme} table. The run is tracked as a TIDE {@code JobRunEntity}.
      *
      * @return 202 Accepted with status message

@@ -49,7 +49,7 @@ import java.util.OptionalDouble;
  * <h2>Serve time, with no carrier</h2>
  *
  * <p>Called as part of {@code getCachedBriefingForApi} and never at build time. Everything read here
- * is a DB-only read: {@code tide_extreme} is refreshed weekly and reaches T+13, and
+ * is a DB-only read: {@code tide_extreme} is refreshed weekly and reaches months ahead, and
  * {@code marine_wave} (V123) exists precisely so refresh-time-fetched marine data survives a
  * restart. Nothing is written back to {@code daily_briefing_cache}, so there is no carrier to keep
  * in step and no migration.
@@ -67,8 +67,8 @@ import java.util.OptionalDouble;
  * <p>No coastal roster, no stored extremes, or no resolvable representative means an empty map and
  * no tide row anywhere — the row falls back to {@code BriefingSlot.tide}'s per-location fact line. A
  * single date with no day carrying both a high and a low water loses its own windows and no others.
- * A missing sea state is <em>not</em> such a case: waves reach only T+4 while tides reach T+13, so
- * that field degrades on its own and the rest of the rollup stands.
+ * A missing sea state is <em>not</em> such a case: waves reach only T+4 while tides now reach months
+ * ahead, so that field degrades on its own and the rest of the rollup stands.
  */
 @Component
 public class WindowTideRollupBuilder {

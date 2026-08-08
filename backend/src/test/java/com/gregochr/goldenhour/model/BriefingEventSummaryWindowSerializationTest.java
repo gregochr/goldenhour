@@ -135,7 +135,7 @@ class BriefingEventSummaryWindowSerializationTest {
     @Test
     @DisplayName("a tide's own optional facts are omitted, not written as null")
     void tideOmitsItsOwnAbsentFacts() {
-        // Sea state stops at T+4 while tides reach T+13, so a rollup with no seas is the normal
+        // Sea state stops at T+4 while tides reach months ahead, so a rollup with no seas is the normal
         // case at the far end of the rail — not a degraded one. Same for a location with no
         // historical baseline, where "no comparison was possible" must not read as "average".
         BriefingWindow bare = new BriefingWindow(null, DisplayVerdict.AWAITING, null, null, null,

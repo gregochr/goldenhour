@@ -345,7 +345,7 @@ class TideServiceTest {
     }
 
     @Test
-    @DisplayName("fetchAndStoreTideExtremes() deletes only the 14-day fetch window, not all history")
+    @DisplayName("fetchAndStoreTideExtremes() deletes only the forward fetch window, not all history")
     void fetchAndStoreTideExtremes_deletesOnlyFetchWindow() {
         when(worldTidesProperties.getApiKey()).thenReturn("test-key");
 
@@ -366,10 +366,17 @@ class TideServiceTest {
         List<LocalDateTime> args = captor.getAllValues();
         LocalDateTime from = args.get(0);
         LocalDateTime to = args.get(1);
-        // Window should span roughly 14 days
-        long daysBetween = java.time.temporal.ChronoUnit.DAYS.between(from, to);
-        assertTrue(daysBetween >= 13 && daysBetween <= 14,
-                "Fetch window should be ~14 days but was " + daysBetween);
+        // The window opens at the start of today and runs the configured fetch length: 90 days
+        // of almanac horizon plus a week of slack for the weekly refresh cadence. The 97 is
+        // restated here as a literal on purpose — a test that reads the constant it is checking
+        // cannot fail.
+        assertThat(from).isEqualTo(LocalDate.now(ZoneOffset.UTC).atStartOfDay());
+        assertThat(to).isEqualTo(from.plusDays(97));
+
+        // The lower bound is what protects history: it is pinned to today regardless of the
+        // window length, so lengthening the horizon can only ever extend forwards. Backfilled
+        // rows sit strictly in the past and are never in range.
+        assertThat(from).isBefore(to);
     }
 
     @Test

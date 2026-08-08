@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — tide predictions now reach three months out instead of two weeks (window-first Plan, P12)
+
+**Tide extremes are fetched 97 days ahead rather than 14.** The "Coming up" feed is being built to
+look 90 days out, and tides are the one thing in this app that is genuinely knowable that far ahead —
+they are astronomy, not weather, so a spring tide's range and the sunrise it lands on are as exact in
+three months as they are tomorrow. Withholding them would have meant printing a date and a run
+position and nothing you could plan around. The extra week on top of the 90 is refresh slack: the
+fetch runs weekly, so without it the feed would come up six days short every Sunday.
+
+The number is now derived in code from the horizon and the slack rather than written as a literal, so
+it cannot drift from the reason it has that value.
+
+Two things worth recording for whoever changes it next. WorldTides charges by the amount of data, not
+by the request — one credit per seven days — so this costs about seven times what the old window did,
+and a comment in the codebase asserting the opposite has been corrected. And the admin cost dashboard
+will not show the rise, because it prices WorldTides at a flat rate per call regardless of window
+size.
+
+The scheduler's own description of the job was corrected at the same time. It appears in
+Manage → Operations → Scheduler, and besides the day count it had always claimed to cover "all coastal
+locations" when the job in fact only ever covered SEASCAPE locations with a tide preference set.
+
 ### Changed — the spring and king tide thresholds no longer move with the tide fetch horizon (window-first Plan, P12)
 
 **A location's spring and king thresholds are now a climatology over tides that have actually

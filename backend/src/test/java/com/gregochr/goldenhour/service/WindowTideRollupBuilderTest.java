@@ -371,7 +371,7 @@ class WindowTideRollupBuilderTest {
         @Test
         @DisplayName("a window past the wave horizon keeps its whole rollup, minus the sea")
         void missingSeaStateDoesNotSuppressTheRollup() {
-            // marine_wave reaches T+4; tide_extreme reaches T+13. A window beyond the wave horizon
+            // marine_wave reaches T+4; tide_extreme reaches months ahead. A window beyond the wave horizon
             // is the NORMAL case at the far end of the rail, so the field has to degrade on its own
             // — letting it suppress the row would blank the tide for the last third of the forecast.
             stubSunset();

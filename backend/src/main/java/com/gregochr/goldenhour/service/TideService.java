@@ -33,7 +33,7 @@ import java.util.Set;
 /**
  * Manages tide extremes for coastal locations using the WorldTides API.
  *
- * <p>On a weekly schedule, fetches 14 days of high and low tide times from WorldTides
+ * <p>On a weekly schedule, fetches 97 days of high and low tide times from WorldTides
  * and merges them into the {@code tide_extreme} table, preserving historical data
  * outside the fetch window. At forecast evaluation time, {@link #deriveTideData} looks
  * up the stored extremes to classify the tide state and find the next high and low
@@ -50,8 +50,36 @@ public class TideService {
 
     private static final String WORLDTIDES_HOST = "www.worldtides.info";
 
-    /** Seconds in 14 days: the WorldTides fetch window per location per weekly refresh. */
-    private static final long FETCH_LENGTH_SECONDS = 14L * 24 * 3600;
+    /**
+     * How far ahead the "Coming up" almanac feed may state a tide height, range, clock time
+     * or solar-alignment verdict. Beyond this the feed states the date and the run position
+     * and nothing numeric — it never synthesises a figure.
+     */
+    private static final int ALMANAC_HORIZON_DAYS = 90;
+
+    /**
+     * Slack on top of {@link #ALMANAC_HORIZON_DAYS}, sized to the weekly refresh cadence so
+     * coverage still reaches the full horizon on the last day before the next refresh. The
+     * window is fetched on a Monday and decays a day at a time; without this the feed would
+     * be short by six days every Sunday.
+     */
+    private static final int REFRESH_SLACK_DAYS = 7;
+
+    /**
+     * The WorldTides fetch window per location per weekly refresh, in seconds.
+     *
+     * <p>Derived from the two constants above rather than written as a literal, so the number
+     * cannot drift from the reason it has that value.
+     *
+     * <p>⚠️ WorldTides bills {@code extremes} at one credit per seven days of data, not one
+     * per request — so this constant sets the recurring cost, at roughly
+     * {@code ceil(days / 7)} credits per coastal location per week. It does <em>not</em> set
+     * the spring or king tide threshold: those are a climatology over past extremes only, and
+     * {@code TideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore} documents why
+     * that separation is deliberate. Changing this value must not move a tide badge.
+     */
+    private static final long FETCH_LENGTH_SECONDS =
+            (long) (ALMANAC_HORIZON_DAYS + REFRESH_SLACK_DAYS) * 24 * 3600;
 
     /** Days either side of the solar event time to query from the DB. */
     private static final long QUERY_WINDOW_DAYS = 2;
@@ -93,7 +121,8 @@ public class TideService {
     }
 
     /**
-     * Fetches 14 days of tide extremes from WorldTides for a coastal location and merges
+     * Fetches the forward tide window ({@link #FETCH_LENGTH_SECONDS}) from WorldTides for a
+     * coastal location and merges
      * them into the {@code tide_extreme} table, replacing only the overlapping window
      * while preserving historical data.
      *
@@ -108,7 +137,8 @@ public class TideService {
     }
 
     /**
-     * Fetches 14 days of tide extremes from WorldTides for a coastal location and merges
+     * Fetches the forward tide window ({@link #FETCH_LENGTH_SECONDS}) from WorldTides for a
+     * coastal location and merges
      * them into the {@code tide_extreme} table, replacing only the overlapping window
      * while preserving historical data. Optionally tracks the API call in a job run.
      *
@@ -195,8 +225,9 @@ public class TideService {
                         "GET", tideUrl, null, durationMs, 200, null, true, null);
             }
 
-            LOG.info("Stored {} tide extremes for {} (T+0 to T+13)",
-                    entities.size(), location.getName());
+            LOG.info("Stored {} tide extremes for {} (T+0 to T+{})",
+                    entities.size(), location.getName(),
+                    ALMANAC_HORIZON_DAYS + REFRESH_SLACK_DAYS - 1);
 
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - callStartMs;
