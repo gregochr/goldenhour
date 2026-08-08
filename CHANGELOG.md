@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.17.13] - 2026-08-08
+
 ### Added — see all the spots in a window, and filter them while you browse (window-first Plan, P11)
 
 **"See all" on a window's spot strip now opens the whole list at once.** The film strip is for
@@ -95,8 +97,6 @@ tile cannot carry a number, a number on the other one just reads as a bug. A doo
 it is not drawn at all, which is the honest version of the count it replaces: no hot topics, no
 hot-topics door; no windows to plan over, no planner. Nothing behind a door is loaded until it is
 opened, and it stays loaded afterwards so closing and reopening costs nothing.
-
-## [v2.17.13] - 2026-08-06
 
 ### Added — the reach lens: how far you are willing to drive tonight (window-first Plan, P8)
 
