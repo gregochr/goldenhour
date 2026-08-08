@@ -619,7 +619,7 @@ Backend first for anything shared, so the frontend stays a render layer.
 | **P9** | ~~Collapse/expand, six-window case, away-day row + its rail variant, the two doors~~ **DONE.** `WindowAwayRow` + `utils/windowFirstAway.js`, `WindowFirstDoors` + `WindowFirstRegionalPanel` + `utils/windowFirstRegions.js`; the card gains `open`/`onToggle` and the shell owns the state | ⚠️ The old Notes cell said "the window card shrank" — **stale**, it had grown every phase since P6. Measured: six open windows are **1,969px / 2.74 viewports**, exactly the figure §5a predicted from a different direction; lead-open/rest-collapsed is **996px**, a 49.4% saving. The **rail variant already shipped at P4c** (`isAway`, `✈ Away`, `Not forecast`, and it keeps its sun times) — P9 owned only the pane row. The six-window case needed no feature: `MAX_VISIBLE_EVENTS` already caps it and the rail and cards share one evaluation. **Ten decisions worth not re-deriving — see §5d** |
 | **P10′** | ~~Peek content kind 1 (spot)~~ **DONE.** `WindowSpotPeek` + `utils/windowSpotPeek.js` + `hooks/useSpotPeek.js`; the strip gains the trigger and the card drills the score index through | ⚠️ The Work cell used to add "+ click-to-map", which **shipped at P6** — §5a`:603` already corrected it. The host is **not** P4b's after all: the portal reasoning is taken and cited, the host itself does not fit (above-only placement, no slot for the panel's pointer handlers). **No phone peek** — the row named a `BottomSheet` and no trigger, and the same paragraph gives the phone's only tap to the map. Open delay stays at 180ms, not this row's 140; 160/120 adopted and split. A summary-less spot now *does* get a peek, because the bars are back. **Fifteen decisions worth not re-deriving — see §5e** |
 | **P11** | ~~Drilldown sheet — **plus the rating floor and type controls** and their persistence~~ **DONE.** `WindowSpotSheet` + `WindowSpotCard` (extracted from the strip) + `utils/windowSpotBrowse.js`; the strip footer gains "See all" and the card gains one on its gated-out line | Grown by what P8 shed, then shrunk by one thing it could not honestly carry. ⚠️ The controls went into the **sheet**, not the bar — so §5c`:908`'s warning that P11 invalidates `scroll-margin-top` does **not** fire (bar re-measured at 53.5px). The mock's type taxonomy does not exist in this product; `utils/locationTypes.js` does, and the options are **derived from the population** so no chip can match nothing. The canopy debt §5a`:610` parked here is **handed on**, with the reason: a type word cannot disambiguate a badge colour, and a grid makes that collision denser than a strip did. **Eight decisions worth not re-deriving — see §5f** |
-| **P12** | Backend: almanac feed (§3) + the tide fetch-horizon decision | Unchanged |
+| **P12** | ~~Backend: almanac feed (§3) + the tide fetch-horizon decision~~ **DONE.** `AlmanacEvent` + `AlmanacKind`, the `AlmanacSource` interface and five implementations, `AlmanacService`, `GET /api/almanac`; horizon raised to 97 days with the threshold decoupled first | ⚠️ **§3's "the range plumbing already exists" is the sentence that would have sunk this.** The signatures take a range; ten of thirteen strategies ignore it. `AlmanacSource` is a **new interface** for that reason, and `HotTopicAggregator` is not reused — it is also travel-day filtered and simulation-overridable, either of which would corrupt a 90-day feed. **Eight decisions worth not re-deriving — see §5g** |
 | **P13** | Coming up tab | Unchanged |
 | **P14** | Responsive pass — real media queries, including the taller rail tile on phone | Keep control labels at 9px |
 | **P15** | Pre-pilot sweep (§6), then flip the flag default | **Four items handed up, all cross-arm and none fixable inside one phase.** From P10′ (§5e): the **LITE score split** — `freemium_ui_strategy.md:79-80` lists the two scores and the Claude summary as LITE-included and §7 relies on that, but `MarkerPopupContent.jsx:1165` gates them and `:1175` upsells them, so an ungated peek contradicts the map overlay one click away; and **`--color-marginal`, a token declared nowhere**, which leaves `CardHoverPreview`'s and `CloseToHome`'s stars silently inheriting body ink in the frozen v1 arm. From P9 (§5d): the `HotTopicStrip` LITE treatment, which the window card's ungated attribute rows already defeat for the tide and snow channels; and `HeatmapGrid`'s away band saying "no forecast generated" two elements below a row that deliberately says "not forecast". Both need one decision made once across both arms, which is the shape §2.8 settled for the pick gloss |
@@ -1593,6 +1593,59 @@ the whole data path, and the reach map had to be rewritten by hand to reach the 
 re-show the dialog, left undefended because the effect that would release the key is a `setState`
 in `useEffect` the lint rules reject and because `isEventPast` is monotonic, so the clock cannot
 produce it. Touch. No screen reader, axe or Lighthouse pass. Chrome only.
+
+---
+
+### 5g. What P12 decided — read before P13
+
+Eight decisions that changed behaviour rather than wording. P13 renders this feed, so all of them
+are visible to it.
+
+- **`AlmanacSource` is a new interface, not `HotTopicStrategy`.** The two have the same shape and
+  that is the trap: §3 said "the range plumbing already exists", which is true of the signatures and
+  false of ten of the thirteen implementations. `AlmanacSource`'s contract adds the one rule its
+  sibling cannot state — *answer for the whole range or do not exist* — and each implementation
+  derives dates from ephemeris, which has no horizon.
+- **`HotTopicAggregator` is not reused, for three independent reasons.** Beyond the bounded
+  strategies it applies a travel-day filter (a "should I go out tonight" concern that would delete a
+  solstice) and honours a simulation override built for demoing the Plan tab. A feed quietly serving
+  simulated tides three months out is precisely what the degrade rule exists to prevent.
+- **The tide path is genuinely two-source, and the second source was never wired up.**
+  `LunarPhaseService.classifyTide` gives the dates, unbounded; `TideRunBuilder` gives the metres and
+  clock times, bounded by stored extremes. §3 implied `classifyTide` was already used by the tide
+  strategies — it is not, they do not even inject `LunarPhaseService`, and its only callers are
+  `ForecastDtoMapper` and `TideFactDeriver`.
+- **The degrade rule is mechanical, not per-caller.** `AlmanacEvent.metaOf` drops any null or blank
+  value, so a source assembles every fact it might have and the underivable ones fall out. No source
+  writes the same null-check five times, and none can emit an empty string as though it were a
+  measurement. `isDatesOnly()` is how a client tells a degraded entry from an enriched one without
+  probing keys.
+- **Meteor and supermoon needed new range logic, because the existing strategies single-emit.**
+  Both return on their first match — indistinguishable from "all of them" over four days, and it
+  loses three of four showers over ninety. The shower table itself is *not* duplicated: it is
+  package-private in `MeteorHotTopicStrategy` and read directly, which is why the sources live in
+  the same package.
+- **A washed-out meteor peak is reported, where the Plan tab suppresses it.** The strategy is right
+  to hide a moonlit shower from "is tonight worth it"; an almanac answers "when is it", and the peak
+  date does not move because the moon is up. The illumination rides in `meta` as a caveat instead.
+- **NLC is split in half.** Its season bounds are almanac and its firing condition is a clarity
+  cache built during the briefing run, so `NlcHotTopicStrategy` returns nothing for ninety days by
+  construction. `NlcSeasonAlmanacSource` reports only the span, probing
+  `NlcClarityService.isNlcSeason` day by day rather than copying its private constant, and makes no
+  claim about visibility on any night.
+- **Solstices did not exist and equinoxes are sky-wide here.** There was no solstice code anywhere
+  in the project. The equinox anchors are restated in `SolarAlignmentAlmanacSource` because the
+  strategy keeps them private, and a **day-by-day agreement test across two full years** — one of
+  them a leap year — is what makes that duplication safe. Regions are deliberately empty: at ninety
+  days the question is *when*, not *from where*, and carrying a region list would mean a solar
+  calculation per location per day to produce something unactionable.
+
+**Coverage, said plainly.** 96 new tests, all backend and all unit-level: five mutants aimed at the
+load-bearing claims (a synthesised range, a drifted equinox anchor, meteor single-emit, lost source
+isolation, blanks kept in `meta`) were each killed by their named test. **Nothing has been rendered
+or seen** — there is no UI for this yet, that is P13. Nothing has been run against production data;
+the local `tide_extreme` table is empty, so the enriched half of the tide path is verified only
+against a stubbed builder. `V139` is unexercised against Postgres because Docker was not running.
 
 ---
 

@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — a 90-day almanac feed behind `GET /api/almanac` (window-first Plan, P12)
+
+**Everything in the next three months that is fixed by the sun and the moon, in one feed.** Spring
+and king tide runs, meteor shower peaks, supermoons, both equinoxes, both solstices, and the
+noctilucent cloud season. No weather, no scores, no Claude call — only things that can be known that
+far ahead, which is what makes a three-month view honest.
+
+Each entry is a **span** rather than a day, because a spring tide run is four days and an NLC season
+is eleven weeks, and one row per day would bury the feed. A run that straddles the edge of the window
+reports its true dates rather than being clipped, so "this season started a fortnight ago" reads
+correctly instead of "starts today".
+
+**Where a number cannot be derived, there is no number.** Tide dates come from lunar arithmetic and
+have no horizon; tide *heights and times* come from stored data and do. Beyond that, an entry keeps
+its dates and drops its figures rather than estimating them from a neighbouring day. A reader can
+tell the two apart at a glance, which is the point — a fabricated range would make the honest rows
+indistinguishable from the invented ones.
+
+Two smaller judgements worth naming. A meteor shower under a bright moon still appears, with the
+moonlight noted, because an almanac says when the shower is rather than whether tonight is worth
+it — the Plan tab, which answers the second question, still hides it. And the NLC season says
+plainly that noctilucent cloud cannot be forecast: the dates are fixed, the display is not, and a
+fixed date could otherwise read as a promise.
+
+There is no UI for this yet; the Coming up tab is the next phase.
+
 ### Changed — tide predictions now reach three months out instead of two weeks (window-first Plan, P12)
 
 **Tide extremes are fetched 97 days ahead rather than 14.** The "Coming up" feed is being built to

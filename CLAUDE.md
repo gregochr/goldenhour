@@ -297,6 +297,23 @@ Two consequences worth stating plainly:
 
 > The former SSE `GET /api/briefing/evaluate` and the `/evaluate/cache[/timestamp]` GETs no longer exist — `BriefingEvaluationController` exposes only `GET /scores` and `DELETE /cache`. This matters for HTTP caching: `/api/briefing` and `/api/briefing/evaluate/scores` are ETag-revalidated (`HttpCachingConfig`), and that whitelist is exact-match precisely so it can never catch a streaming endpoint.
 
+### Almanac (Bearer)
+`GET /api/almanac?days=90` — the 90-day "Coming up" feed. Bearer with **no role gate**, by
+inheritance from `SecurityConfig`'s `/api/**` → `.authenticated()`; stated here because this project
+has already documented one endpoint as ADMIN that the code never enforced, and `AlmanacControllerTest`
+pins LITE/PRO/ADMIN access and anonymous rejection so "no `@PreAuthorize`" cannot be read as an
+oversight. ⚠️ **Do not serve this from `HotTopicAggregator`.** Its signature takes a range and ten of
+its thirteen strategies ignore one — two tide strategies read a 5-day briefing cache, NLC a clarity
+cache, six read survivor signals the batch never writes past T+3, aurora inspects only `fromDate` and
+`fromDate+1`. It is also travel-day filtered and simulation-overridable. `AlmanacSource` is a separate
+interface whose contract is *answer for the whole range or do not exist*; five implementations cover
+tide runs, meteor peaks, supermoons, equinox/solstice and the NLC season. **The tide path is
+two-source**: `LunarPhaseService.classifyTide` supplies dates with no horizon, `TideRunBuilder`
+supplies metres and clock times bounded by stored extremes — and beyond that window the entry keeps
+its dates and carries no numbers (`AlmanacEvent.metaOf` drops anything null or blank, so the degrade
+rule is mechanical rather than per-caller). Never synthesise. ETag-revalidated; safe to share because
+it carries no per-user data.
+
 ### Astro Conditions (Bearer)
 `GET /api/astro/conditions` | `GET /api/astro/conditions/available-dates`
 
