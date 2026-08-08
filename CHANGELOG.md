@@ -5,6 +5,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — see all the spots in a window, and filter them while you browse (window-first Plan, P11)
+
+**"See all" on a window's spot strip now opens the whole list at once.** The film strip is for
+glancing — three and a half cards, ranked, scroll for the rest. The drill-down is for browsing: every
+spot in that window as a ranked grid, three across, with the same cards you were already looking at.
+
+**Three filters live in the sheet, because that is where browsing happens.** How far you will drive,
+a rating floor, and what kind of place it is. The reach control *inherits* whatever the page-wide
+lens is set to, so the sheet never disagrees with the screen behind it — and if you widen it, it says
+so ("widened for browsing") and forgets it when you close. The rating floor is remembered, because
+"I only care about 4★ and up" is taste rather than a decision about tonight. The type resets each
+visit.
+
+**Every control is offered only when it has something to do.** A window where nothing has been rated
+yet shows no rating floor at all — and, just as importantly, a floor you set yesterday does not
+quietly empty it. A window whose spots are all one kind of place shows no type control, because that
+is a label, not a choice. And the types on offer are the ones actually present, so no filter can ever
+match nothing.
+
+**"See all" appears on the one card that needs it most.** A window where everything is beyond your
+reach setting used to say "12 spots are further out" and give you nowhere to go but the page-wide
+control. It now opens the sheet, where you can widen just for that window and put it back by closing.
+Where the sheet could show nothing the strip does not — a handful of unrated spots, all the same kind
+— the trigger is absent rather than disabled.
+
+**For a Lite account the reach control is greyed here exactly as it is on the page**, and shows every
+spot rather than fewer. The rating floor and the type filter are open to everyone: they hide nothing
+you could not already see.
+
 ### Added — the spot peek: what the strip cannot fit (window-first Plan, P10′)
 
 **Resting on a spot card now shows you why it is rated what it is.** A quiet 280px panel opens after

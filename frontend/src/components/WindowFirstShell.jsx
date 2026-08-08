@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import BrandLockup from './shared/BrandLockup.jsx';
 import WindowFirstDayRail from './WindowFirstDayRail.jsx';
@@ -7,8 +7,12 @@ import WindowFirstWindowCard from './WindowFirstWindowCard.jsx';
 import WindowFirstDoors from './WindowFirstDoors.jsx';
 import WindowAwayRow from './WindowAwayRow.jsx';
 import WindowPickDialog from './WindowPickDialog.jsx';
+import WindowSpotSheet from './WindowSpotSheet.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { formatRelativeAge } from '../utils/relativeTime.js';
+import { buildLocationTypeMap } from '../utils/locationTypes.js';
+import { ANY_TIER_ID } from '../utils/reachLens.js';
+import { sheetOffersMore } from '../utils/windowSpotBrowse.js';
 
 /** The design's frame: 1080px, against the v1 arm's 896px `max-w-4xl`. */
 const WRAP_MAX_WIDTH = '1080px';
@@ -113,9 +117,10 @@ const WRAP_MAX_WIDTH = '1080px';
  * see {@code isCardOpen}.
  *
  * @param {function} props.onSignOut ends the session; the same handler the v1 header uses.
- * @param {Array} [props.locations] enabled locations, needed only by the regional-planner door for
- *        its id→name and name→type joins. Not fetched by this arm's provider: {@code App} already
- *        holds them for both arms, and a second request for a list the page has would be waste.
+ * @param {Array} [props.locations] enabled locations. The regional-planner door needs its id→name
+ *        and name→type joins; the drill-down needs the same name→type join for its type control.
+ *        Not fetched by this arm's provider: {@code App} already holds them for both arms, and a
+ *        second request for a list the page has would be waste.
  * @param {boolean}  [props.contentDisabled] greys the pane when the backend is DOWN.
  *
  *        <p><b>The pane, never the chrome.</b> In the v1 arm the header sits OUTSIDE the element
@@ -133,6 +138,38 @@ export default function WindowFirstShell({
     reachLens, homePlace,
   } = useWindowFirstBriefing();
   const [openPick, setOpenPick] = useState(null);
+  /**
+   * The drill-down's window, held by KEY rather than by the card object.
+   *
+   * <p>A card is a derived snapshot: the provider rebuilds every one of them on the ten-minute
+   * poll, when the reach fetch lands, and whenever the lens tier moves. Holding the object would
+   * leave the sheet describing a list the page behind it had already replaced — and the reach
+   * control inside it filtering an array nothing else on screen still uses. Holding the key means
+   * the sheet always reads the live card, and a window that has passed simply closes it rather than
+   * becoming a dialog about a window that no longer exists.
+   */
+  const [sheetKey, setSheetKey] = useState(null);
+  const sheetCard = sheetKey == null ? null : windowCards.find((c) => c.key === sheetKey) || null;
+  // ⚠️ A key whose card has gone stops rendering but is not released, and the effect that would
+  // release it is a `setState` inside `useEffect` that `react-hooks/set-state-in-effect` rejects.
+  // The residual is that a window which disappears and returns would re-show the dialog — and it is
+  // left undefended deliberately, because the only way a key leaves `windowCards` is the past-event
+  // filter or the travel-day set, and `isEventPast` is monotonic in time: an event that has passed
+  // does not come back. Fighting the linter for a state the clock cannot produce is the wrong trade.
+  /**
+   * Location name → its {@code locationType} array, for the sheet's type control.
+   *
+   * <p>Passed as a lookup rather than folded into every spot descriptor, for the reason the card
+   * already gives for {@code scoreIndex}: {@code buildWindowSpots}' join is documented as briefing
+   * plus reach, and folding a third source in would rebuild every window's spot array whenever the
+   * roster arrived. Only the sheet reads it, and only while a type control is on screen.
+   *
+   * <p>{@code App} already holds {@code locations} for both arms — P9 drilled it here for the
+   * regional door — so this costs no request. The join itself lives in {@code locationTypes.js}
+   * because the regional planner builds the same one from the same prop, and two copies of a join
+   * is how the five copies that module replaced started.
+   */
+  const typesByName = useMemo(() => buildLocationTypeMap(locations), [locations]);
   // Only the cards the reader has TOGGLED. The default is not seeded into this map, so it stays a
   // rule rather than a snapshot: a poll that adds tomorrow's sunrise, or an away day that removes a
   // card, re-evaluates "the first card is open" without disturbing anything the reader chose. A
@@ -166,6 +203,17 @@ export default function WindowFirstShell({
     onEvaluationScoresChange?.(evaluationScores);
   }, [evaluationScores, onEvaluationScoresChange]);
 
+  /**
+   * True while a dialog is over the pane — the sheet or the pick.
+   *
+   * <p>It suppresses the spot peek, and the pick dialog is included deliberately rather than only
+   * the sheet this phase adds. Both are {@code Modal}s, so both render inside Tailwind's
+   * {@code z-50} while {@code .wf-peek} is portalled to the body at {@code z-index: 60}; and
+   * {@code useDialogFocus} is explicitly not a focus trap, so from either one a keyboard user can
+   * Tab back onto a spot card behind the backdrop and paint a hover panel over the dialog. Fixing
+   * one and not the other would leave the same defect on the surface that has had it longer.
+   */
+  const modalOpen = sheetCard != null || openPick != null;
   const dimmed = contentDisabled ? ' opacity-50 pointer-events-none' : '';
   // The shared tiers, not a local copy: `generatedAt` is a zone-less UTC instant, and the one
   // formatter that already knows that is the one that appends the Z. Hand-rolling it here read an
@@ -319,6 +367,10 @@ export default function WindowFirstShell({
             onToggle={() => toggleCard(item.card.key, isCardOpen(item.card))}
             onOpenPick={setOpenPick}
             onOpenSpot={handleSpot}
+            onSeeAllSpots={sheetOffersMore(item.card, typesByName)
+              ? (card) => setSheetKey(card.key)
+              : undefined}
+            peeksSuppressed={modalOpen}
             scoreIndex={scoreIndex}
           />
         )))}
@@ -353,6 +405,35 @@ export default function WindowFirstShell({
           ← Back to the current Plan
         </button>
       </div>
+
+      {/* Keyed on the window, so opening a different card's sheet mounts a fresh one rather than
+          carrying the previous window's reach widening across. The rating floor survives anyway —
+          it is read from storage, which is the point of it being the one that persists. */}
+      {sheetCard && (
+        <WindowSpotSheet
+          key={sheetCard.key}
+          card={sheetCard}
+          barTierId={reachLens.tierId}
+          // A window the lens emptied opens WIDENED — see the sheet's own note. `spots` is the
+          // gated list and `reachTotal` the set it was gated from, so this is exactly the state
+          // the card renders its "N spots are further out" line in.
+          openTierId={sheetCard.spots.length === 0 && sheetCard.reachTotal > 0
+            ? ANY_TIER_ID
+            : undefined}
+          // A boolean, never the role — plan §5c's rule that `role` enters this arm at the provider
+          // and stops there. The sheet's reach control is the same PRO control the bar is (§7), so
+          // it takes the same lock; the rating floor and the type are not gated at all.
+          reachLocked={reachLens.locked}
+          typesByName={typesByName}
+          onClose={() => setSheetKey(null)}
+          // Closes FIRST, exactly as the strip dismisses its peek before the same handoff. The map
+          // overlay is itself an `aria-modal` dialog: leaving the sheet mounted underneath puts two
+          // on the page at once, gives Escape two listeners to satisfy, and leaves the reader's
+          // place in a list they have navigated away from. The sheet is a browsing surface and the
+          // map is a destination — arriving at the destination ends the browsing.
+          onOpenSpot={(spot) => { setSheetKey(null); handleSpot(sheetCard, spot); }}
+        />
+      )}
 
       {openPick?.pick && (
         <WindowPickDialog

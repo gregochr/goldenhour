@@ -404,6 +404,19 @@ describe('buildWindowCards', () => {
       expect(card.reachTotal).toBe(3);
     });
 
+    it('carries the ungated set for the drill-down, which owns a reach control of its own', () => {
+      // Handing the sheet the gated list would give it a widening control with nothing to reveal.
+      const [card] = buildWithLens(THREE_SPOTS, REACH, { limitMinutes: 41, defaultLimitMinutes: 45 });
+      expect(card.spots.map((s) => s.locationName)).toEqual(['Blyth Beach', 'Simonside']);
+      expect(card.allSpots.map((s) => s.locationName))
+        .toEqual(['Sycamore Gap', 'Blyth Beach', 'Simonside']);
+    });
+
+    it('counts the same array it carries, so the two can never describe different populations', () => {
+      const [card] = buildWithLens(THREE_SPOTS, REACH, { limitMinutes: 41, defaultLimitMinutes: 45 });
+      expect(card.reachTotal).toBe(card.allSpots.length);
+    });
+
     it('gates nothing at all with no lens, rather than at some assumed distance', () => {
       const [card] = buildWithLens(THREE_SPOTS, REACH);
       expect(card.spots).toHaveLength(3);

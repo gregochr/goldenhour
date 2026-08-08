@@ -86,6 +86,28 @@ export function locationTypeIcons(types) {
 }
 
 /**
+ * Location name → its {@code locationType}, from the enabled-locations roster.
+ *
+ * <p>Written twice in the window-first arm before this existed — once for the regional planner's
+ * grid icons and once for the drill-down's type control — from the same prop, with the same body.
+ * Two copies of a join is how the five copies this module replaced started.
+ *
+ * <p>The value is passed through unchanged rather than normalised to an array, because the two
+ * consumers disagree about the shape they want and both already cope: {@link locationTypeIcons}
+ * and {@code spotTypes} each accept a bare string or an array.
+ *
+ * @param {Array} locations the enabled-locations roster, or null
+ * @returns {Map<string, string[]|string>} name → its types
+ */
+export function buildLocationTypeMap(locations) {
+  const map = new Map();
+  for (const location of locations || []) {
+    if (location?.name && location.locationType) map.set(location.name, location.locationType);
+  }
+  return map;
+}
+
+/**
  * Human label for a type, falling back to the raw enum name.
  *
  * <p>The fallback is deliberate: a backend constant this build has never heard of should read as

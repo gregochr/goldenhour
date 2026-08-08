@@ -88,13 +88,17 @@ function emptyLensLine(total, reachLabel) {
  * 13.5px. Nothing leaves it — the verdict badge, the pick, the topic badges, the star and the reach
  * count are the whole point of a collapsed card, which is a row you can scan rather than a stub.
  *
- * <h2>The footer arrives with the strip, and still carries no "See all"</h2>
+ * <h2>The footer arrives with the strip, and at P11 it gains its third element</h2>
  *
- * <p>P5 drew no footer at all rather than an empty one. It exists now because the strip gives it
- * two true things to say — the order the spots are in, and how many were drawn. The design's third
- * element, "See all N →", opens P11's drill-down and is still absent: it is the same demo control
- * the expander would have been. A window with no spots at all renders neither strip nor footer,
- * rather than a bar counting nothing.
+ * <p>P5 drew no footer at all rather than an empty one. It exists because the strip gives it two
+ * true things to say — the order the spots are in, and how many were drawn — and P11 adds the
+ * design's third, "See all", now that there is a sheet for it to open. A window with no spots at
+ * all renders neither strip nor footer, rather than a bar counting nothing — and a window the LENS
+ * emptied keeps its own line and gains the trigger on the end of it, because "12 spots are further
+ * out" with no route to those twelve is the very defect CLAUDE.md records against Close-to-home's
+ * old four-card cap. The trigger is absent, on every variant, whenever the sheet could show nothing
+ * the strip does not — see {@code sheetOffersMore}, which is the arrows' own rule applied to a
+ * different control.
  *
  * <h2>The attribute rows sit between the header and the strip, and the header may be short a badge</h2>
  *
@@ -117,6 +121,13 @@ function emptyLensLine(total, reachLabel) {
  *        open"), and a card cannot see its own position.
  * @param {Function} [props.onToggle] flips {@code open} for this card.
  * @param {Function} [props.onOpenPick] opens the pick dialog for this window
+ * @param {Function} [props.onSeeAllSpots] opens the drill-down over this window's whole spot list.
+ *        The shell owns the sheet, exactly as it owns the pick dialog: one sheet on the page is
+ *        then structural rather than something a page-level token has to buy back, which is the
+ *        shape {@code useSpotPeek} needed only because peek state is deliberately per-strip.
+ * @param {boolean}  [props.peeksSuppressed] passed straight through to the strip — the drill-down
+ *        is a modal the pane stays mounted behind, and a hover panel portalled above it would draw
+ *        over the dialog. A boolean, so nothing here learns anything it could act on.
  * @param {Function} [props.onOpenSpot] opens the map centred on a spot in this window.
  *
  *        <p>Wired at P6 although §5 lists click-to-map under P10′, because the alternative is
@@ -133,12 +144,14 @@ function emptyLensLine(total, reachLabel) {
  *        It carries no role and gates nothing, so P7's pin on this component's props still holds.
  */
 export default function WindowFirstWindowCard({
-  card, todayStr, reachLabel, open = true, onToggle, onOpenPick, onOpenSpot, scoreIndex,
+  card, todayStr, reachLabel, open = true, onToggle, onOpenPick, onOpenSpot, onSeeAllSpots,
+  peeksSuppressed, scoreIndex,
 }) {
   // The colon in `card.key` is a legal HTML5 id character and `aria-controls` is an IDREF, not a
   // selector, so it would work — but it silently breaks `querySelector('#…')` and any CSS id
   // selector for whoever reaches for one next. Cheaper to not lay the trap.
   const bodyId = `window-card-body-${card.key.replace(/:/g, '-')}`;
+  const windowLabel = [card.kicker, card.when].filter(Boolean).join(' ');
   const treatment = VERDICT_TREATMENT[card.verdict] || VERDICT_TREATMENT.AWAITING;
   const tier = resolveConfidence({ confidence: card.confidence }, daysOut(card.date, todayStr));
   const { fillScale } = confidenceTreatment(tier);
@@ -337,10 +350,15 @@ export default function WindowFirstWindowCard({
             {card.spots.length > 0 && (
               <WindowSpotStrip
                 spots={card.spots}
-                windowLabel={card.when}
+                // The kicker as well, for the reason the sheet's own header carries it: on a lead
+                // card `when` is the bare event word, so "See all spots in Sunset" and "Scroll
+                // Sunset spots left" name no day on the one card most likely to be read.
+                windowLabel={windowLabel}
                 total={card.reachTotal}
                 lead={card.lead}
                 onOpenSpot={(spot) => onOpenSpot?.(card, spot)}
+                onSeeAll={onSeeAllSpots ? () => onSeeAllSpots(card) : undefined}
+                peeksSuppressed={peeksSuppressed}
                 date={card.date}
                 targetType={card.targetType}
                 scoreIndex={scoreIndex}
@@ -353,6 +371,26 @@ export default function WindowFirstWindowCard({
             {card.spots.length === 0 && card.reachTotal > 0 && (
               <p data-testid="window-card-lens-empty" className="wf-strip-empty">
                 {emptyLensLine(card.reachTotal, reachLabel)}
+                {/* The trigger belongs here MORE than on a populated card, not less. "12 spots are
+                    further out" is otherwise a number with no route to the thing it counts, which
+                    is the exact defect CLAUDE.md records against Close-to-home's old per-window cap
+                    ("20 within reach above four cards, no route to the other sixteen"). The sticky
+                    bar can also reveal them, but it changes the whole page to answer a question
+                    about one window — where the sheet widens for browsing and forgets it on close,
+                    which is what charge c6 asks a drill-down to be. */}
+                {onSeeAllSpots && (
+                  <button
+                    type="button"
+                    data-testid="window-card-lens-all"
+                    className="wf-film-all"
+                    style={{ marginLeft: '8px' }}
+                    aria-label={`See all spots in ${windowLabel}`}
+                    onClick={() => onSeeAllSpots(card)}
+                  >
+                    See all
+                    <span aria-hidden="true"> →</span>
+                  </button>
+                )}
               </p>
             )}
           </>
@@ -399,5 +437,7 @@ WindowFirstWindowCard.propTypes = {
   onToggle: PropTypes.func,
   onOpenPick: PropTypes.func,
   onOpenSpot: PropTypes.func,
+  onSeeAllSpots: PropTypes.func,
+  peeksSuppressed: PropTypes.bool,
   scoreIndex: PropTypes.instanceOf(Map),
 };

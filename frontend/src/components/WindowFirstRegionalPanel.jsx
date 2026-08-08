@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
+import { buildLocationTypeMap } from '../utils/locationTypes.js';
 import HeatmapGrid from './HeatmapGrid.jsx';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
 import { getAstroConditions } from '../api/astroApi.js';
@@ -90,14 +91,8 @@ export default function WindowFirstRegionalPanel({ locations, onShowOnMap }) {
     return map;
   }, [locations, reachById]);
 
-  /** Location name → location type, for the grid's type icons. */
-  const typeMap = useMemo(() => {
-    const map = new Map();
-    for (const loc of locations || []) {
-      if (loc.locationType) map.set(loc.name, loc.locationType);
-    }
-    return map;
-  }, [locations]);
+  /** Location name → location type, for the grid's type icons. Shared with the drill-down. */
+  const typeMap = useMemo(() => buildLocationTypeMap(locations), [locations]);
 
   const astroDates = useMemo(
     () => [...new Set((upcomingEvents || []).map((e) => e.date))],

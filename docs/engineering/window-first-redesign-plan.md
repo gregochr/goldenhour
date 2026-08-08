@@ -579,7 +579,7 @@ Backend first for anything shared, so the frontend stays a render layer.
 | **P8** | ~~Lens bar — **reach only** + persistence policy~~ **DONE.** `WindowFirstLensBar` + `utils/reachLens.js` + `hooks/useReachLens.js`; the gate rides `buildWindowCards`, and the `far` spot variant ships with it | Shrunk: rating floor and type move to P11. Day-derived default; reach expires at the day roll. **The labels are the spec and `LIM` is mock shorthand** — the label is now *derived* from the threshold so no second number exists to drift. First gated control in the arm; `role` enters at the provider only. **Nine decisions worth not re-deriving — see §5c** |
 | **P9** | ~~Collapse/expand, six-window case, away-day row + its rail variant, the two doors~~ **DONE.** `WindowAwayRow` + `utils/windowFirstAway.js`, `WindowFirstDoors` + `WindowFirstRegionalPanel` + `utils/windowFirstRegions.js`; the card gains `open`/`onToggle` and the shell owns the state | ⚠️ The old Notes cell said "the window card shrank" — **stale**, it had grown every phase since P6. Measured: six open windows are **1,969px / 2.74 viewports**, exactly the figure §5a predicted from a different direction; lead-open/rest-collapsed is **996px**, a 49.4% saving. The **rail variant already shipped at P4c** (`isAway`, `✈ Away`, `Not forecast`, and it keeps its sun times) — P9 owned only the pane row. The six-window case needed no feature: `MAX_VISIBLE_EVENTS` already caps it and the rail and cards share one evaluation. **Ten decisions worth not re-deriving — see §5d** |
 | **P10′** | ~~Peek content kind 1 (spot)~~ **DONE.** `WindowSpotPeek` + `utils/windowSpotPeek.js` + `hooks/useSpotPeek.js`; the strip gains the trigger and the card drills the score index through | ⚠️ The Work cell used to add "+ click-to-map", which **shipped at P6** — §5a`:603` already corrected it. The host is **not** P4b's after all: the portal reasoning is taken and cited, the host itself does not fit (above-only placement, no slot for the panel's pointer handlers). **No phone peek** — the row named a `BottomSheet` and no trigger, and the same paragraph gives the phone's only tap to the map. Open delay stays at 180ms, not this row's 140; 160/120 adopted and split. A summary-less spot now *does* get a peek, because the bars are back. **Fifteen decisions worth not re-deriving — see §5e** |
-| **P11** | Drilldown sheet — **plus the rating floor and type controls** and their persistence | Grown by what P8 shed |
+| **P11** | ~~Drilldown sheet — **plus the rating floor and type controls** and their persistence~~ **DONE.** `WindowSpotSheet` + `WindowSpotCard` (extracted from the strip) + `utils/windowSpotBrowse.js`; the strip footer gains "See all" and the card gains one on its gated-out line | Grown by what P8 shed, then shrunk by one thing it could not honestly carry. ⚠️ The controls went into the **sheet**, not the bar — so §5c`:908`'s warning that P11 invalidates `scroll-margin-top` does **not** fire (bar re-measured at 53.5px). The mock's type taxonomy does not exist in this product; `utils/locationTypes.js` does, and the options are **derived from the population** so no chip can match nothing. The canopy debt §5a`:610` parked here is **handed on**, with the reason: a type word cannot disambiguate a badge colour, and a grid makes that collision denser than a strip did. **Eight decisions worth not re-deriving — see §5f** |
 | **P12** | Backend: almanac feed (§3) + the tide fetch-horizon decision | Unchanged |
 | **P13** | Coming up tab | Unchanged |
 | **P14** | Responsive pass — real media queries, including the taller rail tile on phone | Keep control labels at 9px |
@@ -906,8 +906,10 @@ beside P6's and P7's.
   the same ring §5a spent two measurements protecting from the scroller's clip, lost again by a
   different mechanism. `.wf-spot`, `.window-card-pick` and `.wf-film-btn` now carry
   `scroll-margin-top: 60px` (the bar's measured 53.5px plus the ring's 2 + 2). ⚠️ **It tracks the
-  bar's height**, so P11 — which adds a rating floor and a type control to the same row — and P14
-  must re-measure; a bar that wraps to two lines makes the number short. jsdom has no layout and
+  bar's height**, so P14 must re-measure; a bar that wraps to two lines makes the number short.
+  ~~and P11 — which adds a rating floor and a type control to the same row~~ **P11 did not**: both
+  controls went into the drill-down sheet instead (§5f), the bar still holds one control, and it was
+  re-measured at 53.5px on the running app rather than assumed. jsdom has no layout and
   does not load `index.css`, so nothing can unit-test this: it is a browser-verified claim, 30
   cards tested, 0 obscured after the fix.
 - **`bestRating` is not re-derived from the gated set**, so a header can read `best 5★ · 7 within
@@ -1292,6 +1294,224 @@ screenshots; a peek that "failed to open" three times was `document.hidden`, not
 coarse-pointer gating (no touch device — pinned by three unit tests), the cross-strip `focusin` rule
 (only one window card is open by default — pinned by a unit test), any of it against real ratings or
 real drive times, and no screen reader, axe or Lighthouse pass. Chrome only.
+
+### 5f. What P11 decided — read before P13, P14 and P15
+
+**The row's three things are not equally specified.** The sheet is fully specified by the mock; the
+rating floor nearly so; the type control is specified against a taxonomy that does not exist in this
+product. Four decisions the plan did not make, then the one it made against itself.
+
+- **⚠️ The rating floor and the type control went into the SHEET, not the lens bar — §5c`:908`
+  assumed the opposite and that sentence is now wrong.** It reads "P11, which adds a rating floor and
+  a type control to the same row", and it is the reason `scroll-margin-top: 60px` exists. The mock
+  puts all three in the sheet and argues it; the deciding reason is neither's. **They have a
+  different scope.** Reach is a judgement about *today* that governs every window on the page, which
+  is why one sticky control serves six cards. A rating floor and a type are about the list in front
+  of you — and a page-wide floor collides head-on with §5c`:913-918`, which deliberately does **not**
+  re-derive a window header's `best N★` from any gated set: a global 4★ floor would leave a card
+  reading `best 5★` over a strip its own control had emptied of everything below 4. Two Guilty
+  charges point the same way (c2 on affordance pile-up, c5 on bar chrome), and P14's phone bar is
+  already a single horizontally scrolling row that three segmented controls would make long.
+  **Consequence, re-measured on the running app rather than assumed: the bar is still 53.5px, so 60
+  and 76 still hold.** P11 adds one focusable to the pane (`.wf-film-all`) and it takes the same
+  reservation; the sheet's own controls need none, because nothing scrolls a modal under the bar.
+  P14 must still re-measure — a phone bar is 50px and may yet wrap.
+- **The type control ships with the product's own words, and its options are DERIVED from the
+  population.** The mock's `TYPES` (coast / river & lake / upland / landmark) is terrain vocabulary
+  and not one of its five words is a `LocationType`; §6 bans inventing any. The real enum is
+  LANDSCAPE / WILDLIFE / SEASCAPE / WATERFALL / BLUEBELL / **WOODLAND** (not "CANOPY" —
+  `slot.canopy` is a *briefing* flag, a different thing), and `utils/locationTypes.js` already exists
+  as the single source of truth for presenting it, feeding the map's own type filter, the marker
+  popup and the briefing rows. So the vocabulary problem dissolves — with one correction the
+  pre-build panel forced. The set is **`SKY_SUBJECT_TYPES`, not `DISPLAY_TYPES`**, and the
+  difference is WOODLAND. `slot.canopy` is *not* "carries WOODLAND": `BriefingSlotBuilder:131` forks
+  on `LocationEntity.isWoodlandOnly()`, which is WOODLAND *and no* LANDSCAPE/SEASCAPE/WATERFALL — so
+  a wood with an open aspect is in this sheet, and `DISPLAY_TYPES` would have offered it a
+  "Woodland" chip over a population the *enclosed* woods had already been removed from, with nothing
+  on screen saying so. Allen Banks is the concrete case and is guaranteed by three migrations (V84
+  sets `bluebell_exposure = 'WOODLAND'`, V132 deliberately leaves its LANDSCAPE alone, V134 adds the
+  WOODLAND type), so this was reachable rather than theoretical. `SKY_SUBJECT_TYPES` is exactly the
+  right set and already carried the reasoning: "types whose subject is the sky … WOODLAND is
+  deliberately ABSENT: a location under a canopy has no sky to forecast." Allen Banks now reads
+  *Landscape*, which is true of it and is why it is in the list at all. BLUEBELL is absent from both
+  sets anyway, for the reason `locationTypes.js` records. The join is by
+  **name**, from the `locations` prop P9 already drilled into the shell — passed as a lookup rather
+  than folded into each spot descriptor, which is the argument the card already makes for
+  `scoreIndex`. **Deriving the options from the spots is what makes it safe**: a chip is offered only
+  when two or more types are actually present, so no chip can match nothing, a one-type window draws
+  no control at all, and a roster that never arrived draws none either.
+- **A lens is not a gate when it has no data — §2.5 rule 1, extended to both new axes, and the two
+  halves only work as a pair.** The rating control is offered only when something in the window is
+  rated, **and the floor does not run when it is not offered**. Without the pairing the persisted
+  floor is a trap: 4★ kept from a scored evening would silently empty an unevaluated window with no
+  control on screen to explain it or take it back. The type control has the same pairing for the same
+  reason.
+- **⚠️ An unrated spot FAILS a rating floor, which is the opposite of what an unknown drive time
+  does — and the two rules are deliberately not symmetrical.** The adversarial panel argued the
+  reverse from §2.5 rule 1 and §6`:1312`, and the argument is a good one, so the reason is recorded
+  rather than assumed. Three things settle it. **The precedent already exists, in one function.**
+  `CloseToHome.keepCard` resolves both questions on *adjacent lines*: `:391` keeps a card with no
+  drive time, `:392` drops a card with no rating. That is not an oversight to be copied — it is this
+  product having made the identical pair of judgements once already. **The two absences mean
+  different things.** An unknown drive time is a gap in *per-user* data about a spot that is
+  otherwise fine; an unknown rating is a gap in the very axis being filtered, and "4★ and up" is a
+  claim about what was measured. **And the failure §2.5 rule 1 guards is already closed by the
+  pairing above, not by this**: rule 1's stated purpose is that "the lens becomes a visible no-op
+  rather than silently emptying the page", and with nothing rated the control is not drawn and the
+  gate does not run, which satisfies §6's "no control gates on data that does not exist" literally.
+  The only case left is a *part*-rated window, where the control is on screen, the empty line names
+  it, and one click undoes it. It is written as an explicit null test rather than
+  `(rating ?? 0) < min` because that coercion is what §5e caught rendering `☆☆☆☆☆`.
+- **Persistence: one new key, `photocast.planRating`, holding one field.** §5c`:866-876` settled the
+  shape and the mock does the thing it rejected (`{reach, dRate, day}` in one key, read–modify–write).
+  Whole-value write, never reads storage back. **No day stamp, and that is the difference from
+  reach**: "how far will I drive tonight" is a judgement about one evening, where "I only care about
+  4★ and up" is taste. It has no "today only" pill and no reset button because it needs neither —
+  the `Any rating` chip *is* the reset and is on screen whenever the floor is, and the footer states
+  the policy in words. Reach is inherited from the bar and never stored by the sheet; type starts
+  loose every visit, which costs nothing because closing unmounts the component.
+- **`Modal` in `bare` mode, and the sheet's state lives in the shell.** `BottomSheet` is the phone
+  sheet and has no Escape handler (§5e). `WindowPickDialog` is this arm's precedent for `bare` and
+  proves the mode can express arbitrary panel geometry, so the only thing lost against the mock is
+  `top: 34px` — dropped rather than reproduced, because `Modal` centres its child and that is the
+  shape all fifteen dialogs in the app take. Shell-level state, like `openPick`, makes "exactly one
+  sheet" **structural** — no page-level token, which is the machinery `useSpotPeek` needs only
+  because peek state is deliberately per-strip. It holds the window's **key**, not the card: cards
+  are rebuilt on the ten-minute poll, on the reach fetch and on every lens change, so an object would
+  leave the sheet filtering an array nothing else on screen still uses.
+- **The trigger is the design's "See all", and it carries no number.** Charge c2 convicts four
+  affordances for one intention — but its verdict names this one as the *keeper* ("Keep swipe plus
+  'See all'"), and cuts the arrows, which are already pointer-only by media query. The number goes
+  because the footer's count sits 8px to its left (§2.7) and because it could not be right anyway:
+  the sheet opens on the bar's tier, so "See all 16" would open showing 13. It is also on the
+  **fully lens-gated** card, on the end of "12 spots are further out" — a number with no route to
+  what it counts is the exact defect CLAUDE.md records against Close-to-home's old four-card cap.
+  And it is **absent** wherever the sheet could show nothing the strip does not (`sheetOffersMore`),
+  which is the arrows' own rule applied to a different control: fewer than four spots, none rated,
+  one type, nothing gated.
+- **⚠️ The canopy debt is NOT paid here, against §5a`:610` and `windowFirstSpots.js:30-32`, which
+  both name this drill-down as where a bluebell wood belongs.** Read them again and the hazard they
+  state is that a woodland 4★ and a coast 4★ are opposite claims in one badge **colour** — and a
+  10px grey type word beside a coloured chip does not disambiguate a colour. A three-column grid
+  makes that collision *denser* than a horizontal strip did, not looser, and it would be at its worst
+  in the default "Any type" state. What those notes actually ask for is "a second vocabulary", which
+  is a second badge, not a control. Shipping it half-solved is worse than handing it on. The cost of
+  not doing it is smaller than it looks, and it is worth being exact about why. `slot.canopy` is
+  **not** "carries WOODLAND" — `BriefingSlotBuilder:131` forks on
+  `LocationEntity.isWoodlandOnly()`, which is WOODLAND *and no* LANDSCAPE/SEASCAPE/WATERFALL, and
+  that method's own Javadoc names the counter-example: "a wood that also has an open aspect (Allen
+  Banks) has a horizon to forecast, so it keeps the sky treatment". So a mixed site emits an ordinary
+  slot, is in this sheet already, and **its Woodland chip is real** — the derived options are not a
+  guarantee that the chip never appears, only that no chip is ever offered which matches nothing.
+  What is excluded is the narrow set whose *whole verdict* answers the opposite question, which is
+  precisely the set the badge cannot describe. **The benefit is that every count stays consistent end to end** — the strip
+  footer's `N of M`, the sheet's own total and the header's `within reach` all describe one
+  population, which they could not if the sheet's list were wider than the card's.
+- **No star in the sheet header.** The design writes `N spots · best B`; both go, and the counts move
+  to the footer where the sort claim already lives. `compareSpots` sorts rating-first with nulls
+  last, so whenever anything is rated the first card *is* the best and badges itself 40px below —
+  and where nothing is rated there is no best to state, which is exactly when the window card omits
+  its own star. It also removes the one element here that could contradict the card behind it.
+
+**What was verified live, and what was fixtured.** The local DB still has no evaluation run and
+`BriefingHonestyFilter.fullRewrite` empties every region's slots, so everything below was seen in a
+real browser against an injected payload over the real 16-location roster: the sheet opening from the
+strip footer; the reach control inheriting the bar's tier and `· widened for browsing` appearing only
+on a **looser** one; 16 cards in a 3-column grid at 880×688 with the list scrolling and **no page
+overflow**; two columns at 600px; the rating floor trimming 16 → 4 at 4★+ and **surviving a close and
+re-open** while type and reach both reset; the derived empty line naming only the two controls that
+were narrowing; a peek open on the strip being taken down in the same commit as the sheet mounts, and
+no new peek opening while it is up; Escape closing it and handing focus back to the trigger that
+opened it, with focus inside the dialog while it was up. **The gated-card path was reachable after
+all** — the fixture's own reach map was rewritten to put every location 200 minutes out, which is
+what a fully lens-gated window needs and what the roster never produces: the card then reads
+"Nothing within 45 min in this window. 16 spots are further out. See all →", and pressing it opens
+on **Any**, marked *widened for browsing*, with all sixteen drawn. Clicking a spot inside the sheet
+leaves exactly **one** `aria-modal` element on the page (the map overlay, with the full paragraph
+and both scores) — checked by counting them, not by looking. And at 380px the fourth type chip sat
+at 382.6px against a 364px card edge before the narrow rule and is scroll-reachable after it. All twelve `.wf-sheet*` rules plus
+`.wf-film-all` and the 620px media query were read back out of `document.styleSheets` — P9 lost a
+rule to a comment edit and nothing but this catches it. **Contrast, composited against each element's
+real backdrop chain rather than its token** (the mistake this project has now made seven times):
+title **14.45:1**, widened clause 6.88, close button 6.88, control kicker 6.75, segment off 6.88,
+segment on **9.18**, empty line 6.88, footer 7.06, "See all" **10.38**. No muted ink anywhere.
+
+**The lens bar was re-measured at 53.5px on the running app**, which is what retires §5c's warning
+rather than an argument that it should not fire.
+
+**Two defects the browser found that the tests did not**, both fixed before the commit and both now
+pinned: the header read **"Sunset · 22:41" and named no day**, because on a lead card `when` is the
+bare event word and the day lives in the kicker — so a dialog opened from a six-window page said
+nothing about which sunset it was; and the footer printed **"0 of 16 · Listed alphabetically."** over
+an empty list, `spotOrderStatement` falling through to its fourth sentence when no spot carries any
+key, which is a claim about an ordering that never happened.
+
+**What the adversarial review changed, because these species recur.** Six lenses over the staged
+diff, one refuter per charge defaulting to REFUTED, then synthesis. Everything below was fixed
+before the commit, and the four worth not re-deriving are:
+
+- **Clicking a spot inside the sheet stacked two `aria-modal` dialogs.** `MapOverlay` is itself a
+  dialog; the sheet stayed mounted underneath it, Escape had two listeners to satisfy, and the
+  reader's place was held in a list they had navigated away from. It now closes first — the same
+  thing the strip already does to its peek before the identical handoff, which is where the rule
+  should have been read from in the first place.
+- **The fully lens-gated card's trigger opened a dialog whose entire content was "nothing
+  matches".** Inheriting the bar's tier is right everywhere else and is exactly wrong there, because
+  that tier is what emptied the window. It now opens **widened**, says so in the header, and the
+  widening still dies with the sheet — which is what charge c6's clause was for.
+- **Two tests could not fail, and both were the review's finding rather than the sweep's.**
+  `sheetOffersMore`'s "reach withheld" case used a *rated* second spot, so it passed on the
+  `hasRatings` branch instead; and the card's `peeksSuppressed` test asserted "no panel" with no
+  fake timers and an empty score index, so no peek could have opened whatever the flag did. Both now
+  have a control case that fails without the feature.
+- **The empty line named controls that could not help.** "Widen the reach" was printed whenever a
+  tier was set — including for a user with no drive times at all, where the tier gated nothing and
+  is the one control that cannot help them. Each candidate is now tested by **re-running the filters
+  with that one control loosened**, so the sentence names only what would work. A consequence worth
+  knowing: "clear the type" can never appear alone, because a chip is only offered when a spot
+  carries it, so with no other filter set the list is non-empty by construction.
+
+- **The empty state took the card's only scroll container with it.** `.wf-sheet-list` is the sole
+  `overflow-y: auto` inside a `max-height` card that clips, and it was being *swapped* for a sibling
+  paragraph — so on a short viewport (a landscape phone, a 400% zoom) the header, three rows of
+  controls and the footer had nowhere to go. The message now lives inside the list, which is what
+  the mock does and what `WindowPickDialog` does with its own prose.
+
+Smaller, all fixed: the trigger's accessible name dropped the day on a lead card — the *same*
+defect as the header's, in the control that opens it; the filter bar clipped its fourth chip below
+~400px inside a card that clips, with no scroll route (it now takes `.wf-lens`'s own phone answer —
+measured: the last chip sat at 382.6px against a 364px card edge, and is reachable after scrolling);
+the grid was inset 12px against every other band's 16, from a miscalculation that treated the ring's
+room as additional to the padding rather than part of it; the result count is now `role="status"`,
+on the **always-mounted** element rather than the conditional empty paragraph, because a live region
+inserted in the same commit as its content is unreliably announced — without it a filter press
+rewrote the list in silence; the name→type join was written twice in this arm from the same prop and
+is now `locationTypes.buildLocationTypeMap`, shared with the regional planner, which is how the five
+copies that module already replaced started; the 620px breakpoint became **639**, this arm's single
+one (`useIsMobile`'s own boundary, stated in CSS by `.wf-spots` and `.wf-lens`); and `spotTypes`'
+Javadoc claimed a join-missed spot was "hidden by none" when `browseSpots` hides it under every
+specific chip.
+
+**Sixty-nine mutations were run across five sweeps and all sixty-nine are killed.** One survivor was
+an **equivalent mutant** and is now commented as such: `typeOptionsFor`'s second `SKY_SUBJECT_TYPES`
+pass *orders*, it does not filter — `spotTypes` is the only guard — so swapping it for the full enum
+changes nothing. Four more survivors were all the same thing: fixes made in response to the review
+with no test yet. Each one now has one.
+
+⚠️ **The last sweep found the most useful survivor of all: two tests that passed for a reason other
+than the feature.** "No peek opens while the drill-down is up" was green with `modalOpen` hard-wired
+to `false` — because `useDialogFocus` moves focus on a frame and the peek's own `focusin` listener
+dismisses a panel whose anchor is not the focused element. The test was pinning the focus rule, not
+the suppression. Letting the focus move **settle** before the hover is what makes it discriminate,
+and it is worth carrying: on this surface a dialog has two independent reasons to take a peek down,
+so any test of one of them has to neutralise the other first.
+
+**Not verified, said plainly.** Anything against real ratings or real drive times — the fixture is
+the whole data path, and the reach map had to be rewritten by hand to reach the gated case.
+`sheetOffersMore` returning false (unit-tested only; the local roster always has ratings). The residual on the shell's `sheetKey`: a window that vanishes and returns would
+re-show the dialog, left undefended because the effect that would release the key is a `setState`
+in `useEffect` the lint rules reject and because `isEventPast` is monotonic, so the clock cannot
+produce it. Touch. No screen reader, axe or Lighthouse pass. Chrome only.
 
 ---
 

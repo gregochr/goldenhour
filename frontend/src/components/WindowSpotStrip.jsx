@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import WindowSpotPeek from './WindowSpotPeek.jsx';
+import WindowSpotCard, { SPOT_SHAPE } from './WindowSpotCard.jsx';
 import useSpotPeek from '../hooks/useSpotPeek.js';
 import { useIsCoarsePointer } from '../hooks/useIsCoarsePointer.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
-import { formatDriveDuration } from '../utils/briefingDisplay.js';
-import { spotBadgeStyle, spotOrderStatement } from '../utils/windowFirstSpots.js';
+import { spotOrderStatement } from '../utils/windowFirstSpots.js';
 import { resolveSpotPeek } from '../utils/windowSpotPeek.js';
 
 /**
@@ -69,14 +69,6 @@ function useStripEdges(ref, spotCount) {
   return edges;
 }
 
-/** `🚗 45 min · 23 mi`, dropping whichever half this user has no data for. */
-function reachLine(driveMinutes, distanceMiles) {
-  const drive = formatDriveDuration(driveMinutes);
-  const distance = distanceMiles == null ? null : `${distanceMiles} mi`;
-  const parts = [drive, distance].filter(Boolean);
-  return parts.length === 0 ? null : `🚗 ${parts.join(' · ')}`;
-}
-
 /**
  * The spots in one window, as a film strip.
  *
@@ -109,10 +101,13 @@ function reachLine(driveMinutes, distanceMiles) {
  * fetched, and the 18 were all in hand before the lens ran. When the lens hid nothing the count
  * stays "7 spots", so the second number never appears unless it means something.
  *
- * <p><b>No "See all N →".</b> It opens P11's drill-down, which does not exist, and P5 already
- * settled this shape of question when it drew no footer at all rather than an empty one: a control
- * whose only effect is nothing is a demo control, and §6 bans those from the shipped build. It
- * lands with the sheet it opens.
+ * <p><b>"See all" lands at P11, with the sheet it opens</b> — P6 and P8 both withheld it because a
+ * control whose only effect is nothing is a demo control (§6). It ships without its number: the
+ * design writes "See all N →", and the count is already 8px to its left, so the second copy would
+ * mark one fact twice (§2.7) and could not even be right, since the sheet opens on the bar's tier
+ * and would show the gated 7 under a promise of 18. {@code Adversarial Review.html}'s charge c2
+ * convicts four affordances for one intention, and its verdict names this one as the <em>keeper</em>
+ * — the arrows are the part it cuts, and they are already restricted to a pointer by media query.
  *
  * <p>The sort sentence is derived from the spots rather than hard-coded, because a sort key no spot
  * carries never fires — see {@link spotOrderStatement}.
@@ -147,13 +142,20 @@ function reachLine(driveMinutes, distanceMiles) {
  *        is the no-gate case and keeps the count at P6's plain "N spots".
  * @param {boolean}  [props.lead]    whether this is the lead card, which tints the edge fades
  * @param {Function} [props.onOpenSpot] opens the map centred on that spot
+ * @param {Function} [props.onSeeAll]   opens the drill-down over this window's whole spot list.
+ *        Omitted renders no trigger at all rather than an inert one — §6 bans a control whose only
+ *        effect is nothing, which is why P6 and P8 both shipped this footer without it.
+ * @param {boolean}  [props.peeksSuppressed] true while something modal is on screen — the strip is
+ *        still mounted behind it and still reachable by Tab, and a peek is portalled above the
+ *        dialog's own stacking context.
  * @param {string}   [props.date]       the window's date, for the peek's score lookup
  * @param {string}   [props.targetType] SUNRISE or SUNSET, for the same
  * @param {?Map}     [props.scoreIndex] briefing-score index. Absent or empty simply means no peek
  *        opens — the scores arrive from a separate request that a first paint has not resolved.
  */
 export default function WindowSpotStrip({
-  spots, windowLabel, total, lead, onOpenSpot, date, targetType, scoreIndex,
+  spots, windowLabel, total, lead, onOpenSpot, onSeeAll, peeksSuppressed, date, targetType,
+  scoreIndex,
 }) {
   const scrollerRef = useRef(null);
   const wrapperRef = useRef(null);
@@ -161,7 +163,14 @@ export default function WindowSpotStrip({
   const overflows = back || more;
   const isMobile = useIsMobile();
   const isCoarsePointer = useIsCoarsePointer();
-  const noHoverPeek = isMobile || isCoarsePointer;
+  // Three gates, and the third is not a device fact. `useDialogFocus` is explicitly NOT a focus
+  // trap, so a keyboard user inside the drill-down can Tab back out onto a spot card behind the
+  // backdrop — and `.wf-peek` is `z-index: 60` against `Modal`'s Tailwind `z-50`, so the panel
+  // would paint OVER the dialog that is meant to be the only thing on screen. Dismissing on open
+  // (see `seeAll`) closes the peek that was already up; this is what stops a new one. Removing the
+  // handlers is the whole fix rather than half of it — nothing can be scheduled, so there is no
+  // pending timer to reason about either. §5e paid for the "two panels at once" class once already.
+  const noHoverPeek = isMobile || isCoarsePointer || peeksSuppressed;
   const { peek, open, hold, closeFromTrigger, closeFromPanel, dismiss } = useSpotPeek();
 
   const openPeek = useCallback((event, spot) => {
@@ -214,6 +223,30 @@ export default function WindowSpotStrip({
     openPeek(event, spot);
   }, [openPeek]);
 
+  /**
+   * Opens the drill-down, taking any peek down with it in the same commit.
+   *
+   * <p>The dismissal is the same one {@link openSpot} does before the map overlay, and for a
+   * sharper version of the same reason: the peek is portalled to the body at {@code z-index: 60}
+   * and {@code Modal}'s root is Tailwind's {@code z-50}, so a panel left standing would paint over
+   * the sheet it just opened. Doing it here rather than relying on the dialog's focus move is what
+   * makes it deterministic — {@code useDialogFocus} fires on a frame, and `openPeek` is module-
+   * private to {@code useSpotPeek} by design, so nothing above this component can reach it.
+   */
+  const seeAll = useCallback(() => {
+    dismiss();
+    onSeeAll?.();
+  }, [dismiss, onSeeAll]);
+
+  // Suppressing the handlers stops a NEW peek; this takes down one that is already up. Both are
+  // needed and they cover different strips: `seeAll` dismisses this strip's own panel synchronously
+  // in the click, before the sheet mounts, while this covers a panel left standing on some OTHER
+  // expanded window — where no pointer gesture is pending, because the reader's pointer travelled
+  // to a different card's footer and the 160ms grace may not have elapsed.
+  useEffect(() => {
+    if (peeksSuppressed) dismiss();
+  }, [peeksSuppressed, dismiss]);
+
   const nudge = useCallback((direction) => {
     const el = scrollerRef.current;
     const card = el?.firstElementChild;
@@ -236,85 +269,17 @@ export default function WindowSpotStrip({
         className={`wf-strip${more ? ' more' : ''}${back ? ' back' : ''}`}
       >
         <div ref={scrollerRef} data-testid="window-spot-scroller" className="wf-spots">
-          {spots.map((spot) => {
-            const badge = spotBadgeStyle(spot.rating);
-            const reach = reachLine(spot.driveMinutes, spot.distanceMiles);
-            return (
-              <button
-                key={spot.key}
-                type="button"
-                data-testid="window-spot"
-                data-rating={spot.rating ?? undefined}
-                data-far={spot.far ? 'true' : undefined}
-                onClick={() => openSpot(spot)}
-                // Focus opens it too, so keyboard users get the same shortcut — through the same
-                // delay, which is what stops a Tab into a partly-offscreen card from flashing the
-                // panel before the browser's scroll-into-view dismisses it. See `useSpotPeek`.
-                onMouseEnter={noHoverPeek ? undefined : (e) => hoverPeek(e, spot)}
-                onMouseLeave={noHoverPeek ? undefined : closeFromTrigger}
-                onFocus={noHoverPeek ? undefined : (e) => focusPeek(e, spot)}
-                onBlur={noHoverPeek ? undefined : closeFromTrigger}
-                className={`wf-spot${spot.far ? ' far' : ''}`}
-              >
-                <span className="flex items-start justify-between" style={{ gap: '8px' }}>
-                  <span
-                    className="text-plex-text"
-                    style={{ fontSize: '12.5px', fontWeight: 600, lineHeight: 1.25 }}
-                  >
-                    {spot.locationName}
-                  </span>
-                  {/* Omitted, never shown as a dash: an unrated spot is one nothing has looked at,
-                      which is a different statement from a poor one. The window header omits its
-                      own star for the same reason. */}
-                  {badge && (
-                    <span
-                      data-testid="window-spot-rating"
-                      className="font-mono whitespace-nowrap"
-                      style={{
-                        fontSize: '10px',
-                        fontWeight: 600,
-                        padding: '2px 5px',
-                        borderRadius: '5px',
-                        flex: 'none',
-                        ...badge,
-                      }}
-                    >
-                      {`${spot.rating}★`}
-                    </span>
-                  )}
-                </span>
-
-                {spot.regionName && (
-                  <span
-                    data-testid="window-spot-region"
-                    className="font-mono text-plex-text-secondary"
-                    style={{ fontSize: '10px' }}
-                  >
-                    {spot.regionName}
-                  </span>
-                )}
-
-                {/* Absent, not zeroed. No drive time means "unknown", never "out of reach" —
-                    plan §2.5 — and this is the normal state for a user with no home postcode. */}
-                {reach && (
-                  <span
-                    data-testid="window-spot-reach"
-                    className={`wf-spot-reach font-mono${spot.far ? ' far' : ' text-plex-text-secondary'}`}
-                    style={{ fontSize: '10px' }}
-                  >
-                    {reach}
-                  </span>
-                )}
-
-                <span
-                  className="wf-spot-open font-mono text-plex-text-secondary"
-                  style={{ fontSize: '10px', marginTop: 'auto' }}
-                >
-                  ◍ Open on map →
-                </span>
-              </button>
-            );
-          })}
+          {spots.map((spot) => (
+            <WindowSpotCard
+              key={spot.key}
+              spot={spot}
+              onOpen={() => openSpot(spot)}
+              onMouseEnter={noHoverPeek ? undefined : (e) => hoverPeek(e, spot)}
+              onMouseLeave={noHoverPeek ? undefined : closeFromTrigger}
+              onFocus={noHoverPeek ? undefined : (e) => focusPeek(e, spot)}
+              onBlur={noHoverPeek ? undefined : closeFromTrigger}
+            />
+          ))}
         </div>
       </div>
 
@@ -346,6 +311,26 @@ export default function WindowSpotStrip({
             </>
           )}
           <span data-testid="window-spot-count">{count}</span>
+          {/* The design's third footer element, and the one thing charge c2 explicitly says to KEEP
+              ("Keep swipe plus 'See all'; the arrows exist because a mouse cannot swipe, which is a
+              reason to keep them only on desktop" — and the arrows are already pointer-only by
+              media query). It carries NO number: the design writes "See all N →", and N sits 8px to
+              its left already, so printing it twice is the mark-once rule (§2.7) broken for
+              nothing. Worse, it could not be right — the sheet opens on the bar's tier, so a
+              trigger promising the ungated 18 would open on 7. The count it does state is in the
+              accessible name, where "See all" is a proper substring of it (WCAG 2.5.3). */}
+          {onSeeAll && (
+            <button
+              type="button"
+              data-testid="window-spot-all"
+              className="wf-film-all"
+              aria-label={`See all spots in ${windowLabel}`}
+              onClick={seeAll}
+            >
+              See all
+              <span aria-hidden="true"> →</span>
+            </button>
+          )}
         </span>
       </div>
 
@@ -373,20 +358,13 @@ export default function WindowSpotStrip({
 }
 
 WindowSpotStrip.propTypes = {
-  spots: PropTypes.arrayOf(PropTypes.shape({
-    key: PropTypes.string.isRequired,
-    locationId: PropTypes.number,
-    locationName: PropTypes.string.isRequired,
-    regionName: PropTypes.string,
-    rating: PropTypes.number,
-    driveMinutes: PropTypes.number,
-    distanceMiles: PropTypes.number,
-    far: PropTypes.bool,
-  })).isRequired,
+  spots: PropTypes.arrayOf(PropTypes.shape(SPOT_SHAPE)).isRequired,
   windowLabel: PropTypes.string.isRequired,
   total: PropTypes.number,
   lead: PropTypes.bool,
   onOpenSpot: PropTypes.func,
+  onSeeAll: PropTypes.func,
+  peeksSuppressed: PropTypes.bool,
   date: PropTypes.string,
   targetType: PropTypes.string,
   scoreIndex: PropTypes.instanceOf(Map),
