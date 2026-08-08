@@ -218,6 +218,40 @@ describe('WindowSpotStrip', () => {
     });
   });
 
+  describe('the drill-down trigger', () => {
+    it('is absent with no handler, rather than inert — §6 bans a control that does nothing', () => {
+      renderStrip([spot(), SIMONSIDE]);
+      expect(screen.queryByTestId('window-spot-all')).toBeNull();
+    });
+
+    it('opens the sheet', () => {
+      const onSeeAll = vi.fn();
+      renderStrip([spot()], { onSeeAll });
+      fireEvent.click(screen.getByTestId('window-spot-all'));
+      expect(onSeeAll).toHaveBeenCalledTimes(1);
+    });
+
+    it('names the window in its accessible name, so six of them are distinguishable', () => {
+      renderStrip([spot()], { onSeeAll: vi.fn() });
+      expect(screen.getByRole('button', { name: 'See all spots in Tonight' })).toBeInTheDocument();
+    });
+
+    it('carries the visible words inside that name, per WCAG 2.5.3', () => {
+      renderStrip([spot()], { onSeeAll: vi.fn() });
+      const trigger = screen.getByTestId('window-spot-all');
+      expect(trigger.getAttribute('aria-label')).toContain('See all');
+      expect(trigger).toHaveTextContent('See all');
+    });
+
+    it('states NO count of its own — the footer already carries one 8px to its left', () => {
+      // Two numbers for one set is the mark-once rule broken, and the second could not even be
+      // right: the sheet opens on the bar's tier, so "See all 7" would open showing 2.
+      renderStrip([spot(), SIMONSIDE], { total: 7, onSeeAll: vi.fn() });
+      expect(screen.getByTestId('window-spot-all').textContent).not.toMatch(/\d/);
+      expect(screen.getByTestId('window-spot-count')).toHaveTextContent(/^2 of 7$/);
+    });
+  });
+
   describe('the film controls', () => {
     it('renders no arrows while everything already fits', () => {
       // `ScrollRail`'s rule, and the right one: a pair of permanently disabled buttons on a
@@ -644,6 +678,50 @@ describe('WindowSpotStrip', () => {
         tick(OPEN_DELAY);
         expect(screen.getAllByTestId('wf-peek')).toHaveLength(1);
         expect(screen.getByTestId('wf-peek-fiery')).toHaveTextContent('22');
+      });
+
+      it('takes the peek down before opening the drill-down', () => {
+        // Sharper than the map case: `Modal` renders inside Tailwind's `z-50` while `.wf-peek` is
+        // portalled to the body at 60, so a panel left standing would paint OVER the sheet.
+        renderStrip([spot()], peekable({ onSeeAll: vi.fn() }));
+        fireEvent.mouseEnter(screen.getByTestId('window-spot'));
+        tick(OPEN_DELAY);
+        expect(screen.getByTestId('wf-peek')).toBeInTheDocument();
+        fireEvent.click(screen.getByTestId('window-spot-all'));
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
+
+      it('takes down a peek this strip did not open, once a modal appears', () => {
+        // The other-strip case `seeAll` cannot reach: the reader's pointer left card A and
+        // travelled to card B's footer, and the 160ms grace may not have elapsed.
+        const { rerender } = renderStrip([spot()], peekable());
+        fireEvent.mouseEnter(screen.getByTestId('window-spot'));
+        tick(OPEN_DELAY);
+        expect(screen.getByTestId('wf-peek')).toBeInTheDocument();
+        rerender(
+          <WindowSpotStrip spots={[spot()]} windowLabel="Tonight" {...peekable()} peeksSuppressed />,
+        );
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
+
+      it('opens no new peek at all while a modal is up', () => {
+        // Removing the handlers rather than only dismissing: nothing can be scheduled, so there is
+        // no pending timer to reason about either.
+        renderStrip([spot()], peekable({ peeksSuppressed: true }));
+        fireEvent.mouseEnter(screen.getByTestId('window-spot'));
+        tick(OPEN_DELAY * 2);
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
+
+      it('opens again once the modal has gone', () => {
+        // The suppression is a state, not a latch — a peek must work after the sheet closes.
+        const { rerender } = renderStrip([spot()], peekable({ peeksSuppressed: true }));
+        rerender(
+          <WindowSpotStrip spots={[spot()]} windowLabel="Tonight" {...peekable()} />,
+        );
+        fireEvent.mouseEnter(screen.getByTestId('window-spot'));
+        tick(OPEN_DELAY);
+        expect(screen.getByTestId('wf-peek')).toBeInTheDocument();
       });
 
       it('does not survive the map overlay handing focus back on close', () => {

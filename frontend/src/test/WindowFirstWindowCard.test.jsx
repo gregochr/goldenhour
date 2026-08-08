@@ -1,6 +1,6 @@
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import WindowFirstWindowCard from '../components/WindowFirstWindowCard.jsx';
 import { buildWindowRows } from '../utils/windowFirstRows.js';
 
@@ -298,6 +298,90 @@ describe('WindowFirstWindowCard', () => {
       renderCard({ spots: [], reachTotal: 12 }, { reachLabel: '45 min' });
       expect(screen.queryByTestId('window-spot-strip')).toBeNull();
       expect(screen.queryByTestId('window-spot-foot')).toBeNull();
+    });
+  });
+
+  describe('the drill-down trigger', () => {
+    it('opens the sheet for this card from the strip footer', () => {
+      const onSeeAllSpots = vi.fn();
+      const c = card({ spots: [spot()] });
+      render(<WindowFirstWindowCard card={c} todayStr={TODAY} onSeeAllSpots={onSeeAllSpots} />);
+      fireEvent.click(screen.getByTestId('window-spot-all'));
+      expect(onSeeAllSpots).toHaveBeenCalledWith(c);
+    });
+
+    it('offers it on the fully gated window too, where the number is otherwise unactionable', () => {
+      // "12 spots are further out" with no route to those twelve is the defect CLAUDE.md records
+      // against Close-to-home's old four-card cap.
+      const onSeeAllSpots = vi.fn();
+      const c = card({ spots: [], reachTotal: 12 });
+      render(
+        <WindowFirstWindowCard
+          card={c}
+          todayStr={TODAY}
+          reachLabel="45 min"
+          onSeeAllSpots={onSeeAllSpots}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('window-card-lens-all'));
+      expect(onSeeAllSpots).toHaveBeenCalledWith(c);
+    });
+
+    it('draws neither trigger when the shell withheld the handler', () => {
+      renderCard({ spots: [spot()] });
+      expect(screen.queryByTestId('window-spot-all')).toBeNull();
+      renderCard({ spots: [], reachTotal: 12 }, { reachLabel: '45 min' });
+      expect(screen.queryByTestId('window-card-lens-all')).toBeNull();
+    });
+
+    it('names the window in the gated line\'s trigger, as the strip\'s own does', () => {
+      render(
+        <WindowFirstWindowCard
+          card={card({ spots: [], reachTotal: 12 })}
+          todayStr={TODAY}
+          reachLabel="45 min"
+          onSeeAllSpots={vi.fn()}
+        />,
+      );
+      expect(screen.getByRole('button', { name: 'See all spots in Tomorrow sunset' }))
+        .toBeInTheDocument();
+    });
+
+    describe('the modal suppression it passes straight through', () => {
+      // A boolean, so nothing in the card subtree learns anything it could act on — P7's rule.
+      // Fake timers AND a real score index, because the peek needs both: without either, a test
+      // asserting "no panel" passes whatever the flag does, which is the shape §5e convicted.
+      const DATE = TODAY;
+      const SCORES = new Map([[`${DATE}|SUNSET|Bamburgh Castle`, {
+        locationName: 'Bamburgh Castle', fierySkyPotential: 68, goldenHourPotential: 74,
+        summary: 'Mid-level cloud should catch the last light.',
+      }]]);
+      const OPEN_DELAY = 180;
+      const renderWith = (peeksSuppressed) => render(
+        <WindowFirstWindowCard
+          card={card({ spots: [spot({ locationName: 'Bamburgh Castle' })] })}
+          todayStr={TODAY}
+          peeksSuppressed={peeksSuppressed}
+          scoreIndex={SCORES}
+        />,
+      );
+
+      beforeEach(() => vi.useFakeTimers());
+      afterEach(() => vi.useRealTimers());
+
+      it('opens a peek when it is not set — the control case that makes the next test mean something', () => {
+        renderWith(false);
+        fireEvent.mouseEnter(screen.getByTestId('window-spot'));
+        act(() => vi.advanceTimersByTime(OPEN_DELAY));
+        expect(screen.getByTestId('wf-peek')).toBeInTheDocument();
+      });
+
+      it('opens none when it is set', () => {
+        renderWith(true);
+        fireEvent.mouseEnter(screen.getByTestId('window-spot'));
+        act(() => vi.advanceTimersByTime(OPEN_DELAY * 2));
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
+      });
     });
   });
 

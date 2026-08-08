@@ -1427,7 +1427,14 @@
 .wf-seg-btn:hover:not(:disabled):not(.on) { color: var(--color-plex-text); }
 /* The spec's `.seg.home button.on` — .18 rather than the plain segment's .13. There is only one
    segmented control on this bar and it is the home/reach one, so the two rules collapse into this
-   single state; P11's rating and type segments take the .13 variant when they arrive. */
+   single state.
+
+   ⚠️ P11 arrived and did NOT take the .13 variant, which this comment used to promise it would.
+   The mock's two alphas exist to mark the reach segment out from the other two, and in the mock all
+   three sit in one row. Here they do not: reach is the page's control on a sticky bar, and the
+   sheet's three are a separate surface a click away. Shipping .13 there would make the sheet's own
+   reach chip a different colour from the bar chip it inherits its value FROM — the one pairing the
+   mock's rule was invented to keep apart. One `on` state, everywhere. */
 .wf-seg-btn.on {
   background: rgba(201, 162, 75, 0.18);
   color: var(--color-segment-active);
@@ -1517,10 +1524,18 @@
    P9 added three more focusable things to the same scrolling pane — the window card's expander and
    the two doors — and every one of them can sit above the fold. A collapsed card is ALL header, so
    an unreserved expander parks the whole card under the bar. The bar is untouched by P9 and still
-   measures 53.5px, so 60 still holds — re-measured rather than assumed. */
+   measures 53.5px, so 60 still holds — re-measured rather than assumed.
+
+   ⚠️ P11 was the phase this warning named, and the warning does NOT fire: the rating floor and the
+   type control went into the drill-down sheet rather than onto this bar (plan §5f), so the bar is
+   still one control on one line and still measures 53.5px — re-measured on the running app, not
+   assumed. P11 adds one focusable to the pane, `.wf-film-all`, which takes the same reservation.
+   The sheet's own controls need none: it is a modal, and nothing scrolls it under the bar. P14
+   still has to re-measure, because a phone bar is 50px and may yet wrap. */
 .wf-spot,
 .window-card-pick,
 .wf-film-btn,
+.wf-film-all,
 .wf-exp,
 .wf-door {
   scroll-margin-top: 60px;
@@ -1949,6 +1964,196 @@
 .wf-film-btn:focus-visible {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: 2px;
+}
+/* The drill-down's trigger, and the ONLY thing on this footer that is not a fact — so it takes the
+   teal actionable accent `.wf-lens-reset` already established for this arm (`--color-badge-tide`,
+   measured 9.68:1 there; this footer's `rgba(0,0,0,0.16)` over `--color-plex-panel` is a darker
+   backdrop still, so the ratio only rises). Unlike `.wf-film-btn` it is NOT pointer-gated: the
+   arrows duplicate a swipe, this opens a surface that has no other route. */
+.wf-film-all {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-badge-tide);
+  background: none;
+  border: none;
+  padding: 0;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.wf-film-all:hover { text-decoration: underline; }
+.wf-film-all:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Window-first drill-down sheet ──
+   Geometry from the mock's `.card2` (:131), `.sh2` (:132-135), `.fbar` (:136), `.list` (:137),
+   `.none` (:139) and `.ft` (:140). Four deviations, each with a reason:
+
+   1. `--color-plex-text-secondary` everywhere the mock writes `--ink-3`. SEVENTH time on this
+      redesign — muted is not usable for 10–11px type on these surfaces, and the figures are in
+      §5c and §5e.
+   2. The card is `--color-plex-panel`, not the mock's page `--bg`, and the filter bar is
+      `--color-plex-surface`, not a lighter one. That is not decoration: `.wf-spot` fills with
+      `rgba(0,0,0,0.16)` and `.wf-seg-btn.on` with `rgba(201,162,75,0.18)`, so both composite
+      against whatever is behind them. Reusing the two backdrops those controls already sit on in
+      the pane means every contrast figure P6, P8 and P10′ measured carries over unchanged rather
+      than needing re-derivation on a third surface.
+   3. `100dvh`, not `100vh`, and the outer inset is `Modal`'s own `p-4` (16px) rather than the
+      mock's 20 — `WindowPickDialog` records why: at 400% zoom the viewport is ~320×256 CSS px and
+      an uncapped panel puts its footer off-screen with nothing to scroll.
+   4. No `top: 34px`. `Modal` centres its child and that is the app's shape for all fifteen
+      dialogs; a top-anchored one here would be the only one. */
+.wf-sheet-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 880px;
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+  background: var(--color-plex-panel);
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 13px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7);
+}
+.wf-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--color-plex-border);
+  flex-wrap: wrap;
+}
+.wf-sheet-t {
+  font-size: 15.5px;
+  font-weight: 700;
+  color: var(--color-plex-text);
+  letter-spacing: -0.01em;
+}
+/* The window card's own kicker treatment, quoted so the dialog's heading and the card's read as
+   one heading. It carries the DAY on a lead card, where `when` is the bare event word. */
+.wf-sheet-k {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--color-close-to-home);
+}
+.wf-sheet-w {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-sheet-x {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-plex-text-secondary);
+  border: 1px solid var(--color-plex-border);
+  background: none;
+  border-radius: 7px;
+  padding: 5px 9px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.wf-sheet-x:hover {
+  color: var(--color-plex-text);
+  border-color: var(--color-plex-border-light);
+}
+.wf-sheet-x:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+/* It wraps rather than scrolls, because the card is wide enough for two rows of controls at every
+   width the desktop pass covers. Below that it can still run out of room for a single group, and
+   the card clips at `overflow: hidden` — so the narrow rule further down gives it the same
+   horizontal escape `.wf-lens` already takes on a phone. Without it a reader at 320px would have
+   the fourth reach tier cut off with no way to reach it. */
+.wf-sheet-fbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-plex-border);
+  background: var(--color-plex-surface);
+  flex-wrap: wrap;
+}
+/* Each control is its own kicker-plus-segment pair, because three unlabelled segmented controls in
+   a row are three sets of words with nothing saying which axis each one is. The lens bar has the
+   same shape for the same reason and this reuses its `.wf-lens-k`. */
+.wf-sheet-seg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* The greying box, scoped exactly as `.wf-lens-controls` is: it wraps the control and NOT the
+   "Pro" pill beside it, because opacity composites the whole subtree and WCAG 1.4.3's exemption
+   covers an inactive component, never the call to action that explains it. */
+.wf-sheet-seg-wrap {
+  display: flex;
+  align-items: center;
+}
+/* `minmax(0, 1fr)` rather than `1fr`: a grid track's default minimum is `auto`, so one long
+   location name would widen its column and squeeze the other two instead of wrapping. The strip
+   sizes by flex basis and never meets this. */
+.wf-sheet-list {
+  overflow-y: auto;
+  /* 16px horizontally, the same inset every other band in this card takes, so the grid's left edge
+     lines up with the header and the footer. That padding IS the focus ring's room — `overflow-y:
+     auto` clips on both axes, and a 2px outline at 2px offset needs 4 of the 16. Vertically: 4 for
+     the ring, 2 for the `.wf-spot:hover` lift that is live at the same time when a click restores
+     focus, and 2 of slack — the strip's own 8, derived there and re-used rather than re-argued. */
+  padding: 8px 16px 16px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+/* This list is its own scroll container, so tabbing to a card in a row below the fold scrolls it
+   flush against the filter bar's edge and clips the ring's top stroke — the same defect
+   `scroll-margin-top: 60px` fixes for the sticky bar, one level in. 6 = the 2px outline, its 2px
+   offset, and the 2px `:hover` lift that is live at the same time when a click restores focus. */
+.wf-sheet-list > .wf-spot {
+  scroll-margin: 6px;
+}
+/* Inside the grid now, so it spans every column rather than sitting in the first one. Its own
+   inset is 0: the list's padding already places it against the same left edge as the cards. */
+.wf-sheet-none {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--color-plex-text-secondary);
+  padding: 6px 0 4px;
+}
+.wf-sheet-foot {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 9px 16px;
+  border-top: 1px solid var(--color-plex-border);
+  background: rgba(0, 0, 0, 0.2);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+/* 639px, not the mock's 620: this arm already states 639 as its single breakpoint — it is
+   `useIsMobile`'s own boundary, expressed in CSS by `.wf-spots` and `.wf-lens` so the sizing has one
+   source of truth rather than a JS query agreeing with a media rule. A second number 19px away
+   would be one more thing to keep in step for no gain. Two columns rather than one, because a
+   single column in an 880px dialog is a list pretending to be a grid; P14 owns anything below. */
+@media (max-width: 639px) {
+  .wf-sheet-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* Each control keeps its own row and scrolls within it, which is `.wf-lens`'s own phone answer to
+     the same problem. `flex-wrap: nowrap` on the group is what makes the scroll necessary rather
+     than letting four chips stack into a column. */
+  .wf-sheet-fbar { gap: 8px; }
+  .wf-sheet-seg {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .wf-sheet-seg::-webkit-scrollbar { display: none; }
+  .wf-sheet-seg > .wf-seg { flex: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

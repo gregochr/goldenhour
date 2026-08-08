@@ -484,6 +484,25 @@ Exit `0` is the gate; the grep is only for reading the detail. Use the `!**/inte
 cd frontend && npm run test -- --reporter=dot   # ~90s, much faster than backend
 ```
 
+⚠️ **`npm run test` is NOT the frontend CI job.** That job is lint → Vitest → **`npm audit
+--audit-level=high`** → build, and the audit step is the one nothing local runs. It blocks on a
+*transitive* advisory nobody in this repo introduced, so the PR goes red on a change that touches no
+dependency file — which is exactly how P11 lost a CI round. Run all four before pushing:
+
+```bash
+cd frontend && npm run lint && npm test && npm audit --audit-level=high && npm run build
+```
+
+And when `npm audit` does fire, prefer a **surgical lockfile edit** to `npm audit fix`. The fix
+command also rewrites lockfile metadata to whatever the local npm emits — on npm 11 / Node 25 it
+strips the `libc` field from every optional platform-specific rollup binary, 72 lines of it, and CI
+runs Node 22 whose npm does not write that field. `libc` is what disambiguates the glibc and musl
+builds of a native dependency, so a security patch would be carrying a change that could alter which
+binary the Linux runner installs. Edit the three lines (version, resolved, integrity — take the
+integrity from `https://registry.npmjs.org/<pkg>/<version>`), then prove it the way CI will:
+`rm -rf node_modules && npm ci` must exit 0, report 0 vulnerabilities, and leave the lockfile
+unchanged.
+
 The core rule: `compile → single-class test → checkstyle:check → full verify` as a ladder. Only climb to `clean verify` when you're confident everything is clean — and gate each rung on the exit code, not on what the output appears to say. The first three rungs run with Docker stopped; anything that reaches the full `test` phase (`./mvnw test`, `./mvnw verify`) does not — start Docker Desktop first, or you get a Testcontainers stack trace instead of a test failure.
 
 ---

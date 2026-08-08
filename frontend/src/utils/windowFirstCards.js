@@ -203,6 +203,11 @@ export function buildWindowCards(
       // single render site.
       confidence: CONFIDENCE_VERDICTS.has(verdict) ? (win?.confidence ?? null) : null,
       spots,
+      // The set BEFORE the reach gate, carried for P11's drill-down — which owns its own reach
+      // control and must be able to widen past the bar's tier, so handing it the gated list would
+      // give it a control with nothing to reveal. It is the same array `reachTotal` counts, so the
+      // sheet and the strip footer can never describe two different populations.
+      allSpots,
       // How many the lens chose from. Equal to `spots.length` whenever nothing was gated, which is
       // exactly when the strip footer keeps P6's plain count rather than the design's "N of M".
       reachTotal: allSpots.length,
