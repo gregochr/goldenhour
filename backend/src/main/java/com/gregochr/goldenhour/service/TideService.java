@@ -81,6 +81,36 @@ public class TideService {
     private static final long FETCH_LENGTH_SECONDS =
             (long) (ALMANAC_HORIZON_DAYS + REFRESH_SLACK_DAYS) * 24 * 3600;
 
+    /**
+     * How long a location may go without a full re-fetch of its forward window.
+     *
+     * <p>The weekly refresh normally extends only the tail, because tide predictions are
+     * deterministic and re-buying stored days costs credits and row churn for an identical
+     * result. The one thing a tail fetch can never pick up is an upstream revision to a station's
+     * harmonic constants — rare, but "never" is a strong word — so the whole window is re-seeded
+     * on this cadence as cheap insurance.
+     *
+     * <p>⚠️ Bounded above by {@link #ALMANAC_HORIZON_DAYS}, and not independently choosable. The
+     * staleness clock reads the oldest {@code fetched_at} among rows still inside the forward
+     * window, so its own evidence ages out of its own query: a stamp can only ever be as old as
+     * the horizon. Set this above the horizon and the re-seed can never fire.
+     */
+    private static final int RESEED_INTERVAL_DAYS = 90;
+
+    /**
+     * The span to ask WorldTides for, and why.
+     *
+     * @param from   first instant to fetch, inclusive — also the lower bound of the delete
+     * @param to     last instant to fetch
+     * @param reason what decided this window, for the log line
+     */
+    record FetchWindow(LocalDateTime from, LocalDateTime to, String reason) {
+
+        long lengthSeconds() {
+            return ChronoUnit.SECONDS.between(from, to);
+        }
+    }
+
     /** Days either side of the solar event time to query from the DB. */
     private static final long QUERY_WINDOW_DAYS = 2;
 
@@ -169,14 +199,26 @@ public class TideService {
         }
 
         LocalDateTime startOfDay = LocalDateTime.now(ZoneOffset.UTC).toLocalDate().atStartOfDay();
-        long startEpoch = startOfDay.toEpochSecond(ZoneOffset.UTC);
+        LocalDateTime horizon = startOfDay.plusSeconds(FETCH_LENGTH_SECONDS);
+
+        FetchWindow window = resolveFetchWindow(location.getId(), startOfDay, horizon);
+        if (window == null) {
+            LOG.debug("Tide coverage for {} already reaches {} — no fetch needed",
+                    location.getName(), horizon.toLocalDate());
+            return;
+        }
+
+        long startEpoch = window.from().toEpochSecond(ZoneOffset.UTC);
+        long fetchLengthSeconds = window.lengthSeconds();
         long callStartMs = System.currentTimeMillis();
 
         try {
-            LOG.info("WorldTides ← {} ({}, {})", location.getName(), location.getLat(), location.getLon());
+            LOG.info("WorldTides ← {} ({}, {}) — {} to {} ({})",
+                    location.getName(), location.getLat(), location.getLon(),
+                    window.from().toLocalDate(), window.to().toLocalDate(), window.reason());
             String tideUrl = "https://" + WORLDTIDES_HOST + "/api/v3?extremes&lat=" + location.getLat()
                     + "&lon=" + location.getLon() + "&start=" + startEpoch
-                    + "&length=" + FETCH_LENGTH_SECONDS + "&key=" + (apiKey.length() > 4
+                    + "&length=" + fetchLengthSeconds + "&key=" + (apiKey.length() > 4
                     ? apiKey.substring(0, 4) + "***" : "***");
 
             WorldTidesResponse response = restClient.get()
@@ -186,7 +228,7 @@ public class TideService {
                             .queryParam("lat", location.getLat())
                             .queryParam("lon", location.getLon())
                             .queryParam("start", startEpoch)
-                            .queryParam("length", FETCH_LENGTH_SECONDS)
+                            .queryParam("length", fetchLengthSeconds)
                             .queryParam("key", apiKey)
                             .build())
                     .retrieve()
@@ -226,10 +268,11 @@ public class TideService {
                             .build())
                     .toList();
 
-            // Delete only the overlapping fetch window, preserving historical data
-            LocalDateTime windowEnd = startOfDay.plusSeconds(FETCH_LENGTH_SECONDS);
+            // Delete only the span just fetched, preserving both historical data and the
+            // forward days this fetch did not ask for. window.from() is never before
+            // startOfDay, so backfilled history can never fall inside this range.
             tideExtremeRepository.deleteByLocationIdAndEventTimeBetween(
-                    location.getId(), startOfDay, windowEnd);
+                    location.getId(), window.from(), window.to());
             tideExtremeRepository.saveAll(entities);
 
             if (jobRun != null) {
@@ -240,9 +283,10 @@ public class TideService {
                         "GET", tideUrl, durationMs, 200, true, null, response.getCallCount());
             }
 
-            LOG.info("Stored {} tide extremes for {} (T+0 to T+{})",
-                    entities.size(), location.getName(),
-                    ALMANAC_HORIZON_DAYS + REFRESH_SLACK_DAYS - 1);
+            LOG.info("Stored {} tide extremes for {} ({} to {}, {} credit(s))",
+                    entities.size(), location.getName(), window.from().toLocalDate(),
+                    window.to().toLocalDate(),
+                    response.getCallCount() != null ? response.getCallCount() : "?");
 
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - callStartMs;
@@ -255,6 +299,61 @@ public class TideService {
             }
             LOG.warn("Failed to fetch tide extremes for {}: {}", location.getName(), e.getMessage());
         }
+    }
+
+    /**
+     * Decides what span to fetch: the whole forward window, only the tail beyond what is stored,
+     * or nothing at all.
+     *
+     * <p>Package-private so the decision can be tested without an HTTP call — it is the half of
+     * the refresh that determines both the credit cost and what gets deleted.
+     *
+     * <p><strong>The tail deliberately re-requests the frontier extreme.</strong> Its {@code from}
+     * is an existing row's exact {@code event_time}, used both as the WorldTides {@code start} and
+     * as the delete's lower bound — and that bound is inclusive, so the frontier row is removed and
+     * only restored if the API returns an extreme at exactly {@code start}. Inclusivity is
+     * therefore required for correctness rather than merely convenient; it is also what prevents a
+     * {@code uq_tide_extreme} violation on re-insert. Note the frontier is a tide instant while the
+     * horizon is midnight, so a weekly tail spans seven days plus up to one inter-extreme gap —
+     * which is why it bills two credits rather than one.
+     *
+     * <p>⚠️ Every branch returns a window whose {@code from} is at or after {@code startOfDay}.
+     * The delete is derived from it, and stored history sits strictly before that bound, so the
+     * merge can only ever extend forwards. Widening this backwards would destroy the 12-month
+     * backfill.
+     *
+     * @param locationId the location primary key
+     * @param startOfDay start of today, UTC
+     * @param windowEnd  the target horizon
+     * @return the span to fetch, or {@code null} when coverage already reaches the horizon
+     */
+    FetchWindow resolveFetchWindow(Long locationId, LocalDateTime startOfDay,
+            LocalDateTime windowEnd) {
+        LocalDateTime frontier = tideExtremeRepository
+                .findLatestEventTimeFrom(locationId, startOfDay);
+        if (frontier == null) {
+            // No forward data: a new coastal location, or one whose data has aged out. Same path
+            // for both rather than two that can drift apart.
+            return new FetchWindow(startOfDay, windowEnd, "seed — no forward data");
+        }
+
+        LocalDateTime oldestFetch = tideExtremeRepository
+                .findOldestFetchedAtFrom(locationId, startOfDay);
+        // The null arm is unreachable today — fetched_at is NOT NULL and both queries share a
+        // predicate, so a non-null frontier guarantees a row here. Kept as the safe default if
+        // that column ever becomes nullable: unknown age means re-seed, not skip.
+        if (oldestFetch == null
+                || oldestFetch.isBefore(startOfDay.minusDays(RESEED_INTERVAL_DAYS))) {
+            return new FetchWindow(startOfDay, windowEnd, "re-seed — forward window is stale");
+        }
+
+        if (!frontier.isBefore(windowEnd)) {
+            // Already at the horizon. Happens when the refresh runs twice in a day, and after a
+            // re-seed. Returning null skips the API call entirely rather than buying a zero-day
+            // window.
+            return null;
+        }
+        return new FetchWindow(frontier, windowEnd, "tail — extending stored coverage");
     }
 
     /**
