@@ -21,6 +21,16 @@
         <java.version>21</java.version>
         <anthropic-sdk.version>2.52.0</anthropic-sdk.version>
         <surefire.excludedGroups>prompt-regression</surefire.excludedGroups>
+
+        <!--
+            Overrides the version Spring Boot 4.1.0 manages (42.7.11) to clear CVE-2026-54291
+            (CVSS 8.2), first patched in 42.7.12. There is no Spring Boot 4.1.x to upgrade to —
+            4.1.1 is unpublished — so an override is the only route.
+
+            Remove this line when a Boot release manages 42.7.12 or later, and check the managed
+            version rather than assuming: `./mvnw help:evaluate -Dexpression=postgresql.version`.
+        -->
+        <postgresql.version>42.7.13</postgresql.version>
     </properties>
 
     <profiles>
