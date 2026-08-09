@@ -1792,10 +1792,18 @@ comment claimed the problem solved. Counted on the running app with a Range over
 the five sources emit: **163 characters to the first line uncapped, 116 at the 620px now shipped**,
 which is the tightest cap that does not add a third line to that row.
 
-**And one test that could not fail, caught by checking rather than by running it.** The
-no-persistence test spied on `Storage.prototype.setItem`, but `setup.js` substitutes a plain object
-for `localStorage`, so the spy recorded nothing and the assertion passed whatever the shell did. It
-now spies the object and writes a control value first.
+**And one test that could not fail — twice, in opposite directions, and CI found the second one.**
+⚠️ **Never spy on `localStorage.setItem` in this suite.** The no-persistence test first spied
+`Storage.prototype.setItem`; `setup.js:27-37` substitutes a plain object for `localStorage` **only
+when jsdom does not supply one**, which is what happens on this project's Macs, so the prototype
+spy recorded nothing and the assertion passed whatever the shell did. Spying the instance instead
+fixed it locally and **failed on CI**, where jsdom's real Proxy-backed `Storage` is present and an
+own-property `setItem` is treated as a stored item rather than a method override — so the spy is
+bypassed and records zero. Both spellings are green on one machine and blind on the other, and only
+the control write (`setItem` then assert the spy saw it) exposed either. The test now observes
+through `length`/`key`, which both implementations honour, and compares a key-set snapshot taken
+before the interaction. Verified against a Proxy-backed stand-in: the public-API read sees the
+write, the instance spy sees none.
 
 **Verified live**, on the running app against the real feed (11 entries, all ALMANAC, 6 of them
 dates-only because the local `tide_extreme` is empty): the tab pairing and roving tabindex read back

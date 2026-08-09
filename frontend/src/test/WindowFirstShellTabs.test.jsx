@@ -340,17 +340,28 @@ describe('WindowFirstShell — moving between tabs', () => {
     // The arm persists the layout flag and the rating floor, and both are settled taste. Which tab
     // you last had open is not: restoring a ninety-day almanac answers a question the reader is
     // almost certainly not asking at 05:00, and it spends the first paint on a fetch.
-    // The write is watched as well as the remount. Without the spy this passes for a shell that
-    // persists the tab and simply fails to read it back — which is a different bug wearing the
-    // same green tick.
+    // The storage is watched as well as the remount. Without that this passes for a shell that
+    // persists the tab and simply fails to read it back — a different bug wearing the same tick.
     //
-    // ⚠️ Spied on the OBJECT, not on `Storage.prototype`. `setup.js:28-37` substitutes a plain
-    // object for `localStorage` when jsdom does not supply one, so a prototype spy records nothing
-    // and the assertion below passes whatever the shell does. The control write is what proves the
-    // spy is wired to the thing the app actually calls.
-    const wrote = vi.spyOn(globalThis.localStorage, 'setItem');
+    // ⚠️ Read through the PUBLIC API (`length`/`key`), never a spy on `setItem`, and the reason is
+    // that a spy here is environment-dependent in a way that only CI can see. `setup.js:27-37`
+    // installs a plain-object `localStorage` **only when jsdom does not supply one** — which is
+    // what happens on this project's Macs and is not what happens on the CI runner, where jsdom's
+    // real Proxy-backed `Storage` is present and an instance spy on `setItem` is bypassed
+    // entirely. A `Storage.prototype` spy has the same problem in reverse. Both spellings pass
+    // locally and one of them records nothing on CI; the first version of this test did exactly
+    // that and CI caught it. `length` and `key` are implemented by both.
+    const keysNow = () => Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i));
+
+    // Control: prove the observation can see a write at all, in whichever storage this environment
+    // supplied. Without it, "no tab key was written" passes on a mechanism that sees nothing.
     localStorage.setItem('control', '1');
-    expect(wrote).toHaveBeenCalledWith('control', '1');
+    expect(keysNow()).toContain('control');
+    localStorage.removeItem('control');
+
+    // Compared against a snapshot rather than against `[]`, so the assertion is about what THIS
+    // interaction wrote and cannot be broken by an unrelated key the environment happens to carry.
+    const before = keysNow();
 
     const { unmount } = renderShell();
     await openComingUp();
@@ -359,7 +370,7 @@ describe('WindowFirstShell — moving between tabs', () => {
 
     renderShell();
     expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
-    expect(wrote.mock.calls.map(([key]) => key).filter((key) => /tab/i.test(key))).toEqual([]);
+    expect(keysNow()).toEqual(before);
   });
 });
 
