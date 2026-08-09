@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.17.14] - 2026-08-09
+
 ### Changed — the weekly tide refresh now fetches only the days it doesn't already have
 
 **Every Monday it was re-buying the same three months of tide predictions.** The refresh asked
