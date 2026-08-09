@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — WorldTides spend is now priced from the credits the provider actually charged
+
+**The admin cost figure for tide fetches was a flat rate per call, and WorldTides doesn't charge
+per call.** It charges by how much data you ask for — one credit per seven days — so the same
+endpoint costs two credits for a fortnight and fourteen for a quarter. A fixed price cannot follow
+that, and it never did: against the old 14-day window it overstated each call by roughly six times.
+
+The API has been returning the true figure all along, in a field the code discarded. It is now read
+and used, so the number on the dashboard is the number WorldTides billed, and it will keep tracking
+if the fetch window changes again.
+
+Where the provider reports nothing — an error, or a response from before the field was read — the
+old flat estimate still applies. Deliberately not zero: a call whose cost is unknown is not a free
+call, and quietly logging it as free would hide exactly the spend this is meant to surface.
+
 ### Added — a 90-day almanac feed behind `GET /api/almanac` (window-first Plan, P12)
 
 **Everything in the next three months that is fixed by the sun and the moon, in one feed.** Spring
