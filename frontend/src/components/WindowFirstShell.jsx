@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import BrandLockup from './shared/BrandLockup.jsx';
 import WindowFirstDayRail from './WindowFirstDayRail.jsx';
 import WindowFirstLensBar from './WindowFirstLensBar.jsx';
 import WindowFirstWindowCard from './WindowFirstWindowCard.jsx';
 import WindowFirstDoors from './WindowFirstDoors.jsx';
+import WindowFirstComingUp from './WindowFirstComingUp.jsx';
 import WindowAwayRow from './WindowAwayRow.jsx';
 import WindowPickDialog from './WindowPickDialog.jsx';
 import WindowSpotSheet from './WindowSpotSheet.jsx';
@@ -13,9 +14,33 @@ import { formatRelativeAge } from '../utils/relativeTime.js';
 import { buildLocationTypeMap } from '../utils/locationTypes.js';
 import { ANY_TIER_ID } from '../utils/reachLens.js';
 import { sheetOffersMore } from '../utils/windowSpotBrowse.js';
+import useComingUpFeed from '../hooks/useComingUpFeed.js';
 
 /** The design's frame: 1080px, against the v1 arm's 896px `max-w-4xl`. */
 const WRAP_MAX_WIDTH = '1080px';
+
+/**
+ * The tab bar's contents, in order.
+ *
+ * <p>Two, not the design's four. Map and Manage arrive when this subtree takes over view state, and
+ * the rule that keeps them out is the one this file already states: a tab that renders nothing is a
+ * demo control and §6 bans those, so each tab lands with its pane.
+ *
+ * <p>The glyph is decorative and {@code aria-hidden}, so the accessible name stays the bare word.
+ * Coming up has none, matching the mock — the glyphs belong to the three tabs that mirror
+ * {@code ViewToggle}'s own modes, and inventing a fourth for this one would be a mark with no
+ * sibling anywhere else in the product.
+ */
+const TABS = [
+  { id: 'plan', label: 'Plan', glyph: '◉' },
+  { id: 'coming-up', label: 'Coming up', glyph: null },
+];
+
+/** `window-first-tab-plan` — the id the panel points back at, and the existing test-id. */
+const tabDomId = (id) => `window-first-tab-${id}`;
+
+/** `window-first-panel-plan` — the id the tab's `aria-controls` points at. */
+const panelDomId = (id) => `window-first-panel-${id}`;
 
 
 /**
@@ -43,16 +68,42 @@ const WRAP_MAX_WIDTH = '1080px';
  * not a pilot user's business, and {@code HealthIndicator} is admin-only today — so the pill is
  * dropped rather than reproduced. Plan §7.
  *
- * <h2>The tab bar carries only Plan, and that is not an oversight</h2>
+ * <h2>The tab bar carries Plan and Coming up, and still not Map or Manage</h2>
  *
- * <p>The design draws four tabs. Three of their panes do not exist yet: Coming up is P13, and Map
- * and Manage arrive when this subtree takes over view state. A tab that renders nothing is a demo
- * control, and §6 bans those from the shipped build — so each tab lands with its pane. What ships
- * here is the bar itself: geometry, active treatment, and the rule the active tab sits on, which is
- * what those phases slot into.
+ * <p>The design draws four tabs. Two of their panes do not exist yet: Map and Manage arrive when
+ * this subtree takes over view state. A tab that renders nothing is a demo control, and §6 bans
+ * those from the shipped build — so each tab lands with its pane, which is why P13 adds the second
+ * one and no more.
  *
  * <p>{@code border-bottom-width: 0} on the tab, never {@code border-bottom: none} — the shorthand
  * would also clear the colour the active state needs.
+ *
+ * <h2>The tab bar became a real ARIA tab widget at P13, and it was not one before</h2>
+ *
+ * <p>Through P12 the bar had {@code role="tablist"} and one {@code role="tab"} with a hard-coded
+ * {@code aria-selected="true"}, no {@code aria-controls}, no {@code id} pairing and no
+ * {@code role="tabpanel"} anywhere in the repo. With one tab that is inert rather than wrong. With
+ * two it is a promise the markup does not keep: a screen-reader user is told there is a tab list
+ * and then given no way to know what either tab controls. So P13 completes the pattern —
+ * {@code aria-selected} on both, {@code aria-controls}/{@code aria-labelledby} pairing each tab to
+ * its panel, a roving {@code tabIndex} so the bar is one stop rather than two, and Left/Right/Home/
+ * End moving between them.
+ *
+ * <p><b>Selection follows focus</b>, which is the authoring-practices default and is right here
+ * because both panes are already-mounted state rather than a fetch — arrowing onto Coming up does
+ * trigger its one lazy request, which is exactly what the reader asked for by arrowing onto it.
+ *
+ * <p>This is the first roving-tabindex implementation in the codebase; there was nothing to copy.
+ * {@code ViewToggle} is a segmented control of plain buttons using {@code aria-current}, and
+ * {@code ManageView}'s tabs carry no roles at all.
+ *
+ * <h2>Tab selection is deliberately not persisted</h2>
+ *
+ * <p>The arm persists two things — the layout flag and the rating floor — and both are settled
+ * preferences. Which tab you last had open is not: the reader's question on opening the app is
+ * almost always "what about tonight", and restoring a ninety-day almanac because they browsed it
+ * yesterday answers a question they are not asking. It also spends the first paint on a fetch.
+ * Plan resets on every visit, and the cost of being wrong is one click.
  *
  * <h2>The day rail sits above the tabs, not inside the Plan pane</h2>
  *
@@ -137,6 +188,55 @@ export default function WindowFirstShell({
     railTiles, windowCards, paneItems, loading, briefing, evaluationScores, scoreIndex, todayStr,
     reachLens, homePlace,
   } = useWindowFirstBriefing();
+  const [activeTab, setActiveTab] = useState(TABS[0].id);
+  /**
+   * The tab buttons, so an arrow key can move focus as well as selection.
+   *
+   * <p>Focus has to be moved imperatively: selection follows focus, so the newly selected tab is
+   * the only one with {@code tabIndex={0}} and a keyboard user who pressed Right would otherwise be
+   * left with focus on an element that has just become unreachable.
+   */
+  const tabRefs = useRef([]);
+  const comingUp = useComingUpFeed(activeTab === 'coming-up', todayStr);
+  /**
+   * Selects a tab, and takes any dialog down with it.
+   *
+   * <p>The drill-down sheet and the pick dialog are rendered outside the pane and their state is
+   * independent of the tab, so without this a reader who opened a window's spot list and then
+   * pressed Coming up would be left with a modal about a Plan window floating over the almanac
+   * feed — and {@code useDialogFocus} is explicitly not a focus trap, so closing it would hand
+   * focus back to a trigger that is no longer on screen. Arriving somewhere else ends the
+   * browsing, which is the same rule the strip already applies to its peek before a map handoff.
+   */
+  const selectTab = (id) => {
+    setActiveTab(id);
+    setOpenPick(null);
+    setSheetKey(null);
+  };
+  /**
+   * Left/Right/Home/End across the bar, wrapping at both ends.
+   *
+   * <p>Up/Down are deliberately not handled: this is a horizontal tab list, and binding the
+   * vertical keys would take them from the page scroll for no gain.
+   */
+  const handleTabKey = (event, index) => {
+    // A modified arrow or Home is somebody else's shortcut, and swallowing it is worse than not
+    // handling it: Alt+Left and Cmd+Left are the browser's Back, and Ctrl/Cmd+Home is "top of
+    // document". The bar's own bindings are the UNMODIFIED keys only.
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const last = TABS.length - 1;
+    let next = null;
+    if (event.key === 'ArrowRight') next = index === last ? 0 : index + 1;
+    else if (event.key === 'ArrowLeft') next = index === 0 ? last : index - 1;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = last;
+    if (next === null) return;
+    // Home and End scroll the page by default, and Left/Right scroll a horizontally overflowing
+    // one — either would move the view out from under the reader as they change tab.
+    event.preventDefault();
+    selectTab(TABS[next].id);
+    tabRefs.current[next]?.focus();
+  };
   const [openPick, setOpenPick] = useState(null);
   /**
    * The drill-down's window, held by KEY rather than by the card object.
@@ -317,27 +417,59 @@ export default function WindowFirstShell({
         className="flex gap-1.5"
         style={{ padding: '12px 18px 0' }}
       >
-        <button
-          type="button"
-          role="tab"
-          aria-selected="true"
-          data-testid="window-first-tab-plan"
-          className="bg-plex-surface text-plex-text font-sans whitespace-nowrap border border-plex-border"
-          style={{
-            fontSize: '12.5px',
-            fontWeight: 600,
-            borderBottomWidth: 0,
-            borderRadius: '8px 8px 0 0',
-            padding: '8px 14px',
-            boxShadow: 'inset 0 2px 0 var(--color-close-to-home)',
-          }}
-        >
-          <span aria-hidden="true" style={{ fontSize: '12px', opacity: 0.8 }}>◉</span> Plan
-        </button>
+        {TABS.map((tab, index) => {
+          const selected = tab.id === activeTab;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              id={tabDomId(tab.id)}
+              aria-selected={selected}
+              aria-controls={panelDomId(tab.id)}
+              // Roving: the bar is ONE tab stop, and the arrow keys move within it. Without this a
+              // keyboard user tabs through every tab to reach the pane.
+              tabIndex={selected ? 0 : -1}
+              ref={(node) => { tabRefs.current[index] = node; }}
+              onClick={() => selectTab(tab.id)}
+              onKeyDown={(event) => handleTabKey(event, index)}
+              data-testid={tabDomId(tab.id)}
+              className={`font-sans whitespace-nowrap border border-plex-border transition-colors ${
+                selected
+                  ? 'bg-plex-surface text-plex-text'
+                  : 'bg-plex-panel text-plex-text-secondary hover:text-plex-text'
+              }`}
+              style={{
+                fontSize: '12.5px',
+                // The mock's own weights: 500 resting, 600 active. The difference is what makes the
+                // selected tab read as raised rather than merely lighter.
+                fontWeight: selected ? 600 : 500,
+                borderBottomWidth: 0,
+                borderRadius: '8px 8px 0 0',
+                padding: '8px 14px',
+                // The gold rule along the top edge is the selected treatment, and it is the only
+                // thing that survives the tab sharing a background with the pane below it.
+                boxShadow: selected ? 'inset 0 2px 0 var(--color-close-to-home)' : undefined,
+              }}
+            >
+              {tab.glyph && (
+                <span aria-hidden="true" style={{ fontSize: '12px', opacity: 0.8 }}>
+                  {`${tab.glyph} `}
+                </span>
+              )}
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
       <div data-testid="window-first-tabrule" className="h-px bg-plex-border" />
 
-      {reachLens && (
+      {/* Plan only, and that is the design's own heading for it ("Lens bar (Plan only)"). The bar
+          filters SPOTS; the almanac feed has none, so on Coming up it would gate nothing — §6's
+          "no control gates on data that does not exist", and its own footer would read "0 spots
+          across 5 windows" over a pane containing neither. It is unmounted rather than hidden so
+          the sticky bar cannot take a scroll position with it. */}
+      {activeTab === 'plan' && reachLens && (
         <WindowFirstLensBar
           lens={reachLens}
           spotCount={windowCards.reduce((total, card) => total + card.spots.length, 0)}
@@ -345,9 +477,49 @@ export default function WindowFirstShell({
         />
       )}
 
+      {/* Mounted whichever tab is selected, and hidden when it is not — the same lifetime the Plan
+          pane has, and for a reason beyond symmetry. Both tabs carry `aria-controls` pointing at
+          their panel's id, and an `aria-controls` whose target is not in the document resolves to
+          nothing: while this was mounted conditionally, the pairing the tab pattern requires was
+          only ever half present, and the half that was missing was always the tab a reader had not
+          reached yet. It costs a heading and a footer in the DOM; it does NOT cost a request, since
+          the fetch is gated on the tab rather than on the mount. */}
+      <WindowFirstComingUp
+        id={panelDomId('coming-up')}
+        labelledBy={tabDomId('coming-up')}
+        hidden={activeTab !== 'coming-up'}
+        status={comingUp.status}
+        events={comingUp.events}
+        todayStr={todayStr}
+        onRetry={comingUp.retry}
+      />
+
+      {/* Hidden rather than unmounted, and the reason is a request storm rather than tidiness:
+          `WindowFirstDoors` mounts `WindowFirstRegionalPanel`, which fires an astro request per
+          visible date on mount. Unmounting the pane on every tab change would re-fire all of them
+          on every change back — which is exactly what `ManageView` does to its sub-views, and the
+          behaviour not to copy. Keeping it mounted also keeps whatever the reader had open open.
+
+          BOTH the `hidden` attribute and a display class, and the reason is defence in depth rather
+          than necessity — which is worth stating plainly, because two earlier versions of this
+          comment got the mechanism wrong in opposite directions. Tailwind v4's preflight ships
+          `[hidden]:where(:not([hidden='until-found'])) { display: none !important }`
+          (`node_modules/tailwindcss/preflight.css:396`). That is an AUTHOR rule carrying
+          `!important`, so it beats every normal author declaration whatever the specificity — the
+          attribute alone does hide the pane, and `.flex` does not override it. Verified on the
+          running app: a `<div class="flex" hidden>` computes to `display: none`. Equally, the
+          class alone would be enough, since `display: none` is itself what removes an element from
+          the accessibility tree (`WindowFirstDoors.jsx` says so already).
+
+          So: the attribute is the semantic statement and the half jsdom can see; the class is
+          carried so that a display utility added here later cannot quietly re-expose the panel. */}
       <div
+        id={panelDomId('plan')}
+        role="tabpanel"
+        aria-labelledby={tabDomId('plan')}
+        hidden={activeTab !== 'plan'}
         data-testid="window-first-pane"
-        className={`flex flex-col${dimmed}`}
+        className={`${activeTab === 'plan' ? 'flex' : 'hidden'} flex-col${dimmed}`}
         style={{ padding: '14px 18px 20px', gap: '10px' }}
       >
         {paneItems.map((item) => (item.kind === 'away' ? (

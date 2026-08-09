@@ -2161,3 +2161,222 @@
   .wf-spot:hover { transform: none; }
   .wf-peek { animation: none; }
 }
+
+/* ── Window-first "Coming up" pane ──
+   Geometry from the v1 mock's `.cu` (:158), `.cuh` (:159-162), `.ev` (:163-171) and `.cufoot`
+   (:175) — `Plan Window First.html`, which is where the v2 bundle keeps this pane in full and
+   which its own README confirms ("Retained for the Coming up tab in full, which v2 stubs").
+   Five deviations, each with a reason:
+
+   1. `--color-plex-text-secondary` everywhere the mock writes `--ink-3`. EIGHTH time on this
+      redesign — muted lands in the 3.4-3.5:1 band at 10-11px on every surface in this arm, and
+      `--color-plex-panel` (which every one of these rules sits on) is no exception.
+   2. **Flex, not the mock's `grid-template-columns: 112px 1fr auto`.** This is the correctness fix
+      `.wf-frow` already records: a fixed template strands content in the wrong track the moment a
+      column is conditional. The mock's own right-hand column is conditional — one of its six rows
+      renders a single line where the rest render two — and here it is dropped entirely (it carried
+      a region count the wire never sends), so a three-track template would leave a `1fr` gap
+      where nothing will ever be.
+   3. **No `cursor: pointer` and no hover state.** The mock gives the row both and never says what
+      a click does. The feed carries no location, no rating and no region, so a click has nowhere
+      to land; §6 bans a control that cannot act. A row that is not a control must not be dressed
+      as one, and the arm's own hover idiom is a border change plus a lift on things that ARE
+      buttons.
+   4. The header separator is built in JSX, not by `.cuh .d::before`. House pattern, for the reason
+      `WindowSpotCard:56-57` gives — a separator that lives in CSS survives the half it separates.
+   5. Title at 15.5px with -0.01em rather than the mock's flat 15px, matching `.wf-sheet-t` and the
+      open window card. 15px would be a fourth heading size in an arm that already has three. */
+.wf-cu {
+  border: 1px solid var(--color-plex-border);
+  border-radius: 11px;
+  background: var(--color-plex-panel);
+  overflow: hidden;
+}
+.wf-cu-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 14px 11px;
+  border-bottom: 1px solid var(--color-plex-border);
+}
+.wf-cu-h {
+  font-size: 15.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--color-plex-text);
+}
+.wf-cu-d {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+
+/* The row. `align-items: flex-start`, not the mock's `center`: its rows are one line of prose and
+   ours are up to four (title, explanation, facts, caveat), so centring would float the date block
+   into the middle of a tall row and break the scan down the left edge. */
+.wf-cu-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--color-plex-border);
+}
+.wf-cu-row:last-of-type { border-bottom: none; }
+
+/* 112px is the mock's, kept: it is what fits "30 Aug – 2 Sep" at 11px mono without wrapping, which
+   is the widest label this column can produce. `flex: none` so a long title cannot squeeze it. */
+.wf-cu-when {
+  flex: none;
+  width: 112px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-cu-when b {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+}
+/* Each on its own line under the dates, because both are qualifiers ON the dates rather than
+   facts about the event, and a reader scanning the left edge should get all of "when" in one
+   place. */
+.wf-cu-when span { display: block; }
+
+/* Block layout, deliberately not flex. `.wf-facts` is borrowed from P7's attribute row and carries
+   `flex: 1; min-width: 0` for the row it was written for; inside a flex COLUMN that `flex: 1`
+   would be a vertical grow instruction. Block layout makes it inert without an override. */
+/* A line-measure cap. Dropping the mock's right-hand column handed its width to the prose, and the
+   numbers here are counted on the running app with a Range over the longest detail the five
+   sources can emit (the 218-character NLC season sentence), not estimated from the screenshot and
+   not derived from the mock's geometry — an earlier version of this comment did both and was wrong
+   twice: uncapped is 888px and 163 characters to the first line, and there is no single width the
+   mock's own `1fr` resolves to, because each of its rows is a separate grid container.
+
+   620px brings that first line to 116 characters. It is not a textbook measure and is not claimed
+   as one; it is the TIGHTEST cap that does not add a third line to that row — 560px gives 106
+   characters and a third line — and this is a feed to scan rather than prose to read end to end,
+   so a row that grows to make one sentence prettier is the worse trade. Below a 1044px viewport
+   the cap is inert, which is what a max-width is for. */
+.wf-cu-body {
+  flex: 1;
+  min-width: 0;
+  max-width: 620px;
+}
+.wf-cu-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+}
+.wf-cu-detail {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-plex-text-secondary);
+}
+.wf-cu-row .wf-facts { margin-top: 5px; }
+/* The caveat naming whose figures these are, and the degrade line. Both are about the confidence
+   of the numbers above them rather than about the event, so they take the same quiet mono
+   treatment and sit below the facts they qualify. */
+.wf-cu-attrib,
+.wf-cu-degraded {
+  margin-top: 5px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+
+/* The kind chip. Visually `CertaintyChip`'s treatment — bordered, mono, 9px, uppercase, secondary
+   ink — and deliberately not that component: it derives its word from `topicCertainty(type)`,
+   which keys on the SCREAMING_SNAKE hot-topic vocabulary and would silently fall through to
+   "forecast" for every kebab-case almanac type. The word here comes off the wire. Bordered rather
+   than the mock's tinted fill because the mock's two tints are the tide teal and the verdict
+   green, and this chip is neither of those channels. */
+.wf-cu-kind {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+  border: 1px solid var(--color-plex-border);
+  border-radius: 4px;
+  padding: 1px 4px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+/* Loading, error and empty all share one line, because they are one slot: exactly one of them is
+   ever on screen and they replace the rows rather than joining them. */
+.wf-cu-note {
+  padding: 14px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-cu-retry {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-badge-tide);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.wf-cu-retry:hover { color: var(--color-plex-text); }
+.wf-cu-retry:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.wf-cu-foot {
+  padding: 9px 14px;
+  border-top: 1px solid var(--color-plex-border);
+  background: rgba(0, 0, 0, 0.16);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--color-plex-text-secondary);
+}
+
+/* The panel takes a focus ring because it is `tabIndex={0}` — its content is all text, so it is
+   where focus goes after the tab is chosen, and an unstyled ring there would be the one focus
+   target in the arm that does not match the rest. */
+.wf-cu-panel:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
+
+@media (max-width: 639px) {
+  /* The date block stops being a column and becomes a line above the body: 112px of a ~340px row
+     is a third of it, and the span label is short enough to sit inline.
+
+     The horizontal padding stays at 14px, matching the head and the foot. Narrowing it to 12 was
+     the first attempt and it bought two pixels of content width at the cost of the card's left
+     edge stepping in and out down the page — the head, every row and the foot must start on one
+     line, and only the vertical padding is worth tightening at this width. */
+  .wf-cu-row {
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 14px;
+  }
+  /* `display: flex` here is what puts the three parts on one line — and it also blockifies them,
+     so the desktop `display: block` on the children is overridden by the flex layout itself. An
+     explicit `display: inline` on them would be dead code (a flex item cannot be inline), which is
+     why there is none. */
+  .wf-cu-when {
+    width: auto;
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+}
