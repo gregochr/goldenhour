@@ -198,9 +198,10 @@ public class TideService {
                     || response.getExtremes() == null) {
                 String errorMsg = "WorldTides returned status=" + (response != null ? response.getStatus() : "null");
                 if (jobRun != null) {
-                    jobRunService.logApiCall(jobRun.getId(), ServiceName.WORLD_TIDES,
-                            "GET", tideUrl, null, durationMs, response != null ? response.getStatus() : null,
-                            null, false, errorMsg);
+                    jobRunService.logMeteredApiCall(jobRun.getId(), ServiceName.WORLD_TIDES,
+                            "GET", tideUrl, durationMs,
+                            response != null ? response.getStatus() : null, false, errorMsg,
+                            response != null ? response.getCallCount() : null);
                 }
                 LOG.warn("WorldTides returned no usable data for {} (status={})",
                         location.getName(), response != null ? response.getStatus() : "null");
@@ -232,8 +233,11 @@ public class TideService {
             tideExtremeRepository.saveAll(entities);
 
             if (jobRun != null) {
-                jobRunService.logApiCall(jobRun.getId(), ServiceName.WORLD_TIDES,
-                        "GET", tideUrl, null, durationMs, 200, null, true, null);
+                // Priced from the credits WorldTides itself reports, not a flat per-call figure:
+                // this endpoint bills one credit per seven days of data, so the cost moves with
+                // FETCH_LENGTH_SECONDS and a fixed price cannot follow it.
+                jobRunService.logMeteredApiCall(jobRun.getId(), ServiceName.WORLD_TIDES,
+                        "GET", tideUrl, durationMs, 200, true, null, response.getCallCount());
             }
 
             LOG.info("Stored {} tide extremes for {} (T+0 to T+{})",

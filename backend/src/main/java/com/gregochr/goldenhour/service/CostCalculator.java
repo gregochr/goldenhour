@@ -72,6 +72,25 @@ public class CostCalculator {
         };
     }
 
+    /**
+     * Prices a metered call from the credit count the provider reported.
+     *
+     * <p>Only WorldTides is credit-metered; every other non-Anthropic service is flat or free, so
+     * they fall through to {@link #calculateFlatCostMicroDollars}. A null credit count also falls
+     * through, which is deliberate — a call whose credits are unknown is not a free call, and
+     * returning zero would quietly under-count every error path.
+     *
+     * @param service the external service
+     * @param credits credits the provider reported billing, or null if it did not report any
+     * @return cost in micro-dollars
+     */
+    public long calculateMeteredCostMicroDollars(ServiceName service, Integer credits) {
+        if (service != ServiceName.WORLD_TIDES || credits == null || credits <= 0) {
+            return calculateFlatCostMicroDollars(service);
+        }
+        return credits * costProperties.getWorldTidesMicroDollarsPerCredit();
+    }
+
     private long microDollarsForTokens(long tokens, double usdPerMTok) {
         return Math.round((double) tokens * usdPerMTok);
     }

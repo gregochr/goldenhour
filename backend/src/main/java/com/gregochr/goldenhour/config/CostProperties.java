@@ -58,8 +58,24 @@ public class CostProperties {
 
     // --- Non-Anthropic flat costs (micro-dollars) ---
 
-    /** WorldTides API call cost in micro-dollars (~$0.003 per call). */
+    /**
+     * WorldTides fallback cost in micro-dollars, used only when the response reports no credit
+     * count (an error, or a cached response predating the mapping of {@code callCount}).
+     *
+     * <p>Kept as an estimate of a typical call rather than raised to match the current horizon:
+     * its job is to avoid logging a free call, not to be accurate. The accurate path is
+     * {@link #worldTidesMicroDollarsPerCredit} times the provider's own reported credits.
+     */
     private long worldTidesMicroDollars = 3000;
+
+    /**
+     * WorldTides cost per credit in micro-dollars.
+     *
+     * <p>$4.99/month for 20,000 credits on the cheapest paid tier is $0.00024950 per credit.
+     * Credits scale with the window requested — "a seven-day high/low tide prediction costs one
+     * credit for a location" — so a 97-day fetch is 14 credits, not one.
+     */
+    private long worldTidesMicroDollarsPerCredit = 250;
 
     /** Open-Meteo API call cost in micro-dollars (free). */
     private long openMeteoMicroDollars = 0;

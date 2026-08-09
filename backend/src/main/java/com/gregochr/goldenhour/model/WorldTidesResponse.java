@@ -14,6 +14,7 @@ public class WorldTidesResponse {
 
     private int status;
     private List<Extreme> extremes;
+    private Integer callCount;
 
     /**
      * Returns the HTTP status code from the WorldTides API.
@@ -31,6 +32,34 @@ public class WorldTidesResponse {
      */
     public void setStatus(int status) {
         this.status = status;
+    }
+
+    /**
+     * Returns the number of credits WorldTides billed for this request.
+     *
+     * <p>The provider's own figure, so it needs no local model of the pricing rules — which
+     * matters because credits scale with the size of the window requested ("a seven-day high/low
+     * tide prediction costs one credit for a location"), not with the number of requests. A flat
+     * per-call price cannot track that, and was wrong by roughly 6x before the fetch horizon
+     * moved from 14 days to 97.
+     *
+     * <p>Nullable: absent on an error response, and on any response from before this field was
+     * mapped. Callers must fall back rather than assume zero — zero credits would read as a free
+     * call.
+     *
+     * @return credits billed, or null if the response did not report it
+     */
+    public Integer getCallCount() {
+        return callCount;
+    }
+
+    /**
+     * Sets the number of credits billed for this request.
+     *
+     * @param callCount credits billed
+     */
+    public void setCallCount(Integer callCount) {
+        this.callCount = callCount;
     }
 
     /**

@@ -263,6 +263,46 @@ public class JobRunService {
     }
 
     /**
+     * Records a metered non-Anthropic API call, priced from the credit count the provider reported.
+     *
+     * <p>Exists because a flat per-call price cannot describe a service that bills by the size of
+     * the request. WorldTides charges one credit per seven days of tide data, so the same endpoint
+     * costs 2 credits for a fortnight and 14 for a quarter — and the flat figure logged for both
+     * was out by roughly 6x before the fetch horizon changed.
+     *
+     * @param jobRunId      the job run ID
+     * @param service       the service name
+     * @param requestMethod HTTP method, or null
+     * @param requestUrl    full request URL
+     * @param durationMs    duration in milliseconds
+     * @param statusCode    HTTP status code, or null
+     * @param succeeded     true if the call succeeded
+     * @param errorMessage  brief error message if failed, or null
+     * @param credits       credits the provider reported, or null to fall back to the flat estimate
+     * @return the newly created API call log entity
+     */
+    public ApiCallLogEntity logMeteredApiCall(Long jobRunId, ServiceName service,
+            String requestMethod, String requestUrl, long durationMs, Integer statusCode,
+            boolean succeeded, String errorMessage, Integer credits) {
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        ApiCallLogEntity log = ApiCallLogEntity.builder()
+                .jobRunId(jobRunId)
+                .service(service)
+                .calledAt(now)
+                .completedAt(now)
+                .durationMs(durationMs)
+                .requestMethod(requestMethod)
+                .requestUrl(requestUrl)
+                .statusCode(statusCode)
+                .succeeded(succeeded)
+                .errorMessage(errorMessage)
+                .costMicroDollars(
+                        costCalculator.calculateMeteredCostMicroDollars(service, credits))
+                .build();
+        return apiCallLogRepository.save(log);
+    }
+
+    /**
      * Records a single API call made during a job run (legacy method, for non-Anthropic services).
      *
      * @param jobRunId       the job run ID
