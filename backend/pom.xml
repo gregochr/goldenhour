@@ -31,6 +31,22 @@
             version rather than assuming: `./mvnw help:evaluate -Dexpression=postgresql.version`.
         -->
         <postgresql.version>42.7.13</postgresql.version>
+
+        <!--
+            Overrides the version Spring Boot 4.1.0 manages (11.0.22) to clear five CVEs:
+            CVE-2026-55276, CVE-2026-53434 and CVE-2026-53404 (fixed in 11.0.23), and
+            CVE-2026-59083 and CVE-2026-59084 (fixed in 11.0.24). Boot's BOM drives all seven
+            tomcat-embed-* artifacts from this one property, so core, el and websocket move
+            together.
+
+            11.0.24 is the latest published release; 11.0.25 is marked "not yet released" and
+            404s on Central. The sixth CVE, CVE-2026-66299, needs 11.0.25 and is suppressed
+            separately in dependency-check-suppressions.xml — delete that block and raise this
+            property when 11.0.25 lands.
+
+            An override rather than a parent bump because no Spring Boot 4.1.x exists.
+        -->
+        <tomcat.version>11.0.24</tomcat.version>
     </properties>
 
     <profiles>
