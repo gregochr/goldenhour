@@ -47,6 +47,22 @@
             An override rather than a parent bump because no Spring Boot 4.1.x exists.
         -->
         <tomcat.version>11.0.24</tomcat.version>
+
+        <!--
+            Patch bumps for two findings BELOW the dependency-check gate (both CVSS < 7.0, so
+            neither fails the build) — hygiene, taken because the patch is free.
+
+            jackson-2-bom 2.21.4 -> 2.21.5 clears CVE-2026-54515 (5.3). Note this is the Jackson 2
+            line only. Boot 4.1.0 manages two Jackson trees, and they are separate properties:
+            jackson-2-bom.version (com.fasterxml.jackson, via jjwt-jackson and the Anthropic SDK)
+            and jackson-bom.version (tools.jackson, 3.1.4, via flyway-database-postgresql). 3.1.4
+            is already the fixed version for this CVE, so overriding the 2-line cannot disturb it.
+
+            log4j2 2.25.4 -> 2.25.5 clears CVE-2026-49844. Inert here: log4j-api arrives only via
+            the log4j-to-slf4j bridge under Logback, and there is no log4j2 config in the tree.
+        -->
+        <jackson-2-bom.version>2.21.5</jackson-2-bom.version>
+        <log4j2.version>2.25.5</log4j2.version>
     </properties>
 
     <profiles>
