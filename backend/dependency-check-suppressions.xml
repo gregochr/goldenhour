@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <!--
+        House rule, learned the hard way: a suppression must be justified STRUCTURALLY — wrong
+        artifact, code not shipped, feature not enabled — and never by "no patched release exists
+        yet". That premise rots the moment upstream ships, and the entry then sits in the tree
+        telling the next reader a bump is impossible when it is not. A missing release may be
+        mentioned as a secondary fact, never as the argument.
+    -->
     <suppress>
         <notes>False positive: CVE-2020-29582 affects kotlin.io.path.createTempFile default
             permissions. kotlin-stdlib-common is a transitive dependency from the Anthropic Java SDK
@@ -7,24 +14,40 @@
         <packageUrl regex="true">^pkg:maven/org\.jetbrains\.kotlin/kotlin\-stdlib.*$</packageUrl>
         <cve>CVE-2020-29582</cve>
     </suppress>
-    <suppress>
-        <notes>CVE-2026-29062: nesting depth bypass in UTF8DataInputJsonParser. Fixed in Jackson 3.1.0,
-            but Spring Boot 4.0.3 requires Jackson 3.0.x (3.1.0 has breaking API changes).
-            Mitigated: this app does not accept untrusted deeply-nested JSON input.
-            Revisit when Spring Boot upgrades to Jackson 3.1.x.</notes>
-        <packageUrl regex="true">^pkg:maven/tools\.jackson\.core/jackson\-(core|databind)@.*$</packageUrl>
-        <cve>CVE-2026-29062</cve>
+    <suppress until="2026-11-30Z">
+        <notes>CVE-2026-53914: unsafe deserialization of Kotlin BUILD CACHE metadata (KAPT / the
+            Gradle build cache). Dependency-Check maps every org.jetbrains.kotlin:* coordinate onto
+            the single CPE cpe:2.3:a:jetbrains:kotlin:*, so the runtime stdlib is flagged for a
+            build-toolchain defect. This is a Maven project: no .kt sources, no Gradle files, no
+            kotlin-maven-plugin and no build cache. Kotlin is here only as a transitive runtime
+            library of the Anthropic Java SDK.
+
+            Note the score the gate reads is not the vendor's. JetBrains, as the CNA, scores this
+            6.7 (AV:L/AC:H/PR:H — local, high complexity, high privilege); the 9.8 failing the build
+            is NVD's automated worst-case vector.
+
+            Scoped to stdlib and reflect because kotlin-stdlib-jdk7/jdk8 and kotlin-reflect all
+            match the same CPE. Secondary fact, not the argument: no fixed release is installable —
+            kotlin-stdlib 2.4.20 is unpublished (Central 404; latest is 2.4.20-Beta2), and 2.4.0 and
+            2.4.10 both sit inside the affected range. Revisit on Kotlin 2.4.20 GA.</notes>
+        <packageUrl regex="true">^pkg:maven/org\.jetbrains\.kotlin/kotlin\-(stdlib.*|reflect)@.*$</packageUrl>
+        <cve>CVE-2026-53914</cve>
     </suppress>
-    <suppress until="2026-06-30Z">
-        <notes>CVE-2026-34483, CVE-2026-34486, CVE-2026-34487 (CVSS 7.5): affect
-            tomcat-embed-core 11.0.20. No patched Tomcat 11.x release exists as of 2026-04-14
-            — 11.0.20 is the latest available on Maven Central. Spring Boot 4.0.5 pins this
-            version and cannot be overridden to a non-existent release.
-            Revisit when Tomcat 11.0.21+ is published; remove this suppression and update
-            tomcat.version in pom.xml.</notes>
+    <suppress until="2026-11-30Z">
+        <notes>CVE-2026-66299: an unbounded undelivered-message buffer in the Tomcat WebSocket CHAT
+            EXAMPLE application. That code ships in the `examples` webapp of the full Tomcat
+            distribution and is not present in the tomcat-embed-* jars at all — an embedded Spring
+            Boot application deploys no webapps. GHSA-rpf9-hrjr-88fv lists "No package listed" and
+            gives "remove the examples web application" as the mitigation, which is a no-op here.
+
+            Independently of that, this application declares no WebSocket endpoints: no
+            @ServerEndpoint, no STOMP and no SockJS anywhere in backend/src.
+
+            Apache rates it Low; the 7.5 that trips the gate is CISA-ADP enrichment. Secondary fact,
+            not the argument: the fix is Tomcat 11.0.25, which is marked "not yet released" and 404s
+            on Maven Central. When it is published, delete this block and raise tomcat.version —
+            do not renew it.</notes>
         <packageUrl regex="true">^pkg:maven/org\.apache\.tomcat\.embed/tomcat\-embed\-.*@.*$</packageUrl>
-        <cve>CVE-2026-34483</cve>
-        <cve>CVE-2026-34486</cve>
-        <cve>CVE-2026-34487</cve>
+        <cve>CVE-2026-66299</cve>
     </suppress>
 </suppressions>
