@@ -149,13 +149,13 @@ export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick }
     <>
       <div
         data-testid="window-first-day-rail"
+        // Padding lives in `.rail-scroller` entirely, all four sides, because the phone gutter is a
+        // media query and one cannot reach an inline style. That also retires the trap this comment
+        // used to describe: the inline `padding` SHORTHAND set padding-bottom: 0 at inline priority
+        // and beat the class's own `padding-bottom: 4px`, while its paired `margin-bottom: -4px`
+        // still applied, so the ring room was silently zero. With one owner there is nothing left to
+        // disagree — but the 4px bottom is now restated in the phone override for the same reason.
         className="rail-scroller flex gap-2"
-        // Longhands, NOT the `padding` shorthand. The shorthand set padding-bottom: 0 at inline
-        // priority and beat `.rail-scroller`'s own `padding-bottom: 4px`, while its paired
-        // `margin-bottom: -4px` still applied — so the class's ring room was silently zero and the
-        // rail sat 4px tighter to its footer than the CSS believed. The same trap this file's
-        // sibling comments warn about for `border`, re-created one property over.
-        style={{ paddingTop: '13px', paddingLeft: '18px', paddingRight: '18px' }}
       >
         {tiles.map((tile) => {
           const clickable = tile.ratedCount > 0 && !tile.isAway;
