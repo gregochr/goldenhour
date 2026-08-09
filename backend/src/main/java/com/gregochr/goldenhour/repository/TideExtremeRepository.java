@@ -97,6 +97,53 @@ public interface TideExtremeRepository extends JpaRepository<TideExtremeEntity, 
     boolean existsByLocationIdAndEventTimeBetween(Long locationId, LocalDateTime from, LocalDateTime to);
 
     /**
+     * Returns the latest stored event time at or after {@code from}, or {@code null} if the
+     * location has no stored extremes in that range.
+     *
+     * <p>This is the location's forward frontier: the point the weekly refresh needs to extend
+     * from. Tide predictions are deterministic astronomy and do not change, so re-fetching data
+     * already stored buys nothing — before this existed, every Monday re-bought the whole forward
+     * window from WorldTides and rewrote roughly 375 identical rows per location.
+     *
+     * <p>Bounded at {@code from} rather than taken over the whole table so a location carrying
+     * twelve months of backfill and no forward data still reports {@code null} and is seeded.
+     *
+     * @param locationId the location primary key
+     * @param from       lower bound, normally the start of today
+     * @return the latest stored event time in range, or {@code null} if there is none
+     */
+    @Query("SELECT MAX(t.eventTime) FROM TideExtremeEntity t "
+            + "WHERE t.locationId = :locationId AND t.eventTime >= :from")
+    LocalDateTime findLatestEventTimeFrom(
+            @Param("locationId") Long locationId,
+            @Param("from") LocalDateTime from);
+
+    /**
+     * Returns the oldest {@code fetched_at} among stored extremes at or after {@code from}, or
+     * {@code null} if there are none.
+     *
+     * <p>Used to decide when a full re-seed is due. A full seed stamps every forward row with the
+     * same {@code fetched_at} and a tail fetch stamps only the newly added days, so this is the
+     * fetch day of the oldest batch <em>still inside the forward window</em> — which makes the
+     * re-seed schedule derivable from stored data, with no extra column to keep in step.
+     *
+     * <p>⚠️ Not literally "time since the last full seed", and a maintainer will reason from
+     * whichever the doc says. Once the seed batch ages past the horizon this becomes the oldest
+     * surviving <em>tail</em> stamp, which saturates near the horizon rather than growing without
+     * bound. The cadence still fires, but only because the re-seed interval is bounded by the
+     * horizon — see {@code TideService.RESEED_INTERVAL_DAYS}.
+     *
+     * @param locationId the location primary key
+     * @param from       lower bound, normally the start of today
+     * @return the oldest fetch timestamp in range, or {@code null} if there is none
+     */
+    @Query("SELECT MIN(t.fetchedAt) FROM TideExtremeEntity t "
+            + "WHERE t.locationId = :locationId AND t.eventTime >= :from")
+    LocalDateTime findOldestFetchedAtFrom(
+            @Param("locationId") Long locationId,
+            @Param("from") LocalDateTime from);
+
+    /**
      * Returns aggregate height statistics for a location and tide type, over stored
      * extremes strictly before {@code cutoff}.
      *

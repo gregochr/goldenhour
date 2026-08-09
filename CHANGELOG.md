@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the weekly tide refresh now fetches only the days it doesn't already have
+
+**Every Monday it was re-buying the same three months of tide predictions.** The refresh asked
+WorldTides for the whole forward window, then deleted that window from the database and wrote it
+back — roughly 375 rows per coastal location, replaced with identical values, because tide
+predictions are astronomy and don't change once computed. The only genuinely new information each
+week was the seven days at the far end.
+
+It now fetches just that tail. Around 4.8× fewer credits, and the weekly row churn drops from about
+23,000 rows across the roster to roughly 1,600.
+
+A missed week fixes itself: the refresh works from the last date it actually holds, so if a Monday
+fails, the following week simply fetches a longer tail and the gap closes. A location with no
+forward data at all — a newly added one, or one whose data has aged out — gets the full window,
+which is the same code path rather than a second one.
+
+**Once a quarter it still refetches everything.** Tide predictions are fixed, but the underlying
+constants for a tidal station can occasionally be revised upstream, and a tail-only refresh would
+never see that. The re-seed is cheap insurance, and even with it the new scheme costs less than the
+fortnightly window it replaces.
+
 ### Fixed — WorldTides spend is now priced from the credits the provider actually charged
 
 **The admin cost figure for tide fetches was a flat rate per call, and WorldTides doesn't charge
