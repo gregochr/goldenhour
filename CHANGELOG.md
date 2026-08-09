@@ -5,6 +5,86 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — a 90-day almanac feed behind `GET /api/almanac` (window-first Plan, P12)
+
+**Everything in the next three months that is fixed by the sun and the moon, in one feed.** Spring
+and king tide runs, meteor shower peaks, supermoons, both equinoxes, both solstices, and the
+noctilucent cloud season. No weather, no scores, no Claude call — only things that can be known that
+far ahead, which is what makes a three-month view honest.
+
+Each entry is a **span** rather than a day, because a spring tide run is four days and an NLC season
+is eleven weeks, and one row per day would bury the feed. A run that straddles the edge of the window
+reports its true dates rather than being clipped, so "this season started a fortnight ago" reads
+correctly instead of "starts today".
+
+**Where a number cannot be derived, there is no number.** Tide dates come from lunar arithmetic and
+have no horizon; tide *heights and times* come from stored data and do. Beyond that, an entry keeps
+its dates and drops its figures rather than estimating them from a neighbouring day. A reader can
+tell the two apart at a glance, which is the point — a fabricated range would make the honest rows
+indistinguishable from the invented ones.
+
+Two smaller judgements worth naming. A meteor shower under a bright moon still appears, with the
+moonlight noted, because an almanac says when the shower is rather than whether tonight is worth
+it — the Plan tab, which answers the second question, still hides it. And the NLC season says
+plainly that noctilucent cloud cannot be forecast: the dates are fixed, the display is not, and a
+fixed date could otherwise read as a promise.
+
+There is no UI for this yet; the Coming up tab is the next phase.
+
+### Changed — tide predictions now reach three months out instead of two weeks (window-first Plan, P12)
+
+**Tide extremes are fetched 97 days ahead rather than 14.** The "Coming up" feed is being built to
+look 90 days out, and tides are the one thing in this app that is genuinely knowable that far ahead —
+they are astronomy, not weather, so a spring tide's range and the sunrise it lands on are as exact in
+three months as they are tomorrow. Withholding them would have meant printing a date and a run
+position and nothing you could plan around. The extra week on top of the 90 is refresh slack: the
+fetch runs weekly, so without it the feed would come up six days short every Sunday.
+
+The number is now derived in code from the horizon and the slack rather than written as a literal, so
+it cannot drift from the reason it has that value.
+
+Two things worth recording for whoever changes it next. WorldTides charges by the amount of data, not
+by the request — one credit per seven days — so this costs about seven times what the old window did,
+and a comment in the codebase asserting the opposite has been corrected. And the admin cost dashboard
+will not show the rise, because it prices WorldTides at a flat rate per call regardless of window
+size.
+
+The scheduler's own description of the job was corrected at the same time. It appears in
+Manage → Operations → Scheduler, and besides the day count it had always claimed to cover "all coastal
+locations" when the job in fact only ever covered SEASCAPE locations with a tide preference set.
+
+### Changed — the spring and king tide thresholds no longer move with the tide fetch horizon (window-first Plan, P12)
+
+**A location's spring and king thresholds are now a climatology over tides that have actually
+happened.** They are derived from the stored extremes for that location — the spring threshold at
+125% of the mean high water, the king threshold at the 95th percentile — and until now that sample
+was every row in the table, including the forward extremes the weekly WorldTides fetch writes ahead
+of today. The horizon and the threshold were therefore the same dial. Lengthening the fetch window
+would have moved spring and king classification for every coastal location, and the move would have
+reached a persisted column, the text handed to Claude, whether the tide pills fire at all, and the
+"N m above an average tide" line on the window rows — with nothing on screen to connect a changed
+badge to a fetch setting altered weeks earlier.
+
+Both statistics queries now stop at the start of today (UTC), so the two can change independently.
+This is a prerequisite for extending the horizon rather than a user-visible feature: it is landing
+on its own, ahead of that change, so the shift it causes can be measured by itself.
+
+**A location also needs enough history to have a threshold at all.** Bounding the sample to past
+tides removed something nobody had noticed was load-bearing: the forward window used to guarantee
+roughly a fortnight of high waters for every location, including one added yesterday. Without a
+floor, a location fetched for the first time would have derived "what counts as a big tide here"
+from two tides — and two ordinary ones would have put the bar under almost every tide that
+followed, marking every one of them a king tide, on the map, in the pills and in the text sent to
+Claude. So the spring and king thresholds are now withheld until a location has seen a full
+spring–neap cycle. Its average, highest and lowest tides are still reported from whatever history
+exists; only the "is this unusual" judgement waits.
+
+The trade is deliberate. A coastal location added yesterday reports averages but no spring or king
+classification until its history catches up — the ten Durham Heritage Coast locations added in V138
+are exactly this case — where previously it would have borrowed a fortnight of forecast tides. A
+threshold built from predictions nobody has checked is the weaker of the two, and a threshold that
+quietly tracks an unrelated setting is the more dangerous.
+
 ## [v2.17.13] - 2026-08-08
 
 ### Added — see all the spots in a window, and filter them while you browse (window-first Plan, P11)

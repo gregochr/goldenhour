@@ -74,7 +74,11 @@ public class HttpCachingConfig {
             "/api/astro/conditions",
             "/api/astro/conditions/available-dates",
             "/api/aurora/status",
-            "/api/nlc/sighting");
+            "/api/nlc/sighting",
+            // The almanac feed is ephemeris: identical for every user and stable for a whole day,
+            // so it is the strongest revalidation candidate here. Safe to share because it carries
+            // no per-user data — the rule that keeps "Close to home" off this list.
+            "/api/almanac");
 
     /**
      * The lazy popup-detail endpoint, {@code GET /api/forecast/{id}}. Matched by a strict

@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.HotTopicSimulationService;
 import com.gregochr.goldenhour.service.BriefingModelTestService;
 import com.gregochr.goldenhour.service.BatchSummaryDeriver;
+import com.gregochr.goldenhour.service.AlmanacService;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.ReachService;
@@ -203,6 +204,9 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected StabilitySnapshotProvider stabilitySnapshotProvider;
+
+    @MockitoBean
+    protected AlmanacService almanacService;
 
     @MockitoBean
     protected TideService tideService;

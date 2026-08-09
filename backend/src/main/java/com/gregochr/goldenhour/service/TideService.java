@@ -33,7 +33,7 @@ import java.util.Set;
 /**
  * Manages tide extremes for coastal locations using the WorldTides API.
  *
- * <p>On a weekly schedule, fetches 14 days of high and low tide times from WorldTides
+ * <p>On a weekly schedule, fetches 97 days of high and low tide times from WorldTides
  * and merges them into the {@code tide_extreme} table, preserving historical data
  * outside the fetch window. At forecast evaluation time, {@link #deriveTideData} looks
  * up the stored extremes to classify the tide state and find the next high and low
@@ -50,8 +50,36 @@ public class TideService {
 
     private static final String WORLDTIDES_HOST = "www.worldtides.info";
 
-    /** Seconds in 14 days: the WorldTides fetch window per location per weekly refresh. */
-    private static final long FETCH_LENGTH_SECONDS = 14L * 24 * 3600;
+    /**
+     * How far ahead the "Coming up" almanac feed may state a tide height, range, clock time
+     * or solar-alignment verdict. Beyond this the feed states the date and the run position
+     * and nothing numeric — it never synthesises a figure.
+     */
+    private static final int ALMANAC_HORIZON_DAYS = 90;
+
+    /**
+     * Slack on top of {@link #ALMANAC_HORIZON_DAYS}, sized to the weekly refresh cadence so
+     * coverage still reaches the full horizon on the last day before the next refresh. The
+     * window is fetched on a Monday and decays a day at a time; without this the feed would
+     * be short by six days every Sunday.
+     */
+    private static final int REFRESH_SLACK_DAYS = 7;
+
+    /**
+     * The WorldTides fetch window per location per weekly refresh, in seconds.
+     *
+     * <p>Derived from the two constants above rather than written as a literal, so the number
+     * cannot drift from the reason it has that value.
+     *
+     * <p>⚠️ WorldTides bills {@code extremes} at one credit per seven days of data, not one
+     * per request — so this constant sets the recurring cost, at roughly
+     * {@code ceil(days / 7)} credits per coastal location per week. It does <em>not</em> set
+     * the spring or king tide threshold: those are a climatology over past extremes only, and
+     * {@code TideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore} documents why
+     * that separation is deliberate. Changing this value must not move a tide badge.
+     */
+    private static final long FETCH_LENGTH_SECONDS =
+            (long) (ALMANAC_HORIZON_DAYS + REFRESH_SLACK_DAYS) * 24 * 3600;
 
     /** Days either side of the solar event time to query from the DB. */
     private static final long QUERY_WINDOW_DAYS = 2;
@@ -70,6 +98,17 @@ public class TideService {
 
     /** A HIGH tide exceeding 125% of average high is classified as a spring tide. */
     private static final BigDecimal SPRING_TIDE_FACTOR = new BigDecimal("1.25");
+
+    /**
+     * Fewest past high waters from which a spring or king threshold may be derived.
+     *
+     * <p>One spring–neap cycle is 14.77 days and a semidiurnal coast has about 1.93 high waters a
+     * day, so a full cycle is ~28. Below that the sample has not seen both a spring and a neap and
+     * cannot say what is unusual for the port: the mean sits wherever the fortnight happened to
+     * fall. This is a floor on the <em>threshold</em> only — the mean, max and min are reported
+     * from whatever history exists, because those describe the sample honestly at any size.
+     */
+    private static final long MIN_HIGHS_FOR_THRESHOLDS = 28;
 
     private final RestClient restClient;
     private final TideExtremeRepository tideExtremeRepository;
@@ -93,7 +132,8 @@ public class TideService {
     }
 
     /**
-     * Fetches 14 days of tide extremes from WorldTides for a coastal location and merges
+     * Fetches the forward tide window ({@link #FETCH_LENGTH_SECONDS}) from WorldTides for a
+     * coastal location and merges
      * them into the {@code tide_extreme} table, replacing only the overlapping window
      * while preserving historical data.
      *
@@ -108,7 +148,8 @@ public class TideService {
     }
 
     /**
-     * Fetches 14 days of tide extremes from WorldTides for a coastal location and merges
+     * Fetches the forward tide window ({@link #FETCH_LENGTH_SECONDS}) from WorldTides for a
+     * coastal location and merges
      * them into the {@code tide_extreme} table, replacing only the overlapping window
      * while preserving historical data. Optionally tracks the API call in a job run.
      *
@@ -195,8 +236,9 @@ public class TideService {
                         "GET", tideUrl, null, durationMs, 200, null, true, null);
             }
 
-            LOG.info("Stored {} tide extremes for {} (T+0 to T+13)",
-                    entities.size(), location.getName());
+            LOG.info("Stored {} tide extremes for {} (T+0 to T+{})",
+                    entities.size(), location.getName(),
+                    ALMANAC_HORIZON_DAYS + REFRESH_SLACK_DAYS - 1);
 
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - callStartMs;
@@ -470,18 +512,42 @@ public class TideService {
     }
 
     /**
-     * Computes aggregate tide height statistics for a location from all stored extremes.
+     * Computes aggregate tide height statistics for a location from stored extremes
+     * that have already occurred.
      *
-     * <p>Returns empty if no extremes are stored for the location.
+     * <p>Returns empty if no past extremes are stored for the location.
+     *
+     * <p><strong>Past extremes only, deliberately.</strong> The sample stops at the start
+     * of today (UTC), so the spring and king thresholds derived here are a climatology over
+     * observed history rather than a figure that moves with the forward fetch window. Before
+     * this bound the aggregates ran over every row in {@code tide_extreme}, which meant
+     * changing {@link #FETCH_LENGTH_SECONDS} silently re-classified spring and king tides
+     * everywhere they are read. See {@code TideExtremeRepository
+     * .findHeightStatsByLocationIdAndTypeBefore} for the full rationale.
+     *
+     * <p>Note this makes the statistics weakest for a newly added coastal location, which
+     * has no history until the first backfill runs — the same locations for which the old
+     * unbounded query was strongest. That trade is intended: a threshold that quietly
+     * depends on the fetch horizon is the worse failure, because nothing on screen
+     * attributes a moved badge to it.
+     *
+     * <p><strong>Thresholds need a whole cycle; averages do not.</strong> The spring and king
+     * thresholds are withheld until {@value #MIN_HIGHS_FOR_THRESHOLDS} past high waters exist
+     * — one spring–neap cycle — while the mean, max and min are reported from whatever history
+     * there is. Without that floor, bounding the sample would have replaced one silent failure
+     * with a louder one: a location fetched forward-only reports two high waters on its second
+     * day, and two neap samples put the spring threshold below almost every later high water.
      *
      * @param locationId the location primary key
      * @return Optional containing TideStats if data is available, empty otherwise
      */
     public Optional<TideStats> getTideStats(Long locationId) {
-        Object[] highStats = tideExtremeRepository.findHeightStatsByLocationIdAndType(
-                locationId, TideExtremeType.HIGH);
-        Object[] lowStats = tideExtremeRepository.findHeightStatsByLocationIdAndType(
-                locationId, TideExtremeType.LOW);
+        LocalDateTime statsCutoff = LocalDate.now(ZoneOffset.UTC).atStartOfDay();
+
+        Object[] highStats = tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                locationId, TideExtremeType.HIGH, statsCutoff);
+        Object[] lowStats = tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                locationId, TideExtremeType.LOW, statsCutoff);
 
         // H2 may return Object[1]{Object[4]{avg,max,min,count}} — unwrap if nested
         if (highStats.length == 1 && highStats[0] instanceof Object[]) {
@@ -497,6 +563,15 @@ public class TideService {
         if (highCount == 0 && lowCount == 0) {
             return Optional.empty();
         }
+
+        // A sample too short to contain a spring–neap cycle cannot describe one. Bounding the
+        // sample to past extremes removed an accidental floor: the forward fetch window used to
+        // guarantee roughly a fortnight of high waters even for a location with no history, and
+        // taking that away left nothing in its place. Two neap samples put the spring threshold
+        // under almost every subsequent high water — a standing king-tide flag on ordinary days,
+        // not an occasional false positive — and two spring samples put it above the port's own
+        // maximum so nothing fires at all. Both reach a persisted column and the Claude prompt.
+        boolean cycleObserved = highCount >= MIN_HIGHS_FOR_THRESHOLDS;
 
         BigDecimal avgHigh = highCount > 0 ? toBigDecimal(highStats[0]) : null;
         BigDecimal maxHigh = highCount > 0 ? toBigDecimal(highStats[1]) : null;
@@ -515,9 +590,10 @@ public class TideService {
         BigDecimal springThreshold = null;
         long kingCount = 0;
 
-        if (highCount > 0) {
+        if (cycleObserved) {
             List<BigDecimal> highHeights = tideExtremeRepository
-                    .findHeightsByLocationIdAndTypeOrderByHeightAsc(locationId, TideExtremeType.HIGH);
+                    .findHeightsByLocationIdAndTypeBeforeOrderByHeightAsc(
+                            locationId, TideExtremeType.HIGH, statsCutoff);
 
             p75 = percentile(highHeights, 75);
             p90 = percentile(highHeights, 90);

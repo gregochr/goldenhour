@@ -45,8 +45,11 @@ import java.util.List;
  *                       exists, which is not the same statement as "average"
  * @param seas           significant wave height with its sea-state band, {@code "0.3 m · smooth"};
  *                       <b>independently nullable</b> — {@code marine_wave} reaches only T+4 while
- *                       {@code tide_extreme} reaches T+13, so a window past T+4 has a full rollup
- *                       and no sea state. A missing sea state must never suppress the row
+ *                       {@code tide_extreme} reaches months further out, so a window past T+4 has
+ *                       a full rollup and no sea state. A missing sea state must never suppress
+ *                       the row. The gap widened when the tide fetch horizon went to 97 days; the
+ *                       wave horizon did not move, so this is now the common case rather than the
+ *                       far-end one
  * @param curve          the day's tide shape: heights sampled at even intervals across the local
  *                       day, normalised to 0.0 at the series' lowest water and 1.0 at its highest.
  *                       Shape rather than metres, for the reason {@code TideRunRow} plots a boolean:

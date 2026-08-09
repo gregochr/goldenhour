@@ -66,9 +66,15 @@ public class ScheduledForecastService {
     }
 
     /**
-     * Refreshes 14 days of tide extremes from WorldTides for all coastal locations.
+     * Refreshes the forward tide window of extremes from WorldTides for every enabled
+     * SEASCAPE location that has a tide preference set.
      *
      * <p>Runs once a week (default: Monday at 02:00 UTC).
+     *
+     * <p>Not "all coastal locations", despite what this said for a long time and what the
+     * {@code tide_refresh} scheduler row still said until V139: the filter below requires the
+     * SEASCAPE tag as well as a non-empty tide type, so a coastal LANDSCAPE or WATERFALL
+     * location is skipped.
      */
     public void refreshTideExtremes() {
         JobRunEntity jobRun = jobRunService.startRun(RunType.TIDE, false, null);

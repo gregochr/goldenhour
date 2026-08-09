@@ -242,10 +242,15 @@ this phase is safe to build:
 | `tide_extreme` | to **T+13** (2026-08-16), 61 locations | fetched **today** | ~4 extremes per location per day, no gaps |
 | `marine_wave` | to **T+4** (2026-08-07) only | evaluated today | per (location, date, event) |
 
-⚠️ **Sea state is independently nullable.** Tides reach T+13; waves reach T+4, exactly the briefing
-window and no further. A window beyond T+4 has a full tide rollup and no sea state, so the field must
-degrade on its own rather than being assumed present whenever the rollup exists. Do not let a missing
-sea state suppress the rollup.
+*(The tide row is a measurement taken 2026-08-03 and is left as it was recorded. P12 raised the fetch
+horizon to 97 days, so a re-measurement today would read T+96.)*
+
+⚠️ **Sea state is independently nullable.** Tides reach months ahead; waves reach T+4, exactly the
+briefing window and no further. A window beyond T+4 has a full tide rollup and no sea state, so the
+field must degrade on its own rather than being assumed present whenever the rollup exists. Do not let
+a missing sea state suppress the rollup. **P12 widened this gap from nine days to eighty-three** — a
+window with a tide rollup and no sea state is now the ordinary case rather than the far-end one, which
+raises the stakes on that degrade path without changing its logic.
 
 **The rollup names its representative coastal location.** The row asserts `HW 19:28 · 1h43 before
 sunset` and `4.9 m · 1.2 m above an average tide` over a set its own action line calls "61 coastal
@@ -499,9 +504,12 @@ and the reason is worth stating precisely, because the mock does not.
 `LunarPhaseService.classifyTide(LocalDate)` is pure arithmetic over two reference epochs, with no DB
 read and no horizon, already injected into `MeteorHotTopicStrategy` and `SupermoonHotTopicStrategy`.
 
-**What is not free past T+13 is any height, range, clock time or solar-alignment claim.** Those need
-stored extremes, and `tide_extreme` carries T+0..T+13 forward (`TideService.java:53-54` —
-`FETCH_LENGTH_SECONDS = 14L * 24 * 3600`; `:198` logs "T+0 to T+13"), decaying to ~T+7 by the weekend
+**What is not free past the fetch window is any height, range, clock time or solar-alignment claim.**
+Those need stored extremes. ⚠️ **Superseded by P12**, which raised the window to 97 days so the whole
+90-day feed carries figures; the degrade rule below still governs anything beyond it, and still
+governs every day if a refresh fails. As written, this said `tide_extreme` carries T+0..T+13 forward
+(`TideService.java:53-54` — `FETCH_LENGTH_SECONDS = 14L * 24 * 3600`; `:198` logs "T+0 to T+13"),
+decaying to ~T+7 by the weekend
 under the Monday cron. The 12-month backfill supplies the **threshold** (`SPRING_TIDE_FACTOR` × average
 high, P95 for king — `TideService:517-537`), not forward coverage: it writes strictly into the past
 (`:234-237` — `today.minusMonths(12)` … `chunkStart.isBefore(today)`).
@@ -511,12 +519,43 @@ nothing numeric. No metre figure and no alignment verdict is ever rendered for a
 extremes. Never synthesise. The handoff mock's "16–18 Aug · Spring tide run 3/3 · 4.6 m range ·
 alignment falls on sunrise" — dated 1 Aug — is exactly the row this rule governs.
 
-**Or extend the horizon.** `refreshTideExtremes` sends `length` as a query parameter, one request per
-coastal location per week (`ScheduledForecastService.java:74-92`, `TideService.java:141-150`), so a
-longer horizon changes response size, not request count. Raising `FETCH_LENGTH_SECONDS` to ~97 days
-(90 + a week's slack, so the window still reaches T+90 the day before the next Monday refresh) is
-viable subject to WorldTides' per-response length limit and billing model. Decide at P12; the windowed
-delete at `:187-190` scales off the same constant and needs no change. Do not do neither.
+**Or extend the horizon. ✅ DECIDED AND DONE at P12 — extended to 97 days.** The constant is now
+derived in code from `ALMANAC_HORIZON_DAYS = 90` plus `REFRESH_SLACK_DAYS = 7` rather than written as
+a literal, so the number cannot drift from the reason it has that value. The windowed delete scales
+off the same constant and needed no change, exactly as predicted; its lower bound is pinned to today
+independently, so backfilled history was never at risk.
+
+⚠️ **Two things this paragraph used to say were wrong, and one of them was the argument for the
+change.** They are corrected rather than deleted, because both are the kind of claim a later reader
+would otherwise re-derive the same wrong way.
+
+- **"A longer horizon changes response size, not request count" — false.** WorldTides bills
+  `extremes` at **one credit per seven days of data**, not one per request, so the horizon sets the
+  recurring cost: `ceil(97/7) = 14` credits per coastal location per week against the previous 2.
+  Across 61 coastal locations that is **122 → 854 credits a week**, roughly 3,700 a month, which sits
+  inside the cheapest paid tier (20,000) but is a 7× rise rather than a free one. Note the in-repo
+  comment at `TideService.java:68-69` — *"WorldTides charges per request, so 7 days is efficient"* —
+  is wrong on both halves and self-refuting: if it charged per request, 7-day chunks would be the
+  least efficient choice available. The backfill's chunking is cost-neutral by accident; only its
+  stated reason is wrong.
+- **No maximum `length` is documented.** A claimed 604,800 s cap is refuted by this repo already
+  sending 1,209,600 in production. **Still unverified: the actual server behaviour at 97 days** — the
+  API validates the key before the parameters, so an unauthenticated probe cannot reach a
+  length-specific error. Confirming it costs ~14 credits with a real key and is the highest-value
+  outstanding check.
+- **The cost dashboard will not show the rise.** `CostProperties` charges a flat
+  `world-tides-micro-dollars: 3000` per call regardless of window size, so real credit consumption
+  multiplies by seven while the admin figure is unchanged. The response already carries `callCount`
+  ("credits used by this request") and `WorldTidesResponse` discards it.
+
+**And one thing the paragraph never mentioned, which mattered more than either.** The spring and king
+thresholds were computed over *every* row in `tide_extreme`, forward rows included
+(`findHeightStatsByLocationIdAndType`, no `event_time` predicate), so the horizon and the
+classification threshold were the same dial. Extending the fetch window would have silently moved
+spring/king classification for every coastal location, into a persisted column
+(`forecast_evaluation.surge_risk_level`), the Claude prompt, hot-topic firing and the "N m above an
+average tide" copy. **That decoupling landed first and on its own** (`75217809`), so the shift it
+causes is measurable in isolation, and only then was the horizon raised.
 
 **The feed needs its own detection path.** `SpringTideHotTopicStrategy.java:92` reads
 `briefingService.getCachedDays()`, capped by `BRIEFING_WINDOW_DAYS = 5`, for consistency with the
@@ -580,7 +619,7 @@ Backend first for anything shared, so the frontend stays a render layer.
 | **P9** | ~~Collapse/expand, six-window case, away-day row + its rail variant, the two doors~~ **DONE.** `WindowAwayRow` + `utils/windowFirstAway.js`, `WindowFirstDoors` + `WindowFirstRegionalPanel` + `utils/windowFirstRegions.js`; the card gains `open`/`onToggle` and the shell owns the state | ⚠️ The old Notes cell said "the window card shrank" — **stale**, it had grown every phase since P6. Measured: six open windows are **1,969px / 2.74 viewports**, exactly the figure §5a predicted from a different direction; lead-open/rest-collapsed is **996px**, a 49.4% saving. The **rail variant already shipped at P4c** (`isAway`, `✈ Away`, `Not forecast`, and it keeps its sun times) — P9 owned only the pane row. The six-window case needed no feature: `MAX_VISIBLE_EVENTS` already caps it and the rail and cards share one evaluation. **Ten decisions worth not re-deriving — see §5d** |
 | **P10′** | ~~Peek content kind 1 (spot)~~ **DONE.** `WindowSpotPeek` + `utils/windowSpotPeek.js` + `hooks/useSpotPeek.js`; the strip gains the trigger and the card drills the score index through | ⚠️ The Work cell used to add "+ click-to-map", which **shipped at P6** — §5a`:603` already corrected it. The host is **not** P4b's after all: the portal reasoning is taken and cited, the host itself does not fit (above-only placement, no slot for the panel's pointer handlers). **No phone peek** — the row named a `BottomSheet` and no trigger, and the same paragraph gives the phone's only tap to the map. Open delay stays at 180ms, not this row's 140; 160/120 adopted and split. A summary-less spot now *does* get a peek, because the bars are back. **Fifteen decisions worth not re-deriving — see §5e** |
 | **P11** | ~~Drilldown sheet — **plus the rating floor and type controls** and their persistence~~ **DONE.** `WindowSpotSheet` + `WindowSpotCard` (extracted from the strip) + `utils/windowSpotBrowse.js`; the strip footer gains "See all" and the card gains one on its gated-out line | Grown by what P8 shed, then shrunk by one thing it could not honestly carry. ⚠️ The controls went into the **sheet**, not the bar — so §5c`:908`'s warning that P11 invalidates `scroll-margin-top` does **not** fire (bar re-measured at 53.5px). The mock's type taxonomy does not exist in this product; `utils/locationTypes.js` does, and the options are **derived from the population** so no chip can match nothing. The canopy debt §5a`:610` parked here is **handed on**, with the reason: a type word cannot disambiguate a badge colour, and a grid makes that collision denser than a strip did. **Eight decisions worth not re-deriving — see §5f** |
-| **P12** | Backend: almanac feed (§3) + the tide fetch-horizon decision | Unchanged |
+| **P12** | ~~Backend: almanac feed (§3) + the tide fetch-horizon decision~~ **DONE.** `AlmanacEvent` + `AlmanacKind`, the `AlmanacSource` interface and five implementations, `AlmanacService`, `GET /api/almanac`; horizon raised to 97 days with the threshold decoupled first | ⚠️ **§3's "the range plumbing already exists" is the sentence that would have sunk this.** The signatures take a range; ten of thirteen strategies ignore it. `AlmanacSource` is a **new interface** for that reason, and `HotTopicAggregator` is not reused — it is also travel-day filtered and simulation-overridable, either of which would corrupt a 90-day feed. **Eight decisions worth not re-deriving — see §5g** |
 | **P13** | Coming up tab | Unchanged |
 | **P14** | Responsive pass — real media queries, including the taller rail tile on phone | Keep control labels at 9px |
 | **P15** | Pre-pilot sweep (§6), then flip the flag default | **Four items handed up, all cross-arm and none fixable inside one phase.** From P10′ (§5e): the **LITE score split** — `freemium_ui_strategy.md:79-80` lists the two scores and the Claude summary as LITE-included and §7 relies on that, but `MarkerPopupContent.jsx:1165` gates them and `:1175` upsells them, so an ungated peek contradicts the map overlay one click away; and **`--color-marginal`, a token declared nowhere**, which leaves `CardHoverPreview`'s and `CloseToHome`'s stars silently inheriting body ink in the frozen v1 arm. From P9 (§5d): the `HotTopicStrip` LITE treatment, which the window card's ungated attribute rows already defeat for the tide and snow channels; and `HeatmapGrid`'s away band saying "no forecast generated" two elements below a row that deliberately says "not forecast". Both need one decision made once across both arms, which is the shape §2.8 settled for the pick gloss |
@@ -808,18 +847,45 @@ before any card is built — so badges injected at `days[0]` and `days[1]` were 
 correct in the provider's state, and invisible on screen. It looked exactly like a bug in the
 promotion filter for several rounds. Key a fixture to the **local date**, not to the index.
 
-**P12 — the tide fetch horizon and its fallout.** If `FETCH_LENGTH_SECONDS` is extended (§3):
-`TideServiceTest.java:365-367` pins the window at 13–14 days; "14 days" / "T+0 to T+13" prose lives at
-`TideService.java:96, :111, :198`, `ScheduledForecastService.java:69` and
-`docs/pipeline-reference.html:1471`; and the `scheduler_job_config` description seeded by
-`V68__scheduler_job_config.sql:22` can only be corrected by an UPDATE migration. Either accept it as
-stale deliberately or write the migration — and if the latter, the "none expected" below stops being
-true.
+**P12 — the tide fetch horizon and its fallout. ✅ DONE.** The horizon was extended to 97 days and
+the sweep is complete. Two lessons from doing it are worth more than the list itself:
 
-**Migrations: none expected**, since everything rides existing tables and payloads — with the P12
-exception above. If one is needed, read the latest number off the tree on **main** —
-`ls backend/src/main/resources/db/migration/ | sort -V | tail -1` — never from a written-down number,
-including this one.
+- **This list was seven sites; the real count was 34 across 17 files.** It missed the *class*-level
+  Javadoc at `TideService.java:36` while catching the two method-level ones below it; the constant's
+  own comment at `:53`; a third "14 days" Javadoc at `ForecastController.java:408`; the
+  `@DisplayName` at `TideServiceTest.java:344`; `forecast-evaluation-architecture.md:486`; and —
+  because the search never covered `.js`/`.jsx` — **four production `T+13` rationale comments**
+  (`WindowTideRollupBuilder.java:52` and `:70`, `BriefingWindowTide.java:48`,
+  `frontend/src/utils/windowFirstRows.js:133`) plus four more in tests. When sweeping a constant's
+  prose, grep every extension, not just the language the constant is written in.
+- **Exactly one assertion actually failed** (`TideServiceTest.java:367`, the 13–14 day window span).
+  Everything else was a comment. A green suite is therefore no evidence at all that this sweep was
+  done — which is the argument for doing it by inventory rather than by running the tests and seeing
+  what breaks.
+
+Sites deliberately **not** changed: the three `CHANGELOG.md` entries (`:162`, `:405`, `:2888`). They
+are a dated record of what was true when written, and editing them would falsify it. The `:242`
+evidence table in this doc is annotated for the same reason rather than rewritten.
+
+Rephrased rather than renumbered: the four `T+13` rationale comments now say tides reach "months
+ahead". Their *reasoning* survives the change untouched — the wave horizon did not move, so a rollup
+with no sea state is still normal — and only the number rotted. Giving them a new number would
+guarantee a third sweep.
+
+**Migrations: one — `V139__tide_refresh_description_horizon.sql`.** It corrects the `tide_refresh`
+row's description, which `SchedulerController.toDto` serves and `SchedulerView.jsx:278` renders
+verbatim to an operator, so the stale text was a false statement on a screen rather than a dormant
+value. Nothing in the app ever writes that column — `DynamicSchedulerService.registerJobTarget` takes
+only `(jobKey, Runnable)` — so SQL is the only way to change it. ⚠️ **The day count was not the only
+thing wrong with it:** "for all coastal locations" has never been true, because
+`refreshTideExtremes` requires the SEASCAPE tag as well as a tide preference, so a coastal LANDSCAPE
+or WATERFALL location is skipped. The same wrong sentence was in the Javadoc the seed was copied
+from. ⚠️ **V139 cannot be verified locally** — `application-local.yml` disables Flyway and uses
+`ddl-auto: update` with no seed data, so the row does not exist on the local profile.
+
+Everything else rides existing tables and payloads. If another migration is needed, read the latest
+number off the tree on **main** — `ls backend/src/main/resources/db/migration/ | sort -V | tail -1` —
+never from a written-down number, including this one.
 
 Read `docs/engineering/test-improvement-standards.md` before writing any test class. CI's gates
 (JaCoCo 80% per class, SpotBugs, Checkstyle, the Testcontainers integration classes, and the
@@ -1527,6 +1593,94 @@ the whole data path, and the reach map had to be rewritten by hand to reach the 
 re-show the dialog, left undefended because the effect that would release the key is a `setState`
 in `useEffect` the lint rules reject and because `isEventPast` is monotonic, so the clock cannot
 produce it. Touch. No screen reader, axe or Lighthouse pass. Chrome only.
+
+---
+
+### 5g. What P12 decided — read before P13
+
+Eight decisions that changed behaviour rather than wording. P13 renders this feed, so all of them
+are visible to it.
+
+- **`AlmanacSource` is a new interface, not `HotTopicStrategy`.** The two have the same shape and
+  that is the trap: §3 said "the range plumbing already exists", which is true of the signatures and
+  false of ten of the thirteen implementations. `AlmanacSource`'s contract adds the one rule its
+  sibling cannot state — *answer for the whole range or do not exist* — and each implementation
+  derives dates from ephemeris, which has no horizon.
+- **`HotTopicAggregator` is not reused, for three independent reasons.** Beyond the bounded
+  strategies it applies a travel-day filter (a "should I go out tonight" concern that would delete a
+  solstice) and honours a simulation override built for demoing the Plan tab. A feed quietly serving
+  simulated tides three months out is precisely what the degrade rule exists to prevent.
+- **The tide path is genuinely two-source, and the second source was never wired up.**
+  `LunarPhaseService.classifyTide` gives the dates, unbounded; `TideRunBuilder` gives the metres and
+  clock times, bounded by stored extremes. §3 implied `classifyTide` was already used by the tide
+  strategies — it is not, they do not even inject `LunarPhaseService`, and its only callers are
+  `ForecastDtoMapper` and `TideFactDeriver`.
+- **The degrade rule is mechanical, not per-caller.** `AlmanacEvent.metaOf` drops any null or blank
+  value, so a source assembles every fact it might have and the underivable ones fall out. No source
+  writes the same null-check five times, and none can emit an empty string as though it were a
+  measurement. `isDatesOnly()` is how a client tells a degraded entry from an enriched one without
+  probing keys.
+- **Meteor and supermoon needed new range logic, because the existing strategies single-emit.**
+  Both return on their first match — indistinguishable from "all of them" over four days, and it
+  loses three of four showers over ninety. The shower table itself is *not* duplicated: it is
+  package-private in `MeteorHotTopicStrategy` and read directly, which is why the sources live in
+  the same package.
+- **A washed-out meteor peak is reported, where the Plan tab suppresses it.** The strategy is right
+  to hide a moonlit shower from "is tonight worth it"; an almanac answers "when is it", and the peak
+  date does not move because the moon is up. The illumination rides in `meta` as a caveat instead.
+- **NLC is split in half.** Its season bounds are almanac and its firing condition is a clarity
+  cache built during the briefing run, so `NlcHotTopicStrategy` returns nothing for ninety days by
+  construction. `NlcSeasonAlmanacSource` reports only the span, probing
+  `NlcClarityService.isNlcSeason` day by day rather than copying its private constant, and makes no
+  claim about visibility on any night.
+- **Solstices did not exist and equinoxes are sky-wide here.** There was no solstice code anywhere
+  in the project. The equinox anchors are restated in `SolarAlignmentAlmanacSource` because the
+  strategy keeps them private, and a **day-by-day agreement test across two full years** — one of
+  them a leap year — is what makes that duplication safe. Regions are deliberately empty: at ninety
+  days the question is *when*, not *from where*, and carrying a region list would mean a solar
+  calculation per location per day to produce something unactionable.
+
+**What the adversarial review changed, because three of these were real.** Nineteen agents — six
+prosecutor lenses, two refuters per lens defaulting to REFUTED without citable evidence, then
+synthesis. 64 charges laid, 12 put to a defence, 5 survived. All 5 fixed before the phase closed.
+
+- ⚠️ **The threshold decoupling removed an accidental minimum-sample floor and put nothing in its
+  place.** This is the finding worth remembering: the *fix* introduced the defect. Before, the
+  forward fetch window guaranteed every location ~27 high waters; bounding the sample to past
+  extremes meant a location fetched forward-only derived a spring threshold from two tides on its
+  second day. Two neap samples put the bar under almost every later high water — a **standing**
+  king-tide flag, not an occasional false positive — reaching `forecast_evaluation.surge_risk_level`
+  and the Claude prompt. `MIN_HIGHS_FOR_THRESHOLDS = 28` (one spring–neap cycle) now gates the
+  thresholds only; averages are reported at any sample size. **When you remove an implicit
+  invariant, check what was relying on it.**
+- **Spans were clipped at the window edge**, contradicting a contract stated in `AlmanacSource`, the
+  controller Javadoc *and* the CHANGELOG. Both tide and supermoon sources now walk outwards past the
+  requested range to the true first and last day.
+- **A king run was relabelled a spring run** when its perigean day fell outside the window. Perigee
+  is a half-day window so exactly one day of a run can be perigean, and clipping it flipped the
+  type, the copy and the useful water — correcting itself a day later. Fixed by the same walk.
+- `peakDate` on the fallback path named the first *derivable* day, not the biggest; it is now
+  `figuresFrom` + `partialCoverage` so a renderer cannot confuse the two. `washedOut` compared an
+  unrounded fraction against a rounded reported percentage, so two rows could read "50%" with
+  opposite flags.
+- The NLC clip flags asked the window rather than the season, so once a year a genuine season
+  boundary was reported as a rendering artefact — and the test that should have caught it stubbed
+  every day in season and could not distinguish the cases.
+
+Worth keeping: the review also **refuted** several alarming-sounding charges. The 97-day delete
+window does not destroy coverage on a short WorldTides response (pre-existing, and a static upstream
+cap leaves nothing beyond it to delete); `meta` key-order randomisation is real but harmless and is
+the existing house pattern; the feed's UTC `today` is the dominant backend idiom, not a violation of
+a London convention; and the feed's spring/king predicate is a strict *subset* of the Plan tab's, so
+this narrowed a pre-existing divergence rather than widening it. Do not re-raise these.
+
+**Coverage, said plainly.** 112 new tests, all backend and all unit-level; eight mutants aimed at the
+load-bearing claims — including three that revert exactly the defects above — each killed by their
+named test. **Nothing has been rendered or seen** — there is no UI for this yet, that is P13. Nothing
+has been run against production data; the local `tide_extreme` table is empty, so the enriched half
+of the tide path is verified only against a stubbed builder. `V139` is unexercised against Postgres
+because Docker was not running. The review itself was **static reading only** — no agent compiled,
+ran or rendered anything — and 52 of its 64 charges fell below the verification cut untested.
 
 ---
 

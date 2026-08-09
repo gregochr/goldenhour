@@ -20,7 +20,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -35,6 +38,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -43,6 +47,16 @@ import static org.mockito.Mockito.when;
  */
 @ExtendWith(MockitoExtension.class)
 class TideServiceTest {
+
+    /**
+     * Declared past-high-water count for fixtures that exercise the threshold arithmetic.
+     *
+     * <p>Above {@code TideService}'s minimum-sample floor on purpose: below one spring–neap cycle
+     * the spring and king thresholds are deliberately withheld, so a fixture that wants to assert
+     * a threshold has to describe a port with enough observed history to have one. The heights
+     * list is stubbed from a separate query and stays as small as each assertion needs.
+     */
+    private static final long SAMPLE = 30L;
 
     @Mock
     private RestClient restClient;
@@ -341,7 +355,7 @@ class TideServiceTest {
     }
 
     @Test
-    @DisplayName("fetchAndStoreTideExtremes() deletes only the 14-day fetch window, not all history")
+    @DisplayName("fetchAndStoreTideExtremes() deletes only the forward fetch window, not all history")
     void fetchAndStoreTideExtremes_deletesOnlyFetchWindow() {
         when(worldTidesProperties.getApiKey()).thenReturn("test-key");
 
@@ -362,10 +376,17 @@ class TideServiceTest {
         List<LocalDateTime> args = captor.getAllValues();
         LocalDateTime from = args.get(0);
         LocalDateTime to = args.get(1);
-        // Window should span roughly 14 days
-        long daysBetween = java.time.temporal.ChronoUnit.DAYS.between(from, to);
-        assertTrue(daysBetween >= 13 && daysBetween <= 14,
-                "Fetch window should be ~14 days but was " + daysBetween);
+        // The window opens at the start of today and runs the configured fetch length: 90 days
+        // of almanac horizon plus a week of slack for the weekly refresh cadence. The 97 is
+        // restated here as a literal on purpose — a test that reads the constant it is checking
+        // cannot fail.
+        assertThat(from).isEqualTo(LocalDate.now(ZoneOffset.UTC).atStartOfDay());
+        assertThat(to).isEqualTo(from.plusDays(97));
+
+        // The lower bound is what protects history: it is pinned to today regardless of the
+        // window length, so lengthening the horizon can only ever extend forwards. Backfilled
+        // rows sit strictly in the past and are never in range.
+        assertThat(from).isBefore(to);
     }
 
     @Test
@@ -577,18 +598,21 @@ class TideServiceTest {
     @Test
     @DisplayName("getTideStats() returns stats with percentiles from high and low extremes")
     void getTideStats_withData_returnsStats() {
-        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.HIGH))
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
                 .thenReturn(new Object[]{
                         BigDecimal.valueOf(1.400), BigDecimal.valueOf(1.800),
-                        BigDecimal.valueOf(1.100), 10L
+                        BigDecimal.valueOf(1.100), SAMPLE
                 });
-        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.LOW))
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.LOW), any(LocalDateTime.class)))
                 .thenReturn(new Object[]{
                         BigDecimal.valueOf(-1.200), BigDecimal.valueOf(-0.800),
-                        BigDecimal.valueOf(-1.500), 10L
+                        BigDecimal.valueOf(-1.500), SAMPLE
                 });
         // 10 sorted HIGH heights for percentile calculation
-        when(tideExtremeRepository.findHeightsByLocationIdAndTypeOrderByHeightAsc(1L, TideExtremeType.HIGH))
+        when(tideExtremeRepository.findHeightsByLocationIdAndTypeBeforeOrderByHeightAsc(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
                 .thenReturn(List.of(
                         BigDecimal.valueOf(1.100), BigDecimal.valueOf(1.200),
                         BigDecimal.valueOf(1.250), BigDecimal.valueOf(1.300),
@@ -604,25 +628,114 @@ class TideServiceTest {
         assertThat(stats.maxHighMetres()).isEqualByComparingTo(BigDecimal.valueOf(1.800));
         assertThat(stats.avgLowMetres()).isEqualByComparingTo(BigDecimal.valueOf(-1.200));
         assertThat(stats.minLowMetres()).isEqualByComparingTo(BigDecimal.valueOf(-1.500));
-        assertThat(stats.dataPoints()).isEqualTo(20);
+        assertThat(stats.dataPoints()).isEqualTo(60);
         assertThat(stats.avgRangeMetres()).isEqualByComparingTo(BigDecimal.valueOf(2.600));
         assertThat(stats.p75HighMetres()).isNotNull();
         assertThat(stats.p90HighMetres()).isNotNull();
         assertThat(stats.p95HighMetres()).isNotNull();
         // 1.75 threshold (125% of 1.4); only 1.800 exceeds it
         assertThat(stats.springTideCount()).isEqualTo(1);
-        assertThat(stats.springTideFrequency()).isEqualByComparingTo(BigDecimal.valueOf(0.100));
+        assertThat(stats.springTideFrequency()).isEqualByComparingTo(BigDecimal.valueOf(0.033));
         assertThat(stats.springTideThreshold()).isEqualByComparingTo(BigDecimal.valueOf(1.750));
         assertThat(stats.kingTideThreshold()).isNotNull();
         assertThat(stats.kingTideCount()).isGreaterThanOrEqualTo(0);
     }
 
     @Test
+    @DisplayName("getTideStats() withholds the spring and king thresholds when the sample is "
+            + "shorter than one spring–neap cycle, but still reports the averages")
+    void getTideStats_sampleShorterThanACycle_withholdsThresholds() {
+        // A coastal location fetched forward-only holds about two past high waters on its second
+        // day. Two neap samples would put the spring threshold under almost every later high
+        // water — a standing king-tide flag on ordinary days, reaching a persisted column and the
+        // Claude prompt. Bounding the sample to past extremes removed the accidental floor the
+        // forward window used to supply, so the floor is now explicit.
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
+                .thenReturn(new Object[]{
+                        BigDecimal.valueOf(0.520), BigDecimal.valueOf(0.560),
+                        BigDecimal.valueOf(0.480), 2L});
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.LOW), any(LocalDateTime.class)))
+                .thenReturn(new Object[]{
+                        BigDecimal.valueOf(-0.500), BigDecimal.valueOf(-0.450),
+                        BigDecimal.valueOf(-0.550), 2L});
+
+        Optional<TideStats> result = tideService.getTideStats(1L);
+
+        assertThat(result).isPresent();
+        TideStats stats = result.get();
+        // The averages describe the sample honestly at any size and are still reported.
+        assertThat(stats.avgHighMetres()).isEqualByComparingTo(BigDecimal.valueOf(0.520));
+        assertThat(stats.avgLowMetres()).isEqualByComparingTo(BigDecimal.valueOf(-0.500));
+        assertThat(stats.dataPoints()).isEqualTo(4);
+        // The thresholds claim to know what is unusual for this port. Two tides cannot.
+        assertThat(stats.springTideThreshold()).isNull();
+        assertThat(stats.kingTideThreshold()).isNull();
+        assertThat(stats.p95HighMetres()).isNull();
+        assertThat(stats.springTideCount()).isZero();
+        assertThat(stats.kingTideCount()).isZero();
+
+        // The expensive full-height materialisation is skipped too.
+        verify(tideExtremeRepository, never())
+                .findHeightsByLocationIdAndTypeBeforeOrderByHeightAsc(
+                        anyLong(), any(TideExtremeType.class), any(LocalDateTime.class));
+    }
+
+    @Test
+    @DisplayName("getTideStats() derives thresholds at exactly one spring–neap cycle of highs")
+    void getTideStats_sampleExactlyOneCycle_derivesThresholds() {
+        // 28 = one 14.77-day cycle at ~1.93 high waters a day. One below is withheld; at it, the
+        // sample has seen both a spring and a neap and can say what is unusual.
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
+                .thenReturn(new Object[]{
+                        BigDecimal.valueOf(2.000), BigDecimal.valueOf(2.800),
+                        BigDecimal.valueOf(1.500), 28L});
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.LOW), any(LocalDateTime.class)))
+                .thenReturn(new Object[]{null, null, null, 0L});
+        when(tideExtremeRepository.findHeightsByLocationIdAndTypeBeforeOrderByHeightAsc(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
+                .thenReturn(List.of(BigDecimal.valueOf(1.500), BigDecimal.valueOf(2.000),
+                        BigDecimal.valueOf(2.800)));
+
+        Optional<TideStats> result = tideService.getTideStats(1L);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().springTideThreshold())
+                .isEqualByComparingTo(BigDecimal.valueOf(2.500));
+        assertThat(result.get().kingTideThreshold()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("getTideStats() one high water below the cycle still withholds — the floor is "
+            + "a boundary, not a suggestion")
+    void getTideStats_oneBelowTheCycle_withholdsThresholds() {
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
+                .thenReturn(new Object[]{
+                        BigDecimal.valueOf(2.000), BigDecimal.valueOf(2.800),
+                        BigDecimal.valueOf(1.500), 27L});
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.LOW), any(LocalDateTime.class)))
+                .thenReturn(new Object[]{null, null, null, 0L});
+
+        Optional<TideStats> result = tideService.getTideStats(1L);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().springTideThreshold()).isNull();
+        assertThat(result.get().avgHighMetres()).isEqualByComparingTo(BigDecimal.valueOf(2.000));
+    }
+
+    @Test
     @DisplayName("getTideStats() returns empty when no data stored")
     void getTideStats_noData_returnsEmpty() {
-        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.HIGH))
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
                 .thenReturn(new Object[]{null, null, null, 0L});
-        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.LOW))
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.LOW), any(LocalDateTime.class)))
                 .thenReturn(new Object[]{null, null, null, 0L});
 
         assertThat(tideService.getTideStats(1L)).isEmpty();
@@ -632,9 +745,11 @@ class TideServiceTest {
     @DisplayName("getTideStats() handles H2 returning single-element array when no rows match")
     void getTideStats_singleElementArray_returnsEmpty() {
         // H2 may return Object[]{null} instead of Object[]{null, null, null, 0L} when no rows
-        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.HIGH))
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
                 .thenReturn(new Object[]{null});
-        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.LOW))
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.LOW), any(LocalDateTime.class)))
                 .thenReturn(new Object[]{null});
 
         assertThat(tideService.getTideStats(1L)).isEmpty();
@@ -646,36 +761,40 @@ class TideServiceTest {
         // H2 may wrap the result as Object[1] containing Object[4]{avg,max,min,count}
         Object[] innerHigh = new Object[]{
                 BigDecimal.valueOf(1.400), BigDecimal.valueOf(1.800),
-                BigDecimal.valueOf(0.500), 20L};
+                BigDecimal.valueOf(0.500), SAMPLE};
         Object[] innerLow = new Object[]{
                 BigDecimal.valueOf(-1.200), BigDecimal.valueOf(-0.500),
-                BigDecimal.valueOf(-1.500), 20L};
+                BigDecimal.valueOf(-1.500), SAMPLE};
 
-        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.HIGH))
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
                 .thenReturn(new Object[]{innerHigh});
-        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.LOW))
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.LOW), any(LocalDateTime.class)))
                 .thenReturn(new Object[]{innerLow});
-        when(tideExtremeRepository.findHeightsByLocationIdAndTypeOrderByHeightAsc(
-                1L, TideExtremeType.HIGH))
+        when(tideExtremeRepository.findHeightsByLocationIdAndTypeBeforeOrderByHeightAsc(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
                 .thenReturn(List.of(BigDecimal.valueOf(1.200), BigDecimal.valueOf(1.400),
                         BigDecimal.valueOf(1.800)));
 
         Optional<TideStats> result = tideService.getTideStats(1L);
         assertThat(result).isPresent();
         assertThat(result.get().avgHighMetres()).isEqualByComparingTo(BigDecimal.valueOf(1.400));
-        assertThat(result.get().dataPoints()).isEqualTo(40);
+        assertThat(result.get().dataPoints()).isEqualTo(60);
     }
 
     @Test
     @DisplayName("getTideStats() handles H2 returning Double for AVG instead of BigDecimal")
     void getTideStats_doubleValues_convertsCorrectly() {
         // H2 returns Double for AVG() and BigDecimal for MAX()/MIN()
-        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.HIGH))
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
                 .thenReturn(new Object[]{1.635, BigDecimal.valueOf(2.753), BigDecimal.valueOf(0.559), 722L});
-        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.LOW))
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.LOW), any(LocalDateTime.class)))
                 .thenReturn(new Object[]{-1.625, BigDecimal.valueOf(-0.510), BigDecimal.valueOf(-2.906), 720L});
-        when(tideExtremeRepository.findHeightsByLocationIdAndTypeOrderByHeightAsc(
-                1L, TideExtremeType.HIGH))
+        when(tideExtremeRepository.findHeightsByLocationIdAndTypeBeforeOrderByHeightAsc(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
                 .thenReturn(List.of(BigDecimal.valueOf(0.559), BigDecimal.valueOf(1.600),
                         BigDecimal.valueOf(2.753)));
 
@@ -690,14 +809,17 @@ class TideServiceTest {
     @Test
     @DisplayName("getTideStats() handles location with only high extremes")
     void getTideStats_onlyHighData_returnsPartialStats() {
-        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.HIGH))
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
                 .thenReturn(new Object[]{
                         BigDecimal.valueOf(1.300), BigDecimal.valueOf(1.600),
-                        BigDecimal.valueOf(1.000), 5L
+                        BigDecimal.valueOf(1.000), SAMPLE
                 });
-        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.LOW))
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.LOW), any(LocalDateTime.class)))
                 .thenReturn(new Object[]{null, null, null, 0L});
-        when(tideExtremeRepository.findHeightsByLocationIdAndTypeOrderByHeightAsc(1L, TideExtremeType.HIGH))
+        when(tideExtremeRepository.findHeightsByLocationIdAndTypeBeforeOrderByHeightAsc(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
                 .thenReturn(List.of(
                         BigDecimal.valueOf(1.000), BigDecimal.valueOf(1.200),
                         BigDecimal.valueOf(1.300), BigDecimal.valueOf(1.400),
@@ -712,7 +834,7 @@ class TideServiceTest {
         assertThat(stats.avgRangeMetres()).isNull();
         assertThat(stats.p75HighMetres()).isNotNull();
         assertThat(stats.p95HighMetres()).isNotNull();
-        assertThat(stats.dataPoints()).isEqualTo(5);
+        assertThat(stats.dataPoints()).isEqualTo(30);
     }
 
     @Test
@@ -720,14 +842,16 @@ class TideServiceTest {
     void getTideStats_heightExactlyAtSpringThreshold_notCounted() {
         // avgHigh = 2.000, threshold = 2.000 * 1.25 = 2.500
         // Height of exactly 2.500 should NOT count (compareTo > 0 required, not >=)
-        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.HIGH))
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
                 .thenReturn(new Object[]{
                         BigDecimal.valueOf(2.000), BigDecimal.valueOf(2.500),
-                        BigDecimal.valueOf(1.500), 3L});
-        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.LOW))
+                        BigDecimal.valueOf(1.500), SAMPLE});
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.LOW), any(LocalDateTime.class)))
                 .thenReturn(new Object[]{null, null, null, 0L});
-        when(tideExtremeRepository.findHeightsByLocationIdAndTypeOrderByHeightAsc(
-                1L, TideExtremeType.HIGH))
+        when(tideExtremeRepository.findHeightsByLocationIdAndTypeBeforeOrderByHeightAsc(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
                 .thenReturn(List.of(
                         BigDecimal.valueOf(1.500),
                         BigDecimal.valueOf(2.000),
@@ -747,14 +871,16 @@ class TideServiceTest {
     void getTideStats_heightJustAboveSpringThreshold_counted() {
         // avgHigh = 2.000, threshold = 2.500
         // Height of 2.501 should count
-        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.HIGH))
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
                 .thenReturn(new Object[]{
                         BigDecimal.valueOf(2.000), BigDecimal.valueOf(2.501),
-                        BigDecimal.valueOf(1.500), 3L});
-        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.LOW))
+                        BigDecimal.valueOf(1.500), SAMPLE});
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.LOW), any(LocalDateTime.class)))
                 .thenReturn(new Object[]{null, null, null, 0L});
-        when(tideExtremeRepository.findHeightsByLocationIdAndTypeOrderByHeightAsc(
-                1L, TideExtremeType.HIGH))
+        when(tideExtremeRepository.findHeightsByLocationIdAndTypeBeforeOrderByHeightAsc(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
                 .thenReturn(List.of(
                         BigDecimal.valueOf(1.500),
                         BigDecimal.valueOf(2.000),
@@ -773,14 +899,16 @@ class TideServiceTest {
         // rank = 0.95 * (10-1) = 8.55 → lower=8, upper=9, value[8]=1.9, value[9]=1.9
         // P95 = 1.9 + (1.9-1.9)*0.55 = 1.900 exactly
         // No height is strictly > 1.900 → kingTideCount = 0
-        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.HIGH))
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
                 .thenReturn(new Object[]{
                         BigDecimal.valueOf(1.540), BigDecimal.valueOf(1.900),
-                        BigDecimal.valueOf(1.100), 10L});
-        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.LOW))
+                        BigDecimal.valueOf(1.100), SAMPLE});
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.LOW), any(LocalDateTime.class)))
                 .thenReturn(new Object[]{null, null, null, 0L});
-        when(tideExtremeRepository.findHeightsByLocationIdAndTypeOrderByHeightAsc(
-                1L, TideExtremeType.HIGH))
+        when(tideExtremeRepository.findHeightsByLocationIdAndTypeBeforeOrderByHeightAsc(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
                 .thenReturn(List.of(
                         BigDecimal.valueOf(1.100), BigDecimal.valueOf(1.200),
                         BigDecimal.valueOf(1.300), BigDecimal.valueOf(1.400),
@@ -823,6 +951,55 @@ class TideServiceTest {
         List<BigDecimal> single = List.of(BigDecimal.valueOf(1.500));
         assertThat(TideService.percentile(single, 95))
                 .isEqualByComparingTo(BigDecimal.valueOf(1.500));
+    }
+
+    @Test
+    @DisplayName("getTideStats() samples only extremes before today, so the spring and king "
+            + "thresholds cannot move with the WorldTides fetch horizon")
+    void getTideStats_boundsEverySampleAtStartOfTodayUtc() {
+        // Both queries must receive the SAME cutoff: the P95 and the mean have to describe
+        // one population, or the king threshold is drawn from a different set of tides than
+        // the spring threshold it is compared against.
+        LocalDateTime beforeCall = LocalDate.now(ZoneOffset.UTC).atStartOfDay();
+
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
+                .thenReturn(new Object[]{
+                        BigDecimal.valueOf(1.400), BigDecimal.valueOf(1.800),
+                        BigDecimal.valueOf(1.100), SAMPLE
+                });
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), eq(TideExtremeType.LOW), any(LocalDateTime.class)))
+                .thenReturn(new Object[]{
+                        BigDecimal.valueOf(-1.200), BigDecimal.valueOf(-0.800),
+                        BigDecimal.valueOf(-1.500), SAMPLE
+                });
+        when(tideExtremeRepository.findHeightsByLocationIdAndTypeBeforeOrderByHeightAsc(
+                eq(1L), eq(TideExtremeType.HIGH), any(LocalDateTime.class)))
+                .thenReturn(List.of(BigDecimal.valueOf(1.100), BigDecimal.valueOf(1.800)));
+
+        tideService.getTideStats(1L);
+
+        LocalDateTime afterCall = LocalDate.now(ZoneOffset.UTC).atStartOfDay();
+
+        ArgumentCaptor<LocalDateTime> statsCutoff = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(tideExtremeRepository, times(2)).findHeightStatsByLocationIdAndTypeBefore(
+                eq(1L), any(TideExtremeType.class), statsCutoff.capture());
+
+        ArgumentCaptor<LocalDateTime> heightsCutoff = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(tideExtremeRepository).findHeightsByLocationIdAndTypeBeforeOrderByHeightAsc(
+                eq(1L), eq(TideExtremeType.HIGH), heightsCutoff.capture());
+
+        // Tolerant of the test straddling UTC midnight, intolerant of anything else:
+        // both bounds collapse to the same value on every run but one per year.
+        assertThat(statsCutoff.getAllValues())
+                .allSatisfy(cutoff -> assertThat(cutoff).isIn(beforeCall, afterCall));
+        assertThat(heightsCutoff.getValue()).isIn(beforeCall, afterCall);
+        assertThat(heightsCutoff.getValue()).isEqualTo(statsCutoff.getValue());
+
+        // Start of day, not "now" — a mid-day cutoff would drop this morning's extremes
+        // from the sample and make the threshold wobble hour to hour.
+        assertThat(heightsCutoff.getValue().toLocalTime()).isEqualTo(LocalTime.MIDNIGHT);
     }
 
     // -------------------------------------------------------------------------

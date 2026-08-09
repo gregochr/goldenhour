@@ -130,7 +130,7 @@ function tideFacts(tide) {
   }
 
   // Already formatted upstream as `0.3 m · smooth`. Independently nullable: waves reach T+4 while
-  // tides reach T+13, so the far half of the rail has a full rollup and no sea — which must not
+  // tides reach months ahead, so most of the rail has a full rollup and no sea — which must not
   // suppress the row. Marked droppable on a phone: it is the one fact here that describes the water
   // rather than the water's relationship to the light, which is what the row is for.
   if (tide.seas) {
