@@ -100,18 +100,21 @@ describe('WindowFirstShell', () => {
     expect(onSignOut).toHaveBeenCalledTimes(1);
   });
 
-  it('renders one tab, selected, and no tab whose pane does not exist', () => {
-    // The design draws four. Coming up is P13; Map and Manage arrive when this subtree takes over
-    // view state. A tab that renders nothing is a demo control and §6 bans those from the shipped
-    // build — so this pins that each tab lands WITH its pane rather than ahead of it.
+  it('renders two tabs, Plan selected, and no tab whose pane does not exist', () => {
+    // The design draws four. Coming up landed at P13 WITH its pane; Map and Manage arrive when this
+    // subtree takes over view state. A tab that renders nothing is a demo control and §6 bans those
+    // from the shipped build — so this pins that each tab lands with its pane rather than ahead of
+    // it, and it is the count that does the pinning: an added tab has to be argued for here.
     renderShell();
 
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(1);
+    expect(tabs).toHaveLength(2);
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
+    expect(tabs[1]).toHaveAttribute('aria-selected', 'false');
     // Exactly "Plan": the ◉ is decorative and must not leak into the accessible name, which is the
     // rule ViewToggle:56 already follows for its own glyphs.
     expect(tabs[0]).toHaveAccessibleName('Plan');
+    expect(tabs[1]).toHaveAccessibleName('Coming up');
   });
 
   it('carries exactly two masthead controls, so no build/health pill creeps in', () => {

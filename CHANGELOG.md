@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the "Coming up" tab, behind the window-first flag
+
+The 90-day almanac feed built at P12 now has a screen. A second tab beside Plan lists the dated
+events worth planning a trip around — spring and king tide runs, meteor peaks, supermoons, the
+equinox and solstice windows, and the noctilucent-cloud season — each as one row giving when it is,
+what it is, and whatever figures the backend could derive.
+
+Three things it deliberately does not do. It draws no certainty chip on a row whose kind is
+`ALMANAC`, because that is every row the five sources emit and a word that never varies is not
+information — the pane's footer states it once instead, and only a row that departs from it is
+marked. It carries no count on the tab, because the count does not exist until the tab has been
+opened. And it does not repeat the meteor facts the backend has already written into its own
+sentence.
+
+A row whose figures could not be derived says so — "Dates only — no heights or clock times for this
+run" — and keeps its dates, its title and its explanation. Nothing is ever synthesised to fill the
+gap. The caveat is gated on the type as well as on the absence, because an empty `meta` is the
+healthy state for an unclipped NLC season and unreachable for the other three sources.
+
+The feed is fetched once, when the tab is first opened, and held for the rest of the day. The tab
+bar became a real ARIA tab widget in the same change — `aria-controls`/`aria-labelledby` pairing,
+roving `tabindex`, and Left/Right/Home/End — which it was not when it had only one tab.
+
 ## [v2.17.14] - 2026-08-09
 
 ### Changed — the weekly tide refresh now fetches only the days it doesn't already have
