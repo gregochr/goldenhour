@@ -696,6 +696,87 @@
   .cth-next-window:focus-visible { transform: none; }
 }
 
+/* ── Window-first shell chrome: masthead, rail footer, tab bar, pane ──
+   Geometry from the spec's desktop rules (`.mast` :25, `.rail` :33, `.railfoot` :45, `.tabs` :52,
+   `.tab` :53, `.body` :77) and its phone block (`:238`, `:241`, `:244`, `:246`, `:248`, `:255`).
+   These values were previously inline in `WindowFirstShell`, which is a legitimate house pattern
+   until a media query needs them — a media query is a selector, and no selector reaches an inline
+   style. They move here as whole elements rather than as the changed properties alone, so no
+   element's geometry ends up split across a stylesheet and a JSX file.
+
+   `--wf-gutter` is the one horizontal inset the whole arm shares. Seven elements repeated the
+   literal 18px; at the phone boundary all seven change together to 14px, which is the value
+   `.wf-lens` already uses below and therefore this arm's own established number rather than an
+   import. Declaring it once means the phone rule cannot move half the chrome and leave the rest —
+   the specific failure a property-by-property migration invites. */
+.wf-shell {
+  --wf-gutter: 18px;
+}
+.wf-mast {
+  padding: 16px var(--wf-gutter) 14px;
+}
+/* The rail's own inset, worn by the empty-state line that stands in for it, so the two agree by
+   construction when the gutter changes. */
+.wf-rail-empty {
+  font-size: 10.5px;
+  padding: 13px var(--wf-gutter) 0;
+}
+.wf-railfoot {
+  font-size: 10px;
+  gap: 8px;
+  padding: 6px var(--wf-gutter) 0;
+}
+.wf-tabs {
+  padding: 12px var(--wf-gutter) 0;
+}
+/* `border-bottom-width: 0`, never `border-bottom: none` — P4a's rule, kept because the tab shares
+   its background with the pane below and the missing edge is what joins them. */
+.wf-tab {
+  font-size: 12.5px;
+  font-weight: 500;
+  border-bottom-width: 0;
+  border-radius: 8px 8px 0 0;
+  padding: 8px 14px;
+}
+/* The mock's own weights — 500 resting, 600 active — and the gold top rule, which is the only
+   selected treatment that survives the tab sharing the pane's background. Hung off `aria-selected`
+   because the tab pattern already requires that attribute, so the state needs no second carrier. */
+.wf-tab[aria-selected='true'] {
+  font-weight: 600;
+  box-shadow: inset 0 2px 0 var(--color-close-to-home);
+}
+/* Both panes, Plan and Coming up. They sit in the same slot under the same tab rule, so a
+   difference here would make the frame appear to move on a tab change; one class is what makes
+   that structurally impossible rather than a comment asking two files to stay in step. */
+.wf-body {
+  padding: 14px var(--wf-gutter) 20px;
+  /* Reaches only the Plan pane, which is the flex one; the Coming-up panel is a block, where `gap`
+     has nothing to space. No `:not()` needed to say so. */
+  gap: 10px;
+}
+/* The temporary "back to the current Plan" foot. It takes the gutter because it is chrome on the
+   same left edge; the spec has no counterpart, since the mock has no flag to go back through. */
+.wf-exit-foot {
+  padding: 0 var(--wf-gutter) 20px;
+}
+
+@media (max-width: 639px) {
+  /* One declaration moves every horizontal inset in the arm's chrome. */
+  .wf-shell {
+    --wf-gutter: 14px;
+  }
+  .wf-mast { padding: 13px var(--wf-gutter) 12px; }
+  .wf-rail-empty { padding: 11px var(--wf-gutter) 0; }
+  /* `.rail-scroller`'s own phone padding is NOT here — it sits directly beneath that class below,
+     because this block is written above it and the two selectors have equal specificity (0,1,0).
+     From here the base rule would come later in the file and win on source order alone, which it
+     did: measured on the running app, the rail kept its 13px desktop top while every sibling moved
+     to 14px sides. A media query buys no specificity. */
+  .wf-tabs { padding: 10px var(--wf-gutter) 0; }
+  .wf-tab { padding: 8px 11px; font-size: 12px; }
+  .wf-body { padding: 12px var(--wf-gutter) 18px; }
+}
+
 /* ── Window-first day rail ──
    One tile per upcoming day. The mock makes the rail a scroller only on the phone
    (`.wrap.mob .rail{overflow-x:auto}` + `.wrap.mob .day{flex:0 0 150px}`) and leaves it a plain
@@ -706,15 +787,30 @@
 .rail-scroller {
   overflow-x: auto;
   scrollbar-width: none;
-  /* `overflow-x: auto` computes overflow-y to auto as well, so the rail clips its own children's
-     focus rings — 1px of outline at 2px offset needs ~4px of room. The top and side padding
-     already have it; only the bottom edge is tight, so it is bought here and given straight back
-     to the layout, keeping the rail flush with whatever follows. Same technique as
-     `.cth-window-grid` above, different numbers. */
-  padding-bottom: 4px;
+  /* All four sides here, not three here and three inline. `overflow-x: auto` computes overflow-y to
+     auto as well, so the rail clips its own children's focus rings — 1px of outline at 2px offset
+     needs ~4px of room. The top and side padding already have it; only the bottom edge is tight, so
+     it is bought here and given straight back to the layout, keeping the rail flush with whatever
+     follows. Same technique as `.cth-window-grid` above, different numbers.
+
+     The bottom 4px is the fragile one and every override below must restate it: an inline `padding`
+     shorthand in the component once zeroed it at inline priority while `margin-bottom: -4px` still
+     applied, so the ring room was silently nil and the rail sat 4px tight. One owner retires that,
+     but a shorthand in a media query would recreate it exactly. */
+  padding: 13px var(--wf-gutter) 4px;
   margin-bottom: -4px;
 }
 .rail-scroller::-webkit-scrollbar { display: none; }
+/* Immediately after the base rule, and that placement is load-bearing rather than tidy: both
+   selectors are (0,1,0), so a media query above the base rule loses to it on source order. Written
+   in the shell-chrome block above, this override silently did nothing.
+
+   The shorthand is safe here ONLY because it restates the 4px the focus ring needs. Do not shorten
+   it to `11px var(--wf-gutter) 0` — that is the trap the base rule's comment describes, recreated
+   one file over. */
+@media (max-width: 639px) {
+  .rail-scroller { padding: 11px var(--wf-gutter) 4px; }
+}
 
 /* The tile itself is a read-out, as the design draws it — the ACTION inside it is the widget, so
    the hover treatment belongs there. The v1 pill this is copied from lifts the whole card because
@@ -1175,6 +1271,60 @@
    The card itself is a read-out; the two controls it can carry (the pick badge, and from P9 the
    expander) are real buttons and own their own states. Focus rings are bone at 2px for the reason
    written above .rail-day-show-on-map: the border-light ring measures 1.71:1 and fails SC 1.4.11. */
+
+/* The header row (mock `.wh` :156, phone `:265-269`). One wrapping flex line at desktop; on a phone
+   it becomes three stacked rows, which is what README:225 asks for in words — "rule hidden; meta and
+   badges each take a full row; the expand button pushes right".
+
+   `data-open` carries the one value that varies at render. The alternative was leaving `padding`
+   inline and moving `gap` alone, which is precisely the split this migration exists to avoid. */
+.wf-wh {
+  gap: 10px;
+  padding: 10px 14px;
+}
+.wf-wh[data-open='true'] {
+  padding: 12px 14px 10px;
+}
+/* The meta clause and the badge group as flow items at desktop: no order, no basis, so they sit on
+   the header line exactly where the DOM puts them. The group wrapper is transparent to layout
+   apart from its own gap, which matches the header's so the two clauses read as one run. */
+.wf-wh-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+@media (max-width: 639px) {
+  .wf-wh {
+    gap: 7px;
+    padding: 11px 12px 9px;
+  }
+  .wf-wh[data-open='true'] {
+    padding: 11px 12px 9px;
+  }
+  /* The rule is a `flex: 1` spacer whose whole job is to push the badges to the right of a shared
+     line. Once meta and badges each own a full row there is no line left to share, so it has
+     nothing to space — the design hides it rather than letting it draw a stray hairline. */
+  .wf-wh-rule { display: none; }
+  /* `order` puts these after the title run whatever the DOM says, and `flex-basis: 100%` is what
+     makes each take its own row. The gaps between them come from `.wf-wh`'s own row-gap. */
+  .wf-wh-meta {
+    order: 5;
+    flex-basis: 100%;
+    gap: 7px;
+  }
+  .wf-wh-badges {
+    order: 6;
+    flex-basis: 100%;
+  }
+  /* Right-aligned on its own row, which is the header's only remaining horizontal decision once
+     everything above it spans. Scoped to the header so the class keeps one meaning. */
+  .wf-wh .wf-exp {
+    order: 7;
+    margin-left: auto;
+  }
+}
 .window-card-pick,
 .window-pick-action,
 .window-pick-close {
@@ -1359,13 +1509,29 @@
   padding: 11px 18px;
   background: var(--color-plex-surface);
   border-bottom: 1px solid var(--color-plex-border);
-  flex-wrap: wrap;
+  /* NEVER wraps, at any width — it used to be `wrap`, and the phone block below then had to undo
+     that. The reason the phone block gives is not a phone fact: "wrapping it would grow a sticky
+     element to two or three lines and eat the viewport it is there to keep clear." That is true
+     wherever the content does not fit, and P14 measured where that is. Between **640px and ~781px**
+     the bar wrapped to **77.3px** against a 53.5px single line — overrunning BOTH reservations
+     below (60px, and 76px on `.wf-exp`), so a card scrolled into view in that band parked partly
+     behind the bar. The band is the tablet one nobody had looked at; the failure was predicted in
+     the comment beneath this rule and never measured until now.
+     Scrolling instead of wrapping keeps the bar 53.5px everywhere and keeps those numbers true.
+     Overflow on the sticky element itself does not re-base its own stick — only an ANCESTOR's
+     overflow would, which is what the note above guards. The phone block has run exactly this
+     combination since P8. */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   position: sticky;
   top: 0;
   /* Above the spot strip's focused card (3) and its edge fades (2), which is the only thing on the
      Plan pane that raises itself at all. */
   z-index: 20;
 }
+.wf-lens::-webkit-scrollbar { display: none; }
 .wf-lgrp {
   display: flex;
   align-items: center;
@@ -1506,6 +1672,21 @@
   font-size: 10.5px;
   color: var(--color-plex-text-secondary);
   white-space: nowrap;
+  /* Ellipsis rather than clip, and this pairing is the other half of the bar's no-wrap rule above.
+     Stopping the bar wrapping fixed its HEIGHT and left its WIDTH: between 640px and ~781px the
+     readout is wider than the room left after the controls, and a `nowrap` flex item does not
+     shrink because its automatic minimum size is its content. Measured on the running app at 640px
+     with a production-shaped readout ("45 min · weekday default · 12 spots across 6 windows",
+     327.6px natural): 116.6px of it painted outside the bar, mid-word, with no scrollbar and no
+     ellipsis to say so. `min-width: 0` and `overflow: hidden` each defeat that automatic minimum —
+     both are stated because `overflow` is what licenses `text-overflow` to draw the ellipsis, and
+     `min-width` is what makes the intent legible. Re-measured after: 0px of overflow at 640, 700
+     and 760, and a no-op at 800 and 1280, where the string already fits and the auto margin still
+     parks it on the right. A screen reader reads the full string either way — the ellipsis is for
+     sighted readers, telling them the line is truncated rather than mysteriously cut. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* A sticky bar overlaps whatever the browser scrolls into view, and the browser does not know it is
    there. Measured on the running app: tabbing to a spot card sitting just above the fold parked it
@@ -1520,6 +1701,14 @@
    bar's HEIGHT, so P11 (which adds a rating floor and a type control to the same row) and P14 must
    re-measure — a bar that wraps to two lines makes this number short. jsdom has no layout and does
    not load this file, so nothing can unit-test it; it is a browser-verified claim.
+
+   P14 re-measured, and the warning had already come true where nobody was looking. Between 640px
+   and ~781px the bar wrapped to **77.3px**, beating this 60px and also the 76px below — so in the
+   whole tablet band a focused card parked behind the bar, which is the exact defect this rule was
+   written to fix. It is fixed at the source rather than here: `.wf-lens` no longer wraps at any
+   width (see its own comment), so the bar measures 53.5px from 640px up and 49.5px below, and both
+   numbers here are true again. Measured on the running app at 320, 375, 390, 639, 640, 768, 800,
+   1080, 1280 and 1440.
 
    P9 added three more focusable things to the same scrolling pane — the window card's expander and
    the two doors — and every one of them can sit above the fold. A collapsed card is ALL header, so
@@ -1551,20 +1740,17 @@
   scroll-margin-top: 76px;
 }
 
-/* The app's own phone boundary, as `.wf-spots` states it. The bar becomes a single scrolling row:
-   wrapping it would grow a sticky element to two or three lines and eat the viewport it is there
-   to keep clear. The readout goes rather than wraps — it is a summary of what is already visible
-   below, and it is the widest thing on the bar. */
+/* The app's own phone boundary, as `.wf-spots` states it. The single scrolling row is no longer
+   set here — P14 moved `flex-wrap: nowrap` and the overflow to the base rule, because the argument
+   for them ("wrapping grows a sticky element and eats the viewport it exists to keep clear") turned
+   out to hold in the 640–781px band too, measured. What remains phone-specific is the tighter
+   inset, and the readout going entirely rather than merely scrolling out of reach — it is a summary
+   of what is already visible below, and it is the widest thing on the bar. */
 @media (max-width: 639px) {
   .wf-lens {
-    padding: 9px 14px;
+    padding: 9px var(--wf-gutter);
     gap: 7px;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
   }
-  .wf-lens::-webkit-scrollbar { display: none; }
   .wf-lens-res { display: none; }
   .wf-lens-k { font-size: 9px; }
 }

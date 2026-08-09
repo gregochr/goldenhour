@@ -121,12 +121,14 @@ export default function WindowFirstComingUp({
       // alone would both hide this and take it out of the accessibility tree. The pairing is
       // defence in depth — the attribute is the semantic statement and the half jsdom can see.
       hidden={hidden}
-      className={hidden ? 'wf-cu-panel hidden' : 'wf-cu-panel'}
+      // `wf-body` is the Plan pane's inset class, worn here too. The two panes sit in the same slot
+      // under the same tab rule, so a different inset would make the frame appear to move on a tab
+      // change — which was previously kept true by copying the literal `14px 18px 20px` into both
+      // files with a comment asking the next reader to keep them in step. One class means they
+      // cannot drift, and the phone gutter then changes both at once.
+      className={hidden ? 'wf-body wf-cu-panel hidden' : 'wf-body wf-cu-panel'}
       ref={panelRef}
       data-testid="window-first-coming-up"
-      // The Plan pane's own padding, matched exactly: the two panes sit in the same slot under the
-      // same tab rule, and a different inset would make the frame appear to move on a tab change.
-      style={{ padding: '14px 18px 20px' }}
     >
       <div className="wf-cu">
         <div className="wf-cu-head">

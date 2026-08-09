@@ -335,13 +335,17 @@ export default function WindowFirstShell({
   return (
     <div
       data-testid="window-first-shell"
-      className="mx-auto w-full"
+      // `wf-shell` hosts `--wf-gutter`, the arm's horizontal inset. Seven elements below shared the
+      // literal 18px and each would have needed its own phone override; declaring it once here
+      // makes the phone gutter a single declaration and makes a partial migration — the failure
+      // where half the chrome shifts and half does not — impossible rather than merely unlikely.
+      // The max width stays inline: it is a JS constant and no media query touches it.
+      className="wf-shell mx-auto w-full"
       style={{ maxWidth: WRAP_MAX_WIDTH }}
     >
       <div
         data-testid="window-first-masthead"
-        className="flex items-center gap-3 border-b border-plex-border"
-        style={{ padding: '16px 18px 14px' }}
+        className="wf-mast flex items-center gap-3 border-b border-plex-border"
       >
         <BrandLockup variant="compact" />
         <div className="ml-auto flex items-center gap-2">
@@ -372,8 +376,7 @@ export default function WindowFirstShell({
         {!loading && railTiles.length === 0 && (
           <p
             data-testid="window-first-rail-empty"
-            className="font-mono text-plex-text-muted"
-            style={{ fontSize: '10.5px', padding: '13px 18px 0' }}
+            className="wf-rail-empty font-mono text-plex-text-muted"
           >
             No forecast days to show yet.
           </p>
@@ -388,8 +391,7 @@ export default function WindowFirstShell({
           forecast content, so nothing here takes the treatment that marks it. */}
       <div
         data-testid="window-first-railfoot"
-        className="flex items-center font-mono text-plex-text-secondary"
-        style={{ fontSize: '10px', padding: '6px 18px 0', gap: '8px' }}
+        className="wf-railfoot flex items-center font-mono text-plex-text-secondary"
       >
         {/* Undefined is "we do not know yet", and it renders nothing. Only a settings response
             that came back without a home says so out loud. */}
@@ -414,8 +416,7 @@ export default function WindowFirstShell({
         data-testid="window-first-tabs"
         role="tablist"
         aria-label="Plan sections"
-        className="flex gap-1.5"
-        style={{ padding: '12px 18px 0' }}
+        className="wf-tabs flex gap-1.5"
       >
         {TABS.map((tab, index) => {
           const selected = tab.id === activeTab;
@@ -434,23 +435,17 @@ export default function WindowFirstShell({
               onClick={() => selectTab(tab.id)}
               onKeyDown={(event) => handleTabKey(event, index)}
               data-testid={tabDomId(tab.id)}
-              className={`font-sans whitespace-nowrap border border-plex-border transition-colors ${
+              // Type, padding and the selected treatment all live in `.wf-tab` — the phone rule
+              // changes two of them, and a media query cannot reach an inline style. The selected
+              // state hangs off `aria-selected`, which the tab pattern already requires above, so
+              // the whole style object migrates without inventing a state class or a prop. The
+              // mock's own weights (500 resting, 600 active) and the gold top rule are in the
+              // stylesheet beside the geometry they belong with.
+              className={`wf-tab font-sans whitespace-nowrap border border-plex-border transition-colors ${
                 selected
                   ? 'bg-plex-surface text-plex-text'
                   : 'bg-plex-panel text-plex-text-secondary hover:text-plex-text'
               }`}
-              style={{
-                fontSize: '12.5px',
-                // The mock's own weights: 500 resting, 600 active. The difference is what makes the
-                // selected tab read as raised rather than merely lighter.
-                fontWeight: selected ? 600 : 500,
-                borderBottomWidth: 0,
-                borderRadius: '8px 8px 0 0',
-                padding: '8px 14px',
-                // The gold rule along the top edge is the selected treatment, and it is the only
-                // thing that survives the tab sharing a background with the pane below it.
-                boxShadow: selected ? 'inset 0 2px 0 var(--color-close-to-home)' : undefined,
-              }}
             >
               {tab.glyph && (
                 <span aria-hidden="true" style={{ fontSize: '12px', opacity: 0.8 }}>
@@ -519,8 +514,7 @@ export default function WindowFirstShell({
         aria-labelledby={tabDomId('plan')}
         hidden={activeTab !== 'plan'}
         data-testid="window-first-pane"
-        className={`${activeTab === 'plan' ? 'flex' : 'hidden'} flex-col${dimmed}`}
-        style={{ padding: '14px 18px 20px', gap: '10px' }}
+        className={`wf-body ${activeTab === 'plan' ? 'flex' : 'hidden'} flex-col${dimmed}`}
       >
         {paneItems.map((item) => (item.kind === 'away' ? (
           <WindowAwayRow
@@ -566,7 +560,7 @@ export default function WindowFirstShell({
           made the visible way back inert — the same trap P4a fixed for the masthead, re-created one
           level down. The cog still opens the settings modal that owns the durable toggle, but the
           button that names the route must work too. */}
-      <div style={{ padding: '0 18px 20px' }}>
+      <div className="wf-exit-foot">
         <button
           type="button"
           onClick={onExit}

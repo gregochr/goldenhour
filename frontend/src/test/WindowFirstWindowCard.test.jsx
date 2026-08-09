@@ -160,14 +160,22 @@ describe('WindowFirstWindowCard', () => {
 
     it('tightens the header when collapsed, so the row reads as one line rather than a card', () => {
       // The mock's own two changes (`.win.collapsed .wh` :157, `.wh .when` :160). Pinned because
-      // they are the only visual difference between the two states apart from what is missing, and
-      // an inline style is deletable without any test noticing.
+      // they are the only visual difference between the two states apart from what is missing.
+      //
+      // The two halves are asserted differently now, and deliberately. `fontSize` is still computed
+      // in JS and written inline, so its VALUE is assertable here. The header's padding moved to
+      // `.wf-wh[data-open]` at P14, because the phone rule changes it and a media query cannot
+      // reach an inline style — so what this file can honestly pin is the hook the stylesheet keys
+      // on, not the pixels. `vite.config.js` sets `css: false`; jsdom parses no stylesheet and
+      // resolves no media query, so a `toHaveStyle({ padding })` here would now read the empty
+      // string and pass against anything. The padding VALUES are a browser measurement (P14 §5i),
+      // and deleting the `[data-open='true']` rule is a change no unit test in this suite can see.
       renderCard({}, { open: false });
-      expect(screen.getByTestId('window-card-head')).toHaveStyle({ padding: '10px 14px' });
+      expect(screen.getByTestId('window-card-head')).toHaveAttribute('data-open', 'false');
       expect(screen.getByTestId('window-card-when')).toHaveStyle({ fontSize: '13.5px' });
 
       renderCard({}, { open: true });
-      expect(screen.getAllByTestId('window-card-head')[1]).toHaveStyle({ padding: '12px 14px 10px' });
+      expect(screen.getAllByTestId('window-card-head')[1]).toHaveAttribute('data-open', 'true');
       expect(screen.getAllByTestId('window-card-when')[1]).toHaveStyle({ fontSize: '15.5px' });
     });
 

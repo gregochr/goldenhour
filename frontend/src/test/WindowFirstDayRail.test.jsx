@@ -80,6 +80,16 @@ describe('WindowFirstDayRail', () => {
     expect(tiles[1]).not.toHaveAttribute('data-today');
   });
 
+  // `.rail-scroller` carries the horizontal scroll, the hidden scrollbar, the 4px of focus-ring room
+  // that its negative margin gives straight back — and, since P14, the rail's whole padding
+  // including the phone gutter. It used to be a class beside an inline style; it is now the only
+  // owner, so a rename costs the rail its inset as well as its overflow, at every width. jsdom
+  // evaluates none of that, which is exactly why the class name itself is worth pinning.
+  it('carries the scroller class that owns its overflow and its gutter', () => {
+    render(<WindowFirstDayRail tiles={[tile()]} />);
+    expect(screen.getByTestId('window-first-day-rail')).toHaveClass('rail-scroller');
+  });
+
   describe('the show-on-map action', () => {
     it('is a real button naming the day it opens, carrying that day and its best event', () => {
       const onTileClick = vi.fn();

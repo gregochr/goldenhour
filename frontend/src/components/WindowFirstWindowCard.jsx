@@ -183,10 +183,15 @@ export default function WindowFirstWindowCard({
         overflow: 'hidden',
       }}
     >
+      {/* `data-open` rather than a second class or a new prop: the phone rule changes this row's
+          padding AND its gap, and the padding is the one value here that varies at render, so
+          without a hook the element's geometry would end up split across two files — the trap the
+          migration rule exists to avoid. `open` is already this component's prop; the attribute
+          only publishes it to the stylesheet. */}
       <div
         data-testid="window-card-head"
-        className="flex items-center flex-wrap"
-        style={{ gap: '10px', padding: open ? '12px 14px 10px' : '10px 14px' }}
+        data-open={open ? 'true' : 'false'}
+        className="wf-wh flex items-center flex-wrap"
       >
         {card.kicker && (
           <span
@@ -227,6 +232,16 @@ export default function WindowFirstWindowCard({
             one and not the other would leave two greys in one row — the reason this change already
             gives for taking the whole rail footer at once. Sixth time on this redesign; the lead
             card is the worse backdrop, which is why both were measured rather than one. */}
+        {/* One group, because in the spec these two ARE one clause: the mock prints
+            `best 4★ · 6 within reach` from a single `.best` span (`Plan Window First v2.html:471`)
+            and gives it `flex-basis: 100%` on phone (`:267`) so the meta takes one full row. This
+            arm split it in two only so "within reach" could be null independently of the rating —
+            a nullability difference, not a second clause — so they must still share that row.
+            Wrapping is what makes one `flex-basis` govern both; two orders would spend two rows
+            saying what the design says in one. The group renders only when a child does, or an
+            empty flex item would spend a gap on nothing. */}
+        {(card.bestRating != null || card.withinReachCount != null) && (
+        <span data-testid="window-card-meta" className="wf-wh-meta">
         {card.bestRating != null && (
           <span
             data-testid="window-card-best"
@@ -249,9 +264,18 @@ export default function WindowFirstWindowCard({
             {`${card.withinReachCount} within reach`}
           </span>
         )}
-        <span className="flex-1 min-w-[12px] h-px bg-plex-border" aria-hidden="true" />
+        </span>
+        )}
+        {/* The design's spacer rule, and on phone it is the one element the header LOSES: with meta
+            and badges each taking their own full row there is no gap left for a rule to fill.
+            Classed rather than hidden by a Tailwind variant so the media query owns it. */}
+        <span className="wf-wh-rule flex-1 min-w-[12px] h-px bg-plex-border" aria-hidden="true" />
 
-        <span data-testid="window-card-badges" className="flex flex-wrap" style={{ gap: '6px' }}>
+        <span
+          data-testid="window-card-badges"
+          className="wf-wh-badges flex flex-wrap"
+          style={{ gap: '6px' }}
+        >
           <span
             data-testid="window-card-verdict"
             data-confidence={card.confidence || undefined}

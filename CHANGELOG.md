@@ -5,6 +5,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the window-first Plan tab works on a phone
+
+The redesigned Plan tab, still behind the flag, now has a real phone layout rather than a desktop one
+squeezed. The masthead, day rail, rail footer, tab bar and both panes tighten from an 18px gutter to
+14px below 640px, the tab bar takes a smaller type scale, and the window header stops being one
+crowded line: the meta clause and the badges each take their own row and the expand button sits right
+on its own, which is what the design has always asked for.
+
+Getting there meant moving the shell's geometry out of inline styles and into stylesheet rules, since
+a media query cannot reach an inline style. Only the elements a phone rule actually changes moved,
+each as a whole — a half-migrated element would have had its geometry split across two files. The
+horizontal inset became a single `--wf-gutter` custom property, which also retires a literal that was
+written into two components with a comment in each asking the next reader to keep them in step.
+
+Two things the design's phone mock does are deliberately not done. It hides the masthead's settings
+and sign-out buttons, and the rail footer's "Edit reach" — in a static mock those do nothing, but here
+they are the only route to settings, the only route out of the app, and the only route to fixing a
+reach filter that has emptied. A phone user keeps all three.
+
+One live defect was found by measuring rather than by reading: between 640px and roughly 781px the
+sticky reach bar wrapped onto a second line and grew to 77px, which is taller than the space the app
+reserves when it scrolls something into view — so on a tablet, tabbing to a card could park it behind
+the bar. The bar now scrolls sideways instead of wrapping, at every width, and measures 53.5px again.
+Its summary line on the right shortens with an ellipsis in that same band rather than running off the
+edge mid-word, which is the half of that problem the first fix left behind.
+
+Verified in a browser at 320, 375, 390, 639, 640, 700, 760, 768, 800, 899, 1080, 1280 and 1440 px,
+and at 320×256 for 400% zoom. Desktop is pixel-identical to before the change.
+
 ### Added — the "Coming up" tab, behind the window-first flag
 
 The 90-day almanac feed built at P12 now has a screen. A second tab beside Plan lists the dated
