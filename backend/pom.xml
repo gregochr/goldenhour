@@ -208,7 +208,19 @@
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-            <version>3.0.3</version>
+            <!--
+                3.1.0, not 3.0.3, to clear CVE-2026-65898 in the DOMPurify bundled inside the
+                swagger-ui webjar: springdoc 3.0.3 pins swagger-ui 5.32.2 (DOMPurify 3.3.2),
+                3.1.0 pins 5.32.11 (DOMPurify 3.4.12). Verified by unzipping both webjars and
+                reading DOMPurify.version out of swagger-ui-bundle.js.
+
+                ⚠️ This bump is NOT optional hygiene, despite the CVE reading 5.1. After the
+                Tomcat and PostgreSQL bumps cleared everything else, this was the sole remaining
+                failure — and dependency-check failed the build on it under a
+                failBuildOnCVSS=7 gate. Whatever score the plugin compares is not the 5.1 it
+                prints. Do not drop this bump on the assumption the CVE is below the gate.
+            -->
+            <version>3.1.0</version>
         </dependency>
 
         <!-- ==================== Security ==================== -->
