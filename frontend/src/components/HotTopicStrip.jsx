@@ -879,12 +879,20 @@ export default function HotTopicStrip({
           >
             <button
               data-testid={`hot-topic-pill-${topic.type}`}
+              className="hot-topic-row"
               onClick={handleClick}
               disabled={isLiteUser}
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '12px',
+                // `columnGap`, NOT the `gap` shorthand — and this is the same trap the detail
+                // sentence below is written to avoid, one element up. `gap` writes the `row-gap`
+                // LONGHAND into the style attribute, so the phone rule's `row-gap: 4px` could never
+                // apply and the wrapped rows shipped 8px taller than the rule intended. Nothing can
+                // catch that: jsdom parses no stylesheet, so the dead rule sat under a comment
+                // quoting a row height the tree could not produce. Only the column gap was ever
+                // wanted here; at desktop the row is `nowrap`, so it has no rows to space.
+                columnGap: '12px',
                 padding: '9px 13px',
                 width: '100%',
                 background: 'transparent',
@@ -897,6 +905,7 @@ export default function HotTopicStrip({
             >
               {/* Label group — emoji + bone label + optional infotip */}
               <span
+                className="hot-topic-label"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -916,6 +925,7 @@ export default function HotTopicStrip({
                   </span>
                 )}
                 <span
+                  className="hot-topic-title"
                   style={{
                     fontSize: '12px',
                     fontWeight: 600,
@@ -955,11 +965,13 @@ export default function HotTopicStrip({
               {/* Detail sentence — single line, ellipsis-truncated. When the topic carries a
                   structured event, lead with "{glyph} {day} {event} · {time}" in the topic's
                   accent, then the plain condition (relative-day prose stripped for display). */}
+              {/* `flex` and `min-width` live in `.hot-topic-detail`, not inline: the phone rule gives
+                  this its own row via `flex-basis`, and an inline `flex` shorthand sets flex-basis
+                  too — at a priority no stylesheet can reach. */}
               <span
                 data-testid={`topic-detail-${topic.type}`}
+                className="hot-topic-detail"
                 style={{
-                  flex: 1,
-                  minWidth: 0,
                   fontSize: '12px',
                   color: 'var(--color-plex-text-secondary)',
                   overflow: 'hidden',
@@ -999,6 +1011,7 @@ export default function HotTopicStrip({
               {regionCount > 0 && (
                 <span
                   data-testid={`topic-region-count-${topic.type}`}
+                  className="hot-topic-regions"
                   style={{
                     flexShrink: 0,
                     fontSize: '11px',
@@ -1015,6 +1028,7 @@ export default function HotTopicStrip({
               {isExpandable && (
                 <span
                   data-testid={`expand-chevron-${topic.type}`}
+                  className="hot-topic-chevron"
                   style={{
                     flexShrink: 0,
                     fontSize: '10px',
