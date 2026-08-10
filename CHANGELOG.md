@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.17.15] - 2026-08-10
+
 ### Changed — the window-first Plan tab works on a phone
 
 The redesigned Plan tab, still behind the flag, now has a real phone layout rather than a desktop one
