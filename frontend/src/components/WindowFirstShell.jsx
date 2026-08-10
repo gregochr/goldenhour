@@ -182,7 +182,7 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  */
 export default function WindowFirstShell({
   onExit, onOpenSettings, onSignOut, contentDisabled, onShowOnMap, onEvaluationScoresChange,
-  locations,
+  onSeasonalFeaturesChange, locations,
 }) {
   const {
     railTiles, windowCards, paneItems, loading, briefing, evaluationScores, scoreIndex, todayStr,
@@ -302,6 +302,17 @@ export default function WindowFirstShell({
   useEffect(() => {
     onEvaluationScoresChange?.(evaluationScores);
   }, [evaluationScores, onEvaluationScoresChange]);
+
+  // The same lift for the seasonal features, and for a reason the sibling above does not have: this
+  // one was written by the v1 arm ONLY, so the value in App depended on whether the session had ever
+  // rendered v1. The overlay map's Bluebell chip is gated on it, so the same night's data drew two
+  // different maps depending on flip history — which is the class of thing that produces a bug
+  // report nobody can reproduce. `briefing?.seasonalFeatures` rather than `briefing`: the provider
+  // replaces that object on every poll and every window focus, and depending on the parent would
+  // re-fire this on each one.
+  useEffect(() => {
+    onSeasonalFeaturesChange?.(briefing?.seasonalFeatures ?? []);
+  }, [briefing?.seasonalFeatures, onSeasonalFeaturesChange]);
 
   /**
    * True while a dialog is over the pane — the sheet or the pick.
@@ -630,5 +641,8 @@ WindowFirstShell.propTypes = {
   contentDisabled: PropTypes.bool,
   onShowOnMap: PropTypes.func,
   onEvaluationScoresChange: PropTypes.func,
+  /** Lifts `briefing.seasonalFeatures` to App, which the map overlay reads. Optional-called, so
+      every existing test renders without it. */
+  onSeasonalFeaturesChange: PropTypes.func,
   locations: PropTypes.array,
 };

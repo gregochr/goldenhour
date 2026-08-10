@@ -151,6 +151,32 @@
   /* The active segment of a segmented control — the one non-badge member, here because it is the
      same trick: readable type on a 13% tint of --color-close-to-home. */
   --color-segment-active: #EBD9A8;
+
+  /* ── Two v1-arm synonyms that were never declared anywhere ──
+     `CloseToHome.jsx:48-49` and `CardHoverPreview.jsx:85` name these; nothing declared them, so
+     both have always resolved to nothing and the marks and stars silently inherited body ink.
+     Diagnosed at `WindowSpotPeek.jsx:195-202` and deferred there because the v1 arm is frozen for
+     the flag comparison; taken now because that freeze is on BEHAVIOUR, and with both arms running
+     side by side v1 is the control, not a legacy path — a colour channel the design calls semantic
+     cannot be missing from the arm the comparison is against.
+
+     The values are the tokens the call sites' own comment names: "Sunrise rises in marginal amber,
+     sunset falls in dust orange" — so --color-verdict-marginal (:43) and the DUST hot-topic accent
+     (`HotTopicStrip.jsx:24`). Declared as aliases rather than by editing the two call sites, which
+     would touch frozen v1 source; two names for #E0A542 is a smell that dies with v1.
+
+     ⚠️ HERE, not in the plain @theme block above, and the reason is this file's own history. The
+     documented rule says a bare token name in JS/JSX counts, and both names do appear in .jsx —
+     so the plain block "should" work. That is exactly the reasoning that failed for
+     --color-plex-panel, whose note above records the browser check returning the EMPTY STRING
+     under a comment claiming a utility class kept it alive. The whole defect being fixed here is a
+     token resolving to nothing; fixing it with a mechanism that can silently do the same would be
+     absurd. Verified in the browser after the change, not reasoned about.
+
+     Contrast, computed: #E0A542 on --color-plex-surface-light #2A2019 = 7.30:1, matching the
+     measurement WindowSpotPeek recorded. #f97316 on --color-plex-bg #181210 = 6.63:1. Both AA. */
+  --color-marginal: #E0A542;
+  --color-dust: #f97316;
 }
 
 @layer base {
