@@ -43,7 +43,12 @@ describe('PlanLayoutErrorBoundary', () => {
     // The message, specifically — a fallback that swallowed it would still pass a presence check,
     // and the message is the only thing a bug report can quote.
     expect(screen.getByTestId('plan-layout-error-detail')).toHaveTextContent('tide rollup exploded');
-    expect(spy).toHaveBeenCalled();
+    // By CONTENT, not `toHaveBeenCalled()`. React logs every caught error itself, so a bare
+    // called-check is satisfied by React's own log and stays green with `componentDidCatch` deleted
+    // — which is the half that carries `info.componentStack`, the one thing a crash report needs and
+    // the one thing the on-screen panel deliberately does not show. Not `toHaveBeenCalledTimes(2)`
+    // either: that would couple this file to React's internal logging.
+    expect(spy.mock.calls.some(([first]) => first === 'Plan layout crashed:')).toBe(true);
   });
 
   // This is the test that pins the decision, and it is the one worth keeping if any is dropped: the

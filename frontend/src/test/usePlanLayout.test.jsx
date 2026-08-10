@@ -575,6 +575,31 @@ describe('WindowFirstShell — the rail it hosts', () => {
     expect(onEvaluationScoresChange).toHaveBeenCalledWith(scores);
   });
 
+  it('lifts the seasonal features too, so the map does not depend on which arm you came from', () => {
+    // The sibling lift nine lines up, and the reason this one exists is the flag seam rather than
+    // the map: `seasonalFeatures` was written by the v1 arm ONLY, so the overlay map's Bluebell chip
+    // appeared or not depending on whether the session had ever rendered v1 — the same night's data
+    // drawing two different maps. Pinned here because the prop is optional and optional-called, so
+    // deleting it from App would drop the chip with the whole suite still green.
+    const onSeasonalFeaturesChange = vi.fn();
+    const briefing = briefingWith('2026-08-04T12:00:00');
+    renderWithBriefing(
+      { ...briefing, briefing: { generatedAt: '2026-08-04T12:00:00', seasonalFeatures: ['BLUEBELL'] } },
+      { onSeasonalFeaturesChange },
+    );
+
+    expect(onSeasonalFeaturesChange).toHaveBeenCalledWith(['BLUEBELL']);
+  });
+
+  it('lifts an empty list when the briefing names no season, rather than nothing at all', () => {
+    // The negative half, and it is not cosmetic: never calling would leave whatever the OTHER arm
+    // last wrote standing, which is the exact staleness this lift exists to remove.
+    const onSeasonalFeaturesChange = vi.fn();
+    renderWithBriefing(briefingWith('2026-08-04T12:00:00'), { onSeasonalFeaturesChange });
+
+    expect(onSeasonalFeaturesChange).toHaveBeenCalledWith([]);
+  });
+
   describe('the reach lens bar', () => {
     it('sits between the tab rule and the pane, where the design puts it', () => {
       renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
