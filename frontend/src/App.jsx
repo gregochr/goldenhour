@@ -22,6 +22,7 @@ import { useRunNotifications } from './hooks/useRunNotifications.js';
 import useAfterFirstPaint from './hooks/useAfterFirstPaint.js';
 import usePlanLayout, { PLAN_V1, PLAN_V2 } from './hooks/usePlanLayout.js';
 import WindowFirstShell from './components/WindowFirstShell.jsx';
+import PlanLayoutErrorBoundary from './components/PlanLayoutErrorBoundary.jsx';
 import { WindowFirstBriefingProvider } from './context/WindowFirstBriefingContext.jsx';
 
 // Code-split the heavy, rarely-first-viewed subtrees so they stay out of the initial bundle:
@@ -190,11 +191,6 @@ function AppInner() {
   }, [isAdmin]);
   const [selectedDate, setSelectedDate] = useState(null);
 
-  /** Aurora banner "View on map" — switch to the Map tab with the Aurora event pre-selected. */
-  const handleAuroraViewOnMap = () => {
-    setMapHandoff({ eventType: 'AURORA', nonce: handoffNonce.current++ });
-    setViewMode('map');
-  };
 
   const sortedLocations = useMemo(
     () => [...locations].sort((a, b) => a.name.localeCompare(b.name)),
@@ -243,7 +239,12 @@ function AppInner() {
    */
   const handleShowOnMap = (dateOrHandoff, eventType, locationName = null) => {
     let trigger;
-    if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.filterAction) {
+    // First, because it is the one caller that names its own kind. Without this branch the object
+    // falls past `filterAction` and `region` into the final `else` and becomes an `event` trigger
+    // whose `date` is the whole object — an overlay for a night that does not exist.
+    if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.kind === 'aurora') {
+      trigger = { kind: 'aurora', date: dateOrHandoff.date };
+    } else if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.filterAction) {
       trigger = { kind: 'topic', filterAction: dateOrHandoff.filterAction, label: dateOrHandoff.label, date: dateOrHandoff.date };
     } else if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.region) {
       // A region trigger, optionally carrying a hot topic's qualifying locations + label so the
@@ -271,6 +272,28 @@ function AppInner() {
     // Keep the shared handoff in sync so the "Open the full Map tab →" escape hatch lands focused.
     setMapHandoff({ ...overlay.handoff, nonce });
     setMapOverlay({ ...overlay, nonce, date: trigger.date });
+  };
+
+  /**
+   * Aurora banner "View on map".
+   *
+   * <p>The banner sits above the Plan-layout branch, so it is live in both arms — but its v1 action
+   * is "switch to the Map tab", and the window-first arm has no Map tab. There the press used to set
+   * a tab state nothing rendered and write a hash nothing answered: a control that could not act,
+   * which §6 bans. The window-first arm reaches the map through the same overlay every plan card
+   * uses, so the banner is routed through that instead of being hidden.
+   *
+   * <p>The v1 path below is byte-identical to what it has always been. Both arms end up handing
+   * `MapView` the same `handoffEventType`, which is what makes this a route rather than a second
+   * behaviour.
+   */
+  const handleAuroraViewOnMap = () => {
+    if (planLayout === PLAN_V2) {
+      handleShowOnMap({ kind: 'aurora', date: todayStr });
+      return;
+    }
+    setMapHandoff({ eventType: 'AURORA', nonce: handoffNonce.current++ });
+    setViewMode('map');
   };
 
   /** Close the overlay and hand off to the full Map tab, landing where the overlay was focused. */
@@ -336,7 +359,10 @@ function AppInner() {
       <div className="max-w-4xl mx-auto px-4 mt-4">
         <AuroraBanner onViewOnMap={handleAuroraViewOnMap} />
         <div className="mt-2">
-          <NlcSightingBanner />
+          {/* Inert in the window-first arm, which has no Map tab for it to switch to. Unlike the
+              aurora banner beside it there is nothing to re-route: v1's action is a bare tab switch
+              with no event type, no filter and no location. */}
+          <NlcSightingBanner interactive={planLayout !== PLAN_V2} />
         </div>
       </div>
 
@@ -389,17 +415,28 @@ function AppInner() {
               too — a second request on the same 10-minute tick as DailyBriefing's, and a second
               focus listener firing both. App.jsx's flag branch is a hard either/or, and this keeps
               it one. */}
-          <WindowFirstBriefingProvider homeSettingsVersion={homeSettingsVersion}>
-            <WindowFirstShell
-              onExit={() => setPlanLayout(PLAN_V1)}
-              onOpenSettings={() => setShowSettings(true)}
-              onSignOut={logout}
-              contentDisabled={isDown}
-              onShowOnMap={handleShowOnMap}
-              onEvaluationScoresChange={handleEvaluationScoresChange}
-              locations={visibleLocations}
-            />
-          </WindowFirstBriefingProvider>
+          {/* INSIDE the flag branch, and that placement is load-bearing rather than tidy. The flag
+              is what turns an ordinary render crash into a trap: the header above is suppressed for
+              this arm, so the cog and Sign out live inside the subtree that would die, the settings
+              modal is a sibling of this ternary and dies with the tree, and the flag survives the
+              reload — blank page, reload, blank page. Sitting here, the boundary is discarded when
+              the branch flips, so recovery needs no reset logic; hoisted above the ternary it would
+              survive the flip and show its fallback over a healthy arm. The current Plan is
+              deliberately NOT wrapped: its honest recovery is not "go to the other arm". */}
+          <PlanLayoutErrorBoundary onRecover={() => setPlanLayout(PLAN_V1)}>
+            <WindowFirstBriefingProvider homeSettingsVersion={homeSettingsVersion}>
+              <WindowFirstShell
+                onExit={() => setPlanLayout(PLAN_V1)}
+                onOpenSettings={() => setShowSettings(true)}
+                onSignOut={logout}
+                contentDisabled={isDown}
+                onShowOnMap={handleShowOnMap}
+                onEvaluationScoresChange={handleEvaluationScoresChange}
+                onSeasonalFeaturesChange={handleSeasonalFeaturesChange}
+                locations={visibleLocations}
+              />
+            </WindowFirstBriefingProvider>
+          </PlanLayoutErrorBoundary>
         </main>
       ) : (
         <main className={`max-w-4xl mx-auto px-4 py-6${isDown ? ' opacity-50 pointer-events-none' : ''}`}>

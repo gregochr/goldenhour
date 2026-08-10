@@ -192,14 +192,16 @@ export default function WindowSpotPeek({
             so a slot can carry a score with no usable rating, which is exactly the divergence
             `resolveSpotPeek` is written to expect.
 
-            `--color-verdict-marginal`, NOT the `--color-marginal` the v1 peek names. That token is
-            declared nowhere in `index.css` — grep finds it used and never defined — so
-            `CardHoverPreview`'s stars have never been amber; they have always fallen back to
-            inherited body ink, and looked plausible enough that nobody noticed. Caught by reading
-            `getComputedStyle` on the running app, which returned the empty string. The v1 arm is
-            frozen for the flag comparison so it is left alone and handed to P15; copying its bug into
-            the new component is the one thing that was not an option. Measured on the running app:
-            #E0A542 on this panel's #2A2019 is 7.30:1. */}
+            `--color-verdict-marginal`, NOT the `--color-marginal` the v1 peek names. That token
+            USED to be declared nowhere — grep found it used and never defined, so
+            `CardHoverPreview`'s stars were never amber but fell back to inherited body ink, which
+            looked plausible enough that nobody noticed. Caught by reading `getComputedStyle` on the
+            running app, which returned the empty string. It was left alone at the time because the
+            v1 arm is frozen for the flag comparison; **P14a declared it** — see `index.css`'s
+            `--color-marginal` in the `@theme static` block — once running both arms in parallel made
+            v1 the control rather than a legacy path. This component still names the verdict token
+            rather than the alias, and should: the alias exists to fix v1 in place and dies with it.
+            Measured on the running app: #E0A542 on this panel's #2A2019 is 7.30:1. */}
         {rating != null && (
           <span
             data-testid="wf-peek-stars"

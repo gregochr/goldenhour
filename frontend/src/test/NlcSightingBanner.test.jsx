@@ -10,9 +10,9 @@ vi.mock('../hooks/useNlcSighting.js', () => ({
 
 import { useNlcSighting } from '../hooks/useNlcSighting.js';
 
-function renderBanner(sighting) {
+function renderBanner(sighting, props = {}) {
   useNlcSighting.mockReturnValue({ sighting, loading: false });
-  return render(<NlcSightingBanner />);
+  return render(<NlcSightingBanner {...props} />);
 }
 
 /** Minimal valid "active + clear" sighting; spread + override per test. */
@@ -202,6 +202,42 @@ describe('NlcSightingBanner', () => {
   // ---------------------------------------------------------------------------
   // formatReportedAt helper — unit tests
   // ---------------------------------------------------------------------------
+
+  // The window-first arm has no Map tab, so there is nothing for this banner to switch to. Unlike
+  // the aurora banner beside it, there is also nothing to re-route it to — v1's action is a bare tab
+  // switch carrying no event type, no filter and no location — so inert is the honest state. What
+  // matters is that when it cannot act it also stops LOOKING like a control.
+  describe('when it has no destination to offer', () => {
+    it('is not dressed as a control', () => {
+      renderBanner(activeSighting(), { interactive: false });
+      const banner = screen.getByTestId('nlc-sighting-banner');
+      expect(banner).not.toHaveAttribute('tabindex');
+      expect(banner.className).not.toMatch(/cursor-pointer/);
+      expect(banner.textContent).not.toMatch(/show on map/i);
+    });
+
+    it('does nothing when pressed, and leaves the tab where it was', () => {
+      window.location.hash = '';
+      renderBanner(activeSighting(), { interactive: false });
+      fireEvent.click(screen.getByTestId('nlc-sighting-banner'));
+      // The state change, not "the banner is still on screen" — that would pass with the handler
+      // deleted or intact, since nothing about the banner depends on it.
+      expect(window.location.hash).toBe('');
+    });
+
+    // The positive half. Without it every assertion above passes for a banner that is inert always,
+    // which would silently break the arm this banner actually works in.
+    it('is still a control in the arm that has a Map tab', () => {
+      window.location.hash = '';
+      renderBanner(activeSighting());
+      const banner = screen.getByTestId('nlc-sighting-banner');
+      expect(banner).toHaveAttribute('tabindex', '0');
+      expect(banner.textContent).toMatch(/show on map/i);
+      fireEvent.click(banner);
+      expect(window.location.hash).toBe('#map');
+      window.location.hash = '';
+    });
+  });
 
   describe('formatReportedAt()', () => {
     it('returns null for null input', () => {

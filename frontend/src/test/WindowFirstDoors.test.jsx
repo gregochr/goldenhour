@@ -51,11 +51,18 @@ function setViewport(mobile) {
 const renderDoors = (overrides = {}, props = {}) => {
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx(overrides));
   const handlers = { onShowOnMap: vi.fn(), ...props };
-  render(<WindowFirstDoors locations={[]} {...handlers} />);
-  return handlers;
+  // `unmount` is returned alongside the handlers so a test can round-trip the component, which is
+  // the only honest way to assert that state survives the arm being swapped out.
+  const { unmount } = render(<WindowFirstDoors locations={[]} {...handlers} />);
+  return { ...handlers, unmount };
 };
 
-beforeEach(() => setViewport(false));
+beforeEach(() => {
+  setViewport(false);
+  // Locally this is a PROCESS-level store that survives across files in a reused worker, so a leak
+  // from another suite is invisible on CI and very real here.
+  sessionStorage.clear();
+});
 afterEach(() => vi.restoreAllMocks());
 
 describe('WindowFirstDoors', () => {
@@ -260,6 +267,74 @@ describe('WindowFirstDoors', () => {
       fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
 
       expect(screen.getByTestId('aurora-expanded-card')).toBeInTheDocument();
+    });
+  });
+
+  // Both Plan arms are alive at once and the reader flips between them to compare the same night.
+  // The v1 arm has always remembered its briefing grid across such a round trip; this one forgot on
+  // every unmount, so a flip landed on collapsed doors beside an arm that had stayed open.
+  describe('remembering which doors were left open', () => {
+    const doorPanel = () => screen.queryByTestId('window-first-panel-topics-body');
+
+    // The behavioural round trip, and the only one here that fails for the right reason. Written
+    // first for that reason: the storage assertions below all pass for an implementation that
+    // writes correctly and restores nothing.
+    it('reopens the doors it was left with', () => {
+      const { unmount } = renderDoors();
+      expect(doorPanel()).toBeNull();
+
+      fireEvent.click(screen.getByTestId('window-first-door-topics'));
+      expect(doorPanel()).toBeInTheDocument();
+      unmount();
+
+      renderDoors();
+      expect(doorPanel()).toBeInTheDocument();
+      // The control must not claim a state the DOM lacks — a restored door whose panel was never
+      // mounted would announce `aria-expanded="true"` over nothing.
+      expect(screen.getByTestId('window-first-door-topics')).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    it('starts closed on a fresh session, which is the property the current Plan keeps too', () => {
+      renderDoors();
+      expect(doorPanel()).toBeNull();
+      expect(screen.getByTestId('window-first-door-topics')).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('keeps a closed door closed across the round trip', () => {
+      // The negative half. Without it, "reopens what was left" passes for a component that simply
+      // opens everything on mount.
+      const { unmount } = renderDoors();
+      fireEvent.click(screen.getByTestId('window-first-door-topics'));
+      fireEvent.click(screen.getByTestId('window-first-door-topics'));
+      unmount();
+
+      renderDoors();
+      expect(doorPanel()).toBeNull();
+    });
+
+    // ⚠️ Never spy on storage in this suite. `setup.js` installs a plain-object substitute only when
+    // jsdom does not supply one, which is true on this project's Macs and false on CI — so an
+    // instance spy passes locally and records nothing on the runner, and a `Storage.prototype` spy
+    // does the reverse. This project has already lost a CI round to exactly that. Observe through
+    // `length`/`key`, which both implementations have.
+    it('keeps the door state out of localStorage, where the settled preferences live', () => {
+      const keysNow = (store) => Array.from({ length: store.length }, (_, i) => store.key(i));
+
+      // Control: prove the observation can see a write at all in whichever storage this environment
+      // supplied. Without it, "nothing was written" passes on a mechanism that sees nothing.
+      localStorage.setItem('control', '1');
+      expect(keysNow(localStorage)).toContain('control');
+      localStorage.removeItem('control');
+
+      // A snapshot rather than `[]`, so the assertion is about what THIS interaction wrote and
+      // cannot be broken by an unrelated key the environment happens to carry.
+      const before = keysNow(localStorage);
+
+      renderDoors();
+      fireEvent.click(screen.getByTestId('window-first-door-topics'));
+
+      expect(keysNow(localStorage)).toEqual(before);
+      expect(keysNow(sessionStorage)).toContain('photocast.planDoors');
     });
   });
 });

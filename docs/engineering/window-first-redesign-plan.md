@@ -1840,7 +1840,7 @@ was actually left to build took longer than building it.
 - **Nine README bullets, not thirteen, and five of the nine were already shipped.** The handover
   said thirteen and listed nine (`README.md:222-230`). Of those: the rail scroller, the attribute
   rows, the doors, the lens bar and the spot strip's `flex: 0 0 72%` **already ship** — the strip's
-  72% at `index.css:1753` and its arrows at `:1954`, both of which the handover named as unbuilt.
+  72% at `index.css:1965` and its arrows at `:2166`, both of which the handover named as unbuilt.
   "Narrative: single column" is **vacuous**, because the mock's two-column `.wtop` was never built
   and this arm's narrative is a modal. "Promoted strip" has **no referent at all**: P7b never
   shipped and no such component exists in the tree. So the genuinely unbuilt work was the **tab
@@ -1935,7 +1935,7 @@ was actually left to build took longer than building it.
   the same rule width and the same header height as two bare siblings — the wrapper costs zero
   desktop pixels.
 
-- **The tablet band was measured and deliberately left alone.** `index.css:1745-1747` deferred it to
+- **The tablet band was measured and deliberately left alone.** `index.css:1957-1959` deferred it to
   this phase in as many words. Measured: a spot card is **148.6px at 640px**, **222.6px at 899px**,
   284.6px at 1080px, and 399.6px at 639px — a **2.69× discontinuity across the 639/640 seam**. No
   rule was added. The band's floor of 148.6px is within a pixel and a half of the 150px rail tile,

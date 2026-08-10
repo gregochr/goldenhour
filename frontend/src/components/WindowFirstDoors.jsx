@@ -4,6 +4,7 @@ import HotTopicStrip from './HotTopicStrip.jsx';
 import WindowFirstRegionalPanel from './WindowFirstRegionalPanel.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { readStoredDoors, writeStoredDoors } from '../utils/planDoors.js';
 
 /**
  * One door — the tile only. Its panel is a sibling of the row, not a child of the tile.
@@ -136,17 +137,28 @@ Door.propTypes = {
 export default function WindowFirstDoors({ locations, onShowOnMap }) {
   const { briefing, windowCards, isLiteUser } = useWindowFirstBriefing();
   const isMobile = useIsMobile();
-  const [openDoors, setOpenDoors] = useState(() => new Set());
+  // Restored from the session, so a flip to the other arm and back lands on the doors the reader
+  // left rather than re-collapsing them — which is what the v1 arm has always done for its own
+  // disclosure, and the asymmetry was visible on exactly the surface the two arms are compared on.
+  const [openDoors, setOpenDoors] = useState(readStoredDoors);
   // Sticky: once a panel has been mounted it stays mounted and is hidden instead. Grown in the
   // handler rather than during render — a render-phase mutation is double-run under StrictMode and
   // is a side effect whether or not it happens to be idempotent.
-  const [everOpened, setEverOpened] = useState(() => new Set());
+  //
+  // Seeded from the SAME restored set rather than persisted separately: it is derivable (everOpened
+  // always contains openDoors), so a second stored field would be a second source of truth. Without
+  // the seed a restored door would render `aria-expanded="true"` over a panel that was never
+  // mounted — the control claiming a state the DOM does not have.
+  const [everOpened, setEverOpened] = useState(readStoredDoors);
 
   const toggle = (id) => {
     setEverOpened((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
     setOpenDoors((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
+      // Written here rather than from an effect on `openDoors`: an effect would also fire on mount
+      // and rewrite what was just read, turning a restore into a write on every render of the arm.
+      writeStoredDoors(next);
       return next;
     });
   };
