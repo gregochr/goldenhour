@@ -285,6 +285,146 @@ class TideRunBuilderTest {
         // spring threshold — the range-against-mean framing belongs to a spring run.
         assertThat(day.highWater()).isEqualTo("5.0 m");
         assertThat(day.highWaterAnomaly()).isEqualTo("+0.4 m over spring");
+        // Named rather than left to be parsed out of the verdict: the hot-topic headline states
+        // this event, and that sentence and this chart must not be able to disagree.
+        assertThat(day.alignedEvent()).isEqualTo("sunrise");
+    }
+
+    @Test
+    @DisplayName("an unaligned day names no solar event at all")
+    void build_unalignedDay_carriesNoAlignedEvent() {
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1,
+                low("02:00", 0.4), high("12:30", 5.0), low("18:20", 0.4)));
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), true).get(DAY_1);
+
+        assertThat(day.aligned()).isFalse();
+        assertThat(day.alignedEvent()).isNull();
+    }
+
+    @Test
+    @DisplayName("when the verdict names the OTHER extremum, so does the aligned event")
+    void build_verdictNamesOtherExtremum_alignedEventFollowsIt() {
+        // The defect an adversarial review found in the first cut of this field. On a SPRING run the
+        // useful water is LW; here LW sits at 02:00 (unaligned) but HW lands 50 minutes after
+        // sunrise, so verdict rule 3 names the HIGH water. Deriving alignedEvent from the useful
+        // point alone left it null, and the hot-topic headline then printed "no sunrise or sunset
+        // alignment" directly above "HW 09:00 · 50m after sunrise" — the same self-contradiction the
+        // headline rewrite exists to remove, reintroduced one rule further down.
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1,
+                low("02:00", 0.4), high("09:00", 5.0), low("15:20", 0.4)));
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
+
+        assertThat(day.verdict()).isEqualTo("HW 09:00 · 50m after sunrise");
+        assertThat(day.alignedEvent()).isEqualTo("sunrise");
+        // The useful water still missed the light, so the emphasis and the editorial line — which
+        // speak for the water a SPRING reader came for — stay withheld.
+        assertThat(day.aligned()).isFalse();
+        assertThat(day.phrase()).isNull();
+    }
+
+    @Test
+    @DisplayName("evening high water names sunset, not sunrise")
+    void build_eveningHighWater_namesSunset() {
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1,
+                low("10:00", 0.4), high("16:00", 5.0), low("22:20", 0.4)));
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), true).get(DAY_1);
+
+        assertThat(day.alignedEvent()).isEqualTo("sunset");
+    }
+
+    // ── highWaterRank — how extraordinary, measured against the record ────────
+
+    @Test
+    @DisplayName("high water short of the record states the shortfall")
+    void build_kingRun_belowRecord_statesDistanceToIt() {
+        // The spring excess cannot answer "how extraordinary is this?": the spring threshold is
+        // 125% of mean high water, so metres-over-the-mean is the spring figure plus a constant.
+        // The distance to the ceiling is the one baseline that moves independently of it.
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1,
+                low("02:00", 0.4), high("08:35", 5.0), low("14:20", 0.4)));
+        when(tideService.getTideStats(ID_SEAHAM))
+                .thenReturn(Optional.of(ranked("5.4", "4.9", 1400L)));
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), true).get(DAY_1);
+
+        assertThat(day.highWaterRank()).isEqualTo("0.4 m off the record");
+    }
+
+    @Test
+    @DisplayName("high water above everything on record says so")
+    void build_kingRun_aboveRecord_claimsIt() {
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1,
+                low("02:00", 0.4), high("08:35", 5.6), low("14:20", 0.4)));
+        when(tideService.getTideStats(ID_SEAHAM))
+                .thenReturn(Optional.of(ranked("5.4", "4.9", 1400L)));
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), true).get(DAY_1);
+
+        assertThat(day.highWaterRank()).isEqualTo("highest recorded here");
+    }
+
+    @Test
+    @DisplayName("a shortfall below display noise reads as the record, not as 0.0 m off it")
+    void build_kingRun_shortfallWithinNoise_readsAsRecord() {
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1,
+                low("02:00", 0.4), high("08:35", 5.38), low("14:20", 0.4)));
+        when(tideService.getTideStats(ID_SEAHAM))
+                .thenReturn(Optional.of(ranked("5.4", "4.9", 1400L)));
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), true).get(DAY_1);
+
+        assertThat(day.highWaterRank()).isEqualTo("highest recorded here");
+    }
+
+    @Test
+    @DisplayName("a fortnight of history is not a record to measure against")
+    void build_kingRun_thinHistory_claimsNoRank() {
+        // A location added last week has a maximum, not a record. Without this gate its first
+        // spring tide would be announced as the highest water ever seen there.
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1,
+                low("02:00", 0.4), high("08:35", 5.0), low("14:20", 0.4)));
+        when(tideService.getTideStats(ID_SEAHAM))
+                .thenReturn(Optional.of(ranked("5.4", "4.9", 120L)));
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), true).get(DAY_1);
+
+        assertThat(day.highWaterRank()).isNull();
+    }
+
+    @Test
+    @DisplayName("no observed spring-neap cycle withholds the rank, as it withholds the excess")
+    void build_kingRun_noPercentiles_claimsNoRank() {
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1,
+                low("02:00", 0.4), high("08:35", 5.0), low("14:20", 0.4)));
+        when(tideService.getTideStats(ID_SEAHAM))
+                .thenReturn(Optional.of(ranked("5.4", null, 1400L)));
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), true).get(DAY_1);
+
+        assertThat(day.highWaterRank()).isNull();
+    }
+
+    @Test
+    @DisplayName("a spring run states no rank — the height is not its story")
+    void build_springRun_carriesNoRank() {
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1,
+                low("05:00", 0.4), high("11:10", 5.0), low("17:20", 0.4)));
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
+
+        assertThat(day.highWaterRank()).isNull();
     }
 
     @Test
@@ -581,6 +721,21 @@ class TideRunBuilderTest {
         return new TideStats(null, null, null, null, 100L, new BigDecimal(avgRange),
                 null, null, null, 0L, null,
                 springThreshold == null ? null : new BigDecimal(springThreshold), null, 0L);
+    }
+
+    /**
+     * Statistics with enough observed history to rank a high water against.
+     *
+     * @param maxHigh    the highest water on record
+     * @param p95        the 95th percentile, or null when no spring-neap cycle was observed
+     * @param dataPoints stored extremes behind the sample
+     * @return the statistics
+     */
+    private static TideStats ranked(String maxHigh, String p95, long dataPoints) {
+        return new TideStats(null, new BigDecimal(maxHigh), null, null, dataPoints,
+                new BigDecimal("3.5"), null, null,
+                p95 == null ? null : new BigDecimal(p95),
+                0L, null, null, null, 0L);
     }
 
     private static MarineWaveEntity wave(double hs) {

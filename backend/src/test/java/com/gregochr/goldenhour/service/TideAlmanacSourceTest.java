@@ -354,8 +354,8 @@ class TideAlmanacSourceTest {
 
     private static TideRunDay runDay(String range, boolean peak) {
         return new TideRunDay("SPRING RUN", 1, 2, "Mon", "Bamburgh Beach", range,
-                "+0.8 m", "4.9 m", null, "06:20", "19:44", null, List.of(),
-                "alignment falls on sunrise", true, peak, null);
+                "+0.8 m", "4.9 m", null, null, "06:20", "19:44", null, List.of(),
+                "alignment falls on sunrise", true, "sunrise", peak, null);
     }
 
     @Test

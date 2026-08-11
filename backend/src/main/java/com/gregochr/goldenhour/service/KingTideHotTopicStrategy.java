@@ -52,6 +52,23 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
                     + " Only happens 5\u201310 times per year — rare dramatic foreground at"
                     + " coastal locations.";
 
+    /**
+     * What a king tide day says for itself when its high water misses the light. Stated rather than
+     * left silent because a king tide is worth knowing about either way — the water still covers
+     * ground it normally does not.
+     */
+    static final String KING_UNALIGNED =
+            "no tide alignment — but exceptional coastal foreground";
+
+    /**
+     * What a king tide day says when its water <em>did</em> line up with the light, but that light
+     * has already been and gone. Distinct from {@link #KING_UNALIGNED} because the card still shows
+     * the chart, the verdict and the aligned-day editorial line for that alignment — denying it
+     * outright would restore the self-contradiction one branch further along.
+     */
+    static final String KING_ALIGNMENT_PASSED =
+            "tide alignment already passed — but exceptional coastal foreground";
+
     private final BriefingService briefingService;
     private final LocationRepository locationRepository;
     private final ForecastEvaluationRepository forecastEvaluationRepository;
@@ -116,6 +133,17 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
                 coastalLocations.isEmpty() ? null : coastalLocations.get(0);
         List<String> coastalRegions = extractRegionNames(coastalLocations);
 
+        // Built before the loop because the headline is now derived from it: the sentence and the
+        // chart under it are one computation. See #alignmentInfo for what they used to be.
+        //
+        // Built from EVERY king-tide day in the window, not from the topics that survive the
+        // solar-freshness filter below. A run describes the tide, which does not renumber itself
+        // because a sunset has passed — numbering off the survivors made the chip count down
+        // through the day (1/4 becoming 1/3 once Monday expired) and could migrate the "peak
+        // range" verdict onto a day that is not the run's biggest.
+        Map<LocalDate, TideRunDay> run = tideRunBuilder.build(
+                kingCandidates.stream().map(BriefingDay::date).toList(), coastalLocations, true);
+
         List<HotTopic> topics = new ArrayList<>();
         for (BriefingDay candidate : kingCandidates) {
             LocalDate date = candidate.date();
@@ -126,11 +154,9 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
             }
             Map<TargetType, Long> counts = maskExpired(
                     parseTideAlignmentCounts(forecastEvaluationRepository, date), nonExpired);
-            BestAlignment best = findBestAlignment(Map.of(date, counts));
 
-            String alignmentInfo = best != null
-                    ? buildAlignmentInfo(best)
-                    : "no tide alignments \u2014 but exceptional coastal foreground";
+            String alignmentInfo = alignmentInfo(
+                    run.get(date), nonExpired, KING_UNALIGNED, KING_ALIGNMENT_PASSED);
             BriefingSlot.TideInfo kingTide = findKingTide(candidate);
             ExpandedHotTopicDetail expandedDetail = buildExpandedDetail(
                     coastalLocations, "King tide", kingTide.lunarPhase(), counts);
@@ -152,33 +178,55 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
             }
             topics.add(topic);
         }
-        return attachRun(topics, kingCandidates, coastalLocations);
+        return topics.stream().map(t -> t.withTideRun(run.get(t.date()))).toList();
     }
 
     /**
-     * Attaches each topic's row of the shared multi-day run, so the pills can carry a
-     * {@code KING RUN n/N} chip and a per-day tide chart while staying one card per day in
-     * chronological order. Topics whose tide could not be derived keep their fact chips.
+     * The detail line's alignment segment, taken from the day's own run row — the same geometry the
+     * chart directly beneath it draws.
      *
-     * <p>The run is built from <b>every</b> king-tide day in the window, not from the topics that
-     * survived the solar-freshness filter. A run describes the tide, which does not renumber itself
-     * because a sunset has passed — numbering off the survivors made the chip count down through
-     * the day ({@code 1/4} becoming {@code 1/3} once Monday expired) and could migrate the "peak
-     * range" verdict onto a day that is not the run's biggest.
+     * <p><b>This used to be a different measurement entirely, and the card contradicted itself.</b>
+     * The segment was a SQL count of {@code forecast_evaluation} rows whose {@code tide_aligned}
+     * flag was set, and that flag does not mean "high water lands near the light" — it means the
+     * tide <em>state</em> matched that location's own {@link com.gregochr.goldenhour.entity.TideType}
+     * preference, inside a window sized as half the blue+golden hour span. So a king high water 39
+     * minutes before sunrise counted for nothing at every location configured to shoot low water,
+     * which on a king tide is most of them, and the pill read "no tide alignments" directly above a
+     * chart stating {@code HW 04:58 · 39m before sunrise} and an editorial line that only renders on
+     * an aligned day. Worse, the count could not distinguish "no location aligned" from "no rows
+     * were written for this date" — and {@code forecast_evaluation} is now largely a triage table —
+     * so missing data rendered as a positive claim about the tide.
      *
-     * @param topics           the per-day topics that survived the freshness filter, in date order
-     * @param runDays          every day of the underlying run, expired ones included
-     * @param coastalLocations the enabled coastal locations
-     * @return the topics with their run rows attached where one could be built
+     * <p>A null run row is therefore answered with silence rather than a denial: no geometry means
+     * nothing to say, and {@link #buildKingTideDetail} drops the segment.
+     *
+     * <p>Alignment with an event that has already passed is not advertised as a reason to go, but
+     * neither is it denied — it gets its own {@code passed} wording. Collapsing it onto
+     * {@code unaligned} would print "no tide alignment" above a chart still drawing that morning's
+     * high water 39 minutes before sunrise, complete with the editorial line that renders only on an
+     * aligned day: the same contradiction this method was written to remove, one branch further on.
+     * The caller's {@code nonExpired} set is what distinguishes them, replacing the old
+     * {@link #maskExpired} pass over the counts — one event at a time instead of one location.
+     *
+     * @param day        this date's run row, or null when no curve could be derived
+     * @param nonExpired the solar event types still ahead on this date
+     * @param unaligned  wording for a day whose water misses the light, or null for silence
+     * @param passed     wording for an alignment that has already happened, or null for silence
+     * @return the alignment segment, or null when nothing may be claimed
      */
-    private List<HotTopic> attachRun(List<HotTopic> topics, List<BriefingDay> runDays,
-            List<LocationEntity> coastalLocations) {
-        if (topics.isEmpty()) {
-            return topics;
+    static String alignmentInfo(TideRunDay day, Set<TargetType> nonExpired, String unaligned,
+            String passed) {
+        if (day == null) {
+            return null;
         }
-        Map<LocalDate, TideRunDay> run = tideRunBuilder.build(
-                runDays.stream().map(BriefingDay::date).toList(), coastalLocations, true);
-        return topics.stream().map(t -> t.withTideRun(run.get(t.date()))).toList();
+        if (day.alignedEvent() == null) {
+            return unaligned;
+        }
+        TargetType alignedWith = "sunrise".equals(day.alignedEvent())
+                ? TargetType.SUNRISE : TargetType.SUNSET;
+        return nonExpired.contains(alignedWith)
+                ? "tide aligned with " + day.alignedEvent()
+                : passed;
     }
 
     /**
@@ -260,44 +308,6 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
     }
 
     /**
-     * Best alignment result across all king tide dates in the window.
-     *
-     * @param date  the date of the best alignment
-     * @param event the event type with the most aligned locations
-     * @param count the number of aligned coastal locations
-     */
-    record BestAlignment(LocalDate date, TargetType event,
-            long count) {}
-
-    /**
-     * Finds the single best tide alignment across all candidate dates.
-     *
-     * <p>Iterates every (date, event) pair and returns the one with the
-     * highest aligned-location count. Ties are broken by date order
-     * (earliest first), then enum declaration order (sunrise before
-     * sunset).
-     *
-     * @param allAlignments alignment counts keyed by date
-     * @return the best alignment, or {@code null} when no date has any
-     */
-    static BestAlignment findBestAlignment(
-            Map<LocalDate, Map<TargetType, Long>> allAlignments) {
-        BestAlignment best = null;
-        for (var entry : allAlignments.entrySet()) {
-            for (var countEntry : entry.getValue().entrySet()) {
-                long count = countEntry.getValue();
-                if (count > 0
-                        && (best == null
-                                || count > best.count())) {
-                    best = new BestAlignment(entry.getKey(),
-                            countEntry.getKey(), count);
-                }
-            }
-        }
-        return best;
-    }
-
-    /**
      * Builds expanded detail with coastal locations grouped by region.
      *
      * @param coastalLocations     all enabled coastal locations
@@ -371,26 +381,6 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
                 .map(RegionEntity::getName)
                 .distinct()
                 .toList();
-    }
-
-    /**
-     * Builds the single-day alignment info segment for the detail line. The day is carried by the
-     * pill's timing lead, so the segment names only the event and count (e.g. "3 tides aligned with
-     * sunrise").
-     *
-     * @param best best alignment result, or {@code null} if none
-     * @return alignment info string, or {@code null} when no alignment
-     */
-    static String buildAlignmentInfo(BestAlignment best) {
-        if (best == null) {
-            return null;
-        }
-        String event = best.event() == TargetType.SUNRISE
-                ? "sunrise" : "sunset";
-        String countPrefix = best.count() == 1
-                ? "1 tide aligned with "
-                : best.count() + " tides aligned with ";
-        return countPrefix + event;
     }
 
     /**
