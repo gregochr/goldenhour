@@ -147,8 +147,8 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
             if (nonExpired.isEmpty()) {
                 continue;
             }
-            Alignment alignmentInfo = alignmentInfo(
-                    run.get(date), nonExpired, KING_UNALIGNED, KING_ALIGNMENT_PASSED);
+            Alignment alignmentInfo = alignmentInfo(run.get(date), nonExpired,
+                    KING_UNALIGNED, KING_ALIGNMENT_PASSED, coastalLocations.size());
             BriefingSlot.TideInfo kingTide = findKingTide(candidate);
             ExpandedHotTopicDetail expandedDetail = buildExpandedDetail(
                     coastalLocations, "King tide", kingTide.lunarPhase(),
@@ -235,18 +235,33 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
         return counts;
     }
 
-    static String rosterScope(TideRunDay day) {
+    /**
+     * The scope clause — "at 47 of 61 coastal locations" — or empty when there is nothing to scope.
+     *
+     * <p><b>The denominator is the coastal roster, not the measured subset.</b> They differ whenever
+     * a coastal location has no stored extremes for the day, and an aligned card saying "of 52"
+     * beside the same run's unaligned card saying "· 61 coastal locations" is two totals for one
+     * roster — the exact class of self-contradiction this work exists to remove. Using the roster
+     * keeps a single total on screen; the cost is that an unmeasured location is counted as not
+     * aligned, which understates the fraction. That is the safe direction: it never claims more
+     * agreement than was measured.
+     *
+     * @param day          the run row
+     * @param coastalCount the coastal roster size, as the rest of the pill states it
+     * @return the scope clause, or an empty string
+     */
+    static String rosterScope(TideRunDay day, int coastalCount) {
         TideRunDay.RosterAlignment roster = day.roster();
-        if (roster == null || roster.measured() == 0) {
+        if (roster == null || coastalCount == 0) {
             return "";
         }
-        int aligned = roster.alignedWith(day.alignedEvent());
-        return aligned == 0 ? "" : " at " + aligned + " of " + roster.measured()
-                + (roster.measured() == 1 ? " coastal location" : " coastal locations");
+        int aligned = Math.min(roster.alignedWith(day.alignedEvent()), coastalCount);
+        return aligned == 0 ? "" : " at " + aligned + " of " + coastalCount
+                + (coastalCount == 1 ? " coastal location" : " coastal locations");
     }
 
     static Alignment alignmentInfo(TideRunDay day, Set<TargetType> nonExpired, String unaligned,
-            String passed) {
+            String passed, int coastalCount) {
         if (day == null) {
             return new Alignment(null, false);
         }
@@ -258,7 +273,7 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
         if (!nonExpired.contains(alignedWith)) {
             return new Alignment(passed, false);
         }
-        String scope = rosterScope(day);
+        String scope = rosterScope(day, coastalCount);
         return new Alignment("tide aligned with " + day.alignedEvent() + scope, !scope.isEmpty());
     }
 

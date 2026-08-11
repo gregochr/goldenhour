@@ -147,8 +147,8 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
                 continue;
             }
             KingTideHotTopicStrategy.Alignment alignmentInfo =
-                    KingTideHotTopicStrategy.alignmentInfo(
-                            run.get(date), nonExpired, SPRING_UNALIGNED, SPRING_ALIGNMENT_PASSED);
+                    KingTideHotTopicStrategy.alignmentInfo(run.get(date), nonExpired,
+                            SPRING_UNALIGNED, SPRING_ALIGNMENT_PASSED, coastalLocations.size());
             BriefingSlot.TideInfo springTide = findSpringTide(day);
             ExpandedHotTopicDetail expandedDetail =
                     KingTideHotTopicStrategy.buildExpandedDetail(

@@ -5,6 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the king tide card can say which day it is, and stops arguing with itself
+
+**Reported from the deployed app: the King tide pill claimed a tide alignment but carried no day, no
+time, and no badge on the sunrise it was about.** Three symptoms, one cause. The code that decides
+which solar event a tide topic belongs to was counting rows in a table the pipeline no longer
+writes. Zero rows meant "no event", and a topic with no event is dropped from the window it should
+have badged — so the card asserted an alignment it could not date, and the panel underneath showed
+zeroes.
+
+Repairing that table was the obvious move and the wrong one. It is written by an engine being
+retired, and it answers a different question: whether each location's *configured tide preference*
+was satisfied, which is a fact about setup rather than about the sky. Fine for "how many places got
+the water they wanted"; useless for "does the tide line up with Friday sunrise".
+
+So the count now comes from the same geometry the chart is drawn from. Every coastal location is
+measured against **its own** sunrise and sunset by the same rule the chart uses, which means the
+location on the chart is always part of the number printed above it — the two cannot disagree.
+
+The headline now says how far it speaks: "tide aligned with sunrise at 47 of 61 coastal locations",
+rather than pairing a single coastline's geometry with the roster's size as though they were the
+same claim.
+
+Three further contradictions were found by review before this shipped and fixed here: an unaligned
+tide could still resolve an event from other locations' alignments and print a lead above its own
+denial; an alignment that had already happened could still put a lead and a badge on that morning;
+and an aligned day counted a different total from an unaligned day of the same run.
+
 ### Fixed — the pre-pilot sweep of the new Plan screen
 
 The window-first Plan tab is still behind a setting, and this is the check it has to pass before it

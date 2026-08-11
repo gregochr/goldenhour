@@ -451,7 +451,7 @@ class SpringTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "tide aligned with sunrise at 12 of 61 coastal locations");
+                "tide aligned with sunrise at 1 of 1 coastal location");
     }
 
     @Test
@@ -482,7 +482,7 @@ class SpringTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "tide aligned with sunrise at 12 of 61 coastal locations");
+                "tide aligned with sunrise at 1 of 1 coastal location");
     }
 
     @Test
@@ -497,7 +497,7 @@ class SpringTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "tide aligned with sunrise at 12 of 61 coastal locations");
+                "tide aligned with sunrise at 1 of 1 coastal location");
     }
 
     @Test
@@ -512,7 +512,7 @@ class SpringTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "tide aligned with sunset at 12 of 61 coastal locations");
+                "tide aligned with sunset at 1 of 1 coastal location");
     }
 
     @Test
@@ -528,7 +528,7 @@ class SpringTideHotTopicStrategyTest {
 
         assertThat(topics.get(0).date()).isEqualTo(TODAY.plusDays(2));
         assertThat(topics.get(0).detail()).isEqualTo(
-                "tide aligned with sunrise at 12 of 61 coastal locations");
+                "tide aligned with sunrise at 1 of 1 coastal location");
     }
 
     // ── Statistical spring tide detection ─────────────────────────────────────

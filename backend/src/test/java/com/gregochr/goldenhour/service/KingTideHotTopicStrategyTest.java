@@ -249,7 +249,7 @@ class KingTideHotTopicStrategyTest {
         assertThat(topics.get(1).date()).isEqualTo(TODAY.plusDays(1));
         // The headline is the tide's own geometry — one number of locations, not a count of them.
         assertThat(topics.get(1).detail()).isEqualTo(
-                "tide aligned with sunrise at 47 of 61 coastal locations");
+                "tide aligned with sunrise at 1 of 1 coastal location");
         // The drill-down still answers the other question: how many locations want this water.
         var metrics = topics.get(1).expandedDetail().tideMetrics();
         assertThat(metrics.sunriseAlignedCount()).isEqualTo(47);
@@ -588,7 +588,7 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "tide aligned with sunrise at 47 of 61 coastal locations");
+                "tide aligned with sunrise at 1 of 1 coastal location");
     }
 
     @Test
@@ -603,7 +603,7 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "tide aligned with sunset at 47 of 61 coastal locations");
+                "tide aligned with sunset at 1 of 1 coastal location");
     }
 
     @Test
@@ -691,7 +691,7 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "tide aligned with sunrise at 47 of 61 coastal locations");
+                "tide aligned with sunrise at 1 of 1 coastal location");
     }
 
     // ── Statistical king tide detection ───────────────────────────────────────
@@ -860,7 +860,7 @@ class KingTideHotTopicStrategyTest {
         assertThat(topics).hasSize(3);
         assertThat(topics.get(2).date()).isEqualTo(TODAY.plusDays(2));
         assertThat(topics.get(2).detail()).isEqualTo(
-                "tide aligned with sunrise at 47 of 61 coastal locations");
+                "tide aligned with sunrise at 1 of 1 coastal location");
     }
 
     @Test
@@ -938,7 +938,7 @@ class KingTideHotTopicStrategyTest {
     @DisplayName("alignmentInfo — a null run row says nothing rather than denying alignment")
     void alignmentInfo_nullRunRow_returnsNull() {
         assertThat(KingTideHotTopicStrategy.alignmentInfo(
-                null, Set.of(TargetType.SUNRISE), "no tide alignment", "passed").text())
+                null, Set.of(TargetType.SUNRISE), "no tide alignment", "passed", 61).text())
                 .isNull();
     }
 
@@ -947,7 +947,7 @@ class KingTideHotTopicStrategyTest {
     void alignmentInfo_unalignedDay_returnsCallerWording() {
         assertThat(KingTideHotTopicStrategy.alignmentInfo(
                 runDay(null), Set.of(TargetType.SUNRISE, TargetType.SUNSET), "nothing doing",
-                "passed").text())
+                "passed", 61).text())
                 .isEqualTo("nothing doing");
     }
 
@@ -955,7 +955,7 @@ class KingTideHotTopicStrategyTest {
     @DisplayName("alignmentInfo — a spring caller's null wording drops the segment entirely")
     void alignmentInfo_unalignedDay_nullWording_returnsNull() {
         assertThat(KingTideHotTopicStrategy.alignmentInfo(
-                runDay(null), Set.of(TargetType.SUNRISE), null, "passed").text())
+                runDay(null), Set.of(TargetType.SUNRISE), null, "passed", 61).text())
                 .isNull();
     }
 
@@ -964,7 +964,7 @@ class KingTideHotTopicStrategyTest {
     void alignmentInfo_alignedDay_namesEvent() {
         assertThat(KingTideHotTopicStrategy.alignmentInfo(
                 runDay("sunset"), Set.of(TargetType.SUNRISE, TargetType.SUNSET), "unaligned",
-                "passed").text())
+                "passed", 61).text())
                 // Scoped: the chart is one coastline, so the sentence must say how much of the
                 // roster it speaks for rather than leaving "61 coastal locations" to imply all.
                 .isEqualTo("tide aligned with sunset at 47 of 61 coastal locations");
@@ -976,7 +976,7 @@ class KingTideHotTopicStrategyTest {
         // Sunrise has been and gone, so this is no longer a reason to go — but it is also not the
         // same statement as "the water missed the light", and the chart beneath still draws it.
         assertThat(KingTideHotTopicStrategy.alignmentInfo(
-                runDay("sunrise"), Set.of(TargetType.SUNSET), "unaligned", "already passed").text())
+                runDay("sunrise"), Set.of(TargetType.SUNSET), "unaligned", "already passed", 61).text())
                 .isEqualTo("already passed");
     }
 
@@ -1071,8 +1071,8 @@ class KingTideHotTopicStrategyTest {
         // again would print "... of 61 coastal locations · 61 coastal locations".
         assertThat(KingTideHotTopicStrategy.buildKingTideDetail(
                 new KingTideHotTopicStrategy.Alignment(
-                        "tide aligned with sunrise at 47 of 61 coastal locations", true), 61))
-                .isEqualTo("tide aligned with sunrise at 47 of 61 coastal locations");
+                        "tide aligned with sunrise at 1 of 1 coastal location", true), 61))
+                .isEqualTo("tide aligned with sunrise at 1 of 1 coastal location");
     }
 
     // ── non-expired solar-event filtering ──────────────────────────────
