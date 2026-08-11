@@ -434,6 +434,15 @@ function AppInner() {
                 onEvaluationScoresChange={handleEvaluationScoresChange}
                 onSeasonalFeaturesChange={handleSeasonalFeaturesChange}
                 locations={visibleLocations}
+                // The admin gate, in full. The shell takes no role, no `isAdmin` boolean and no
+                // prop shaped like one — it simply renders a tab for each pane it was handed, so
+                // withholding the pane withholds the tab. The role stays here, where it already
+                // lives, and nothing role-derived crosses into the arm (plan §5c).
+                operationsPane={isAdmin ? (
+                  <Suspense fallback={<ViewFallback />}>
+                    <ManageView onComplete={refresh} />
+                  </Suspense>
+                ) : null}
               />
             </WindowFirstBriefingProvider>
           </PlanLayoutErrorBoundary>
