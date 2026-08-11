@@ -13,7 +13,6 @@ import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.TideRunDay;
 import com.gregochr.goldenhour.model.Verdict;
-import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -31,7 +30,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -51,9 +49,6 @@ class SpringTideHotTopicStrategyTest {
     private LocationRepository locationRepository;
 
     @Mock
-    private ForecastEvaluationRepository forecastEvaluationRepository;
-
-    @Mock
     private SolarEventFreshness freshness;
 
     @Mock
@@ -70,8 +65,7 @@ class SpringTideHotTopicStrategyTest {
         lenient().when(freshness.isAhead(any(LocationEntity.class), any(), any()))
                 .thenReturn(true);
         strategy = new SpringTideHotTopicStrategy(briefingService, locationRepository,
-                forecastEvaluationRepository, freshness, coastalTideFactsBuilder,
-                tideRunBuilder);
+                freshness, coastalTideFactsBuilder, tideRunBuilder);
     }
 
     @Test
@@ -122,7 +116,7 @@ class SpringTideHotTopicStrategyTest {
 
         assertThat(topics).isEmpty();
         verifyNoInteractions(locationRepository);
-        verifyNoInteractions(forecastEvaluationRepository);
+        verifyNoInteractions(tideRunBuilder);
     }
 
     @Test
@@ -153,7 +147,7 @@ class SpringTideHotTopicStrategyTest {
 
         assertThat(topics).isEmpty();
         verifyNoInteractions(locationRepository);
-        verifyNoInteractions(forecastEvaluationRepository);
+        verifyNoInteractions(tideRunBuilder);
     }
 
     @Test
@@ -280,7 +274,7 @@ class SpringTideHotTopicStrategyTest {
 
         assertThat(topics).isEmpty();
         verifyNoInteractions(locationRepository);
-        verifyNoInteractions(forecastEvaluationRepository);
+        verifyNoInteractions(tideRunBuilder);
     }
 
     // ── Region edge cases ────────────────────────────────────────────────────
@@ -291,8 +285,6 @@ class SpringTideHotTopicStrategyTest {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
-        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
-                .thenReturn(List.of());
 
         RegionEntity region = new RegionEntity();
         region.setName("Northumberland");
@@ -317,8 +309,6 @@ class SpringTideHotTopicStrategyTest {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
-        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
-                .thenReturn(List.of());
 
         RegionEntity validRegion = new RegionEntity();
         validRegion.setName("Northumberland");
@@ -345,8 +335,6 @@ class SpringTideHotTopicStrategyTest {
                 LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
         when(locationRepository.findCoastalLocations()).thenReturn(List.of());
-        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
-                .thenReturn(List.of());
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
@@ -366,7 +354,7 @@ class SpringTideHotTopicStrategyTest {
         strategy.detect(TODAY, TO_DATE);
 
         verifyNoInteractions(locationRepository);
-        verifyNoInteractions(forecastEvaluationRepository);
+        verifyNoInteractions(tideRunBuilder);
     }
 
     @Test
@@ -379,7 +367,7 @@ class SpringTideHotTopicStrategyTest {
         strategy.detect(TODAY, TO_DATE);
 
         verifyNoInteractions(locationRepository);
-        verifyNoInteractions(forecastEvaluationRepository);
+        verifyNoInteractions(tideRunBuilder);
     }
 
     // ── expandedDetail tests ────────────────────────────────────────────────
@@ -389,8 +377,6 @@ class SpringTideHotTopicStrategyTest {
     void detect_expandedDetail_populatedWithRegionGroups() {
         when(briefingService.getCachedDays()).thenReturn(List.of(
                 buildDay(TODAY, LunarTideType.SPRING_TIDE, "New Moon")));
-        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
-                .thenReturn(List.of());
 
         RegionEntity region = new RegionEntity();
         region.setName("Northumberland");
@@ -415,8 +401,6 @@ class SpringTideHotTopicStrategyTest {
     void detect_expandedDetail_tideLocationMetricsCorrect() {
         when(briefingService.getCachedDays()).thenReturn(List.of(
                 buildDay(TODAY, LunarTideType.SPRING_TIDE, "Full Moon")));
-        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
-                .thenReturn(List.of());
 
         RegionEntity region = new RegionEntity();
         region.setName("Northumberland");
@@ -442,18 +426,15 @@ class SpringTideHotTopicStrategyTest {
                 LunarTideType.REGULAR_TIDE, LunarTideType.SPRING_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
         stubCoastalLocations(springTideDate, "Northumberland");
-        when(forecastEvaluationRepository.countTideAlignedByTargetType(springTideDate))
-                .thenReturn(List.<Object[]>of(
-                        new Object[]{TargetType.SUNRISE, 4L},
-                        new Object[]{TargetType.SUNSET, 3L}));
+
+        stubRun(Map.of(springTideDate, runDay("sunrise")));
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
-        verify(forecastEvaluationRepository).countTideAlignedByTargetType(springTideDate);
         var metrics = topics.get(0).expandedDetail().tideMetrics();
         assertThat(metrics.tidalClassification()).isEqualTo("Spring tide");
-        assertThat(metrics.sunriseAlignedCount()).isEqualTo(4);
-        assertThat(metrics.sunsetAlignedCount()).isEqualTo(3);
+        assertThat(metrics.sunriseAlignedCount()).isEqualTo(12);
+        assertThat(metrics.sunsetAlignedCount()).isEqualTo(0);
     }
 
     // ── Detail line copy tests ──────────────────────────────────────────────
@@ -470,8 +451,7 @@ class SpringTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "tide aligned with sunrise"
-                        + " \u00b7 1 coastal location");
+                "tide aligned with sunrise at 1 of 1 coastal location");
     }
 
     @Test
@@ -502,8 +482,7 @@ class SpringTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "tide aligned with sunrise"
-                        + " \u00b7 1 coastal location");
+                "tide aligned with sunrise at 1 of 1 coastal location");
     }
 
     @Test
@@ -518,7 +497,7 @@ class SpringTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "tide aligned with sunrise \u00b7 1 coastal location");
+                "tide aligned with sunrise at 1 of 1 coastal location");
     }
 
     @Test
@@ -533,7 +512,7 @@ class SpringTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "tide aligned with sunset \u00b7 1 coastal location");
+                "tide aligned with sunset at 1 of 1 coastal location");
     }
 
     @Test
@@ -549,7 +528,7 @@ class SpringTideHotTopicStrategyTest {
 
         assertThat(topics.get(0).date()).isEqualTo(TODAY.plusDays(2));
         assertThat(topics.get(0).detail()).isEqualTo(
-                "tide aligned with sunrise \u00b7 1 coastal location");
+                "tide aligned with sunrise at 1 of 1 coastal location");
     }
 
     // ── Statistical spring tide detection ─────────────────────────────────────
@@ -791,8 +770,6 @@ class SpringTideHotTopicStrategyTest {
                     .build());
         }
         when(locationRepository.findCoastalLocations()).thenReturn(locations);
-        when(forecastEvaluationRepository.countTideAlignedByTargetType(tideDate))
-                .thenReturn(List.of());
     }
 
     /**
@@ -819,6 +796,11 @@ class SpringTideHotTopicStrategyTest {
                 alignedEvent == null
                         ? "no clear tide/sun alignment"
                         : "LW 05:44 \u00b7 7m after " + alignedEvent,
-                alignedEvent != null, alignedEvent, false, null);
+                alignedEvent != null, alignedEvent,
+                new TideRunDay.RosterAlignment(
+                        "sunrise".equals(alignedEvent) ? 12 : 0,
+                        "sunset".equals(alignedEvent) ? 12 : 0,
+                        61),
+                false, null);
     }
 }

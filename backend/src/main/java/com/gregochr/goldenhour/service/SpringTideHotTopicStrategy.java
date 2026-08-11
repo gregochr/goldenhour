@@ -11,7 +11,6 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.TideRunDay;
-import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -65,7 +64,6 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
 
     private final BriefingService briefingService;
     private final LocationRepository locationRepository;
-    private final ForecastEvaluationRepository forecastEvaluationRepository;
     private final SolarEventFreshness freshness;
     private final CoastalTideFactsBuilder coastalTideFactsBuilder;
     private final TideRunBuilder tideRunBuilder;
@@ -76,20 +74,17 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
      * @param briefingService              cached briefing data (injected lazily
      *                                     to break circular dependency)
      * @param locationRepository           repository for location lookups
-     * @param forecastEvaluationRepository repository for tide alignment queries
      * @param freshness                    shared filter dropping solar events already past
      * @param coastalTideFactsBuilder      builds the enriched tide + sea-state fact line
      * @param tideRunBuilder               builds each day's row of the multi-day run
      */
     public SpringTideHotTopicStrategy(@Lazy BriefingService briefingService,
             LocationRepository locationRepository,
-            ForecastEvaluationRepository forecastEvaluationRepository,
             SolarEventFreshness freshness,
             CoastalTideFactsBuilder coastalTideFactsBuilder,
             TideRunBuilder tideRunBuilder) {
         this.briefingService = briefingService;
         this.locationRepository = locationRepository;
-        this.forecastEvaluationRepository = forecastEvaluationRepository;
         this.freshness = freshness;
         this.coastalTideFactsBuilder = coastalTideFactsBuilder;
         this.tideRunBuilder = tideRunBuilder;
@@ -151,15 +146,14 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
             if (nonExpired.isEmpty()) {
                 continue;
             }
-            Map<TargetType, Long> counts = KingTideHotTopicStrategy.maskExpired(
-                    KingTideHotTopicStrategy.parseTideAlignmentCounts(
-                            forecastEvaluationRepository, date), nonExpired);
-            String alignmentInfo = KingTideHotTopicStrategy.alignmentInfo(
-                    run.get(date), nonExpired, SPRING_UNALIGNED, SPRING_ALIGNMENT_PASSED);
+            KingTideHotTopicStrategy.Alignment alignmentInfo =
+                    KingTideHotTopicStrategy.alignmentInfo(run.get(date), nonExpired,
+                            SPRING_UNALIGNED, SPRING_ALIGNMENT_PASSED, coastalLocations.size());
             BriefingSlot.TideInfo springTide = findSpringTide(day);
             ExpandedHotTopicDetail expandedDetail =
                     KingTideHotTopicStrategy.buildExpandedDetail(
-                            coastalLocations, "Spring tide", springTide.lunarPhase(), counts);
+                            coastalLocations, "Spring tide", springTide.lunarPhase(),
+                            KingTideHotTopicStrategy.rosterCounts(run.get(date), nonExpired));
 
             HotTopic topic = new HotTopic(
                     "SPRING_TIDE",
@@ -231,18 +225,23 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
      * Builds the single-day detail line for a spring tide pill, mirroring the king-tide format:
      * {@code [alignmentInfo] · N coastal locations}. The day is carried by the pill's timing lead.
      *
-     * @param alignmentInfo the alignment segment, or {@code null} to omit it entirely
+     * @param alignmentInfo the alignment segment, whose text may be null to omit it entirely
      * @param coastalCount  total number of coastal locations
      * @return human-readable detail line
      */
-    static String buildSpringTideDetail(String alignmentInfo, int coastalCount) {
+    static String buildSpringTideDetail(KingTideHotTopicStrategy.Alignment alignmentInfo,
+            int coastalCount) {
         StringBuilder sb = new StringBuilder();
-        // Null is silence, not a denial. The unaligned wording is now supplied by the caller (see
+        // Null text is silence, not a denial. The unaligned wording is supplied by the caller (see
         // KingTideHotTopicStrategy#alignmentInfo), so null reaches here only when no tide curve
         // could be derived at all — and "no sunrise or sunset alignment" would then be a claim
-        // about the tide built from the absence of data about it.
-        if (alignmentInfo != null) {
-            sb.append(alignmentInfo).append(" · ");
+        // about the tide built from the absence of data about it. An aligned segment already names
+        // the roster size, so appending it again would say "of 61 ... 61 coastal locations".
+        if (alignmentInfo.text() != null) {
+            if (alignmentInfo.carriesRosterSize()) {
+                return alignmentInfo.text();
+            }
+            sb.append(alignmentInfo.text()).append(" · ");
         }
         sb.append(coastalCount)
                 .append(coastalCount == 1 ? " coastal location" : " coastal locations");

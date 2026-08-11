@@ -15,7 +15,6 @@ import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.TideLocationMetrics;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.TideMetrics;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.TideRunDay;
-import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -71,7 +70,6 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
 
     private final BriefingService briefingService;
     private final LocationRepository locationRepository;
-    private final ForecastEvaluationRepository forecastEvaluationRepository;
     private final SolarEventFreshness freshness;
     private final CoastalTideFactsBuilder coastalTideFactsBuilder;
     private final TideRunBuilder tideRunBuilder;
@@ -82,20 +80,17 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
      * @param briefingService              cached briefing data (injected lazily
      *                                     to break circular dependency)
      * @param locationRepository           repository for location lookups
-     * @param forecastEvaluationRepository repository for tide alignment queries
      * @param freshness                    shared filter dropping solar events already past
      * @param coastalTideFactsBuilder      builds the enriched tide + sea-state fact line
      * @param tideRunBuilder               builds each day's row of the multi-day run
      */
     public KingTideHotTopicStrategy(@Lazy BriefingService briefingService,
             LocationRepository locationRepository,
-            ForecastEvaluationRepository forecastEvaluationRepository,
             SolarEventFreshness freshness,
             CoastalTideFactsBuilder coastalTideFactsBuilder,
             TideRunBuilder tideRunBuilder) {
         this.briefingService = briefingService;
         this.locationRepository = locationRepository;
-        this.forecastEvaluationRepository = forecastEvaluationRepository;
         this.freshness = freshness;
         this.coastalTideFactsBuilder = coastalTideFactsBuilder;
         this.tideRunBuilder = tideRunBuilder;
@@ -152,14 +147,12 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
             if (nonExpired.isEmpty()) {
                 continue;
             }
-            Map<TargetType, Long> counts = maskExpired(
-                    parseTideAlignmentCounts(forecastEvaluationRepository, date), nonExpired);
-
-            String alignmentInfo = alignmentInfo(
-                    run.get(date), nonExpired, KING_UNALIGNED, KING_ALIGNMENT_PASSED);
+            Alignment alignmentInfo = alignmentInfo(run.get(date), nonExpired,
+                    KING_UNALIGNED, KING_ALIGNMENT_PASSED, coastalLocations.size());
             BriefingSlot.TideInfo kingTide = findKingTide(candidate);
             ExpandedHotTopicDetail expandedDetail = buildExpandedDetail(
-                    coastalLocations, "King tide", kingTide.lunarPhase(), counts);
+                    coastalLocations, "King tide", kingTide.lunarPhase(),
+                    rosterCounts(run.get(date), nonExpired));
 
             HotTopic topic = new HotTopic(
                     "KING_TIDE",
@@ -205,8 +198,7 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
      * {@code unaligned} would print "no tide alignment" above a chart still drawing that morning's
      * high water 39 minutes before sunrise, complete with the editorial line that renders only on an
      * aligned day: the same contradiction this method was written to remove, one branch further on.
-     * The caller's {@code nonExpired} set is what distinguishes them, replacing the old
-     * {@link #maskExpired} pass over the counts — one event at a time instead of one location.
+     * The caller's {@code nonExpired} set is what distinguishes them, one event at a time.
      *
      * @param day        this date's run row, or null when no curve could be derived
      * @param nonExpired the solar event types still ahead on this date
@@ -214,20 +206,88 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
      * @param passed     wording for an alignment that has already happened, or null for silence
      * @return the alignment segment, or null when nothing may be claimed
      */
-    static String alignmentInfo(TideRunDay day, Set<TargetType> nonExpired, String unaligned,
-            String passed) {
+    /**
+     * The drill-down's per-event tallies, from the run's geometry rather than from
+     * {@code forecast_evaluation.tide_aligned}.
+     *
+     * <p>Fed from the same measurement as the headline so the panel cannot disagree with the
+     * sentence that opened it. Under the old source the drill-down showed {@code 0} and {@code 0}
+     * beneath a headline stating the tide aligned — the contradiction simply one level down.
+     *
+     * <p>Events already past are dropped, matching the headline's own rule: a tally for a sunrise
+     * that has been and gone is not a reason to go anywhere.
+     *
+     * @param day        this date's run row, or null when no curve could be derived
+     * @param nonExpired the solar event types still ahead on this date
+     * @return counts by event, empty when nothing could be measured
+     */
+    static Map<TargetType, Long> rosterCounts(TideRunDay day, Set<TargetType> nonExpired) {
+        Map<TargetType, Long> counts = new java.util.EnumMap<>(TargetType.class);
+        if (day == null || day.roster() == null) {
+            return counts;
+        }
+        if (nonExpired.contains(TargetType.SUNRISE)) {
+            counts.put(TargetType.SUNRISE, (long) day.roster().sunriseAligned());
+        }
+        if (nonExpired.contains(TargetType.SUNSET)) {
+            counts.put(TargetType.SUNSET, (long) day.roster().sunsetAligned());
+        }
+        return counts;
+    }
+
+    /**
+     * The scope clause — "at 47 of 61 coastal locations" — or empty when there is nothing to scope.
+     *
+     * <p><b>The denominator is the coastal roster, not the measured subset.</b> They differ whenever
+     * a coastal location has no stored extremes for the day, and an aligned card saying "of 52"
+     * beside the same run's unaligned card saying "· 61 coastal locations" is two totals for one
+     * roster — the exact class of self-contradiction this work exists to remove. Using the roster
+     * keeps a single total on screen; the cost is that an unmeasured location is counted as not
+     * aligned, which understates the fraction. That is the safe direction: it never claims more
+     * agreement than was measured.
+     *
+     * @param day          the run row
+     * @param coastalCount the coastal roster size, as the rest of the pill states it
+     * @return the scope clause, or an empty string
+     */
+    static String rosterScope(TideRunDay day, int coastalCount) {
+        TideRunDay.RosterAlignment roster = day.roster();
+        if (roster == null || coastalCount == 0) {
+            return "";
+        }
+        int aligned = Math.min(roster.alignedWith(day.alignedEvent()), coastalCount);
+        return aligned == 0 ? "" : " at " + aligned + " of " + coastalCount
+                + (coastalCount == 1 ? " coastal location" : " coastal locations");
+    }
+
+    static Alignment alignmentInfo(TideRunDay day, Set<TargetType> nonExpired, String unaligned,
+            String passed, int coastalCount) {
         if (day == null) {
-            return null;
+            return new Alignment(null, false);
         }
         if (day.alignedEvent() == null) {
-            return unaligned;
+            return new Alignment(unaligned, false);
         }
         TargetType alignedWith = "sunrise".equals(day.alignedEvent())
                 ? TargetType.SUNRISE : TargetType.SUNSET;
-        return nonExpired.contains(alignedWith)
-                ? "tide aligned with " + day.alignedEvent()
-                : passed;
+        if (!nonExpired.contains(alignedWith)) {
+            return new Alignment(passed, false);
+        }
+        String scope = rosterScope(day, coastalCount);
+        return new Alignment("tide aligned with " + day.alignedEvent() + scope, !scope.isEmpty());
     }
+
+    /**
+     * The detail line's alignment segment and whether it already names the roster size.
+     *
+     * <p>Carried explicitly rather than inferred from the text. The first cut decided by searching
+     * the finished string for {@code " of "}, which makes the sentence's punctuation load-bearing —
+     * any future rewording silently duplicates or drops the location count.
+     *
+     * @param text              the segment, or null to omit it entirely
+     * @param carriesRosterSize true when the segment already states "N of M coastal locations"
+     */
+    record Alignment(String text, boolean carriesRosterSize) {}
 
     /**
      * Returns the first king tide info found in the given briefing day.
@@ -289,25 +349,6 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
     }
 
     /**
-     * Returns a copy of the alignment counts with expired event types removed, so a tide aligned
-     * only with a solar event that has already passed is not counted or advertised.
-     *
-     * @param counts     per-event alignment counts for a day
-     * @param nonExpired the event types still ahead on that day
-     * @return the counts restricted to non-expired event types
-     */
-    static Map<TargetType, Long> maskExpired(Map<TargetType, Long> counts,
-            Set<TargetType> nonExpired) {
-        Map<TargetType, Long> masked = new java.util.EnumMap<>(TargetType.class);
-        for (Map.Entry<TargetType, Long> e : counts.entrySet()) {
-            if (nonExpired.contains(e.getKey())) {
-                masked.put(e.getKey(), e.getValue());
-            }
-        }
-        return masked;
-    }
-
-    /**
      * Builds expanded detail with coastal locations grouped by region.
      *
      * @param coastalLocations     all enabled coastal locations
@@ -357,23 +398,6 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
                         sunriseCount, sunsetCount));
     }
 
-    /**
-     * Parses the raw query result into a map of target type to alignment count.
-     *
-     * @param repository the forecast evaluation repository
-     * @param date       the date to query
-     * @return map of target type to count of aligned coastal locations
-     */
-    static Map<TargetType, Long> parseTideAlignmentCounts(
-            ForecastEvaluationRepository repository, LocalDate date) {
-        List<Object[]> rows = repository.countTideAlignedByTargetType(date);
-        Map<TargetType, Long> counts = new java.util.EnumMap<>(TargetType.class);
-        for (Object[] row : rows) {
-            counts.put((TargetType) row[0], (Long) row[1]);
-        }
-        return counts;
-    }
-
     private List<String> extractRegionNames(List<LocationEntity> locations) {
         return locations.stream()
                 .map(LocationEntity::getRegion)
@@ -393,10 +417,13 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
      * @param coastalCount  total number of coastal locations
      * @return human-readable detail line
      */
-    static String buildKingTideDetail(String alignmentInfo, int coastalCount) {
+    static String buildKingTideDetail(Alignment alignment, int coastalCount) {
         StringBuilder sb = new StringBuilder();
-        if (alignmentInfo != null) {
-            sb.append(alignmentInfo).append(" \u00b7 ");
+        if (alignment.text() != null) {
+            if (alignment.carriesRosterSize()) {
+                return alignment.text();
+            }
+            sb.append(alignment.text()).append(" \u00b7 ");
         }
         sb.append(coastalCount)
                 .append(coastalCount == 1

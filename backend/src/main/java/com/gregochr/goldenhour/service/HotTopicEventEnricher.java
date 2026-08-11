@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.TideRunDay;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.springframework.stereotype.Service;
 
@@ -64,16 +65,22 @@ public class HotTopicEventEnricher {
 
     private final SolarService solarService;
     private final LocationRepository locationRepository;
+    private final SolarEventFreshness freshness;
 
     /**
      * Constructs the enricher.
      *
      * @param solarService       computes sunrise/sunset/civil-dusk for a location and date
      * @param locationRepository resolves a representative location for a topic's region
+     * @param freshness          the shared filter dropping solar events already past — the same one
+     *                           the tide strategies use to choose their wording, so the lead and
+     *                           the headline cannot disagree about whether an event is still ahead
      */
-    public HotTopicEventEnricher(SolarService solarService, LocationRepository locationRepository) {
+    public HotTopicEventEnricher(SolarService solarService, LocationRepository locationRepository,
+            SolarEventFreshness freshness) {
         this.solarService = solarService;
         this.locationRepository = locationRepository;
+        this.freshness = freshness;
     }
 
     /**
@@ -103,9 +110,9 @@ public class HotTopicEventEnricher {
 
         // Photographic event type + time — skip when already set, or the topic has no date/anchor.
         if (topic.eventType() == null && topic.date() != null) {
-            String eventType = resolveEventType(topic);
+            double[] latLon = resolveLatLon(topic, enabled);
+            String eventType = resolveEventType(topic, latLon, topic.date());
             if (eventType != null) {
-                double[] latLon = resolveLatLon(topic, enabled);
                 result = result.withEvent(eventType,
                         computeEventTime(eventType, latLon[0], latLon[1], topic.date()));
             }
@@ -157,14 +164,47 @@ public class HotTopicEventEnricher {
      * Resolves the photographic event a topic is about. Tide topics follow whichever solar event
      * their tide aligns with (sunrise preferred on a tie); everything else uses the static policy.
      */
-    private String resolveEventType(HotTopic topic) {
+    private String resolveEventType(HotTopic topic, double[] latLon, LocalDate date) {
         if ("KING_TIDE".equals(topic.type()) || "SPRING_TIDE".equals(topic.type())) {
-            return resolveTideEvent(topic);
+            return resolveTideEvent(topic, latLon, date);
         }
         return EVENT_BY_TYPE.get(topic.type());
     }
 
-    private String resolveTideEvent(HotTopic topic) {
+    /**
+     * The solar event a tide topic belongs to, taken from the run row's own geometry.
+     *
+     * <p><b>This is the null that cost three symptoms at once.</b> It used to read
+     * {@code TideMetrics}' aligned counts, which came from {@code forecast_evaluation.tide_aligned}
+     * — a column the synchronous engine writes and which in production is empty. Zero counts
+     * returned null, and a null {@code eventType} means {@code PlanWindowProjector} silently drops
+     * the topic: no badge on the window, no timing lead on the card, so a King tide pill asserted
+     * an alignment while being unable to say which day it was for.
+     *
+     * <p>Reading {@link TideRunDay#alignedEvent()} puts the badge, the lead, the headline and the
+     * chart on one measurement. The counts remain as a fallback for a topic with no run row.
+     *
+     * @param topic the tide topic
+     * @return {@code "SUNRISE"}, {@code "SUNSET"}, or null when nothing could be measured
+     */
+    private String resolveTideEvent(HotTopic topic, double[] latLon, LocalDate date) {
+        TideRunDay run = topic.tideRun();
+        if (run != null) {
+            // The run row is AUTHORITATIVE once it exists — a null alignedEvent means the tide
+            // misses the light, and must not fall through to the tally. Falling through was safe
+            // only while the tally came from an empty column; now that it is computed live, a
+            // representative-unaligned day with 40 roster locations aligned resolved an event
+            // anyway, printing a sunrise lead and a window badge directly above the headline's
+            // own "no tide alignment".
+            if (run.alignedEvent() == null) {
+                return null;
+            }
+            String event = "sunrise".equals(run.alignedEvent()) ? SUNRISE : SUNSET;
+            // The tally is clock-free, so alignedEvent still reads "sunrise" at 14:00. The headline
+            // says "tide alignment already passed" for exactly this state; a lead and a badge
+            // pointing at that morning would contradict it and send a reader to an event gone.
+            return freshness.isAhead(eventTimeUtc(event, latLon, date)) ? event : null;
+        }
         ExpandedHotTopicDetail expanded = topic.expandedDetail();
         if (expanded == null || expanded.tideMetrics() == null) {
             return null;
@@ -187,6 +227,23 @@ public class HotTopicEventEnricher {
             }
         }
         return new double[] {UK_CENTRE_LAT, UK_CENTRE_LON};
+    }
+
+    /**
+     * The event's instant in UTC, or null when the type has no solar anchor.
+     *
+     * @param eventType SUNRISE, SUNSET or NIGHT
+     * @param latLon    the topic's anchor
+     * @param date      the topic's date
+     * @return the UTC instant, or null
+     */
+    private LocalDateTime eventTimeUtc(String eventType, double[] latLon, LocalDate date) {
+        return switch (eventType) {
+            case SUNRISE -> solarService.sunriseUtc(latLon[0], latLon[1], date);
+            case SUNSET -> solarService.sunsetUtc(latLon[0], latLon[1], date);
+            case NIGHT -> solarService.civilDuskUtc(latLon[0], latLon[1], date);
+            default -> null;
+        };
     }
 
     private String computeEventTime(String eventType, double lat, double lon, LocalDate date) {
