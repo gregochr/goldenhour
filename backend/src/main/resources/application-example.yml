@@ -190,6 +190,27 @@ photocast:
     transitional-hours: 12         # half synoptic cycle — catches frontal transitions
     unsettled-hours: 4             # nowcasting window — convective evolution
     safety-floor-hours: 2          # absolute minimum to prevent rapid successive triggers
+    horizon:                       # caps applied ON TOP of the stability thresholds above, as
+                                   # max(safety-floor, min(stability, cap)). Taking the tighter of
+                                   # the two means no horizon can ever come out STALER than
+                                   # stability alone allowed, so raising a cap is a safe rollback.
+                                   #
+                                   # Why they exist: the stability thresholds are calibrated on
+                                   # synoptic pattern persistence, which is not rating persistence
+                                   # — the rating turns on low cloud at the solar horizon, which
+                                   # moves freely under a stable pattern. Over 30 days of
+                                   # evaluation_delta_log, a SETTLED slot re-evaluated after a 48h
+                                   # gap (a gap the 36h threshold itself permits) moved by a full
+                                   # star 72% of the time. Without these caps a SETTLED region
+                                   # evaluated at T+1 could not be refreshed before its own event.
+      t0-hours: 2                  # day of the event — no horizon left to trade against, so this
+                                   # sits at the safety floor. Independent of safety-floor-hours
+                                   # despite sharing its default: raise the floor and the floor
+                                   # governs; set this to 36 to roll back to stability-only at T+0.
+      t1-hours: 8                  # survives no cycle boundary — the nightly cycle lands results
+                                   # near 01:00 UTC and intraday fires at 14:00, so a 12h+ gap
+                                   # always exceeds it and BOTH cycles refresh a T+1 slot.
+                                   # T+2 and beyond are uncapped; stability alone governs.
   forecast-score:
     dual-write: true               # Pass 2: dual-write component scores to forecast_score
                                    # alongside the serving path (results_json untouched). Whole-pass

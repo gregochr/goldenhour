@@ -48,4 +48,49 @@ public class FreshnessProperties {
      * from intraday + JFDI + admin actions.
      */
     private int safetyFloorHours = 2;
+
+    /** Per-horizon caps applied on top of the stability thresholds above. */
+    private final Horizon horizon = new Horizon();
+
+    /**
+     * Caps on cache age by forecast horizon, applied as
+     * {@code max(safetyFloor, min(stabilityThreshold, horizonCap))}.
+     *
+     * <p>The stability thresholds above are calibrated on <em>synoptic pattern</em> persistence,
+     * which is not the same quantity as <em>rating</em> persistence: the rating turns on low cloud
+     * at the solar horizon, which moves freely underneath a stable pattern. Measured over 30 days
+     * of {@code evaluation_delta_log}, a SETTLED slot re-evaluated after a 48h gap — a gap the 36h
+     * threshold itself permits — moved by a full star 72% of the time.
+     *
+     * <p>Taking the tighter of cap and stability makes the caps monotone: no horizon can come out
+     * <em>staler</em> than the stability threshold alone would allow, so a misconfigured cap
+     * degrades to the previous behaviour rather than to something worse.
+     */
+    @Getter
+    @Setter
+    public static class Horizon {
+
+        /**
+         * Max cache age (hours) at T+0 — the day of the event.
+         *
+         * <p>Defaults to the safety floor because on the day of the event there is no horizon
+         * left to trade against: the only reason not to re-evaluate is cost, and the floor
+         * already exists to stop trigger thrash. Any larger value is an arbitrary amount of
+         * staleness shown to someone deciding whether to drive out tonight.
+         *
+         * <p>Note this is <em>independent</em> of {@code safetyFloorHours} despite sharing its
+         * default — raise the floor and the floor governs; raise this to 36 and the change rolls
+         * back to stability-only behaviour at T+0.
+         */
+        private int t0Hours = 2;
+
+        /**
+         * Max cache age (hours) at T+1.
+         *
+         * <p>8h is chosen to survive no cycle boundary: with the nightly cycle landing results
+         * near 01:00 UTC and the intraday cycle firing at 14:00, a 12h+ gap always exceeds it,
+         * so a T+1 slot is refreshed by both rather than being held by whichever ran first.
+         */
+        private int t1Hours = 8;
+    }
 }
