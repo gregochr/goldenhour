@@ -87,8 +87,19 @@ export default function WindowFirstPromotedStrip({ strip, onOpenWindow }) {
         <span data-testid="window-first-promo-kicker" className="wf-promo-k">
           {strip.topics.map((topic, index) => (
             <React.Fragment key={topic.key}>
+              {/* The spaces sit OUTSIDE the hidden span, and that is not cosmetic. JSX drops the
+                  newline-only whitespace between sibling elements, so with ` × ` wholly inside an
+                  `aria-hidden` subtree the only boundary between two topic names is pruned along
+                  with it and a browse-mode buffer reads "King tideAurora". Every other decorative
+                  glyph in this arm is a prefix or a suffix whose removal leaves its label whole;
+                  this is the first used as the boundary BETWEEN two labels. `textContent` is
+                  unchanged either way, which is why the pinned header string still holds. */}
               {index > 0 && (
-                <span data-testid="window-first-promo-sep" aria-hidden="true">{' × '}</span>
+                <>
+                  {' '}
+                  <span data-testid="window-first-promo-sep" aria-hidden="true">×</span>
+                  {' '}
+                </>
               )}
               <span data-testid="window-first-promo-topic">{topic.label}</span>
             </React.Fragment>
@@ -109,7 +120,12 @@ export default function WindowFirstPromotedStrip({ strip, onOpenWindow }) {
         <div data-testid="window-first-promo-figures" className="wf-promo-b">
           {figures.map((topic) => (
             <div key={topic.key} data-testid="window-first-promo-figure" className="wf-promo-fig">
-              <span className="wf-promo-fig-k">{topic.figureLabel}</span>
+              {/* Only when the fact carries its own lead-in. A keyless headline fact — which is what
+                  aurora and NLC emit — is self-describing, and filling the slot with the topic's
+                  name would print that name twice on one small element. */}
+              {topic.figureLabel && (
+                <span className="wf-promo-fig-k">{topic.figureLabel}</span>
+              )}
               <span className="wf-promo-fig-v">{topic.figureValue}</span>
             </div>
           ))}

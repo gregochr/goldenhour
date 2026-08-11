@@ -25,12 +25,41 @@ function badge(overrides = {}) {
   };
 }
 
-/** Rank 4 — rarer than snow, so it wins a straight contest against the default badge above. */
+/**
+ * Rank 4 — rarer than snow, so it wins a straight contest against the default badge above.
+ *
+ * <p>⚠️ The label and the fact are the shapes `AuroraHotTopicStrategy` really emits: the label is
+ * "Aurora possible", and the headline fact is `HotTopicFact.metric(null, …)` — **keyless** and
+ * emphasised. An earlier version of this fixture invented `{ key: 'Kp', value: '5.7' }`, a shape the
+ * backend never produces, and that invention hid a real defect through the whole suite, eleven
+ * mutants and a browser pass: the figure's lead-in fell back to the topic's own label, so the strip
+ * printed "Aurora possible" twice. Keep these fixtures shaped like the producer.
+ */
 const AURORA = badge({
   type: 'AURORA',
-  label: 'Aurora',
+  label: 'Aurora possible',
   rarityRank: 4,
-  facts: [{ key: 'Kp', value: '5.7', dir: null, emphasis: true, optional: false }],
+  facts: [{
+    key: null,
+    value: 'Kp 5 · glow reaches ~57°N and north',
+    dir: null,
+    emphasis: true,
+    optional: false,
+  }],
+});
+
+/** `NlcHotTopicStrategy`'s real shape: keyless facts carrying a window, with a compass `dir`. */
+const NLC = badge({
+  type: 'NLC',
+  label: 'Noctilucent cloud season',
+  rarityRank: 14,
+  facts: [{
+    key: null,
+    value: 'after dusk · 23:14–01:02',
+    dir: 'N',
+    emphasis: false,
+    optional: false,
+  }],
 });
 
 /** Rank 3 — the rarest kind used in this file, and a different channel again. */
@@ -119,7 +148,7 @@ describe('buildPromotedStrip — what earns a strip', () => {
       [TODAY, 'SUNSET', { badges: [badge(), AURORA, KING_TIDE], topRarityRank: 3 }],
     ]);
     expect(buildPromotedStrip(pane).topics.map((t) => t.label))
-      .toEqual(['King tide', 'Aurora', 'Snow on the fells']);
+      .toEqual(['King tide', 'Aurora possible', 'Snow on the fells']);
   });
 
   // The row promotion runs first and removes a factful snow badge from `card.badges`. A winter dawn
@@ -213,7 +242,7 @@ describe('buildPromotedStrip — UNKNOWN_RANK wire semantics', () => {
   it('sorts an unranked topic last within its own strip', () => {
     const unranked = badge({ type: 'MYSTERY', label: 'Something new', rarityRank: UNKNOWN_RANK });
     const pane = paneFor([[TODAY, 'SUNSET', { badges: [unranked, AURORA], topRarityRank: 4 }]]);
-    expect(buildPromotedStrip(pane).topics.map((t) => t.label)).toEqual(['Aurora', 'Something new']);
+    expect(buildPromotedStrip(pane).topics.map((t) => t.label)).toEqual(['Aurora possible', 'Something new']);
   });
 
   it('loses a rarity contest to any ranked coincidence', () => {
@@ -281,6 +310,37 @@ describe('buildPromotedStrip — what the strip says', () => {
     expect(snow.figureValue).toBe('~850 m');
   });
 
+  // ⚠️ §6 bans counts of our own data, and `MeteorHotTopicStrategy.addClearSkyFact` emits exactly
+  // one — "clear at 3 of 7 dark-sky locations" — as a FACT rather than in `detail` the way aurora
+  // and NLC do. It is appended last with `emphasis: false` while the ZHR leads with
+  // `emphasis: true`, so the emphasis preference is what keeps it off the strip. Written against
+  // the real fact order and flags `MeteorHotTopicStrategy` produces.
+  it('leads a meteor topic with its ZHR, never with the clear-location count §6 bans', () => {
+    const meteor = badge({
+      type: 'METEOR',
+      label: 'Meteor shower',
+      rarityRank: 5,
+      facts: [
+        { key: 'ZHR', value: '~100 at peak', dir: null, emphasis: true, optional: false },
+        { key: 'radiant', value: 'best 02:00–04:00', dir: 'NE', emphasis: false, optional: false },
+        { key: 'moon', value: '18% · dark enough', dir: null, emphasis: false, optional: true },
+        {
+          key: null,
+          value: 'clear at 3 of 7 dark-sky locations',
+          dir: null,
+          emphasis: false,
+          optional: false,
+        },
+      ],
+    });
+    const pane = paneFor([[TODAY, 'SUNSET', { badges: [meteor, badge()], topRarityRank: 5 }]]);
+    const strip = buildPromotedStrip(pane);
+    const shower = strip.topics.find((t) => t.label === 'Meteor shower');
+    expect(shower.figureValue).toBe('~100 at peak');
+    // The whole descriptor, not just this figure: no part of the strip may carry the count.
+    expect(JSON.stringify(strip)).not.toContain('dark-sky locations');
+  });
+
   it('falls back to the first fact when the topic marks none as the headline', () => {
     const noEmphasis = badge({
       facts: [{ key: 'mist', value: 'humidity 94%', dir: null, emphasis: false, optional: true }],
@@ -290,16 +350,34 @@ describe('buildPromotedStrip — what the strip says', () => {
     expect(snow.figureValue).toBe('humidity 94%');
   });
 
-  // `HotTopicFact.key` is genuinely nullable — `SnowTopsHotTopicStrategy` emits one — so without
-  // this the figure would render with no label at all.
-  it('labels a figure with its topic when the fact carries no key of its own', () => {
-    const keyless = badge({
-      facts: [{ key: null, value: '120 m below the tops', dir: null, emphasis: true, optional: true }],
-    });
-    const pane = paneFor([[TODAY, 'SUNSET', { badges: [keyless, AURORA], topRarityRank: 4 }]]);
+  // ⚠️ The regression this file previously asserted the WRONG WAY ROUND. `HotTopicFact.key` is
+  // nullable, and the two live producers of a keyless HEADLINE fact are aurora and NLC — both NIGHT
+  // topics, which the projector buckets onto the same two windows, so aurora × NLC is the most
+  // reachable coincidence there is. Falling back to the topic's own label printed that label twice
+  // on one 131px element: once in the kicker, once as the figure's lead-in.
+  it('gives a keyless fact no lead-in, rather than repeating the topic name it already shows', () => {
+    const pane = paneFor([[TODAY, 'SUNSET', { badges: [AURORA, NLC], topRarityRank: 4 }]]);
+    const strip = buildPromotedStrip(pane);
+    expect(strip.topics.map((t) => t.label)).toEqual(['Aurora possible', 'Noctilucent cloud season']);
+    expect(strip.topics.map((t) => t.figureLabel)).toEqual([null, null]);
+    expect(strip.topics.map((t) => t.figureValue))
+      .toEqual(['Kp 5 · glow reaches ~57°N and north', 'after dusk · 23:14–01:02']);
+    // The rule stated directly: no figure's lead-in may be a topic name the kicker already shows.
+    // (Asserted on the rendered fields rather than over the whole descriptor — `topicKey` embeds the
+    // label by construction, so a stringify-and-count would report every label twice and fail for a
+    // reason that has nothing to do with what is on screen.)
+    const names = new Set(strip.topics.map((t) => t.label));
+    for (const topic of strip.topics) {
+      expect(names.has(topic.figureLabel)).toBe(false);
+    }
+  });
+
+  // The other half of the same rule: a fact that DOES carry a key still shows it.
+  it('keeps a fact\'s own lead-in when it has one', () => {
+    const pane = paneFor([[TODAY, 'SUNSET', { badges: [badge(), AURORA], topRarityRank: 4 }]]);
     const snow = buildPromotedStrip(pane).topics.find((t) => t.label === 'Snow on the fells');
-    expect(snow.figureLabel).toBe('Snow on the fells');
-    expect(snow.figureValue).toBe('120 m below the tops');
+    expect(snow.figureLabel).toBe('snow line');
+    expect(snow.figureValue).toBe('~850 m');
   });
 
   it('carries no figure for a topic with no facts, and still names it', () => {

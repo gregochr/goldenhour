@@ -2031,8 +2031,14 @@ Nine decisions that changed behaviour rather than wording.
   **always-visible card head** while rows live inside `{open && …}`. Removing them would make the
   page's most notable window its least-marked card, for a reader who has scrolled past the strip.
   What is offered instead: the strip is capped at one, renders only on a coincidence, and is the
-  smallest it can be — **131px desktop / 154px phone, measured**, against the ~150px the
-  height-budget analysis assumed and the 58px of chart it does not spend.
+  smallest it can be. **Measured across two real coincidence shapes: 115–131px desktop, 192–208px
+  phone** — the range is the difference between a keyed headline fact (two lines) and a keyless one
+  (one), and the phone figures are with the labels the strategies really emit
+  (`Noctilucent cloud season`, `Kp 5 · glow reaches ~57°N and north`), which wrap. ⚠️ **An earlier
+  draft of this row said "131px desktop / 154px phone"; the phone half was wrong by 54px** because
+  the harness used an invented short label. The phone strip is about a quarter of an 844px viewport.
+  Against that: the ~150px the height-budget analysis assumed, and the 58px of chart it does not
+  spend.
 - **It is a lede that points INTO the list, not an item in it.** The pane's only ordering spine is
   time and the strip may describe the fourth window down — the shape CLAUDE.md records as "tried,
   reverted" for tide runs. What makes it tolerable is that it names its window in the card's own
@@ -2077,6 +2083,44 @@ opening a closed card, focusing its expander, and clearing the sticky lens bar (
 programmatically rather than by focus); the phone rule being dropped; and no overflow at 390px.
 **Not verified:** any of it against real badge data, and no screen reader, axe, Lighthouse,
 forced-colors, real device, or width above 1440px — the same gap every phase since P4 records.
+
+**The adversarial review before this landed** (six prosecutor lenses over the diff, one independent
+refuter per charge prompted to *refute* and defaulting to REFUTED, then synthesis — 19 agents):
+**18 charges, 12 verified, 3 confirmed**, all fixed before the commit, plus two comment corrections
+the synthesis raised as weak refutations. Six charges fell below the verification cut and are
+recorded in the review as **unexamined, not refuted**. The three that survived are worth carrying,
+because two of them are failures of the *fixture* rather than of the code:
+
+- **A figure's lead-in fell back to the topic's own label, printing that label twice.** The two live
+  producers of a keyless *headline* fact are `AuroraHotTopicStrategy`
+  (`HotTopicFact.metric(null, "Kp 5 · glow reaches ~57°N and north")`) and `NlcHotTopicStrategy` —
+  both NIGHT topics, which `PlanWindowProjector.keysFor` buckets onto the **same two windows**, so
+  aurora × NLC is the ordinary coincidence, not an exotic one. The strip read
+  `Aurora possible × Noctilucent cloud season` and then `Aurora possible / Kp 5 · …` beneath it:
+  exactly the duplication `windowFirstRows.js` refuses to build a row for. ⚠️ **It survived the whole
+  suite, eleven mutants and a browser pass because every fixture invented `{key: 'Kp', value: '5.7'}`
+  — a shape the backend never emits.** The justification in the code cited `SnowTopsHotTopicStrategy`,
+  which does emit a keyless fact but only as its *second*, un-emphasised one, so it can never reach
+  the branch. **Shape a fixture like its producer, or the test proves nothing about production.**
+- **The only whitespace between two topic names lived inside the `aria-hidden` separator.** JSX drops
+  the newline-only whitespace between sibling elements, so pruning the hidden subtree — which is what
+  assistive tech does — left `King tideAurora possible`. Every other decorative glyph in this arm is
+  a prefix or suffix whose removal leaves its label whole; this was the first used as the boundary
+  *between* two labels. `textContent` is identical either way, which is why the pinned header string
+  never moved. The test that now catches it asserts **both** that the separator's own text carries no
+  padding and that the kicker still reads with spaces — either alone passes with the defect restored.
+- **The phone header wrapped by label length.** The mock carries three phone rules for this header
+  and only two were ported; the missing one gives the title its own row. Measured at 390px before the
+  fix: a short pair put all three items on one dense line, a medium pair stranded the clock alone on
+  row 2, a long pair stacked — three layouts at one width, chosen by how long the topic names
+  happened to be. The comment justifying the hidden rule asserted the layout that had not been built.
+
+⚠️ **A third measurement trap, on top of the two below.** Two of the review's "failures" on the
+re-run were the harness's own assertions, not the code: a last-card scroll check keyed to a fraction
+of the viewport (the page genuinely cannot scroll past its end — the honest test is *fully visible
+and clear of the sticky bar*), and a header-row grouping keyed on an exact `top`, which reported a
+15.5px title and a 13.5px clock centred on one row as two rows. Both would have been written up as
+defects by anyone reading the exit code.
 
 ⚠️ **Two measurement traps caught in the doing, both of which produce confident false results.**
 `zsh does not word-split unquoted parameters`, so a `$SPECS` holding four test paths reached vitest
@@ -2204,7 +2248,8 @@ is inert in v2 but load-bearing in v1, and P15b already recorded the split at `:
 - **The promoted strip takes nothing out of the window card** (P7b), so §6's "something should
   usually come out when something goes in" is not discharged for it. Stated rather than quietly
   skipped, with the measured cost (131px desktop, 154px phone) and the reason the obvious trade —
-  taking the promoted window's badges — was rejected. §5j.
+  taking the promoted window's badges — was rejected. Measured 115–131px desktop, 192–208px phone.
+  §5j.
 - **No count on the Coming up tab** (P13). The README specifies "Coming up (with count)" and the
   mock draws a `3`. Two reasons compound. The count does not exist until the feed has been fetched
   and the feed is not fetched until the tab is opened, so it could only ever appear *after* the

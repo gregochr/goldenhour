@@ -22,11 +22,22 @@ function badge(overrides = {}) {
   };
 }
 
+/**
+ * The shape `AuroraHotTopicStrategy` really emits — label "Aurora possible", headline fact
+ * `HotTopicFact.metric(null, …)`, i.e. **keyless**. An invented `{ key: 'Kp' }` here is what let a
+ * duplicate-label defect through the whole suite once; fixtures stay shaped like their producer.
+ */
 const AURORA = badge({
   type: 'AURORA',
-  label: 'Aurora',
+  label: 'Aurora possible',
   rarityRank: 4,
-  facts: [{ key: 'Kp', value: '5.7', dir: null, emphasis: true, optional: false }],
+  facts: [{
+    key: null,
+    value: 'Kp 5 · glow reaches ~57°N and north',
+    dir: null,
+    emphasis: true,
+    optional: false,
+  }],
 });
 
 const KING_TIDE = badge({
@@ -89,7 +100,7 @@ describe('WindowFirstPromotedStrip — the pair it names', () => {
   it('names every topic of the coincidence, rarest first', () => {
     render(<WindowFirstPromotedStrip strip={RICH()} />);
     expect(screen.getAllByTestId('window-first-promo-topic').map((n) => n.textContent))
-      .toEqual(['King tide', 'Aurora', 'Snow on the fells']);
+      .toEqual(['King tide', 'Aurora possible', 'Snow on the fells']);
   });
 
   // The `×` is punctuation between two named things, not a word. Marked decorative for the same
@@ -100,6 +111,21 @@ describe('WindowFirstPromotedStrip — the pair it names', () => {
     const separators = screen.getAllByTestId('window-first-promo-sep');
     expect(separators).toHaveLength(2);
     separators.forEach((sep) => expect(sep).toHaveAttribute('aria-hidden', 'true'));
+  });
+
+  // ⚠️ The fix this pins is one character of whitespace, and it is invisible to `textContent`.
+  // JSX drops the newline-only whitespace between sibling elements, so while ` × ` lived WHOLLY
+  // inside the `aria-hidden` span it was the only boundary between two topic names — prune the
+  // hidden subtree, as assistive tech does, and a browse-mode buffer reads "King tideAurora
+  // possible". Two assertions, because either alone passes with the defect restored: the separator's
+  // own text must carry no padding (proving the spaces are OUTSIDE it), and the kicker must still
+  // read with spaces (proving they were not simply deleted).
+  it('keeps the space between topic names outside the decorative separator', () => {
+    render(<WindowFirstPromotedStrip strip={RICH()} />);
+    screen.getAllByTestId('window-first-promo-sep')
+      .forEach((sep) => expect(sep.textContent).toBe('\u00d7'));
+    expect(screen.getByTestId('window-first-promo-kicker').textContent)
+      .toBe('King tide \u00d7 Aurora possible \u00d7 Snow on the fells');
   });
 
   it('renders no separator before the first topic', () => {
@@ -163,7 +189,20 @@ describe('WindowFirstPromotedStrip — the measured figures', () => {
     render(<WindowFirstPromotedStrip strip={RICH()} />);
     const figures = screen.getAllByTestId('window-first-promo-figure');
     expect(figures.map((f) => f.textContent))
-      .toEqual(['high water5.8 m', 'Kp5.7', 'snow line~850 m']);
+      .toEqual(['high water5.8 m', 'Kp 5 · glow reaches ~57°N and north', 'snow line~850 m']);
+  });
+
+  // Aurora and NLC both emit a keyless headline fact. Falling back to the topic's own label printed
+  // that label twice on one small element — once in the kicker, once as the figure's lead-in.
+  it('gives a keyless fact no lead-in, so no topic name is printed twice', () => {
+    render(<WindowFirstPromotedStrip strip={RICH()} />);
+    const figures = screen.getAllByTestId('window-first-promo-figure');
+    const aurora = figures.find((f) => f.textContent.includes('glow reaches'));
+    expect(aurora.textContent).toBe('Kp 5 \u00b7 glow reaches ~57\u00b0N and north');
+    expect(aurora.textContent).not.toContain('Aurora possible');
+    // And the topic is still named — in the kicker, exactly once.
+    expect(screen.getAllByTestId('window-first-promo-topic').map((n) => n.textContent))
+      .toContain('Aurora possible');
   });
 
   it('draws no figure for a topic carrying no facts, while still naming it', () => {
@@ -243,7 +282,7 @@ describe('WindowFirstPromotedStrip — what it deliberately does not draw', () =
     render(<WindowFirstPromotedStrip strip={RICH()} onOpenWindow={vi.fn()} />);
     const head = screen.getByTestId('window-first-promo-head');
     // The header carries the pair, the window and its clock time, and nothing enumerable.
-    expect(head.textContent).toBe('King tide × Aurora × Snow on the fellsTomorrow sunrise06:14');
+    expect(head.textContent).toBe('King tide × Aurora possible × Snow on the fellsTomorrow sunrise06:14');
   });
 
   // No chart. `BriefingWindowTide` carries exactly one extreme and no per-extreme x position, so the

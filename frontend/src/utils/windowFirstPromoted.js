@@ -106,6 +106,18 @@ function rankOfWindow(card) {
  * fallback for a topic that marks none. A topic with no facts contributes no figure rather than a
  * figure with nothing in it — the strip's job is the coincidence, and a blank value would state
  * that a measurement exists.
+ *
+ * <p><b>⚠️ That preference is doing §6 work, not just typographic work, and it is the reason this
+ * function is not simply {@code facts[0]}.</b> {@code MeteorHotTopicStrategy.addClearSkyFact} emits
+ * <em>"clear at 3 of 7 dark-sky locations"</em> as a fact — a count of our own data, which §6 bans
+ * outright and which three surfaces in this arm have already had to drop. It is appended last and
+ * deliberately carries {@code emphasis: false}, while the shower's ZHR is first and carries
+ * {@code emphasis: true}; so preferring emphasis keeps the banned claim out of the strip's 15px
+ * figure. Aurora and NLC put their own "clear at X of Y" in {@code detail}, which this strip never
+ * renders. <b>Residual, stated rather than defended against:</b> a future strategy that marked a
+ * count fact as the emphasised one would put it on the strip, and the client cannot tell a count
+ * from a measurement without sniffing the string — which would be a guess. The guard is the
+ * backend's own emphasis flag, and {@code windowFirstPromoted.test.js} pins the meteor shape.
  */
 function headlineFact(badge) {
   const facts = badge?.facts || [];
@@ -146,10 +158,24 @@ function describe(card, rank, adjacent) {
       return {
         key: topicKey(badge),
         label: badge.label || '',
-        // The fact's own lead-in label ("snow line", "Kp") when it has one; the topic's label when
-        // it does not, so no figure is ever unlabelled. `HotTopicFact.key` is genuinely nullable —
-        // `SnowTopsHotTopicStrategy` emits one.
-        figureLabel: fact ? (fact.key || badge.label || '') : null,
+        // The fact's own lead-in label ("snow line") when it has one, and NOTHING when it does not.
+        //
+        // ⚠️ This used to fall back to the topic's own label so that no figure was ever unlabelled,
+        // and that was wrong in the most reachable case there is. `HotTopicFact.key` is nullable and
+        // the two live producers of a keyless HEADLINE fact are `AuroraHotTopicStrategy`
+        // (`HotTopicFact.metric(null, "Kp 5 · glow reaches ~57°N and north")`) and
+        // `NlcHotTopicStrategy` (`new HotTopicFact(null, "after dusk · 23:14–01:02", …)`) — both
+        // NIGHT topics, which `PlanWindowProjector.keysFor` buckets onto the SAME two windows, so
+        // aurora × NLC is the ordinary coincidence rather than an exotic one. The fallback printed
+        // `Aurora possible` in the kicker and `Aurora possible` again as the figure's lead-in, on a
+        // 131px element whose entire content is two names and two numbers — precisely the
+        // duplication `windowFirstRows.js` refuses to build a row for, citing §6.
+        //
+        // The original justification cited `SnowTopsHotTopicStrategy`, which does emit a keyless
+        // fact — but it is second and un-emphasised, behind `metric("snow line", …)`, so it can
+        // never be the headline. A keyless value is self-describing ("Kp 5 · glow reaches ~57°N and
+        // north" needs no lead-in); an unlabelled figure is the honest render, not a gap to fill.
+        figureLabel: fact ? (fact.key || null) : null,
         figureValue: fact ? fact.value : null,
       };
     }),
