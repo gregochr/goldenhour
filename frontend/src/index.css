@@ -924,6 +924,43 @@
   .rail-day-show-on-map { transition: none; }
 }
 
+/* The rail's pick chip, which became a control when the plan's "pick chips open the pick's prose"
+   was finally discharged. Its own class rather than `.window-card-pick`, which the card's badge
+   uses: that rule forces `border-radius: 999px` on its focus ring for a pill, and this chip is a
+   two-line 5px rectangle whose box is what `DATE_ROW_MIN_HEIGHT_PX` is computed from — a pill ring
+   around it would sit visibly wrong and imply the two are the same shape of thing.
+
+   `cursor: pointer` because Tailwind v4's Preflight no longer restores it on `button`, the gap this
+   file has now closed in four places. Brightness rather than a colour change on hover: the chip's
+   colour IS its channel (go/also), and swapping it would say the pick had changed kind. No lift —
+   the chip sits in a horizontal scroller where a transform fights the scroll. */
+.rail-pick-flag {
+  cursor: pointer;
+  transition: filter 0.14s ease;
+}
+.rail-pick-flag:hover {
+  filter: brightness(1.14);
+}
+/* Bone at 2px, matching `.rail-day-show-on-map` above and for the reason recorded there: the
+   border-light ring measures 1.71:1 and fails SC 1.4.11's 3:1, worst on the flagged tile whose
+   resting gold border is brighter than the ring. 5px to match the chip's own corner rather than
+   the 3px its sibling uses, so the ring traces the shape it is around. */
+.rail-pick-flag:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+  border-radius: 5px;
+}
+
+/* Only the transition, never the hover RESULT. `filter: brightness()` is a paint change, not
+   motion, and cancelling it left this chip the one control in the file whose affordance vanished
+   for a reduced-motion pointer user — while its twin, the card's pick badge, kept its brightness.
+   Measured on the running app: with `reduce` on, `.window-card-pick` hovers to brightness(1.14) and
+   this hovered to `none`. Two triggers of one control must not differ. Every other reduced-motion
+   block in this file touches only transition/transform/animation; this now matches them. */
+@media (prefers-reduced-motion: reduce) {
+  .rail-pick-flag { transition: none; }
+}
+
 /* Briefing summary strip — actionable pills lift on hover */
 .summary-pill-clickable {
   transition: transform 0.12s ease, border-color 0.14s ease;
