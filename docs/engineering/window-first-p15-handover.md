@@ -98,12 +98,18 @@ Also on **WebKit** as an iPhone, rotation included.
    near-identical buttons. Pre-existing and **identical in both arms**, which is exactly the species
    §2.8 says to decide once across both. It also weakens the WCAG 1.4.10 argument for the phone
    heatmap's two-dimensional scrolling, which rests on it being a data table.
-3. **Two costs of never unmounting a pane, recorded rather than fixed.** Once the Map tab has been
-   visited, its `MapView` lives for the session: `useAuroraViewline`'s 5-minute poll keeps running
-   behind the Plan tab (and doubles while an overlay is open), and `fetchTravelDayRanges` is
-   duplicated with the one the briefing provider already makes. This is the same species as the
-   Operations pane's Scheduler poll, which P15a recorded and left. If it is not wanted, release
-   panes in the shell rather than deleting the comments.
+3. **The cost of never unmounting the Map pane — measured, and smaller than it sounds.** Counted on
+   the running app (halve everything for StrictMode's double-invoke in dev): opening the Map tab for
+   the first time fires **four** endpoints — drive-times, travel-days, aurora available-dates, astro
+   available-dates — of which only `/api/travel-days` duplicates a call the briefing provider already
+   made. **Re-opening the tab fires nothing at all**, which is the sticky mount earning its keep, and
+   nothing is fetched before the tab is first opened.
+   What is *not* bounded is `useAuroraViewline`'s 5-minute poll: once the pane exists it runs for the
+   session behind the Plan tab, and doubles while an overlay is open. It is conditional on PRO/ADMIN
+   **and** an alert level of MODERATE/STRONG, so it did not fire during the measurement above — which
+   also means it will not be noticed until a real aurora night. Same species as the Operations pane's
+   Scheduler poll, which P15a recorded and left. If it is not wanted, release panes in the shell
+   rather than deleting the comments.
 4. **On a phone, the map overlay's own bottom sheet covers its "Open the full Map tab" button.**
    Pre-existing, in `MapOverlay`/`MapView`, and reproduced at 390px while verifying P15b — the
    Playwright click was intercepted by `bottom-sheet-root`. Nothing to do with the tab; it means the
