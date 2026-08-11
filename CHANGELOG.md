@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.17.16] - 2026-08-11
+
 ### Fixed — the forecast-movement log was measuring the wrong thing
 
 The table that records how much a rating moves between evaluations was timing the wrong clock. It
