@@ -113,15 +113,38 @@ describe('WindowFirstDoors', () => {
       expect(screen.getByTestId('window-first-door-topics')).toBeInTheDocument();
     });
 
-    it('drops the regional door on a phone, where the grid renders nothing at all', () => {
-      // Found by review. `HeatmapGrid`'s whole output is `hidden sm:grid` / `hidden sm:flex`, and
-      // the v1 arm wraps the same disclosure in `hidden sm:block` (DailyBriefing.jsx:1526) — a guard
-      // the re-parenting dropped. Without this the tile opened a ~26px empty bordered box and fired
-      // one astro request per date for content that cannot paint.
+    it('keeps the regional door on a phone, now that the grid has a phone layout', () => {
+      // This assertion is INVERTED from what it pinned before, and deliberately so. The old rule
+      // was "no door on a phone, because `HeatmapGrid` is `hidden sm:grid` and the tile would open
+      // a ~26px empty bordered box". The grid now renders at every width (a scroller with the
+      // region column pinned), so the gate it stood in for is gone and the owner gets the full plan
+      // on the surface they actually read on.
+      //
+      // It also removes this file's side of the rem/px seam: the gate was `useIsMobile`
+      // (`max-width: 639px`, px) standing in for Tailwind's `sm:` (40rem).
       setViewport(true);
       renderDoors();
-      expect(screen.queryByTestId('window-first-door-regional')).toBeNull();
+      expect(screen.getByTestId('window-first-door-regional')).toBeInTheDocument();
       expect(screen.getByTestId('window-first-door-topics')).toBeInTheDocument();
+    });
+
+    it('opens onto the real panel on a phone, not an empty box', () => {
+      // The half that matters. A door that renders is worth nothing if what it opens is empty —
+      // that empty box is precisely what the removed gate existed to prevent, so the replacement
+      // has to prove the panel actually mounts at phone width rather than merely that the tile does.
+      setViewport(true);
+      renderDoors();
+      fireEvent.click(screen.getByTestId('window-first-door-regional'));
+      expect(screen.getByTestId('window-first-panel-regional-body')).toBeInTheDocument();
+      expect(screen.getByTestId('stub-regional')).toBeInTheDocument();
+    });
+
+    it('still drops the regional door on a phone when there are no windows to plan over', () => {
+      // The viewport term went; the other two did not. Without this, "works on a phone" could be
+      // read as "the door is now unconditional", and the all-away case would regress unnoticed.
+      setViewport(true);
+      renderDoors({ windowCards: [], upcomingEvents: EVENTS });
+      expect(screen.queryByTestId('window-first-door-regional')).toBeNull();
     });
 
     it('keeps the hot-topics door on a phone, because that strip has no breakpoint gate', () => {

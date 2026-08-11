@@ -1668,3 +1668,73 @@ describe('HeatmapGrid — poor-region pooling (A3a)', () => {
     expect(screen.queryByText('Poor Alpha')).toBeNull();
   });
 });
+
+describe('HeatmapGrid — the phone layout', () => {
+  // ⚠️ These assert the CLASS the component emits, never the layout it produces, and that is a
+  // limit of the harness rather than a shortcut. `vite.config.js` sets `css: false` and jsdom
+  // evaluates no stylesheet and does no layout, so `overflow-x`, `position: sticky`, `100cqw` and
+  // `min-width: max-content` are all unreachable here — a test asserting any of them would pass
+  // against a deleted rule. The geometry was measured in a browser instead (302px port / 751px
+  // content at 390px, the pinned column holding at x=0 through a full 449px scroll, the drill-down
+  // pinned at the port's 302px, and desktop unchanged at 140px + 6×142px). What these tests protect
+  // is the other half: that the hooks those rules attach to are still on the elements.
+
+  it('renders the grid inside a scroll port, and no longer hides it below the sm breakpoint', () => {
+    // The whole defect in one assertion. `hidden sm:grid` meant the full plan did not exist on a
+    // phone, so the arm above hid the door rather than open an empty box.
+    renderGrid();
+    const grid = screen.getByTestId('briefing-heatmap');
+    expect(grid.className).not.toContain('hidden');
+    expect(grid.className).not.toContain('sm:grid');
+    expect(grid.parentElement).toHaveClass('heatmap-scroller');
+  });
+
+  it('stops hiding the away band below the sm breakpoint too', () => {
+    // The band was `hidden sm:flex`. Leaving it behind would have made an all-away horizon on a
+    // phone the one case that still rendered nothing.
+    renderGrid({ travelDayDates: new Set([DATE_1]) });
+    const bands = screen.getByTestId('heatmap-away-bands');
+    expect(bands.className).not.toContain('hidden');
+    expect(bands).toHaveClass('flex');
+  });
+
+  it('marks the region column for pinning, header corners included', () => {
+    // Both corner cells as well as the labels: a pinned column that starts below its own header
+    // lets the header scroll away from the rows it names.
+    renderGrid();
+    const grid = screen.getByTestId('briefing-heatmap');
+    const pins = grid.querySelectorAll('.heatmap-pin');
+    // "Region" header + the empty sub-header corner + one label for the single region rendered.
+    expect(pins).toHaveLength(3);
+    expect(pins[0]).toHaveTextContent('Region');
+    expect(pins[1]).toBeEmptyDOMElement();
+    expect(pins[2]).toHaveTextContent('North East');
+  });
+
+  it('marks the drill-down so it stays with the reader rather than with the grid', () => {
+    // The drill-down spans `1 / -1`, so once the tracks overflow it is as wide as the whole grid.
+    // You open it by tapping a cell — i.e. already scrolled right — so unpinned it renders from the
+    // grid's x=0, off-screen to the left of where you are looking.
+    renderGrid();
+    fireEvent.click(screen.getAllByTestId('heatmap-cell')[0]);
+    expect(screen.getByTestId('drill-down-panel')).toHaveClass('heatmap-span');
+  });
+
+  it('marks the poor-regions toggle, the other full-width item', () => {
+    // Same span, same failure: centred label in a ~700px button is a label at 350px, off-screen.
+    renderMixedGrid([
+      { name: 'Rated Region', verdict: 'GO', displayVerdict: 'WORTH_IT' },
+      { name: 'Poor Alpha', verdict: 'STANDDOWN', displayVerdict: 'STAND_DOWN' },
+    ]);
+    expect(screen.getByTestId('heatmap-poor-toggle')).toHaveClass('heatmap-span');
+  });
+
+  it('keeps the event columns on a floor rather than letting them shrink to nothing', () => {
+    // The floor IS the phone layout: `minmax(96px, 1fr)` keeps `1fr` wherever there is room and
+    // overflows into the scroller where there is not, so no media query — and no inline-style trap,
+    // which is what a media query would have hit, since this value is an inline style.
+    renderGrid();
+    const cols = screen.getByTestId('briefing-heatmap').style.gridTemplateColumns;
+    expect(cols).toBe('minmax(100px, 140px) repeat(2, minmax(96px, 1fr))');
+  });
+});

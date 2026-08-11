@@ -349,7 +349,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
     <div
       data-testid="drill-down-panel"
       style={{ gridColumn: '1 / -1' }}
-      className="px-3 py-2.5 rounded bg-plex-bg/50 border border-plex-border/30 mt-0.5"
+      className="heatmap-span px-3 py-2.5 rounded bg-plex-bg/50 border border-plex-border/30 mt-0.5"
     >
       <div className="flex items-center gap-3 mb-2">
         <span className="font-semibold text-plex-text" style={{ fontSize: '15px' }}>
@@ -777,7 +777,20 @@ export default function HeatmapGrid({
   if (sortedRegions.length === 0 || events.length === 0) return null;
 
   const numEventCols = gridEvents.length;
-  const gridCols = `minmax(100px, 140px) repeat(${numEventCols}, minmax(0, 1fr))`;
+  // The whole phone layout is this one `minmax` floor, and it is deliberately NOT a media query.
+  //
+  // `gridTemplateColumns` is an inline style, and an inline style beats every stylesheet rule — this
+  // file's sibling components have shipped two dead phone rules that way already. So the responsive
+  // behaviour has to fall out of the track list itself: 96px is the floor at which a cell can still
+  // draw its widest line (the weather clause, `☀14°C 8mph` at 10px mono, measured ~76px inside
+  // `px-2`), and `1fr` still wins wherever there is room. At 1280 the fr resolves to 142px, so
+  // desktop is arithmetically unchanged; below roughly 780px the tracks stop shrinking and overflow
+  // instead, which is what `.heatmap-scroller` is there to catch.
+  //
+  // The region column's 100px floor was already load-bearing and is left alone: the label is 13px
+  // with `word-break: break-word`, and "Northumberland" alone measures ~92px, so a narrower column
+  // breaks a region name mid-word.
+  const gridCols = `minmax(100px, 140px) repeat(${numEventCols}, minmax(96px, 1fr))`;
 
   // Group the in-view away dates into consecutive runs, one band per run (e.g. Mon–Tue).
   const awayDatesInView = [...new Set(events.map((ev) => ev.date).filter((d) => travelDayDates.has(d)))].sort();
@@ -872,7 +885,7 @@ export default function HeatmapGrid({
       <React.Fragment key={regionName}>
         {/* Region label */}
         <div
-          className="font-medium text-plex-text px-1 py-2 flex items-start transition-opacity duration-300"
+          className="heatmap-pin font-medium text-plex-text px-1 py-2 flex items-start transition-opacity duration-300"
           style={{
             fontSize: '13px',
             overflowWrap: 'break-word',
@@ -968,13 +981,18 @@ export default function HeatmapGrid({
   return (
     <>
       {gridEvents.length > 0 && (
+      /* The scroll port, and a separate element from the grid on purpose: it is what
+         `position: sticky` on the pinned column resolves against, and what `100cqw` measures. The
+         grid itself cannot be both, because `container-type: inline-size` applies `contain:
+         layout inline-size` and that is not a thing to put on the box whose tracks are overflowing. */
+      <div className="heatmap-scroller">
       <div
         data-testid="briefing-heatmap"
-        className="hidden sm:grid gap-1 mt-2"
+        className="grid gap-1 mt-2"
         style={{ gridTemplateColumns: gridCols }}
       >
       {/* ── Header row: corner + day-spanning headers ── */}
-      <div className="px-1 py-1" style={{ fontSize: '12px', color: 'var(--color-plex-text-secondary)' }}>
+      <div className="heatmap-pin px-1 py-1" style={{ fontSize: '12px', color: 'var(--color-plex-text-secondary)' }}>
         Region
       </div>
       {dayGroups.map(({ date, count }) => {
@@ -1057,7 +1075,7 @@ export default function HeatmapGrid({
       })}
 
       {/* ── Sub-column header row: 🌅 / 🌇 ── */}
-      <div /> {/* empty corner */}
+      <div className="heatmap-pin" /> {/* empty corner */}
       {gridEvents.map(({ date, targetType }) => (
         <div
           key={`${date}-${targetType}`}
@@ -1082,7 +1100,7 @@ export default function HeatmapGrid({
           // Secondary (0.66a), not muted (0.42a): this is the sole affordance to reveal the pooled
           // rows, so its label must clear comfortable contrast at rest — hover never fires for
           // keyboard/touch users. Matches the C3 fine-print bump.
-          className="font-mono text-plex-text-secondary hover:text-plex-text border border-plex-border hover:border-plex-border-light rounded transition-colors"
+          className="heatmap-span font-mono text-plex-text-secondary hover:text-plex-text border border-plex-border hover:border-plex-border-light rounded transition-colors"
           style={{ gridColumn: '1 / -1', fontSize: '11px', padding: '6px 10px', marginTop: '2px', justifySelf: 'stretch' }}
         >
           {showPoorRegions
@@ -1092,11 +1110,12 @@ export default function HeatmapGrid({
       )}
       {poolPoor && showPoorRegions && poorRegions.map((regionName) => renderRegionRow(regionName, true))}
       </div>
+      </div>
       )}
 
       {/* ── A3b: away days collapsed into slim consecutive-range band(s) below the grid ── */}
       {awayRuns.length > 0 && (
-        <div data-testid="heatmap-away-bands" className="hidden sm:flex sm:flex-col gap-1 mt-1">
+        <div data-testid="heatmap-away-bands" className="flex flex-col gap-1 mt-1">
           {awayRuns.map((run) => (
             <div
               key={run[0]}

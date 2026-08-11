@@ -620,6 +620,87 @@
   z-index: 40;
 }
 
+/* ── The heatmap's phone layout ──────────────────────────────────────────────────────────────────
+   The grid used to be `hidden sm:grid`, so below 640px it drew nothing and the arm above it hid the
+   door rather than open an empty box. Nobody decided a phone reader does not need the full plan.
+
+   The scroller is UNCONDITIONAL, like the P15a tab bar's, because the trigger is not a viewport
+   width — it is whether the tracks fit. `HeatmapGrid`'s `minmax(96px, 1fr)` floor keeps `1fr`
+   wherever there is room (142px at 1280, arithmetically unchanged) and stops shrinking below 96px,
+   so this rule is inert at desktop and engages from roughly 780px down. A media query here would
+   have to guess that number, and it moves with the column count.
+
+   ⚠️ `overflow-x` computes `overflow-y` to `auto` as well — the pair cannot be split, which is the
+   note `.rail-scroller` and `.wf-tabs` both already carry. So the room a focus ring and the cells'
+   `hover:scale` need outside the padding box is bought here and handed straight back with a
+   negative margin, leaving surrounding layout where it was. The hover TOOLTIP needs nothing: it is
+   portalled to `<body>`, which is why it was portalled.
+
+   `container-type: inline-size` is what `100cqw` below measures, and it is on this element rather
+   than the grid because it applies `contain: layout inline-size` — not something to put on the box
+   whose own tracks are meant to overflow. */
+.heatmap-scroller {
+  overflow-x: auto;
+  container-type: inline-size;
+  padding-bottom: 4px;
+  margin-bottom: -4px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.heatmap-scroller::-webkit-scrollbar { display: none; }
+
+/* ⚠️ Load-bearing, and the pinned column below silently does not pin without it.
+   A sticky grid item is clamped to its containing block, and that block is derived from the GRID
+   BOX — not from the track list. Left alone, the grid box stays the port's 302px while its tracks
+   overflow to 740px, so the pinned cell has almost no room to travel and slides away under scroll.
+   Measured before the fix: the column reached x = −196 against a port at x = 0, i.e. gone.
+   `min-width: max-content` makes the box as wide as its tracks, which is what gives sticky
+   somewhere to stick.
+   `min-width` rather than `width`: at desktop the box then stretches to the port as a block and
+   the `1fr` tracks still resolve to 142px, so nothing above the phone band moves. Under plain
+   `width: max-content` the `1fr` tracks would size to their content instead and desktop would
+   collapse. Both branches measured. */
+.heatmap-scroller > [data-testid='briefing-heatmap'] {
+  min-width: max-content;
+}
+
+/* The region column, pinned. Without it, scrolling right leaves the reader looking at four
+   unlabelled rows of colour — the row identity IS the region name, and it is the one column that
+   cannot be recovered from context.
+
+   It needs an opaque background or the scrolling cells read straight through it, and the colour has
+   to be the one actually behind the grid — anything else paints a visible block at desktop, where
+   the column is pinned but never travels. Measured in both arms: the nearest painted ancestor is
+   `rgb(34, 26, 21)` either way — `.wf-door-panel` in v2, `.card` in v1 — which is
+   `--color-plex-surface`. So one literal is right for both, and it is invisible until it is doing
+   work. (`--color-plex-panel` was tried first and is 4 shades darker; it drew exactly that block,
+   most visibly at the empty sub-header corner.)
+
+   `z-index: 2` clears the cells (auto) and stays under the hovered cell's 40 and the sticky lens
+   bar's 20 — a hovered cell should still be able to lift over its own row label. */
+.heatmap-pin {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--color-plex-surface);
+}
+
+/* The two `grid-column: 1 / -1` items — the drill-down and the poor-regions toggle. Both span the
+   TRACKS, so once the tracks overflow they are as wide as the whole grid (~700px at the phone
+   sizing) inside a 302px port. The drill-down is the worse of the two and the reason this rule
+   exists: you open it by tapping a cell, so you are already scrolled right when a 700px panel
+   renders from the grid's x=0 — off-screen, to the left of where you are looking.
+
+   `100cqw` is the SCROLL PORT's width, not the grid's, which is the entire point: pinned at
+   `left: 0` and sized to the port, both items stay exactly where the reader is regardless of scroll
+   position. At desktop the grid does not overflow, so `100cqw` equals the grid width and `left: 0`
+   is where the item already was — the rule is inert rather than merely harmless. */
+.heatmap-span {
+  position: sticky;
+  left: 0;
+  width: 100cqw;
+}
+
 /* "Close to home" location cards — lift and warm on hover.
    Border and background live HERE, not in the component's inline style. An inline
    `border: 1px solid …` shorthand is a style-attribute declaration, so it outranks every
