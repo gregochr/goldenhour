@@ -83,8 +83,8 @@ Door.propTypes = {
  *       {@code docs/engineering/phone-heatmap-blast-radius.md} for why that change could not reach
  *       the frozen v1 arm.</li>
  *   <li><b>Travel days.</b> {@code upcomingEvents} is the list <em>before</em> the travel filter,
- *       and the grid drops away columns itself ({@code gridEvents}, {@code HeatmapGrid.jsx:728},
- *       gating its whole grid at {@code :970}). An operator away across the entire capped horizon
+ *       and the grid drops away columns itself ({@code gridEvents}, and it gates its whole grid on
+ *       the filtered list being non-empty). An operator away across the entire capped horizon
  *       therefore got a door promising "every region, every window" over a panel holding one dashed
  *       band — whose own wording, "no forecast generated", is the phrase the away row directly above
  *       it deliberately rejects. {@code windowCards} is the travel-filtered set by construction, so

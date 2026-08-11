@@ -135,6 +135,18 @@ describe('WindowFirstRegionalPanel', () => {
     expect(HeatmapGrid.lastProps.evaluationScores.get('k')).toEqual({ rating: 4 });
   });
 
+  it('opts the grid into the phone layout, which the frozen v1 arm does not', () => {
+    // The single line that makes the full plan reachable on a phone in this arm, and the single
+    // line whose absence is invisible: `scrollable` defaults to false, so dropping it here disables
+    // the scroll port and the pinned column with every test in `HeatmapGrid.test.jsx` still green —
+    // that suite passes the prop itself and cannot see this call site.
+    //
+    // Asserted `toBe(true)` rather than truthy: the grid branches on it to choose a 96px column
+    // floor over `0`, and that floor is exactly what must NOT reach `DailyBriefing`.
+    renderPanel();
+    expect(HeatmapGrid.lastProps.scrollable).toBe(true);
+  });
+
   it('passes a boolean for the paid tier, never a role', () => {
     // Plan §5c: `role` enters this arm at the provider and stops there.
     renderPanel({ isPro: false });

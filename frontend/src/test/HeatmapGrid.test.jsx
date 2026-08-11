@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import HeatmapGrid from '../components/HeatmapGrid.jsx';
 
 vi.mock('../hooks/useConfirmDialog.js', () => ({
@@ -50,7 +50,7 @@ function buildBriefingDays(dates, regionName, locationNames) {
   }));
 }
 
-function renderGrid({ events, briefingDays, showAllLocations, travelDayDates } = {}) {
+function renderGrid({ events, briefingDays, showAllLocations, travelDayDates, scrollable } = {}) {
   const regionName = 'North East';
   const locNames = ['Bamburgh', 'Kielder'];
   const days = briefingDays || buildBriefingDays([DATE_1, DATE_2], regionName, locNames);
@@ -74,6 +74,7 @@ function renderGrid({ events, briefingDays, showAllLocations, travelDayDates } =
       astroScoresByDate={{}}
       showAllLocations={showAllLocations || false}
       travelDayDates={travelDayDates || new Set()}
+      scrollable={scrollable || false}
     />,
   );
 }
@@ -1426,7 +1427,7 @@ function buildRegionsDays(dates, regions) {
   }));
 }
 
-function renderMixedGrid(regions) {
+function renderMixedGrid(regions, { scrollable = false } = {}) {
   return render(
     <HeatmapGrid
       events={[{ date: DATE_1, targetType: 'SUNSET' }, { date: DATE_2, targetType: 'SUNSET' }]}
@@ -1440,6 +1441,7 @@ function renderMixedGrid(regions) {
       onShowOnMap={vi.fn()}
       astroScoresByDate={{}}
       travelDayDates={new Set()}
+      scrollable={scrollable}
     />,
   );
 }
@@ -1670,71 +1672,216 @@ describe('HeatmapGrid — poor-region pooling (A3a)', () => {
 });
 
 describe('HeatmapGrid — the phone layout', () => {
-  // ⚠️ These assert the CLASS the component emits, never the layout it produces, and that is a
-  // limit of the harness rather than a shortcut. `vite.config.js` sets `css: false` and jsdom
-  // evaluates no stylesheet and does no layout, so `overflow-x`, `position: sticky`, `100cqw` and
-  // `min-width: max-content` are all unreachable here — a test asserting any of them would pass
-  // against a deleted rule. The geometry was measured in a browser instead (302px port / 751px
-  // content at 390px, the pinned column holding at x=0 through a full 449px scroll, the drill-down
-  // pinned at the port's 302px, and desktop unchanged at 140px + 6×142px). What these tests protect
-  // is the other half: that the hooks those rules attach to are still on the elements.
+  // ⚠️ These assert the CLASS the component emits, never the layout it produces, and that is a limit
+  // of the harness rather than a shortcut. `vite.config.js` sets `css: false` and jsdom does no
+  // layout, so `overflow-x`, `position: sticky`, `100cqw` and `min-width: max-content` are all
+  // unreachable here — a test asserting any of them would pass against a deleted rule. The geometry
+  // was measured in a browser instead (302px port over 751px of content at 390px, the pinned column
+  // holding at x=0 through a full 449px scroll, the drill-down pinned at the port's 302px, and
+  // desktop unchanged at 140px + 6×142px). What these tests protect is the other half: that the
+  // hooks those rules hang off are still on the elements, and that the opt-in still gates them.
 
-  it('renders the grid inside a scroll port, and no longer hides it below the sm breakpoint', () => {
-    // The whole defect in one assertion. `hidden sm:grid` meant the full plan did not exist on a
-    // phone, so the arm above hid the door rather than open an empty box.
-    renderGrid();
-    const grid = screen.getByTestId('briefing-heatmap');
-    expect(grid.className).not.toContain('hidden');
-    expect(grid.className).not.toContain('sm:grid');
-    expect(grid.parentElement).toHaveClass('heatmap-scroller');
+  /** Two regions, because a pinned column is about telling ROWS apart. */
+  const TWO_REGIONS = [
+    { name: 'Rated Region', verdict: 'GO', displayVerdict: 'WORTH_IT' },
+    { name: 'Second Rated', verdict: 'GO', displayVerdict: 'WORTH_IT' },
+  ];
+
+  describe('when the caller opts in', () => {
+    it('renders the grid inside a scroll port, and no longer hides it below the sm breakpoint', () => {
+      // The whole defect in one test. `hidden sm:grid` meant the full plan did not exist on a phone.
+      // The POSITIVE assertion is the load-bearing one: without it, deleting `grid` from the class
+      // list collapses the heatmap into a stacked block list and every other test here stays green,
+      // because `gridTemplateColumns` is still set inline and jsdom lays nothing out.
+      renderGrid({ scrollable: true });
+      const grid = screen.getByTestId('briefing-heatmap');
+      expect(grid).toHaveClass('grid');
+      expect(grid).toHaveClass('heatmap-grid');
+      expect(grid).not.toHaveClass('hidden');
+      expect(screen.getByTestId('heatmap-scroller')).toHaveClass('heatmap-scroller');
+    });
+
+    it('keeps the grid a child of the scroll port, which is what sticky resolves against', () => {
+      // `min-width: max-content` is applied through `.heatmap-scroller > .heatmap-grid`, and the
+      // pinned column silently stops pinning without it — measured at x=−196 against a port at 0.
+      // A wrapper inserted between the two would break that selector and nothing else would notice.
+      renderGrid({ scrollable: true });
+      expect(screen.getByTestId('heatmap-scroller')).toContainElement(screen.getByTestId('briefing-heatmap'));
+      expect(screen.getByTestId('briefing-heatmap').parentElement).toBe(screen.getByTestId('heatmap-scroller'));
+    });
+
+    it('stops hiding the away band, and keeps it stacking', () => {
+      // The band was `hidden sm:flex sm:flex-col`. `flex-col` is asserted as well as `flex`: without
+      // it two bands lay out in a ROW inside a no-wrap port, and this file already fixtures the
+      // two-band case.
+      renderGrid({ scrollable: true, travelDayDates: new Set([DATE_1]) });
+      const bands = screen.getByTestId('heatmap-away-bands');
+      expect(bands).not.toHaveClass('hidden');
+      expect(bands).toHaveClass('flex');
+      expect(bands).toHaveClass('flex-col');
+    });
+
+    it('marks every region label for pinning, and both header corners', () => {
+      // Two regions, so the rule this pins — "scrolling right leaves the reader looking at
+      // unlabelled rows of colour" — is actually on screen. Asserted per element rather than as a
+      // count: a bare length fails spuriously the moment the shared fixture grows a region, with a
+      // message naming nothing about pinning.
+      renderMixedGrid(TWO_REGIONS, { scrollable: true });
+      const labels = screen.getAllByTestId('heatmap-region-label');
+      expect(labels.map((l) => l.textContent)).toEqual(['Rated Region', 'Second Rated']);
+      labels.forEach((label) => expect(label).toHaveClass('heatmap-pin'));
+      // The header corners too: a pinned column starting below its own header lets the header
+      // scroll away from the rows it names.
+      expect(screen.getByText('Region')).toHaveClass('heatmap-pin');
+    });
+
+    it('marks the drill-down, so it stays with the reader rather than with the grid', () => {
+      // It spans `1 / -1`, so once the tracks overflow it is as wide as the whole grid. You open it
+      // by tapping a cell — already scrolled right — so unpinned it renders from the grid's x=0,
+      // off-screen to the left of where you are looking.
+      renderGrid({ scrollable: true });
+      fireEvent.click(screen.getAllByTestId('heatmap-cell')[0]);
+      expect(screen.getByTestId('drill-down-panel')).toHaveClass('heatmap-span');
+    });
+
+    it('marks the poor-regions toggle, the other full-width item', () => {
+      // Same span, same failure: a centred label in a 751px button is a label at 375px, off-screen.
+      renderMixedGrid([
+        { name: 'Rated Region', verdict: 'GO', displayVerdict: 'WORTH_IT' },
+        { name: 'Poor Alpha', verdict: 'STANDDOWN', displayVerdict: 'STAND_DOWN' },
+      ], { scrollable: true });
+      expect(screen.getByTestId('heatmap-poor-toggle')).toHaveClass('heatmap-span');
+    });
+
+    it('puts a 96px floor under the event columns, at any column count', () => {
+      // The floor IS the phone layout: `1fr` wherever there is room, overflow into the scroller
+      // where there is not — so no media query, which matters because this value is an inline style
+      // and a media query could not have reached it.
+      //
+      // Matched rather than compared whole: the column COUNT is the thing that must not be pinned,
+      // since the justification for a floor over a breakpoint is precisely that the width at which
+      // it bites moves with the count. Asserted at one column and at the production six.
+      const one = [{ date: DATE_1, targetType: 'SUNSET' }];
+      renderGrid({ scrollable: true, events: one });
+      expect(screen.getByTestId('briefing-heatmap').style.gridTemplateColumns)
+        .toMatch(/repeat\(1, minmax\(96px, 1fr\)\)$/);
+      cleanup();
+
+      // Three days × sunrise/sunset, in date order — the production shape. Grouped by date rather
+      // than appended, because `dayGroups` folds CONSECUTIVE same-date events into one spanning
+      // header and a non-consecutive repeat would give two headers the same React key.
+      const six = [DATE_1, DATE_2, futureDateStr(3)].flatMap((d) => [
+        { date: d, targetType: 'SUNRISE' }, { date: d, targetType: 'SUNSET' },
+      ]);
+      renderGrid({ scrollable: true, events: six });
+      expect(screen.getByTestId('briefing-heatmap').style.gridTemplateColumns)
+        .toMatch(/repeat\(6, minmax\(96px, 1fr\)\)$/);
+    });
   });
 
-  it('stops hiding the away band below the sm breakpoint too', () => {
-    // The band was `hidden sm:flex`. Leaving it behind would have made an all-away horizon on a
-    // phone the one case that still rendered nothing.
-    renderGrid({ travelDayDates: new Set([DATE_1]) });
-    const bands = screen.getByTestId('heatmap-away-bands');
-    expect(bands.className).not.toContain('hidden');
-    expect(bands).toHaveClass('flex');
+  describe('a phone is a coarse pointer, and a tap is not a hover', () => {
+    /** Overrides the suite's static `matches: false` stub for one query. */
+    const setPointer = (coarse) => {
+      window.matchMedia = (query) => ({
+        matches: coarse && query.includes('pointer: coarse'),
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        onchange: null,
+        dispatchEvent: () => false,
+      });
+    };
+    const original = window.matchMedia;
+    afterEach(() => { window.matchMedia = original; });
+
+    it('shows the cell tooltip on hover with a fine pointer', () => {
+      // The control. Without it the next test passes against a tooltip that never worked at all.
+      setPointer(false);
+      renderGrid({ scrollable: true });
+      fireEvent.mouseEnter(screen.getAllByTestId('heatmap-cell')[0]);
+      expect(screen.getByTestId('cell-hover-tip')).toBeInTheDocument();
+    });
+
+    it('shows no tooltip on a coarse pointer, from hover OR from focus', () => {
+      // A touch browser synthesises `mouseenter` on tap AND the tap focuses the cell, so both paths
+      // fired — leaving a 220px fixed-position card parked over the grid with no `mouseleave`
+      // coming to dismiss it and no scroll listener behind its once-computed placement. Both are
+      // asserted because removing only one leaves the tap still raising it.
+      setPointer(true);
+      renderGrid({ scrollable: true });
+      const cell = screen.getAllByTestId('heatmap-cell')[0];
+      fireEvent.mouseEnter(cell);
+      expect(screen.queryByTestId('cell-hover-tip')).toBeNull();
+      fireEvent.focus(cell);
+      expect(screen.queryByTestId('cell-hover-tip')).toBeNull();
+    });
+
+    it('still opens the drill-down on a coarse pointer', () => {
+      // The half that must survive the fix: suppressing the tooltip must not suppress the tap.
+      setPointer(true);
+      renderGrid({ scrollable: true });
+      fireEvent.click(screen.getAllByTestId('heatmap-cell')[0]);
+      expect(screen.getByTestId('drill-down-panel')).toBeInTheDocument();
+    });
   });
 
-  it('marks the region column for pinning, header corners included', () => {
-    // Both corner cells as well as the labels: a pinned column that starts below its own header
-    // lets the header scroll away from the rows it names.
-    renderGrid();
-    const grid = screen.getByTestId('briefing-heatmap');
-    const pins = grid.querySelectorAll('.heatmap-pin');
-    // "Region" header + the empty sub-header corner + one label for the single region rendered.
-    expect(pins).toHaveLength(3);
-    expect(pins[0]).toHaveTextContent('Region');
-    expect(pins[1]).toBeEmptyDOMElement();
-    expect(pins[2]).toHaveTextContent('North East');
+  describe('the scroll port is reachable by keyboard', () => {
+    it('is focusable and named when it is a port', () => {
+      // There is a reachable state with no focusable descendant — an all-poor briefing with poor
+      // locations hidden makes every cell `tabIndex={-1}` and switches off the poor-regions toggle
+      // — so without this a keyboard user cannot reach columns 3-6 at all.
+      renderGrid({ scrollable: true });
+      const port = screen.getByTestId('heatmap-scroller');
+      expect(port).toHaveAttribute('tabindex', '0');
+      expect(screen.getByRole('region', { name: /scrolls sideways/i })).toBe(port);
+    });
+
+    it('is not a tab stop when it is not a port', () => {
+      // An unscrollable div in the tab order is a stop that does nothing.
+      renderGrid();
+      const port = screen.getByTestId('heatmap-scroller');
+      expect(port).not.toHaveAttribute('tabindex');
+      expect(port).not.toHaveAttribute('role');
+    });
   });
 
-  it('marks the drill-down so it stays with the reader rather than with the grid', () => {
-    // The drill-down spans `1 / -1`, so once the tracks overflow it is as wide as the whole grid.
-    // You open it by tapping a cell — i.e. already scrolled right — so unpinned it renders from the
-    // grid's x=0, off-screen to the left of where you are looking.
-    renderGrid();
-    fireEvent.click(screen.getAllByTestId('heatmap-cell')[0]);
-    expect(screen.getByTestId('drill-down-panel')).toHaveClass('heatmap-span');
-  });
+  describe('when the caller does not opt in — the frozen v1 arm', () => {
+    // The blast radius, pinned. `DailyBriefing` renders this grid too and is frozen for the
+    // side-by-side comparison the redesign is judged by. A 96px floor changes any container
+    // narrower than ~800px, and that arm has such a band — measured 68.3px event columns at a 640px
+    // viewport, 91.7px at 780px. If any of these four flip, that arm has silently moved.
 
-  it('marks the poor-regions toggle, the other full-width item', () => {
-    // Same span, same failure: centred label in a ~700px button is a label at 350px, off-screen.
-    renderMixedGrid([
-      { name: 'Rated Region', verdict: 'GO', displayVerdict: 'WORTH_IT' },
-      { name: 'Poor Alpha', verdict: 'STANDDOWN', displayVerdict: 'STAND_DOWN' },
-    ]);
-    expect(screen.getByTestId('heatmap-poor-toggle')).toHaveClass('heatmap-span');
-  });
+    it('puts no floor under the event columns', () => {
+      renderGrid();
+      expect(screen.getByTestId('briefing-heatmap').style.gridTemplateColumns)
+        .toBe('minmax(100px, 140px) repeat(2, minmax(0, 1fr))');
+    });
 
-  it('keeps the event columns on a floor rather than letting them shrink to nothing', () => {
-    // The floor IS the phone layout: `minmax(96px, 1fr)` keeps `1fr` wherever there is room and
-    // overflows into the scroller where there is not, so no media query — and no inline-style trap,
-    // which is what a media query would have hit, since this value is an inline style.
-    renderGrid();
-    const cols = screen.getByTestId('briefing-heatmap').style.gridTemplateColumns;
-    expect(cols).toBe('minmax(100px, 140px) repeat(2, minmax(96px, 1fr))');
+    it('adds no scroll port, so nothing overflows that did not overflow before', () => {
+      renderGrid();
+      expect(screen.getByTestId('heatmap-scroller')).not.toHaveClass('heatmap-scroller');
+    });
+
+    it('leaves the pin and span rules unmatched, since every one of them is scoped to the port', () => {
+      // The classes are still EMITTED — `HeatmapDrillDown` is a separate component and would
+      // otherwise need the flag threaded into it — and match nothing without the port. This test is
+      // what makes that shortcut safe to rely on.
+      renderGrid();
+      fireEvent.click(screen.getAllByTestId('heatmap-cell')[0]);
+      expect(screen.getByTestId('drill-down-panel')).toHaveClass('heatmap-span');
+      expect(screen.getByText('Region')).toHaveClass('heatmap-pin');
+      expect(screen.getByTestId('heatmap-scroller')).not.toHaveClass('heatmap-scroller');
+    });
+
+    it('still renders the grid and the away band at every width', () => {
+      // Opting out of the SCROLLER is not opting out of existing. The `hidden sm:*` removal is
+      // unconditional, and in v1 it is inert — that arm's own `hidden sm:block` wrapper is what
+      // gates it below 640px, which is why this change cannot reach it.
+      renderGrid({ travelDayDates: new Set([DATE_1]) });
+      expect(screen.getByTestId('briefing-heatmap')).not.toHaveClass('hidden');
+      expect(screen.getByTestId('heatmap-away-bands')).not.toHaveClass('hidden');
+    });
   });
 });

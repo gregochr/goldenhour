@@ -128,24 +128,14 @@ describe('WindowFirstDoors', () => {
       expect(screen.getByTestId('window-first-door-topics')).toBeInTheDocument();
     });
 
-    it('opens onto the real panel on a phone, not an empty box', () => {
-      // The half that matters. A door that renders is worth nothing if what it opens is empty —
-      // that empty box is precisely what the removed gate existed to prevent, so the replacement
-      // has to prove the panel actually mounts at phone width rather than merely that the tile does.
-      setViewport(true);
-      renderDoors();
-      fireEvent.click(screen.getByTestId('window-first-door-regional'));
-      expect(screen.getByTestId('window-first-panel-regional-body')).toBeInTheDocument();
-      expect(screen.getByTestId('stub-regional')).toBeInTheDocument();
-    });
-
-    it('still drops the regional door on a phone when there are no windows to plan over', () => {
-      // The viewport term went; the other two did not. Without this, "works on a phone" could be
-      // read as "the door is now unconditional", and the all-away case would regress unnoticed.
-      setViewport(true);
-      renderDoors({ windowCards: [], upcomingEvents: EVENTS });
-      expect(screen.queryByTestId('window-first-door-regional')).toBeNull();
-    });
+    // ⚠️ Deliberately NOT tested here: that the door opens onto a grid rather than an empty box.
+    // This file stubs `WindowFirstRegionalPanel` (see the mock at the top), so a test asserting the
+    // panel "really mounts" at phone width would be asserting a stub div that has no viewport
+    // behaviour and no `HeatmapGrid` inside it — green whether or not the grid renders. The claim
+    // is real and it is covered where it can be: `HeatmapGrid.test.jsx` § "the phone layout" pins
+    // that the grid is no longer `hidden sm:grid` and that it sits in a scroll port. Splitting it
+    // that way is the standards doc's own rule about not mocking a component's children to make a
+    // test pass.
 
     it('keeps the hot-topics door on a phone, because that strip has no breakpoint gate', () => {
       // The two tiles look identical, so hiding both would be as wrong as hiding neither.

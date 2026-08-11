@@ -12,6 +12,7 @@ import VerdictPill from './shared/VerdictPill.jsx';
 import ProvisionalMark from './shared/ProvisionalMark.jsx';
 import { RATING_COLOURS } from './markerUtils.js';
 import { daysOut, resolveConfidence, confidenceTreatment, scaleRgbaAlpha } from '../utils/confidenceUtils.js';
+import { useIsCoarsePointer } from '../hooks/useIsCoarsePointer.js';
 
 // ── Pure helpers (copied from DailyBriefing — shared logic) ─────────────────
 
@@ -503,7 +504,7 @@ function computeCellTipPlacement(rect) {
   return { style, alignRight };
 }
 
-function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map(), showAllLocations = false, todayStr = null }) {  const cellData = getSubCellData(date, regionName, targetType, briefingDays);
+function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map(), showAllLocations = false, todayStr = null, noHoverTip = false }) {  const cellData = getSubCellData(date, regionName, targetType, briefingDays);
 
   // Hover tooltip placement, portalled to <body> so the plan card's overflow:hidden can't clip
   // the rightmost column's tip. Declared before any early return to satisfy the rules of hooks.
@@ -626,10 +627,18 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
       style={{ minHeight: '52px', ...cellBg, pointerEvents: cellClickable ? undefined : 'none' }}
       onClick={cellClickable ? () => onToggle(date, regionName, targetType) : undefined}
       onKeyDown={cellClickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(date, regionName, targetType); } } : undefined}
-      onMouseEnter={showTip}
-      onMouseLeave={hideTip}
-      onFocus={showTip}
-      onBlur={hideTip}
+      // Removed, not no-oped, on a coarse pointer — `WindowSpotStrip`'s idiom, and for its reason:
+      // nothing can be scheduled, so there is no pending state to reason about either. A touch
+      // browser synthesises `mouseenter` on tap AND the tap focuses this `tabIndex={0}` div, so a
+      // single tap on a phone fired `showTip` twice and opened the drill-down — leaving a 220px
+      // fixed-position card parked over the grid with no `mouseleave` coming to dismiss it, and no
+      // scroll listener behind its once-computed placement. The rule's own comment in `index.css`
+      // has always called this tooltip "(desktop)"; until the grid reached a phone, that was true
+      // by accident of the grid not being there.
+      onMouseEnter={noHoverTip ? undefined : showTip}
+      onMouseLeave={noHoverTip ? undefined : hideTip}
+      onFocus={noHoverTip ? undefined : showTip}
+      onBlur={noHoverTip ? undefined : hideTip}
     >
       <div className="font-medium flex items-center gap-1" style={{ fontSize: '11px', color: verdictColour }}>
         <span>{verdictLabel}</span>
@@ -718,7 +727,13 @@ export default function HeatmapGrid({
   showAllLocations = false,
   onShowAllLocationsChange = null,
   travelDayDates = new Set(),
+  scrollable = false,
 }) {
+  // A tap is not a hover. Asks what is POINTING at the grid rather than how wide the viewport is,
+  // because the two disagree on exactly the devices this breaks — a touchscreen laptop is far wider
+  // than any mobile breakpoint and still has no hover. One call here rather than one per cell:
+  // there are 24+ cells on screen and each would otherwise register its own matchMedia listener.
+  const noHoverTip = useIsCoarsePointer();
   const [drillDown, setDrillDown] = useState(null); // { date, regionName, targetType }
   const [showPoorRegions, setShowPoorRegions] = useState(false); // A3a: reveal the pooled poor-only rows
   const [prevPoolPoor, setPrevPoolPoor] = useState(false); // tracks poolPoor to reset the reveal (F4)
@@ -783,14 +798,22 @@ export default function HeatmapGrid({
   // file's sibling components have shipped two dead phone rules that way already. So the responsive
   // behaviour has to fall out of the track list itself: 96px is the floor at which a cell can still
   // draw its widest line (the weather clause, `☀14°C 8mph` at 10px mono, measured ~76px inside
-  // `px-2`), and `1fr` still wins wherever there is room. At 1280 the fr resolves to 142px, so
-  // desktop is arithmetically unchanged; below roughly 780px the tracks stop shrinking and overflow
-  // instead, which is what `.heatmap-scroller` is there to catch.
+  // `px-2`), and `1fr` still wins wherever there is room. At 1280 the fr resolves to 142px, so the
+  // desktop grid is arithmetically unchanged; below roughly 780px the tracks stop shrinking and
+  // overflow instead, which is what `.heatmap-scroller` is there to catch.
+  //
+  // ⚠️ The floor is `0` unless the CALLER opts in, and that is the whole blast-radius story. A `96px`
+  // floor changes any container narrower than ~800px, and the frozen v1 arm has exactly such a band:
+  // measured, its event columns were 68.3px at 640 and 91.7px at 780. Applying the floor
+  // unconditionally would therefore have moved the arm this redesign is being COMPARED against, on
+  // widths nobody would have thought to re-check. Off by default, the two arms differ only where v2
+  // asks them to.
   //
   // The region column's 100px floor was already load-bearing and is left alone: the label is 13px
   // with `word-break: break-word`, and "Northumberland" alone measures ~92px, so a narrower column
   // breaks a region name mid-word.
-  const gridCols = `minmax(100px, 140px) repeat(${numEventCols}, minmax(96px, 1fr))`;
+  const colFloor = scrollable ? '96px' : '0';
+  const gridCols = `minmax(100px, 140px) repeat(${numEventCols}, minmax(${colFloor}, 1fr))`;
 
   // Group the in-view away dates into consecutive runs, one band per run (e.g. Mon–Tue).
   const awayDatesInView = [...new Set(events.map((ev) => ev.date).filter((d) => travelDayDates.has(d)))].sort();
@@ -884,18 +907,30 @@ export default function HeatmapGrid({
     return (
       <React.Fragment key={regionName}>
         {/* Region label */}
+        {/* The fade is on an inner span, not on the pinned box, and that is not cosmetic tidying.
+            `opacity` composites the WHOLE element including its background, so a faded pin would
+            paint its opaque backdrop at 6% and the scrolling cells would read straight through the
+            one column that exists to stay readable. `aria-hidden` stays on the outer box, where it
+            covers the text either way. (`faded` is reachable despite the note at
+            `isRegionFullyHidden`: the tier path is pinned open in both arms, but the predicate also
+            returns true for a region whose every in-view column is missing or already past.) */}
         <div
-          className="heatmap-pin font-medium text-plex-text px-1 py-2 flex items-start transition-opacity duration-300"
+          data-testid="heatmap-region-label"
+          className="heatmap-pin font-medium text-plex-text px-1 py-2 flex items-start"
           style={{
             fontSize: '13px',
             overflowWrap: 'break-word',
             wordBreak: 'break-word',
             minWidth: 0,
-            opacity: faded ? 0.06 : 1,
           }}
           aria-hidden={faded}
         >
-          {regionName}
+          <span
+            className="transition-opacity duration-300"
+            style={{ opacity: faded ? 0.06 : 1 }}
+          >
+            {regionName}
+          </span>
         </div>
 
         {/* Event cells (away days are excluded from the columns — shown as a band below) */}
@@ -950,6 +985,7 @@ export default function HeatmapGrid({
               evaluationScores={evaluationScores}
               showAllLocations={showAllLocations}
               todayStr={todayStr}
+              noHoverTip={noHoverTip}
             />
           );
         })}
@@ -984,11 +1020,29 @@ export default function HeatmapGrid({
       /* The scroll port, and a separate element from the grid on purpose: it is what
          `position: sticky` on the pinned column resolves against, and what `100cqw` measures. The
          grid itself cannot be both, because `container-type: inline-size` applies `contain:
-         layout inline-size` and that is not a thing to put on the box whose tracks are overflowing. */
-      <div className="heatmap-scroller">
+         layout inline-size` and that is not a thing to put on the box whose tracks are overflowing.
+
+         The element is unconditional but the CLASS is not, so a caller that did not ask for the
+         phone layout gets a bare `<div>` carrying no rules at all — one DOM node, no CSS, nothing
+         to re-measure. Keeping the element in both branches means one JSX path rather than two.
+
+         `tabIndex`/`role`/`aria-label` likewise ride the flag: an unscrollable div in the tab order
+         is a stop that does nothing. They are needed at all because there IS a reachable state with
+         no focusable descendant — an all-poor briefing with "include poor locations" off makes every
+         cell `tabIndex={-1}`, which also switches off the poor-regions toggle (that needs one rated
+         region), leaving a horizontally scrolling region whose columns 3–6 a keyboard user cannot
+         reach. A poor winter week is not an exotic fixture. Both sibling scrollers in this app have
+         the same gap; this is the one with the empty state, so it is the one that closes it. */
+      <div
+        data-testid="heatmap-scroller"
+        className={scrollable ? 'heatmap-scroller' : undefined}
+        tabIndex={scrollable ? 0 : undefined}
+        role={scrollable ? 'region' : undefined}
+        aria-label={scrollable ? 'Regional forecast grid, scrolls sideways' : undefined}
+      >
       <div
         data-testid="briefing-heatmap"
-        className="grid gap-1 mt-2"
+        className="heatmap-grid grid gap-1 mt-2"
         style={{ gridTemplateColumns: gridCols }}
       >
       {/* ── Header row: corner + day-spanning headers ── */}
@@ -1158,4 +1212,16 @@ HeatmapGrid.propTypes = {
   showAllLocations: PropTypes.bool,
   onShowAllLocationsChange: PropTypes.func,
   travelDayDates: PropTypes.instanceOf(Set),
+  /**
+   * Opt in to the phone layout: a horizontal scroll port with the region column and both
+   * full-width items pinned, and a 96px floor under the event columns.
+   *
+   * <p>A prop rather than an unconditional behaviour because this component has two call sites in
+   * two arms, and one of them — {@code DailyBriefing}, the v1 arm — is <b>frozen</b> for the
+   * side-by-side comparison the redesign is being judged by. The floor changes any container
+   * narrower than ~800px, and v1 has such a band: its event columns measured 68.3px at a 640px
+   * viewport and 91.7px at 780px. Defaulting to off keeps that arm byte-identical at every width
+   * while v2 gets the layout, and it says at the call site which arm asked for what.
+   */
+  scrollable: PropTypes.bool,
 };

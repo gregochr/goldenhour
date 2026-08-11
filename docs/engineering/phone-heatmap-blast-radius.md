@@ -29,21 +29,41 @@ and `hidden sm:flex` (`:1099`, the away band) — and exactly two call sites:
 | `DailyBriefing.jsx:1555` | v1 (frozen) | an **ancestor** at `:1526` is `<div className="hidden sm:block">` |
 | `WindowFirstRegionalPanel.jsx:126` | v2 | `WindowFirstDoors`' `!isMobile` hook, plus the component's own two classes |
 
-**The change cannot reach v1.** Not "should not" — cannot. v1's only route to the grid is the
-"Open full table" expander, and that button is itself inside the `display: none` ancestor below
-640px. Measured at 390px: `wrapperDisplay: "none"`, expander not clickable, `gridPresent: false` —
-the grid is never mounted, so what its own classes say is irrelevant. Above 640px the ancestor is
-`display: block` and the component's `sm:` classes were already inert. There is no width at which
-editing those two classes changes a pixel or a DOM node in v1.
+**Removing the two `hidden sm:` classes cannot reach v1.** Not "should not" — cannot. v1's only route
+to the grid is the "Open full table" expander, and that button is itself inside the `display: none`
+ancestor below 640px. Measured at 390px: `wrapperDisplay: "none"`, expander not clickable,
+`gridPresent: false` — the grid is never mounted, so what its own classes say is irrelevant. Above
+640px the ancestor is `display: block` and the `sm:` classes were already inert.
 
-So `HeatmapGrid`'s `hidden sm:` pair is **redundant in v1 and load-bearing only in v2**. Removing it
-is a v2-only change wearing shared-component clothing. This is recorded because the reverse
-assumption — that touching a shared component necessarily disturbs the frozen arm — would have
-pushed this work into a fork of a 1142-line file, and two grids to keep in step for the length of the
-pilot.
+### ⚠️ But the rest of the change *did* reach v1, and saying otherwise was the first draft's mistake
 
-⚠️ **The v1 baseline above is the regression test.** Re-measure it after the change and diff; a v1
-number that moves means the reasoning here is wrong, not that the number is noise.
+The two classes are not the whole change. A `minmax(96px, 1fr)` floor, a scroll port and
+`min-width: max-content` are all inside the **shared component**, which v1 mounts at every width
+≥ 640px. Measured on the running app, before the fix:
+
+| v1 viewport | event column *before* | *after*, unconditional floor |
+|---|---|---|
+| 640px | 68.3px, squeezed, never overflowed | 96px **+ horizontal scroller** |
+| 720px | 81.7px | 96px + scroller |
+| 780px | 91.7px | 96px + scroller |
+| 830px and up | 100 / 111px | unchanged |
+
+So the arm the redesign is being *compared against* silently changed across a ~165px band containing
+iPad portrait — and the two widths this doc originally offered as its regression test, 390 and 1280,
+are precisely the two that bracket that band without entering it. A regression test that cannot fail
+is worse than none, because the next reader trusts it.
+
+**The fix is a `scrollable` prop on `HeatmapGrid`, defaulting to `false`.** `WindowFirstRegionalPanel`
+passes it; `DailyBriefing` does not. Every rule is scoped under `.heatmap-scroller`, which is the only
+class the flag toggles, so the `heatmap-pin`/`heatmap-span` hooks can stay emitted unconditionally
+(`HeatmapDrillDown` is a separate component and would otherwise need the flag threaded into it) and
+simply match nothing without the port. Re-measured after the fix, v1 reproduces its pre-change
+numbers exactly at 640 / 680 / 720 / 780 / 830 / 900 / 1280 — no port, no overflow, same column
+widths. **That** is the regression test: seven widths, not two, and it includes the band.
+
+The general lesson, which is the reason this file exists: *a shared component's blast radius is not
+the diff's most conspicuous line.* The `hidden sm:` removal was the obvious change and was the one
+that could not reach v1; the one-token track-list edit was the one that could.
 
 ## What the phone layout is, and why
 
@@ -103,6 +123,36 @@ with no mid-word breaks (verified on screen).
    `width: 100cqw` — the **scroll port's** width, which is why `container-type: inline-size` is on
    the port rather than the grid.
 
+### Four more the adversarial review caught, all reproduced before fixing
+
+1. **`.heatmap-span` was unscoped, and a container-relative length fails *silently*.** `100cqw`
+   resolves against the small viewport when no query container matches, so in v1 — which declares no
+   container — the drill-down rendered at `100svw`: **measured 1280px wide inside an 830px grid**,
+   spilling out of the card. Now scoped, and `cqw` → `cqi`, the unit that names the axis an
+   `inline-size` container actually provides.
+2. **A focused cell landed entirely underneath the pinned column.** Focus scrolls by the *minimum*
+   amount, putting the cell's left edge at x = 0 — exactly where the opaque 140px pin sits. A 96px
+   cell was not clipped but hidden, focus ring and all (WCAG 2.4.11), on **every** row transition,
+   since tabbing off a row's last cell moves focus leftwards to the next row's first. Fixed with
+   `scroll-padding-left: 144px` — the horizontal twin of the `scroll-margin-top: 60px` this codebase
+   already buys for the sticky lens bar — plus a `:focus-visible` elevation so a stale number
+   degrades to "overlapped" rather than "invisible". Verified across all 24 cells: minimum left gap
+   143px against a 140px pin.
+3. **The drill-down fitted the port; its own header did not.** One shrinkable child and five that
+   cannot shrink meant 424px of content in a 302px panel, with the 🗈 "Show on map" button **123px
+   past the right edge** — and because the panel is sticky, scrolling took the button with it, so it
+   was unreachable at every scroll position, not merely clipped. Fixed with `flex-wrap` on that row,
+   scoped to the port; it is self-limiting, so it stays inert at 1016px.
+4. **`opacity: 0.06` on a faded region label composited the pin's own background** down to 6%, so
+   scrolling cells read straight through the one column that exists to stay readable. The fade moved
+   to an inner span; `aria-hidden` stayed on the outer box.
+
+Also corrected rather than fixed: the P9 note claiming `.wf-lens` is "the only `position: sticky` in
+the app" with no stacking context between it and the cells. Both clauses died here —
+`container-type: inline-size` applies `contain: layout`, which creates one — so
+`.wf-door-panel .heatmap-cell-hoverable:hover { z-index: 10 }` is now redundant in v2. Kept, because
+removing `container-type` would re-arm the defect it was written for.
+
 ### Rejected: scroll-snap on the columns
 
 Mid-scroll a cell is half-hidden behind the pinned column, so its text truncates on the left, which
@@ -114,6 +164,34 @@ mid-scroll state for another, at the cost of a magic number coupled to a track w
 state, which is what a reader actually opens onto, shows the pinned column, one whole event column
 and the next cropped at its right edge: the affordance this project already uses (the spot strip is
 sized to 4.5 cards for the same reason).
+
+## Found, deliberately not fixed — recorded so they are decisions rather than oversights
+
+- **The grid has no table semantics, and now that is the phone's only view of the plan.** In 1173
+  lines there is no `role="grid"`, `row`, `columnheader` or `rowheader`; a cell is a `role="button"`
+  div whose accessible name is its own text (`"Worth it sunset ☁-8°C 28mph 3 king tides 4.5★"`) with
+  no region and no date in it. So the row identity the pinned column exists to preserve has never
+  existed for a screen reader — VoiceOver gets ~42 near-identical buttons. **This is pre-existing and
+  affects both arms equally**, which is exactly the species CLAUDE.md hands to the pre-pilot sweep to
+  be decided once across both. Worth naming here because it also weakens the WCAG 1.4.10 argument
+  below: two-dimensional scrolling is permitted for content that *needs* it, and a data table is the
+  canonical example — but this only reads as a table to sighted users.
+- **The poor-regions toggle's focus ring clips left and right.** It is `sticky; left: 0` filling the
+  port, and the port buys ring room only at the bottom. The obvious fix — horizontal padding plus a
+  negative margin, as `.rail-scroller` does — moves the padding box that `left: 0` resolves against,
+  which would put a gap beside the pinned column where cells show through. Cosmetic, partial (three
+  sides of the ring survive), and the safe fix is not obvious; left alone rather than traded for a
+  worse defect.
+
+## Still not verified
+
+- **No real iPhone, and no WebKit.** Every measurement here is headless Chromium. This matters more
+  than usual: sticky-on-a-grid-item is the mechanism the whole layout rests on, and its containing
+  block is exactly where engines have historically diverged. A WebKit run was attempted — the build
+  cached on this machine (`webkit-2248`) is version-mismatched against the installed Playwright,
+  which wants `2336`, and hangs on launch rather than failing. `npx playwright install webkit` is the
+  fix, and this is the single highest-value thing left to check.
+- No screen reader, no axe, no Lighthouse, no forced-colors, nothing above 1440px.
 
 ## What this does *not* do
 
