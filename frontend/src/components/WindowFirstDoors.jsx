@@ -3,7 +3,6 @@ import PropTypes from 'prop-types';
 import HotTopicStrip from './HotTopicStrip.jsx';
 import WindowFirstRegionalPanel from './WindowFirstRegionalPanel.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
-import { useIsMobile } from '../hooks/useIsMobile.js';
 import { readStoredDoors, writeStoredDoors } from '../utils/planDoors.js';
 
 /**
@@ -69,21 +68,23 @@ Door.propTypes = {
  * learns whether it is worth opening by whether it is there, and never opens a door onto an empty
  * room.
  *
- * <p><b>"Nothing behind it" has three terms for the grid, and two of them were found by review.</b>
- * The first gate was {@code upcomingEvents.length > 0}, which is wrong twice:
+ * <p><b>"Nothing behind it" had three terms for the grid, and now has two.</b> The first gate was
+ * {@code upcomingEvents.length > 0}, which was wrong twice:
  *
  * <ul>
- *   <li><b>The viewport.</b> Everything {@code HeatmapGrid} renders is behind Tailwind's {@code sm}
- *       breakpoint — the grid is {@code hidden sm:grid} ({@code HeatmapGrid.jsx:973}) and the away
- *       band {@code hidden sm:flex} ({@code :1099}) — so below 640px the door drew a tile that
- *       opened an empty bordered box and fired one astro request per date for content that cannot
- *       paint. The v1 arm wraps the same disclosure in {@code hidden sm:block}
- *       ({@code DailyBriefing.jsx:1526}); re-parenting dropped that guard, which is the failure mode
- *       §5a's "copy, don't extract" rule exists to catch. The gate is a hook rather than CSS because
- *       {@code display: none} on the tile would still mount the panel and fire the requests.</li>
+ *   <li><b>The viewport — retired, and worth keeping the history.</b> {@code HeatmapGrid} used to
+ *       render nothing below 640px ({@code hidden sm:grid} / {@code hidden sm:flex}), so the door
+ *       drew a tile that opened an empty bordered box and fired one astro request per date for
+ *       content that could not paint. That was a re-parenting loss — the v1 arm wraps the same
+ *       disclosure in {@code hidden sm:block} ({@code DailyBriefing.jsx:1526}) and the copy did not
+ *       bring the guard, which is the failure mode §5a's "copy, don't extract" rule exists to catch.
+ *       <b>The grid now has a phone layout</b> (a scroller with the region column pinned), so there
+ *       is nothing left to gate and the term is gone. See
+ *       {@code docs/engineering/phone-heatmap-blast-radius.md} for why that change could not reach
+ *       the frozen v1 arm.</li>
  *   <li><b>Travel days.</b> {@code upcomingEvents} is the list <em>before</em> the travel filter,
- *       and the grid drops away columns itself ({@code gridEvents}, {@code HeatmapGrid.jsx:728},
- *       gating its whole grid at {@code :970}). An operator away across the entire capped horizon
+ *       and the grid drops away columns itself ({@code gridEvents}, and it gates its whole grid on
+ *       the filtered list being non-empty). An operator away across the entire capped horizon
  *       therefore got a door promising "every region, every window" over a panel holding one dashed
  *       band — whose own wording, "no forecast generated", is the phrase the away row directly above
  *       it deliberately rejects. {@code windowCards} is the travel-filtered set by construction, so
@@ -136,7 +137,6 @@ Door.propTypes = {
  */
 export default function WindowFirstDoors({ locations, onShowOnMap }) {
   const { briefing, windowCards, isLiteUser } = useWindowFirstBriefing();
-  const isMobile = useIsMobile();
   // Restored from the session, so a flip to the other arm and back lands on the doors the reader
   // left rather than re-collapsing them — which is what the v1 arm has always done for its own
   // disclosure, and the asymmetry was visible on exactly the surface the two arms are compared on.
@@ -164,10 +164,19 @@ export default function WindowFirstDoors({ locations, onShowOnMap }) {
   };
 
   const hotTopics = briefing?.hotTopics || [];
-  // All three terms, and the two of them found by review are documented above. `windowCards` rather
-  // than `upcomingEvents` because the grid drops away columns itself; `!isMobile` because below the
-  // sm seam the grid renders nothing at all.
-  const showRegional = !isMobile && (windowCards || []).length > 0;
+  // `windowCards` rather than `upcomingEvents` because the grid drops away columns itself.
+  //
+  // The viewport term is GONE, and its removal is the point of the change rather than a tidy-up.
+  // It read `!isMobile` because `HeatmapGrid` was `hidden sm:grid` and the door would otherwise
+  // open an empty bordered box. The grid now has a phone layout, so there is nothing to gate: a
+  // phone reader gets the full plan, which is what the door has always promised.
+  //
+  // It also retires one live manifestation of the rem/px seam. This gate was `useIsMobile`
+  // (`max-width: 639px`, in **px**) standing in for Tailwind's `sm:` (**40rem**); at a non-default
+  // browser font size the two disagree and that band drew a door onto a `display: none` grid. The
+  // seam itself is untouched and still live for `useIsMobile`'s other callers — this file simply no
+  // longer has a side in it.
+  const showRegional = (windowCards || []).length > 0;
   const showTopics = hotTopics.length > 0;
   if (!showRegional && !showTopics) return null;
 

@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the full plan is reachable on a phone
+
+The heatmap had no phone layout. Below 640px it rendered nothing at all, so the window-first arm hid
+the "Regional planner" door rather than open an empty box, and the older arm's "Open full table"
+button sat inside a hidden wrapper where it could not be pressed. Nobody decided a phone reader did
+not need the full plan; the grid simply never had a layout for one, and both arms inherited that.
+
+It now renders at every width. Below roughly 780px the columns stop shrinking and the grid becomes a
+horizontal scroller with the region column pinned to the left edge, so the row you are reading keeps
+its name while the days slide past. The drill-down and the poor-regions reveal are pinned the same
+way: both span the whole grid, and the drill-down in particular is opened by tapping a cell — so
+without pinning it would render off-screen, to the left of wherever you had scrolled to.
+
+The trigger is not a viewport width but whether the columns fit, expressed as a floor on the column
+itself (96px, the width at which a cell can still draw its weather line). Desktop is arithmetically
+unchanged — 140px plus six 142px columns at 1280, exactly as before — and the tablet band between
+640 and 780px, where cells used to squeeze down to 71px, now scrolls instead.
+
+Verified in a browser at 320, 360, 375, 390, 412, 430, 639, 700 and 1280px, and the older arm
+re-measured at 390 and 1280 to confirm it did not move.
+
 ### Added — an Operations tab on the window-first Plan tab, for admins
 
 The redesigned Plan tab, still behind the flag, now carries the Manage screen as a third tab rather
