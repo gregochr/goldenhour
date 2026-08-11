@@ -622,7 +622,7 @@ Backend first for anything shared, so the frontend stays a render layer.
 | **P12** | ~~Backend: almanac feed (§3) + the tide fetch-horizon decision~~ **DONE.** `AlmanacEvent` + `AlmanacKind`, the `AlmanacSource` interface and five implementations, `AlmanacService`, `GET /api/almanac`; horizon raised to 97 days with the threshold decoupled first | ⚠️ **§3's "the range plumbing already exists" is the sentence that would have sunk this.** The signatures take a range; ten of thirteen strategies ignore it. `AlmanacSource` is a **new interface** for that reason, and `HotTopicAggregator` is not reused — it is also travel-day filtered and simulation-overridable, either of which would corrupt a 90-day feed. **Eight decisions worth not re-deriving — see §5g** |
 | **P13** | ~~Coming up tab~~ **DONE.** `WindowFirstComingUp` + `WindowComingUpRow` + `utils/comingUpFeed.js` + `hooks/useComingUpFeed.js` + `api/almanacApi.js`; the shell's tab bar becomes a real ARIA tab widget and gains its second tab | The feed's first renderer. **Two columns, not the mock's three** — the third carried a region count the wire never sends. **No kind chip on an ALMANAC row** and **no count on the tab**, both because the value never varies. The degrade caveat is gated on the TYPE as well as the absence: `datesOnly` is the healthy state for three of the five sources. **Nine decisions worth not re-deriving — see §5h** |
 | **P14** | ~~Responsive pass — real media queries, including the taller rail tile on phone~~ **DONE.** `.wf-` classes for the shell's chrome and the window header, `--wf-gutter`, and the phone block for the tab bar and header; `.wf-lens` stopped wrapping | Keep control labels at 9px. ⚠️ **Both halves of the Work cell were wrong about the job.** Five of the README's nine bullets already shipped (including the spot strip's 72%, which the handover called unbuilt), one is vacuous and one names a component P7b never built — the real work was the tab bar, the window header and the 18px→14px gutter. And there is **no taller rail tile**: `git log -S` puts the phrase one day *before* the component existed, and P4c had already discharged it. **Eleven decisions worth not re-deriving — see §5i**, plus one live defect the pass found and fixed: the sticky lens bar wrapped to 77.3px between 640 and ~781px, overrunning both `scroll-margin-top` reservations |
-| **P15** | Pre-pilot sweep (§6), then flip the flag default | **Four items handed up, all cross-arm and none fixable inside one phase.** From P10′ (§5e): the **LITE score split** — `freemium_ui_strategy.md:79-80` lists the two scores and the Claude summary as LITE-included and §7 relies on that, but `MarkerPopupContent.jsx:1165` gates them and `:1175` upsells them, so an ungated peek contradicts the map overlay one click away; and **`--color-marginal`, a token declared nowhere**, which leaves `CardHoverPreview`'s and `CloseToHome`'s stars silently inheriting body ink in the frozen v1 arm. From P9 (§5d): the `HotTopicStrip` LITE treatment, which the window card's ungated attribute rows already defeat for the tide and snow channels; and `HeatmapGrid`'s away band saying "no forecast generated" two elements below a row that deliberately says "not forecast". Both need one decision made once across both arms, which is the shape §2.8 settled for the pick gloss |
+| **P15** | ~~Pre-pilot sweep (§6)~~ **SWEPT 2026-08-11 — see §6a for the clause-by-clause result.** Four fixed (rail roster count, rail GO token, away hue, grid cell names), two left as one pricing decision, one clause (3) **untested** because P7b is unbuilt. The flag default is **still `v1`**: the owner scheduled the flip for ~a week out, with P7b in between, so the sweep landing is not the flip landing | **Two of the four handed-up items were already resolved before the sweep ran** — `--color-marginal` and `--color-dust` are both declared (`index.css:178-179`), so the list below is stale on those two and was re-derived rather than trusted. Of the rest: the away-band wording is **fixed** (`HeatmapGrid` now says "not forecast", matching the arm that argued for it); the LITE score split and the `HotTopicStrip` treatment are **one** question and stay open, unreachable for a `PRO_USER` pilot roster. Original text follows. **Four items handed up, all cross-arm and none fixable inside one phase.** From P10′ (§5e): the **LITE score split** — `freemium_ui_strategy.md:79-80` lists the two scores and the Claude summary as LITE-included and §7 relies on that, but `MarkerPopupContent.jsx:1165` gates them and `:1175` upsells them, so an ungated peek contradicts the map overlay one click away; and **`--color-marginal`, a token declared nowhere**, which leaves `CardHoverPreview`'s and `CloseToHome`'s stars silently inheriting body ink in the frozen v1 arm. From P9 (§5d): the `HotTopicStrip` LITE treatment, which the window card's ungated attribute rows already defeat for the tide and snow channels; and `HeatmapGrid`'s away band saying "no forecast generated" two elements below a row that deliberately says "not forecast". Both need one decision made once across both arms, which is the shape §2.8 settled for the pick gloss |
 | **P16** | *(post-pilot, conditional)* Run history — the sparkline **and** the change-since-last-forecast row, both blocked on an append-only per-run sink the live pipeline writes | Deferred because only **4.1%** of slots have the four *rated* runs it draws and **90.6% have none** — measured, see §2.8. Not for want of data or query |
 
 ### 5a. What P6 decided — read before P8, P9, P10′ and P11
@@ -2020,6 +2020,55 @@ still, as of every phase since P4: no touch, no screen reader, no axe, no Lighth
 **Ongoing rule:** before adding anything to the Plan tab, read `Adversarial Review.html` in the
 handoff. New elements earn their place against that list, and something should usually come out when
 something goes in.
+
+### 6a. The sweep as actually run — 2026-08-11
+
+Seven prosecutor lenses over the v2 arm, one per clause group, each charge then handed to an
+independent refuter prompted to **refute** and defaulting to REFUTED without citable evidence.
+19 raw charges → 16 after dedup → 12 verified → **6 survived**. Read-only throughout.
+
+**Clause-by-clause result. One clause could not be tested at all:**
+
+| clause | result |
+|---|---|
+| 1 — no demo buttons / annotation cards | pass |
+| 2 — stateless copy, no exposure counter | pass |
+| **3 — promoted strip: renders on a coincidence, never more than one** | ⚠️ **UNTESTED — not pass** |
+| 4 — no invented vocabulary, no counts of our own data | **1 fixed** (rail's "4 regions") |
+| 5 — verdict colours consistent; confidence decay only on the card badge | **2 fixed** (rail GO token, away hue) |
+| 6 — every footer's claimed sort and count matches what is rendered | pass |
+| 7 — coherent with no home postcode | pass |
+| 8 — no control whose only visible effect is an `aria-hidden` panel | pass |
+| 9 — no telemetry | pass |
+
+**Clause 3 is recorded UNTESTED, and that is the honest reading rather than a pass.** P7b never
+shipped, so there is no strip to check and the clause passes vacuously — which is the failure its own
+wording exists to forbid ("'at most one' passes vacuously on a page that never built the strip at
+all"). It is **not** a deviation and P7b is **not** cancelled: the owner scheduled it as the next
+phase on 2026-08-11. Nobody may later count clause 3 among the checks that cleared. Its backend half
+already ships (`TopicRarity`, `BriefingWindow.topRarityRank`, `Badge.rarityRank`,
+`PlanWindowProjector:464`), so P7b is frontend-only and nothing here has to be undone to pick it up.
+When it lands, re-run this clause **and** check it against `windowFirstRows.js`'s row cap, which
+sorts by the same `rarityRank` and must not disagree with the strip about which topic matters most.
+
+**Two charges survived and were deliberately NOT fixed here**, because both are the same question and
+it is a pricing decision, not a rendering one: the v2 spot peek shows the two scores ungated while
+`MarkerPopupContent` withholds and upsells them, and `HotTopicStrip`'s LITE blur is defeated by the
+window card's ungated attribute rows on the same screen. `freemium_ui_strategy.md:79`/`:98` say LITE
+is **entitled** to the scores, so the gates are the deviation and the ungated surfaces are the policy
+— but resolving it edits two components shared with the frozen v1 arm. It does not gate the pilot:
+self-registration yields `PRO_USER` (`RegistrationProperties.java:24`), so no pilot user can reach
+it. It **would** gate a LITE user, so decide it before any LITE account exists.
+
+**What the sweep did not examine, stated plainly.** `vite.config.js` sets `css: false`, so jsdom
+evaluates no stylesheet and **no unit test in this repo proves any colour, cascade, media-query or
+`display` claim** — every contrast figure quoted in the sweep is arithmetic on declared hex, not
+measurement. No screen reader, no axe, no Lighthouse, no forced-colors, no real device, nothing above
+1440px — true of every phase since P4 and still true. Five of the seven shared v1 components were not
+audited beyond targeted greps. The local DB has never had an evaluation run, so no rich state was
+seen on real data. Four low-severity charges were dropped at the verification cap; three were checked
+by hand afterwards and two of those were fixed here, one refuted (`App.jsx:274`'s `mapHandoff` write
+is inert in v2 but load-bearing in v1, and P15b already recorded the split at `:309-321`).
 
 ---
 

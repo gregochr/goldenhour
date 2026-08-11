@@ -540,10 +540,33 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
   const alignedCount = (region.slots || []).filter((s) => s.tideAligned).length;
 
   const eventLabel = targetType === 'SUNRISE' ? 'sunrise' : 'sunset';
-  const verdictLabel = displaySignal === 'STAND_DOWN' ? 'Poor'
+  const verdictWord = displaySignal === 'STAND_DOWN' ? 'Poor'
     : displaySignal === 'AWAITING' ? 'Awaiting'
-      : displaySignal === 'WORTH_IT' ? `Worth it ${eventLabel}`
-        : `Maybe ${eventLabel}`;
+      : displaySignal === 'WORTH_IT' ? 'Worth it'
+        : 'Maybe';
+  const verdictLabel = displaySignal === 'STAND_DOWN' || displaySignal === 'AWAITING'
+    ? verdictWord
+    : `${verdictWord} ${eventLabel}`;
+
+  // The cell's accessible NAME. Without it a `role="button"` div is named by its own contents, so
+  // the ~30 Poor cells in a typical grid all announced as literally "Poor, button" — and no cell,
+  // rated or not, carried its region or its date. The grid is a plain CSS-grid div with no
+  // `role="grid"`/`rowheader`/`columnheader`, so there was no row or column context to recover
+  // either from: a screen-reader user got ~42 near-identical buttons and no way to tell which
+  // region or which day any of them belonged to. Navigable, but not readable.
+  //
+  // Deliberately an `aria-label` rather than adding grid roles: `role="grid"` obliges the full
+  // grid keyboard interaction model (roving tabindex, arrow-key navigation), which is a real
+  // feature and not a sweep fix. Naming each cell is purely additive — no visual change, no
+  // behaviour change, no CSS — and fixes the part that actually blocks comprehension.
+  //
+  // The verdict word here is the one the cell RENDERS, which for a collapsed cell is the literal
+  // "Poor" whether the signal is STAND_DOWN or AWAITING. Using `verdictWord` would put "Awaiting"
+  // in the name of a cell displaying "Poor" — a label-in-name mismatch (WCAG 2.5.3), and it would
+  // break speech input, where "click Poor" has to match what the user can see. That an AWAITING
+  // region shows as "Poor" at all is a separate, pre-existing question about the visible copy in
+  // both arms; it is not one an accessible name may quietly answer differently.
+  const cellAriaLabel = `${regionName}, ${getShortDate(date)} ${eventLabel} — ${isStanddown ? 'Poor' : verdictWord}`;
 
   const standdownClickable = isStanddown && showAllLocations;
   const cellDisabled = (isStanddown && !showAllLocations) || !visible || past;
@@ -556,6 +579,7 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
       <div
         data-testid="heatmap-cell"
         role="button"
+        aria-label={cellAriaLabel}
         tabIndex={cellDisabled ? -1 : 0}
         aria-disabled={cellDisabled || undefined}
         className={`flex items-center justify-center rounded border transition-all
@@ -619,6 +643,7 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
     <div
       data-testid="heatmap-cell"
       role="button"
+      aria-label={cellAriaLabel}
       tabIndex={cellDisabled ? -1 : 0}
       aria-disabled={cellDisabled || undefined}
       className={`heatmap-cell-hoverable relative flex flex-col gap-0.5 rounded border text-left px-2 py-1.5 transition-transform
@@ -1184,7 +1209,16 @@ export default function HeatmapGrid({
                 padding: '4px 10px',
               }}
             >
-              ✈ {awayRunLabel(run)} · away — no forecast generated
+              {/* "not forecast", never "not generated" — the wording is the accurate one and it is
+                  now the only one on screen. A travel day's slots exist; only the evaluation was
+                  skipped, so "no forecast generated" claimed a mechanical failure where there was a
+                  deliberate omission. The window-first arm settled this at P9 and pins it
+                  (`WindowAwayRow.jsx:35`, and a test named 'says "not forecast", never "not
+                  generated"'), but that arm renders THIS grid too, behind the regional door — so
+                  until now one screen could carry both wordings for the same fact, two elements
+                  apart. Plan §5d handed it to P15 to decide once across both arms; this is that
+                  decision, and it moves v1 onto the wording v1 never had an argument for. */}
+              ✈ {awayRunLabel(run)} · away — not forecast
             </div>
           ))}
         </div>

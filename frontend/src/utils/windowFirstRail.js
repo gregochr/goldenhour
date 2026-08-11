@@ -199,13 +199,11 @@ export function buildRailTiles(upcomingEvents, briefingDays, todayStr, tomorrowS
 
     // Roll up only this day's own event columns. Each rated region keeps its own cell (verdict, wx,
     // gloss, event) so the tile can offer a per-region gloss without a second pass over the payload.
-    const allRegions = new Set();
     const byRegion = new Map(); // regionName -> { rank, display, event, targetType, region }
     for (const tt of targetsByDate.get(date)) {
       const es = esFor(tt);
       if (!es) continue;
       for (const region of es.regions || []) {
-        allRegions.add(region.regionName);
         const dv = resolveRegionDisplay(region);
         if (dv !== 'WORTH_IT' && dv !== 'MAYBE') continue;
         const rank = dv === 'WORTH_IT' ? 0 : 1; // a WORTH_IT cell wins over a MAYBE one
@@ -267,8 +265,22 @@ export function buildRailTiles(upcomingEvents, briefingDays, todayStr, tomorrowS
       // The MOST-confident of the day's peak-tier regions: the tile points at the day's best
       // prospect, so it reads provisional only when even that one is. A poor day carries none.
       confidence: peak === 'poor' ? null : bestConfidence(rated, daysOut(date, todayStr)),
-      // Fallback text when nothing is rated ("4 regions"); chips carry the rated case.
-      countLabel: regions.length ? null : `${allRegions.size} ${allRegions.size === 1 ? 'region' : 'regions'}`,
+      // Nothing when nothing is rated; the chips carry the rated case. This line used to read
+      // "4 regions" — `allRegions` is filled above the WORTH_IT/MAYBE filter, so it counted the
+      // day's whole region ROSTER, which is the species plan §6 bans outright ("11 aligned is a
+      // fact about the database, not about tonight"). This arm's own code convicts the same string
+      // twice: `WindowFirstDoors` refuses the mock's "4 regions →" door and `WindowAttributeRow`
+      // drops "61 coastal locations →". It survived here only because the rail was copied from v1
+      // whole (`DailyBriefing.jsx:314`) under §5's copy-don't-rewire rule, which carries the
+      // defects too. Nothing replaces it: the verdict line directly above already says "All poor",
+      // which is the honest answer to the question the count was pretending to answer.
+      //
+      // Safe to leave empty rather than reserving height: a poor tile has no chips, no pick flag
+      // and no "show on map" button, so this is its last line and nothing below it can drift — and
+      // the scroller is a flex row, so the tile BOX still stretches to the rail's tallest.
+      // `countLabel` stays on the record for the away tile above, which uses it for a label
+      // ("Not forecast"), never a count.
+      countLabel: null,
       ratedCount: regions.length,
       targetType: rated[0]?.targetType ?? sunsetEs?.targetType ?? sunriseEs?.targetType ?? null,
     };

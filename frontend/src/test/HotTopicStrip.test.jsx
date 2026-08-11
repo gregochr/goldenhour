@@ -220,6 +220,28 @@ describe('HotTopicStrip', () => {
       render(<HotTopicStrip hotTopics={[buildTopic()]} />);
       expect(screen.getByTestId('expand-chevron-BLUEBELL')).toBeInTheDocument();
     });
+
+    it('announces its expanded state, and flips it on each tap', () => {
+      // Before this the disclosure announced as a plain button: the panel appeared with no
+      // indication the control had a state, so a screen-reader user had no way to know the pill
+      // could be pressed again to close it. The chevron above says it to sighted users only.
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+
+      expect(pill).toHaveAttribute('aria-expanded', 'false');
+      fireEvent.click(pill);
+      expect(pill).toHaveAttribute('aria-expanded', 'true');
+      fireEvent.click(pill);
+      expect(pill).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('claims no expanded state on a pill that discloses nothing', () => {
+      // The negative half, and the reason the attribute is conditional rather than always present.
+      // A pill with no regions and no rich detail falls through to the legacy map-filter tap, so it
+      // is not a disclosure — announcing it as a collapsed one would be a worse lie than silence.
+      render(<HotTopicStrip hotTopics={[buildTopic({ regions: [], expandedDetail: null })]} />);
+      expect(screen.getByTestId('hot-topic-pill-BLUEBELL')).not.toHaveAttribute('aria-expanded');
+    });
   });
 
   describe('infotip', () => {
