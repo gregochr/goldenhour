@@ -56,7 +56,20 @@ public class CachedEvaluationEntity {
     @Column(name = "source", nullable = false, length = 20)
     private String source;
 
-    /** When the evaluation was first created. */
+    /**
+     * When this cache key was first created — <b>not</b> when the results below were evaluated.
+     *
+     * <p>⚠️ {@code BriefingEvaluationService.persistToDb} sets this only on insert; every
+     * subsequent write to the same key moves {@link #updatedAt} alone. A slot re-evaluated for
+     * three days running still carries its day-one value here, so this column is a row-creation
+     * stamp in everything but name.
+     *
+     * <p><b>For "how fresh is this evaluation", read {@link #updatedAt}.</b> Both
+     * {@code EvaluationViewService} and {@code BriefingEvaluationService.rehydrateCacheOnStartup}
+     * deliberately do, each with its own comment saying why — and an ad-hoc diagnostic query that
+     * read this column instead once mis-dated a slot by 31 hours during an investigation. If you
+     * are about to use this field to decide whether something is stale, you want the other one.
+     */
     @Column(name = "evaluated_at", nullable = false)
     private Instant evaluatedAt;
 

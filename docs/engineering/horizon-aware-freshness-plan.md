@@ -287,18 +287,38 @@ deciding with numbers.
 
 These are independent of the main change. Each is small; each cost time during this investigation.
 
-### 5.1 `cached_evaluation.evaluated_at` is a lie after the first write
+### 5.1 `cached_evaluation.evaluated_at` is a trap, but it is not a bug
 
-[`persistToDb`](../../backend/src/main/java/com/gregochr/goldenhour/service/BriefingEvaluationService.java)
-sets `evaluatedAt` only in the `orElseGet` insert branch; every subsequent upsert moves only
-`updated_at`. So the column reports when the *key was created*, not when the evaluation ran. It
-showed 54.5h for a slot last evaluated 23h earlier during this investigation and sent the first
-reading of the evidence down a blind alley.
+**This section originally proposed a code fix. That was wrong, and the correction matters more than
+the original claim.** The first draft said `evaluated_at` "is a lie after the first write" and
+proposed setting it on the update path. It is not a lie:
+[`CachedEvaluationEntity:59`](../../backend/src/main/java/com/gregochr/goldenhour/entity/CachedEvaluationEntity.java#L59)
+documents it as *"When the evaluation was first created"* and `updated_at` as *"When this row was
+last updated"*. `persistToDb` implements exactly that contract. The column is doing its job.
 
-The in-memory clock is correct and `rehydrateCacheOnStartup` already reads `updated_at` with a
-comment explaining why — so this is a reporting bug, not a behavioural one. Fix: set `evaluatedAt`
-on the update path too. Check `getCachedEvaluatedAt` first — it feeds a view-time read, and if the
-UI has been showing first-write timestamps that is a second user-visible symptom of the same bug.
+The defect was in the *reading*, not the code — and I am not the first to trip on it.
+[`EvaluationViewService:686-692`](../../backend/src/main/java/com/gregochr/goldenhour/service/EvaluationViewService.java#L686)
+already carries a six-line defensive comment explaining why it takes `getUpdatedAt()` and not
+`getEvaluatedAt()`, and `rehydrateCacheOnStartup` carries a shorter one for the same reason. Two
+independent defensive comments plus one wrong diagnosis (§1, first draft, which read 54.5h off this
+column for a slot last evaluated 23h earlier) is enough evidence that the *name* is the hazard.
+
+**Do not "fix" the column.** Writing `evaluatedAt` on every update would break a documented
+contract, falsify both existing comments, destroy the row-creation timestamp, and leave two columns
+permanently holding one value — worse than what exists.
+
+**Do this instead**, which is proportionate to a naming hazard:
+
+1. Put the warning where the trap is — on the entity field, naming `updated_at` as the freshness
+   stamp and pointing at the two call sites that already get it right. One comment, no behaviour
+   change, no migration.
+2. Make §5.2's diagnostic script read `updated_at` for age, and select **both** columns side by
+   side so the distinction is visible at the point where an operator would otherwise misread it.
+
+**Rejected:** renaming the column to `created_at` via migration. It would be clearer, but it is a
+migration plus an entity change plus every ad-hoc query anyone has saved, in exchange for cosmetics.
+The comment plus the corrected script buys most of the clarity for none of the churn. Revisit only
+if someone misreads it a third time.
 
 ### 5.2 Ship the diagnostic queries
 
