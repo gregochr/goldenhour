@@ -35,7 +35,7 @@ commit had landed on `main` instead of its feature branch. `git status` cannot s
 
 - `main` was `7443e0ac` at the start of the session and has taken **#467** (P15a, `adda80e8`) and
   **#468** (the phone heatmap) since.
-- Frontend suite **126 files / 3067 tests**, all four CI steps green with **exit 0**.
+- Frontend suite **127 files / 3077 tests**, all four CI steps green with **exit 0**.
 - The flag default is still **v1**. Flipping it is a separate, later, one-token change.
 - `v2.17.15` is tagged. ⚠️ **Three merges landed AFTER that tag** (#464, #465, #466) and everything
   from this session is after it too — so "tagged and deployed" no longer means "all of main is in
@@ -54,8 +54,9 @@ commit had landed on `main` instead of its feature branch. `git status` cannot s
 
 ## Where P15b is
 
-Branch **`feature/p15b-map-pane`**, commits `714c581f` (the feature) and `b8f39aa4` (a focus fix
-found by measuring). Gate green with exit 0: lint, 3067 tests, `npm audit`, build.
+Branch **`feature/p15b-map-pane`**: `714c581f` (the feature), `b8f39aa4` (a focus fix found by
+measuring), and `7855580a` (the adversarial review's survivors). Gate green with exit 0: lint,
+**3077 tests**, `npm audit`, build.
 
 What it does:
 
@@ -73,10 +74,16 @@ What it does:
   document root — the dialog closed and took its restoration target with it. Now the requested tab
   takes focus, reached by DOM id rather than through the index-based `tabRefs`.
 
+- **The Map tab is handed a handoff only when the reader asks to go there.** Review found, and 390px
+  reproduced, that passing the arm's general `mapHandoff` made the *hidden* pane raise a
+  `BottomSheet` — portalled to `document.body`, so `display: none` could not suppress it — giving two
+  stacked sheets and a locked body scroll on a plain Plan-tab tap. Two became one after the fix.
+
 **Verified in a browser** at 390 and 1280 against an injected forecast fixture (see below): four
 tabs, the map 1044×500 at 1280 and 330×500 at 390, markers and a five-day strip, the hatch selecting
-the tab and re-landing on a second press, and — switching to Plan, resizing, returning — 6 tiles
-becoming 12 for the wider box, which is the `invalidateSize` path working.
+the tab (and re-landing on a second press) with focus following it, and — switching to Plan,
+rotating, returning — 330px/6 tiles becoming 776px/12, which is the `invalidateSize` path working.
+Also on **WebKit** as an iPhone, rotation included.
 
 ---
 
