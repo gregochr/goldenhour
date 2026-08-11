@@ -47,6 +47,18 @@ public class EvaluationDeltaLogEntity {
     @Column(name = "old_evaluated_at", nullable = false)
     private Instant oldEvaluatedAt;
 
+    /**
+     * Which quantity {@link #ageHours} actually holds: {@code LOCATION} when it was measured
+     * against this location's own previous write, {@code CACHE_KEY} when it fell back to the
+     * region-level stamp, and {@code null} for rows written before this column existed.
+     *
+     * <p>⚠️ Only {@code LOCATION} rows are safe to aggregate. A region's slots span several
+     * batches, so the region-level stamp is reset by whichever bucket landed last — a location
+     * genuinely refreshed 24h ago can appear as ~0h old. Any staleness query must filter on this.
+     */
+    @Column(name = "age_basis", length = 16)
+    private String ageBasis;
+
     @Column(name = "new_evaluated_at", nullable = false)
     private Instant newEvaluatedAt;
 

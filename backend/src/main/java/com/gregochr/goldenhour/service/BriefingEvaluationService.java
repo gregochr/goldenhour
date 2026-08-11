@@ -65,6 +65,19 @@ public class BriefingEvaluationService {
      */
     private static final long ROW_COUNT_DROP_TOLERANCE = 1;
 
+    /**
+     * {@code age_hours} was measured against this location's own previous write — the quantity
+     * the column is meant to hold, and the only one safe to aggregate.
+     */
+    private static final String AGE_BASIS_LOCATION = "LOCATION";
+
+    /**
+     * {@code age_hours} fell back to the region-level {@code CachedEvaluation.evaluatedAt},
+     * because the prior result pre-dates the per-location stamp. Reset by any write to the
+     * region, so it under-reports — exclude these rows from any staleness analysis.
+     */
+    private static final String AGE_BASIS_CACHE_KEY = "CACHE_KEY";
+
     private final CachedEvaluationRepository cachedEvaluationRepository;
     private final EvaluationDeltaLogRepository deltaLogRepository;
     private final ObjectMapper objectMapper;
@@ -204,9 +217,12 @@ public class BriefingEvaluationService {
     public void writeFromBatch(String cacheKey,
             List<BriefingEvaluationResult> results) {
         CachedEvaluation prior = cache.get(cacheKey);
-        ConcurrentHashMap<String, BriefingEvaluationResult> resultMap = new ConcurrentHashMap<>();
-        results.forEach(r -> resultMap.put(r.locationName(), r));
         Instant now = Instant.now();
+        ConcurrentHashMap<String, BriefingEvaluationResult> resultMap = new ConcurrentHashMap<>();
+        // Stamp each result with its own write time. The CachedEvaluation stamp below is per
+        // cache KEY and is reset by any write to the region; this one is per LOCATION and is the
+        // only thing that can answer "how stale was this location's rating".
+        results.forEach(r -> resultMap.put(r.locationName(), r.withEvaluatedAt(now)));
         cache.put(cacheKey, new CachedEvaluation(resultMap, now));
         persistToDb(cacheKey, resultMap, "BATCH");
         logEvaluationDeltas(cacheKey, prior, resultMap, now);
@@ -241,14 +257,16 @@ public class BriefingEvaluationService {
             merged.putAll(loadResultsFromDb(cacheKey));
         }
         int priorSize = merged.size();
-        results.forEach(r -> merged.put(r.locationName(), r));
         Instant now = Instant.now();
+        // Only the recovered locations are stamped; the prior entries keep their own earlier
+        // stamps, which is the whole point — a merge touches a subset of the region.
+        results.forEach(r -> merged.put(r.locationName(), r.withEvaluatedAt(now)));
         cache.put(cacheKey, new CachedEvaluation(merged, now));
         persistToDb(cacheKey, merged, "BATCH");
         // Deltas reflect only the merged-in (recovered) locations; the untouched
         // locations did not change this write.
         ConcurrentHashMap<String, BriefingEvaluationResult> recovered = new ConcurrentHashMap<>();
-        results.forEach(r -> recovered.put(r.locationName(), r));
+        results.forEach(r -> recovered.put(r.locationName(), r.withEvaluatedAt(now)));
         logEvaluationDeltas(cacheKey, prior, recovered, now);
         LOG.info("RETRY_FAILED merge for key {}: {} prior + {} recovered = {} total",
                 cacheKey, priorSize, results.size(), merged.size());
@@ -293,11 +311,12 @@ public class BriefingEvaluationService {
         } else {
             merged.putAll(loadResultsFromDb(cacheKey));
         }
+        Instant now = Instant.now();
         for (BriefingEvaluationResult bluebell : bluebellResults) {
             BriefingEvaluationResult existing = merged.get(bluebell.locationName());
-            merged.put(bluebell.locationName(), recombineBluebell(existing, bluebell));
+            merged.put(bluebell.locationName(),
+                    recombineBluebell(existing, bluebell).withEvaluatedAt(now));
         }
-        Instant now = Instant.now();
         cache.put(cacheKey, new CachedEvaluation(merged, now));
         persistToDb(cacheKey, merged, "BATCH");
     }
@@ -325,8 +344,8 @@ public class BriefingEvaluationService {
         } else {
             merged.putAll(loadResultsFromDb(cacheKey));
         }
-        woodlandResults.forEach(r -> merged.put(r.locationName(), r));
         Instant now = Instant.now();
+        woodlandResults.forEach(r -> merged.put(r.locationName(), r.withEvaluatedAt(now)));
         cache.put(cacheKey, new CachedEvaluation(merged, now));
         persistToDb(cacheKey, merged, "BATCH");
     }
@@ -417,7 +436,21 @@ public class BriefingEvaluationService {
                 ForecastStability stability = stabilityLookup.getOrDefault(
                         locationName, ForecastStability.UNSETTLED);
                 Duration threshold = freshnessResolver.maxAgeFor(stability);
-                Duration age = Duration.between(prior.evaluatedAt(), newEvaluatedAt);
+
+                // Age is measured against THIS LOCATION's previous write where we have it, and
+                // only falls back to the region-level stamp where we do not (rows cached before
+                // the per-location stamp existed). The two are different quantities: a region's
+                // slots span several batches, so the region stamp is reset by whichever bucket
+                // landed last and a location refreshed 24h ago reads as ~0h old. That artefact is
+                // what made the sub-12h buckets of this table unreadable. age_basis records which
+                // quantity each row actually holds, so a query can exclude the ambiguous ones
+                // rather than averaging two different measurements together.
+                Instant oldStamp = oldResult.evaluatedAt();
+                String ageBasis = oldStamp != null ? AGE_BASIS_LOCATION : AGE_BASIS_CACHE_KEY;
+                if (oldStamp == null) {
+                    oldStamp = prior.evaluatedAt();
+                }
+                Duration age = Duration.between(oldStamp, newEvaluatedAt);
 
                 EvaluationDeltaLogEntity delta = new EvaluationDeltaLogEntity();
                 delta.setCacheKey(cacheKey);
@@ -425,7 +458,8 @@ public class BriefingEvaluationService {
                 delta.setEvaluationDate(evalDate);
                 delta.setTargetType(targetType);
                 delta.setStabilityLevel(stability.name());
-                delta.setOldEvaluatedAt(prior.evaluatedAt());
+                delta.setOldEvaluatedAt(oldStamp);
+                delta.setAgeBasis(ageBasis);
                 delta.setNewEvaluatedAt(newEvaluatedAt);
                 delta.setAgeHours(java.math.BigDecimal.valueOf(
                         age.toMinutes() / 60.0).setScale(2, java.math.RoundingMode.HALF_UP));

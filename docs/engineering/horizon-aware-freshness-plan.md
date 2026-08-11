@@ -326,7 +326,34 @@ The investigation was only possible because `forecast_run_disposition` records a
 candidate. The queries that read it should live in the repo rather than in a chat log:
 `scripts/diagnose-stale-forecast.sh`, read-only, parameterised by location and date.
 
-### 5.3 Give `evaluation_delta_log` a per-location prior timestamp
+### 5.3 Give `evaluation_delta_log` a per-location prior timestamp — ✅ SHIPPED
+
+**Built as described below, with one addition the plan did not call for.** `BriefingEvaluationResult`
+gained an `evaluatedAt` component (shape 1); every write path in `BriefingEvaluationService` stamps
+it; `logEvaluationDeltas` measures against the location's own previous write and falls back to the
+region stamp only for entries cached before the field existed.
+
+The addition is **`evaluation_delta_log.age_basis`** (V140, nullable `VARCHAR(16)`:
+`LOCATION` / `CACHE_KEY` / null). Shape 1 alone would have changed what `age_hours` *means* partway
+down an append-only table, leaving old and new rows indistinguishable in the same column — the exact
+failure this section exists to fix, reintroduced one level up. The column is deliberately **not
+backfilled**: every pre-V140 row was computed on the cache-key basis so backfilling `CACHE_KEY`
+would be honest, but it would then be indistinguishable from a row the new code wrote via the
+fallback, and the two deserve different suspicion — the fallback is transient (it stops once every
+cached entry has been rewritten once), the historical rows are permanent.
+
+Adding a component to a record with ~120 construction sites was made non-invasive by keeping the
+old arity as a convenience constructor that delegates with a null stamp. No existing call site
+changed. A result built that way is indistinguishable from a legacy cached row, which is correct —
+in both cases the write time genuinely is not known.
+
+`scripts/diagnose-stale-forecast.sh` Q11 now filters `age_basis = 'LOCATION'` instead of the
+`age_hours >= 12` workaround, and a new Q11b reports how much of the table is safe to aggregate yet.
+⚠️ **Expect very few `LOCATION` rows at first** — the fallback stops occurring only after every
+cached entry has been rewritten once, so run Q11b before reading Q11 as a 30-day picture.
+
+<details>
+<summary>Original plan text, kept for the reasoning</summary>
 
 **This replaces an earlier proposal that would have measured nothing.** The first draft blamed the
 sub-6h rows on RETRY_FAILED merges and proposed a `write_kind VARCHAR(20)`
@@ -358,6 +385,15 @@ theory. The units mismatch is settled by reading the code, not by counting rows.
 
 Until this lands, the sub-6h buckets in §1.4 should simply be treated as unreadable, and §4's
 one-week observation should filter to `age_hours >= 12` to stay clear of them.
+
+</details>
+
+**Superseding that last paragraph now it has shipped**: §4's one-week observation should filter
+`age_basis = 'LOCATION'`, not `age_hours >= 12`. The horizon filter was a blunt proxy for "exclude
+the mislabelled rows" and it also discarded genuine sub-12h refreshes; the basis filter excludes
+exactly the ambiguous rows and nothing else. §1.4's caveat (b) and (c) remain true of every row
+logged before V140, which is the entire evidence base this plan was argued from — they are not
+retroactively fixed, only future rows are.
 
 ---
 

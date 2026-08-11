@@ -6,6 +6,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.gregochr.goldenhour.entity.CachedEvaluationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
@@ -64,7 +65,12 @@ class BriefingEvaluationServiceTest {
     @Mock private FreshnessResolver freshnessResolver;
     @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    // Must match the ObjectMapper bean AppConfig actually injects, JavaTimeModule and all.
+    // A bare `new ObjectMapper()` cannot serialise the Instant that BriefingEvaluationResult now
+    // carries, and persistToDb swallows JsonProcessingException with only a WARN — so a test on a
+    // bare mapper does not fail loudly, it silently stops exercising the persistence path at all.
+    private final ObjectMapper objectMapper =
+            new ObjectMapper().registerModule(new JavaTimeModule());
 
     private BriefingEvaluationService service;
 
