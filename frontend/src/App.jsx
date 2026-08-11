@@ -306,6 +306,22 @@ function AppInner() {
   const tabRequestNonce = useRef(0);
 
   /**
+   * The handoff the MAP TAB should act on, which is deliberately not `mapHandoff`.
+   *
+   * <p>⚠️ Found by review and reproduced at 390px. The shell mounts a pane once and then hides it
+   * rather than unmounting it, so once the Map tab has been visited its `MapView` is alive for the
+   * rest of the session — and it was being handed the same `mapHandoff` every plan-card tap sets.
+   * On a phone `MapView` answers a location handoff with a `BottomSheet`, which is
+   * `createPortal(…, document.body)` at `z-index: 10000`, so `display: none` on the panel cannot
+   * suppress it: tapping "Open on map" on the PLAN tab raised **two** stacked sheets — one from the
+   * overlay the reader asked for, one from a map that is not on screen — and locked body scroll.
+   *
+   * <p>So the tab is handed a handoff only when the reader explicitly asks to be taken to it, which
+   * is the hatch below and nothing else. Every other handoff belongs to the overlay.
+   */
+  const [mapTabHandoff, setMapTabHandoff] = useState(null);
+
+  /**
    * Close the overlay and hand off to the full Map tab, landing where the overlay was focused.
    *
    * <p>Two arms, two mechanisms, and it is <b>not</b> a ternary on one call. v1 has a Map entry in
@@ -315,9 +331,13 @@ function AppInner() {
    * hatch was withheld from v2 until this pane existed.
    */
   const openFullMapTab = () => {
+    // Read before the overlay is cleared — this is what "landing where the overlay was focused"
+    // actually means, and it is the only handoff the Map tab ever receives.
+    const focus = mapOverlay?.handoff ?? null;
     setMapOverlay(null);
     if (planLayout === PLAN_V2) {
       tabRequestNonce.current += 1;
+      if (focus) setMapTabHandoff({ ...focus, nonce: handoffNonce.current++ });
       setTabRequest({ id: 'map', nonce: tabRequestNonce.current });
       return;
     }
@@ -469,7 +489,12 @@ function AppInner() {
                       dates={allDates}
                       selectedDate={effectiveDate}
                       onSelectDate={setSelectedDate}
-                      handoff={mapHandoff}
+                      // Parity with the v1 Map tab, which passes the same thing. Without it the
+                      // pane's event type is whatever it derived at mount — and because this pane
+                      // is never unmounted, opening the map at dawn and returning after sunset
+                      // would still show the morning's event. v1 cannot do that: it remounts.
+                      autoEventType={autoSelection?.eventType ?? null}
+                      handoff={mapTabHandoff}
                       briefingScores={briefingScores}
                       onForecastRun={refresh}
                       seasonalFeatures={seasonalFeatures}

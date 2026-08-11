@@ -175,12 +175,13 @@ export default function MapOverlay({
           <span className="font-mono text-plex-text-muted" style={{ fontSize: '11px' }}>
             Esc to close · you stay on the Plan tab
           </span>
-          {/* Rendered only when a caller supplied the handler. The window-first arm does not — it
-              owns its own tab state and has no Map pane yet, so `openFullMapTab` would set a view
-              mode that arm ignores: the overlay would close and the user would still be looking at
-              Plan, having pressed a control that named a destination it cannot reach. Hiding it
-              there is honest; making it also flip the layout flag would silently undo the user's
-              own choice, which is worse. */}
+          {/* Rendered only when a caller supplied the handler, which BOTH arms now do — P15b gave
+              the window-first arm a Map tab, and `openFullMapTab` routes each arm its own way
+              (v1 sets the view mode; v2 nonce-requests a tab from its own shell, which ignores
+              `viewMode` entirely). The window-first arm still withholds the handler when it has no
+              forecast dates and therefore no Map tab, so the rule this comment was written for
+              survives in the one case it still applies to: never name a destination that does not
+              exist. */}
           {onOpenFullMap && (
             <button
               type="button"

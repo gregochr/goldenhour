@@ -91,7 +91,17 @@ becoming 12 for the wider box, which is the `invalidateSize` path working.
    near-identical buttons. Pre-existing and **identical in both arms**, which is exactly the species
    §2.8 says to decide once across both. It also weakens the WCAG 1.4.10 argument for the phone
    heatmap's two-dimensional scrolling, which rests on it being a data table.
-3. **The rem/px seam is still live for `useIsMobile`'s other callers.** `WindowFirstDoors` no longer
+3. **Two costs of never unmounting a pane, recorded rather than fixed.** Once the Map tab has been
+   visited, its `MapView` lives for the session: `useAuroraViewline`'s 5-minute poll keeps running
+   behind the Plan tab (and doubles while an overlay is open), and `fetchTravelDayRanges` is
+   duplicated with the one the briefing provider already makes. This is the same species as the
+   Operations pane's Scheduler poll, which P15a recorded and left. If it is not wanted, release
+   panes in the shell rather than deleting the comments.
+4. **On a phone, the map overlay's own bottom sheet covers its "Open the full Map tab" button.**
+   Pre-existing, in `MapOverlay`/`MapView`, and reproduced at 390px while verifying P15b — the
+   Playwright click was intercepted by `bottom-sheet-root`. Nothing to do with the tab; it means the
+   hatch is unreachable on a phone once a location is selected.
+5. **The rem/px seam is still live for `useIsMobile`'s other callers.** `WindowFirstDoors` no longer
    has a side in it (the phone heatmap removed its gate), but the hook is still `(max-width: 639px)`
    in px against Tailwind's `sm:` at `40rem`.
 

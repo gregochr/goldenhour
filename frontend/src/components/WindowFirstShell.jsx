@@ -315,7 +315,12 @@ export default function WindowFirstShell({
    */
   const requestedNonce = tabRequest?.nonce ?? null;
   const requestedId = tabRequest?.id ?? null;
-  const lastHandledRequest = useRef(null);
+  // Seeded with whatever nonce is already in flight at MOUNT, not with null. `App` holds
+  // `tabRequest` and never clears it, and it outlives this component — so with a null seed, leaving
+  // the arm and coming back replayed the last request and landed the reader on the Map tab when
+  // they had asked for the Plan layout. That flip is the pilot's core comparison gesture, and it
+  // contradicts this file's own rule that tab selection is not persisted.
+  const lastHandledRequest = useRef(tabRequest?.nonce ?? null);
   useEffect(() => {
     if (requestedNonce == null || requestedNonce === lastHandledRequest.current) return;
     lastHandledRequest.current = requestedNonce;

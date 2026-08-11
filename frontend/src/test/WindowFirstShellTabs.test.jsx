@@ -652,19 +652,53 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
     });
 
-    it('ignores a request for a tab it was handed no pane for', () => {
-      // Obeying it would select an id `effectiveTab` then has to fall back from — i.e. a silent
-      // jump to Plan, from a button the reader thinks opens something else.
-      const { setRequest } = renderWithRequest({ mapPane: null });
-      act(() => setRequest({ id: 'map', nonce: 1 }));
+    it('ignores a request for a pane it was handed nothing for — and does not jump later', () => {
+      // ⚠️ The assertion that bites is the SECOND one. Without the guard, `selectTab('map')` still
+      // sets `activeTab`; `effectiveTab` masks it while no Map tab exists, so a test that only
+      // checked "Plan is selected" passes against the broken code. The damage is deferred: the
+      // moment the forecast lands and `App` starts handing over a `mapPane`, the fallback stops
+      // applying and the reader is silently moved to a tab they never chose.
+      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+      const base = {
+        onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
+        locations: [], mapPane: null,
+      };
+      const view = render(<WindowFirstShell {...base} />);
+      act(() => view.rerender(<WindowFirstShell {...base} tabRequest={{ id: 'map', nonce: 1 }} />));
       expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+
+      // The forecast arrives; the pane appears. Plan must still be the selected tab.
+      const MAP2 = <p data-testid="map-pane">map pane</p>;
+      act(() => view.rerender(<WindowFirstShell {...base} mapPane={MAP2} tabRequest={{ id: 'map', nonce: 1 }} />));
+      expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'false');
       expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
     });
 
     it('ignores a request naming a tab that does not exist at all', () => {
+      // Same shape, and the same reason the naive assertion is not enough: `effectiveTab` would
+      // hide an `activeTab` of 'nowhere' forever, so the observable proof is that the pane which
+      // WOULD have been mounted was not.
       const { setRequest } = renderWithRequest();
       act(() => setRequest({ id: 'nowhere', nonce: 1 }));
       expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.queryByTestId('map-pane')).toBeNull();
+    });
+
+    it('does not replay a request that was already in flight when it mounted', () => {
+      // `App` holds `tabRequest` and never clears it, and it outlives this component. With the
+      // handled-nonce seeded to null, leaving the arm (exit hatch) and coming back replayed the
+      // last request and landed the reader on the Map tab when they had asked for the Plan layout
+      // — which is the pilot's core comparison gesture, and contradicts this file's own rule that
+      // tab selection is not persisted.
+      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+      const props = {
+        onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
+        locations: [], mapPane: MAP, tabRequest: { id: 'map', nonce: 4 },
+      };
+      render(<WindowFirstShell {...props} />);
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'false');
     });
 
     it('moves focus to the tab it selected, because the asker just closed itself', () => {

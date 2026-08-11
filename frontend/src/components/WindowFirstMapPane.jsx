@@ -44,7 +44,11 @@ import MapView from './MapView.jsx';
  * @param {string[]} props.dates           every date the forecast endpoint returned
  * @param {string}   props.selectedDate    the date the map is showing
  * @param {Function} props.onSelectDate    hands a new date back to {@code App}
- * @param {object}   [props.handoff]       an in-flight map handoff (event type, region, nonce…)
+ * @param {object}   [props.handoff]       a handoff the reader ASKED to land on, from the overlay's
+ *                                         hatch — never the arm's general `mapHandoff`, which every
+ *                                         plan-card tap sets and which this pane must not act on
+ *                                         while it is hidden
+ * @param {string}   [props.autoEventType] the auto-selected event type, as the v1 Map tab gets
  * @param {Map}      [props.briefingScores]
  * @param {Function} [props.onForecastRun]
  * @param {Array}    [props.seasonalFeatures]
@@ -53,7 +57,8 @@ import MapView from './MapView.jsx';
  * @param {Function} [props.onOpenSettings]
  */
 export default function WindowFirstMapPane({
-  locations, dates, selectedDate, onSelectDate, handoff = null, briefingScores = new Map(),
+  locations, dates, selectedDate, onSelectDate, handoff = null, autoEventType = null,
+  briefingScores = new Map(),
   onForecastRun = null, seasonalFeatures = [], homeCoords = null, homeRadiusMiles = null,
   onOpenSettings = null,
 }) {
@@ -62,17 +67,28 @@ export default function WindowFirstMapPane({
 
   useEffect(() => {
     const el = wrapRef.current;
-    // Not every environment has one — jsdom does not — and the map is simply left as it was there,
-    // which is the same behaviour it had before this pane existed.
+    // Guarded because an environment may not have one, and the map is then left exactly as it
+    // behaved before this pane existed. (Not jsdom, despite the obvious guess: `test/setup.js`
+    // installs a global stub for Recharts, so the suite has to DELETE it to exercise this branch.)
     if (!el || typeof ResizeObserver === 'undefined') return undefined;
     // `invalidateSize` does not change the container's own box, so this cannot feed itself.
-    const ro = new ResizeObserver(() => setResizeNonce((n) => n + 1));
+    //
+    // ⚠️ The ZERO box is skipped, and that is not an optimisation. Hiding the panel sets
+    // `display: none`, which fires an observation at 0×0 — and `invalidateSize` against a 0×0
+    // container makes Leaflet cache that size and prune its tiles, so the map the reader comes back
+    // to is blank until the next tick corrects it. Ignoring the hide leaves Leaflet's state intact,
+    // and the reveal is then a genuine no-op when nothing actually moved.
+    const ro = new ResizeObserver(() => {
+      const { width, height } = el.getBoundingClientRect();
+      if (width === 0 && height === 0) return;
+      setResizeNonce((n) => n + 1);
+    });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
   return (
-    <div ref={wrapRef} data-testid="window-first-map-pane" className="flex flex-col" style={{ gap: '10px' }}>
+    <div ref={wrapRef} data-testid="window-first-map-pane" className="flex flex-col gap-2.5">
       {/* Guarded because `DateStrip` requires a selected date and the shell mounts this pane the
           moment the tab is first opened. `App` already withholds the whole pane when there are no
           dates at all, so this covers only the gap between having dates and having resolved one. */}
@@ -82,7 +98,7 @@ export default function WindowFirstMapPane({
       <MapView
         locations={locations}
         date={selectedDate}
-        autoEventType={null}
+        autoEventType={autoEventType}
         handoffEventType={handoff?.eventType ?? null}
         handoffFilterAction={handoff?.filterAction ?? null}
         handoffLocationName={handoff?.locationName ?? null}
@@ -105,7 +121,14 @@ WindowFirstMapPane.propTypes = {
   dates: PropTypes.arrayOf(PropTypes.string).isRequired,
   selectedDate: PropTypes.string,
   onSelectDate: PropTypes.func.isRequired,
-  handoff: PropTypes.object,
+  handoff: PropTypes.shape({
+    eventType: PropTypes.string,
+    filterAction: PropTypes.string,
+    locationName: PropTypes.string,
+    region: PropTypes.string,
+    nonce: PropTypes.number,
+  }),
+  autoEventType: PropTypes.string,
   briefingScores: PropTypes.instanceOf(Map),
   onForecastRun: PropTypes.func,
   seasonalFeatures: PropTypes.array,
