@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.17.17] - 2026-08-11
+
 ### Added — the Plan tab points at a night when two rare things land on it
 
 Behind the window-first Plan flag, still off by default.
