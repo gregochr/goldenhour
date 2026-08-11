@@ -85,6 +85,16 @@ class CollectForecastTasksCachedGateTest {
     /** Tomorrow's date — always in the future so PAST_DATE doesn't trigger. */
     private final LocalDate tomorrow = FIXED_TODAY.plusDays(1);
 
+    /**
+     * T+3 — beyond the horizon caps, so the stability threshold alone governs.
+     *
+     * <p>The stability cases below deliberately sit here rather than at T+1. Their subject is the
+     * stability table (36 / 12 / 4), and at T+1 the 8h horizon cap would be the binding term for
+     * SETTLED and TRANSITIONAL, so the assertions would be pinning the cap while claiming to pin
+     * the table. Horizon capping has its own nest.
+     */
+    private final LocalDate inThreeDays = FIXED_TODAY.plusDays(3);
+
     @BeforeEach
     void setUp() {
         FreshnessProperties props = new FreshnessProperties();
@@ -92,6 +102,8 @@ class CollectForecastTasksCachedGateTest {
         props.setTransitionalHours(12);
         props.setUnsettledHours(4);
         props.setSafetyFloorHours(2);
+        props.getHorizon().setT0Hours(2);
+        props.getHorizon().setT1Hours(8);
         FreshnessResolver freshnessResolver = new FreshnessResolver(props);
 
         collector = new ForecastTaskCollector(
@@ -136,18 +148,42 @@ class CollectForecastTasksCachedGateTest {
     }
 
     private DailyBriefingResponse briefingWithOneSlot(String regionName, String locationName) {
+        return briefingWithOneSlot(regionName, locationName, tomorrow);
+    }
+
+    /**
+     * One-slot briefing on an explicit target date, so a test can choose its horizon.
+     *
+     * @param regionName   region the slot belongs to (first half of the cache key)
+     * @param locationName the slot's location
+     * @param date         the target date — the horizon under test, relative to FIXED_TODAY
+     * @return a briefing carrying exactly that one GO slot
+     */
+    private DailyBriefingResponse briefingWithOneSlot(String regionName, String locationName,
+            LocalDate date) {
         BriefingSlot slot = new BriefingSlot(
-                locationName, LocalDateTime.now().plusDays(1), Verdict.GO,
+                locationName, date.atTime(8, 0), Verdict.GO,
                 null, null, List.of(), null);
         BriefingRegion region = new BriefingRegion(
                 regionName, Verdict.GO, null, List.of(), List.of(slot),
                 null, null, null, null, null, null);
         BriefingEventSummary eventSummary = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(region), List.of());
-        BriefingDay day = new BriefingDay(tomorrow, List.of(eventSummary));
+        BriefingDay day = new BriefingDay(date, List.of(eventSummary));
         return new DailyBriefingResponse(
                 LocalDateTime.now(), null, List.of(day), List.of(),
                 null, null, false, false, 0, null, List.of(), List.of());
+    }
+
+    /**
+     * The cache key the gate builds for a region on a date, always SUNRISE in this fixture.
+     *
+     * @param regionName region name
+     * @param date       target date
+     * @return the {@code region|date|SUNRISE} cache key
+     */
+    private static String cacheKeyFor(String regionName, LocalDate date) {
+        return regionName + "|" + date + "|SUNRISE";
     }
 
     private LocationEntity locationEntity(String name, long id) {
@@ -169,20 +205,20 @@ class CollectForecastTasksCachedGateTest {
     }
 
     @Nested
-    @DisplayName("Stability-driven CACHED gate")
+    @DisplayName("Stability-driven CACHED gate (T+3 — beyond the horizon caps)")
     class StabilityDrivenCachedGate {
 
         @Test
         @DisplayName("SETTLED cell with 30h-old cache entry — skipped (within 36h threshold)")
         void settledWithin36hSkipped() throws Exception {
-            String cacheKey = "North East|" + tomorrow + "|SUNRISE";
+            String cacheKey = cacheKeyFor("North East", inThreeDays);
             when(stabilitySnapshotProvider.getLatestStabilitySummary())
                     .thenReturn(snapshotWith("Bamburgh", ForecastStability.SETTLED));
             when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
                     eq(Duration.ofHours(36)))).thenReturn(true);
 
             List<?> tasks = invokeCollectForecastCandidates(
-                    briefingWithOneSlot("North East", "Bamburgh"));
+                    briefingWithOneSlot("North East", "Bamburgh", inThreeDays));
 
             assertThat(tasks).isEmpty();
         }
@@ -190,7 +226,7 @@ class CollectForecastTasksCachedGateTest {
         @Test
         @DisplayName("SETTLED cell with 40h-old cache entry — candidate (beyond 36h threshold)")
         void settledBeyond36hRefreshed() throws Exception {
-            String cacheKey = "North East|" + tomorrow + "|SUNRISE";
+            String cacheKey = cacheKeyFor("North East", inThreeDays);
             when(stabilitySnapshotProvider.getLatestStabilitySummary())
                     .thenReturn(snapshotWith("Bamburgh", ForecastStability.SETTLED));
             when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
@@ -199,7 +235,7 @@ class CollectForecastTasksCachedGateTest {
                     .thenReturn(List.of(locationEntity("Bamburgh", 42L)));
 
             List<?> tasks = invokeCollectForecastCandidates(
-                    briefingWithOneSlot("North East", "Bamburgh"));
+                    briefingWithOneSlot("North East", "Bamburgh", inThreeDays));
 
             assertThat(tasks).hasSize(1);
         }
@@ -207,7 +243,7 @@ class CollectForecastTasksCachedGateTest {
         @Test
         @DisplayName("UNSETTLED cell with 6h-old cache entry — candidate (beyond 4h threshold)")
         void unsettledBeyond4hRefreshed() throws Exception {
-            String cacheKey = "North East|" + tomorrow + "|SUNRISE";
+            String cacheKey = cacheKeyFor("North East", inThreeDays);
             when(stabilitySnapshotProvider.getLatestStabilitySummary())
                     .thenReturn(snapshotWith("Bamburgh", ForecastStability.UNSETTLED));
             when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
@@ -216,7 +252,7 @@ class CollectForecastTasksCachedGateTest {
                     .thenReturn(List.of(locationEntity("Bamburgh", 42L)));
 
             List<?> tasks = invokeCollectForecastCandidates(
-                    briefingWithOneSlot("North East", "Bamburgh"));
+                    briefingWithOneSlot("North East", "Bamburgh", inThreeDays));
 
             assertThat(tasks).hasSize(1);
         }
@@ -224,14 +260,14 @@ class CollectForecastTasksCachedGateTest {
         @Test
         @DisplayName("UNSETTLED cell with 3h-old cache entry — skipped (within 4h threshold)")
         void unsettledWithin4hSkipped() throws Exception {
-            String cacheKey = "North East|" + tomorrow + "|SUNRISE";
+            String cacheKey = cacheKeyFor("North East", inThreeDays);
             when(stabilitySnapshotProvider.getLatestStabilitySummary())
                     .thenReturn(snapshotWith("Bamburgh", ForecastStability.UNSETTLED));
             when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
                     eq(Duration.ofHours(4)))).thenReturn(true);
 
             List<?> tasks = invokeCollectForecastCandidates(
-                    briefingWithOneSlot("North East", "Bamburgh"));
+                    briefingWithOneSlot("North East", "Bamburgh", inThreeDays));
 
             assertThat(tasks).isEmpty();
         }
@@ -239,7 +275,7 @@ class CollectForecastTasksCachedGateTest {
         @Test
         @DisplayName("No stability snapshot — treated as UNSETTLED (4h threshold)")
         void noSnapshotFallsBackToUnsettled() throws Exception {
-            String cacheKey = "North East|" + tomorrow + "|SUNRISE";
+            String cacheKey = cacheKeyFor("North East", inThreeDays);
             when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(null);
             when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
                     eq(Duration.ofHours(4)))).thenReturn(false);
@@ -247,7 +283,7 @@ class CollectForecastTasksCachedGateTest {
                     .thenReturn(List.of(locationEntity("Bamburgh", 42L)));
 
             List<?> tasks = invokeCollectForecastCandidates(
-                    briefingWithOneSlot("North East", "Bamburgh"));
+                    briefingWithOneSlot("North East", "Bamburgh", inThreeDays));
 
             assertThat(tasks).hasSize(1);
         }
@@ -255,7 +291,7 @@ class CollectForecastTasksCachedGateTest {
         @Test
         @DisplayName("Location not in snapshot — treated as UNSETTLED (4h threshold)")
         void unknownLocationFallsBackToUnsettled() throws Exception {
-            String cacheKey = "North East|" + tomorrow + "|SUNRISE";
+            String cacheKey = cacheKeyFor("North East", inThreeDays);
             // Snapshot has a different location
             when(stabilitySnapshotProvider.getLatestStabilitySummary())
                     .thenReturn(snapshotWith("OtherPlace", ForecastStability.SETTLED));
@@ -263,7 +299,7 @@ class CollectForecastTasksCachedGateTest {
                     eq(Duration.ofHours(4)))).thenReturn(true);
 
             List<?> tasks = invokeCollectForecastCandidates(
-                    briefingWithOneSlot("North East", "Bamburgh"));
+                    briefingWithOneSlot("North East", "Bamburgh", inThreeDays));
 
             assertThat(tasks).isEmpty();
         }
@@ -271,16 +307,133 @@ class CollectForecastTasksCachedGateTest {
         @Test
         @DisplayName("TRANSITIONAL cell — uses 12h threshold")
         void transitionalUses12hThreshold() throws Exception {
-            String cacheKey = "North East|" + tomorrow + "|SUNRISE";
+            String cacheKey = cacheKeyFor("North East", inThreeDays);
             when(stabilitySnapshotProvider.getLatestStabilitySummary())
                     .thenReturn(snapshotWith("Bamburgh", ForecastStability.TRANSITIONAL));
             when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
                     eq(Duration.ofHours(12)))).thenReturn(true);
 
             List<?> tasks = invokeCollectForecastCandidates(
-                    briefingWithOneSlot("North East", "Bamburgh"));
+                    briefingWithOneSlot("North East", "Bamburgh", inThreeDays));
 
             assertThat(tasks).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("Horizon-capped CACHED gate")
+    class HorizonCappedCachedGate {
+
+        /**
+         * The reported bug and its boundary, as a pair.
+         *
+         * <p>A 5★ sunset was evaluated at T+1 and never re-evaluated on the day of the event: the
+         * region was SETTLED, the entry was ~23h old, and 23h sits inside the 36h stability
+         * threshold. The gate ran before {@code NightlyEligibilityPolicy}, whose T+0 arm includes
+         * every stability, so the horizon never got a say.
+         *
+         * <p>The two tests differ only in the target date. That is the whole fix.
+         */
+        @Test
+        @DisplayName("REGRESSION: SETTLED cell, 23h-old entry at T+0 — collected (2h cap, "
+                + "not the 36h stability threshold)")
+        void settledAtTodayIsRefreshedDespiteStabilityThreshold() throws Exception {
+            String cacheKey = cacheKeyFor("North East", FIXED_TODAY);
+            when(stabilitySnapshotProvider.getLatestStabilitySummary())
+                    .thenReturn(snapshotWith("Bamburgh", ForecastStability.SETTLED));
+            // A 23h-old entry is NOT fresh against a 2h cap. Before the fix the gate asked with
+            // 36h, the answer was "fresh", and the whole region was dropped.
+            when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
+                    eq(Duration.ofHours(2)))).thenReturn(false);
+            when(locationService.findAllEnabled())
+                    .thenReturn(List.of(locationEntity("Bamburgh", 42L)));
+
+            List<?> tasks = invokeCollectForecastCandidates(
+                    briefingWithOneSlot("North East", "Bamburgh", FIXED_TODAY));
+
+            assertThat(tasks).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("BOUNDARY: the same SETTLED cell and 23h-old entry at T+3 — still skipped")
+        void settledAtThreeDaysStillHonoursStabilityThreshold() throws Exception {
+            String cacheKey = cacheKeyFor("North East", inThreeDays);
+            when(stabilitySnapshotProvider.getLatestStabilitySummary())
+                    .thenReturn(snapshotWith("Bamburgh", ForecastStability.SETTLED));
+            when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
+                    eq(Duration.ofHours(36)))).thenReturn(true);
+
+            List<?> tasks = invokeCollectForecastCandidates(
+                    briefingWithOneSlot("North East", "Bamburgh", inThreeDays));
+
+            assertThat(tasks).isEmpty();
+        }
+
+        @Test
+        @DisplayName("T+1 SETTLED — asks with the 8h cap, not the 36h stability threshold")
+        void settledAtTomorrowUsesEightHourCap() throws Exception {
+            String cacheKey = cacheKeyFor("North East", tomorrow);
+            when(stabilitySnapshotProvider.getLatestStabilitySummary())
+                    .thenReturn(snapshotWith("Bamburgh", ForecastStability.SETTLED));
+            when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
+                    eq(Duration.ofHours(8)))).thenReturn(true);
+
+            List<?> tasks = invokeCollectForecastCandidates(
+                    briefingWithOneSlot("North East", "Bamburgh", tomorrow));
+
+            assertThat(tasks).isEmpty();
+        }
+
+        @Test
+        @DisplayName("T+1 UNSETTLED — stability's 4h is tighter than the 8h cap, so 4h wins")
+        void unsettledAtTomorrowKeepsTighterStabilityThreshold() throws Exception {
+            String cacheKey = cacheKeyFor("North East", tomorrow);
+            when(stabilitySnapshotProvider.getLatestStabilitySummary())
+                    .thenReturn(snapshotWith("Bamburgh", ForecastStability.UNSETTLED));
+            when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
+                    eq(Duration.ofHours(4)))).thenReturn(true);
+
+            List<?> tasks = invokeCollectForecastCandidates(
+                    briefingWithOneSlot("North East", "Bamburgh", tomorrow));
+
+            assertThat(tasks).isEmpty();
+        }
+
+        @Test
+        @DisplayName("T+0 UNSETTLED — the 2h cap is tighter than stability's 4h, so 2h wins")
+        void unsettledAtTodayTakesTheCap() throws Exception {
+            String cacheKey = cacheKeyFor("North East", FIXED_TODAY);
+            when(stabilitySnapshotProvider.getLatestStabilitySummary())
+                    .thenReturn(snapshotWith("Bamburgh", ForecastStability.UNSETTLED));
+            when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
+                    eq(Duration.ofHours(2)))).thenReturn(true);
+
+            List<?> tasks = invokeCollectForecastCandidates(
+                    briefingWithOneSlot("North East", "Bamburgh", FIXED_TODAY));
+
+            assertThat(tasks).isEmpty();
+        }
+
+        @Test
+        @DisplayName("The CACHED disposition names the horizon alongside the threshold")
+        void cachedDispositionCarriesTheHorizon() throws Exception {
+            String cacheKey = cacheKeyFor("North East", FIXED_TODAY);
+            when(stabilitySnapshotProvider.getLatestStabilitySummary())
+                    .thenReturn(snapshotWith("Bamburgh", ForecastStability.SETTLED));
+            when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
+                    eq(Duration.ofHours(2)))).thenReturn(true);
+
+            List<CandidateDisposition> dispositions = new ArrayList<>();
+            invokeCollectForecastCandidates(
+                    briefingWithOneSlot("North East", "Bamburgh", FIXED_TODAY), dispositions);
+
+            // This string is the whole of what forecast_run_disposition records about a cache
+            // skip, and reading a threshold without its horizon is what made the original
+            // diagnosis take a day.
+            assertThat(dispositions)
+                    .singleElement()
+                    .satisfies(d -> assertThat(d.detail())
+                            .isEqualTo("Fresh cached evaluation within 2h (T+0, SETTLED)"));
         }
     }
 

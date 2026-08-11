@@ -5,6 +5,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — tonight's forecast is now re-evaluated on the day of the event
+
+A 5★ Angel of the North sunset was evaluated at 01:05 the day before its event and never looked at
+again — not by the afternoon intraday cycle, not by the overnight cycle on the day itself. Someone
+deciding whether to drive out was reading a forecast issued 43 hours earlier, and no code path
+existed that would improve it.
+
+The cache gate resolved its freshness threshold from weather stability alone. A SETTLED region gets
+36 hours, which from a 02:00 evaluation runs past the following evening — so the window swallowed
+the entire remaining lead time. The gate also runs *before* the eligibility policies, so the
+nightly policy's "T+0 is evaluated at every stability" rule was never reached. The threshold now
+takes the forecast horizon into account as well: T+0 is capped at the 2-hour safety floor and T+1
+at 8 hours, while T+2 and beyond keep the stability table unchanged.
+
+The caps are applied as the *tighter* of the two terms, so no slot at any horizon can come out
+staler than it was before, and raising a cap back to 36 is a complete rollback.
+
+What made the 36-hour number wrong is that it was calibrated against synoptic pattern persistence,
+which is not the same thing as rating persistence — the rating turns on low cloud at the solar
+horizon, which moves freely underneath a stable pattern. Thirty days of the evaluation delta log
+say so plainly: a SETTLED slot re-evaluated after a 48-hour gap, a gap the old threshold itself
+permitted, moved by a full star 72% of the time.
+
+Two supporting changes. The skip reason recorded against each candidate now names the horizon
+beside the threshold, because a threshold with no horizon next to it cannot be checked against the
+policy that produced it — reading those rows is what identified this in the first place. And the
+queries that read them ship as `scripts/diagnose-stale-forecast.sh` rather than being rebuilt from
+memory next time.
+
 ## [v2.17.15] - 2026-08-10
 
 ### Changed — the window-first Plan tab works on a phone

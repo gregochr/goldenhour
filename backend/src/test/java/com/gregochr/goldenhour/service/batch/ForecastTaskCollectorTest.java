@@ -60,6 +60,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -134,8 +135,14 @@ class ForecastTaskCollectorTest {
                 stabilitySnapshotProvider, survivorAtmosphereWriter, travelDayService,
                 MIN_PREFETCH_RATIO, 0, CLOCK,
                 BLUEBELL_SEASON);
-        // Default freshness threshold (matches UNSETTLED-equivalent default in legacy code)
+        // Default freshness threshold (matches UNSETTLED-equivalent default in legacy code).
+        // Both overloads are stubbed: the CACHED gate calls the horizon-aware 2-arg form, while
+        // the two stability-breakdown log lines still call the 1-arg one. Stubbing only the
+        // latter makes the mock return null for the gate, and BriefingCandidateCollector's
+        // freshness.toHours() then NPEs inside the skip branch.
         lenient().when(freshnessResolver.maxAgeFor(any())).thenReturn(Duration.ofHours(6));
+        lenient().when(freshnessResolver.maxAgeFor(anyInt(), any()))
+                .thenReturn(Duration.ofHours(6));
     }
 
     // ── Collection short-circuits ─────────────────────────────────────────────

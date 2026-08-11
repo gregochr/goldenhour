@@ -211,17 +211,26 @@ public final class BriefingCandidateCollector {
                             .build(region.regionName(), date, targetType);
                     ForecastStability regionStability = mostVolatileStability(
                             region, stabilityByLocation);
-                    Duration freshness = freshnessResolver.maxAgeFor(regionStability);
+                    // Horizon-aware: an evaluation for tonight and one for four days out are not
+                    // equally allowed to be stale. Passing daysAhead caps T+0 at the safety floor
+                    // and T+1 at 8h, so a SETTLED region evaluated at T+1 can no longer hold its
+                    // 36h window across the event it was evaluated for.
+                    Duration freshness = freshnessResolver.maxAgeFor(daysAhead, regionStability);
                     int regionSlots = region.slots() != null ? region.slots().size() : 0;
                     eligibleByStability.get(regionStability)[0] += regionSlots;
                     if (briefingEvaluationService.hasFreshEvaluation(cacheKey, freshness)) {
                         LOG.warn("[BATCH DIAG] SKIP region {} | reason=CACHED "
-                                        + "(stability={}, threshold={}h, {} slots skipped)",
-                                cacheKey, regionStability,
+                                        + "(T+{}, stability={}, threshold={}h, {} slots skipped)",
+                                cacheKey, daysAhead, regionStability,
                                 freshness.toHours(), regionSlots);
+                        // The horizon belongs in the detail string, not just the log line: this
+                        // text is the whole of what forecast_run_disposition records about why a
+                        // slot was skipped, and it is what made the original T+0 diagnosis
+                        // possible. A threshold with no horizon beside it cannot be checked
+                        // against the policy that produced it.
                         String cachedDetail = String.format(
-                                "Fresh cached evaluation within %dh (%s)",
-                                freshness.toHours(), regionStability);
+                                "Fresh cached evaluation within %dh (T+%d, %s)",
+                                freshness.toHours(), daysAhead, regionStability);
                         if (region.slots() != null) {
                             for (BriefingSlot slot : region.slots()) {
                                 dispositions.add(new CandidateDisposition(
