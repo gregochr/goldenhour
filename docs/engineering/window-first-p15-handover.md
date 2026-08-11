@@ -1,11 +1,9 @@
-# PhotoCast — window-first Plan tab. Continue at P15a → phone heatmap → P15b.
+# PhotoCast — window-first Plan tab. Continue after P15a, the phone heatmap, and P15b.
 
-*Handover written 2026-08-11. Every file:line and number below was checked against `main` at
-`7443e0ac` on the day it was written — but **this project has had citations rot inside a single
-commit**, twice, most recently when P14 added 186 lines to `index.css` and invalidated line numbers
-written in the same commit. **Verify before building on any of them.***
-
-Paste this as the opening prompt of the new session.
+*Handover rewritten 2026-08-11, replacing the version written the same morning. Every file:line and
+number below was checked that day — but **this project has had citations rot inside a single
+commit**, three times now, most recently when the phone heatmap shifted `HeatmapGrid` by 13 lines and
+invalidated a line number written in the same commit. **Verify before building on any of them.***
 
 ---
 
@@ -16,167 +14,114 @@ git pull && git log --oneline -5 && git branch -vv && git status --short
 ```
 
 ⚠️ **Also run `git branch --show-current` before you push anything.** A review agent ran
-`git checkout main` mid-session on 2026-08-09 and it went unnoticed until push time — a whole
-phase's commit had landed on `main` instead of its feature branch. `git status` cannot see this.
-Recovery, if it happens: `git branch -f <feature> <sha>`, `git checkout <feature>`,
-`git branch -f main origin/main`.
+`git checkout main` mid-session on 2026-08-09 and it went unnoticed until push time — a whole phase's
+commit had landed on `main` instead of its feature branch. `git status` cannot see this. Recovery:
+`git branch -f <feature> <sha>`, `git checkout <feature>`, `git branch -f main origin/main`.
 
 ## Read first, in this order
 
 1. `CLAUDE.md` — especially § "UI Work — Review Cadence" (**this work is bound by it**) and
    § "Speeding Up the Dev Build Cycle".
-2. `docs/engineering/window-first-redesign-plan.md` — the spec. §5 build order, §5i (P14's
-   decisions), §6 pre-pilot sweep, §7 deviations.
-3. `docs/engineering/frontend-test-standards.md` — before touching any test.
-4. `docs/design/window-first/README.md` § "Responsive Behaviour" — **nine** bullets, not thirteen.
+2. `docs/engineering/window-first-redesign-plan.md` — the spec. §5 build order, §6 pre-pilot sweep,
+   §7 deviations.
+3. `docs/engineering/phone-heatmap-blast-radius.md` — **read this before touching any component the
+   two arms share.** It is the worked example of how the blast radius is not the diff's headline
+   line.
+4. `docs/engineering/frontend-test-standards.md` — before touching any test.
 
 ---
 
 ## State, verified at handover
 
-- `main` = **`7443e0ac`**. Frontend suite **125 files / 3036 tests** on the P15a branch, all four CI
-  steps green with **exit 0**.
-- Latest migration **`V139__tide_refresh_description_horizon.sql`** — read it off the tree before
-  naming a new one; none of the work below needs a migration.
+- `main` was `7443e0ac` at the start of the session and has taken **#467** (P15a, `adda80e8`) and
+  **#468** (the phone heatmap) since.
+- Frontend suite **126 files / 3067 tests**, all four CI steps green with **exit 0**.
 - The flag default is still **v1**. Flipping it is a separate, later, one-token change.
-- **`feature/p15a-operations-tab` is committed locally at `c7ccb6b2` and NOT pushed.** Its
-  adversarial review **has now run to completion and its findings are fixed** (see task 1). Gate
-  green with exit 0: lint, **3036 tests**, `npm audit`, build. It is ready to push, PR and merge —
-  that is the first thing to do.
+- `v2.17.15` is tagged. ⚠️ **Three merges landed AFTER that tag** (#464, #465, #466) and everything
+  from this session is after it too — so "tagged and deployed" no longer means "all of main is in
+  production". Check what the deploy actually took before assuming.
 
-### Deployment
-
-**`v2.17.15` is tagged on origin and its deploy completed successfully**, so P13, P14, P14a and the
-three fixes below ARE in production. Releases are cut with **`./release.sh`**, which promotes the
-CHANGELOG via an auto-merged PR and *then* tags — so a merged "promote [Unreleased]" PR with no tag
-yet is a normal intermediate state, not a stalled release. **Never create or push tags yourself**;
-CLAUDE.md reserves that for the owner after real-world testing.
-
----
-
-## The three tasks, in the owner's chosen order
-
-### 1. Land P15a — the admin Operations tab
-
-**Built, reviewed, findings fixed.** Two commits: `1ef317d1` (the feature) and `c7ccb6b2` (the
-review fixes), plus this handover. Gate green with **exit 0**. **Just push, PR and merge it.**
-
-What it does, in case the PR needs describing:
-
-- `TABS` entries may carry a `slot`; a slotted tab renders **only** when the shell is handed that
-  pane. `App` holds `isAdmin` and withholds `operationsPane` — **that is the entire admin gate**, and
-  it means no role, no boolean and nothing role-shaped crosses into the arm (plan §5c). Do not
-  "improve" this by passing `isAdmin`.
-- The panel **element** is always present so `aria-controls` resolves; its **contents** mount on
-  first selection and then stay.
-- `effectiveTab` is load-bearing: a selection can outlive its tab, and without the fallback no tab
-  holds `tabIndex={0}` — the whole keyboard entry point.
-
-**What the review found (23 agents, 15 charges, 12 refuted):**
-
-- **MUST FIX, and it shipped in the first commit:** the slotted panel had **no class at all** when
-  selected, while both sibling panes wear `wf-body`. The pane sat flush to the frame — 100px against
-  the Plan pane's 118px at 1280, 16px against 30px at 390 — so the content edge jumped on every tab
-  change, and ManageView's group bar landed on the tab rule reading as one two-row control. Fixed
-  and re-measured: insets now identical and the content edge aligns with the tab bar.
-- Two comments stated **false mechanisms** and are corrected: the never-unmount justification was
-  backwards (ManageView *writes* the hash and parses it at mount, so the sub-view is what *survives*
-  a remount), and the memo's note claimed rebuilding an array would "remount the bar", which it
-  would not.
-- ⚠️ **Recorded, deliberately not fixed — decide if it bothers you.** `openedTabs` is add-only, so a
-  pane is never released. A Scheduler sub-view left open keeps its **30-second poll running for the
-  rest of the session** after the reader returns to Plan — measured at +28s and +58s on the Plan
-  tab, invisible, stoppable only by reload. v1 does not do this because v1 unmounts. Admin-only, one
-  interval, ~2 req/min. The false comment was hiding this; the comment now states it.
-- Also noticed and **not attributed to this diff**: `contentDisabled` is not applied to the slotted
-  panel, so a DOWN backend greys the Plan pane but not Operations; and at 390px ManageView's user
-  table overlaps with "Reset PW" clipped — nobody established whether v1 does the same.
-
-### 2. The full plan on a phone — the owner's own report, and the biggest remaining gain
-
-> *"the desk top view gives me access to the full plan at the bottom of the screen - is that
-> deliberately left out of the phone?"*
-
-Yes, and not for a good reason. `WindowFirstDoors` hides the Regional planner door below the sm
-breakpoint because `HeatmapGrid` is `hidden sm:grid` / `hidden sm:flex` and renders **nothing** below
-640px — so the door would open an empty bordered box (a P9 review finding). Nobody decided phone
-users don't need the full plan; the heatmap has no phone layout and v2 inherited that.
-
-⚠️ **`HeatmapGrid` is shared with the frozen v1 arm**, so this changes both arms at once. That is the
-central decision of the task, and it needs stating before any CSS: the v1 arm is frozen *for the
-side-by-side comparison the owner is running right now*.
-
-**Why it matters more than it looks:** the owner told us *"I never really used the iPhone browser as
-the ui got too complicated. Now it['s] usable after this redesign."* The phone is a real surface now,
-and v1's phone behaviour has therefore **never been exercised** — the hot-topic overflow (task-0
-below) was present in both arms and unnoticed for months for exactly that reason. Expect more of the
-same shape in re-parented v1 components.
-
-### 3. P15b — the Map tab
-
-The slot mechanism from P15a is already there: `WindowFirstShell` takes a `mapPane` prop and will
-grow the tab the moment `App` passes one. The work is the *pane*, not the tab.
-
-Carries every risk that could not be checked locally:
-
-- **`GET /api/forecast` returns 0 rows locally**, and `App` gates `MapView` on
-  `allDates.length > 0` — so the Map pane **cannot be seen populated at all** on this machine.
-- **Leaflet in a hidden panel**: `MapSizeSync` is `enabled={overlayMode}`, so a map that ever renders
-  while `display: none` paints grey with nothing to correct it. Budget an `invalidateSize` on reveal.
-- **The date contract is unsettled.** The Map pane wants its own `DateStrip` over `allDates`
-  (`/api/forecast`); the rail's domain is up to six briefing events. Different endpoints, different
-  horizons. The recommendation on file is to keep the strip, because dropping it strands the tab on
-  `effectiveDate` — a capability regression against v1.
-- **Restore the overlay's hatch.** `App` currently withholds `onOpenFullMap` from v2 with a comment
-  saying it will not name a destination it cannot reach. That expires with this task — but it is
-  **not a ternary flip**: `openFullMapTab` calls `setViewMode('map')`, which v2 ignores. The design
-  on file is a nonce'd tab request (the idiom already exists in `App`).
-- Keep `MapOverlay` as well as the tab. Eight call sites hand it a specific location/region/event
-  with a focus, a caption and a preserved narrative that a bare tab would discard. v1 runs both.
-
----
-
-## Already done this session — do not redo
+### Landed this session
 
 | | |
 |---|---|
-| Hot-topic row spilled its chevron past the card on a phone | `bb51c1be` (#464) |
-| `formatReportedAt` test failed for the first ~50 min of every day | `7581da73` (#465) |
-| Rail BEST/ALSO chip opens the pick's Claude prose | `7443e0ac` (#466) |
+| P15a — the admin Operations tab | #467 |
+| The heatmap's phone layout (+ the `scrollable` opt-in, and its review round) | #468 |
+| WebKit verification of the phone heatmap — a first for this series | in #468 |
+| P15b — the Map tab | `feature/p15b-map-pane`, see below |
 
-The rail chip and the window card's pick badge now open **one** dialog from two triggers, asserted
-textually identical. `--color-marginal` and `--color-dust` were declared in P14a, so the P15 row's
-list of flip blockers in `window-first-redesign-plan.md` is **stale** — and two of the others are
-LITE-only, which cannot fire for an owner who is the only user and an admin.
+---
+
+## Where P15b is
+
+Branch **`feature/p15b-map-pane`**, commits `714c581f` (the feature) and `b8f39aa4` (a focus fix
+found by measuring). Gate green with exit 0: lint, 3067 tests, `npm audit`, build.
+
+What it does:
+
+- **`WindowFirstMapPane`** — a date strip plus the full map. The strip is over `allDates` from
+  `GET /api/forecast`, **not** the rail's six briefing events: different endpoints, different
+  horizons, and the map's is the longer one. The *selection* stays in `App`, shared with the v1 Map
+  tab, so the two arms cannot disagree about which day is on screen.
+- **A nonce'd `tabRequest` on the shell.** The overlay's "open the full map" hatch is restored for
+  v2. It is not a ternary flip: `openFullMapTab` called `setViewMode('map')`, which this arm ignores
+  entirely. The shell declines a request for a pane it was never handed.
+- **`MapView` gained `resizeNonce`** (default null → v1 untouched, the same opt-in shape the phone
+  heatmap settled on). The pane watches its own box with a `ResizeObserver`, because a hidden panel
+  plus a rotation leaves Leaflet holding a stale size and painting grey.
+- **Focus follows a request, and only a request.** Measured: after the hatch, `activeElement` was the
+  document root — the dialog closed and took its restoration target with it. Now the requested tab
+  takes focus, reached by DOM id rather than through the index-based `tabRefs`.
+
+**Verified in a browser** at 390 and 1280 against an injected forecast fixture (see below): four
+tabs, the map 1044×500 at 1280 and 330×500 at 390, markers and a five-day strip, the hatch selecting
+the tab and re-landing on a second press, and — switching to Plan, resizing, returning — 6 tiles
+becoming 12 for the wider box, which is the `invalidateSize` path working.
+
+---
+
+## What is left
+
+1. **The pre-pilot sweep (§6), then flip the flag default.** The plan's P15 row lists the blockers;
+   two of the four are LITE-only and cannot fire for an owner who is the only user and an admin, and
+   `--color-marginal` / `--color-dust` were declared in P14a, so **that list is stale** — re-derive it
+   rather than trusting it.
+2. **The grid has no table semantics.** `HeatmapGrid` has no `role="grid"`/`rowheader`; a cell's
+   accessible name is its own text with no region and no date in it, so VoiceOver gets ~42
+   near-identical buttons. Pre-existing and **identical in both arms**, which is exactly the species
+   §2.8 says to decide once across both. It also weakens the WCAG 1.4.10 argument for the phone
+   heatmap's two-dimensional scrolling, which rests on it being a data table.
+3. **The rem/px seam is still live for `useIsMobile`'s other callers.** `WindowFirstDoors` no longer
+   has a side in it (the phone heatmap removed its gate), but the hook is still `(max-width: 639px)`
+   in px against Tailwind's `sm:` at `40rem`.
 
 ---
 
 ## Traps that carry forward
 
-1. **Gate on the exit code, never on the output.** A run printed `3035 passed` while exiting **1**:
-   `scrollIntoView` does not exist in jsdom, so a keyboard handler threw on every arrow press and
-   Vitest reported it only as "7 unhandled errors" beneath a green summary.
+1. **Gate on the exit code, never on the output — and never through a pipe.** `npm run lint | tail`
+   reports `$?` from **tail**, which is 0 while eslint is returning 1. That happened again this
+   session and hid three errors. Redirect to a file and echo the status as its own statement:
+   `npm run lint >/tmp/l.log 2>&1; echo "exit: $?"`.
 2. **jsdom evaluates no CSS.** `vite.config.js` sets `css: false`; `matchMedia` is a static
-   `{matches:false}` stub that ignores the query. So **no unit test can assert any media query or
-   any stylesheet value** — assert the class or attribute the component emits, and measure pixels in
-   a browser. `toHaveStyle` is honest only for values written inline.
-3. **Never spy on `localStorage`/`sessionStorage`.** `setup.js` installs a plain-object substitute
-   *only when jsdom does not supply one* — true on this Mac, false on CI. An instance spy passes
-   locally and records nothing on the runner. Observe through `length`/`key`, with a control write.
-4. **An inline style beats every stylesheet rule.** Two phone rules shipped dead this way before
-   being caught: an inline `flex` shorthand sets `flex-basis`, and an inline `gap` shorthand sets the
-   `row-gap` **longhand**. If a media query must reach a property, that property cannot be inline.
-5. **`npm run test` is NOT the frontend CI job.** It is lint → Vitest → `npm audit --audit-level=high`
-   → build. Run all four; `npm run lint` is `--max-warnings 0`, so a *warning* fails CI.
-6. **Review agents must be told READ-ONLY, explicitly and including branches.** Two incidents on this
-   repo: `git checkout --` destroyed unstaged work, and `git checkout main` moved a commit to the
-   wrong branch. Commit before review, not just stage.
-7. **The Browser pane can wedge permanently.** Fall back to Playwright from Bash — the module is
-   installed but its chromium is not, so pass the cached binary explicitly:
-   `~/Library/Caches/ms-playwright/chromium_headless_shell-1208/chrome-headless-shell-mac-x64/chrome-headless-shell`
-   via `chromium.launch({ executablePath })`. A hook blocks `Write` outside the repo, so pipe the
-   script in with `node --input-type=module -e "$(cat <<'EOF' … EOF)"`. It is faster than the pane
-   anyway, because resizing needs no separate tool call.
+   `{matches:false}` stub. **No unit test can assert any media query or stylesheet value** — assert
+   the class or attribute the component emits, and measure pixels in a browser.
+3. **A container-relative length fails silently.** `100cqw`/`100cqi` resolves against the *viewport*
+   when no query container matches. An unscoped rule shipped this session rendered a panel 1280px
+   wide inside an 830px grid, with nothing erroring.
+4. **`position: sticky` on a grid item is clamped by the GRID BOX, not the track list.** Without
+   `min-width: max-content` on the grid, a pinned column silently does not pin. Measured at x = −196.
+5. **An inline style beats every stylesheet rule.** `gridTemplateColumns` is inline, so a media query
+   cannot reach it — which is why the phone heatmap's trigger is a `minmax()` floor rather than a
+   breakpoint.
+6. **`npm run test` is NOT the frontend CI job.** It is lint → Vitest → `npm audit --audit-level=high`
+   → build. `npm run lint` is `--max-warnings 0`, so a *warning* fails CI.
+7. **Review agents must be told READ-ONLY, explicitly and including branches.** Two incidents on this
+   repo. Commit before review, not just stage.
+8. **Playwright: run it from `frontend/`, and `npx playwright install <x>` PRUNES the others.**
+   Installing webkit deleted the cached chromium mid-session. Browsers now match the module, so
+   `chromium.launch()` needs no `executablePath`. A *mismatched* cached build hangs rather than
+   erroring — if launch succeeds but the first page call never returns, suspect the version.
 
 ---
 
@@ -184,43 +129,41 @@ LITE-only, which cannot fire for an owner who is the only user and an admin.
 
 ```bash
 cd backend && ./mvnw -Plocal-dev spring-boot:run -Dspring-boot.run.profiles=local   # port 8083
-cd frontend && npm run dev                                                          # 5182 is free
+cd frontend && npm run dev
 ```
 
-`admin` / `golden2026`. `-Plocal-dev` is load-bearing (H2 is `test` scope). Flip to v2 through ⚙ →
-"Window-first Plan"; the stored value is JSON-encoded — `'"v2"'` **with the quotes** — so a hand-set
-`localStorage.setItem` silently does nothing.
+`admin` / `golden2026`. `-Plocal-dev` is load-bearing (H2 is `test` scope). `frontend/.env.local`
+already points the Vite proxy at 8083. Flip to v2 through ⚙ → "Window-first Plan"; the stored value
+is JSON-encoded — `'"v2"'` **with the quotes**.
 
-**What local data cannot show you.** The batch pipeline has never run here, so there are **no
-ratings, no picks and no spots**: the pane reads "0 spots across N windows", the rail's BEST/ALSO
-chip does not render at all, `tide_extreme` is empty, and `GET /api/forecast` returns 0 rows. The
-spot strip, attribute rows, the window header's meta row and every enriched tide row have therefore
-**never rendered on real data in any phase** — they were built against injected fixtures, one of
-which had to be hand-written into a state "the roster never produces". Injecting the component's
-verbatim markup to test a CSS rule is legitimate and was used repeatedly; say so plainly when you do.
+### What local data cannot show you, and the fixture that fixes it
 
-The cheap fix, if a task needs real states: hand-seed `cached_evaluation` and `tide_extreme` through
-the H2 console (`http://localhost:8083/h2-console`, `jdbc:h2:file:./data/goldenhour`, user `sa`, no
-password) — that sits *below* the honesty filter and the projector, so every layer above runs for
-real for the first time.
+The batch pipeline has never run here. `GET /api/forecast` returns **0 rows**, so `allDates` is empty
+and the Map tab does not even appear. `/api/briefing` *does* return five days × four regions × two
+events with real verdicts — but dated **2026-08-07**, so only "today" survives the upcoming filter,
+and the honesty filter empties every slot so every cell reads "Poor".
+
+**Route interception is the cheapest fix and it exercises the real component from the payload down.**
+Both were used this session and both are legitimate — say plainly that you did:
+
+- **Briefing**: shift every `YYYY-MM-DD` in the response forward by 4 days, and set
+  `displayVerdict` / `regionTemperatureCelsius` / `slots[].claudeRating` to get non-Poor cells, spot
+  strips and "Open on map" buttons. Give each region's slots **unique location names** or React logs
+  duplicate keys.
+- **Forecast**: `GET /api/locations` works, so build rows from the real roster —
+  `{locationName, locationLat, locationLon, targetDate, targetType, rating, solarEventTime, …}` — and
+  fulfil `/api/forecast` with them. Match on `/\/api\/forecast(\?|$)/`; a `**/api/forecast*` glob also
+  catches nothing useful if you try to sniff `/api/locations` in the same run, which raced and
+  produced an empty page twice.
 
 ---
 
 ## Not verified, said plainly
 
-- **No iOS Safari, ever.** Every measurement in this series is headless Chromium on macOS. WebKit
-  lays button content in an anonymous centring container, which is the one thing that could move the
-  rail chip's box — and the rail's baseline reservation is derived from that box. The owner reads on
-  an iPhone.
-- **No touch, no screen reader, no axe, no Lighthouse, no forced-colors, no non-Chrome.** True of
-  every phase P4 → P15a and accumulating.
-- **Nothing seen below 320px or above 1440px.**
-- The **rem/px seam** is live and deferred by the owner to its own commit: `useIsMobile` is
-  `(max-width: 639px)` in **px** while Tailwind's `sm:` is **`40rem`**, and `WindowFirstDoors` gates
-  on the first because `HeatmapGrid` is `hidden sm:grid`. At a non-default browser font size they
-  diverge and that band renders a bordered box around a `display:none` grid. Mechanism certain from
-  the code; **never reproduced** — media-query `rem` resolves against the *initial* root font size,
-  which JavaScript cannot change, so only the browser's own font setting reaches it. **Task 2 above
-  is in exactly this area — read this before touching `WindowFirstDoors`.**
-- `<main class="px-4 py-6">` adds 16px each side at every width, so the real phone inset is 16 + 14 =
-  **30px**, not the mock's 14. Shared App chrome; deliberately untouched.
+- **No real device.** WebKit at 390×844 with `hasTouch` now backs the phone heatmap (see
+  `phone-heatmap-blast-radius.md`), and it is the same engine as iOS Safari — but it is not an
+  iPhone, and P15b has **not** been through WebKit at all.
+- **No screen reader, no axe, no Lighthouse, no forced-colors, nothing above 1440px.** True of every
+  phase P4 → P15b and accumulating.
+- **The Map pane has never been seen on real data** — local `/api/forecast` is empty, so every
+  measurement of it is against the injected fixture above.
