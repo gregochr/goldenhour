@@ -615,4 +615,64 @@ describe('WindowFirstShell — when the feed is fetched', () => {
     expect(getAlmanac).toHaveBeenCalledTimes(2);
     expect(screen.getByText('Perseids')).toBeInTheDocument();
   });
+  // ── A tab asked for from outside the bar (P15b's map hatch) ──
+  describe('a tab requested from outside the bar', () => {
+    const MAP = <p data-testid="map-pane">map pane</p>;
+
+    /** Re-renders the shell with new PROPS, which `withContext` (context-only) cannot do. */
+    const renderWithRequest = (extra = {}) => {
+      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+      const base = {
+        onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
+        locations: [], mapPane: MAP, ...extra,
+      };
+      const view = render(<WindowFirstShell {...base} />);
+      return { ...view, setRequest: (tabRequest) => view.rerender(<WindowFirstShell {...base} tabRequest={tabRequest} />) };
+    };
+
+    it('selects the requested tab and mounts its pane', () => {
+      // The overlay's "open the full map" hatch. v1 reaches its Map tab with `setViewMode('map')`,
+      // which this arm ignores entirely — so without this the button was a control that could not
+      // act, and `App` withheld it rather than name a destination it could not reach.
+      const { setRequest } = renderWithRequest();
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      act(() => setRequest({ id: 'map', nonce: 1 }));
+      expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByTestId('map-pane')).toBeInTheDocument();
+    });
+
+    it('lands again when the same tab is asked for twice, because the nonce moved', () => {
+      // The reason it is nonce'd rather than keyed on the id. Open the map, go back to Plan by
+      // hand, press the hatch again: an id-keyed request would see no change and do nothing.
+      const { setRequest } = renderWithRequest();
+      act(() => setRequest({ id: 'map', nonce: 1 }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Plan' }));
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      act(() => setRequest({ id: 'map', nonce: 2 }));
+      expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('ignores a request for a tab it was handed no pane for', () => {
+      // Obeying it would select an id `effectiveTab` then has to fall back from — i.e. a silent
+      // jump to Plan, from a button the reader thinks opens something else.
+      const { setRequest } = renderWithRequest({ mapPane: null });
+      act(() => setRequest({ id: 'map', nonce: 1 }));
+      expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('ignores a request naming a tab that does not exist at all', () => {
+      const { setRequest } = renderWithRequest();
+      act(() => setRequest({ id: 'nowhere', nonce: 1 }));
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('does nothing at all when no request has ever arrived', () => {
+      // A null `tabRequest` is the resting state for every session that never opens the overlay,
+      // and it must not steal the initial selection.
+      renderWithRequest();
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.queryByTestId('map-pane')).toBeNull();
+    });
+  });
 });

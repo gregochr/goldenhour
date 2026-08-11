@@ -5,6 +5,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — a Map tab on the window-first Plan tab (P15b)
+
+The redesigned Plan tab, still behind the flag, now carries the full map as a third tab beside Plan
+and Coming up, with its own date strip.
+
+The strip is the decision worth recording. The day rail's domain is up to six briefing events; the
+map's is every date the forecast endpoint returned, which is the longer horizon. Following the rail
+would have stranded the tab on whichever day the Plan pane happened to be showing — a capability the
+older arm's Map tab has and this one would quietly have lost. The *selection* is shared with that
+older tab rather than duplicated, so the two can never disagree about which day is on screen.
+
+The map overlay's "open the full map" button comes back with it. It had been withheld from this arm
+because it named a destination that did not exist — and it is not a one-line restoration, because the
+older arm reaches its Map tab by switching a view mode this arm ignores entirely. The arm now asks its
+own shell for the tab instead, through a request the shell can decline if it was handed no such pane.
+
+Leaflet had to be told when the panel comes back. A deselected tab is hidden rather than unmounted,
+so a viewport change while the reader is elsewhere — a phone rotating, most obviously — leaves the map
+holding a size its container no longer has, and it paints grey on return. The pane watches its own box
+instead of waiting to be told it was revealed, which also covers a resize that happens while it is
+already on screen.
+
+Verified in a browser at 390 and 1280px, including switching away, resizing, and returning: the map
+re-tiles for its new box rather than keeping the old one.
+
 ### Added — the full plan is reachable on a phone
 
 The heatmap had no phone layout. Below 640px it rendered nothing at all, so the window-first arm hid
