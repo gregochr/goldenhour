@@ -169,7 +169,7 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 | Range | Key tables/changes |
 |-------|-------------------|
 | V1–V3 | `forecast_evaluation`, `actual_outcome`, azimuth |
-| V5–V9 | `location` table + metadata (golden_hour_type, tide_type, location_type) |
+| V5–V9 | `locations` table (**plural** — `V5__create_locations.sql`, `@Table(name = "locations")`; the singular sent a hand-written query to a table that does not exist) + metadata side-tables `location_tide_type`, `location_location_type`, `location_solar_event_type` (all **singular**) |
 | V10–V12 | `app_user`, `refresh_token`, password change gate |
 | V13–V15 | Tide columns on forecast_evaluation, `tide_extreme` table, FK constraints |
 | V16–V19 | evaluation_model, fiery_sky/golden_hour scores, rating, comfort fields |
