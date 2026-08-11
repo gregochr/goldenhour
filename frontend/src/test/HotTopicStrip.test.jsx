@@ -225,8 +225,14 @@ describe('HotTopicStrip', () => {
       // Before this the disclosure announced as a plain button: the panel appeared with no
       // indication the control had a state, so a screen-reader user had no way to know the pill
       // could be pressed again to close it. The chevron above says it to sighted users only.
+      //
+      // Reached by ROLE and NAME, not by test-id, because the standards require it for an
+      // interactive element whose contract changed — and because a state assertion on an element
+      // with no accessible name would be pinning half a contract. The name filter also
+      // disambiguates from InfoTip's nested "More info" button inside the same pill.
       render(<HotTopicStrip hotTopics={[buildTopic()]} />);
-      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      const pill = screen.getByRole('button', { name: /BLUEBELL CONDITIONS/ });
+      expect(pill).toBe(screen.getByTestId('hot-topic-pill-BLUEBELL'));
 
       expect(pill).toHaveAttribute('aria-expanded', 'false');
       fireEvent.click(pill);

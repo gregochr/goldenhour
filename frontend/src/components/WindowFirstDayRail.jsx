@@ -169,12 +169,17 @@ export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick, 
           // the same channel — a gold-bordered tile can still read amber or green inside.
           // BOTH branches resolve through the VERDICT family, and the pairing is the point. The GO
           // branch used to read `--color-badge-go`, making this the one verdict expression in the
-          // tree that mixed families — `HeatmapGrid:594`, `BriefingSummaryStrip:79-81` and
-          // `MapOverlay:49-51` all pair verdict-with-verdict. `index.css:104-107` scopes the badge
-          // family to "~10px type on a 12–14% tint of its own hue"; this line is 10.5px on the
-          // untinted panel, the case that family is not for, so nothing forced the lift. The
-          // visible cost was a RESTING mismatch, not a hover one: `index.css:1173` paints a
-          // `data-pick="best"` chip `--color-verdict-go` permanently, 4px below this line.
+          // tree that mixed families — `HeatmapGrid`'s own `verdictColour`, `BriefingSummaryStrip`'s
+          // `peakColour` and `MapOverlay`'s tone map all pair verdict-with-verdict. The badge
+          // family is scoped by its declaring comment in `index.css` to "~10px type on a 12–14%
+          // tint of its own hue"; this line is 10.5px on the untinted panel, the case that family
+          // is not for, so nothing forced the lift. The visible cost was a RESTING mismatch, not a
+          // hover one: the `.summary-region-chip[data-pick="best"]` rule paints a chip
+          // `--color-verdict-go` permanently, 4px below this line.
+          //
+          // Cited by SYMBOL, not by line: the first cut of this comment named `HeatmapGrid:594` and
+          // `index.css:104-107`, and the very commit that wrote it moved the first target to :618
+          // while the second was two lines out and half-landed in the run-bar comment.
           const verdictColour = tile.peak === 'go'
             ? 'var(--color-verdict-go)'
             : tile.peak === 'maybe'
@@ -194,7 +199,7 @@ export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick, 
                 borderRadius: '9px',
                 background: tile.isToday ? 'rgba(201,162,75,0.08)' : 'var(--color-plex-panel)',
                 padding: '9px 11px 10px',
-                // 0.62, matching v1's away pill (`BriefingSummaryStrip:108`) — the SECOND half of
+                // 0.62, matching v1's away pill (`BriefingSummaryStrip`'s `isAway` opacity) — the SECOND half of
                 // the same divergence the verdict colour above fixes. It was 0.45, which is
                 // CLAUDE.md's LITE-gate number (`opacity: 0.45, pointer-events: none`) borrowed for
                 // an unrelated job: an away day is not a gated feature, it is a day the user told us
@@ -302,7 +307,7 @@ export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick, 
                   marginTop: '4px',
                   fontStyle: tile.peak === 'poor' ? 'italic' : 'normal',
                   // Away routes to the TIDE channel, not a verdict one — matching the v1 pill this
-                  // tile was copied from (`BriefingSummaryStrip:82-83`). A travel day has no
+                  // tile was copied from (`BriefingSummaryStrip`'s `peakColour`). A travel day has no
                   // verdict at all (`windowFirstRail` gives it `peak:'away'`, `ratedCount:0`,
                   // `confidence:null`), so painting it `--color-verdict-marginal` spent the one
                   // colour `index.css:41` calls "the only colour in the UI that carries meaning" on

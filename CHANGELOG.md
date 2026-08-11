@@ -36,10 +36,24 @@ both rather than something to change on one side during a sweep.
 **The regional grid was unreadable with a screen reader.** Every cell was an unlabelled button, so
 it announced as whatever word it happened to show — around thirty of the forty-odd cells just said
 "Poor", with no region and no date, and no way to tell any of them apart. Each cell now says which
-region, which day, which event and what the verdict is. This affects both the old and new Plan
-screens equally; nothing moves on screen. A related fix gives the hot-topic pills the expanded/
-collapsed state they were never announcing, so it is now possible to tell that pressing one again
-will close it.
+region, which day, which event and what the verdict is, and on a cell that has been scored, its
+star rating and whether the forecast is still provisional. Nothing moves on screen, and this
+applies to both the old and new Plan screens.
+
+That last detail is worth spelling out, because the first attempt at this fix got it wrong in a way
+the tests could not see. Labelling a button *replaces* what a screen reader reads out of it rather
+than adding to it — so naming the cells silently took the star rating and the low-confidence marker
+away from the very people the change was meant to help, while a sighted user still saw both. It
+survived a green test run because the test data had no ratings in it. Caught in review, fixed, and
+the tests now use a cell with a rating and a confidence marker on it.
+
+A related fix gives the hot-topic pills the expanded/collapsed state they were never announcing, so
+it is now possible to tell that pressing one again will close it.
+
+**A travel day is described the same way in both places now.** The grid called it "no forecast
+generated", which sounds like something failed; the new Plan screen says "not forecast", which is
+what actually happened — the days exist, we just don't evaluate them while you are away. On the new
+screen both wordings could appear on one page. Both now say "not forecast".
 
 Two more findings are real and deliberately not fixed here, because they are the same question and
 it is a pricing one rather than a display one: the new Plan screen shows the two forecast scores to

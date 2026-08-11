@@ -2035,7 +2035,7 @@ independent refuter prompted to **refute** and defaulting to REFUTED without cit
 | 2 — stateless copy, no exposure counter | pass |
 | **3 — promoted strip: renders on a coincidence, never more than one** | ⚠️ **UNTESTED — not pass** |
 | 4 — no invented vocabulary, no counts of our own data | **1 fixed** (rail's "4 regions") |
-| 5 — verdict colours consistent; confidence decay only on the card badge | **2 fixed** (rail GO token, away hue) |
+| 5 — verdict colours consistent; confidence decay only on the card badge | **first half: 2 fixed** (rail GO token, away hue). **Second half: superseded, not tested** — see below |
 | 6 — every footer's claimed sort and count matches what is rendered | pass |
 | 7 — coherent with no home postcode | pass |
 | 8 — no control whose only visible effect is an `aria-hidden` panel | pass |
@@ -2050,6 +2050,17 @@ already ships (`TopicRarity`, `BriefingWindow.topRarityRank`, `Badge.rarityRank`
 `PlanWindowProjector:464`), so P7b is frontend-only and nothing here has to be undone to pick it up.
 When it lands, re-run this clause **and** check it against `windowFirstRows.js`'s row cap, which
 sorts by the same `rarityRank` and must not disagree with the strip about which topic matters most.
+
+**Clause 5's second half is superseded, and saying so is not the same as testing it.** The clause asks
+that the confidence decay appear on the window card's verdict badge "and **nowhere else**" — check the
+rail, the drill-down header and the spot strip. That instruction predates the confidence channel this
+project actually shipped: CLAUDE.md now documents it as deliberately spanning grid cells, Best Bet,
+the summary-strip pills and the shared `VerdictPill`, with only the **star** ring-fenced. So the
+"nowhere else" wording describes a design that was superseded, and the sweep did not test it. The rail
+independently honours the original intent (`WindowFirstDayRail`'s javadoc records refusing a
+`ProvisionalMark` for exactly this reason); the drill-down header and the spot strip were **not**
+checked either way. Whoever revisits this should reconcile the clause with CLAUDE.md rather than
+re-run it as written.
 
 **Two charges survived and were deliberately NOT fixed here**, because both are the same question and
 it is a pricing decision, not a rendering one: the v2 spot peek shows the two scores ungated while
