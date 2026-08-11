@@ -24,7 +24,14 @@ uses, so the same day could show two different greens four pixels apart. And a d
 was painted in the amber that means "maybe" — but a travel day has no forecast at all, so it was
 spending the one colour in the app that carries meaning on a day that carries none, in the same
 shade as the days either side of it. Away now uses the same neutral treatment the old Plan screen
-gives it.
+gives it — and the same amount of dimming, which it had also been diverging on: the new screen was
+fading travel days using the number reserved for features you have not paid for, which is a
+different thing from a day you told us you would be away. Measured in a browser, that left the
+words on a travel tile at a contrast of 2.3:1; matching the old screen brings it to 3.3:1.
+
+⚠️ 3.3:1 is still below the accessibility standard of 4.5:1, and is not being claimed as fixed. Both
+Plan screens deliberately fade a travel day, and how far they should fade it is one decision for
+both rather than something to change on one side during a sweep.
 
 **The regional grid was unreadable with a screen reader.** Every cell was an unlabelled button, so
 it announced as whatever word it happened to show — around thirty of the forty-odd cells just said

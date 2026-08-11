@@ -194,7 +194,20 @@ export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick, 
                 borderRadius: '9px',
                 background: tile.isToday ? 'rgba(201,162,75,0.08)' : 'var(--color-plex-panel)',
                 padding: '9px 11px 10px',
-                opacity: tile.isAway ? 0.45 : 1,
+                // 0.62, matching v1's away pill (`BriefingSummaryStrip:108`) — the SECOND half of
+                // the same divergence the verdict colour above fixes. It was 0.45, which is
+                // CLAUDE.md's LITE-gate number (`opacity: 0.45, pointer-events: none`) borrowed for
+                // an unrelated job: an away day is not a gated feature, it is a day the user told us
+                // they are travelling. Measured on the running app over `--color-plex-panel`, the
+                // away verdict line composited to 2.34:1 at 0.45 and 3.33:1 at 0.62.
+                //
+                // ⚠️ 3.33:1 still fails WCAG AA (4.5:1) and is not claimed as fixed — this brings v2
+                // level with the arm it was copied from and recovers more than the colour change
+                // cost (the amber it replaced was 2.66:1). The remaining gap is the dimming itself,
+                // which is a deliberate de-emphasis in BOTH arms and so is one decision across both,
+                // not a change to make inside a sweep. The plan already records this exact wrapper
+                // producing a contrast defect once before (§5c, the "Pro" pill at 3.68:1).
+                opacity: tile.isAway ? 0.62 : 1,
               }}
             >
               <div
