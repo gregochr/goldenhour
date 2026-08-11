@@ -4,6 +4,9 @@ import React from 'react';
 import usePlanLayout, { PLAN_LAYOUT_KEY, PLAN_V1, PLAN_V2 } from '../hooks/usePlanLayout.js';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
+import { buildWindowCards } from '../utils/windowFirstCards.js';
+import { buildPaneItems } from '../utils/windowFirstAway.js';
+import { buildPromotedStrip } from '../utils/windowFirstPromoted.js';
 
 /**
  * A harness rather than a real consumer, deliberately: the only component that reads this hook is
@@ -786,6 +789,123 @@ describe('WindowFirstShell — the rail it hosts', () => {
       // screen saying how stale what you are reading is.
       renderWithBriefing(briefingWith('2026-08-04T12:00:00'), { contentDisabled: true });
       expect(dimmedAncestorOf(screen.getByTestId('window-first-age'))).toBeNull();
+    });
+  });
+  describe('the promoted strip', () => {
+    const TOMORROW = '2026-08-05';
+
+    /** A badge as `BriefingWindow.Badge` serialises one. */
+    const topic = (type, label, rarityRank) => ({
+      type,
+      label,
+      detail: null,
+      facts: [{ key: 'k', value: 'v', dir: null, emphasis: true, optional: false }],
+      eventTime: null,
+      rarityRank,
+    });
+
+    /**
+     * A context built through the REAL derivation chain from a payload, so what the shell is handed
+     * is what the provider would hand it. Only the fetch is stubbed.
+     *
+     * <p>Both days carry a coincidence by default. That is the point: §6 clause 3 is "renders when a
+     * coincidence exists, AND never more than one", and its own wording warns that the second half
+     * "passes vacuously on a page that never built the strip at all". A page with one coincidence
+     * could not tell those apart.
+     */
+    const paneWith = (windowsByDate) => {
+      const days = Object.entries(windowsByDate).map(([date, window]) => ({
+        date,
+        eventSummaries: [{
+          targetType: 'SUNSET', regions: [], unregioned: [], window: { verdict: 'WORTH_IT', ...window },
+        }],
+      }));
+      const upcoming = days.map((d) => ({ date: d.date, targetType: 'SUNSET' }));
+      const cards = buildWindowCards(upcoming, days, '2026-08-04', TOMORROW, new Set(), new Map());
+      const paneItems = buildPaneItems(upcoming, cards, new Set(), []);
+      return {
+        ...briefingWith('2026-08-04T12:00:00', new Map(), cards, paneItems),
+        promotedStrip: buildPromotedStrip(paneItems),
+      };
+    };
+
+    const TWO_COINCIDENCES = {
+      // Rank 8 — the loser, and deliberately the EARLIER day, so a selection that simply took the
+      // first coincidence it found would pick this one.
+      '2026-08-04': {
+        badges: [topic('SNOW_TOPS', 'Snow on the fells', 8), topic('SNOW_FRESH', 'Fresh snow', 10)],
+        topRarityRank: 8,
+      },
+      // Rank 3 — the winner.
+      [TOMORROW]: {
+        badges: [topic('KING_TIDE', 'King tide', 3), topic('AURORA', 'Aurora', 4)],
+        topRarityRank: 3,
+      },
+    };
+
+    it('renders exactly one strip when two windows carry a coincidence, and it is the rarest', () => {
+      renderWithBriefing(paneWith(TWO_COINCIDENCES));
+
+      expect(screen.getAllByTestId('window-first-promo')).toHaveLength(1);
+      expect(screen.getByTestId('window-first-promo-when')).toHaveTextContent('Tomorrow sunset');
+    });
+
+    it('renders no strip when no window carries a coincidence', () => {
+      renderWithBriefing(paneWith({
+        '2026-08-04': { badges: [topic('AURORA', 'Aurora', 4)], topRarityRank: 4 },
+        [TOMORROW]: { badges: [] },
+      }));
+      expect(screen.queryByTestId('window-first-promo')).toBeNull();
+    });
+
+    it('sits inside the pane, above every window card', () => {
+      renderWithBriefing(paneWith(TWO_COINCIDENCES));
+
+      const pane = screen.getByTestId('window-first-pane');
+      const strip = screen.getByTestId('window-first-promo');
+      expect(pane).toContainElement(strip);
+      // Nothing precedes it in the pane — the assertion the existing DOM-order tests do not make,
+      // because until now nothing sat above the first card.
+      expect(pane.firstElementChild).toBe(strip);
+      screen.getAllByTestId('window-card').forEach((card) => {
+        expect(strip.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      });
+    });
+
+    // Forecast content, so it takes the treatment that marks a dead backend — unlike the masthead,
+    // the rail footer and the exit hatch, which are routes and must keep working.
+    it('takes the pane\'s DOWN treatment', () => {
+      renderWithBriefing(paneWith(TWO_COINCIDENCES), { contentDisabled: true });
+      expect(dimmedAncestorOf(screen.getByTestId('window-first-promo'))).not.toBeNull();
+    });
+
+    it('opens the promoted window\'s card and leaves the reader on it', () => {
+      renderWithBriefing(paneWith(TWO_COINCIDENCES));
+
+      // Precondition: the promoted window is the SECOND card, and the lead-open default has left it
+      // collapsed. Without this the test could pass against a card that was already open.
+      const expanders = screen.getAllByTestId('window-card-expander');
+      expect(expanders[1]).toHaveAttribute('aria-expanded', 'false');
+
+      fireEvent.click(screen.getByTestId('window-first-promo-go'));
+
+      expect(screen.getAllByTestId('window-card-expander')[1])
+        .toHaveAttribute('aria-expanded', 'true');
+      // Focus lands on that card's own control, whose name repeats the window just asked for.
+      expect(document.activeElement).toHaveAccessibleName('Collapse Tomorrow sunset');
+    });
+
+    // The lead card is open by default and the strip sits directly above it, so a route would scroll
+    // to the element immediately beneath — a control with no visible effect.
+    it('offers no route when the promoted window is the pane\'s first card', () => {
+      renderWithBriefing(paneWith({
+        '2026-08-04': {
+          badges: [topic('KING_TIDE', 'King tide', 3), topic('AURORA', 'Aurora', 4)],
+          topRarityRank: 3,
+        },
+      }));
+      expect(screen.getByTestId('window-first-promo')).toBeInTheDocument();
+      expect(screen.queryByTestId('window-first-promo-go')).toBeNull();
     });
   });
 });

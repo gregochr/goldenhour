@@ -4,6 +4,7 @@ import BrandLockup from './shared/BrandLockup.jsx';
 import WindowFirstDayRail from './WindowFirstDayRail.jsx';
 import WindowFirstLensBar from './WindowFirstLensBar.jsx';
 import WindowFirstWindowCard from './WindowFirstWindowCard.jsx';
+import WindowFirstPromotedStrip from './WindowFirstPromotedStrip.jsx';
 import WindowFirstDoors from './WindowFirstDoors.jsx';
 import WindowFirstComingUp from './WindowFirstComingUp.jsx';
 import WindowAwayRow from './WindowAwayRow.jsx';
@@ -12,6 +13,7 @@ import WindowSpotSheet from './WindowSpotSheet.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { formatRelativeAge } from '../utils/relativeTime.js';
 import { buildLocationTypeMap } from '../utils/locationTypes.js';
+import { windowCardDomId } from '../utils/windowFirstCards.js';
 import { ANY_TIER_ID } from '../utils/reachLens.js';
 import { sheetOffersMore } from '../utils/windowSpotBrowse.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
@@ -192,8 +194,8 @@ export default function WindowFirstShell({
   onSeasonalFeaturesChange, locations, mapPane, operationsPane, tabRequest,
 }) {
   const {
-    railTiles, windowCards, paneItems, loading, briefing, evaluationScores, scoreIndex, todayStr,
-    reachLens, homePlace,
+    railTiles, windowCards, paneItems, promotedStrip, loading, briefing, evaluationScores,
+    scoreIndex, todayStr, reachLens, homePlace,
   } = useWindowFirstBriefing();
   const [activeTab, setActiveTab] = useState(TABS[0].id);
   /**
@@ -397,6 +399,33 @@ export default function WindowFirstShell({
    */
   const defaultOpenKey = windowCards[0]?.key ?? null;
   const isCardOpen = (card) => cardOverrides.get(card.key) ?? (card.key === defaultOpenKey);
+
+  /**
+   * The promoted strip's route into the list: open the window it names, and put the reader on it.
+   *
+   * <p>It writes the override to `true` rather than toggling, because the strip's control says "Go
+   * to" and never "close" — a toggle would collapse the card for a reader who pressed it twice, or
+   * who pressed it on a card the lead-open default had already opened.
+   *
+   * <p>Synchronous rather than deferred a frame, and that is deliberate: `block: 'start'` scrolls to
+   * the card's TOP edge, which does not move when the card below it expands, so there is nothing to
+   * wait for. Focus lands on that card's own expander — the control the reader would reach for next,
+   * and the one whose accessible name repeats the window they just asked for.
+   *
+   * <p>Both DOM calls are optional-CALLED, not merely optional-chained: jsdom implements no layout
+   * and provides no `scrollIntoView`, and the unguarded form throws on every press while the suite
+   * still reports green — the exact trap the tab bar's own arrow handling documents a few lines up.
+   */
+  const revealWindow = (key) => {
+    setCardOverrides((prev) => {
+      const next = new Map(prev);
+      next.set(key, true);
+      return next;
+    });
+    const node = document.getElementById(windowCardDomId(key));
+    node?.scrollIntoView?.({ block: 'start' });
+    node?.querySelector('[data-testid="window-card-expander"]')?.focus?.();
+  };
 
   // Lifted to App for the map overlay, exactly as DailyBriefing does it in the v1 arm. Without this
   // a tile handed to the map opens an overlay with no narrative over a map that has filtered out
@@ -654,6 +683,17 @@ export default function WindowFirstShell({
         data-testid="window-first-pane"
         className={`wf-body ${effectiveTab === 'plan' ? 'flex' : 'hidden'} flex-col${dimmed}`}
       >
+        {/* Above every item, and the only element on this pane that is not in date order. That is
+            tolerable because it is an INDEX into the list rather than an item in it: it names its
+            window and carries the control that opens it. `buildPromotedStrip` returns one descriptor
+            or null, so the "at most one" cap is arithmetic here rather than a rule this file has to
+            keep. Inside the greyed region — it is forecast content, which is what that treatment
+            marks — and inside `.wf-body`, so it takes the arm's gutter and the pane's 10px gap
+            without a margin of its own. */}
+        {promotedStrip && (
+          <WindowFirstPromotedStrip strip={promotedStrip} onOpenWindow={revealWindow} />
+        )}
+
         {paneItems.map((item) => (item.kind === 'away' ? (
           <WindowAwayRow
             key={item.key}

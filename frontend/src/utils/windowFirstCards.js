@@ -215,6 +215,19 @@ export function buildWindowCards(
       withinReachCount: withinReachCount(spots, lens?.limitMinutes ?? null),
       rows,
       badges: (win?.badges || []).filter((b) => !promoted.has(badgeKey(b))),
+      // The window's badges BEFORE the row promotion above removed any of them — the same
+      // before/after pairing `allSpots` and `spots` already carry, and for the same reason: a later
+      // consumer needs the population, not what one surface left of it. `buildPromotedStrip` counts
+      // these to decide whether two attributes landed on this window, and counting the filtered list
+      // would make a winter dawn carrying SNOW_TOPS + SNOW_FRESH read as a single-badge window
+      // because one of the two had become a row. Nothing is dropped from the card by this: the
+      // strip promotes no badge out of the header (see `windowFirstPromoted.js`).
+      allBadges: win?.badges || [],
+      // The payload's own rarity answer for this window, carried verbatim — `undefined` when the
+      // window has no badges, and also when a payload cached before the field existed is replayed.
+      // `buildPromotedStrip` prefers it and recomputes only in the second case; the card itself must
+      // not read it, which `WindowFirstWindowCard.test.jsx` pins.
+      topRarityRank: win?.topRarityRank,
       pick: win?.pick
         ? {
           kind: win.pick.kind === 'BEST' ? 'best' : 'also',
@@ -227,6 +240,23 @@ export function buildWindowCards(
         : null,
     };
   });
+}
+
+/**
+ * The DOM id of a window card's root element.
+ *
+ * <p>Two callers need this string and they are in different files — the card writes it, and the
+ * promoted strip's route into the list reads it back — so it is derived once here rather than
+ * spelled the same way twice. The colons in {@code card.key} are replaced for the reason the card
+ * already gives for its body id: a colon is a legal HTML5 id character and would work through
+ * {@code getElementById}, but it silently breaks {@code querySelector('#…')} and any CSS id
+ * selector, and laying that trap is cheaper to avoid than to find.
+ *
+ * @param {string} key the card's `${date}:${targetType}` key
+ * @returns {string} the element id
+ */
+export function windowCardDomId(key) {
+  return `window-card-${String(key).replace(/:/g, '-')}`;
 }
 
 /**

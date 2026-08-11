@@ -14,6 +14,7 @@ import { isEventPast } from '../utils/briefingDisplay.js';
 import { buildRailTiles } from '../utils/windowFirstRail.js';
 import { buildWindowCards } from '../utils/windowFirstCards.js';
 import { buildPaneItems } from '../utils/windowFirstAway.js';
+import { buildPromotedStrip } from '../utils/windowFirstPromoted.js';
 import { buildBriefingScoreIndex } from '../utils/briefingScoreIndex.js';
 
 /** Matched to v1's. The payload regenerates every ~8–10h; polling faster only adds revalidations. */
@@ -37,6 +38,7 @@ const WindowFirstBriefingContext = createContext({
   railTiles: [],
   windowCards: [],
   paneItems: [],
+  promotedStrip: null,
   upcomingEvents: [],
   travelDayDates: new Set(),
   evaluationScores: EMPTY_SCORES,
@@ -329,6 +331,14 @@ export function WindowFirstBriefingProvider({ children, homeSettingsVersion }) {
     [upcomingEvents, windowCards, travelDayDates, travelRanges],
   );
 
+  // The page's ONE promoted strip, derived here rather than in the shell because "at most one"
+  // (§2.6) is a statement about the whole pane, and because the window card is explicitly forbidden
+  // from promoting anything into a strip. Deriving it from `paneItems` rather than from
+  // `windowCards` gives it the pane's own date order for the rarity tie-break, and lets it see
+  // whether the promoted card is the very next item — the one case where its route into the list
+  // would be a control with no visible effect.
+  const promotedStrip = useMemo(() => buildPromotedStrip(paneItems), [paneItems]);
+
   // Booleans, never the role. Plan §5c: `role` enters this arm at the provider and stops there, and
   // what anything below receives is a decision already made — a threshold for the lens, a boolean
   // for the two components behind the doors that were built for the v1 arm and take one.
@@ -344,13 +354,13 @@ export function WindowFirstBriefingProvider({ children, homeSettingsVersion }) {
 
   const value = useMemo(
     () => ({
-      briefing, loading, railTiles, windowCards, paneItems, upcomingEvents, travelDayDates,
-      evaluationScores, scoreIndex, reachById, todayStr, tomorrowStr, reachLens, homePlace, isPro,
-      isLiteUser,
+      briefing, loading, railTiles, windowCards, paneItems, promotedStrip, upcomingEvents,
+      travelDayDates, evaluationScores, scoreIndex, reachById, todayStr, tomorrowStr, reachLens,
+      homePlace, isPro, isLiteUser,
     }),
-    [briefing, loading, railTiles, windowCards, paneItems, upcomingEvents, travelDayDates,
-      evaluationScores, scoreIndex, reachById, todayStr, tomorrowStr, reachLens, homePlace, isPro,
-      isLiteUser],
+    [briefing, loading, railTiles, windowCards, paneItems, promotedStrip, upcomingEvents,
+      travelDayDates, evaluationScores, scoreIndex, reachById, todayStr, tomorrowStr, reachLens,
+      homePlace, isPro, isLiteUser],
   );
 
   return (
@@ -370,7 +380,8 @@ WindowFirstBriefingProvider.propTypes = {
  * and the reach lens.
  *
  * @returns {{briefing: ?object, loading: boolean, railTiles: Array, windowCards: Array,
- *           paneItems: Array, upcomingEvents: Array, travelDayDates: Set, reachById: Map,
+ *           paneItems: Array, promotedStrip: ?object, upcomingEvents: Array,
+ *           travelDayDates: Set, reachById: Map,
  *           reachLens: object, homePlace: ?string, todayStr: string, tomorrowStr: string,
  *           isPro: boolean, isLiteUser: boolean}}
  */
