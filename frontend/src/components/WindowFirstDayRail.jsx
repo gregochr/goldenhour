@@ -228,8 +228,11 @@ export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick, 
                     data-pick={tile.pick.kind}
                     onClick={() => onOpenPick?.(tile.date, tile.pick.targetType)}
                     // The visible words come first and contiguously, so WCAG 2.5.3's label-in-name
-                    // holds; the day is appended because an element list otherwise shows two
-                    // identical "BEST sunset" controls, one here and one on the card below.
+                    // holds. The day is appended because the chip's own text does not carry one —
+                    // it reads "◎ BEST / sunset" inside a ROW of days, so out of that visual context
+                    // it names a window without saying which. (Not, as this comment first claimed,
+                    // to avoid colliding with the card's badge: that one reads "Best bet" and never
+                    // contains the event word, so there was never a collision to break.)
                     aria-label={`${tile.pick.kind === 'best' ? 'BEST' : 'ALSO'} ${tile.pick.event} — ${tile.dayLabel}`}
                     className="rail-pick-flag ml-auto flex-none self-start font-mono text-right"
                     style={{
@@ -371,8 +374,11 @@ WindowFirstDayRail.propTypes = {
       pick: PropTypes.shape({
         kind: PropTypes.oneOf(['best', 'also']).isRequired,
         event: PropTypes.string.isRequired,
-        // REQUIRED now the chip is a control: it is half the key the shell resolves the card by, so
-        // a missing one yields a button that opens nothing — the species §6 bans outright.
+        // Declared required now the chip is a control: it is half the key the shell resolves the
+        // card by, so a missing one yields a button that opens nothing. ⚠️ Documentary only — React
+        // 19 removed propTypes validation, so this warns nobody at runtime. The real guarantee is
+        // structural: both builders consume the same `upcomingEvents`, away tiles carry no pick, and
+        // the shell's `card?.pick` degrades to inert rather than to an empty dialog.
         targetType: PropTypes.string.isRequired,
       }),
       regions: PropTypes.arrayOf(

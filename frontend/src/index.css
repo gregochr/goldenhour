@@ -951,9 +951,14 @@
   border-radius: 5px;
 }
 
+/* Only the transition, never the hover RESULT. `filter: brightness()` is a paint change, not
+   motion, and cancelling it left this chip the one control in the file whose affordance vanished
+   for a reduced-motion pointer user — while its twin, the card's pick badge, kept its brightness.
+   Measured on the running app: with `reduce` on, `.window-card-pick` hovers to brightness(1.14) and
+   this hovered to `none`. Two triggers of one control must not differ. Every other reduced-motion
+   block in this file touches only transition/transform/animation; this now matches them. */
 @media (prefers-reduced-motion: reduce) {
   .rail-pick-flag { transition: none; }
-  .rail-pick-flag:hover { filter: none; }
 }
 
 /* Briefing summary strip — actionable pills lift on hover */

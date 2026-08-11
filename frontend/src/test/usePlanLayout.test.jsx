@@ -581,14 +581,40 @@ describe('WindowFirstShell — the rail it hosts', () => {
   // not be shown two different things. This is the assertion that proves it, and it is the reason
   // the chip opens the EXISTING dialog rather than a second surface of its own.
   describe('the rail pick chip', () => {
+    // TWO sunset cards on different dates, and that is the whole point of the fixture rather than
+    // incidental setup. With one card the shell's lookup passes on `targetType` alone, so the `date`
+    // half is pinned by nothing — verified by mutation: deleting `c.date === date` left all 3028
+    // tests green. Two same-event cards is also the real shape, not a contrivance: the picks are
+    // forecast-wide rank-1 and rank-2, so a BEST sunset on one day and an ALSO sunset on another
+    // puts exactly this in the list. The chip points at the LATER card, so a date-blind lookup
+    // returns the earlier one and the prose assertion catches it.
+    const OTHER_CARD = {
+      ...CARD,
+      key: '2026-08-06:SUNSET',
+      date: '2026-08-06',
+      lead: false,
+      kicker: null,
+      pick: {
+        kind: 'also',
+        regionName: 'Yorkshire Dales',
+        headline: 'A different sky entirely',
+        detail: 'High cloud thins from the south.',
+        locationName: 'Malham Cove',
+        locationId: 2,
+      },
+    };
+
     const withRailPick = () => {
-      const base = briefingWith('2026-08-04T12:00:00');
+      const base = briefingWith('2026-08-04T12:00:00', new Map(), [CARD, OTHER_CARD]);
       return {
         ...base,
         railTiles: [{
           ...base.railTiles[0],
-          // Matches CARD's date + targetType, which is how the shell resolves one from the other.
-          pick: { kind: 'best', event: 'sunset', targetType: 'SUNSET' },
+          // The tile is the 6th, not the 4th: same targetType as the other card, different date.
+          date: '2026-08-06',
+          dayLabel: 'Thursday',
+          isToday: false,
+          pick: { kind: 'also', event: 'sunset', targetType: 'SUNSET' },
         }],
       };
     };
@@ -597,15 +623,19 @@ describe('WindowFirstShell — the rail it hosts', () => {
       renderWithBriefing(withRailPick());
       fireEvent.click(screen.getByTestId('rail-pick-flag'));
       const fromRail = screen.getByTestId('window-pick-dialog').textContent;
-      // It really is the pick's prose, not an empty shell that happens to match another empty one.
-      expect(fromRail).toContain('Breaking clear');
-      expect(fromRail).toContain('Low cloud clears.');
+      // The LATER card's prose specifically. A lookup that ignored the date would return the first
+      // sunset card and this would read "Breaking clear" instead — which is the mutation that
+      // walked through the whole suite before this fixture carried two cards.
+      expect(fromRail).toContain('A different sky entirely');
+      expect(fromRail).toContain('High cloud thins from the south.');
+      expect(fromRail).not.toContain('Breaking clear');
       // `renderWithBriefing` returns the harness's handlers, not RTL's result, so the second
       // render needs an explicit teardown or both dialogs would be in the document at once.
       cleanup();
 
       renderWithBriefing(withRailPick());
-      fireEvent.click(screen.getByTestId('window-card-pick'));
+      // The badge on the card the chip pointed at — the second one, since both cards carry a pick.
+      fireEvent.click(screen.getAllByTestId('window-card-pick')[1]);
       expect(screen.getByTestId('window-pick-dialog').textContent).toBe(fromRail);
     });
 
