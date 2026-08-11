@@ -183,15 +183,37 @@ sized to 4.5 cards for the same reason).
   sides of the ring survive), and the safe fix is not obvious; left alone rather than traded for a
   worse defect.
 
+## Verified on WebKit — the first time in this series
+
+Every phase from P4 to P15a recorded "no iOS Safari, ever" as an accumulating gap, and two reviewers
+named sticky-on-a-grid-item as the highest-value thing left to check: its containing block is derived
+from the grid box, and that derivation is exactly where engines have historically diverged. If WebKit
+disagreed, the pinned column simply would not pin on the owner's phone.
+
+**It agrees.** Playwright WebKit 26.5 at 390×844 with `hasTouch`, against the running app:
+
+| | Chromium | WebKit |
+|---|---|---|
+| port / content | 302 / 740 | 302 / 740 |
+| pinned column after a full 438px scroll | holds at x=0 | **holds at x=0** |
+| `100cqi` on the spanning items | 302px | **302px** |
+| page itself overflows | no | no |
+| real `tap()` on a cell | — | **no tooltip, drill-down opens at 302px, no overflow** |
+
+`(pointer: coarse)` reports true there, so the touch fix is confirmed on the engine it was written
+for rather than inferred from spec.
+
+⚠️ **This is WebKit, not an iPhone.** Same engine, but not the same device: no real touch surface, no
+iOS Safari chrome, no dynamic viewport units in play, no VoiceOver. It removes the engine risk, not
+the device risk.
+
+**Getting a WebKit run at all needs one step**, and the failure mode wastes time: the build cached on
+this machine (`webkit-2248`) is version-mismatched against the installed Playwright, and **hangs on
+launch rather than erroring**. `npx playwright install webkit` fixes it (~83 MB).
+
 ## Still not verified
 
-- **No real iPhone, and no WebKit.** Every measurement here is headless Chromium. This matters more
-  than usual: sticky-on-a-grid-item is the mechanism the whole layout rests on, and its containing
-  block is exactly where engines have historically diverged. A WebKit run was attempted — the build
-  cached on this machine (`webkit-2248`) is version-mismatched against the installed Playwright,
-  which wants `2336`, and hangs on launch rather than failing. `npx playwright install webkit` is the
-  fix, and this is the single highest-value thing left to check.
-- No screen reader, no axe, no Lighthouse, no forced-colors, nothing above 1440px.
+- No real device, no screen reader, no axe, no Lighthouse, no forced-colors, nothing above 1440px.
 
 ## What this does *not* do
 
