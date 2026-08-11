@@ -60,6 +60,11 @@ import java.util.List;
  * @param verdict      the plain-language alignment call, {@code "LW 05:44 · 34m after sunrise"}.
  *                     This carries the meaning the chart draws — the chart is decorative to a
  *                     screen reader, so this string must never be hidden from one
+ * @param roster       how much of the coastal roster shares this alignment, measured by the same
+ *                     rule at each location's <em>own</em> sunrise and sunset. The chart is one
+ *                     coastline and the headline is the roster, so both must name their scope: this
+ *                     is what lets the pill say "at 47 of 61 coastal locations" instead of implying
+ *                     all 61 from a single location's geometry. Null when nothing could be measured
  * @param aligned      true when the useful extremum falls within an hour of sunrise or sunset
  * @param alignedEvent which solar event it aligned with, {@code "sunrise"} or {@code "sunset"};
  *                     null when {@link #aligned} is false. Carried rather than left to be parsed
@@ -91,6 +96,7 @@ public record TideRunDay(
         String verdict,
         boolean aligned,
         @JsonInclude(JsonInclude.Include.NON_NULL) String alignedEvent,
+        @JsonInclude(JsonInclude.Include.NON_NULL) RosterAlignment roster,
         boolean peak,
         @JsonInclude(JsonInclude.Include.NON_NULL) String phrase) {
 
@@ -114,6 +120,7 @@ public record TideRunDay(
      * @param verdict      the plain-language alignment call
      * @param aligned      whether the useful extremum lands near a solar event
      * @param alignedEvent which solar event it aligned with, or null
+     * @param roster       the roster-wide alignment tally, or null
      * @param peak         whether this is the run's biggest-range day
      * @param phrase       the editorial line for this event type
      */
@@ -136,6 +143,7 @@ public record TideRunDay(
             @JsonProperty("verdict") String verdict,
             @JsonProperty("aligned") boolean aligned,
             @JsonProperty("alignedEvent") String alignedEvent,
+            @JsonProperty("roster") RosterAlignment roster,
             @JsonProperty("peak") boolean peak,
             @JsonProperty("phrase") String phrase) {
         this.runLabel = runLabel;
@@ -155,8 +163,55 @@ public record TideRunDay(
         this.verdict = verdict;
         this.aligned = aligned;
         this.alignedEvent = alignedEvent;
+        this.roster = roster;
         this.peak = peak;
         this.phrase = phrase;
+    }
+
+    /**
+     * How many coastal locations share this day's alignment, per solar event.
+     *
+     * <p>Measured by the <b>same rule</b> the representative's own row uses — the useful extremum if
+     * it falls inside the alignment window, otherwise the other extremum if that one does — at each
+     * location's own sunrise and sunset. Identical rules matter: it makes the representative a
+     * member of its own tally, so an aligned chart can never sit above a count of zero.
+     *
+     * @param sunriseAligned locations whose tide lands within the window of their own sunrise
+     * @param sunsetAligned  locations whose tide lands within the window of their own sunset
+     * @param measured       locations a tide could be derived for — the denominator. Not the size of
+     *                       the coastal roster: a location with no stored extremes for the day
+     *                       cannot be called aligned or unaligned, and counting it either way would
+     *                       state something never measured
+     */
+    public record RosterAlignment(int sunriseAligned, int sunsetAligned, int measured) {
+
+        /**
+         * Locations aligned with the given event.
+         *
+         * @param event {@code "sunrise"} or {@code "sunset"}
+         * @return the tally for that event
+         */
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        public int alignedWith(String event) {
+            return "sunrise".equals(event) ? sunriseAligned : sunsetAligned;
+        }
+
+        /**
+         * Canonical constructor with Jackson bindings.
+         *
+         * @param sunriseAligned sunrise tally
+         * @param sunsetAligned  sunset tally
+         * @param measured       denominator
+         */
+        @JsonCreator
+        public RosterAlignment(
+                @JsonProperty("sunriseAligned") int sunriseAligned,
+                @JsonProperty("sunsetAligned") int sunsetAligned,
+                @JsonProperty("measured") int measured) {
+            this.sunriseAligned = sunriseAligned;
+            this.sunsetAligned = sunsetAligned;
+            this.measured = measured;
+        }
     }
 
     /**

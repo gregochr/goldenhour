@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.TideRunDay;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.springframework.stereotype.Service;
 
@@ -164,7 +165,27 @@ public class HotTopicEventEnricher {
         return EVENT_BY_TYPE.get(topic.type());
     }
 
+    /**
+     * The solar event a tide topic belongs to, taken from the run row's own geometry.
+     *
+     * <p><b>This is the null that cost three symptoms at once.</b> It used to read
+     * {@code TideMetrics}' aligned counts, which came from {@code forecast_evaluation.tide_aligned}
+     * — a column the synchronous engine writes and which in production is empty. Zero counts
+     * returned null, and a null {@code eventType} means {@code PlanWindowProjector} silently drops
+     * the topic: no badge on the window, no timing lead on the card, so a King tide pill asserted
+     * an alignment while being unable to say which day it was for.
+     *
+     * <p>Reading {@link TideRunDay#alignedEvent()} puts the badge, the lead, the headline and the
+     * chart on one measurement. The counts remain as a fallback for a topic with no run row.
+     *
+     * @param topic the tide topic
+     * @return {@code "SUNRISE"}, {@code "SUNSET"}, or null when nothing could be measured
+     */
     private String resolveTideEvent(HotTopic topic) {
+        TideRunDay run = topic.tideRun();
+        if (run != null && run.alignedEvent() != null) {
+            return "sunrise".equals(run.alignedEvent()) ? SUNRISE : SUNSET;
+        }
         ExpandedHotTopicDetail expanded = topic.expandedDetail();
         if (expanded == null || expanded.tideMetrics() == null) {
             return null;

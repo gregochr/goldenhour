@@ -326,6 +326,64 @@ class TideRunBuilderTest {
         assertThat(day.phrase()).isNull();
     }
 
+    // ── roster alignment — the count behind "at N of M coastal locations" ─────
+
+    @Test
+    @DisplayName("the roster tally counts every location at its own sunrise, not the chart's")
+    void build_rosterAlignment_countsEachLocationAtItsOwnSolarTimes() {
+        // The headline says "at N of M coastal locations" while the chart draws one coastline, so
+        // the tally has to be measured across the roster or the sentence overstates its evidence.
+        stubSolar();
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
+                low("02:00", 0.4), high("08:35", 5.0), low("14:20", 0.4)));
+        // Whitby has no extreme within the hour of its own sunrise (08:10) or sunset (16:30), so
+        // it must not count. Its low water was originally 08:00, which the roster rightly counted
+        // via the same other-extremum fallback the chart's verdict uses — the fixture was wrong,
+        // not the rule, and it is worth keeping the corrected times as the record of that.
+        extremes.addAll(day(ID_WHITBY, DAY_1,
+                low("11:00", 1.0), high("14:40", 3.0), low("20:50", 1.0)));
+        stubExtremes(extremes);
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(whitby(), seaham()), true).get(DAY_1);
+
+        assertThat(day.roster().measured()).isEqualTo(2);
+        assertThat(day.roster().sunriseAligned()).isEqualTo(1);
+        assertThat(day.roster().sunsetAligned()).isZero();
+    }
+
+    @Test
+    @DisplayName("the representative is a member of its own tally, so an aligned chart is never 0")
+    void build_rosterAlignment_alwaysIncludesTheRepresentative() {
+        // The guarantee that keeps the headline and the chart from contradicting each other: the
+        // roster rule is the same rule the representative's own row uses, so whenever the chart is
+        // aligned the count it sits above is at least one.
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1,
+                low("02:00", 0.4), high("08:35", 5.0), low("14:20", 0.4)));
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), true).get(DAY_1);
+
+        assertThat(day.aligned()).isTrue();
+        assertThat(day.roster().alignedWith(day.alignedEvent())).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a location with no derivable day is not counted either way")
+    void build_rosterAlignment_undrawableLocationIsNotInTheDenominator() {
+        // Calling it unaligned would state something never measured; the denominator is what the
+        // tide could actually be derived for.
+        stubSolar();
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
+                low("02:00", 0.4), high("08:35", 5.0), low("14:20", 0.4)));
+        extremes.addAll(day(ID_WHITBY, DAY_1, high("10:40", 3.0)));
+        stubExtremes(extremes);
+
+        TideRunDay day = builder.build(
+                List.of(DAY_1), List.of(seaham(), whitby()), true).get(DAY_1);
+
+        assertThat(day.roster().measured()).isEqualTo(1);
+    }
+
     @Test
     @DisplayName("evening high water names sunset, not sunrise")
     void build_eveningHighWater_namesSunset() {

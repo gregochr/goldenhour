@@ -180,13 +180,96 @@ public class TideRunBuilder {
                 .mapToDouble(DayTides::range).max().orElse(Double.NaN);
         TideStats stats = tideService.getTideStats(representative.getId()).orElse(null);
 
+        Map<LocalDate, TideRunDay.RosterAlignment> roster =
+                rosterAlignment(coastalLocations, byLocation, perDay.keySet(), king);
+
         Map<LocalDate, TideRunDay> result = new LinkedHashMap<>();
         int dayNumber = 1;
         for (Map.Entry<LocalDate, DayTides> entry : perDay.entrySet()) {
             result.put(entry.getKey(), buildDay(entry.getKey(), entry.getValue(), representative,
-                    dayNumber++, perDay.size(), peakRange, stats, king));
+                    dayNumber++, perDay.size(), peakRange, stats, king,
+                    roster.get(entry.getKey())));
         }
         return result;
+    }
+
+    /**
+     * Counts, per date, how much of the coastal roster shares the day's alignment.
+     *
+     * <p><b>Why this exists.</b> The chart is drawn for one representative coastline, and the pill's
+     * headline used to pair that single-location claim with the roster's size — reading as though
+     * all 61 locations aligned when the geometry stated was one. The count here lets the headline
+     * name its own scope.
+     *
+     * <p><b>It is not a database read.</b> An earlier version of the headline counted
+     * {@code forecast_evaluation.tide_aligned} rows, which fails twice over: that flag asks whether
+     * the tide <em>state</em> matched each location's configured {@link com.gregochr.goldenhour
+     * .entity.TideType} preference — a different question, preference-weighted rather than
+     * astronomical — and it is written only by the synchronous engine, which in practice has stopped
+     * writing. Every extreme needed here is already in {@code byLocation}; only the per-location
+     * solar times are new, and those are arithmetic.
+     *
+     * <p><b>The rule is identical to the representative's</b>, deliberately: useful extremum if it
+     * falls inside the window, otherwise the other extremum if that one does. That makes the
+     * representative a member of its own tally, so an aligned chart can never print above a zero.
+     *
+     * @param coastalLocations the roster to measure
+     * @param byLocation       every location's stored extremes, already fetched
+     * @param dates            the dates the run draws
+     * @param king             true for a king run, whose useful water is high
+     * @return the tally per date
+     */
+    private Map<LocalDate, TideRunDay.RosterAlignment> rosterAlignment(
+            List<LocationEntity> coastalLocations,
+            Map<Long, List<TideExtremeEntity>> byLocation,
+            java.util.Collection<LocalDate> dates, boolean king) {
+        TideExtremeType useful = king ? TideExtremeType.HIGH : TideExtremeType.LOW;
+        TideExtremeType other = king ? TideExtremeType.LOW : TideExtremeType.HIGH;
+        Map<LocalDate, TideRunDay.RosterAlignment> out = new LinkedHashMap<>();
+        for (LocalDate date : dates) {
+            int sunriseAligned = 0;
+            int sunsetAligned = 0;
+            int measured = 0;
+            for (LocationEntity location : coastalLocations) {
+                if (location.getId() == null) {
+                    continue;
+                }
+                DayTides day = dayTides(byLocation.get(location.getId()), date);
+                if (day == null) {
+                    continue;
+                }
+                measured++;
+                int sunriseMinutes = localMinutes(
+                        solarService.sunriseUtc(location.getLat(), location.getLon(), date));
+                int sunsetMinutes = localMinutes(
+                        solarService.sunsetUtc(location.getLat(), location.getLon(), date));
+                Point named = alignedPoint(day, useful, other, sunriseMinutes, sunsetMinutes);
+                if (named == null) {
+                    continue;
+                }
+                if ("sunrise".equals(solarWord(named.minutes(), sunriseMinutes, sunsetMinutes))) {
+                    sunriseAligned++;
+                } else {
+                    sunsetAligned++;
+                }
+            }
+            out.put(date, new TideRunDay.RosterAlignment(sunriseAligned, sunsetAligned, measured));
+        }
+        return out;
+    }
+
+    /**
+     * The extremum a day's row would name: the useful one if it lands inside the alignment window,
+     * otherwise the other one if it does. Null when neither does.
+     */
+    private static Point alignedPoint(DayTides day, TideExtremeType useful, TideExtremeType other,
+            int sunriseMinutes, int sunsetMinutes) {
+        Point usefulPoint = withinWindow(
+                nearestSolar(day.points(), useful, sunriseMinutes, sunsetMinutes),
+                sunriseMinutes, sunsetMinutes);
+        return usefulPoint != null ? usefulPoint : withinWindow(
+                nearestSolar(day.points(), other, sunriseMinutes, sunsetMinutes),
+                sunriseMinutes, sunsetMinutes);
     }
 
     private Map<Long, List<TideExtremeEntity>> fetchExtremes(List<LocationEntity> coastalLocations,
@@ -252,7 +335,8 @@ public class TideRunBuilder {
     }
 
     private TideRunDay buildDay(LocalDate date, DayTides day, LocationEntity location,
-            int dayNumber, int dayCount, double peakRange, TideStats stats, boolean king) {
+            int dayNumber, int dayCount, double peakRange, TideStats stats, boolean king,
+            TideRunDay.RosterAlignment roster) {
         int sunriseMinutes = localMinutes(
                 solarService.sunriseUtc(location.getLat(), location.getLon(), date));
         int sunsetMinutes = localMinutes(
@@ -306,6 +390,7 @@ public class TideRunBuilder {
                 // *this* run type came for, and that water did miss the light.
                 namedByVerdict == null
                         ? null : solarWord(namedByVerdict.minutes(), sunriseMinutes, sunsetMinutes),
+                roster,
                 peak,
                 // The editorial line is claimed ONLY on an aligned day. It states what the event
                 // gives a photographer — "low water bares the foreground" — and on an unaligned day
