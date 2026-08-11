@@ -160,9 +160,11 @@ Both were used this session and both are legitimate — say plainly that you did
 
 ## Not verified, said plainly
 
-- **No real device.** WebKit at 390×844 with `hasTouch` now backs the phone heatmap (see
-  `phone-heatmap-blast-radius.md`), and it is the same engine as iOS Safari — but it is not an
-  iPhone, and P15b has **not** been through WebKit at all.
+- **No real device.** WebKit at 390×844 with `hasTouch` now backs **both** the phone heatmap (see
+  `phone-heatmap-blast-radius.md`) and P15b — the Map tab renders at 330×500 with its five-day strip,
+  and rotating to landscape *while on the Plan tab* and returning re-tiles the map from 6 tiles to 12
+  for the wider box, which is the exact scenario the `ResizeObserver` exists for. It is the same
+  engine as iOS Safari, but it is not an iPhone: no real touch surface, no iOS chrome, no VoiceOver.
 - **No screen reader, no axe, no Lighthouse, no forced-colors, nothing above 1440px.** True of every
   phase P4 → P15b and accumulating.
 - **The Map pane has never been seen on real data** — local `/api/forecast` is empty, so every
