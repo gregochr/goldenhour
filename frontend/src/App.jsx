@@ -29,6 +29,7 @@ import { WindowFirstBriefingProvider } from './context/WindowFirstBriefingContex
 // the Leaflet map stack (Plan is the default tab; the map is a drill-down) and the admin-only
 // Manage view (which also pulls in recharts). They load on demand behind the Suspense boundaries.
 const MapView = lazy(() => import('./components/MapView.jsx'));
+const WindowFirstMapPane = lazy(() => import('./components/WindowFirstMapPane.jsx'));
 const MapOverlay = lazy(() => import('./components/MapOverlay.jsx'));
 const ManageView = lazy(() => import('./components/ManageView.jsx'));
 
@@ -296,9 +297,50 @@ function AppInner() {
     setViewMode('map');
   };
 
-  /** Close the overlay and hand off to the full Map tab, landing where the overlay was focused. */
+  /**
+   * A tab the window-first shell should select, asked for from out here. Nonce'd for the same
+   * reason map handoffs are: the reader can open the overlay and press the hatch twice running, and
+   * the second press has to land even though the destination has not changed.
+   */
+  const [tabRequest, setTabRequest] = useState(null);
+  const tabRequestNonce = useRef(0);
+
+  /**
+   * The handoff the MAP TAB should act on, which is deliberately not `mapHandoff`.
+   *
+   * <p>⚠️ Found by review and reproduced at 390px. The shell mounts a pane once and then hides it
+   * rather than unmounting it, so once the Map tab has been visited its `MapView` is alive for the
+   * rest of the session — and it was being handed the same `mapHandoff` every plan-card tap sets.
+   * On a phone `MapView` answers a location handoff with a `BottomSheet`, which is
+   * `createPortal(…, document.body)` at `z-index: 10000`, so `display: none` on the panel cannot
+   * suppress it: tapping "Open on map" on the PLAN tab raised **two** stacked sheets — one from the
+   * overlay the reader asked for, one from a map that is not on screen — and locked body scroll.
+   *
+   * <p>So the tab is handed a handoff only when the reader explicitly asks to be taken to it, which
+   * is the hatch below and nothing else. Every other handoff belongs to the overlay.
+   */
+  const [mapTabHandoff, setMapTabHandoff] = useState(null);
+
+  /**
+   * Close the overlay and hand off to the full Map tab, landing where the overlay was focused.
+   *
+   * <p>Two arms, two mechanisms, and it is <b>not</b> a ternary on one call. v1 has a Map entry in
+   * {@code ViewToggle}, so {@code setViewMode('map')} is the whole move. The window-first arm owns
+   * its own tab state inside the shell and ignores {@code viewMode} entirely — a fact worth stating,
+   * because the obvious "just call setViewMode" is silently a no-op there, which is exactly why the
+   * hatch was withheld from v2 until this pane existed.
+   */
   const openFullMapTab = () => {
+    // Read before the overlay is cleared — this is what "landing where the overlay was focused"
+    // actually means, and it is the only handoff the Map tab ever receives.
+    const focus = mapOverlay?.handoff ?? null;
     setMapOverlay(null);
+    if (planLayout === PLAN_V2) {
+      tabRequestNonce.current += 1;
+      if (focus) setMapTabHandoff({ ...focus, nonce: handoffNonce.current++ });
+      setTabRequest({ id: 'map', nonce: tabRequestNonce.current });
+      return;
+    }
     setViewMode('map');
   };
 
@@ -434,6 +476,34 @@ function AppInner() {
                 onEvaluationScoresChange={handleEvaluationScoresChange}
                 onSeasonalFeaturesChange={handleSeasonalFeaturesChange}
                 locations={visibleLocations}
+                tabRequest={tabRequest}
+                // Withheld when there is nothing to map, which is the same rule the Operations tab
+                // follows and §6's ban on controls that open nothing. `allDates` is empty whenever
+                // `GET /api/forecast` returned no rows, and the v1 arm answers that state with its
+                // own "No forecasts loaded yet" card rather than an empty map — so a Map tab here
+                // would be a tab onto a blank.
+                mapPane={allDates.length > 0 ? (
+                  <Suspense fallback={<ViewFallback />}>
+                    <WindowFirstMapPane
+                      locations={visibleLocations}
+                      dates={allDates}
+                      selectedDate={effectiveDate}
+                      onSelectDate={setSelectedDate}
+                      // Parity with the v1 Map tab, which passes the same thing. Without it the
+                      // pane's event type is whatever it derived at mount — and because this pane
+                      // is never unmounted, opening the map at dawn and returning after sunset
+                      // would still show the morning's event. v1 cannot do that: it remounts.
+                      autoEventType={autoSelection?.eventType ?? null}
+                      handoff={mapTabHandoff}
+                      briefingScores={briefingScores}
+                      onForecastRun={refresh}
+                      seasonalFeatures={seasonalFeatures}
+                      homeCoords={homeCoords}
+                      homeRadiusMiles={homeRadiusMiles}
+                      onOpenSettings={() => setSettingsFocus('postcode')}
+                    />
+                  </Suspense>
+                ) : null}
                 // The admin gate, in full. The shell takes no role, no `isAdmin` boolean and no
                 // prop shaped like one — it simply renders a tab for each pane it was handed, so
                 // withholding the pane withholds the tab. The role stays here, where it already
@@ -604,9 +674,11 @@ function AppInner() {
             narrativeHead={mapOverlay.narrativeHead}
             narrativeTone={mapOverlay.narrativeTone}
             onClose={() => setMapOverlay(null)}
-            // The v2 arm renders no Map pane, so the hatch is withheld rather than naming a
-            // destination it cannot reach. MapOverlay drops the button when no handler arrives.
-            onOpenFullMap={planLayout === PLAN_V2 ? undefined : openFullMapTab}
+            // Both arms now have somewhere to go, so the hatch is live in both — see
+            // `openFullMapTab`, which routes each one its own way. It is still withheld when the v2
+            // arm has no Map tab to reach (no forecast dates), because MapOverlay drops the button
+            // when no handler arrives and a button onto nothing is what §6 bans.
+            onOpenFullMap={planLayout === PLAN_V2 && allDates.length === 0 ? undefined : openFullMapTab}
           >
             <MapView
               locations={visibleLocations}

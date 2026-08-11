@@ -209,6 +209,13 @@ BoundsTracker.propTypes = {
  * old geometry: grey bands at the bottom on a grow, and a centre that has silently moved on a
  * shrink. Polled across the transition rather than fired once at the end, because a single call at
  * `transitionend` leaves the map wrong for the whole 240ms the user is watching it move.
+ *
+ * <p><b>The window-first Map tab needs the same thing for a different reason.</b> Its panel is
+ * hidden with `display: none` rather than unmounted, so a viewport change while the reader is on
+ * another tab — a phone rotating, most obviously — leaves Leaflet holding a size for a container
+ * that no longer has it, and the map paints grey on return. That pane bumps `resizeNonce` from a
+ * `ResizeObserver`; `enabled` therefore keys on EITHER caller having asked, so a `MapView` given
+ * neither (the v1 Map tab) behaves exactly as before.
  */
 function MapSizeSync({ trigger, enabled }) {
   const map = useMap();
@@ -650,7 +657,7 @@ const OVERLAY_MAP_HEIGHT_PX = 470;
 const OVERLAY_MAP_HEIGHT_FILTERS_OPEN_PX = 300;
 const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
 
-function MapView({ locations, date, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null }) {
+function MapView({ locations, date, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null, resizeNonce = null }) {
   const { role } = useAuth();
   const isMobile = useIsMobile();
   const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
@@ -1524,7 +1531,10 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
             />
           )}
           {overlayMode && <BoundsTracker onBounds={handleBounds} />}
-          <MapSizeSync trigger={advancedOpen} enabled={overlayMode} />
+          <MapSizeSync
+            trigger={overlayMode ? advancedOpen : resizeNonce}
+            enabled={overlayMode || resizeNonce != null}
+          />
           <FlyToController target={flyTarget} />
           <FitBoundsController target={fitBoundsTarget} />
           <HandoffPopupController
@@ -1786,6 +1796,13 @@ MapView.propTypes = {
    * filters folded away behind a one-line context bar and gives the height to the map.
    */
   overlayMode: PropTypes.bool,
+  /**
+   * Bumped by a caller whose map lives in a container that can change size while the map is not
+   * looking — currently the window-first Map tab, whose panel is `display: none` between visits.
+   * Null (the default, and what the v1 Map tab passes) leaves `MapSizeSync` switched off exactly
+   * as it was, so this cannot reach the frozen arm.
+   */
+  resizeNonce: PropTypes.number,
   /** `{ lat, lon }` of the user's saved home postcode, or null when none is saved. */
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
   /** The user's Close-to-home radius in miles — frames the "centre on home" camera move. */

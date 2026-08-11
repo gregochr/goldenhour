@@ -615,4 +615,110 @@ describe('WindowFirstShell — when the feed is fetched', () => {
     expect(getAlmanac).toHaveBeenCalledTimes(2);
     expect(screen.getByText('Perseids')).toBeInTheDocument();
   });
+  // ── A tab asked for from outside the bar (P15b's map hatch) ──
+  describe('a tab requested from outside the bar', () => {
+    const MAP = <p data-testid="map-pane">map pane</p>;
+
+    /** Re-renders the shell with new PROPS, which `withContext` (context-only) cannot do. */
+    const renderWithRequest = (extra = {}) => {
+      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+      const base = {
+        onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
+        locations: [], mapPane: MAP, ...extra,
+      };
+      const view = render(<WindowFirstShell {...base} />);
+      return { ...view, setRequest: (tabRequest) => view.rerender(<WindowFirstShell {...base} tabRequest={tabRequest} />) };
+    };
+
+    it('selects the requested tab and mounts its pane', () => {
+      // The overlay's "open the full map" hatch. v1 reaches its Map tab with `setViewMode('map')`,
+      // which this arm ignores entirely — so without this the button was a control that could not
+      // act, and `App` withheld it rather than name a destination it could not reach.
+      const { setRequest } = renderWithRequest();
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      act(() => setRequest({ id: 'map', nonce: 1 }));
+      expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByTestId('map-pane')).toBeInTheDocument();
+    });
+
+    it('lands again when the same tab is asked for twice, because the nonce moved', () => {
+      // The reason it is nonce'd rather than keyed on the id. Open the map, go back to Plan by
+      // hand, press the hatch again: an id-keyed request would see no change and do nothing.
+      const { setRequest } = renderWithRequest();
+      act(() => setRequest({ id: 'map', nonce: 1 }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Plan' }));
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      act(() => setRequest({ id: 'map', nonce: 2 }));
+      expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('ignores a request for a pane it was handed nothing for — and does not jump later', () => {
+      // ⚠️ The assertion that bites is the SECOND one. Without the guard, `selectTab('map')` still
+      // sets `activeTab`; `effectiveTab` masks it while no Map tab exists, so a test that only
+      // checked "Plan is selected" passes against the broken code. The damage is deferred: the
+      // moment the forecast lands and `App` starts handing over a `mapPane`, the fallback stops
+      // applying and the reader is silently moved to a tab they never chose.
+      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+      const base = {
+        onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
+        locations: [], mapPane: null,
+      };
+      const view = render(<WindowFirstShell {...base} />);
+      act(() => view.rerender(<WindowFirstShell {...base} tabRequest={{ id: 'map', nonce: 1 }} />));
+      expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+
+      // The forecast arrives; the pane appears. Plan must still be the selected tab.
+      const MAP2 = <p data-testid="map-pane">map pane</p>;
+      act(() => view.rerender(<WindowFirstShell {...base} mapPane={MAP2} tabRequest={{ id: 'map', nonce: 1 }} />));
+      expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'false');
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('ignores a request naming a tab that does not exist at all', () => {
+      // Same shape, and the same reason the naive assertion is not enough: `effectiveTab` would
+      // hide an `activeTab` of 'nowhere' forever, so the observable proof is that the pane which
+      // WOULD have been mounted was not.
+      const { setRequest } = renderWithRequest();
+      act(() => setRequest({ id: 'nowhere', nonce: 1 }));
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.queryByTestId('map-pane')).toBeNull();
+    });
+
+    it('does not replay a request that was already in flight when it mounted', () => {
+      // `App` holds `tabRequest` and never clears it, and it outlives this component. With the
+      // handled-nonce seeded to null, leaving the arm (exit hatch) and coming back replayed the
+      // last request and landed the reader on the Map tab when they had asked for the Plan layout
+      // — which is the pilot's core comparison gesture, and contradicts this file's own rule that
+      // tab selection is not persisted.
+      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+      const props = {
+        onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
+        locations: [], mapPane: MAP, tabRequest: { id: 'map', nonce: 4 },
+      };
+      render(<WindowFirstShell {...props} />);
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'false');
+    });
+
+    it('moves focus to the tab it selected, because the asker just closed itself', () => {
+      // A click leaves focus on the tab the reader already put it on; a request arrives with focus
+      // wherever the CALLER left it, and the caller is the map overlay, which closes on the same
+      // press. Measured on the running app before this: `activeElement` was the document root — a
+      // keyboard reader dropped at the top of the page having just asked to go somewhere specific.
+      const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 0; });
+      const { setRequest } = renderWithRequest();
+      act(() => setRequest({ id: 'map', nonce: 1 }));
+      expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Map' }));
+      raf.mockRestore();
+    });
+
+    it('does nothing at all when no request has ever arrived', () => {
+      // A null `tabRequest` is the resting state for every session that never opens the overlay,
+      // and it must not steal the initial selection.
+      renderWithRequest();
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.queryByTestId('map-pane')).toBeNull();
+    });
+  });
 });

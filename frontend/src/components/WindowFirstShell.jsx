@@ -189,7 +189,7 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  */
 export default function WindowFirstShell({
   onExit, onOpenSettings, onSignOut, contentDisabled, onShowOnMap, onEvaluationScoresChange,
-  onSeasonalFeaturesChange, locations, mapPane, operationsPane,
+  onSeasonalFeaturesChange, locations, mapPane, operationsPane, tabRequest,
 }) {
   const {
     railTiles, windowCards, paneItems, loading, briefing, evaluationScores, scoreIndex, todayStr,
@@ -296,6 +296,62 @@ export default function WindowFirstShell({
    */
   const [sheetKey, setSheetKey] = useState(null);
   const sheetCard = sheetKey == null ? null : windowCards.find((c) => c.key === sheetKey) || null;
+  /**
+   * A tab asked for from OUTSIDE the bar — currently the map overlay's "open the full map" hatch.
+   *
+   * <p>Keyed on a NONCE rather than on the id, because the same destination can be asked for twice
+   * running and the second ask must still land. That is the idiom {@code App} already uses for map
+   * handoffs, for the same reason.
+   *
+   * <p>Goes through {@code selectTab} rather than {@code setActiveTab} so an arriving request gets
+   * everything a click gets — the pane marked as opened, and any open dialog taken down. Selecting
+   * a tab without mounting its pane would show an empty panel.
+   *
+   * <p><b>It sits here, below the dialog state, and not beside {@code selectTab} where it reads
+   * more naturally.</b> {@code selectTab} clears {@code openPick} and {@code sheetKey}, which are
+   * declared further down; calling it from an effect placed above them is a use-before-declaration
+   * the linter catches. Runtime would have been fine — an effect runs after render — which is
+   * exactly why this is worth a sentence rather than a silent move.
+   */
+  const requestedNonce = tabRequest?.nonce ?? null;
+  const requestedId = tabRequest?.id ?? null;
+  // Seeded with whatever nonce is already in flight at MOUNT, not with null. `App` holds
+  // `tabRequest` and never clears it, and it outlives this component — so with a null seed, leaving
+  // the arm and coming back replayed the last request and landed the reader on the Map tab when
+  // they had asked for the Plan layout. That flip is the pilot's core comparison gesture, and it
+  // contradicts this file's own rule that tab selection is not persisted.
+  const lastHandledRequest = useRef(tabRequest?.nonce ?? null);
+  useEffect(() => {
+    if (requestedNonce == null || requestedNonce === lastHandledRequest.current) return;
+    lastHandledRequest.current = requestedNonce;
+    // Ignored rather than obeyed: a request naming a tab this shell was handed no pane for would
+    // select an id `effectiveTab` then has to fall back from, i.e. a silent jump to Plan.
+    if (requestedId === 'map' && mapPane == null) return;
+    if (requestedId === 'operations' && operationsPane == null) return;
+    if (!TABS.some((t) => t.id === requestedId)) return;
+    // Responding to a request that arrives from OUTSIDE this component is the effect's whole
+    // purpose — the selected tab is not derivable from props — and the nonce guard means this runs
+    // once per ask rather than on every render, so there is no cascade to trigger.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    selectTab(requestedId);
+    // Focus follows the request, and only a request. A CLICK leaves focus on the tab the pointer or
+    // the keyboard already put it on, so the bar needs nothing; an external ask arrives with focus
+    // wherever the CALLER left it — and the caller here is a dialog that closes on the same press.
+    // Measured on the running app: after the overlay's "open the full map" hatch, `activeElement`
+    // was the document root, i.e. a keyboard reader was dropped at the top of the page having just
+    // asked to be taken somewhere specific. Deferred a frame because the tab it names may be
+    // rendering for the first time on this very commit.
+    // Reached by id rather than through `tabRefs`, which is index-based: the index depends on which
+    // panes were handed over, so it is the one thing that moves when a tab appears or disappears —
+    // exactly the case this effect exists for. The id is the component's own and is already what
+    // `aria-controls` resolves against.
+    const domId = tabDomId(requestedId);
+    requestAnimationFrame(() => document.getElementById(domId)?.focus());
+    // `selectTab` is deliberately absent from the list. It is rebuilt every render, so listing it
+    // would re-run this on every render with the nonce guard as the only thing stopping it. The
+    // nonce IS the trigger, and it is in the list.
+  }, [requestedNonce, requestedId, mapPane, operationsPane]);
+
   // ⚠️ A key whose card has gone stops rendering but is not released, and the effect that would
   // release it is a `setState` inside `useEffect` that `react-hooks/set-state-in-effect` rejects.
   // The residual is that a window which disappears and returns would re-show the dialog — and it is
@@ -755,6 +811,12 @@ WindowFirstShell.propTypes = {
   locations: PropTypes.array,
   /** The Map pane. Absent means no Map tab — the tab and its content arrive together. */
   mapPane: PropTypes.node,
+  /**
+   * A tab selection asked for from outside the bar, as {@code {id, nonce}}. The nonce is what makes
+   * it fire, so the same tab can be requested twice running. A request naming a tab this shell has
+   * no pane for is ignored rather than obeyed.
+   */
+  tabRequest: PropTypes.shape({ id: PropTypes.string, nonce: PropTypes.number }),
   /**
    * The Operations pane. Absent means no Operations tab, and that is the admin gate in full: the
    * caller holds the role and withholds the pane, so nothing role-shaped reaches this component.

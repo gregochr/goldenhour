@@ -77,6 +77,12 @@ export default function DateStrip({ dates, selectedDate, onSelect }) {
               )}
               <button
                 onClick={() => onSelect(date)}
+                // Inert hooks — no rendering, no behaviour. The chip's LABEL is relative to the
+                // clock ("Today · Tue 11 Aug", "Tomorrow"), so a test that names a day is a test
+                // whose target moves overnight; `data-date` is the stable identity. Added when the
+                // window-first Map tab gave this strip a second call site and its first test.
+                data-testid="date-chip"
+                data-date={date}
                 data-today={date === today ? 'true' : undefined}
                 data-selected={date === selectedDate ? 'true' : undefined}
                 className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
