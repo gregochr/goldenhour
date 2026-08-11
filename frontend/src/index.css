@@ -446,6 +446,12 @@
 }
 .tr-range b { color: var(--color-plex-text); font-weight: 600; font-size: 11.5px; }
 .tr-range i { font-style: normal; color: var(--color-plex-text-muted); margin-left: 5px; }
+/* Third line of the metric column, not a third inline chip: "0.4 m off the record" qualifies the
+   two readings above it and must not be mistaken for a peer of them. Own line, one step down. */
+   Selector must carry the type as well: bare `.tr-rank` (0,1,0) loses to `.tr-range i` (0,1,1)
+   above, and the dropped `margin-left: 0` indented this line 5px out of step with the two it sits
+   under — the one alignment a three-line stack has to get right. */
+.tr-range i.tr-rank { display: block; margin-left: 0; font-size: 9.5px; }
 
 .tr-chart { position: relative; height: 32px; margin: 4px 0 3px; }
 .tr-chart svg { display: block; width: 100%; height: 100%; }
@@ -618,6 +624,140 @@
 
 .heatmap-cell-hoverable:hover {
   z-index: 40;
+}
+
+/* ── The heatmap's phone layout ──────────────────────────────────────────────────────────────────
+   The grid used to be `hidden sm:grid`, so below 640px it drew nothing and the arm above it hid the
+   door rather than open an empty box. Nobody decided a phone reader does not need the full plan.
+
+   The scroller is UNCONDITIONAL, like the P15a tab bar's, because the trigger is not a viewport
+   width — it is whether the tracks fit. `HeatmapGrid`'s `minmax(96px, 1fr)` floor keeps `1fr`
+   wherever there is room (142px at 1280, arithmetically unchanged) and stops shrinking below 96px,
+   so this rule is inert at desktop and engages from roughly 780px down. A media query here would
+   have to guess that number, and it moves with the column count.
+
+   ⚠️ `overflow-x` computes `overflow-y` to `auto` as well — the pair cannot be split, which is the
+   note `.rail-scroller` and `.wf-tabs` both already carry. So the room a focus ring and the cells'
+   `hover:scale` need outside the padding box is bought here and handed straight back with a
+   negative margin, leaving surrounding layout where it was. The hover TOOLTIP needs nothing: it is
+   portalled to `<body>`, which is why it was portalled.
+
+   `container-type: inline-size` is what `100cqw` below measures, and it is on this element rather
+   than the grid because it applies `contain: layout inline-size` — not something to put on the box
+   whose own tracks are meant to overflow. */
+.heatmap-scroller {
+  overflow-x: auto;
+  container-type: inline-size;
+  padding-bottom: 4px;
+  margin-bottom: -4px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  /* The horizontal twin of `scroll-margin-top: 60px`, which this file already buys for the sticky
+     lens bar with the note that "the browser does not know it is there". Same defect, same cause,
+     one axis over: focusing a cell scrolls it in by the MINIMUM amount, which lands its left edge
+     flush at x = 0 — exactly where the 140px pinned column sits, opaque and above it. A 96px cell
+     is then not clipped but hidden ENTIRELY, and its focus ring with it, which is WCAG 2.4.11.
+     It fires on every row transition, because tabbing off the last cell of a row moves focus to the
+     first cell of the next one, i.e. leftwards.
+     144px, not 140: the pinned column's max plus the 4px grid gap, so the cell arrives beside the
+     column rather than against it. Measured — the cell lands at port x = 144 with the pin ending
+     at 140. */
+  scroll-padding-left: 144px;
+}
+/* A focused cell must out-rank the pinned column, not just be scrolled clear of it. The reservation
+   above is a number that can go stale (a change to the region track's max would strand it); this is
+   the belt to its braces, so a stale number degrades to "overlapped" rather than "invisible".
+   40 matches the existing `:hover` elevation rather than inventing a second value. */
+.heatmap-scroller [data-testid='heatmap-cell']:focus-visible,
+.heatmap-scroller [data-testid='astro-heatmap-cell']:focus-visible {
+  position: relative;
+  z-index: 40;
+}
+.heatmap-scroller::-webkit-scrollbar { display: none; }
+
+/* ⚠️ Load-bearing, and the pinned column below silently does not pin without it.
+   A sticky grid item is clamped to its containing block, and that block is derived from the GRID
+   BOX — not from the track list. Left alone, the grid box stays the port's 302px while its tracks
+   overflow to 740px, so the pinned cell has almost no room to travel and slides away under scroll.
+   Measured before the fix: the column reached x = −196 against a port at x = 0, i.e. gone.
+   `min-width: max-content` makes the box as wide as its tracks, which is what gives sticky
+   somewhere to stick.
+   `min-width` rather than `width`: at desktop the box then stretches to the port as a block and
+   the `1fr` tracks still resolve to 142px, so nothing above the phone band moves. Under plain
+   `width: max-content` the `1fr` tracks would size to their content instead and desktop would
+   collapse. Both branches measured.
+
+   Selected by class, not by `[data-testid=…]`. A test id that load-bearing CSS depends on is a
+   rename away from silently killing the pin, and nothing in a test suite would notice — the tests
+   would all be updated in lockstep with the rename. */
+.heatmap-scroller > .heatmap-grid {
+  min-width: max-content;
+}
+
+/* The region column, pinned. Without it, scrolling right leaves the reader looking at four
+   unlabelled rows of colour — the row identity IS the region name, and it is the one column that
+   cannot be recovered from context.
+
+   It needs an opaque background or the scrolling cells read straight through it, and the colour has
+   to be the one actually behind the grid — anything else paints a visible block at desktop, where
+   the column is pinned but never travels. Measured in both arms: the nearest painted ancestor is
+   `rgb(34, 26, 21)` either way — `.wf-door-panel` in v2, `.card` in v1 — which is
+   `--color-plex-surface`. So one literal is right for both, and it is invisible until it is doing
+   work. (`--color-plex-panel` was tried first and is 4 shades darker; it drew exactly that block,
+   most visibly at the empty sub-header corner.)
+
+   `z-index: 2` clears the cells (auto) and stays under a hovered cell (40 in v1, 10 in the v2 panel) — a hovered cell should still be able to lift over its own row label.
+
+   Scoped under `.heatmap-scroller`, like every rule in this block, because that class is the single
+   thing a caller opts into. The `heatmap-pin` / `heatmap-span` classes are emitted unconditionally
+   — including by `HeatmapDrillDown`, which is a separate component and would otherwise need the
+   flag threaded into it — and simply match nothing when the port is not there. One gate, one place
+   to read it, and no second prop crossing a component boundary to say the same thing. */
+.heatmap-scroller .heatmap-pin {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--color-plex-surface);
+}
+
+/* The two `grid-column: 1 / -1` items — the drill-down and the poor-regions toggle. Both span the
+   TRACKS, so once the tracks overflow they are as wide as the whole grid — 740px at the column
+   floor, 751px measured once the cells carry content — inside a 302px port. The drill-down is the
+   worse of the two and the reason this rule exists: you open it by tapping a cell, so you are
+   already scrolled right when that panel renders from the grid's x=0 — off-screen, to the left of
+   where you are looking.
+
+   `100cqi` is the SCROLL PORT's inline size, not the grid's, which is the entire point: pinned at
+   `left: 0` and sized to the port, both items stay exactly where the reader is regardless of scroll
+   position. At desktop the grid does not overflow, so it equals the grid width and `left: 0` is
+   where the item already was — the rule is inert rather than merely harmless.
+
+   ⚠️ Scoped under `.heatmap-scroller`, and the scoping is load-bearing rather than tidy. A
+   container-relative length does NOT fail loudly when no query container matches — it silently
+   resolves against the small viewport. Unscoped, this rule reached the frozen v1 arm, which
+   declares no container, and its drill-down rendered at `100svw`: measured at **1280px wide inside
+   an 830px grid**, spilling out of the card. Found by review after the first commit had it
+   unscoped; `cqw` is also now `cqi`, the unit that names the axis an `inline-size` container
+   actually provides. */
+.heatmap-scroller .heatmap-span {
+  position: sticky;
+  left: 0;
+  width: 100cqi;
+}
+/* Pinning the drill-down to the port is only half the job — its own header then has to FIT the
+   port, and it did not. The row is `flex` with one shrinkable child (the summary, `flex-1
+   truncate`) and five that cannot shrink: the event name carries `minWidth: 68px`, and the
+   coverage note, the weather readout and the 🗺 button are all `shrink-0`. Measured at 390px: the
+   panel is 302px, its content 424px, and the 🗺 button's right edge lands **123px past** the
+   panel's — and because the panel is sticky, scrolling the port takes the button with it, so those
+   controls were not merely clipped but unreachable at every scroll position.
+
+   `flex-wrap` rather than a width or a font change: it is self-limiting, so it does nothing at all
+   until the row genuinely cannot fit on one line, which is why the same rule is safe at 1016px.
+   Scoped to the port for the usual reason — the frozen arm's panel is as wide as its grid and never
+   needed it. */
+.heatmap-scroller [data-testid='drill-down-event-row'] {
+  flex-wrap: wrap;
 }
 
 /* "Close to home" location cards — lift and warm on hover.
@@ -808,9 +948,26 @@
   gap: 8px;
   padding: 6px var(--wf-gutter) 0;
 }
+/* A scroller from four tabs on, and the trigger was written into `WindowFirstShell` when the bar
+   had two: a fourth tab needs `overflow-x: auto` PLUS bottom room, because the overflow computes
+   `overflow-y` to `auto` and clips a focus ring drawn outside the padding box. `.rail-scroller`
+   documents the technique — buy the room, give it straight back with a negative margin so nothing
+   below moves.
+
+   ⚠️ The threshold is much lower than the trigger assumed. Measured on the running app at the phone
+   type scale, all four tabs present: content extent 296.3px, so the bar FITS from 360px up and
+   overflows only at 320 (by 22px, where the page itself also overflows by 6). So this is a 320px
+   safeguard, not the common case — which is why nothing here changes the resting look, and why the
+   bar keeps `flex` rather than becoming a scroll-snap rail. Verified inert at two tabs: no
+   scrollbar gutter, no reflow, `ruleTop` unchanged. */
 .wf-tabs {
-  padding: 12px var(--wf-gutter) 0;
+  padding: 12px var(--wf-gutter) 4px;
+  margin-bottom: -4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
+.wf-tabs::-webkit-scrollbar { display: none; }
 /* `border-bottom-width: 0`, never `border-bottom: none` — P4a's rule, kept because the tab shares
    its background with the pane below and the missing edge is what joins them. */
 .wf-tab {
@@ -820,6 +977,18 @@
   border-radius: 8px 8px 0 0;
   padding: 8px 14px;
 }
+/* The admin tab, marked the way the mock marks it — a dashed edge and a push to the right — and
+   NOT with its "· admin" words, which measured +44.16px and put the four-tab bar past every common
+   phone. The mock uses four signals for this; these are the two that cost nothing.
+
+   The ink is deliberately NOT muted as well. This project has corrected muted-ink contrast five
+   times, most recently at 3.55:1 against AA's 4.5, and a dashed border already says "different
+   kind of destination" without spending legibility to say it. */
+.wf-tab-gated {
+  margin-left: auto;
+  border-style: dashed;
+}
+
 /* The mock's own weights — 500 resting, 600 active — and the gold top rule, which is the only
    selected treatment that survives the tab sharing the pane's background. Hung off `aria-selected`
    because the tab pattern already requires that attribute, so the state needs no second carrier. */
@@ -854,7 +1023,10 @@
      From here the base rule would come later in the file and win on source order alone, which it
      did: measured on the running app, the rail kept its 13px desktop top while every sibling moved
      to 14px sides. A media query buys no specificity. */
-  .wf-tabs { padding: 10px var(--wf-gutter) 0; }
+  /* Restates the 4px. A `padding` shorthand ending in `0` is exactly how this file has twice
+     zeroed a focus-ring reservation while its paired negative margin still applied — see
+     `.rail-scroller`'s note. */
+  .wf-tabs { padding: 10px var(--wf-gutter) 4px; }
   .wf-tab { padding: 8px 11px; font-size: 12px; }
   .wf-body { padding: 12px var(--wf-gutter) 18px; }
 }
@@ -922,6 +1094,43 @@
 
 @media (prefers-reduced-motion: reduce) {
   .rail-day-show-on-map { transition: none; }
+}
+
+/* The rail's pick chip, which became a control when the plan's "pick chips open the pick's prose"
+   was finally discharged. Its own class rather than `.window-card-pick`, which the card's badge
+   uses: that rule forces `border-radius: 999px` on its focus ring for a pill, and this chip is a
+   two-line 5px rectangle whose box is what `DATE_ROW_MIN_HEIGHT_PX` is computed from — a pill ring
+   around it would sit visibly wrong and imply the two are the same shape of thing.
+
+   `cursor: pointer` because Tailwind v4's Preflight no longer restores it on `button`, the gap this
+   file has now closed in four places. Brightness rather than a colour change on hover: the chip's
+   colour IS its channel (go/also), and swapping it would say the pick had changed kind. No lift —
+   the chip sits in a horizontal scroller where a transform fights the scroll. */
+.rail-pick-flag {
+  cursor: pointer;
+  transition: filter 0.14s ease;
+}
+.rail-pick-flag:hover {
+  filter: brightness(1.14);
+}
+/* Bone at 2px, matching `.rail-day-show-on-map` above and for the reason recorded there: the
+   border-light ring measures 1.71:1 and fails SC 1.4.11's 3:1, worst on the flagged tile whose
+   resting gold border is brighter than the ring. 5px to match the chip's own corner rather than
+   the 3px its sibling uses, so the ring traces the shape it is around. */
+.rail-pick-flag:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+  border-radius: 5px;
+}
+
+/* Only the transition, never the hover RESULT. `filter: brightness()` is a paint change, not
+   motion, and cancelling it left this chip the one control in the file whose affordance vanished
+   for a reduced-motion pointer user — while its twin, the card's pick badge, kept its brightness.
+   Measured on the running app: with `reduce` on, `.window-card-pick` hovers to brightness(1.14) and
+   this hovered to `none`. Two triggers of one control must not differ. Every other reduced-motion
+   block in this file touches only transition/transform/animation; this now matches them. */
+@media (prefers-reduced-motion: reduce) {
+  .rail-pick-flag { transition: none; }
 }
 
 /* Briefing summary strip — actionable pills lift on hover */
@@ -1561,14 +1770,22 @@
 .wf-door-panel :is(a[href], button, [tabindex]:not([tabindex='-1'])) {
   scroll-margin-top: 60px;
 }
-/* `.heatmap-cell-hoverable:hover` is `z-index: 40` (:538) and `.wf-lens` is `z-index: 20` — values
-   that never met until P9 put the grid underneath a sticky bar, since `.wf-lens` is the only
-   `position: sticky` in the app and no ancestor between them creates a stacking context. A hovered
-   cell therefore painted OVER the bar and, because hit-testing follows paint order, swallowed
-   clicks aimed at the lens controls across the overlap band. Lowered here rather than raising the
-   bar: this is scoped to the v2 panel, so the v1 grid keeps 40 unchanged, and 10 still clears the
-   cell's siblings (which set no z-index) so the hover lift is unaffected. The cell's own tooltip is
-   portalled to `<body>` and is not in this stacking context at all. */
+/* `.heatmap-cell-hoverable:hover` is `z-index: 40` and `.wf-lens` is `z-index: 20` — values that
+   never met until P9 put the grid underneath a sticky bar. A hovered cell painted OVER the bar and,
+   because hit-testing follows paint order, swallowed clicks aimed at the lens controls across the
+   overlap band. Lowered here rather than raising the bar: this is scoped to the v2 panel, so the v1
+   grid keeps 40 unchanged, and 10 still clears the cell's siblings (which set no z-index) so the
+   hover lift is unaffected. The cell's own tooltip is portalled to `<body>` and is not in this
+   stacking context at all.
+
+   ⚠️ The original justification said `.wf-lens` was "the only `position: sticky` in the app" with
+   "no ancestor between them creating a stacking context". Both clauses stopped being true with the
+   phone heatmap: `.heatmap-pin` and `.heatmap-span` are sticky, and `.heatmap-scroller`'s
+   `container-type: inline-size` applies `contain: layout`, which DOES create a stacking context —
+   and it sits between the cells and the bar. So in the v2 panel this rule is now redundant rather
+   than load-bearing: the whole scroller subtree already composites below the bar whatever a cell's
+   z-index says. Kept, not deleted, because removing `container-type` would silently re-arm the
+   original defect, and this rule is what would still catch it. */
 .wf-door-panel .heatmap-cell-hoverable:hover {
   z-index: 10;
 }

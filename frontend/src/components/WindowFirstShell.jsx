@@ -22,18 +22,25 @@ const WRAP_MAX_WIDTH = '1080px';
 /**
  * The tab bar's contents, in order.
  *
- * <p>Two, not the design's four. Map and Manage arrive when this subtree takes over view state, and
- * the rule that keeps them out is the one this file already states: a tab that renders nothing is a
- * demo control and §6 bans those, so each tab lands with its pane.
+ * <p><b>A tab with a {@code slot} appears only when the shell is handed that pane.</b> That is the
+ * rule this file has always stated — "a tab that renders nothing is a demo control and §6 bans
+ * those, so each tab lands with its pane" — now enforced by construction rather than by keeping the
+ * list short. It is also how the admin gate works: {@code App} holds {@code isAdmin} and simply
+ * does not pass {@code operationsPane}. Nothing role-shaped crosses this boundary — no role, no
+ * {@code isAdmin} boolean, no prop the arm would then have to explain — which is what plan §5c
+ * exists to protect, and it is a stronger guarantee than a gate the shell could get wrong.
  *
  * <p>The glyph is decorative and {@code aria-hidden}, so the accessible name stays the bare word.
- * Coming up has none, matching the mock — the glyphs belong to the three tabs that mirror
- * {@code ViewToggle}'s own modes, and inventing a fourth for this one would be a mark with no
- * sibling anywhere else in the product.
+ * Coming up has none, matching the mock. <b>Operations has none either, and that is a collision
+ * rather than a preference:</b> {@code ⚙} is already the masthead's settings control a few pixels
+ * away, so using it here would put the same glyph on a modal and on a tab. It also costs 17.84px
+ * of a bar that has to fit a phone (measured).
  */
 const TABS = [
   { id: 'plan', label: 'Plan', glyph: '◉' },
   { id: 'coming-up', label: 'Coming up', glyph: null },
+  { id: 'map', label: 'Map', glyph: '◍', slot: 'mapPane' },
+  { id: 'operations', label: 'Operations', glyph: null, slot: 'operationsPane', gated: true },
 ];
 
 /** `window-first-tab-plan` — the id the panel points back at, and the existing test-id. */
@@ -182,13 +189,39 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  */
 export default function WindowFirstShell({
   onExit, onOpenSettings, onSignOut, contentDisabled, onShowOnMap, onEvaluationScoresChange,
-  onSeasonalFeaturesChange, locations,
+  onSeasonalFeaturesChange, locations, mapPane, operationsPane, tabRequest,
 }) {
   const {
     railTiles, windowCards, paneItems, loading, briefing, evaluationScores, scoreIndex, todayStr,
     reachLens, homePlace,
   } = useWindowFirstBriefing();
   const [activeTab, setActiveTab] = useState(TABS[0].id);
+  /**
+   * The tabs this shell actually has, which is a function of the panes it was handed.
+   *
+   * <p>Depends on whether each pane is PRESENT, not on the node itself, because a parent that
+   * rebuilds its JSX every render hands over new node identities every render. The memo is the
+   * right shape; what it buys is a stable array rather than a fresh one per render — it does NOT
+   * prevent a remount, which an earlier version of this comment claimed. Nothing here feeds a
+   * dependency array, and the buttons rebuild each render regardless, keyed by a stable id.
+   */
+  const hasMapPane = mapPane != null;
+  const hasOperationsPane = operationsPane != null;
+  const tabs = useMemo(
+    () => TABS.filter((t) => (t.slot ? { mapPane: hasMapPane, operationsPane: hasOperationsPane }[t.slot] : true)),
+    [hasMapPane, hasOperationsPane],
+  );
+  /**
+   * The tab actually rendered, which is not always the one last selected.
+   *
+   * <p>Without this a selection can outlive its tab — a session that loses admin, or a stored id
+   * from a build that had one more pane. The bar would then have no tab holding
+   * {@code tabIndex={0}}, which is the whole keyboard entry point, and every panel would be hidden.
+   * Falling back to the first tab is the only state that is always coherent.
+   */
+  const effectiveTab = tabs.some((t) => t.id === activeTab) ? activeTab : tabs[0].id;
+  /** Panes mount on first selection and stay mounted; the panel ELEMENT is always present. */
+  const [openedTabs, setOpenedTabs] = useState(() => new Set([TABS[0].id]));
   /**
    * The tab buttons, so an arrow key can move focus as well as selection.
    *
@@ -197,7 +230,7 @@ export default function WindowFirstShell({
    * left with focus on an element that has just become unreachable.
    */
   const tabRefs = useRef([]);
-  const comingUp = useComingUpFeed(activeTab === 'coming-up', todayStr);
+  const comingUp = useComingUpFeed(effectiveTab === 'coming-up', todayStr);
   /**
    * Selects a tab, and takes any dialog down with it.
    *
@@ -210,6 +243,9 @@ export default function WindowFirstShell({
    */
   const selectTab = (id) => {
     setActiveTab(id);
+    // Sticky: a pane that has been opened stays mounted, so its state and its fetches survive a
+    // round trip through another tab. `ManageView` in particular reads the hash at mount only.
+    setOpenedTabs((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
     setOpenPick(null);
     setSheetKey(null);
   };
@@ -224,7 +260,7 @@ export default function WindowFirstShell({
     // handling it: Alt+Left and Cmd+Left are the browser's Back, and Ctrl/Cmd+Home is "top of
     // document". The bar's own bindings are the UNMODIFIED keys only.
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    const last = TABS.length - 1;
+    const last = tabs.length - 1;
     let next = null;
     if (event.key === 'ArrowRight') next = index === last ? 0 : index + 1;
     else if (event.key === 'ArrowLeft') next = index === 0 ? last : index - 1;
@@ -234,8 +270,18 @@ export default function WindowFirstShell({
     // Home and End scroll the page by default, and Left/Right scroll a horizontally overflowing
     // one — either would move the view out from under the reader as they change tab.
     event.preventDefault();
-    selectTab(TABS[next].id);
+    selectTab(tabs[next].id);
     tabRefs.current[next]?.focus();
+    // Focus does NOT scroll a tab into view on its own — measured on the running app: `scrollLeft`
+    // stayed 0 through `.focus()` and moved only under `scrollIntoView`. Without this, arrowing to
+    // an off-screen tab at 320px focuses something the reader cannot see. `block: 'nearest'` is
+    // what keeps the page itself still.
+    // Optional CALL, not just optional chaining on the node: jsdom implements no layout and so
+    // provides no `scrollIntoView`, and the unguarded form threw a TypeError on every arrow press
+    // while the suite still reported green — seven unhandled errors and an exit code of 1 under a
+    // "3035 passed" summary. Guarding it here rather than stubbing it in `setup.js` keeps the
+    // absence honest: there is nothing to scroll in a document with no layout.
+    tabRefs.current[next]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   };
   const [openPick, setOpenPick] = useState(null);
   /**
@@ -250,6 +296,62 @@ export default function WindowFirstShell({
    */
   const [sheetKey, setSheetKey] = useState(null);
   const sheetCard = sheetKey == null ? null : windowCards.find((c) => c.key === sheetKey) || null;
+  /**
+   * A tab asked for from OUTSIDE the bar — currently the map overlay's "open the full map" hatch.
+   *
+   * <p>Keyed on a NONCE rather than on the id, because the same destination can be asked for twice
+   * running and the second ask must still land. That is the idiom {@code App} already uses for map
+   * handoffs, for the same reason.
+   *
+   * <p>Goes through {@code selectTab} rather than {@code setActiveTab} so an arriving request gets
+   * everything a click gets — the pane marked as opened, and any open dialog taken down. Selecting
+   * a tab without mounting its pane would show an empty panel.
+   *
+   * <p><b>It sits here, below the dialog state, and not beside {@code selectTab} where it reads
+   * more naturally.</b> {@code selectTab} clears {@code openPick} and {@code sheetKey}, which are
+   * declared further down; calling it from an effect placed above them is a use-before-declaration
+   * the linter catches. Runtime would have been fine — an effect runs after render — which is
+   * exactly why this is worth a sentence rather than a silent move.
+   */
+  const requestedNonce = tabRequest?.nonce ?? null;
+  const requestedId = tabRequest?.id ?? null;
+  // Seeded with whatever nonce is already in flight at MOUNT, not with null. `App` holds
+  // `tabRequest` and never clears it, and it outlives this component — so with a null seed, leaving
+  // the arm and coming back replayed the last request and landed the reader on the Map tab when
+  // they had asked for the Plan layout. That flip is the pilot's core comparison gesture, and it
+  // contradicts this file's own rule that tab selection is not persisted.
+  const lastHandledRequest = useRef(tabRequest?.nonce ?? null);
+  useEffect(() => {
+    if (requestedNonce == null || requestedNonce === lastHandledRequest.current) return;
+    lastHandledRequest.current = requestedNonce;
+    // Ignored rather than obeyed: a request naming a tab this shell was handed no pane for would
+    // select an id `effectiveTab` then has to fall back from, i.e. a silent jump to Plan.
+    if (requestedId === 'map' && mapPane == null) return;
+    if (requestedId === 'operations' && operationsPane == null) return;
+    if (!TABS.some((t) => t.id === requestedId)) return;
+    // Responding to a request that arrives from OUTSIDE this component is the effect's whole
+    // purpose — the selected tab is not derivable from props — and the nonce guard means this runs
+    // once per ask rather than on every render, so there is no cascade to trigger.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    selectTab(requestedId);
+    // Focus follows the request, and only a request. A CLICK leaves focus on the tab the pointer or
+    // the keyboard already put it on, so the bar needs nothing; an external ask arrives with focus
+    // wherever the CALLER left it — and the caller here is a dialog that closes on the same press.
+    // Measured on the running app: after the overlay's "open the full map" hatch, `activeElement`
+    // was the document root, i.e. a keyboard reader was dropped at the top of the page having just
+    // asked to be taken somewhere specific. Deferred a frame because the tab it names may be
+    // rendering for the first time on this very commit.
+    // Reached by id rather than through `tabRefs`, which is index-based: the index depends on which
+    // panes were handed over, so it is the one thing that moves when a tab appears or disappears —
+    // exactly the case this effect exists for. The id is the component's own and is already what
+    // `aria-controls` resolves against.
+    const domId = tabDomId(requestedId);
+    requestAnimationFrame(() => document.getElementById(domId)?.focus());
+    // `selectTab` is deliberately absent from the list. It is rebuilt every render, so listing it
+    // would re-run this on every render with the nonce guard as the only thing stopping it. The
+    // nonce IS the trigger, and it is in the list.
+  }, [requestedNonce, requestedId, mapPane, operationsPane]);
+
   // ⚠️ A key whose card has gone stops rendering but is not released, and the effect that would
   // release it is a `setState` inside `useEffect` that `react-hooks/set-state-in-effect` rejects.
   // The residual is that a window which disappears and returns would re-show the dialog — and it is
@@ -337,6 +439,23 @@ export default function WindowFirstShell({
   const handleRegion = (regionName, date, targetType) => (
     onShowOnMap?.({ region: regionName, date, eventType: targetType })
   );
+  /**
+   * The rail's pick chip, opening the same dialog the matching window card's badge opens.
+   *
+   * <p>Matched on `date` + `targetType` rather than by rebuilding the card's `key` string. The two
+   * are equivalent today — the key IS `${date}:${targetType}` — but a key that later gained a lens
+   * or a qualifier would leave this silently finding nothing, and a chip that opens nothing is the
+   * one failure mode worse than the read-out it replaced.
+   *
+   * <p>The lookup is total by construction rather than by luck: both builders consume the same
+   * `upcomingEvents`, the rail flags only that date's own covered entries, an away tile carries no
+   * pick at all, and the cards drop only travel days. Every chip that renders has a card. The
+   * `card?.pick` guard is belt and braces, not a real branch.
+   */
+  const handleRailPick = (date, targetType) => {
+    const card = windowCards.find((c) => c.date === date && c.targetType === targetType);
+    if (card?.pick) setOpenPick(card);
+  };
   // The POSITIONAL form, which centres the map on one location — the same call the pick dialog's
   // "show location" already makes. The object form above opens a whole region, which is a different
   // destination: a spot card names one place and must land on it.
@@ -383,7 +502,15 @@ export default function WindowFirstShell({
       </div>
 
       <div data-testid="window-first-rail-region" className={dimmed.trim() || undefined}>
-        <WindowFirstDayRail tiles={railTiles} onTileClick={onShowOnMap} onRegionClick={handleRegion} />
+        <WindowFirstDayRail
+          tiles={railTiles}
+          onTileClick={onShowOnMap}
+          onRegionClick={handleRegion}
+          onOpenPick={handleRailPick}
+          // The rail's gloss panel is `z-index: 60` and `Modal` is `z-50`, so without this a hover
+          // on the way to a dialog paints a tooltip over it. Same signal the cards already take.
+          peeksSuppressed={modalOpen}
+        />
         {!loading && railTiles.length === 0 && (
           <p
             data-testid="window-first-rail-empty"
@@ -429,8 +556,8 @@ export default function WindowFirstShell({
         aria-label="Plan sections"
         className="wf-tabs flex gap-1.5"
       >
-        {TABS.map((tab, index) => {
-          const selected = tab.id === activeTab;
+        {tabs.map((tab, index) => {
+          const selected = tab.id === effectiveTab;
           return (
             <button
               key={tab.id}
@@ -452,7 +579,7 @@ export default function WindowFirstShell({
               // the whole style object migrates without inventing a state class or a prop. The
               // mock's own weights (500 resting, 600 active) and the gold top rule are in the
               // stylesheet beside the geometry they belong with.
-              className={`wf-tab font-sans whitespace-nowrap border border-plex-border transition-colors ${
+              className={`wf-tab${tab.gated ? ' wf-tab-gated' : ''} font-sans whitespace-nowrap border border-plex-border transition-colors ${
                 selected
                   ? 'bg-plex-surface text-plex-text'
                   : 'bg-plex-panel text-plex-text-secondary hover:text-plex-text'
@@ -475,7 +602,7 @@ export default function WindowFirstShell({
           "no control gates on data that does not exist", and its own footer would read "0 spots
           across 5 windows" over a pane containing neither. It is unmounted rather than hidden so
           the sticky bar cannot take a scroll position with it. */}
-      {activeTab === 'plan' && reachLens && (
+      {effectiveTab === 'plan' && reachLens && (
         <WindowFirstLensBar
           lens={reachLens}
           spotCount={windowCards.reduce((total, card) => total + card.spots.length, 0)}
@@ -493,7 +620,7 @@ export default function WindowFirstShell({
       <WindowFirstComingUp
         id={panelDomId('coming-up')}
         labelledBy={tabDomId('coming-up')}
-        hidden={activeTab !== 'coming-up'}
+        hidden={effectiveTab !== 'coming-up'}
         status={comingUp.status}
         events={comingUp.events}
         todayStr={todayStr}
@@ -523,9 +650,9 @@ export default function WindowFirstShell({
         id={panelDomId('plan')}
         role="tabpanel"
         aria-labelledby={tabDomId('plan')}
-        hidden={activeTab !== 'plan'}
+        hidden={effectiveTab !== 'plan'}
         data-testid="window-first-pane"
-        className={`wf-body ${activeTab === 'plan' ? 'flex' : 'hidden'} flex-col${dimmed}`}
+        className={`wf-body ${effectiveTab === 'plan' ? 'flex' : 'hidden'} flex-col${dimmed}`}
       >
         {paneItems.map((item) => (item.kind === 'away' ? (
           <WindowAwayRow
@@ -565,6 +692,43 @@ export default function WindowFirstShell({
             region: they open forecast content, which is exactly what that treatment marks. */}
         <WindowFirstDoors locations={locations} onShowOnMap={onShowOnMap} />
       </div>
+
+      {/* The slotted panes. Each renders its panel ELEMENT unconditionally — `aria-controls` must
+          name something that exists, and a tab pointing at nothing is half a relationship — but its
+          CONTENTS wait for the tab to be selected once, and then stay.
+
+          That split is this file's own idiom, not a new one: `useComingUpFeed` is already gated on
+          the selected tab while its panel is always mounted. It matters more here. Mounting
+          `ManageView` eagerly would pull 633 KB and fire its waitlist and user fetches on every
+          Plan-tab first paint, for a pane most sessions never open. Never unmounting after that is
+          equally deliberate — but NOT for the reason first written here. `ManageView` writes
+          `#manage/<tab>` on every sub-tab click and parses that hash on mount, so the sub-view is
+          the one thing that WOULD survive a remount. What a remount actually discards is the rest:
+          the selected run, table filters, scroll position, and a re-fired waitlist fetch.
+          ⚠️ The cost of never unmounting is real and measured: a Scheduler sub-view left open keeps
+          its 30-second poll running for the rest of the session, invisibly, after the reader has
+          gone back to Plan. v1 does not do this, because v1 unmounts. Admin-only and one interval,
+          not several — but if that is not wanted, release the pane here rather than deleting the
+          comment. */}
+      {tabs.filter((t) => t.slot).map((tab) => (
+        <div
+          key={tab.id}
+          id={panelDomId(tab.id)}
+          role="tabpanel"
+          aria-labelledby={tabDomId(tab.id)}
+          hidden={effectiveTab !== tab.id}
+          data-testid={`window-first-panel-${tab.id}`}
+          // `wf-body` on BOTH branches, exactly as the two panes above do it. Without it this panel
+          // rendered flush to the frame while its siblings sat at the arm's inset — measured 100px
+          // vs 118px at 1280 and 16px vs 30px at 390 — so the content edge jumped on every tab
+          // change, and ManageView's own group bar landed on the tab rule reading as one two-row
+          // control. That is precisely what this class was introduced to make structurally
+          // impossible, in a comment this file already carries. `gap` is inert on a block panel.
+          className={effectiveTab === tab.id ? 'wf-body' : 'wf-body hidden'}
+        >
+          {openedTabs.has(tab.id) ? { mapPane, operationsPane }[tab.slot] : null}
+        </div>
+      ))}
 
       {/* OUTSIDE the pane, and that is a fix rather than a placement preference. The DOWN treatment
           is `pointer-events: none`, so while the exit button lived inside the pane a dead backend
@@ -645,4 +809,17 @@ WindowFirstShell.propTypes = {
       every existing test renders without it. */
   onSeasonalFeaturesChange: PropTypes.func,
   locations: PropTypes.array,
+  /** The Map pane. Absent means no Map tab — the tab and its content arrive together. */
+  mapPane: PropTypes.node,
+  /**
+   * A tab selection asked for from outside the bar, as {@code {id, nonce}}. The nonce is what makes
+   * it fire, so the same tab can be requested twice running. A request naming a tab this shell has
+   * no pane for is ignored rather than obeyed.
+   */
+  tabRequest: PropTypes.shape({ id: PropTypes.string, nonce: PropTypes.number }),
+  /**
+   * The Operations pane. Absent means no Operations tab, and that is the admin gate in full: the
+   * caller holds the role and withholds the pane, so nothing role-shaped reaches this component.
+   */
+  operationsPane: PropTypes.node,
 };

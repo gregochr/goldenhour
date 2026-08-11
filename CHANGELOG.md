@@ -34,6 +34,113 @@ policy that produced it — reading those rows is what identified this in the fi
 queries that read them ship as `scripts/diagnose-stale-forecast.sh` rather than being rebuilt from
 memory next time.
 
+### Fixed — the king tide pill no longer contradicts the chart printed underneath it
+
+**It read "no tide alignments" directly above a chart stating high water 39 minutes before
+sunrise.** Both sentences were on the same card, and both were computed — just not from the same
+thing. The chart is live geometry: where the day's high water sits against that day's sunrise, at
+one representative coastline, within an hour. The headline was a database count of forecast rows
+whose `tide_aligned` flag was set, and that flag asks a different question — whether the tide
+*state* matched each location's own tide-type preference, inside a differently sized window. On a
+king tide the useful water is high water, so every location set up to shoot low water counted for
+nothing, and the headline could reach zero on a morning when the tide lands perfectly.
+
+The count could not tell "nobody aligned" from "no rows were written for this date" either, and the
+table it read has largely stopped being written to. So a gap in the data rendered as a confident
+claim about the tide.
+
+The headline now reads the same run row the chart draws. Where no curve can be derived at all it
+says nothing rather than denying alignment — silence is the honest form of "we don't know". The
+per-location counts are still there, in the drill-down, where they answer the question they
+actually measure: how many places want this water.
+
+Spring tide pills had the same split and got the same fix.
+
+### Added — how extraordinary a king tide is, not just that it clears the threshold
+
+**"+0.5 m over spring" tells you the tide qualifies. It doesn't tell you whether this is a good one
+or the biggest in years.** The obvious second number — metres over a normal high tide — turns out
+to carry nothing new: the spring threshold is defined as 125% of mean high water, so the gap
+between the two figures is a fixed fraction of the mean and would read the same on every king tide
+that location ever sees. A percentile is no better, because the king classification is itself an
+above-P95 test, so "top 5%" would be true by construction of every card that could show it.
+
+The card now states the distance to the highest water on record there — "0.4 m off the record", or
+"highest recorded here" when it clears everything. That moves independently of the spring figure,
+and it is the yardstick the question is actually asking about.
+
+It is withheld unless the location has both a full spring–neap cycle of history (the same gate the
+spring figure rides) and about six months of stored extremes. A location added last fortnight has a
+maximum, not a record.
+### Added — a Map tab on the window-first Plan tab (P15b)
+
+The redesigned Plan tab, still behind the flag, now carries the full map as a third tab beside Plan
+and Coming up, with its own date strip.
+
+The strip is the decision worth recording. The day rail's domain is up to six briefing events; the
+map's is every date the forecast endpoint returned, which is the longer horizon. Following the rail
+would have stranded the tab on whichever day the Plan pane happened to be showing — a capability the
+older arm's Map tab has and this one would quietly have lost. The *selection* is shared with that
+older tab rather than duplicated, so the two can never disagree about which day is on screen.
+
+The map overlay's "open the full map" button comes back with it. It had been withheld from this arm
+because it named a destination that did not exist — and it is not a one-line restoration, because the
+older arm reaches its Map tab by switching a view mode this arm ignores entirely. The arm now asks its
+own shell for the tab instead, through a request the shell can decline if it was handed no such pane.
+
+Leaflet had to be told when the panel comes back. A deselected tab is hidden rather than unmounted,
+so a viewport change while the reader is elsewhere — a phone rotating, most obviously — leaves the map
+holding a size its container no longer has, and it paints grey on return. The pane watches its own box
+instead of waiting to be told it was revealed, which also covers a resize that happens while it is
+already on screen.
+
+Verified in a browser at 390 and 1280px, including switching away, resizing, and returning: the map
+re-tiles for its new box rather than keeping the old one.
+
+### Added — the full plan is reachable on a phone
+
+The heatmap had no phone layout. Below 640px it rendered nothing at all, so the window-first arm hid
+the "Regional planner" door rather than open an empty box, and the older arm's "Open full table"
+button sat inside a hidden wrapper where it could not be pressed. Nobody decided a phone reader did
+not need the full plan; the grid simply never had a layout for one, and both arms inherited that.
+
+It now renders at every width. Below roughly 780px the columns stop shrinking and the grid becomes a
+horizontal scroller with the region column pinned to the left edge, so the row you are reading keeps
+its name while the days slide past. The drill-down and the poor-regions reveal are pinned the same
+way: both span the whole grid, and the drill-down in particular is opened by tapping a cell — so
+without pinning it would render off-screen, to the left of wherever you had scrolled to.
+
+The trigger is not a viewport width but whether the columns fit, expressed as a floor on the column
+itself (96px, the width at which a cell can still draw its weather line). Desktop is arithmetically
+unchanged — 140px plus six 142px columns at 1280, exactly as before — and the tablet band between
+640 and 780px, where cells used to squeeze down to 71px, now scrolls instead.
+
+Verified in a browser at 320, 360, 375, 390, 412, 430, 639, 700 and 1280px, and the older arm
+re-measured at 390 and 1280 to confirm it did not move.
+
+### Added — an Operations tab on the window-first Plan tab, for admins
+
+The redesigned Plan tab, still behind the flag, now carries the Manage screen as a third tab rather
+than making an admin leave the arm to reach it.
+
+The gate is the interesting part. A tab entry may name a *slot*, and a slotted tab renders only when
+the shell is handed that pane — so `App`, which already knows the role, simply withholds the pane and
+the tab does not exist. No role, no `isAdmin` boolean and nothing role-shaped crosses into the arm,
+which is a stronger guarantee than a gate the shell itself could get wrong. The same mechanism is
+what the Map tab will arrive through, with no further change to the bar.
+
+The panel element is always present, because `aria-controls` has to name something that exists, but
+its contents wait for the tab to be selected once and then stay mounted. Mounting the Manage screen
+eagerly would pull 633 KB and fire its fetches on every Plan-tab first paint, for a pane most
+sessions never open. The cost of the other half is stated rather than hidden: a Scheduler sub-view
+left open keeps its 30-second poll running for the rest of the session after the reader has gone back
+to Plan.
+
+The tab is marked as a different kind of destination the way the design marks it — a dashed edge and
+a push to the right — and not with the mock's "· admin" words, which measured 44px on a bar that has
+to fit a phone. The bar became a horizontal scroller in the same change, which is inert until 320px:
+at the phone type scale all four tabs measure 296px and fit from 360px up.
+
 ## [v2.17.15] - 2026-08-10
 
 ### Changed — the window-first Plan tab works on a phone

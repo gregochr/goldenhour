@@ -139,6 +139,9 @@ export default function WindowFirstRegionalPanel({ locations, onShowOnMap }) {
       showAllLocations={showAllLocations}
       onShowAllLocationsChange={setShowAllLocations}
       travelDayDates={travelDayDates}
+      // This arm asks for the phone layout; the frozen v1 arm does not, and that asymmetry is the
+      // whole of the change's blast radius. See docs/engineering/phone-heatmap-blast-radius.md.
+      scrollable
     />
   );
 }

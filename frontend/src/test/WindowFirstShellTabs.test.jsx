@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { getAlmanac } from '../api/almanacApi.js';
@@ -90,11 +90,12 @@ const ctx = (overrides = {}) => {
   };
 };
 
-const renderShell = (overrides = {}) => {
+const renderShell = (overrides = {}, extraProps = {}) => {
   const useBriefing = vi.spyOn(briefingContext, 'useWindowFirstBriefing');
   useBriefing.mockReturnValue(ctx(overrides));
   const props = {
     onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), locations: [],
+    ...extraProps,
   };
   const view = render(<WindowFirstShell {...props} />);
   /** Hands the shell a different briefing context, the way the provider would on a poll. */
@@ -142,6 +143,108 @@ describe('WindowFirstShell — the tab bar', () => {
     expect(tabs.map((t) => t.textContent.trim())).toEqual(['◉ Plan', 'Coming up']);
     expect(tab('Plan')).toHaveAccessibleName('Plan');
     expect(tab('Coming up')).toHaveAccessibleName('Coming up');
+  });
+
+  // ── Slotted tabs: a tab exists only when its pane was handed over ──
+  //
+  // This is also the whole admin gate. `App` holds `isAdmin` and withholds `operationsPane`, so no
+  // role, no boolean and nothing role-shaped reaches this component — which is why these tests can
+  // exercise the gate without ever mentioning a role.
+  describe('tabs that arrive with their panes', () => {
+    const OPS = <p data-testid="ops-pane">operations pane</p>;
+
+    it('shows no Operations tab when no pane was handed over', () => {
+      renderShell();
+      expect(screen.queryByRole('tab', { name: 'Operations' })).toBeNull();
+      // The panel element must not be there either — a tab-less panel is unreachable markup.
+      expect(screen.queryByTestId('window-first-panel-operations')).toBeNull();
+    });
+
+    it('shows it when the pane is handed over, at the end of the bar', () => {
+      renderShell({}, { operationsPane: OPS });
+      const names = screen.getAllByRole('tab').map((t) => t.textContent.trim());
+      expect(names).toEqual(['◉ Plan', 'Coming up', 'Operations']);
+      // No glyph: the cog is already the masthead's settings control a few pixels away.
+      expect(screen.getByRole('tab', { name: 'Operations' })).toHaveAccessibleName('Operations');
+    });
+
+    // The panel element is always present so `aria-controls` resolves; the CONTENTS wait. Without
+    // the split, every Plan-tab first paint would mount ManageView and fire its fetches.
+    it('holds the panel from the start but not its contents', () => {
+      renderShell({}, { operationsPane: OPS });
+      expect(screen.getByTestId('window-first-panel-operations', { hidden: true })).toBeInTheDocument();
+      expect(screen.queryByTestId('ops-pane')).toBeNull();
+    });
+
+    it('mounts the pane on first selection and keeps it mounted after', () => {
+      renderShell({}, { operationsPane: OPS });
+      fireEvent.click(screen.getByRole('tab', { name: 'Operations' }));
+      expect(screen.getByTestId('ops-pane')).toBeInTheDocument();
+
+      // Back to Plan: still mounted, just hidden. ManageView reads the hash at mount only, so a
+      // remount would throw away whichever sub-view the reader was on.
+      fireEvent.click(tab('Plan'));
+      expect(screen.getByTestId('ops-pane', { hidden: true })).toBeInTheDocument();
+      expect(screen.getByTestId('window-first-panel-operations', { hidden: true })).toHaveAttribute('hidden');
+    });
+
+    // The display class, pinned. It sits one line below `hidden={effectiveTab !== tab.id}` and reads
+    // the condition the other way round, so inverting it gives a pane that is `display:none` while
+    // its `hidden` attribute says visible — a blank pane under a green suite, since jsdom parses no
+    // CSS and every other assertion here reads presence, `hidden` or aria. The Plan pane carries a
+    // dedicated pin for exactly this; the slotted panel copied the pattern without it. `wf-body` is
+    // asserted in the same breath because a panel without it renders flush to the frame while its
+    // siblings sit at the arm's inset.
+    it('carries the pane inset in both states, and the display class only when hidden', () => {
+      renderShell({}, { operationsPane: OPS });
+      const panel = () => screen.getByTestId('window-first-panel-operations', { hidden: true });
+
+      expect(panel().className).toContain('wf-body');
+      expect(panel().className).toContain('hidden');
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Operations' }));
+      expect(panel().className).toContain('wf-body');
+      expect(panel().className).not.toContain('hidden');
+    });
+
+    it('pairs the new tab and panel the way the widget requires', () => {
+      renderShell({}, { operationsPane: OPS });
+      const t = screen.getByRole('tab', { name: 'Operations' });
+      const panel = screen.getByTestId('window-first-panel-operations', { hidden: true });
+      expect(t).toHaveAttribute('aria-controls', panel.getAttribute('id'));
+      expect(panel).toHaveAttribute('aria-labelledby', t.getAttribute('id'));
+    });
+
+    it('walks the keyboard over the tabs that exist, not the ones the build could have had', () => {
+      renderShell({}, { operationsPane: OPS });
+      fireEvent.keyDown(tab('Plan'), { key: 'End' });
+      expect(screen.getByRole('tab', { name: 'Operations' })).toHaveAttribute('aria-selected', 'true');
+
+      // And with no pane, End lands on the last tab that DOES exist rather than on nothing. Without
+      // the derived list this indexed past the end: focus lost, no tab holding tabIndex 0, and the
+      // bar unreachable by keyboard.
+      cleanup();
+      renderShell();
+      fireEvent.keyDown(tab('Plan'), { key: 'End' });
+      expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
+    });
+
+    // A selection can outlive its tab: a session that loses admin, or a stored id from a build with
+    // one more pane. Every panel hidden and no tab holding tabIndex 0 is the state to avoid.
+    it('falls back to the first tab when the selected one goes away', () => {
+      const { rerender } = renderShell({}, { operationsPane: OPS });
+      fireEvent.click(screen.getByRole('tab', { name: 'Operations' }));
+      expect(screen.getByRole('tab', { name: 'Operations' })).toHaveAttribute('aria-selected', 'true');
+
+      rerender(<WindowFirstShell
+        onExit={vi.fn()} onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
+        locations={[]} operationsPane={null}
+      />);
+
+      expect(screen.queryByRole('tab', { name: 'Operations' })).toBeNull();
+      expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByTestId('window-first-pane')).not.toHaveAttribute('hidden');
+    });
   });
 
   it('opens on Plan, because the question on arriving is about tonight', () => {
@@ -511,5 +614,111 @@ describe('WindowFirstShell — when the feed is fetched', () => {
 
     expect(getAlmanac).toHaveBeenCalledTimes(2);
     expect(screen.getByText('Perseids')).toBeInTheDocument();
+  });
+  // ── A tab asked for from outside the bar (P15b's map hatch) ──
+  describe('a tab requested from outside the bar', () => {
+    const MAP = <p data-testid="map-pane">map pane</p>;
+
+    /** Re-renders the shell with new PROPS, which `withContext` (context-only) cannot do. */
+    const renderWithRequest = (extra = {}) => {
+      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+      const base = {
+        onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
+        locations: [], mapPane: MAP, ...extra,
+      };
+      const view = render(<WindowFirstShell {...base} />);
+      return { ...view, setRequest: (tabRequest) => view.rerender(<WindowFirstShell {...base} tabRequest={tabRequest} />) };
+    };
+
+    it('selects the requested tab and mounts its pane', () => {
+      // The overlay's "open the full map" hatch. v1 reaches its Map tab with `setViewMode('map')`,
+      // which this arm ignores entirely — so without this the button was a control that could not
+      // act, and `App` withheld it rather than name a destination it could not reach.
+      const { setRequest } = renderWithRequest();
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      act(() => setRequest({ id: 'map', nonce: 1 }));
+      expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByTestId('map-pane')).toBeInTheDocument();
+    });
+
+    it('lands again when the same tab is asked for twice, because the nonce moved', () => {
+      // The reason it is nonce'd rather than keyed on the id. Open the map, go back to Plan by
+      // hand, press the hatch again: an id-keyed request would see no change and do nothing.
+      const { setRequest } = renderWithRequest();
+      act(() => setRequest({ id: 'map', nonce: 1 }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Plan' }));
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      act(() => setRequest({ id: 'map', nonce: 2 }));
+      expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('ignores a request for a pane it was handed nothing for — and does not jump later', () => {
+      // ⚠️ The assertion that bites is the SECOND one. Without the guard, `selectTab('map')` still
+      // sets `activeTab`; `effectiveTab` masks it while no Map tab exists, so a test that only
+      // checked "Plan is selected" passes against the broken code. The damage is deferred: the
+      // moment the forecast lands and `App` starts handing over a `mapPane`, the fallback stops
+      // applying and the reader is silently moved to a tab they never chose.
+      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+      const base = {
+        onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
+        locations: [], mapPane: null,
+      };
+      const view = render(<WindowFirstShell {...base} />);
+      act(() => view.rerender(<WindowFirstShell {...base} tabRequest={{ id: 'map', nonce: 1 }} />));
+      expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+
+      // The forecast arrives; the pane appears. Plan must still be the selected tab.
+      const MAP2 = <p data-testid="map-pane">map pane</p>;
+      act(() => view.rerender(<WindowFirstShell {...base} mapPane={MAP2} tabRequest={{ id: 'map', nonce: 1 }} />));
+      expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'false');
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('ignores a request naming a tab that does not exist at all', () => {
+      // Same shape, and the same reason the naive assertion is not enough: `effectiveTab` would
+      // hide an `activeTab` of 'nowhere' forever, so the observable proof is that the pane which
+      // WOULD have been mounted was not.
+      const { setRequest } = renderWithRequest();
+      act(() => setRequest({ id: 'nowhere', nonce: 1 }));
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.queryByTestId('map-pane')).toBeNull();
+    });
+
+    it('does not replay a request that was already in flight when it mounted', () => {
+      // `App` holds `tabRequest` and never clears it, and it outlives this component. With the
+      // handled-nonce seeded to null, leaving the arm (exit hatch) and coming back replayed the
+      // last request and landed the reader on the Map tab when they had asked for the Plan layout
+      // — which is the pilot's core comparison gesture, and contradicts this file's own rule that
+      // tab selection is not persisted.
+      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+      const props = {
+        onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
+        locations: [], mapPane: MAP, tabRequest: { id: 'map', nonce: 4 },
+      };
+      render(<WindowFirstShell {...props} />);
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'false');
+    });
+
+    it('moves focus to the tab it selected, because the asker just closed itself', () => {
+      // A click leaves focus on the tab the reader already put it on; a request arrives with focus
+      // wherever the CALLER left it, and the caller is the map overlay, which closes on the same
+      // press. Measured on the running app before this: `activeElement` was the document root — a
+      // keyboard reader dropped at the top of the page having just asked to go somewhere specific.
+      const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 0; });
+      const { setRequest } = renderWithRequest();
+      act(() => setRequest({ id: 'map', nonce: 1 }));
+      expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Map' }));
+      raf.mockRestore();
+    });
+
+    it('does nothing at all when no request has ever arrived', () => {
+      // A null `tabRequest` is the resting state for every session that never opens the overlay,
+      // and it must not steal the initial selection.
+      renderWithRequest();
+      expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.queryByTestId('map-pane')).toBeNull();
+    });
   });
 });

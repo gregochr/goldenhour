@@ -113,16 +113,29 @@ describe('WindowFirstDoors', () => {
       expect(screen.getByTestId('window-first-door-topics')).toBeInTheDocument();
     });
 
-    it('drops the regional door on a phone, where the grid renders nothing at all', () => {
-      // Found by review. `HeatmapGrid`'s whole output is `hidden sm:grid` / `hidden sm:flex`, and
-      // the v1 arm wraps the same disclosure in `hidden sm:block` (DailyBriefing.jsx:1526) — a guard
-      // the re-parenting dropped. Without this the tile opened a ~26px empty bordered box and fired
-      // one astro request per date for content that cannot paint.
+    it('keeps the regional door on a phone, now that the grid has a phone layout', () => {
+      // This assertion is INVERTED from what it pinned before, and deliberately so. The old rule
+      // was "no door on a phone, because `HeatmapGrid` is `hidden sm:grid` and the tile would open
+      // a ~26px empty bordered box". The grid now renders at every width (a scroller with the
+      // region column pinned), so the gate it stood in for is gone and the owner gets the full plan
+      // on the surface they actually read on.
+      //
+      // It also removes this file's side of the rem/px seam: the gate was `useIsMobile`
+      // (`max-width: 639px`, px) standing in for Tailwind's `sm:` (40rem).
       setViewport(true);
       renderDoors();
-      expect(screen.queryByTestId('window-first-door-regional')).toBeNull();
+      expect(screen.getByTestId('window-first-door-regional')).toBeInTheDocument();
       expect(screen.getByTestId('window-first-door-topics')).toBeInTheDocument();
     });
+
+    // ⚠️ Deliberately NOT tested here: that the door opens onto a grid rather than an empty box.
+    // This file stubs `WindowFirstRegionalPanel` (see the mock at the top), so a test asserting the
+    // panel "really mounts" at phone width would be asserting a stub div that has no viewport
+    // behaviour and no `HeatmapGrid` inside it — green whether or not the grid renders. The claim
+    // is real and it is covered where it can be: `HeatmapGrid.test.jsx` § "the phone layout" pins
+    // that the grid is no longer `hidden sm:grid` and that it sits in a scroll port. Splitting it
+    // that way is the standards doc's own rule about not mocking a component's children to make a
+    // test pass.
 
     it('keeps the hot-topics door on a phone, because that strip has no breakpoint gate', () => {
       // The two tiles look identical, so hiding both would be as wrong as hiding neither.

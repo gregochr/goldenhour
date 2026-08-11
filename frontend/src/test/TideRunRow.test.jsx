@@ -151,6 +151,31 @@ describe('TideRunRow', () => {
     expect(metric).not.toHaveTextContent('range');
   });
 
+  it('states how the high water ranks against the record, beside its excess over spring', () => {
+    // The two readings answer different questions. "+0.4 m over spring" says it clears the
+    // threshold; only the rank says how extraordinary it is — and it has to, because the spring
+    // threshold is 125% of mean high water, so metres-over-the-mean would be the first figure
+    // plus a per-location constant rather than a second reading.
+    renderRow(day({
+      highWater: '5.8 m',
+      highWaterAnomaly: '+0.4 m over spring',
+      highWaterRank: '0.2 m off the record',
+    }));
+
+    const metric = screen.getByTestId('tide-run-metric');
+    expect(metric).toHaveTextContent('+0.4 m over spring');
+    expect(screen.getByTestId('tide-run-rank')).toHaveTextContent('0.2 m off the record');
+  });
+
+  it('omits the rank entirely when there is not enough history to claim one', () => {
+    // A location added last fortnight has a maximum, not a record. The backend withholds the
+    // string rather than shipping a weaker claim, and the row must render nothing in its place.
+    renderRow(day({ highWater: '5.8 m', highWaterRank: null }));
+
+    expect(screen.queryByTestId('tide-run-rank')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tide-run-metric')).toHaveTextContent('high water 5.8 m');
+  });
+
   it('drops the seas qualifier when no marine sample covers the day', () => {
     renderRow(day({ seas: null }));
     expect(screen.getByTestId('tide-run-row')).not.toHaveTextContent('seas');
