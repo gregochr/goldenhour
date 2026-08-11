@@ -5,6 +5,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the king tide pill no longer contradicts the chart printed underneath it
+
+**It read "no tide alignments" directly above a chart stating high water 39 minutes before
+sunrise.** Both sentences were on the same card, and both were computed — just not from the same
+thing. The chart is live geometry: where the day's high water sits against that day's sunrise, at
+one representative coastline, within an hour. The headline was a database count of forecast rows
+whose `tide_aligned` flag was set, and that flag asks a different question — whether the tide
+*state* matched each location's own tide-type preference, inside a differently sized window. On a
+king tide the useful water is high water, so every location set up to shoot low water counted for
+nothing, and the headline could reach zero on a morning when the tide lands perfectly.
+
+The count could not tell "nobody aligned" from "no rows were written for this date" either, and the
+table it read has largely stopped being written to. So a gap in the data rendered as a confident
+claim about the tide.
+
+The headline now reads the same run row the chart draws. Where no curve can be derived at all it
+says nothing rather than denying alignment — silence is the honest form of "we don't know". The
+per-location counts are still there, in the drill-down, where they answer the question they
+actually measure: how many places want this water.
+
+Spring tide pills had the same split and got the same fix.
+
+### Added — how extraordinary a king tide is, not just that it clears the threshold
+
+**"+0.5 m over spring" tells you the tide qualifies. It doesn't tell you whether this is a good one
+or the biggest in years.** The obvious second number — metres over a normal high tide — turns out
+to carry nothing new: the spring threshold is defined as 125% of mean high water, so the gap
+between the two figures is a fixed fraction of the mean and would read the same on every king tide
+that location ever sees. A percentile is no better, because the king classification is itself an
+above-P95 test, so "top 5%" would be true by construction of every card that could show it.
+
+The card now states the distance to the highest water on record there — "0.4 m off the record", or
+"highest recorded here" when it clears everything. That moves independently of the spring figure,
+and it is the yardstick the question is actually asking about.
+
+It is withheld unless the location has both a full spring–neap cycle of history (the same gate the
+spring figure rides) and about six months of stored extremes. A location added last fortnight has a
+maximum, not a record.
 ### Added — a Map tab on the window-first Plan tab (P15b)
 
 The redesigned Plan tab, still behind the flag, now carries the full map as a third tab beside Plan

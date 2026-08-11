@@ -165,6 +165,12 @@ export default function TideRunRow({ day, accentColor, onShowOnMap = null }) {
           <span data-testid="tide-run-metric" className="tr-range">
             high water <b>{day.highWater}</b>
             {day.highWaterAnomaly && <i>{day.highWaterAnomaly}</i>}
+            {/* How extraordinary, which the spring excess cannot say — that threshold is 125% of
+                mean high water, so metres-over-the-mean would be the spring figure plus a constant.
+                This one is measured against the highest ever recorded here. */}
+            {day.highWaterRank && (
+              <i data-testid="tide-run-rank" className="tr-rank">{day.highWaterRank}</i>
+            )}
           </span>
         ) : (
           <span data-testid="tide-run-metric" className="tr-range">
@@ -216,6 +222,7 @@ TideRunRow.propTypes = {
     rangeAnomaly: PropTypes.string,
     highWater: PropTypes.string,
     highWaterAnomaly: PropTypes.string,
+    highWaterRank: PropTypes.string,
     sunrise: PropTypes.string.isRequired,
     sunset: PropTypes.string.isRequired,
     seas: PropTypes.string,
@@ -225,6 +232,7 @@ TideRunRow.propTypes = {
     })).isRequired,
     verdict: PropTypes.string.isRequired,
     aligned: PropTypes.bool,
+    alignedEvent: PropTypes.oneOf(['sunrise', 'sunset']),
     peak: PropTypes.bool,
     phrase: PropTypes.string,
   }).isRequired,

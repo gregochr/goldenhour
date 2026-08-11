@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.TideRunDay;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
@@ -23,10 +24,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -462,15 +465,12 @@ class SpringTideHotTopicStrategyTest {
                 LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
         stubCoastalLocations(TODAY, "Northumberland");
-        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
-                .thenReturn(List.<Object[]>of(
-                        new Object[]{TargetType.SUNRISE, 3L},
-                        new Object[]{TargetType.SUNSET, 2L}));
+        stubRun(Map.of(TODAY, runDay("sunrise")));
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "3 tides aligned with sunrise"
+                "tide aligned with sunrise"
                         + " \u00b7 1 coastal location");
     }
 
@@ -481,8 +481,7 @@ class SpringTideHotTopicStrategyTest {
                 LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
         stubCoastalLocations(TODAY, "Northumberland");
-        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
-                .thenReturn(List.of());
+        stubRun(Map.of(TODAY, runDay(null)));
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
@@ -498,14 +497,12 @@ class SpringTideHotTopicStrategyTest {
                 LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
         stubCoastalLocations(TODAY, "Northumberland");
-        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
-                .thenReturn(List.<Object[]>of(
-                        new Object[]{TargetType.SUNRISE, 1L}));
+        stubRun(Map.of(TODAY, runDay("sunrise")));
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "1 tide aligned with sunrise"
+                "tide aligned with sunrise"
                         + " \u00b7 1 coastal location");
     }
 
@@ -516,14 +513,12 @@ class SpringTideHotTopicStrategyTest {
                 LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
         stubCoastalLocations(TODAY, "Northumberland");
-        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
-                .thenReturn(List.<Object[]>of(
-                        new Object[]{TargetType.SUNRISE, 4L}));
+        stubRun(Map.of(TODAY, runDay("sunrise")));
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "4 tides aligned with sunrise \u00b7 1 coastal location");
+                "tide aligned with sunrise \u00b7 1 coastal location");
     }
 
     @Test
@@ -533,14 +528,12 @@ class SpringTideHotTopicStrategyTest {
                 LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
         stubCoastalLocations(TODAY, "Northumberland");
-        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
-                .thenReturn(List.<Object[]>of(
-                        new Object[]{TargetType.SUNSET, 2L}));
+        stubRun(Map.of(TODAY, runDay("sunset")));
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "2 tides aligned with sunset \u00b7 1 coastal location");
+                "tide aligned with sunset \u00b7 1 coastal location");
     }
 
     @Test
@@ -550,16 +543,13 @@ class SpringTideHotTopicStrategyTest {
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE,
                 LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE));
         stubCoastalLocations(TODAY.plusDays(2), "Northumberland");
-        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY.plusDays(2)))
-                .thenReturn(List.<Object[]>of(
-                        new Object[]{TargetType.SUNRISE, 3L},
-                        new Object[]{TargetType.SUNSET, 2L}));
+        stubRun(Map.of(TODAY.plusDays(2), runDay("sunrise")));
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).date()).isEqualTo(TODAY.plusDays(2));
         assertThat(topics.get(0).detail()).isEqualTo(
-                "3 tides aligned with sunrise \u00b7 1 coastal location");
+                "tide aligned with sunrise \u00b7 1 coastal location");
     }
 
     // ── Statistical spring tide detection ─────────────────────────────────────
@@ -803,5 +793,32 @@ class SpringTideHotTopicStrategyTest {
         when(locationRepository.findCoastalLocations()).thenReturn(locations);
         when(forecastEvaluationRepository.countTideAlignedByTargetType(tideDate))
                 .thenReturn(List.of());
+    }
+
+    /**
+     * Stubs the run builder so each named date carries a run row. The detail line's alignment
+     * segment is read from these rows — the same source as the chart beneath it.
+     *
+     * @param run run rows by date
+     */
+    private void stubRun(Map<LocalDate, TideRunDay> run) {
+        when(tideRunBuilder.build(any(), any(), eq(false))).thenReturn(run);
+    }
+
+    /**
+     * A run row aligned with the given solar event, or unaligned when {@code alignedEvent} is null.
+     *
+     * @param alignedEvent {@code "sunrise"}, {@code "sunset"}, or null for an unaligned day
+     * @return the run row
+     */
+    private static TideRunDay runDay(String alignedEvent) {
+        return new TideRunDay(
+                "SPRING RUN", 1, 1, "THU 16", "St. Mary's Lighthouse",
+                "4.2 m", "+0.4", null, null, null,
+                "05:37", "20:38", null, List.of(),
+                alignedEvent == null
+                        ? "no clear tide/sun alignment"
+                        : "LW 05:44 \u00b7 7m after " + alignedEvent,
+                alignedEvent != null, alignedEvent, false, null);
     }
 }

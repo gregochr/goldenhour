@@ -44,6 +44,14 @@ import java.util.List;
  * @param highWaterAnomaly how far that high water clears the location's spring-tide threshold,
  *                     {@code "+0.4 m over spring"} — the thing that makes a tide king rather than
  *                     merely spring. Null when there is no threshold or the excess is display noise
+ * @param highWaterRank where that high water sits against the highest ever recorded at the location,
+ *                     {@code "0.4 m off the record"} or {@code "highest recorded here"} — how
+ *                     <em>extraordinary</em> the tide is, which {@link #highWaterAnomaly} cannot say.
+ *                     The spring threshold is defined as 125% of mean high water, so a
+ *                     metres-over-the-mean figure would be the spring excess plus a per-location
+ *                     constant — a restatement, not a second reading. Distance to the ceiling moves
+ *                     independently of it. Null on a spring run, or when the location's history is
+ *                     too short for its maximum to be called a record
  * @param sunrise      the day's sunrise, {@code "05:10"}
  * @param sunset       the day's sunset, {@code "21:22"}
  * @param seas         significant wave height with its sea-state band, {@code "0.3 m · smooth"};
@@ -53,6 +61,11 @@ import java.util.List;
  *                     This carries the meaning the chart draws — the chart is decorative to a
  *                     screen reader, so this string must never be hidden from one
  * @param aligned      true when the useful extremum falls within an hour of sunrise or sunset
+ * @param alignedEvent which solar event it aligned with, {@code "sunrise"} or {@code "sunset"};
+ *                     null when {@link #aligned} is false. Carried rather than left to be parsed
+ *                     out of {@link #verdict} because the hot-topic headline names the event, and
+ *                     that sentence and this chart must not be able to disagree — they used to,
+ *                     the headline being a count over a different table with a different window
  * @param peak         true on the run's biggest-range day
  * @param phrase       the editorial line for this event type, or null on an unaligned day —
  *                     the draw is only claimed when the water lands in usable light.
@@ -70,12 +83,14 @@ public record TideRunDay(
         @JsonInclude(JsonInclude.Include.NON_NULL) String rangeAnomaly,
         @JsonInclude(JsonInclude.Include.NON_NULL) String highWater,
         @JsonInclude(JsonInclude.Include.NON_NULL) String highWaterAnomaly,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String highWaterRank,
         String sunrise,
         String sunset,
         @JsonInclude(JsonInclude.Include.NON_NULL) String seas,
         List<Extreme> tides,
         String verdict,
         boolean aligned,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String alignedEvent,
         boolean peak,
         @JsonInclude(JsonInclude.Include.NON_NULL) String phrase) {
 
@@ -91,12 +106,14 @@ public record TideRunDay(
      * @param rangeAnomaly signed anomaly against the mean range, or null
      * @param highWater    the day's highest water (king runs only), or null
      * @param highWaterAnomaly its excess over the spring threshold, or null
+     * @param highWaterRank its rank in the location's observed history, or null
      * @param sunrise      the day's sunrise
      * @param sunset       the day's sunset
      * @param seas         wave height and sea-state band, or null
      * @param tides        every tide extreme in the local day
      * @param verdict      the plain-language alignment call
      * @param aligned      whether the useful extremum lands near a solar event
+     * @param alignedEvent which solar event it aligned with, or null
      * @param peak         whether this is the run's biggest-range day
      * @param phrase       the editorial line for this event type
      */
@@ -111,12 +128,14 @@ public record TideRunDay(
             @JsonProperty("rangeAnomaly") String rangeAnomaly,
             @JsonProperty("highWater") String highWater,
             @JsonProperty("highWaterAnomaly") String highWaterAnomaly,
+            @JsonProperty("highWaterRank") String highWaterRank,
             @JsonProperty("sunrise") String sunrise,
             @JsonProperty("sunset") String sunset,
             @JsonProperty("seas") String seas,
             @JsonProperty("tides") List<Extreme> tides,
             @JsonProperty("verdict") String verdict,
             @JsonProperty("aligned") boolean aligned,
+            @JsonProperty("alignedEvent") String alignedEvent,
             @JsonProperty("peak") boolean peak,
             @JsonProperty("phrase") String phrase) {
         this.runLabel = runLabel;
@@ -128,12 +147,14 @@ public record TideRunDay(
         this.rangeAnomaly = rangeAnomaly;
         this.highWater = highWater;
         this.highWaterAnomaly = highWaterAnomaly;
+        this.highWaterRank = highWaterRank;
         this.sunrise = sunrise;
         this.sunset = sunset;
         this.seas = seas;
         this.tides = tides;
         this.verdict = verdict;
         this.aligned = aligned;
+        this.alignedEvent = alignedEvent;
         this.peak = peak;
         this.phrase = phrase;
     }

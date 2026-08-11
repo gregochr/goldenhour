@@ -82,6 +82,14 @@ public class TideRunBuilder {
     /** Within this many minutes, the *other* extremum is close enough to say "at sunrise". */
     private static final long COINCIDENT_MINUTES = 30;
 
+    /**
+     * Stored extremes (highs and lows together) a location needs before its highest recorded water
+     * may be called "the record". At roughly four extremes a day this is about six months, so the
+     * claim survives a 12-month backfill and is withheld from a location added last fortnight —
+     * where the spring–neap gate alone would let a two-week maximum pass as an all-time high.
+     */
+    private static final long MIN_POINTS_FOR_RECORD = 700;
+
     private final TideExtremeRepository tideExtremeRepository;
     private final MarineWaveRepository marineWaveRepository;
     private final TideService tideService;
@@ -170,16 +178,13 @@ public class TideRunBuilder {
 
         double peakRange = perDay.values().stream()
                 .mapToDouble(DayTides::range).max().orElse(Double.NaN);
-        Optional<TideStats> stats = tideService.getTideStats(representative.getId());
-        BigDecimal avgRange = stats.map(TideStats::avgRangeMetres).orElse(null);
-        BigDecimal springThreshold = king
-                ? stats.map(TideStats::springTideThreshold).orElse(null) : null;
+        TideStats stats = tideService.getTideStats(representative.getId()).orElse(null);
 
         Map<LocalDate, TideRunDay> result = new LinkedHashMap<>();
         int dayNumber = 1;
         for (Map.Entry<LocalDate, DayTides> entry : perDay.entrySet()) {
             result.put(entry.getKey(), buildDay(entry.getKey(), entry.getValue(), representative,
-                    dayNumber++, perDay.size(), peakRange, avgRange, springThreshold, king));
+                    dayNumber++, perDay.size(), peakRange, stats, king));
         }
         return result;
     }
@@ -247,8 +252,7 @@ public class TideRunBuilder {
     }
 
     private TideRunDay buildDay(LocalDate date, DayTides day, LocationEntity location,
-            int dayNumber, int dayCount, double peakRange, BigDecimal avgRange,
-            BigDecimal springThreshold, boolean king) {
+            int dayNumber, int dayCount, double peakRange, TideStats stats, boolean king) {
         int sunriseMinutes = localMinutes(
                 solarService.sunriseUtc(location.getLat(), location.getLon(), date));
         int sunsetMinutes = localMinutes(
@@ -265,6 +269,9 @@ public class TideRunBuilder {
         long gap = usefulPoint == null ? Long.MAX_VALUE
                 : signedGap(usefulPoint.minutes(), sunriseMinutes, sunsetMinutes);
         boolean aligned = usefulPoint != null && Math.abs(gap) <= ALIGNED_WINDOW_MINUTES;
+        Point namedByVerdict = aligned
+                ? usefulPoint
+                : withinWindow(otherPoint, sunriseMinutes, sunsetMinutes);
 
         return new TideRunDay(
                 king ? KING_RUN_LABEL : SPRING_RUN_LABEL,
@@ -273,13 +280,14 @@ public class TideRunBuilder {
                 DAY_LABEL.format(date).toUpperCase(Locale.UK),
                 location.getName(),
                 TideWording.metres(day.range()),
-                rangeAnomaly(day.range(), avgRange),
+                rangeAnomaly(day.range(), stats == null ? null : stats.avgRangeMetres()),
                 // King runs carry the absolute high water as well. The range against the mean is a
                 // SPRING framing — what makes a tide king is how far the water clears the spring
                 // threshold, and swapping the chart in for the fact chips would otherwise lose the
                 // one number that distinguishes the two events.
                 king ? TideWording.metres(day.high()) : null,
-                king ? springExcess(day.high(), springThreshold) : null,
+                king ? springExcess(day.high(), stats == null ? null : stats.springTideThreshold()) : null,
+                king ? highWaterRank(day.high(), stats) : null,
                 TideWording.clock(sunriseMinutes),
                 TideWording.clock(sunsetMinutes),
                 seas(location.getId(), date, usefulPoint, sunriseMinutes, sunsetMinutes),
@@ -289,6 +297,15 @@ public class TideRunBuilder {
                         .toList(),
                 verdict(usefulPoint, otherPoint, sunriseMinutes, sunsetMinutes, aligned, peak, king),
                 aligned,
+                // Follows the VERDICT's water, not the useful one. Verdict rules 2 and 3 name the
+                // other extremum when the useful water misses the light and that one does not — so
+                // keying this off usefulPoint alone put "no tide alignment" in the headline directly
+                // above "HW 06:18 · 58m after sunrise" in the line below it. That is the exact
+                // contradiction this field exists to prevent, reintroduced one rule further down.
+                // `aligned` and `phrase` deliberately stay false: they mark the water a reader of
+                // *this* run type came for, and that water did miss the light.
+                namedByVerdict == null
+                        ? null : solarWord(namedByVerdict.minutes(), sunriseMinutes, sunsetMinutes),
                 peak,
                 // The editorial line is claimed ONLY on an aligned day. It states what the event
                 // gives a photographer — "low water bares the foreground" — and on an unaligned day
@@ -297,6 +314,18 @@ public class TideRunBuilder {
                 // light, so printing the draw anyway had the two lines arguing, with the more
                 // confident-sounding one wrong. Silence is the honest form of "not tonight".
                 aligned ? (king ? KING_PHRASE : SPRING_PHRASE) : null);
+    }
+
+    /**
+     * The given extremum if it falls inside the alignment window, otherwise null. Uses the same
+     * {@link #ALIGNED_WINDOW_MINUTES} as {@code aligned} and as verdict rule 3, so one question —
+     * <em>is this water near a solar event?</em> — keeps one answer across the whole row.
+     */
+    private static Point withinWindow(Point point, int sunriseMinutes, int sunsetMinutes) {
+        return point != null
+                && Math.abs(signedGap(point.minutes(), sunriseMinutes, sunsetMinutes))
+                        <= ALIGNED_WINDOW_MINUTES
+                ? point : null;
     }
 
     /** The extremum of the given type sitting closest to either solar event, or null if none. */
@@ -446,6 +475,41 @@ public class TideRunBuilder {
         }
         double excess = highWater - springThreshold.doubleValue();
         return excess > TideWording.MIN_ANOMALY_METRES ? "+" + TideWording.metres(excess) + " over spring" : null;
+    }
+
+    /**
+     * Where a king run's high water sits against the highest ever recorded at this location — the
+     * one reading on the card that says how <em>extraordinary</em> the tide is.
+     *
+     * <p><b>Why the record and not the mean.</b> The obvious second number is metres over mean high
+     * water, and it carries no information: the spring threshold is defined as 1.25 × mean high, so
+     * {@code overMean = overSpring + 0.25 × meanHigh} — the two chips would differ by a per-location
+     * constant on every king tide the location ever sees. A percentile is no better at this end of
+     * the distribution, because the king classification is itself an above-P95 test, so "top 5%"
+     * would be true by construction of every card that can display it. The distance to the ceiling
+     * is the only baseline left that moves independently of the spring excess.
+     *
+     * <p>The sample is past extremes only ({@code TideService.getTideStats} stops at the start of
+     * today), so today's water is genuinely not in the record it is measured against. Two gates keep
+     * the claim honest: {@code p95HighMetres} being present means at least one spring–neap cycle was
+     * observed — the same gate the spring chip rides, so the two appear and vanish together — and
+     * {@value #MIN_POINTS_FOR_RECORD} extremes means "the record" spans months rather than a
+     * fortnight of a newly added location.
+     *
+     * @param highWater the day's highest water in metres
+     * @param stats     the location's historical tide statistics, or null when it has none
+     * @return the rank wording, or null when it cannot be claimed
+     */
+    private static String highWaterRank(double highWater, TideStats stats) {
+        if (stats == null || stats.maxHighMetres() == null
+                || stats.p95HighMetres() == null
+                || stats.dataPoints() < MIN_POINTS_FOR_RECORD) {
+            return null;
+        }
+        double shortfall = stats.maxHighMetres().doubleValue() - highWater;
+        return shortfall <= TideWording.MIN_ANOMALY_METRES
+                ? "highest recorded here"
+                : TideWording.metres(shortfall) + " off the record";
     }
 
     private static String rangeAnomaly(double range, BigDecimal avgRangeMetres) {

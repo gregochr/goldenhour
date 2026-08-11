@@ -446,6 +446,12 @@
 }
 .tr-range b { color: var(--color-plex-text); font-weight: 600; font-size: 11.5px; }
 .tr-range i { font-style: normal; color: var(--color-plex-text-muted); margin-left: 5px; }
+/* Third line of the metric column, not a third inline chip: "0.4 m off the record" qualifies the
+   two readings above it and must not be mistaken for a peer of them. Own line, one step down. */
+   Selector must carry the type as well: bare `.tr-rank` (0,1,0) loses to `.tr-range i` (0,1,1)
+   above, and the dropped `margin-left: 0` indented this line 5px out of step with the two it sits
+   under — the one alignment a three-line stack has to get right. */
+.tr-range i.tr-rank { display: block; margin-left: 0; font-size: 9.5px; }
 
 .tr-chart { position: relative; height: 32px; margin: 4px 0 3px; }
 .tr-chart svg { display: block; width: 100%; height: 100%; }

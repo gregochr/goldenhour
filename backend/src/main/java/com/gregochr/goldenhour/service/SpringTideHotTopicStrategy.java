@@ -46,6 +46,23 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
                     + " tidal ranges. Higher water at coastal locations means more"
                     + " dramatic foreground and wave action.";
 
+    /**
+     * What a spring tide day says for itself when its low water misses the light. Unlike a king
+     * tide it claims no consolation — the draw of a spring tide <em>is</em> the bared foreground,
+     * and at 01:00 in the dark there is nothing to offer in its place.
+     */
+    static final String SPRING_UNALIGNED =
+            "no sunrise or sunset alignment, but good coastal foreground";
+
+    /**
+     * What a spring tide day says when its low water <em>did</em> land in the light, but that light
+     * has already passed. Kept distinct from {@link #SPRING_UNALIGNED} for the reason given on
+     * {@link KingTideHotTopicStrategy#alignmentInfo}: the chart below still draws the alignment, so
+     * denying it outright would have the two lines arguing.
+     */
+    static final String SPRING_ALIGNMENT_PASSED =
+            "tide alignment already passed, but good coastal foreground";
+
     private final BriefingService briefingService;
     private final LocationRepository locationRepository;
     private final ForecastEvaluationRepository forecastEvaluationRepository;
@@ -118,6 +135,13 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
                 coastalLocations.isEmpty() ? null : coastalLocations.get(0);
         List<String> coastalRegions = extractRegionNames(coastalLocations);
 
+        // Built before the loop because the headline is derived from it — see
+        // KingTideHotTopicStrategy#alignmentInfo for why it is no longer a count. Built from EVERY
+        // spring-tide day, not the freshness-filtered survivors: a run describes the tide, which
+        // does not renumber itself because a sunset has passed.
+        Map<LocalDate, TideRunDay> run = tideRunBuilder.build(
+                springCandidates.stream().map(BriefingDay::date).toList(), coastalLocations, false);
+
         List<HotTopic> topics = new ArrayList<>();
         for (BriefingDay day : springCandidates) {
             LocalDate date = day.date();
@@ -130,10 +154,8 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
             Map<TargetType, Long> counts = KingTideHotTopicStrategy.maskExpired(
                     KingTideHotTopicStrategy.parseTideAlignmentCounts(
                             forecastEvaluationRepository, date), nonExpired);
-            KingTideHotTopicStrategy.BestAlignment best =
-                    KingTideHotTopicStrategy.findBestAlignment(Map.of(date, counts));
-            String alignmentInfo = best != null
-                    ? KingTideHotTopicStrategy.buildAlignmentInfo(best) : null;
+            String alignmentInfo = KingTideHotTopicStrategy.alignmentInfo(
+                    run.get(date), nonExpired, SPRING_UNALIGNED, SPRING_ALIGNMENT_PASSED);
             BriefingSlot.TideInfo springTide = findSpringTide(day);
             ExpandedHotTopicDetail expandedDetail =
                     KingTideHotTopicStrategy.buildExpandedDetail(
@@ -156,32 +178,6 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
             }
             topics.add(topic);
         }
-        return attachRun(topics, springCandidates, coastalLocations);
-    }
-
-    /**
-     * Attaches each topic's row of the shared multi-day run, so the pills can carry a
-     * {@code SPRING RUN n/N} chip and a per-day tide chart while staying one card per day in
-     * chronological order. Topics whose tide could not be derived keep their fact chips.
-     *
-     * <p>The run is built from <b>every</b> spring-tide day in the window, not from the topics that
-     * survived the solar-freshness filter. A run describes the tide, which does not renumber itself
-     * because a sunset has passed — numbering off the survivors made the chip count down through
-     * the day ({@code 1/4} becoming {@code 1/3} once Monday expired) and could migrate the "peak
-     * range" verdict onto a day that is not the run's biggest.
-     *
-     * @param topics           the per-day topics that survived the freshness filter, in date order
-     * @param runDays          every day of the underlying run, expired ones included
-     * @param coastalLocations the enabled coastal locations
-     * @return the topics with their run rows attached where one could be built
-     */
-    private List<HotTopic> attachRun(List<HotTopic> topics, List<BriefingDay> runDays,
-            List<LocationEntity> coastalLocations) {
-        if (topics.isEmpty()) {
-            return topics;
-        }
-        Map<LocalDate, TideRunDay> run = tideRunBuilder.build(
-                runDays.stream().map(BriefingDay::date).toList(), coastalLocations, false);
         return topics.stream().map(t -> t.withTideRun(run.get(t.date()))).toList();
     }
 
@@ -235,16 +231,20 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
      * Builds the single-day detail line for a spring tide pill, mirroring the king-tide format:
      * {@code [alignmentInfo] · N coastal locations}. The day is carried by the pill's timing lead.
      *
-     * @param alignmentInfo best-alignment segment, or {@code null} when no non-expired alignment
+     * @param alignmentInfo the alignment segment, or {@code null} to omit it entirely
      * @param coastalCount  total number of coastal locations
      * @return human-readable detail line
      */
     static String buildSpringTideDetail(String alignmentInfo, int coastalCount) {
         StringBuilder sb = new StringBuilder();
-        sb.append(alignmentInfo != null
-                ? alignmentInfo
-                : "no sunrise or sunset alignment, but good coastal foreground");
-        sb.append(" · ").append(coastalCount)
+        // Null is silence, not a denial. The unaligned wording is now supplied by the caller (see
+        // KingTideHotTopicStrategy#alignmentInfo), so null reaches here only when no tide curve
+        // could be derived at all — and "no sunrise or sunset alignment" would then be a claim
+        // about the tide built from the absence of data about it.
+        if (alignmentInfo != null) {
+            sb.append(alignmentInfo).append(" · ");
+        }
+        sb.append(coastalCount)
                 .append(coastalCount == 1 ? " coastal location" : " coastal locations");
         return sb.toString();
     }
