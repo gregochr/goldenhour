@@ -808,9 +808,26 @@
   gap: 8px;
   padding: 6px var(--wf-gutter) 0;
 }
+/* A scroller from four tabs on, and the trigger was written into `WindowFirstShell` when the bar
+   had two: a fourth tab needs `overflow-x: auto` PLUS bottom room, because the overflow computes
+   `overflow-y` to `auto` and clips a focus ring drawn outside the padding box. `.rail-scroller`
+   documents the technique — buy the room, give it straight back with a negative margin so nothing
+   below moves.
+
+   ⚠️ The threshold is much lower than the trigger assumed. Measured on the running app at the phone
+   type scale, all four tabs present: content extent 296.3px, so the bar FITS from 360px up and
+   overflows only at 320 (by 22px, where the page itself also overflows by 6). So this is a 320px
+   safeguard, not the common case — which is why nothing here changes the resting look, and why the
+   bar keeps `flex` rather than becoming a scroll-snap rail. Verified inert at two tabs: no
+   scrollbar gutter, no reflow, `ruleTop` unchanged. */
 .wf-tabs {
-  padding: 12px var(--wf-gutter) 0;
+  padding: 12px var(--wf-gutter) 4px;
+  margin-bottom: -4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
+.wf-tabs::-webkit-scrollbar { display: none; }
 /* `border-bottom-width: 0`, never `border-bottom: none` — P4a's rule, kept because the tab shares
    its background with the pane below and the missing edge is what joins them. */
 .wf-tab {
@@ -820,6 +837,18 @@
   border-radius: 8px 8px 0 0;
   padding: 8px 14px;
 }
+/* The admin tab, marked the way the mock marks it — a dashed edge and a push to the right — and
+   NOT with its "· admin" words, which measured +44.16px and put the four-tab bar past every common
+   phone. The mock uses four signals for this; these are the two that cost nothing.
+
+   The ink is deliberately NOT muted as well. This project has corrected muted-ink contrast five
+   times, most recently at 3.55:1 against AA's 4.5, and a dashed border already says "different
+   kind of destination" without spending legibility to say it. */
+.wf-tab-gated {
+  margin-left: auto;
+  border-style: dashed;
+}
+
 /* The mock's own weights — 500 resting, 600 active — and the gold top rule, which is the only
    selected treatment that survives the tab sharing the pane's background. Hung off `aria-selected`
    because the tab pattern already requires that attribute, so the state needs no second carrier. */
@@ -854,7 +883,10 @@
      From here the base rule would come later in the file and win on source order alone, which it
      did: measured on the running app, the rail kept its 13px desktop top while every sibling moved
      to 14px sides. A media query buys no specificity. */
-  .wf-tabs { padding: 10px var(--wf-gutter) 0; }
+  /* Restates the 4px. A `padding` shorthand ending in `0` is exactly how this file has twice
+     zeroed a focus-ring reservation while its paired negative margin still applied — see
+     `.rail-scroller`'s note. */
+  .wf-tabs { padding: 10px var(--wf-gutter) 4px; }
   .wf-tab { padding: 8px 11px; font-size: 12px; }
   .wf-body { padding: 12px var(--wf-gutter) 18px; }
 }
