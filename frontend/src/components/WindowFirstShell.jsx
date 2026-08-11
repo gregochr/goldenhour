@@ -329,6 +329,19 @@ export default function WindowFirstShell({
     // once per ask rather than on every render, so there is no cascade to trigger.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     selectTab(requestedId);
+    // Focus follows the request, and only a request. A CLICK leaves focus on the tab the pointer or
+    // the keyboard already put it on, so the bar needs nothing; an external ask arrives with focus
+    // wherever the CALLER left it — and the caller here is a dialog that closes on the same press.
+    // Measured on the running app: after the overlay's "open the full map" hatch, `activeElement`
+    // was the document root, i.e. a keyboard reader was dropped at the top of the page having just
+    // asked to be taken somewhere specific. Deferred a frame because the tab it names may be
+    // rendering for the first time on this very commit.
+    // Reached by id rather than through `tabRefs`, which is index-based: the index depends on which
+    // panes were handed over, so it is the one thing that moves when a tab appears or disappears —
+    // exactly the case this effect exists for. The id is the component's own and is already what
+    // `aria-controls` resolves against.
+    const domId = tabDomId(requestedId);
+    requestAnimationFrame(() => document.getElementById(domId)?.focus());
     // `selectTab` is deliberately absent from the list. It is rebuilt every render, so listing it
     // would re-run this on every render with the nonce guard as the only thing stopping it. The
     // nonce IS the trigger, and it is in the list.

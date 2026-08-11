@@ -667,6 +667,18 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
     });
 
+    it('moves focus to the tab it selected, because the asker just closed itself', () => {
+      // A click leaves focus on the tab the reader already put it on; a request arrives with focus
+      // wherever the CALLER left it, and the caller is the map overlay, which closes on the same
+      // press. Measured on the running app before this: `activeElement` was the document root — a
+      // keyboard reader dropped at the top of the page having just asked to go somewhere specific.
+      const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 0; });
+      const { setRequest } = renderWithRequest();
+      act(() => setRequest({ id: 'map', nonce: 1 }));
+      expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Map' }));
+      raf.mockRestore();
+    });
+
     it('does nothing at all when no request has ever arrived', () => {
       // A null `tabRequest` is the resting state for every session that never opens the overlay,
       // and it must not steal the initial selection.
