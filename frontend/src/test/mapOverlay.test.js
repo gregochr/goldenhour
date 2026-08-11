@@ -159,4 +159,45 @@ describe('buildMapOverlay', () => {
     expect(ov.focus.points).toHaveLength(2);
     expect(ov.caption).toContain('2 locations');
   });
+  // The aurora trigger exists because the alert banner is live in BOTH Plan arms while its v1
+  // action — switch to the Map tab — only means something in the arm that has one.
+  describe('the aurora trigger', () => {
+    it('hands the map the aurora event for the night in question', () => {
+      const ov = buildMapOverlay({ kind: 'aurora', date: DATE }, ctx([loc('Kielder', 'Northumberland', 4)]));
+      expect(ov.handoff.eventType).toBe('AURORA');
+      expect(ov.handoff.date).toBe(DATE);
+      expect(ov.title).toBe('Aurora tonight');
+    });
+
+    // The trap this branch exists to avoid, and the reason it claims so little: `ratingFor` and
+    // `solarTimeFor` both resolve any non-SUNRISE event to the SUNSET forecast. An aurora overlay
+    // built through the ordinary path would therefore have shown that evening's sunset rating and
+    // its 20:49 sunset time, presented as aurora facts. The fixture carries both so this test
+    // fails loudly if a later change starts reaching for them. (21:49, not the fixture's
+    // 20:49: the overlay prints Europe/London local time, which the control below pins.)
+    it('claims no rating, no clock time and no count of our own locations', () => {
+      const ov = buildMapOverlay({ kind: 'aurora', date: DATE }, ctx([
+        loc('Kielder', 'Northumberland', 4),
+        loc('Derwent', 'Durham', 5),
+      ]));
+      expect(ov.caption).toBeNull();
+      expect(ov.subLine).toBeNull();
+      expect(ov.focus).toBeNull();
+      expect(ov.narrativeTone).not.toBe('go');
+      const printed = `${ov.title} ${ov.subLine ?? ''} ${ov.caption ?? ''} ${ov.narrative ?? ''} ${ov.narrativeHead ?? ''}`;
+      expect(printed).not.toMatch(/21:49/);
+      expect(printed).not.toMatch(/\d\u2605|\bbest\b/i);
+      expect(printed).not.toMatch(/\b2 locations\b/);
+    });
+
+    // The positive control for the assertion above: the ordinary event path DOES print the time,
+    // so "no 20:49" is a fact about the aurora branch rather than about the fixture.
+    it('is a departure from the event trigger, which does print the solar time', () => {
+      const ov = buildMapOverlay({ kind: 'event', date: DATE, eventType: 'SUNSET' }, ctx([
+        loc('Kielder', 'Northumberland', 4),
+      ]));
+      const printed = `${ov.title} ${ov.subLine ?? ''} ${ov.caption ?? ''}`;
+      expect(printed).toMatch(/21:49/);
+    });
+  });
 });

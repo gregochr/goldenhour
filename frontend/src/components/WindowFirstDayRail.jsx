@@ -121,10 +121,16 @@ export const DATE_ROW_MIN_HEIGHT_PX = FLAG_LINES * FLAG_FONT_PX * FLAG_LINE_HEIG
  * @param {Function} [props.onTileClick]   callback(date, targetType) for a rated tile
  * @param {Function} [props.onRegionClick] callback(regionName, date, targetType) for a chip
  */
-export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick }) {
+export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick, onOpenPick, peeksSuppressed }) {
   const { popover, show, hide } = usePopoverHost();
 
   const showGloss = useCallback((event, region, headColour, dateStr) => {
+    // Nothing while a dialog is over the page, and this is a fix rather than a nicety: the gloss
+    // panel is `z-index: 60` and `Modal` is `z-50`, so without this a hover on the way to the pick
+    // dialog paints a tooltip OVER it, with no focus trap to stop the pointer reaching either. The
+    // rail is the last surface in the arm with no such guard — the spot strip has carried one since
+    // P10′.
+    if (peeksSuppressed) return;
     show(
       `${dateStr}:${region.regionName}`,
       event.currentTarget,
@@ -141,7 +147,7 @@ export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick }
       ),
       { width: TIP_WIDTH, gap: TIP_GAP, margin: TIP_MARGIN },
     );
-  }, [show]);
+  }, [show, peeksSuppressed]);
 
   if (!tiles || tiles.length === 0) return null;
 
@@ -149,13 +155,13 @@ export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick }
     <>
       <div
         data-testid="window-first-day-rail"
+        // Padding lives in `.rail-scroller` entirely, all four sides, because the phone gutter is a
+        // media query and one cannot reach an inline style. That also retires the trap this comment
+        // used to describe: the inline `padding` SHORTHAND set padding-bottom: 0 at inline priority
+        // and beat the class's own `padding-bottom: 4px`, while its paired `margin-bottom: -4px`
+        // still applied, so the ring room was silently zero. With one owner there is nothing left to
+        // disagree — but the 4px bottom is now restated in the phone override for the same reason.
         className="rail-scroller flex gap-2"
-        // Longhands, NOT the `padding` shorthand. The shorthand set padding-bottom: 0 at inline
-        // priority and beat `.rail-scroller`'s own `padding-bottom: 4px`, while its paired
-        // `margin-bottom: -4px` still applied — so the class's ring room was silently zero and the
-        // rail sat 4px tighter to its footer than the CSS believed. The same trap this file's
-        // sibling comments warn about for `border`, re-created one property over.
-        style={{ paddingTop: '13px', paddingLeft: '18px', paddingRight: '18px' }}
       >
         {tiles.map((tile) => {
           const clickable = tile.ratedCount > 0 && !tile.isAway;
@@ -203,11 +209,32 @@ export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick }
                 >
                   {tile.dayLabel}
                 </span>
+                {/* A BUTTON, not the read-out it began as. The plan's second handoff asks for this
+                    in as many words — "region chips open a gloss, pick chips open the pick's prose"
+                    — and it was the one clause of that sentence still undone. It opens the SAME
+                    dialog the window card's pick badge opens, rather than a second surface: the two
+                    say the same words in the same accent, so a reader who taps one and then the
+                    other must not be shown two different things.
+
+                    The tile around it stays inert, so nothing is nested inside anything
+                    interactive; the region chips beside it are already buttons on the same
+                    principle. Every inline style below is unchanged — they are what
+                    `DATE_ROW_MIN_HEIGHT_PX` is derived from, and the rail's baselines go ragged if
+                    the chip's box moves. */}
                 {tile.pick && !tile.isAway && (
-                  <span
+                  <button
+                    type="button"
                     data-testid="rail-pick-flag"
                     data-pick={tile.pick.kind}
-                    className="ml-auto flex-none self-start font-mono text-right"
+                    onClick={() => onOpenPick?.(tile.date, tile.pick.targetType)}
+                    // The visible words come first and contiguously, so WCAG 2.5.3's label-in-name
+                    // holds. The day is appended because the chip's own text does not carry one —
+                    // it reads "◎ BEST / sunset" inside a ROW of days, so out of that visual context
+                    // it names a window without saying which. (Not, as this comment first claimed,
+                    // to avoid colliding with the card's badge: that one reads "Best bet" and never
+                    // contains the event word, so there was never a collision to break.)
+                    aria-label={`${tile.pick.kind === 'best' ? 'BEST' : 'ALSO'} ${tile.pick.event} — ${tile.dayLabel}`}
+                    className="rail-pick-flag ml-auto flex-none self-start font-mono text-right"
                     style={{
                       fontSize: `${FLAG_FONT_PX}px`,
                       lineHeight: FLAG_LINE_HEIGHT,
@@ -231,7 +258,7 @@ export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick }
                     <span className="block whitespace-nowrap font-normal opacity-80">
                       {tile.pick.event}
                     </span>
-                  </span>
+                  </button>
                 )}
               </div>
 
@@ -347,7 +374,12 @@ WindowFirstDayRail.propTypes = {
       pick: PropTypes.shape({
         kind: PropTypes.oneOf(['best', 'also']).isRequired,
         event: PropTypes.string.isRequired,
-        targetType: PropTypes.string,
+        // Declared required now the chip is a control: it is half the key the shell resolves the
+        // card by, so a missing one yields a button that opens nothing. ⚠️ Documentary only — React
+        // 19 removed propTypes validation, so this warns nobody at runtime. The real guarantee is
+        // structural: both builders consume the same `upcomingEvents`, away tiles carry no pick, and
+        // the shell's `card?.pick` degrades to inert rather than to an empty dialog.
+        targetType: PropTypes.string.isRequired,
       }),
       regions: PropTypes.arrayOf(
         PropTypes.shape({
@@ -369,4 +401,8 @@ WindowFirstDayRail.propTypes = {
   ).isRequired,
   onTileClick: PropTypes.func,
   onRegionClick: PropTypes.func,
+  /** callback(date, targetType) — opens that window's pick prose. */
+  onOpenPick: PropTypes.func,
+  /** True while a dialog is over the pane; suppresses the region gloss, which out-ranks it. */
+  peeksSuppressed: PropTypes.bool,
 };

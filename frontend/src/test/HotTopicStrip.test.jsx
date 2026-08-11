@@ -129,6 +129,63 @@ describe('HotTopicStrip', () => {
     });
   });
 
+  // The phone layout is a media query, and `vite.config.js` sets `css: false` — jsdom parses no
+  // stylesheet and evaluates no `@media` rule, so the only honest assertion here is that the
+  // component still emits the hooks those rules select. The geometry itself (zero overflow, the
+  // chevron inside the card, the detail on its own row) is a browser measurement; see the comment
+  // on `.hot-topic-row` in index.css for the numbers.
+  describe('the hooks the phone layout selects', () => {
+    it.each([
+      ['hot-topic-pill-BLUEBELL', 'hot-topic-row'],
+      ['topic-detail-BLUEBELL', 'hot-topic-detail'],
+      ['topic-region-count-BLUEBELL', 'hot-topic-regions'],
+      ['expand-chevron-BLUEBELL', 'hot-topic-chevron'],
+    ])('%s carries %s', (testId, className) => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      expect(screen.getByTestId(testId)).toHaveClass(className);
+    });
+
+    it('carries the label group and title hooks, which have no testids of their own', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const row = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      const label = row.querySelector('.hot-topic-label');
+      expect(label).not.toBeNull();
+      // The title specifically, not every span in the group: the ellipsis rule must not reach the
+      // emoji, the info tip or the tide-run chip, where clipping would be a different bug.
+      const title = label.querySelector('.hot-topic-title');
+      expect(title).not.toBeNull();
+      expect(title.textContent).toBe('BLUEBELL CONDITIONS');
+    });
+
+    // `flex` and `min-width` were moved OUT of the inline style deliberately: an inline `flex`
+    // shorthand sets flex-basis, which would beat the phone rule that gives this element its own
+    // row. If they ever return inline, the phone layout silently reverts.
+    it('keeps the detail sentence free of an inline flex, which no stylesheet could override', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const detail = screen.getByTestId('topic-detail-BLUEBELL');
+      expect(detail.style.flex).toBe('');
+      expect(detail.style.flexBasis).toBe('');
+      expect(detail.style.minWidth).toBe('');
+      // The positive control: this element DOES still carry its own inline type styles, so the
+      // assertions above are about `flex` specifically rather than about an empty style attribute.
+      expect(detail.style.fontSize).toBe('12px');
+    });
+
+    // The same trap one element up, and it was live until review caught it: the row used the `gap`
+    // SHORTHAND, which writes the `row-gap` longhand into the style attribute, so the phone rule's
+    // `row-gap: 4px` never applied and wrapped rows shipped 8px taller than the rule intended —
+    // under a comment quoting a height the tree could not produce. Only the column gap was ever
+    // wanted; at desktop the row is `nowrap` and has no rows to space.
+    it('sets only a column gap inline, leaving the phone rule free to set the row gap', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const row = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      expect(row.style.gap).toBe('');
+      expect(row.style.rowGap).toBe('');
+      // The positive control, so this is about the shorthand rather than about an unstyled row.
+      expect(row.style.columnGap).toBe('12px');
+    });
+  });
+
   describe('region reveal on tap', () => {
     it('reveals the full region list when a region-having pill is tapped', () => {
       render(<HotTopicStrip hotTopics={[buildTopic()]} />);

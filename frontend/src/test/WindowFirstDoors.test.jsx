@@ -51,11 +51,18 @@ function setViewport(mobile) {
 const renderDoors = (overrides = {}, props = {}) => {
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx(overrides));
   const handlers = { onShowOnMap: vi.fn(), ...props };
-  render(<WindowFirstDoors locations={[]} {...handlers} />);
-  return handlers;
+  // `unmount` is returned alongside the handlers so a test can round-trip the component, which is
+  // the only honest way to assert that state survives the arm being swapped out.
+  const { unmount } = render(<WindowFirstDoors locations={[]} {...handlers} />);
+  return { ...handlers, unmount };
 };
 
-beforeEach(() => setViewport(false));
+beforeEach(() => {
+  setViewport(false);
+  // Locally this is a PROCESS-level store that survives across files in a reused worker, so a leak
+  // from another suite is invisible on CI and very real here.
+  sessionStorage.clear();
+});
 afterEach(() => vi.restoreAllMocks());
 
 describe('WindowFirstDoors', () => {
@@ -106,16 +113,29 @@ describe('WindowFirstDoors', () => {
       expect(screen.getByTestId('window-first-door-topics')).toBeInTheDocument();
     });
 
-    it('drops the regional door on a phone, where the grid renders nothing at all', () => {
-      // Found by review. `HeatmapGrid`'s whole output is `hidden sm:grid` / `hidden sm:flex`, and
-      // the v1 arm wraps the same disclosure in `hidden sm:block` (DailyBriefing.jsx:1526) — a guard
-      // the re-parenting dropped. Without this the tile opened a ~26px empty bordered box and fired
-      // one astro request per date for content that cannot paint.
+    it('keeps the regional door on a phone, now that the grid has a phone layout', () => {
+      // This assertion is INVERTED from what it pinned before, and deliberately so. The old rule
+      // was "no door on a phone, because `HeatmapGrid` is `hidden sm:grid` and the tile would open
+      // a ~26px empty bordered box". The grid now renders at every width (a scroller with the
+      // region column pinned), so the gate it stood in for is gone and the owner gets the full plan
+      // on the surface they actually read on.
+      //
+      // It also removes this file's side of the rem/px seam: the gate was `useIsMobile`
+      // (`max-width: 639px`, px) standing in for Tailwind's `sm:` (40rem).
       setViewport(true);
       renderDoors();
-      expect(screen.queryByTestId('window-first-door-regional')).toBeNull();
+      expect(screen.getByTestId('window-first-door-regional')).toBeInTheDocument();
       expect(screen.getByTestId('window-first-door-topics')).toBeInTheDocument();
     });
+
+    // ⚠️ Deliberately NOT tested here: that the door opens onto a grid rather than an empty box.
+    // This file stubs `WindowFirstRegionalPanel` (see the mock at the top), so a test asserting the
+    // panel "really mounts" at phone width would be asserting a stub div that has no viewport
+    // behaviour and no `HeatmapGrid` inside it — green whether or not the grid renders. The claim
+    // is real and it is covered where it can be: `HeatmapGrid.test.jsx` § "the phone layout" pins
+    // that the grid is no longer `hidden sm:grid` and that it sits in a scroll port. Splitting it
+    // that way is the standards doc's own rule about not mocking a component's children to make a
+    // test pass.
 
     it('keeps the hot-topics door on a phone, because that strip has no breakpoint gate', () => {
       // The two tiles look identical, so hiding both would be as wrong as hiding neither.
@@ -260,6 +280,74 @@ describe('WindowFirstDoors', () => {
       fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
 
       expect(screen.getByTestId('aurora-expanded-card')).toBeInTheDocument();
+    });
+  });
+
+  // Both Plan arms are alive at once and the reader flips between them to compare the same night.
+  // The v1 arm has always remembered its briefing grid across such a round trip; this one forgot on
+  // every unmount, so a flip landed on collapsed doors beside an arm that had stayed open.
+  describe('remembering which doors were left open', () => {
+    const doorPanel = () => screen.queryByTestId('window-first-panel-topics-body');
+
+    // The behavioural round trip, and the only one here that fails for the right reason. Written
+    // first for that reason: the storage assertions below all pass for an implementation that
+    // writes correctly and restores nothing.
+    it('reopens the doors it was left with', () => {
+      const { unmount } = renderDoors();
+      expect(doorPanel()).toBeNull();
+
+      fireEvent.click(screen.getByTestId('window-first-door-topics'));
+      expect(doorPanel()).toBeInTheDocument();
+      unmount();
+
+      renderDoors();
+      expect(doorPanel()).toBeInTheDocument();
+      // The control must not claim a state the DOM lacks — a restored door whose panel was never
+      // mounted would announce `aria-expanded="true"` over nothing.
+      expect(screen.getByTestId('window-first-door-topics')).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    it('starts closed on a fresh session, which is the property the current Plan keeps too', () => {
+      renderDoors();
+      expect(doorPanel()).toBeNull();
+      expect(screen.getByTestId('window-first-door-topics')).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('keeps a closed door closed across the round trip', () => {
+      // The negative half. Without it, "reopens what was left" passes for a component that simply
+      // opens everything on mount.
+      const { unmount } = renderDoors();
+      fireEvent.click(screen.getByTestId('window-first-door-topics'));
+      fireEvent.click(screen.getByTestId('window-first-door-topics'));
+      unmount();
+
+      renderDoors();
+      expect(doorPanel()).toBeNull();
+    });
+
+    // ⚠️ Never spy on storage in this suite. `setup.js` installs a plain-object substitute only when
+    // jsdom does not supply one, which is true on this project's Macs and false on CI — so an
+    // instance spy passes locally and records nothing on the runner, and a `Storage.prototype` spy
+    // does the reverse. This project has already lost a CI round to exactly that. Observe through
+    // `length`/`key`, which both implementations have.
+    it('keeps the door state out of localStorage, where the settled preferences live', () => {
+      const keysNow = (store) => Array.from({ length: store.length }, (_, i) => store.key(i));
+
+      // Control: prove the observation can see a write at all in whichever storage this environment
+      // supplied. Without it, "nothing was written" passes on a mechanism that sees nothing.
+      localStorage.setItem('control', '1');
+      expect(keysNow(localStorage)).toContain('control');
+      localStorage.removeItem('control');
+
+      // A snapshot rather than `[]`, so the assertion is about what THIS interaction wrote and
+      // cannot be broken by an unrelated key the environment happens to carry.
+      const before = keysNow(localStorage);
+
+      renderDoors();
+      fireEvent.click(screen.getByTestId('window-first-door-topics'));
+
+      expect(keysNow(localStorage)).toEqual(before);
+      expect(keysNow(sessionStorage)).toContain('photocast.planDoors');
     });
   });
 });

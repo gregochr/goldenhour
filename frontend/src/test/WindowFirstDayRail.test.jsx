@@ -80,6 +80,16 @@ describe('WindowFirstDayRail', () => {
     expect(tiles[1]).not.toHaveAttribute('data-today');
   });
 
+  // `.rail-scroller` carries the horizontal scroll, the hidden scrollbar, the 4px of focus-ring room
+  // that its negative margin gives straight back — and, since P14, the rail's whole padding
+  // including the phone gutter. It used to be a class beside an inline style; it is now the only
+  // owner, so a rename costs the rail its inset as well as its overflow, at every width. jsdom
+  // evaluates none of that, which is exactly why the class name itself is worth pinning.
+  it('carries the scroller class that owns its overflow and its gutter', () => {
+    render(<WindowFirstDayRail tiles={[tile()]} />);
+    expect(screen.getByTestId('window-first-day-rail')).toHaveClass('rail-scroller');
+  });
+
   describe('the show-on-map action', () => {
     it('is a real button naming the day it opens, carrying that day and its best event', () => {
       const onTileClick = vi.fn();
@@ -211,8 +221,60 @@ describe('WindowFirstDayRail', () => {
       render(<WindowFirstDayRail tiles={[tile({ pick: { kind: 'best', event: 'sunset', targetType: 'SUNSET' } })]} />);
 
       expect(screen.getByTestId('rail-pick-flag')).toBeInTheDocument();
-      expect(Object.keys(WindowFirstDayRail.propTypes)).toEqual(['tiles', 'onTileClick', 'onRegionClick']);
+      // Named absences, not an exact list. The exact-list form was the point of this assertion —
+      // "the component takes no role prop at all" — but it also failed for any ADDITIVE prop, and
+      // it did: `onOpenPick` and `peeksSuppressed` arrived when the pick chip became a control, and
+      // a red test said nothing about role gating. The card's suite hit this first and settled the
+      // idiom, including why it is two `not.toContain` rather than one negated
+      // `arrayContaining`: that matcher is conjunctive, so its negation passes unless EVERY listed
+      // name is present, which let `isPro` — this codebase's real gate-prop name — through alone.
+      expect(Object.keys(WindowFirstDayRail.propTypes)).not.toContain('role');
+      expect(Object.keys(WindowFirstDayRail.propTypes)).not.toContain('isPro');
       expect(screen.queryByText(/pro|upgrade/i)).toBeNull();
+    });
+
+    // The plan's second handoff asks for this in as many words — "region chips open a gloss, pick
+    // chips open the pick's prose" — and it was the one clause still undone.
+    it('is a real button naming the pick, the event and the day it belongs to', () => {
+      render(<WindowFirstDayRail tiles={[tile({ dayLabel: 'Tomorrow', pick: { kind: 'best', event: 'sunset', targetType: 'SUNSET' } })]} />);
+
+      const chip = screen.getByTestId('rail-pick-flag');
+      expect(chip.tagName).toBe('BUTTON');
+      // The visible words come first and contiguously, so WCAG 2.5.3's label-in-name holds; the day
+      // is what separates it from the identical-looking pill on the card below.
+      expect(chip).toHaveAccessibleName('BEST sunset — Tomorrow');
+    });
+
+    it('asks its owner to open that window\'s prose, naming the day and the event', () => {
+      const onOpenPick = vi.fn();
+      render(<WindowFirstDayRail
+        tiles={[tile({ date: '2026-08-12', pick: { kind: 'also', event: 'sunrise', targetType: 'SUNRISE' } })]}
+        onOpenPick={onOpenPick}
+      />);
+
+      fireEvent.click(screen.getByTestId('rail-pick-flag'));
+      // Both arguments: the date alone cannot pick between a day's sunrise and its sunset, which is
+      // the whole reason the chip names the event.
+      expect(onOpenPick).toHaveBeenCalledWith('2026-08-12', 'SUNRISE');
+    });
+
+    it('renders no chip on an away day, so there is never one that opens nothing', () => {
+      render(<WindowFirstDayRail tiles={[tile({ isAway: true, pick: null })]} />);
+      expect(screen.queryByTestId('rail-pick-flag')).toBeNull();
+    });
+
+    // The tile stays inert. A button inside a button is invalid HTML and fires axe's
+    // nested-interactive — a hazard this app has live elsewhere, so it is worth pinning here.
+    it('leaves the tile itself uninteractive, so the chip is not nested in a control', () => {
+      render(<WindowFirstDayRail tiles={[tile({ pick: { kind: 'best', event: 'sunset', targetType: 'SUNSET' } })]} />);
+
+      const chip = screen.getByTestId('rail-pick-flag');
+      const t = screen.getByTestId('rail-day');
+      expect(t).not.toHaveAttribute('role');
+      expect(t).not.toHaveAttribute('tabindex');
+      expect(chip.closest('[role="button"]')).toBeNull();
+      // The chip's only button ancestor is itself.
+      expect(chip.parentElement.closest('button')).toBeNull();
     });
 
     it('reserves the flag\'s height on every tile so the rail\'s lines stay level', () => {
@@ -308,6 +370,22 @@ describe('WindowFirstDayRail', () => {
   });
 
   describe('the gloss panel', () => {
+    // The rail's gloss is `z-index: 60` and `Modal` is `z-50`, so a hover on the way to a dialog
+    // painted a tooltip OVER it, with no focus trap to stop the pointer reaching either. The rail
+    // was the last surface in the arm with no such guard. Both halves, because the positive is what
+    // stops this passing for a rail whose gloss never opens at all.
+    it('stays shut while a dialog is over the pane, which it would otherwise paint over', () => {
+      render(<WindowFirstDayRail tiles={[tile()]} peeksSuppressed />);
+      fireEvent.mouseEnter(screen.getByTestId('rail-region-chip'));
+      expect(screen.queryByTestId('popover-host')).toBeNull();
+    });
+
+    it('opens normally when nothing is over the pane', () => {
+      render(<WindowFirstDayRail tiles={[tile()]} peeksSuppressed={false} />);
+      fireEvent.mouseEnter(screen.getByTestId('rail-region-chip'));
+      expect(screen.getByTestId('popover-host')).toBeInTheDocument();
+    });
+
     it('opens on hover, portalled out of the rail, and closes on leave', () => {
       render(<WindowFirstDayRail tiles={[tile()]} />);
       const chip = screen.getByTestId('rail-region-chip');

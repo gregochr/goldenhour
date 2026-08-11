@@ -74,6 +74,38 @@ export function buildMapOverlay(trigger, ctx) {
   const enabled = locations.filter((l) => l.enabled !== false && l.lat != null && l.lon != null);
   const dl = date ? dayLabel(date, todayStr, tomorrowStr) : '';
 
+  // ── Aurora — the alert banner's destination, for an arm with no Map tab ──
+  //
+  // A leading early-return so no existing trigger's control flow moves; everything below is
+  // untouched. It exists because the aurora banner renders above the Plan-layout branch and is
+  // therefore live in BOTH arms, while its action — switch to the Map tab — only means something in
+  // the arm that has one. In the window-first arm the press wrote a tab state nothing rendered, so
+  // the banner was a control that could not act, which §6 bans outright.
+  //
+  // ⚠️ It claims LESS than every other trigger here, deliberately. `ratingFor` and `solarTimeFor`
+  // both resolve a non-SUNRISE event to the SUNSET forecast, so asking them about an AURORA trigger
+  // would return that evening's sunset rating and sunset clock time dressed as aurora facts. There
+  // is no star rating for an aurora and no solar time for one; the map itself carries the viewline
+  // and the per-location aurora detail, which is the thing worth opening. So: no rating-derived
+  // tone, no time, and no caption counting the roster (§6 — a count of our own locations is not a
+  // fact about tonight).
+  if (trigger.kind === 'aurora') {
+    return {
+      title: 'Aurora tonight',
+      subLine: null,
+      // The same neutral prompt and tone the multi-pin topic overlay uses. Not `go`: an alert says
+      // the geomagnetic conditions are worth a look, not that the sky above any given pin is clear.
+      narrative: MULTI_PROMPT,
+      narrativeHead: null,
+      narrativeTone: 'standdown',
+      caption: null,
+      // No fit-bounds: the pins that matter are wherever it is dark and clear, which this function
+      // cannot know. The map opens on its own default view with aurora mode on.
+      focus: null,
+      handoff: { eventType: 'AURORA', date },
+    };
+  }
+
   // ── Topic (hot topic) — filter the map and fit to the matching pins ──
   if (trigger.kind === 'topic') {
     const matches = enabled.filter((l) => (l.locationType || []).includes(trigger.filterAction));

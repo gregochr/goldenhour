@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, cleanup } from '@testing-library/react';
 import React from 'react';
 import usePlanLayout, { PLAN_LAYOUT_KEY, PLAN_V1, PLAN_V2 } from '../hooks/usePlanLayout.js';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
@@ -100,18 +100,21 @@ describe('WindowFirstShell', () => {
     expect(onSignOut).toHaveBeenCalledTimes(1);
   });
 
-  it('renders one tab, selected, and no tab whose pane does not exist', () => {
-    // The design draws four. Coming up is P13; Map and Manage arrive when this subtree takes over
-    // view state. A tab that renders nothing is a demo control and §6 bans those from the shipped
-    // build — so this pins that each tab lands WITH its pane rather than ahead of it.
+  it('renders two tabs, Plan selected, and no tab whose pane does not exist', () => {
+    // The design draws four. Coming up landed at P13 WITH its pane; Map and Manage arrive when this
+    // subtree takes over view state. A tab that renders nothing is a demo control and §6 bans those
+    // from the shipped build — so this pins that each tab lands with its pane rather than ahead of
+    // it, and it is the count that does the pinning: an added tab has to be argued for here.
     renderShell();
 
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(1);
+    expect(tabs).toHaveLength(2);
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
+    expect(tabs[1]).toHaveAttribute('aria-selected', 'false');
     // Exactly "Plan": the ◉ is decorative and must not leak into the accessible name, which is the
     // rule ViewToggle:56 already follows for its own glyphs.
     expect(tabs[0]).toHaveAccessibleName('Plan');
+    expect(tabs[1]).toHaveAccessibleName('Coming up');
   });
 
   it('carries exactly two masthead controls, so no build/health pill creeps in', () => {
@@ -570,6 +573,121 @@ describe('WindowFirstShell — the rail it hosts', () => {
     renderWithBriefing(briefingWith('2026-08-04T12:00:00', scores), { onEvaluationScoresChange });
 
     expect(onEvaluationScoresChange).toHaveBeenCalledWith(scores);
+  });
+
+  // ── The rail's pick chip and the card's pick badge are one control with two triggers ──
+  //
+  // They carry the same words in the same accent, so a reader who taps one and then the other must
+  // not be shown two different things. This is the assertion that proves it, and it is the reason
+  // the chip opens the EXISTING dialog rather than a second surface of its own.
+  describe('the rail pick chip', () => {
+    // TWO sunset cards on different dates, and that is the whole point of the fixture rather than
+    // incidental setup. With one card the shell's lookup passes on `targetType` alone, so the `date`
+    // half is pinned by nothing — verified by mutation: deleting `c.date === date` left all 3028
+    // tests green. Two same-event cards is also the real shape, not a contrivance: the picks are
+    // forecast-wide rank-1 and rank-2, so a BEST sunset on one day and an ALSO sunset on another
+    // puts exactly this in the list. The chip points at the LATER card, so a date-blind lookup
+    // returns the earlier one and the prose assertion catches it.
+    const OTHER_CARD = {
+      ...CARD,
+      key: '2026-08-06:SUNSET',
+      date: '2026-08-06',
+      lead: false,
+      kicker: null,
+      pick: {
+        kind: 'also',
+        regionName: 'Yorkshire Dales',
+        headline: 'A different sky entirely',
+        detail: 'High cloud thins from the south.',
+        locationName: 'Malham Cove',
+        locationId: 2,
+      },
+    };
+
+    const withRailPick = () => {
+      const base = briefingWith('2026-08-04T12:00:00', new Map(), [CARD, OTHER_CARD]);
+      return {
+        ...base,
+        railTiles: [{
+          ...base.railTiles[0],
+          // The tile is the 6th, not the 4th: same targetType as the other card, different date.
+          date: '2026-08-06',
+          dayLabel: 'Thursday',
+          isToday: false,
+          pick: { kind: 'also', event: 'sunset', targetType: 'SUNSET' },
+        }],
+      };
+    };
+
+    it('opens the same prose the window card opens, word for word', () => {
+      renderWithBriefing(withRailPick());
+      fireEvent.click(screen.getByTestId('rail-pick-flag'));
+      const fromRail = screen.getByTestId('window-pick-dialog').textContent;
+      // The LATER card's prose specifically. A lookup that ignored the date would return the first
+      // sunset card and this would read "Breaking clear" instead — which is the mutation that
+      // walked through the whole suite before this fixture carried two cards.
+      expect(fromRail).toContain('A different sky entirely');
+      expect(fromRail).toContain('High cloud thins from the south.');
+      expect(fromRail).not.toContain('Breaking clear');
+      // `renderWithBriefing` returns the harness's handlers, not RTL's result, so the second
+      // render needs an explicit teardown or both dialogs would be in the document at once.
+      cleanup();
+
+      renderWithBriefing(withRailPick());
+      // The badge on the card the chip pointed at — the second one, since both cards carry a pick.
+      fireEvent.click(screen.getAllByTestId('window-card-pick')[1]);
+      expect(screen.getByTestId('window-pick-dialog').textContent).toBe(fromRail);
+    });
+
+    // The shell half of the same guard: the rail only knows to suppress if it is TOLD. Dropping
+    // `peeksSuppressed={modalOpen}` passed every other test in the suite.
+    it('silences the rail gloss while the pick dialog it opened is up', () => {
+      renderWithBriefing(withRailPick());
+      fireEvent.click(screen.getByTestId('rail-pick-flag'));
+      expect(screen.getByTestId('window-pick-dialog')).toBeInTheDocument();
+
+      fireEvent.mouseEnter(screen.getByTestId('rail-region-chip'));
+      expect(screen.queryByTestId('popover-host')).toBeNull();
+    });
+
+    it('opens nothing when no window matches, rather than an empty dialog', () => {
+      // The guard, exercised through a rail tile flagged for an event no card carries. The lookup
+      // is total by construction today; this pins that a future divergence degrades to inert rather
+      // than to a dialog about nothing.
+      const base = briefingWith('2026-08-04T12:00:00');
+      renderWithBriefing({
+        ...base,
+        railTiles: [{ ...base.railTiles[0], pick: { kind: 'best', event: 'sunrise', targetType: 'SUNRISE' } }],
+      });
+
+      fireEvent.click(screen.getByTestId('rail-pick-flag'));
+      expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
+    });
+  });
+
+  it('lifts the seasonal features too, so the map does not depend on which arm you came from', () => {
+    // The sibling lift nine lines up, and the reason this one exists is the flag seam rather than
+    // the map: `seasonalFeatures` was written by the v1 arm ONLY, so the overlay map's Bluebell chip
+    // appeared or not depending on whether the session had ever rendered v1 — the same night's data
+    // drawing two different maps. Pinned here because the prop is optional and optional-called, so
+    // deleting it from App would drop the chip with the whole suite still green.
+    const onSeasonalFeaturesChange = vi.fn();
+    const briefing = briefingWith('2026-08-04T12:00:00');
+    renderWithBriefing(
+      { ...briefing, briefing: { generatedAt: '2026-08-04T12:00:00', seasonalFeatures: ['BLUEBELL'] } },
+      { onSeasonalFeaturesChange },
+    );
+
+    expect(onSeasonalFeaturesChange).toHaveBeenCalledWith(['BLUEBELL']);
+  });
+
+  it('lifts an empty list when the briefing names no season, rather than nothing at all', () => {
+    // The negative half, and it is not cosmetic: never calling would leave whatever the OTHER arm
+    // last wrote standing, which is the exact staleness this lift exists to remove.
+    const onSeasonalFeaturesChange = vi.fn();
+    renderWithBriefing(briefingWith('2026-08-04T12:00:00'), { onSeasonalFeaturesChange });
+
+    expect(onSeasonalFeaturesChange).toHaveBeenCalledWith([]);
   });
 
   describe('the reach lens bar', () => {

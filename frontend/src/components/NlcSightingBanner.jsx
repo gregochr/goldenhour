@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import PropTypes from 'prop-types';
 import { useNlcSighting } from '../hooks/useNlcSighting.js';
 
 /**
@@ -101,7 +102,7 @@ const NLC_A_STYLE = `
  * - Click navigates to the map (same as the aurora banner CTA)
  * - Calm: no pulse animation
  */
-export default function NlcSightingBanner() {
+export default function NlcSightingBanner({ interactive = true }) {
   const { sighting } = useNlcSighting();
   const [dismissedKey, setDismissedKey] = useState(null);
 
@@ -148,12 +149,12 @@ export default function NlcSightingBanner() {
           '--nlc-accent': accent,
           backgroundColor: 'var(--color-plex-surface)',
         }}
-        className="nlc-a px-4 py-3 rounded-xl select-none cursor-pointer"
-        onClick={() => { window.location.hash = 'map'; }}
-        onKeyDown={(e) => {
+        className={`nlc-a px-4 py-3 rounded-xl select-none${interactive ? ' cursor-pointer' : ''}`}
+        onClick={interactive ? () => { window.location.hash = 'map'; } : undefined}
+        onKeyDown={interactive ? (e) => {
           if (e.key === 'Enter' || e.key === ' ') window.location.hash = 'map';
-        }}
-        tabIndex={0}
+        } : undefined}
+        tabIndex={interactive ? 0 : undefined}
       >
       {/* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
         <div className="nlc-rail" />
@@ -179,8 +180,8 @@ export default function NlcSightingBanner() {
               <span>Clear skies <strong className="italic">tonight</strong></span>
               {lookDirection && <span className="nlc-div" aria-hidden="true" />}
               {lookDirection && <span>Look {lookDirection}, low</span>}
-              <span className="nlc-div" aria-hidden="true" />
-              <span className="nlc-cta">Show on map →</span>
+              {interactive && <span className="nlc-div" aria-hidden="true" />}
+              {interactive && <span className="nlc-cta">Show on map →</span>}
             </p>
 
             {darkSkyCount > 0 && (
@@ -203,3 +204,18 @@ export default function NlcSightingBanner() {
     </>
   );
 }
+
+NlcSightingBanner.propTypes = {
+  /**
+   * Whether the banner acts as a control.
+   *
+   * <p>False in the window-first arm, which has no Map tab to switch to. Unlike the aurora banner
+   * there is nothing to re-route it to: v1's action is a bare tab switch carrying no event type, no
+   * filter and no location, and "dark sky" is a Bortle filter with no handoff of its own — so
+   * inventing a window-first destination would make the two arms differ on a banner they share.
+   * Inert is the honest state, and when it is inert it stops being dressed as a control: no pointer
+   * cursor, no tab stop, no key handler, and the "Show on map →" call to action is dropped rather
+   * than left as a promise nothing keeps.
+   */
+  interactive: PropTypes.bool,
+};

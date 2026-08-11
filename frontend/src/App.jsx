@@ -22,12 +22,14 @@ import { useRunNotifications } from './hooks/useRunNotifications.js';
 import useAfterFirstPaint from './hooks/useAfterFirstPaint.js';
 import usePlanLayout, { PLAN_V1, PLAN_V2 } from './hooks/usePlanLayout.js';
 import WindowFirstShell from './components/WindowFirstShell.jsx';
+import PlanLayoutErrorBoundary from './components/PlanLayoutErrorBoundary.jsx';
 import { WindowFirstBriefingProvider } from './context/WindowFirstBriefingContext.jsx';
 
 // Code-split the heavy, rarely-first-viewed subtrees so they stay out of the initial bundle:
 // the Leaflet map stack (Plan is the default tab; the map is a drill-down) and the admin-only
 // Manage view (which also pulls in recharts). They load on demand behind the Suspense boundaries.
 const MapView = lazy(() => import('./components/MapView.jsx'));
+const WindowFirstMapPane = lazy(() => import('./components/WindowFirstMapPane.jsx'));
 const MapOverlay = lazy(() => import('./components/MapOverlay.jsx'));
 const ManageView = lazy(() => import('./components/ManageView.jsx'));
 
@@ -190,11 +192,6 @@ function AppInner() {
   }, [isAdmin]);
   const [selectedDate, setSelectedDate] = useState(null);
 
-  /** Aurora banner "View on map" — switch to the Map tab with the Aurora event pre-selected. */
-  const handleAuroraViewOnMap = () => {
-    setMapHandoff({ eventType: 'AURORA', nonce: handoffNonce.current++ });
-    setViewMode('map');
-  };
 
   const sortedLocations = useMemo(
     () => [...locations].sort((a, b) => a.name.localeCompare(b.name)),
@@ -243,7 +240,12 @@ function AppInner() {
    */
   const handleShowOnMap = (dateOrHandoff, eventType, locationName = null) => {
     let trigger;
-    if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.filterAction) {
+    // First, because it is the one caller that names its own kind. Without this branch the object
+    // falls past `filterAction` and `region` into the final `else` and becomes an `event` trigger
+    // whose `date` is the whole object — an overlay for a night that does not exist.
+    if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.kind === 'aurora') {
+      trigger = { kind: 'aurora', date: dateOrHandoff.date };
+    } else if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.filterAction) {
       trigger = { kind: 'topic', filterAction: dateOrHandoff.filterAction, label: dateOrHandoff.label, date: dateOrHandoff.date };
     } else if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.region) {
       // A region trigger, optionally carrying a hot topic's qualifying locations + label so the
@@ -273,9 +275,72 @@ function AppInner() {
     setMapOverlay({ ...overlay, nonce, date: trigger.date });
   };
 
-  /** Close the overlay and hand off to the full Map tab, landing where the overlay was focused. */
+  /**
+   * Aurora banner "View on map".
+   *
+   * <p>The banner sits above the Plan-layout branch, so it is live in both arms — but its v1 action
+   * is "switch to the Map tab", and the window-first arm has no Map tab. There the press used to set
+   * a tab state nothing rendered and write a hash nothing answered: a control that could not act,
+   * which §6 bans. The window-first arm reaches the map through the same overlay every plan card
+   * uses, so the banner is routed through that instead of being hidden.
+   *
+   * <p>The v1 path below is byte-identical to what it has always been. Both arms end up handing
+   * `MapView` the same `handoffEventType`, which is what makes this a route rather than a second
+   * behaviour.
+   */
+  const handleAuroraViewOnMap = () => {
+    if (planLayout === PLAN_V2) {
+      handleShowOnMap({ kind: 'aurora', date: todayStr });
+      return;
+    }
+    setMapHandoff({ eventType: 'AURORA', nonce: handoffNonce.current++ });
+    setViewMode('map');
+  };
+
+  /**
+   * A tab the window-first shell should select, asked for from out here. Nonce'd for the same
+   * reason map handoffs are: the reader can open the overlay and press the hatch twice running, and
+   * the second press has to land even though the destination has not changed.
+   */
+  const [tabRequest, setTabRequest] = useState(null);
+  const tabRequestNonce = useRef(0);
+
+  /**
+   * The handoff the MAP TAB should act on, which is deliberately not `mapHandoff`.
+   *
+   * <p>⚠️ Found by review and reproduced at 390px. The shell mounts a pane once and then hides it
+   * rather than unmounting it, so once the Map tab has been visited its `MapView` is alive for the
+   * rest of the session — and it was being handed the same `mapHandoff` every plan-card tap sets.
+   * On a phone `MapView` answers a location handoff with a `BottomSheet`, which is
+   * `createPortal(…, document.body)` at `z-index: 10000`, so `display: none` on the panel cannot
+   * suppress it: tapping "Open on map" on the PLAN tab raised **two** stacked sheets — one from the
+   * overlay the reader asked for, one from a map that is not on screen — and locked body scroll.
+   *
+   * <p>So the tab is handed a handoff only when the reader explicitly asks to be taken to it, which
+   * is the hatch below and nothing else. Every other handoff belongs to the overlay.
+   */
+  const [mapTabHandoff, setMapTabHandoff] = useState(null);
+
+  /**
+   * Close the overlay and hand off to the full Map tab, landing where the overlay was focused.
+   *
+   * <p>Two arms, two mechanisms, and it is <b>not</b> a ternary on one call. v1 has a Map entry in
+   * {@code ViewToggle}, so {@code setViewMode('map')} is the whole move. The window-first arm owns
+   * its own tab state inside the shell and ignores {@code viewMode} entirely — a fact worth stating,
+   * because the obvious "just call setViewMode" is silently a no-op there, which is exactly why the
+   * hatch was withheld from v2 until this pane existed.
+   */
   const openFullMapTab = () => {
+    // Read before the overlay is cleared — this is what "landing where the overlay was focused"
+    // actually means, and it is the only handoff the Map tab ever receives.
+    const focus = mapOverlay?.handoff ?? null;
     setMapOverlay(null);
+    if (planLayout === PLAN_V2) {
+      tabRequestNonce.current += 1;
+      if (focus) setMapTabHandoff({ ...focus, nonce: handoffNonce.current++ });
+      setTabRequest({ id: 'map', nonce: tabRequestNonce.current });
+      return;
+    }
     setViewMode('map');
   };
 
@@ -336,7 +401,10 @@ function AppInner() {
       <div className="max-w-4xl mx-auto px-4 mt-4">
         <AuroraBanner onViewOnMap={handleAuroraViewOnMap} />
         <div className="mt-2">
-          <NlcSightingBanner />
+          {/* Inert in the window-first arm, which has no Map tab for it to switch to. Unlike the
+              aurora banner beside it there is nothing to re-route: v1's action is a bare tab switch
+              with no event type, no filter and no location. */}
+          <NlcSightingBanner interactive={planLayout !== PLAN_V2} />
         </div>
       </div>
 
@@ -389,17 +457,65 @@ function AppInner() {
               too — a second request on the same 10-minute tick as DailyBriefing's, and a second
               focus listener firing both. App.jsx's flag branch is a hard either/or, and this keeps
               it one. */}
-          <WindowFirstBriefingProvider homeSettingsVersion={homeSettingsVersion}>
-            <WindowFirstShell
-              onExit={() => setPlanLayout(PLAN_V1)}
-              onOpenSettings={() => setShowSettings(true)}
-              onSignOut={logout}
-              contentDisabled={isDown}
-              onShowOnMap={handleShowOnMap}
-              onEvaluationScoresChange={handleEvaluationScoresChange}
-              locations={visibleLocations}
-            />
-          </WindowFirstBriefingProvider>
+          {/* INSIDE the flag branch, and that placement is load-bearing rather than tidy. The flag
+              is what turns an ordinary render crash into a trap: the header above is suppressed for
+              this arm, so the cog and Sign out live inside the subtree that would die, the settings
+              modal is a sibling of this ternary and dies with the tree, and the flag survives the
+              reload — blank page, reload, blank page. Sitting here, the boundary is discarded when
+              the branch flips, so recovery needs no reset logic; hoisted above the ternary it would
+              survive the flip and show its fallback over a healthy arm. The current Plan is
+              deliberately NOT wrapped: its honest recovery is not "go to the other arm". */}
+          <PlanLayoutErrorBoundary onRecover={() => setPlanLayout(PLAN_V1)}>
+            <WindowFirstBriefingProvider homeSettingsVersion={homeSettingsVersion}>
+              <WindowFirstShell
+                onExit={() => setPlanLayout(PLAN_V1)}
+                onOpenSettings={() => setShowSettings(true)}
+                onSignOut={logout}
+                contentDisabled={isDown}
+                onShowOnMap={handleShowOnMap}
+                onEvaluationScoresChange={handleEvaluationScoresChange}
+                onSeasonalFeaturesChange={handleSeasonalFeaturesChange}
+                locations={visibleLocations}
+                tabRequest={tabRequest}
+                // Withheld when there is nothing to map, which is the same rule the Operations tab
+                // follows and §6's ban on controls that open nothing. `allDates` is empty whenever
+                // `GET /api/forecast` returned no rows, and the v1 arm answers that state with its
+                // own "No forecasts loaded yet" card rather than an empty map — so a Map tab here
+                // would be a tab onto a blank.
+                mapPane={allDates.length > 0 ? (
+                  <Suspense fallback={<ViewFallback />}>
+                    <WindowFirstMapPane
+                      locations={visibleLocations}
+                      dates={allDates}
+                      selectedDate={effectiveDate}
+                      onSelectDate={setSelectedDate}
+                      // Parity with the v1 Map tab, which passes the same thing. Without it the
+                      // pane's event type is whatever it derived at mount — and because this pane
+                      // is never unmounted, opening the map at dawn and returning after sunset
+                      // would still show the morning's event. v1 cannot do that: it remounts.
+                      autoEventType={autoSelection?.eventType ?? null}
+                      handoff={mapTabHandoff}
+                      briefingScores={briefingScores}
+                      onForecastRun={refresh}
+                      seasonalFeatures={seasonalFeatures}
+                      homeCoords={homeCoords}
+                      homeRadiusMiles={homeRadiusMiles}
+                      onOpenSettings={() => setSettingsFocus('postcode')}
+                    />
+                  </Suspense>
+                ) : null}
+                // The admin gate, in full. The shell takes no role, no `isAdmin` boolean and no
+                // prop shaped like one — it simply renders a tab for each pane it was handed, so
+                // withholding the pane withholds the tab. The role stays here, where it already
+                // lives, and nothing role-derived crosses into the arm (plan §5c).
+                operationsPane={isAdmin ? (
+                  <Suspense fallback={<ViewFallback />}>
+                    <ManageView onComplete={refresh} />
+                  </Suspense>
+                ) : null}
+              />
+            </WindowFirstBriefingProvider>
+          </PlanLayoutErrorBoundary>
         </main>
       ) : (
         <main className={`max-w-4xl mx-auto px-4 py-6${isDown ? ' opacity-50 pointer-events-none' : ''}`}>
@@ -558,9 +674,11 @@ function AppInner() {
             narrativeHead={mapOverlay.narrativeHead}
             narrativeTone={mapOverlay.narrativeTone}
             onClose={() => setMapOverlay(null)}
-            // The v2 arm renders no Map pane, so the hatch is withheld rather than naming a
-            // destination it cannot reach. MapOverlay drops the button when no handler arrives.
-            onOpenFullMap={planLayout === PLAN_V2 ? undefined : openFullMapTab}
+            // Both arms now have somewhere to go, so the hatch is live in both — see
+            // `openFullMapTab`, which routes each one its own way. It is still withheld when the v2
+            // arm has no Map tab to reach (no forecast dates), because MapOverlay drops the button
+            // when no handler arrives and a button onto nothing is what §6 bans.
+            onOpenFullMap={planLayout === PLAN_V2 && allDates.length === 0 ? undefined : openFullMapTab}
           >
             <MapView
               locations={visibleLocations}

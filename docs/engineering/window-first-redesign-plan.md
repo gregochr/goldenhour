@@ -620,8 +620,8 @@ Backend first for anything shared, so the frontend stays a render layer.
 | **P10′** | ~~Peek content kind 1 (spot)~~ **DONE.** `WindowSpotPeek` + `utils/windowSpotPeek.js` + `hooks/useSpotPeek.js`; the strip gains the trigger and the card drills the score index through | ⚠️ The Work cell used to add "+ click-to-map", which **shipped at P6** — §5a`:603` already corrected it. The host is **not** P4b's after all: the portal reasoning is taken and cited, the host itself does not fit (above-only placement, no slot for the panel's pointer handlers). **No phone peek** — the row named a `BottomSheet` and no trigger, and the same paragraph gives the phone's only tap to the map. Open delay stays at 180ms, not this row's 140; 160/120 adopted and split. A summary-less spot now *does* get a peek, because the bars are back. **Fifteen decisions worth not re-deriving — see §5e** |
 | **P11** | ~~Drilldown sheet — **plus the rating floor and type controls** and their persistence~~ **DONE.** `WindowSpotSheet` + `WindowSpotCard` (extracted from the strip) + `utils/windowSpotBrowse.js`; the strip footer gains "See all" and the card gains one on its gated-out line | Grown by what P8 shed, then shrunk by one thing it could not honestly carry. ⚠️ The controls went into the **sheet**, not the bar — so §5c`:908`'s warning that P11 invalidates `scroll-margin-top` does **not** fire (bar re-measured at 53.5px). The mock's type taxonomy does not exist in this product; `utils/locationTypes.js` does, and the options are **derived from the population** so no chip can match nothing. The canopy debt §5a`:610` parked here is **handed on**, with the reason: a type word cannot disambiguate a badge colour, and a grid makes that collision denser than a strip did. **Eight decisions worth not re-deriving — see §5f** |
 | **P12** | ~~Backend: almanac feed (§3) + the tide fetch-horizon decision~~ **DONE.** `AlmanacEvent` + `AlmanacKind`, the `AlmanacSource` interface and five implementations, `AlmanacService`, `GET /api/almanac`; horizon raised to 97 days with the threshold decoupled first | ⚠️ **§3's "the range plumbing already exists" is the sentence that would have sunk this.** The signatures take a range; ten of thirteen strategies ignore it. `AlmanacSource` is a **new interface** for that reason, and `HotTopicAggregator` is not reused — it is also travel-day filtered and simulation-overridable, either of which would corrupt a 90-day feed. **Eight decisions worth not re-deriving — see §5g** |
-| **P13** | Coming up tab | Unchanged |
-| **P14** | Responsive pass — real media queries, including the taller rail tile on phone | Keep control labels at 9px |
+| **P13** | ~~Coming up tab~~ **DONE.** `WindowFirstComingUp` + `WindowComingUpRow` + `utils/comingUpFeed.js` + `hooks/useComingUpFeed.js` + `api/almanacApi.js`; the shell's tab bar becomes a real ARIA tab widget and gains its second tab | The feed's first renderer. **Two columns, not the mock's three** — the third carried a region count the wire never sends. **No kind chip on an ALMANAC row** and **no count on the tab**, both because the value never varies. The degrade caveat is gated on the TYPE as well as the absence: `datesOnly` is the healthy state for three of the five sources. **Nine decisions worth not re-deriving — see §5h** |
+| **P14** | ~~Responsive pass — real media queries, including the taller rail tile on phone~~ **DONE.** `.wf-` classes for the shell's chrome and the window header, `--wf-gutter`, and the phone block for the tab bar and header; `.wf-lens` stopped wrapping | Keep control labels at 9px. ⚠️ **Both halves of the Work cell were wrong about the job.** Five of the README's nine bullets already shipped (including the spot strip's 72%, which the handover called unbuilt), one is vacuous and one names a component P7b never built — the real work was the tab bar, the window header and the 18px→14px gutter. And there is **no taller rail tile**: `git log -S` puts the phrase one day *before* the component existed, and P4c had already discharged it. **Eleven decisions worth not re-deriving — see §5i**, plus one live defect the pass found and fixed: the sticky lens bar wrapped to 77.3px between 640 and ~781px, overrunning both `scroll-margin-top` reservations |
 | **P15** | Pre-pilot sweep (§6), then flip the flag default | **Four items handed up, all cross-arm and none fixable inside one phase.** From P10′ (§5e): the **LITE score split** — `freemium_ui_strategy.md:79-80` lists the two scores and the Claude summary as LITE-included and §7 relies on that, but `MarkerPopupContent.jsx:1165` gates them and `:1175` upsells them, so an ungated peek contradicts the map overlay one click away; and **`--color-marginal`, a token declared nowhere**, which leaves `CardHoverPreview`'s and `CloseToHome`'s stars silently inheriting body ink in the frozen v1 arm. From P9 (§5d): the `HotTopicStrip` LITE treatment, which the window card's ungated attribute rows already defeat for the tide and snow channels; and `HeatmapGrid`'s away band saying "no forecast generated" two elements below a row that deliberately says "not forecast". Both need one decision made once across both arms, which is the shape §2.8 settled for the pick gloss |
 | **P16** | *(post-pilot, conditional)* Run history — the sparkline **and** the change-since-last-forecast row, both blocked on an append-only per-run sink the live pipeline writes | Deferred because only **4.1%** of slots have the four *rated* runs it draws and **90.6% have none** — measured, see §2.8. Not for want of data or query |
 
@@ -1684,6 +1684,317 @@ ran or rendered anything — and 52 of its 64 charges fell below the verificatio
 
 ---
 
+### 5h. What P13 decided — read before P14 and P15
+
+Nine decisions that changed behaviour rather than wording. P13 is the first time anything in §3 was
+drawn, so several of them are the plan's own text meeting the payload for the first time.
+
+- **The tab speaks `AlmanacKind`, verbatim off the wire, and never imports `topicCertainty`.** The
+  two vocabularies looked like a contradiction and are not: they answer different questions about
+  different objects. `AlmanacKind` is a claim about the **date** — its own Javadoc says so — while
+  `topicCertainty`'s third value, `chance`, is a claim about the **display**. NLC is honestly both:
+  its season dates are fixed and its display cannot be forecast. What could not stand is deriving
+  one value two ways, so nothing maps the feed's kebab-case `type` into `TYPE_TO_KIND` — the key
+  sets are disjoint (`spring-tide` vs `SPRING_TIDE`), so every row would have silently taken the
+  `forecast` default. `topicCertainty.js`, `CertaintyChip.jsx` and their tests are untouched, which
+  also keeps the frozen v1 arm frozen.
+- **⚠️ No kind chip on an ALMANAC row, and that is not the mock's design.** Every entry the five
+  sources emit is `ALMANAC` — `AlmanacKind.FORECAST` exists and nothing writes it — so a chip on
+  every row is a word that never varies. It is marker-on-exception instead, which is the treatment
+  the confidence channel already takes on the Plan screen: the reassuring value is the page's
+  stated default and goes unmarked, only the provisional one is called out. The **footer** states
+  the default once, and it asks the rendered set rather than asserting what the plan expects —
+  `rows.some(kindLabel)` swaps the sentence rather than appending a clause, because a clause leaves
+  the false half still printed above it.
+- **Spans here, one card per day on Plan — justified, and the rule is: a list's atom is whatever
+  the reader must choose between.** On a four-day Plan the choice is which night to go out, so the
+  atom is the day, and CLAUDE.md's reverted tide-run card is right that collapsing hides the run on
+  the Thursday someone is looking at. On a ninety-day almanac the choice is which event to plan
+  around, and the list is indexed by **event** rather than by day: seventy-nine of the ninety days
+  have no row at all, so there is no Thursday row for a span to be absent from, and expanding an
+  eleven-week NLC season into seventy-seven rows would bury every other event. The ordering spine
+  stays time in both, which is why a span occupies exactly one position and never expands in place.
+- **Two columns, not the mock's three.** The mock's right-hand column carries "4 regions /
+  11 nights left". `regions` is empty on every entry from all five sources and `@JsonInclude`
+  omits the key, so half of it can never be drawn; the other half is the countdown that column one
+  already gives, 112px to the left. A third column carrying one duplicate is the empty footer bar
+  P5 refused. **"N days left" was considered and rejected** on the same ground: it would fire only
+  on a span that started before today, and the end date in column one already answers it.
+- **⚠️ `datesOnly` is NOT the degrade signal, and reading it as one puts a "something is missing"
+  caveat on a healthy row.** Empty `meta` means different things by source: `TideAlmanacSource`
+  drops the whole map when no day could be derived, which is a real absence, but
+  `NlcSeasonAlmanacSource`'s `meta` holds nothing except two clip flags, so an *unclipped* season is
+  empty **by construction** — it means the span shown is the whole season. Meteor, supermoon,
+  equinox and solstice always populate `meta` and cannot reach the state at all. So the caveat is
+  gated on `TYPES_WITH_FIGURES` as well as on the absence, and the absence is read off the
+  normalised map (`Object.keys(meta).length === 0`), because the key absent, `null` and `{}` are
+  three spellings of one state and `!event.meta` catches only the first.
+- **A clipped span names only its real edge.** `NlcSeasonAlmanacSource` does not walk outwards the
+  way the tide and supermoon sources do — it clips to the request window and sets
+  `startsBeforeWindow`. So its `startDate` is *today* on most days of the season, and the first
+  build rendered "On now / 9–10 Aug / Began before this list": a start date that did not happen,
+  with a note underneath contradicting the line above it. It now reads `Until 10 Aug`, `From 9 Aug`,
+  or `In progress` when neither edge is real. The lead word takes the same rule — a clipped entry is
+  **"On now", never "Today"**, or an eleven-week season announces that it starts this morning.
+- **The fact line is a strict allow-list in a fixed order, and it drops what the prose already
+  says.** The order is hard-coded because `AlmanacEvent`'s canonical constructor runs `Map.copyOf`,
+  which salt-randomises key order **per backend restart** — reading it off the payload would
+  reshuffle the line on every deploy. `zhr`, `radiant` and `bestHours` are dropped because
+  `MeteorAlmanacSource` composes exactly those three into its own `detail` sentence; `moonIllumination`
+  is kept because it is the one number that sentence omits on precisely the nights worth going out.
+  `rangeAnomaly` is composed **into** the range chip (`range 4.6 m · +0.4 vs average`) rather than
+  standing alone, because it is signed, one decimal and deliberately carries no unit — beside a
+  separate "4.6 m" it reads as a different quantity, and inventing a " m" for it would be the
+  parse-forward this project bans. An unrecognised key renders nothing.
+- **Tab selection is not persisted, and the feed is fetched lazily, once, latched on the date.** No
+  third localStorage key: the two the arm already has are settled taste, and which tab you last had
+  open is not — the 05:00 question is about tonight. The fetch lives in a hook called from the
+  **shell**, not from the pane, which removes the in-flight-unmount case rather than defending
+  against it, and not in `WindowFirstBriefingContext`, whose own class comment is an inventory of
+  what the arm fetches for every reader. The latch key is `todayStr` rather than a boolean, so a
+  session open past midnight refetches instead of showing a row still reading "Today". It earns its
+  own contract not because the data is differently *owned* — it is shared and system-owned, like the
+  briefing — but because it is a different **snapshot**: 90 days against four, rebuilt daily against
+  ~8-hourly. `/api/almanac` was already on `HttpCachingConfig`'s revalidation whitelist, so a repeat
+  load is a 304 and no SWR entry is warranted.
+- **The tab bar became a real ARIA tab widget, which it had not been.** Through P12 it carried
+  `role="tablist"` and one `role="tab"` with a hard-coded `aria-selected="true"`, no
+  `aria-controls`, no id pairing, and there was no `role="tabpanel"` anywhere in the repo. With one
+  tab that is inert; with two it is a promise the markup does not keep. P13 adds the pairing, a
+  roving `tabindex` so the bar is one stop, and Left/Right/Home/End with wrap — **the first
+  roving-tabindex implementation in this codebase**, since `ViewToggle` uses `aria-current` on plain
+  buttons and `ManageView`'s tabs carry no roles at all. Selection follows focus. The Plan pane is
+  **hidden, not unmounted** — `WindowFirstDoors` fires an astro request per visible date on mount,
+  and unmounting would re-fire them on every change back, which is exactly what `ManageView` does.
+  It takes both the `hidden` attribute and a display class, and that is defence in depth rather than
+  necessity — ⚠️ **two earlier versions of this note got the mechanism wrong in opposite
+  directions, and the review caught both.** Tailwind v4's preflight ships
+  `[hidden]:where(:not([hidden='until-found'])) { display: none !important }`, which is
+  **author-origin and important**: it beats every normal author declaration whatever the
+  specificity, so the attribute alone hides the pane and `.flex` does not override it (verified on
+  the running app — a `<div class="flex" hidden>` computes to `display: none`). Equally the class
+  alone would suffice, since `display: none` is itself what removes an element from the
+  accessibility tree. The attribute is kept as the semantic statement and because it is the half
+  jsdom can see; the class is kept so a display utility added later cannot quietly re-expose the
+  panel. The neither-half-is-necessary fact matters because P14 and P15 will copy whichever
+  explanation they read.
+
+**What the browser found that the tests did not.** Three defects, all fixed before the commit: the
+equinox qualifier wrapped as "Exact day 22" / "Sept", splitting a date across two lines in the 112px
+column (day and month are now joined by a non-breaking space, so a phrase that must wrap wraps
+*before* the date); the clipped NLC span claimed a start date it did not have; and dropping the
+mock's third column handed its width to the prose. On that third one the **first fix was wrong
+twice and the review caught it**, which is the more useful half of the story: the body is 888px
+uncapped, not the ~1120 the screenshot suggested, and there is no single width the mock's own `1fr`
+resolves to because each of its rows is its own grid container — so a cap justified by that
+arithmetic was a number with a made-up reason, and at 820px it closed about 6% of the gap while the
+comment claimed the problem solved. Counted on the running app with a Range over the longest detail
+the five sources emit: **163 characters to the first line uncapped, 116 at the 620px now shipped**,
+which is the tightest cap that does not add a third line to that row.
+
+**And one test that could not fail — twice, in opposite directions, and CI found the second one.**
+⚠️ **Never spy on `localStorage.setItem` in this suite.** The no-persistence test first spied
+`Storage.prototype.setItem`; `setup.js:27-37` substitutes a plain object for `localStorage` **only
+when jsdom does not supply one**, which is what happens on this project's Macs, so the prototype
+spy recorded nothing and the assertion passed whatever the shell did. Spying the instance instead
+fixed it locally and **failed on CI**, where jsdom's real Proxy-backed `Storage` is present and an
+own-property `setItem` is treated as a stored item rather than a method override — so the spy is
+bypassed and records zero. Both spellings are green on one machine and blind on the other, and only
+the control write (`setItem` then assert the spy saw it) exposed either. The test now observes
+through `length`/`key`, which both implementations honour, and compares a key-set snapshot taken
+before the interaction. Verified against a Proxy-backed stand-in: the public-API read sees the
+write, the instance spy sees none.
+
+**Verified live**, on the running app against the real feed (11 entries, all ALMANAC, 6 of them
+dates-only because the local `tide_extreme` is empty): the tab pairing and roving tabindex read back
+out of the DOM; Arrow/Home/End moving selection, focus and the panel together, with wrap; the lens
+bar withdrawing on Coming up and returning on Plan; **one** `/api/almanac` request across three tab
+switches; the error state and its retry, forced by failing the request at the XHR layer, with the
+empty state correctly *not* firing; all 22 `.wf-cu*` rules read back out of `document.styleSheets`;
+no page overflow at 375px; and **contrast composited against each element's real backdrop chain**,
+lowest 6.88:1 (secondary ink on `--color-plex-panel`) against AA's 4.5 — no muted ink anywhere.
+
+**Handed to P14.** The pane's `14px 18px 20px` inset is a literal duplicated across the shell and
+the pane, with a comment saying the two must match and nothing enforcing it. It is not a new sin —
+the arm carries sixteen inline padding literals and three are already duplicated across files — and
+the frontend standard points at a CSS class rather than a JS constant, so folding the arm's 18px
+gutter into a rule belongs in P14's pass rather than in a one-off constant here.
+
+**Not verified, said plainly.** No enriched tide row has ever been rendered: the local
+`tide_extreme` is empty, so `range`, `rangeAnomaly`, `highWater`, `verdict`, `location` and the
+`figuresFrom` fallback are covered by unit tests against hand-written fixtures and have never been
+seen. No king-tide, solstice or FORECAST row exists in any real payload either — the first two are
+outside a 90-day window from August, the third is emitted by nothing. Touch, screen reader, axe and
+Lighthouse: none. Chrome only. And the six identical spring-tide rows visible locally are an
+artefact of the empty tide table rather than the production shape — P12 raised the fetch horizon to
+97 days precisely so every row inside 90 carries figures.
+
+---
+
+### 5i. What P14 decided — read before P15
+
+The row for this phase says "Responsive pass — real media queries, including the taller rail tile on
+phone". Both halves of that sentence turned out to be wrong about the work, and establishing what
+was actually left to build took longer than building it.
+
+- **Nine README bullets, not thirteen, and five of the nine were already shipped.** The handover
+  said thirteen and listed nine (`README.md:222-230`). Of those: the rail scroller, the attribute
+  rows, the doors, the lens bar and the spot strip's `flex: 0 0 72%` **already ship** — the strip's
+  72% at `index.css:1965` and its arrows at `:2166`, both of which the handover named as unbuilt.
+  "Narrative: single column" is **vacuous**, because the mock's two-column `.wtop` was never built
+  and this arm's narrative is a modal. "Promoted strip" has **no referent at all**: P7b never
+  shipped and no such component exists in the tree. So the genuinely unbuilt work was the **tab
+  bar**, the **window header**, and the **18px→14px chrome gutter** that no bullet names and every
+  mock phone rule implies.
+
+- **The migration rule, stated once so the line is not redrawn per element.** *An element whose
+  geometry a phone rule changes gets a `.wf-` class carrying its **whole** style object; everything
+  else stays inline, untouched; where the object holds a render-computed value, hook on an attribute
+  the element already carries rather than inventing a state class or a prop.* Nine elements
+  qualified. The alternative — moving only the properties the phone changes — would have left the
+  tab's type in the stylesheet and its selected-state paint in JSX, and the card header's `gap` in
+  one file and its `padding` in the other. Both hooks already existed: `aria-selected` on the tab
+  (the tab pattern requires it) and, for the header, a new `data-open` that only publishes a prop
+  the component already had. **Verified behaviour-preserving by measurement, not by inspection**:
+  at 1280px every migrated element's computed padding, gap, height and width is identical to the
+  pre-change baseline.
+
+- **`--wf-gutter`, because the gutter is one fact that was written seven times.** Declared on
+  `.wf-shell` and consumed by masthead, rail, rail-empty, rail footer, tab bar, both panes and the
+  exit foot. One declaration moves all of them at the breakpoint, which is what makes the specific
+  failure of a partial migration — half the chrome shifting and half not — structurally impossible
+  rather than merely unlikely. **14px is this arm's own number, not the mock's**: `.wf-lens` has
+  used `padding: 9px 14px` on phone since P8.
+
+- **§5h's duplicated pane inset is closed by a shared class, not a shared comment.** `14px 18px 20px`
+  was written in `WindowFirstShell` and `WindowFirstComingUp` with a comment in each asking the next
+  reader to keep them in step. Both panes now wear `.wf-body`. Measured on the running app: at 375px
+  both resolve to `12px 14px 18px`.
+
+- **The masthead and the rail footer keep everything the mock hides, and this is a deliberate
+  departure from the vendored spec.** `mock:239` hides `.sub` and `.ghost`; `mock:245` hides
+  `.railfoot .b`. In this arm `.sub` has no referent (`BrandLockup variant="compact"` renders no
+  tagline), and the other three are **⚙, Sign out and "Edit reach"** — the only route to settings,
+  the only route out of the app, and, in `WindowFirstShell`'s own words, "the only route to fixing
+  an empty lens". The mock can hide them because they do nothing in a static HTML page. Following it
+  would have given a phone user an app with no settings, no sign-out and no way to widen a lens that
+  had emptied. `usePlanLayout.test.jsx`'s "exactly two controls" rule therefore stays
+  **unconditional** — and the reason is worth keeping: a CSS-only hide would have left that test
+  green while pinning nothing, so if this is ever revisited it must be a JS branch and that test
+  must fail. The brand's 20px is kept too: `BrandLockup` derives it from the compact spine's 5px
+  pitch (20 = 4 × 5), and the mock's 17px is 3.4 repeats — the exact defect `compact` exists to fix.
+
+- **No taller rail tile.** `git log -S` puts the phrase in `60448d6b` (2026-08-03); the component was
+  created by `f91a1113` (2026-08-04). **The phrase predates the file it describes by a day**, and it
+  is a prediction that P4c's new two-line pick chip would make the tile taller than the mock's — a
+  prediction P4c discharged, breakpoint-independently, with `DATE_ROW_MIN_HEIGHT_PX` derived from
+  the chip's own type and applied to every tile at every width. Neither spec supplies a height. The
+  rail's only unbuilt item was one line of padding.
+
+- **No tab scroller.** `TABS` has two entries; the mock's `overflow-x: auto` exists because it has
+  four. Measured rather than estimated: at 320px the bar's `scrollWidth` equals its `clientWidth`,
+  so it fits with room to spare, and the phone type scale (`8px 11px` at 12px) buys ~30px more. The
+  cost of building it now is not zero — `overflow-x: auto` computes `overflow-y` to `auto`, and the
+  bar's bottom padding is `0`, so it would clip the focus ring of the arm's only roving-tabindex
+  widget. **The trigger is written into the component**: a fourth tab needs the scroller *and*
+  `padding-bottom: 4px; margin-bottom: -4px`, the technique `.rail-scroller` already documents.
+
+- **The sticky lens bar no longer wraps at any width, and that fixed a live defect nobody had
+  looked for.** `index.css`'s reservation comment warned that `scroll-margin-top: 60px` "tracks the
+  bar's HEIGHT, so … P14 must re-measure — a bar that wraps to two lines makes this number short."
+  It had already come true. Measured: between **640px and ~781px** the bar wrapped to **77.3px**,
+  overrunning both the 60px reservation and the 76px one on `.wf-exp`, so throughout the tablet band
+  a card scrolled into view parked partly behind the bar. Fixed at the source rather than by raising
+  the numbers: the phone block's own justification — "wrapping it would grow a sticky element to two
+  or three lines and eat the viewport it is there to keep clear" — is not a phone fact, so
+  `flex-wrap: nowrap` and the overflow moved to the base rule. Re-measured at **53.5px** from 640px
+  up and 49.5px below, and both reservations are true again.
+
+- **That fix had a second half, and the adversarial review found it.** Stopping the bar wrapping
+  fixed its height and left its width: in the same 640–781px band the readout is wider than the room
+  left after the controls, and a `nowrap` flex item does not shrink, because its automatic minimum
+  size is its own content. Measured at 640px with a production-shaped readout (`45 min · weekday
+  default · 12 spots across 6 windows`, 327.6px natural): **116.6px of it painted outside the bar**,
+  mid-word, with no scrollbar and no ellipsis to say so — where before the change it had wrapped
+  onto a legible second line. It was invisible locally because the empty briefing produces the
+  degenerate `0 spots across 5 windows`, which fits. `.wf-lens-res` now carries `min-width: 0`,
+  `overflow: hidden` and `text-overflow: ellipsis`. Re-measured across thirteen widths: **zero
+  clipping at every one**, the readout ellipsising to 193/253/313/321px at 640/700/760/768, and a
+  no-op at 800 and above where the string already fits. This is the phase's own instance of the rule
+  the last three reviews keep proving — *a fix can introduce the defect* — and it is recorded rather
+  than quietly patched because the trade was a real functional defect for a cosmetic one, which is
+  worth doing but not worth leaving half-finished.
+
+- **The window header's two meta clauses share one phone row, because in the spec they are one
+  clause.** The mock prints `best 4★ · 6 within reach` from a single `.best` span (`mock:471`) and
+  gives it `flex-basis: 100%`. This arm split it in two at P8 so "within reach" could be null
+  independently — a nullability difference, not a second clause — so they are wrapped in
+  `.wf-wh-meta` and one `flex-basis` governs both. Two orders would have spent two rows saying what
+  the design says in one. The wrapper renders only when a child does. **Measured A/B on the running
+  app**: with the group present at 1280px, both clauses sit at the same x, with the same 10px gap,
+  the same rule width and the same header height as two bare siblings — the wrapper costs zero
+  desktop pixels.
+
+- **The tablet band was measured and deliberately left alone.** `index.css:1957-1959` deferred it to
+  this phase in as many words. Measured: a spot card is **148.6px at 640px**, **222.6px at 899px**,
+  284.6px at 1080px, and 399.6px at 639px — a **2.69× discontinuity across the 639/640 seam**. No
+  rule was added. The band's floor of 148.6px is within a pixel and a half of the 150px rail tile,
+  which this arm already treats as a workable minimum for a multi-line tile, and the comment's own
+  instruction was that this is "not a number to invent here". ⚠️ The thing that would justify a
+  number — real spot cards at that width — **has never been rendered in this environment at any
+  width**, so the tightness claim remains unevaluated on content. P15's sweep should look at it with
+  real data before anyone adds a tenth breakpoint block.
+
+- **What the unit tests may and may not claim.** `vite.config.js` sets `css: false`, `setup.js`
+  loads no stylesheet, and jsdom's `matchMedia` stub returns a fixed `{matches: false}` that ignores
+  the query. **No media query in this project is evaluated by any test.** So `WindowFirstResponsive.
+  test.jsx` asserts only the hooks — the classes and the `data-`/`aria-` attributes the components
+  emit — exactly as `frontend-test-standards.md:120-122` requires, and says so in its own header.
+  One existing assertion had to change: `toHaveStyle({ padding })` on the card header now reads the
+  empty string and would pass against anything, so it became `toHaveAttribute('data-open', …)`. Four
+  mutations were run to prove the new tests can fail (dropping `wf-body` from the Coming-up pane,
+  dropping `data-open`, removing the meta render guard, dropping `wf-wh-rule`); all four were caught.
+
+**Measured in the browser, at these widths.** 320, 320×256 (400% zoom), 375, 390, 639, 640, 700,
+760, 768, 800, 899, 1080, 1280, 1440. Confirmed at every one: no horizontal page overflow, no
+element painting outside the viewport except inside a scroll container, and the masthead, rail, rail
+footer, tab bar, lens and pane sharing one left edge. The 639/640 boundary flips the gutter 14↔18px,
+the masthead `13px 14px 12px`↔`16px 18px 14px` and the bar 49.5↔53.5px. The phone window header
+renders as four lines — title run, meta, badges, then the expander right-aligned on its own row —
+with the spacer rule `display: none`, which is `README:225` in full. At 320×256, reflow holds:
+vertical scrolling only (WCAG 1.4.10).
+
+**The review, and what it cost.** Six prosecutor lenses over the staged diff, one independent
+refuter per charge defaulting to REFUTED, then synthesis — 32 charges, 21 refuted outright, one
+must-fix (the readout above), two should-fixes, both taken: `.wf-rail-empty` is a class this phase
+invented with its own phone rule and nothing was pinning it, and the new test file's header claimed
+a completeness it did not have. `.rail-scroller` is now pinned in `WindowFirstDayRail.test.jsx`,
+which matters more than it did before this phase: the class used to sit beside an inline style and
+now owns the rail's whole inset as well as its overflow. Four mutations were run against the new
+tests before the review and all four were caught. Two things the review could NOT do, stated because
+the next phase should not read a clean report as full coverage: it ran no visual check of any kind,
+and it never rendered the real Plan tab — every number in it came from injected markup against the
+real stylesheet.
+
+**Not verified, said plainly.** The **spot strip, attribute rows, promoted-strip variants and the
+meta row were never seen on real data**: `BriefingHonestyFilter.fullRewrite` empties every region's
+slots locally, so the pane renders "0 spots across 5 windows". The meta row and the spot cards were
+exercised by injecting the exact markup the components emit, which tests the CSS rule and not the
+component's decision to render it. The **rem/px seam is untouched and still live**: `useIsMobile.js:3`
+is `(max-width: 639px)` in px while Tailwind's `sm:` is `40rem`, and `WindowFirstDoors` gates the
+regional door on the first because `HeatmapGrid` is `hidden sm:grid`; at a non-default browser font
+size they diverge and that band renders a bordered box around a `display: none` grid. The mechanism
+is certain from the code and **was not reproduced** — media-query `rem` resolves against the initial
+root font size, which JavaScript cannot change, so only Chrome's own font setting reaches it. The
+owner deferred the fix to its own commit; it touches four `useIsMobile` callers, two in the frozen
+v1 arm, and five hand-rolled `matchMedia` stubs that key on the literal string `639px`. Also
+untouched and worth knowing: **`<main class="px-4 py-6">` adds 16px each side at every width**, so
+the real phone inset from the screen edge is 16 + 14 = **30px**, not the mock's 14 — it is shared
+App chrome the frozen v1 arm uses, so it is P15's to decide, not a responsive pass's to change. And
+still, as of every phase since P4: no touch, no screen reader, no axe, no Lighthouse, Chrome only.
+
+---
+
 ## 6. Pre-pilot sweep
 
 - No demo buttons, no annotation cards anywhere in the shipped build.
@@ -1713,6 +2024,32 @@ something goes in.
 ---
 
 ## 7. Deviations from the spec, and why
+
+- **No count on the Coming up tab** (P13). The README specifies "Coming up (with count)" and the
+  mock draws a `3`. Two reasons compound. The count does not exist until the feed has been fetched
+  and the feed is not fetched until the tab is opened, so it could only ever appear *after* the
+  reader had already looked — unless the fetch were made eager, which would spend a request on
+  every Plan-tab reader to decorate a tab neither of them may open. And the number it would show is
+  the row count, which changes no decision: eleven dated events and eight are the same answer to
+  "is there anything coming up". The mock's `3` was a count of *live* events, which this feed has
+  no notion of.
+- **Two columns on a Coming up row, not the mock's three** (P13). The mock's right-hand column
+  carries "4 regions / 11 nights left". `regions` is empty on every entry from all five sources and
+  `@JsonInclude(NON_EMPTY)` drops the key, so half of it can never be drawn; the other half is the
+  countdown the left column already gives. A third column carrying one duplicate beside a permanent
+  blank is the empty footer bar P5 refused.
+- **No Almanac chip on an almanac row** (P13). §3 gives the tab a two-word tag vocabulary and the
+  mock stamps a chip on every row. Every entry the five sources emit is `ALMANAC`, so the chip would
+  be a word that never varies; it is stated once in the pane footer instead and only a row that
+  departs from it is marked — the confidence channel's marker-on-low treatment, applied to a second
+  channel. The footer says "fixed **in advance**" rather than the mock's "fixed by orbital
+  mechanics", because two of the five sources compute nothing orbital: the NLC season is a
+  hard-coded 25 May – 10 Aug window and the equinox/solstice anchors are fixed `MonthDay`s whose
+  accuracy §5g records as unverified.
+- **The Coming up row is inert** (P13). The mock gives `.ev` a pointer cursor and a hover tint and
+  never says what a click does. The feed carries no location, no rating and no region, so a click
+  has nowhere to land — §6 bans a control that cannot act, and a row that is not a control must not
+  be dressed as one.
 
 - **Status pill.** The design shows "● UP v2.17.7" unconditionally in the masthead. `HealthIndicator`
   is admin-only today and stays that way — build version and service health are not a pilot user's

@@ -151,6 +151,32 @@
   /* The active segment of a segmented control — the one non-badge member, here because it is the
      same trick: readable type on a 13% tint of --color-close-to-home. */
   --color-segment-active: #EBD9A8;
+
+  /* ── Two v1-arm synonyms that were never declared anywhere ──
+     `CloseToHome.jsx:48-49` and `CardHoverPreview.jsx:85` name these; nothing declared them, so
+     both have always resolved to nothing and the marks and stars silently inherited body ink.
+     Diagnosed at `WindowSpotPeek.jsx:195-202` and deferred there because the v1 arm is frozen for
+     the flag comparison; taken now because that freeze is on BEHAVIOUR, and with both arms running
+     side by side v1 is the control, not a legacy path — a colour channel the design calls semantic
+     cannot be missing from the arm the comparison is against.
+
+     The values are the tokens the call sites' own comment names: "Sunrise rises in marginal amber,
+     sunset falls in dust orange" — so --color-verdict-marginal (:43) and the DUST hot-topic accent
+     (`HotTopicStrip.jsx:24`). Declared as aliases rather than by editing the two call sites, which
+     would touch frozen v1 source; two names for #E0A542 is a smell that dies with v1.
+
+     ⚠️ HERE, not in the plain @theme block above, and the reason is this file's own history. The
+     documented rule says a bare token name in JS/JSX counts, and both names do appear in .jsx —
+     so the plain block "should" work. That is exactly the reasoning that failed for
+     --color-plex-panel, whose note above records the browser check returning the EMPTY STRING
+     under a comment claiming a utility class kept it alive. The whole defect being fixed here is a
+     token resolving to nothing; fixing it with a mechanism that can silently do the same would be
+     absurd. Verified in the browser after the change, not reasoned about.
+
+     Contrast, computed: #E0A542 on --color-plex-surface-light #2A2019 = 7.30:1, matching the
+     measurement WindowSpotPeek recorded. #f97316 on --color-plex-bg #181210 = 6.63:1. Both AA. */
+  --color-marginal: #E0A542;
+  --color-dust: #f97316;
 }
 
 @layer base {
@@ -331,6 +357,14 @@
   padding: 8px 0;
 }
 
+/* The topic row's detail sentence. Here rather than inline because the phone rule below gives it a
+   whole row of its own, which is a `flex-basis` — and an inline `flex` shorthand sets flex-basis at
+   a priority no stylesheet can reach. */
+.hot-topic-detail {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Enriched hot-topic fact line: on narrow viewports drop the least-critical (`.opt`) chips so
    the line stays to the headline metric plus the "where to look" note. The certainty-vocabulary
    chip is likewise meta rather than content, so it drops on mobile to keep the pill's detail
@@ -339,6 +373,54 @@
 @media (max-width: 639px) {
   .hot-topic-facts .opt,
   .certainty-chip {
+    display: none;
+  }
+
+  /* ── The topic row becomes two lines on a phone ──
+     The comment above had the mechanism right and the remedy half-sized. The label group is
+     `flex-shrink: 0` and holds the emoji, the title, the info tip and — on a tide run — a
+     `SPRING RUN n/N` chip; the region count and the chevron after it are `flex-shrink: 0` too. So
+     the only thing that could yield was the detail sentence, and once it had yielded everything the
+     row simply overflowed its card. Dropping the certainty chip bought ~60px and postponed it.
+
+     Measured on the running app at 390px, reproducing production's rows (local data carries one
+     topic with no regions, so this configuration cannot occur here): label group 132px for "Cloud
+     inversion", 185.8px for "Noctilucent cloud season", 210.4px with the run chip — against 298px
+     of row. The last two put the chevron **3.4px and 27.9px past the card's right edge**, which is
+     exactly the ordering the reported screenshot shows.
+
+     So: the row wraps, the detail takes its own row, and the count drops. The count is the piece to
+     lose — the chevron is the affordance and the title is the identity, while "4 regions" is a
+     number the panel below states anyway. Re-measured after: zero overflow on all three rows plus a
+     pathological "12 regions", the chevron 14px inside the card, no title truncated, and the detail
+     legible at 272px where it had been squeezed to nothing. Uniform 64px rows.
+
+     `min-width: 0` and the title's ellipsis are insurance, not the mechanism — nothing measured
+     needed them. They mean a title longer than any that exists today truncates rather than spills. */
+  .hot-topic-row {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .hot-topic-label {
+    min-width: 0;
+  }
+  /* The TITLE only. `.hot-topic-label > span` would also catch the emoji, the info tip and the run
+     chip, and clipping those is a different bug from the one being fixed. */
+  .hot-topic-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* Ordered after the label so it right-aligns on the first line; the detail then takes the second
+     rather than sitting between the title and its own chevron. */
+  .hot-topic-chevron {
+    order: 2;
+    margin-left: auto;
+  }
+  .hot-topic-detail {
+    order: 3;
+    flex-basis: 100%;
+  }
+  .hot-topic-regions {
     display: none;
   }
 }
@@ -544,6 +626,140 @@
   z-index: 40;
 }
 
+/* ── The heatmap's phone layout ──────────────────────────────────────────────────────────────────
+   The grid used to be `hidden sm:grid`, so below 640px it drew nothing and the arm above it hid the
+   door rather than open an empty box. Nobody decided a phone reader does not need the full plan.
+
+   The scroller is UNCONDITIONAL, like the P15a tab bar's, because the trigger is not a viewport
+   width — it is whether the tracks fit. `HeatmapGrid`'s `minmax(96px, 1fr)` floor keeps `1fr`
+   wherever there is room (142px at 1280, arithmetically unchanged) and stops shrinking below 96px,
+   so this rule is inert at desktop and engages from roughly 780px down. A media query here would
+   have to guess that number, and it moves with the column count.
+
+   ⚠️ `overflow-x` computes `overflow-y` to `auto` as well — the pair cannot be split, which is the
+   note `.rail-scroller` and `.wf-tabs` both already carry. So the room a focus ring and the cells'
+   `hover:scale` need outside the padding box is bought here and handed straight back with a
+   negative margin, leaving surrounding layout where it was. The hover TOOLTIP needs nothing: it is
+   portalled to `<body>`, which is why it was portalled.
+
+   `container-type: inline-size` is what `100cqw` below measures, and it is on this element rather
+   than the grid because it applies `contain: layout inline-size` — not something to put on the box
+   whose own tracks are meant to overflow. */
+.heatmap-scroller {
+  overflow-x: auto;
+  container-type: inline-size;
+  padding-bottom: 4px;
+  margin-bottom: -4px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  /* The horizontal twin of `scroll-margin-top: 60px`, which this file already buys for the sticky
+     lens bar with the note that "the browser does not know it is there". Same defect, same cause,
+     one axis over: focusing a cell scrolls it in by the MINIMUM amount, which lands its left edge
+     flush at x = 0 — exactly where the 140px pinned column sits, opaque and above it. A 96px cell
+     is then not clipped but hidden ENTIRELY, and its focus ring with it, which is WCAG 2.4.11.
+     It fires on every row transition, because tabbing off the last cell of a row moves focus to the
+     first cell of the next one, i.e. leftwards.
+     144px, not 140: the pinned column's max plus the 4px grid gap, so the cell arrives beside the
+     column rather than against it. Measured — the cell lands at port x = 144 with the pin ending
+     at 140. */
+  scroll-padding-left: 144px;
+}
+/* A focused cell must out-rank the pinned column, not just be scrolled clear of it. The reservation
+   above is a number that can go stale (a change to the region track's max would strand it); this is
+   the belt to its braces, so a stale number degrades to "overlapped" rather than "invisible".
+   40 matches the existing `:hover` elevation rather than inventing a second value. */
+.heatmap-scroller [data-testid='heatmap-cell']:focus-visible,
+.heatmap-scroller [data-testid='astro-heatmap-cell']:focus-visible {
+  position: relative;
+  z-index: 40;
+}
+.heatmap-scroller::-webkit-scrollbar { display: none; }
+
+/* ⚠️ Load-bearing, and the pinned column below silently does not pin without it.
+   A sticky grid item is clamped to its containing block, and that block is derived from the GRID
+   BOX — not from the track list. Left alone, the grid box stays the port's 302px while its tracks
+   overflow to 740px, so the pinned cell has almost no room to travel and slides away under scroll.
+   Measured before the fix: the column reached x = −196 against a port at x = 0, i.e. gone.
+   `min-width: max-content` makes the box as wide as its tracks, which is what gives sticky
+   somewhere to stick.
+   `min-width` rather than `width`: at desktop the box then stretches to the port as a block and
+   the `1fr` tracks still resolve to 142px, so nothing above the phone band moves. Under plain
+   `width: max-content` the `1fr` tracks would size to their content instead and desktop would
+   collapse. Both branches measured.
+
+   Selected by class, not by `[data-testid=…]`. A test id that load-bearing CSS depends on is a
+   rename away from silently killing the pin, and nothing in a test suite would notice — the tests
+   would all be updated in lockstep with the rename. */
+.heatmap-scroller > .heatmap-grid {
+  min-width: max-content;
+}
+
+/* The region column, pinned. Without it, scrolling right leaves the reader looking at four
+   unlabelled rows of colour — the row identity IS the region name, and it is the one column that
+   cannot be recovered from context.
+
+   It needs an opaque background or the scrolling cells read straight through it, and the colour has
+   to be the one actually behind the grid — anything else paints a visible block at desktop, where
+   the column is pinned but never travels. Measured in both arms: the nearest painted ancestor is
+   `rgb(34, 26, 21)` either way — `.wf-door-panel` in v2, `.card` in v1 — which is
+   `--color-plex-surface`. So one literal is right for both, and it is invisible until it is doing
+   work. (`--color-plex-panel` was tried first and is 4 shades darker; it drew exactly that block,
+   most visibly at the empty sub-header corner.)
+
+   `z-index: 2` clears the cells (auto) and stays under a hovered cell (40 in v1, 10 in the v2 panel) — a hovered cell should still be able to lift over its own row label.
+
+   Scoped under `.heatmap-scroller`, like every rule in this block, because that class is the single
+   thing a caller opts into. The `heatmap-pin` / `heatmap-span` classes are emitted unconditionally
+   — including by `HeatmapDrillDown`, which is a separate component and would otherwise need the
+   flag threaded into it — and simply match nothing when the port is not there. One gate, one place
+   to read it, and no second prop crossing a component boundary to say the same thing. */
+.heatmap-scroller .heatmap-pin {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--color-plex-surface);
+}
+
+/* The two `grid-column: 1 / -1` items — the drill-down and the poor-regions toggle. Both span the
+   TRACKS, so once the tracks overflow they are as wide as the whole grid — 740px at the column
+   floor, 751px measured once the cells carry content — inside a 302px port. The drill-down is the
+   worse of the two and the reason this rule exists: you open it by tapping a cell, so you are
+   already scrolled right when that panel renders from the grid's x=0 — off-screen, to the left of
+   where you are looking.
+
+   `100cqi` is the SCROLL PORT's inline size, not the grid's, which is the entire point: pinned at
+   `left: 0` and sized to the port, both items stay exactly where the reader is regardless of scroll
+   position. At desktop the grid does not overflow, so it equals the grid width and `left: 0` is
+   where the item already was — the rule is inert rather than merely harmless.
+
+   ⚠️ Scoped under `.heatmap-scroller`, and the scoping is load-bearing rather than tidy. A
+   container-relative length does NOT fail loudly when no query container matches — it silently
+   resolves against the small viewport. Unscoped, this rule reached the frozen v1 arm, which
+   declares no container, and its drill-down rendered at `100svw`: measured at **1280px wide inside
+   an 830px grid**, spilling out of the card. Found by review after the first commit had it
+   unscoped; `cqw` is also now `cqi`, the unit that names the axis an `inline-size` container
+   actually provides. */
+.heatmap-scroller .heatmap-span {
+  position: sticky;
+  left: 0;
+  width: 100cqi;
+}
+/* Pinning the drill-down to the port is only half the job — its own header then has to FIT the
+   port, and it did not. The row is `flex` with one shrinkable child (the summary, `flex-1
+   truncate`) and five that cannot shrink: the event name carries `minWidth: 68px`, and the
+   coverage note, the weather readout and the 🗺 button are all `shrink-0`. Measured at 390px: the
+   panel is 302px, its content 424px, and the 🗺 button's right edge lands **123px past** the
+   panel's — and because the panel is sticky, scrolling the port takes the button with it, so those
+   controls were not merely clipped but unreachable at every scroll position.
+
+   `flex-wrap` rather than a width or a font change: it is self-limiting, so it does nothing at all
+   until the row genuinely cannot fit on one line, which is why the same rule is safe at 1016px.
+   Scoped to the port for the usual reason — the frozen arm's panel is as wide as its grid and never
+   needed it. */
+.heatmap-scroller [data-testid='drill-down-event-row'] {
+  flex-wrap: wrap;
+}
+
 /* "Close to home" location cards — lift and warm on hover.
    Border and background live HERE, not in the component's inline style. An inline
    `border: 1px solid …` shorthand is a style-attribute declaration, so it outranks every
@@ -702,6 +918,119 @@
   .cth-next-window:focus-visible { transform: none; }
 }
 
+/* ── Window-first shell chrome: masthead, rail footer, tab bar, pane ──
+   Geometry from the spec's desktop rules (`.mast` :25, `.rail` :33, `.railfoot` :45, `.tabs` :52,
+   `.tab` :53, `.body` :77) and its phone block (`:238`, `:241`, `:244`, `:246`, `:248`, `:255`).
+   These values were previously inline in `WindowFirstShell`, which is a legitimate house pattern
+   until a media query needs them — a media query is a selector, and no selector reaches an inline
+   style. They move here as whole elements rather than as the changed properties alone, so no
+   element's geometry ends up split across a stylesheet and a JSX file.
+
+   `--wf-gutter` is the one horizontal inset the whole arm shares. Seven elements repeated the
+   literal 18px; at the phone boundary all seven change together to 14px, which is the value
+   `.wf-lens` already uses below and therefore this arm's own established number rather than an
+   import. Declaring it once means the phone rule cannot move half the chrome and leave the rest —
+   the specific failure a property-by-property migration invites. */
+.wf-shell {
+  --wf-gutter: 18px;
+}
+.wf-mast {
+  padding: 16px var(--wf-gutter) 14px;
+}
+/* The rail's own inset, worn by the empty-state line that stands in for it, so the two agree by
+   construction when the gutter changes. */
+.wf-rail-empty {
+  font-size: 10.5px;
+  padding: 13px var(--wf-gutter) 0;
+}
+.wf-railfoot {
+  font-size: 10px;
+  gap: 8px;
+  padding: 6px var(--wf-gutter) 0;
+}
+/* A scroller from four tabs on, and the trigger was written into `WindowFirstShell` when the bar
+   had two: a fourth tab needs `overflow-x: auto` PLUS bottom room, because the overflow computes
+   `overflow-y` to `auto` and clips a focus ring drawn outside the padding box. `.rail-scroller`
+   documents the technique — buy the room, give it straight back with a negative margin so nothing
+   below moves.
+
+   ⚠️ The threshold is much lower than the trigger assumed. Measured on the running app at the phone
+   type scale, all four tabs present: content extent 296.3px, so the bar FITS from 360px up and
+   overflows only at 320 (by 22px, where the page itself also overflows by 6). So this is a 320px
+   safeguard, not the common case — which is why nothing here changes the resting look, and why the
+   bar keeps `flex` rather than becoming a scroll-snap rail. Verified inert at two tabs: no
+   scrollbar gutter, no reflow, `ruleTop` unchanged. */
+.wf-tabs {
+  padding: 12px var(--wf-gutter) 4px;
+  margin-bottom: -4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.wf-tabs::-webkit-scrollbar { display: none; }
+/* `border-bottom-width: 0`, never `border-bottom: none` — P4a's rule, kept because the tab shares
+   its background with the pane below and the missing edge is what joins them. */
+.wf-tab {
+  font-size: 12.5px;
+  font-weight: 500;
+  border-bottom-width: 0;
+  border-radius: 8px 8px 0 0;
+  padding: 8px 14px;
+}
+/* The admin tab, marked the way the mock marks it — a dashed edge and a push to the right — and
+   NOT with its "· admin" words, which measured +44.16px and put the four-tab bar past every common
+   phone. The mock uses four signals for this; these are the two that cost nothing.
+
+   The ink is deliberately NOT muted as well. This project has corrected muted-ink contrast five
+   times, most recently at 3.55:1 against AA's 4.5, and a dashed border already says "different
+   kind of destination" without spending legibility to say it. */
+.wf-tab-gated {
+  margin-left: auto;
+  border-style: dashed;
+}
+
+/* The mock's own weights — 500 resting, 600 active — and the gold top rule, which is the only
+   selected treatment that survives the tab sharing the pane's background. Hung off `aria-selected`
+   because the tab pattern already requires that attribute, so the state needs no second carrier. */
+.wf-tab[aria-selected='true'] {
+  font-weight: 600;
+  box-shadow: inset 0 2px 0 var(--color-close-to-home);
+}
+/* Both panes, Plan and Coming up. They sit in the same slot under the same tab rule, so a
+   difference here would make the frame appear to move on a tab change; one class is what makes
+   that structurally impossible rather than a comment asking two files to stay in step. */
+.wf-body {
+  padding: 14px var(--wf-gutter) 20px;
+  /* Reaches only the Plan pane, which is the flex one; the Coming-up panel is a block, where `gap`
+     has nothing to space. No `:not()` needed to say so. */
+  gap: 10px;
+}
+/* The temporary "back to the current Plan" foot. It takes the gutter because it is chrome on the
+   same left edge; the spec has no counterpart, since the mock has no flag to go back through. */
+.wf-exit-foot {
+  padding: 0 var(--wf-gutter) 20px;
+}
+
+@media (max-width: 639px) {
+  /* One declaration moves every horizontal inset in the arm's chrome. */
+  .wf-shell {
+    --wf-gutter: 14px;
+  }
+  .wf-mast { padding: 13px var(--wf-gutter) 12px; }
+  .wf-rail-empty { padding: 11px var(--wf-gutter) 0; }
+  /* `.rail-scroller`'s own phone padding is NOT here — it sits directly beneath that class below,
+     because this block is written above it and the two selectors have equal specificity (0,1,0).
+     From here the base rule would come later in the file and win on source order alone, which it
+     did: measured on the running app, the rail kept its 13px desktop top while every sibling moved
+     to 14px sides. A media query buys no specificity. */
+  /* Restates the 4px. A `padding` shorthand ending in `0` is exactly how this file has twice
+     zeroed a focus-ring reservation while its paired negative margin still applied — see
+     `.rail-scroller`'s note. */
+  .wf-tabs { padding: 10px var(--wf-gutter) 4px; }
+  .wf-tab { padding: 8px 11px; font-size: 12px; }
+  .wf-body { padding: 12px var(--wf-gutter) 18px; }
+}
+
 /* ── Window-first day rail ──
    One tile per upcoming day. The mock makes the rail a scroller only on the phone
    (`.wrap.mob .rail{overflow-x:auto}` + `.wrap.mob .day{flex:0 0 150px}`) and leaves it a plain
@@ -712,15 +1041,30 @@
 .rail-scroller {
   overflow-x: auto;
   scrollbar-width: none;
-  /* `overflow-x: auto` computes overflow-y to auto as well, so the rail clips its own children's
-     focus rings — 1px of outline at 2px offset needs ~4px of room. The top and side padding
-     already have it; only the bottom edge is tight, so it is bought here and given straight back
-     to the layout, keeping the rail flush with whatever follows. Same technique as
-     `.cth-window-grid` above, different numbers. */
-  padding-bottom: 4px;
+  /* All four sides here, not three here and three inline. `overflow-x: auto` computes overflow-y to
+     auto as well, so the rail clips its own children's focus rings — 1px of outline at 2px offset
+     needs ~4px of room. The top and side padding already have it; only the bottom edge is tight, so
+     it is bought here and given straight back to the layout, keeping the rail flush with whatever
+     follows. Same technique as `.cth-window-grid` above, different numbers.
+
+     The bottom 4px is the fragile one and every override below must restate it: an inline `padding`
+     shorthand in the component once zeroed it at inline priority while `margin-bottom: -4px` still
+     applied, so the ring room was silently nil and the rail sat 4px tight. One owner retires that,
+     but a shorthand in a media query would recreate it exactly. */
+  padding: 13px var(--wf-gutter) 4px;
   margin-bottom: -4px;
 }
 .rail-scroller::-webkit-scrollbar { display: none; }
+/* Immediately after the base rule, and that placement is load-bearing rather than tidy: both
+   selectors are (0,1,0), so a media query above the base rule loses to it on source order. Written
+   in the shell-chrome block above, this override silently did nothing.
+
+   The shorthand is safe here ONLY because it restates the 4px the focus ring needs. Do not shorten
+   it to `11px var(--wf-gutter) 0` — that is the trap the base rule's comment describes, recreated
+   one file over. */
+@media (max-width: 639px) {
+  .rail-scroller { padding: 11px var(--wf-gutter) 4px; }
+}
 
 /* The tile itself is a read-out, as the design draws it — the ACTION inside it is the widget, so
    the hover treatment belongs there. The v1 pill this is copied from lifts the whole card because
@@ -750,6 +1094,43 @@
 
 @media (prefers-reduced-motion: reduce) {
   .rail-day-show-on-map { transition: none; }
+}
+
+/* The rail's pick chip, which became a control when the plan's "pick chips open the pick's prose"
+   was finally discharged. Its own class rather than `.window-card-pick`, which the card's badge
+   uses: that rule forces `border-radius: 999px` on its focus ring for a pill, and this chip is a
+   two-line 5px rectangle whose box is what `DATE_ROW_MIN_HEIGHT_PX` is computed from — a pill ring
+   around it would sit visibly wrong and imply the two are the same shape of thing.
+
+   `cursor: pointer` because Tailwind v4's Preflight no longer restores it on `button`, the gap this
+   file has now closed in four places. Brightness rather than a colour change on hover: the chip's
+   colour IS its channel (go/also), and swapping it would say the pick had changed kind. No lift —
+   the chip sits in a horizontal scroller where a transform fights the scroll. */
+.rail-pick-flag {
+  cursor: pointer;
+  transition: filter 0.14s ease;
+}
+.rail-pick-flag:hover {
+  filter: brightness(1.14);
+}
+/* Bone at 2px, matching `.rail-day-show-on-map` above and for the reason recorded there: the
+   border-light ring measures 1.71:1 and fails SC 1.4.11's 3:1, worst on the flagged tile whose
+   resting gold border is brighter than the ring. 5px to match the chip's own corner rather than
+   the 3px its sibling uses, so the ring traces the shape it is around. */
+.rail-pick-flag:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+  border-radius: 5px;
+}
+
+/* Only the transition, never the hover RESULT. `filter: brightness()` is a paint change, not
+   motion, and cancelling it left this chip the one control in the file whose affordance vanished
+   for a reduced-motion pointer user — while its twin, the card's pick badge, kept its brightness.
+   Measured on the running app: with `reduce` on, `.window-card-pick` hovers to brightness(1.14) and
+   this hovered to `none`. Two triggers of one control must not differ. Every other reduced-motion
+   block in this file touches only transition/transform/animation; this now matches them. */
+@media (prefers-reduced-motion: reduce) {
+  .rail-pick-flag { transition: none; }
 }
 
 /* Briefing summary strip — actionable pills lift on hover */
@@ -1181,6 +1562,60 @@
    The card itself is a read-out; the two controls it can carry (the pick badge, and from P9 the
    expander) are real buttons and own their own states. Focus rings are bone at 2px for the reason
    written above .rail-day-show-on-map: the border-light ring measures 1.71:1 and fails SC 1.4.11. */
+
+/* The header row (mock `.wh` :156, phone `:265-269`). One wrapping flex line at desktop; on a phone
+   it becomes three stacked rows, which is what README:225 asks for in words — "rule hidden; meta and
+   badges each take a full row; the expand button pushes right".
+
+   `data-open` carries the one value that varies at render. The alternative was leaving `padding`
+   inline and moving `gap` alone, which is precisely the split this migration exists to avoid. */
+.wf-wh {
+  gap: 10px;
+  padding: 10px 14px;
+}
+.wf-wh[data-open='true'] {
+  padding: 12px 14px 10px;
+}
+/* The meta clause and the badge group as flow items at desktop: no order, no basis, so they sit on
+   the header line exactly where the DOM puts them. The group wrapper is transparent to layout
+   apart from its own gap, which matches the header's so the two clauses read as one run. */
+.wf-wh-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+@media (max-width: 639px) {
+  .wf-wh {
+    gap: 7px;
+    padding: 11px 12px 9px;
+  }
+  .wf-wh[data-open='true'] {
+    padding: 11px 12px 9px;
+  }
+  /* The rule is a `flex: 1` spacer whose whole job is to push the badges to the right of a shared
+     line. Once meta and badges each own a full row there is no line left to share, so it has
+     nothing to space — the design hides it rather than letting it draw a stray hairline. */
+  .wf-wh-rule { display: none; }
+  /* `order` puts these after the title run whatever the DOM says, and `flex-basis: 100%` is what
+     makes each take its own row. The gaps between them come from `.wf-wh`'s own row-gap. */
+  .wf-wh-meta {
+    order: 5;
+    flex-basis: 100%;
+    gap: 7px;
+  }
+  .wf-wh-badges {
+    order: 6;
+    flex-basis: 100%;
+  }
+  /* Right-aligned on its own row, which is the header's only remaining horizontal decision once
+     everything above it spans. Scoped to the header so the class keeps one meaning. */
+  .wf-wh .wf-exp {
+    order: 7;
+    margin-left: auto;
+  }
+}
 .window-card-pick,
 .window-pick-action,
 .window-pick-close {
@@ -1335,14 +1770,22 @@
 .wf-door-panel :is(a[href], button, [tabindex]:not([tabindex='-1'])) {
   scroll-margin-top: 60px;
 }
-/* `.heatmap-cell-hoverable:hover` is `z-index: 40` (:538) and `.wf-lens` is `z-index: 20` — values
-   that never met until P9 put the grid underneath a sticky bar, since `.wf-lens` is the only
-   `position: sticky` in the app and no ancestor between them creates a stacking context. A hovered
-   cell therefore painted OVER the bar and, because hit-testing follows paint order, swallowed
-   clicks aimed at the lens controls across the overlap band. Lowered here rather than raising the
-   bar: this is scoped to the v2 panel, so the v1 grid keeps 40 unchanged, and 10 still clears the
-   cell's siblings (which set no z-index) so the hover lift is unaffected. The cell's own tooltip is
-   portalled to `<body>` and is not in this stacking context at all. */
+/* `.heatmap-cell-hoverable:hover` is `z-index: 40` and `.wf-lens` is `z-index: 20` — values that
+   never met until P9 put the grid underneath a sticky bar. A hovered cell painted OVER the bar and,
+   because hit-testing follows paint order, swallowed clicks aimed at the lens controls across the
+   overlap band. Lowered here rather than raising the bar: this is scoped to the v2 panel, so the v1
+   grid keeps 40 unchanged, and 10 still clears the cell's siblings (which set no z-index) so the
+   hover lift is unaffected. The cell's own tooltip is portalled to `<body>` and is not in this
+   stacking context at all.
+
+   ⚠️ The original justification said `.wf-lens` was "the only `position: sticky` in the app" with
+   "no ancestor between them creating a stacking context". Both clauses stopped being true with the
+   phone heatmap: `.heatmap-pin` and `.heatmap-span` are sticky, and `.heatmap-scroller`'s
+   `container-type: inline-size` applies `contain: layout`, which DOES create a stacking context —
+   and it sits between the cells and the bar. So in the v2 panel this rule is now redundant rather
+   than load-bearing: the whole scroller subtree already composites below the bar whatever a cell's
+   z-index says. Kept, not deleted, because removing `container-type` would silently re-arm the
+   original defect, and this rule is what would still catch it. */
 .wf-door-panel .heatmap-cell-hoverable:hover {
   z-index: 10;
 }
@@ -1365,13 +1808,29 @@
   padding: 11px 18px;
   background: var(--color-plex-surface);
   border-bottom: 1px solid var(--color-plex-border);
-  flex-wrap: wrap;
+  /* NEVER wraps, at any width — it used to be `wrap`, and the phone block below then had to undo
+     that. The reason the phone block gives is not a phone fact: "wrapping it would grow a sticky
+     element to two or three lines and eat the viewport it is there to keep clear." That is true
+     wherever the content does not fit, and P14 measured where that is. Between **640px and ~781px**
+     the bar wrapped to **77.3px** against a 53.5px single line — overrunning BOTH reservations
+     below (60px, and 76px on `.wf-exp`), so a card scrolled into view in that band parked partly
+     behind the bar. The band is the tablet one nobody had looked at; the failure was predicted in
+     the comment beneath this rule and never measured until now.
+     Scrolling instead of wrapping keeps the bar 53.5px everywhere and keeps those numbers true.
+     Overflow on the sticky element itself does not re-base its own stick — only an ANCESTOR's
+     overflow would, which is what the note above guards. The phone block has run exactly this
+     combination since P8. */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   position: sticky;
   top: 0;
   /* Above the spot strip's focused card (3) and its edge fades (2), which is the only thing on the
      Plan pane that raises itself at all. */
   z-index: 20;
 }
+.wf-lens::-webkit-scrollbar { display: none; }
 .wf-lgrp {
   display: flex;
   align-items: center;
@@ -1512,6 +1971,21 @@
   font-size: 10.5px;
   color: var(--color-plex-text-secondary);
   white-space: nowrap;
+  /* Ellipsis rather than clip, and this pairing is the other half of the bar's no-wrap rule above.
+     Stopping the bar wrapping fixed its HEIGHT and left its WIDTH: between 640px and ~781px the
+     readout is wider than the room left after the controls, and a `nowrap` flex item does not
+     shrink because its automatic minimum size is its content. Measured on the running app at 640px
+     with a production-shaped readout ("45 min · weekday default · 12 spots across 6 windows",
+     327.6px natural): 116.6px of it painted outside the bar, mid-word, with no scrollbar and no
+     ellipsis to say so. `min-width: 0` and `overflow: hidden` each defeat that automatic minimum —
+     both are stated because `overflow` is what licenses `text-overflow` to draw the ellipsis, and
+     `min-width` is what makes the intent legible. Re-measured after: 0px of overflow at 640, 700
+     and 760, and a no-op at 800 and 1280, where the string already fits and the auto margin still
+     parks it on the right. A screen reader reads the full string either way — the ellipsis is for
+     sighted readers, telling them the line is truncated rather than mysteriously cut. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* A sticky bar overlaps whatever the browser scrolls into view, and the browser does not know it is
    there. Measured on the running app: tabbing to a spot card sitting just above the fold parked it
@@ -1526,6 +2000,14 @@
    bar's HEIGHT, so P11 (which adds a rating floor and a type control to the same row) and P14 must
    re-measure — a bar that wraps to two lines makes this number short. jsdom has no layout and does
    not load this file, so nothing can unit-test it; it is a browser-verified claim.
+
+   P14 re-measured, and the warning had already come true where nobody was looking. Between 640px
+   and ~781px the bar wrapped to **77.3px**, beating this 60px and also the 76px below — so in the
+   whole tablet band a focused card parked behind the bar, which is the exact defect this rule was
+   written to fix. It is fixed at the source rather than here: `.wf-lens` no longer wraps at any
+   width (see its own comment), so the bar measures 53.5px from 640px up and 49.5px below, and both
+   numbers here are true again. Measured on the running app at 320, 375, 390, 639, 640, 768, 800,
+   1080, 1280 and 1440.
 
    P9 added three more focusable things to the same scrolling pane — the window card's expander and
    the two doors — and every one of them can sit above the fold. A collapsed card is ALL header, so
@@ -1557,20 +2039,17 @@
   scroll-margin-top: 76px;
 }
 
-/* The app's own phone boundary, as `.wf-spots` states it. The bar becomes a single scrolling row:
-   wrapping it would grow a sticky element to two or three lines and eat the viewport it is there
-   to keep clear. The readout goes rather than wraps — it is a summary of what is already visible
-   below, and it is the widest thing on the bar. */
+/* The app's own phone boundary, as `.wf-spots` states it. The single scrolling row is no longer
+   set here — P14 moved `flex-wrap: nowrap` and the overflow to the base rule, because the argument
+   for them ("wrapping grows a sticky element and eats the viewport it exists to keep clear") turned
+   out to hold in the 640–781px band too, measured. What remains phone-specific is the tighter
+   inset, and the readout going entirely rather than merely scrolling out of reach — it is a summary
+   of what is already visible below, and it is the widest thing on the bar. */
 @media (max-width: 639px) {
   .wf-lens {
-    padding: 9px 14px;
+    padding: 9px var(--wf-gutter);
     gap: 7px;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
   }
-  .wf-lens::-webkit-scrollbar { display: none; }
   .wf-lens-res { display: none; }
   .wf-lens-k { font-size: 9px; }
 }
@@ -2166,4 +2645,223 @@
   .wf-spot { transition: none; }
   .wf-spot:hover { transform: none; }
   .wf-peek { animation: none; }
+}
+
+/* ── Window-first "Coming up" pane ──
+   Geometry from the v1 mock's `.cu` (:158), `.cuh` (:159-162), `.ev` (:163-171) and `.cufoot`
+   (:175) — `Plan Window First.html`, which is where the v2 bundle keeps this pane in full and
+   which its own README confirms ("Retained for the Coming up tab in full, which v2 stubs").
+   Five deviations, each with a reason:
+
+   1. `--color-plex-text-secondary` everywhere the mock writes `--ink-3`. EIGHTH time on this
+      redesign — muted lands in the 3.4-3.5:1 band at 10-11px on every surface in this arm, and
+      `--color-plex-panel` (which every one of these rules sits on) is no exception.
+   2. **Flex, not the mock's `grid-template-columns: 112px 1fr auto`.** This is the correctness fix
+      `.wf-frow` already records: a fixed template strands content in the wrong track the moment a
+      column is conditional. The mock's own right-hand column is conditional — one of its six rows
+      renders a single line where the rest render two — and here it is dropped entirely (it carried
+      a region count the wire never sends), so a three-track template would leave a `1fr` gap
+      where nothing will ever be.
+   3. **No `cursor: pointer` and no hover state.** The mock gives the row both and never says what
+      a click does. The feed carries no location, no rating and no region, so a click has nowhere
+      to land; §6 bans a control that cannot act. A row that is not a control must not be dressed
+      as one, and the arm's own hover idiom is a border change plus a lift on things that ARE
+      buttons.
+   4. The header separator is built in JSX, not by `.cuh .d::before`. House pattern, for the reason
+      `WindowSpotCard:56-57` gives — a separator that lives in CSS survives the half it separates.
+   5. Title at 15.5px with -0.01em rather than the mock's flat 15px, matching `.wf-sheet-t` and the
+      open window card. 15px would be a fourth heading size in an arm that already has three. */
+.wf-cu {
+  border: 1px solid var(--color-plex-border);
+  border-radius: 11px;
+  background: var(--color-plex-panel);
+  overflow: hidden;
+}
+.wf-cu-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 14px 11px;
+  border-bottom: 1px solid var(--color-plex-border);
+}
+.wf-cu-h {
+  font-size: 15.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--color-plex-text);
+}
+.wf-cu-d {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+
+/* The row. `align-items: flex-start`, not the mock's `center`: its rows are one line of prose and
+   ours are up to four (title, explanation, facts, caveat), so centring would float the date block
+   into the middle of a tall row and break the scan down the left edge. */
+.wf-cu-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--color-plex-border);
+}
+.wf-cu-row:last-of-type { border-bottom: none; }
+
+/* 112px is the mock's, kept: it is what fits "30 Aug – 2 Sep" at 11px mono without wrapping, which
+   is the widest label this column can produce. `flex: none` so a long title cannot squeeze it. */
+.wf-cu-when {
+  flex: none;
+  width: 112px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-cu-when b {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+}
+/* Each on its own line under the dates, because both are qualifiers ON the dates rather than
+   facts about the event, and a reader scanning the left edge should get all of "when" in one
+   place. */
+.wf-cu-when span { display: block; }
+
+/* Block layout, deliberately not flex. `.wf-facts` is borrowed from P7's attribute row and carries
+   `flex: 1; min-width: 0` for the row it was written for; inside a flex COLUMN that `flex: 1`
+   would be a vertical grow instruction. Block layout makes it inert without an override. */
+/* A line-measure cap. Dropping the mock's right-hand column handed its width to the prose, and the
+   numbers here are counted on the running app with a Range over the longest detail the five
+   sources can emit (the 218-character NLC season sentence), not estimated from the screenshot and
+   not derived from the mock's geometry — an earlier version of this comment did both and was wrong
+   twice: uncapped is 888px and 163 characters to the first line, and there is no single width the
+   mock's own `1fr` resolves to, because each of its rows is a separate grid container.
+
+   620px brings that first line to 116 characters. It is not a textbook measure and is not claimed
+   as one; it is the TIGHTEST cap that does not add a third line to that row — 560px gives 106
+   characters and a third line — and this is a feed to scan rather than prose to read end to end,
+   so a row that grows to make one sentence prettier is the worse trade. Below a 1044px viewport
+   the cap is inert, which is what a max-width is for. */
+.wf-cu-body {
+  flex: 1;
+  min-width: 0;
+  max-width: 620px;
+}
+.wf-cu-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+}
+.wf-cu-detail {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-plex-text-secondary);
+}
+.wf-cu-row .wf-facts { margin-top: 5px; }
+/* The caveat naming whose figures these are, and the degrade line. Both are about the confidence
+   of the numbers above them rather than about the event, so they take the same quiet mono
+   treatment and sit below the facts they qualify. */
+.wf-cu-attrib,
+.wf-cu-degraded {
+  margin-top: 5px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+
+/* The kind chip. Visually `CertaintyChip`'s treatment — bordered, mono, 9px, uppercase, secondary
+   ink — and deliberately not that component: it derives its word from `topicCertainty(type)`,
+   which keys on the SCREAMING_SNAKE hot-topic vocabulary and would silently fall through to
+   "forecast" for every kebab-case almanac type. The word here comes off the wire. Bordered rather
+   than the mock's tinted fill because the mock's two tints are the tide teal and the verdict
+   green, and this chip is neither of those channels. */
+.wf-cu-kind {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+  border: 1px solid var(--color-plex-border);
+  border-radius: 4px;
+  padding: 1px 4px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+/* Loading, error and empty all share one line, because they are one slot: exactly one of them is
+   ever on screen and they replace the rows rather than joining them. */
+.wf-cu-note {
+  padding: 14px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-cu-retry {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-badge-tide);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.wf-cu-retry:hover { color: var(--color-plex-text); }
+.wf-cu-retry:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.wf-cu-foot {
+  padding: 9px 14px;
+  border-top: 1px solid var(--color-plex-border);
+  background: rgba(0, 0, 0, 0.16);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--color-plex-text-secondary);
+}
+
+/* The panel takes a focus ring because it is `tabIndex={0}` — its content is all text, so it is
+   where focus goes after the tab is chosen, and an unstyled ring there would be the one focus
+   target in the arm that does not match the rest. */
+.wf-cu-panel:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
+
+@media (max-width: 639px) {
+  /* The date block stops being a column and becomes a line above the body: 112px of a ~340px row
+     is a third of it, and the span label is short enough to sit inline.
+
+     The horizontal padding stays at 14px, matching the head and the foot. Narrowing it to 12 was
+     the first attempt and it bought two pixels of content width at the cost of the card's left
+     edge stepping in and out down the page — the head, every row and the foot must start on one
+     line, and only the vertical padding is worth tightening at this width. */
+  .wf-cu-row {
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 14px;
+  }
+  /* `display: flex` here is what puts the three parts on one line — and it also blockifies them,
+     so the desktop `display: block` on the children is overridden by the flex layout itself. An
+     explicit `display: inline` on them would be dead code (a flex item cannot be inline), which is
+     why there is none. */
+  .wf-cu-when {
+    width: auto;
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
 }

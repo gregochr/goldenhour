@@ -43,6 +43,130 @@ and it is the yardstick the question is actually asking about.
 It is withheld unless the location has both a full spring–neap cycle of history (the same gate the
 spring figure rides) and about six months of stored extremes. A location added last fortnight has a
 maximum, not a record.
+### Added — a Map tab on the window-first Plan tab (P15b)
+
+The redesigned Plan tab, still behind the flag, now carries the full map as a third tab beside Plan
+and Coming up, with its own date strip.
+
+The strip is the decision worth recording. The day rail's domain is up to six briefing events; the
+map's is every date the forecast endpoint returned, which is the longer horizon. Following the rail
+would have stranded the tab on whichever day the Plan pane happened to be showing — a capability the
+older arm's Map tab has and this one would quietly have lost. The *selection* is shared with that
+older tab rather than duplicated, so the two can never disagree about which day is on screen.
+
+The map overlay's "open the full map" button comes back with it. It had been withheld from this arm
+because it named a destination that did not exist — and it is not a one-line restoration, because the
+older arm reaches its Map tab by switching a view mode this arm ignores entirely. The arm now asks its
+own shell for the tab instead, through a request the shell can decline if it was handed no such pane.
+
+Leaflet had to be told when the panel comes back. A deselected tab is hidden rather than unmounted,
+so a viewport change while the reader is elsewhere — a phone rotating, most obviously — leaves the map
+holding a size its container no longer has, and it paints grey on return. The pane watches its own box
+instead of waiting to be told it was revealed, which also covers a resize that happens while it is
+already on screen.
+
+Verified in a browser at 390 and 1280px, including switching away, resizing, and returning: the map
+re-tiles for its new box rather than keeping the old one.
+
+### Added — the full plan is reachable on a phone
+
+The heatmap had no phone layout. Below 640px it rendered nothing at all, so the window-first arm hid
+the "Regional planner" door rather than open an empty box, and the older arm's "Open full table"
+button sat inside a hidden wrapper where it could not be pressed. Nobody decided a phone reader did
+not need the full plan; the grid simply never had a layout for one, and both arms inherited that.
+
+It now renders at every width. Below roughly 780px the columns stop shrinking and the grid becomes a
+horizontal scroller with the region column pinned to the left edge, so the row you are reading keeps
+its name while the days slide past. The drill-down and the poor-regions reveal are pinned the same
+way: both span the whole grid, and the drill-down in particular is opened by tapping a cell — so
+without pinning it would render off-screen, to the left of wherever you had scrolled to.
+
+The trigger is not a viewport width but whether the columns fit, expressed as a floor on the column
+itself (96px, the width at which a cell can still draw its weather line). Desktop is arithmetically
+unchanged — 140px plus six 142px columns at 1280, exactly as before — and the tablet band between
+640 and 780px, where cells used to squeeze down to 71px, now scrolls instead.
+
+Verified in a browser at 320, 360, 375, 390, 412, 430, 639, 700 and 1280px, and the older arm
+re-measured at 390 and 1280 to confirm it did not move.
+
+### Added — an Operations tab on the window-first Plan tab, for admins
+
+The redesigned Plan tab, still behind the flag, now carries the Manage screen as a third tab rather
+than making an admin leave the arm to reach it.
+
+The gate is the interesting part. A tab entry may name a *slot*, and a slotted tab renders only when
+the shell is handed that pane — so `App`, which already knows the role, simply withholds the pane and
+the tab does not exist. No role, no `isAdmin` boolean and nothing role-shaped crosses into the arm,
+which is a stronger guarantee than a gate the shell itself could get wrong. The same mechanism is
+what the Map tab will arrive through, with no further change to the bar.
+
+The panel element is always present, because `aria-controls` has to name something that exists, but
+its contents wait for the tab to be selected once and then stay mounted. Mounting the Manage screen
+eagerly would pull 633 KB and fire its fetches on every Plan-tab first paint, for a pane most
+sessions never open. The cost of the other half is stated rather than hidden: a Scheduler sub-view
+left open keeps its 30-second poll running for the rest of the session after the reader has gone back
+to Plan.
+
+The tab is marked as a different kind of destination the way the design marks it — a dashed edge and
+a push to the right — and not with the mock's "· admin" words, which measured 44px on a bar that has
+to fit a phone. The bar became a horizontal scroller in the same change, which is inert until 320px:
+at the phone type scale all four tabs measure 296px and fit from 360px up.
+
+## [v2.17.15] - 2026-08-10
+
+### Changed — the window-first Plan tab works on a phone
+
+The redesigned Plan tab, still behind the flag, now has a real phone layout rather than a desktop one
+squeezed. The masthead, day rail, rail footer, tab bar and both panes tighten from an 18px gutter to
+14px below 640px, the tab bar takes a smaller type scale, and the window header stops being one
+crowded line: the meta clause and the badges each take their own row and the expand button sits right
+on its own, which is what the design has always asked for.
+
+Getting there meant moving the shell's geometry out of inline styles and into stylesheet rules, since
+a media query cannot reach an inline style. Only the elements a phone rule actually changes moved,
+each as a whole — a half-migrated element would have had its geometry split across two files. The
+horizontal inset became a single `--wf-gutter` custom property, which also retires a literal that was
+written into two components with a comment in each asking the next reader to keep them in step.
+
+Two things the design's phone mock does are deliberately not done. It hides the masthead's settings
+and sign-out buttons, and the rail footer's "Edit reach" — in a static mock those do nothing, but here
+they are the only route to settings, the only route out of the app, and the only route to fixing a
+reach filter that has emptied. A phone user keeps all three.
+
+One live defect was found by measuring rather than by reading: between 640px and roughly 781px the
+sticky reach bar wrapped onto a second line and grew to 77px, which is taller than the space the app
+reserves when it scrolls something into view — so on a tablet, tabbing to a card could park it behind
+the bar. The bar now scrolls sideways instead of wrapping, at every width, and measures 53.5px again.
+Its summary line on the right shortens with an ellipsis in that same band rather than running off the
+edge mid-word, which is the half of that problem the first fix left behind.
+
+Verified in a browser at 320, 375, 390, 639, 640, 700, 760, 768, 800, 899, 1080, 1280 and 1440 px,
+and at 320×256 for 400% zoom. Desktop is pixel-identical to before the change.
+
+### Added — the "Coming up" tab, behind the window-first flag
+
+The 90-day almanac feed built at P12 now has a screen. A second tab beside Plan lists the dated
+events worth planning a trip around — spring and king tide runs, meteor peaks, supermoons, the
+equinox and solstice windows, and the noctilucent-cloud season — each as one row giving when it is,
+what it is, and whatever figures the backend could derive.
+
+Three things it deliberately does not do. It draws no certainty chip on a row whose kind is
+`ALMANAC`, because that is every row the five sources emit and a word that never varies is not
+information — the pane's footer states it once instead, and only a row that departs from it is
+marked. It carries no count on the tab, because the count does not exist until the tab has been
+opened. And it does not repeat the meteor facts the backend has already written into its own
+sentence.
+
+A row whose figures could not be derived says so — "Dates only — no heights or clock times for this
+run" — and keeps its dates, its title and its explanation. Nothing is ever synthesised to fill the
+gap. The caveat is gated on the type as well as on the absence, because an empty `meta` is the
+healthy state for an unclipped NLC season and unreachable for the other three sources.
+
+The feed is fetched once, when the tab is first opened, and held for the rest of the day. The tab
+bar became a real ARIA tab widget in the same change — `aria-controls`/`aria-labelledby` pairing,
+roving `tabindex`, and Left/Right/Home/End — which it was not when it had only one tab.
+
+## [v2.17.14] - 2026-08-09
 
 ### Changed — the weekly tide refresh now fetches only the days it doesn't already have
 
