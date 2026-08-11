@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — an Operations tab on the window-first Plan tab, for admins
+
+The redesigned Plan tab, still behind the flag, now carries the Manage screen as a third tab rather
+than making an admin leave the arm to reach it.
+
+The gate is the interesting part. A tab entry may name a *slot*, and a slotted tab renders only when
+the shell is handed that pane — so `App`, which already knows the role, simply withholds the pane and
+the tab does not exist. No role, no `isAdmin` boolean and nothing role-shaped crosses into the arm,
+which is a stronger guarantee than a gate the shell itself could get wrong. The same mechanism is
+what the Map tab will arrive through, with no further change to the bar.
+
+The panel element is always present, because `aria-controls` has to name something that exists, but
+its contents wait for the tab to be selected once and then stay mounted. Mounting the Manage screen
+eagerly would pull 633 KB and fire its fetches on every Plan-tab first paint, for a pane most
+sessions never open. The cost of the other half is stated rather than hidden: a Scheduler sub-view
+left open keeps its 30-second poll running for the rest of the session after the reader has gone back
+to Plan.
+
+The tab is marked as a different kind of destination the way the design marks it — a dashed edge and
+a push to the right — and not with the mock's "· admin" words, which measured 44px on a bar that has
+to fit a phone. The bar became a horizontal scroller in the same change, which is inert until 320px:
+at the phone type scale all four tabs measure 296px and fit from 360px up.
+
 ## [v2.17.15] - 2026-08-10
 
 ### Changed — the window-first Plan tab works on a phone
