@@ -357,6 +357,14 @@
   padding: 8px 0;
 }
 
+/* The topic row's detail sentence. Here rather than inline because the phone rule below gives it a
+   whole row of its own, which is a `flex-basis` — and an inline `flex` shorthand sets flex-basis at
+   a priority no stylesheet can reach. */
+.hot-topic-detail {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Enriched hot-topic fact line: on narrow viewports drop the least-critical (`.opt`) chips so
    the line stays to the headline metric plus the "where to look" note. The certainty-vocabulary
    chip is likewise meta rather than content, so it drops on mobile to keep the pill's detail
@@ -365,6 +373,54 @@
 @media (max-width: 639px) {
   .hot-topic-facts .opt,
   .certainty-chip {
+    display: none;
+  }
+
+  /* ── The topic row becomes two lines on a phone ──
+     The comment above had the mechanism right and the remedy half-sized. The label group is
+     `flex-shrink: 0` and holds the emoji, the title, the info tip and — on a tide run — a
+     `SPRING RUN n/N` chip; the region count and the chevron after it are `flex-shrink: 0` too. So
+     the only thing that could yield was the detail sentence, and once it had yielded everything the
+     row simply overflowed its card. Dropping the certainty chip bought ~60px and postponed it.
+
+     Measured on the running app at 390px, reproducing production's rows (local data carries one
+     topic with no regions, so this configuration cannot occur here): label group 132px for "Cloud
+     inversion", 185.8px for "Noctilucent cloud season", 210.4px with the run chip — against 298px
+     of row. The last two put the chevron **3.4px and 27.9px past the card's right edge**, which is
+     exactly the ordering the reported screenshot shows.
+
+     So: the row wraps, the detail takes its own row, and the count drops. The count is the piece to
+     lose — the chevron is the affordance and the title is the identity, while "4 regions" is a
+     number the panel below states anyway. Re-measured after: zero overflow on all three rows plus a
+     pathological "12 regions", the chevron 14px inside the card, no title truncated, and the detail
+     legible at 272px where it had been squeezed to nothing. Uniform 64px rows.
+
+     `min-width: 0` and the title's ellipsis are insurance, not the mechanism — nothing measured
+     needed them. They mean a title longer than any that exists today truncates rather than spills. */
+  .hot-topic-row {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .hot-topic-label {
+    min-width: 0;
+  }
+  /* The TITLE only. `.hot-topic-label > span` would also catch the emoji, the info tip and the run
+     chip, and clipping those is a different bug from the one being fixed. */
+  .hot-topic-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* Ordered after the label so it right-aligns on the first line; the detail then takes the second
+     rather than sitting between the title and its own chevron. */
+  .hot-topic-chevron {
+    order: 2;
+    margin-left: auto;
+  }
+  .hot-topic-detail {
+    order: 3;
+    flex-basis: 100%;
+  }
+  .hot-topic-regions {
     display: none;
   }
 }
