@@ -81,6 +81,183 @@ function renderGrid({ events, briefingDays, showAllLocations, travelDayDates, sc
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
+// The label the component builds, derived the same way it does, so the test pins the FORMAT
+// without hard-coding a date that would rot tomorrow.
+function shortDate(dateStr) {
+  return new Date(`${dateStr}T12:00:00Z`)
+    .toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+}
+
+/**
+ * A RATED cell — one that renders a star badge and, optionally, the provisional marker.
+ *
+ * `renderGrid`'s fixture deliberately sets no `claudeRating` and no `confidence`, so every cell it
+ * builds has the verdict word as its entire content. That is the one cell shape where an
+ * `aria-label` cannot delete anything, and testing naming only against it is what let a real
+ * regression through review: an `aria-label` REPLACES name-from-contents, so a rated cell's label
+ * silently dropped its rating and its confidence marker. These tests need the richer cell.
+ */
+function renderRatedCell({ confidence = null, rating = 4 } = {}) {
+  return render(
+    <HeatmapGrid
+      events={[{ date: DATE_1, targetType: 'SUNSET' }]}
+      sortedRegions={['North East']}
+      briefingDays={[{
+        date: DATE_1,
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{
+            regionName: 'North East',
+            verdict: 'GO',
+            displayVerdict: 'WORTH_IT',
+            summary: 'Clear skies',
+            confidence,
+            regionTemperatureCelsius: 8,
+            regionWindSpeedMs: 12,
+            slots: [{
+              locationName: 'Bamburgh', verdict: 'GO', claudeRating: rating,
+              solarEventTime: `${DATE_1}T19:30:00`,
+            }],
+          }],
+        }],
+      }]}
+      qualityTier={5}
+      driveMap={new Map()}
+      typeMap={new Map()}
+      todayStr={futureDateStr(0)}
+      tomorrowStr={DATE_1}
+      onShowOnMap={vi.fn()}
+      astroScoresByDate={{}}
+      travelDayDates={new Set()}
+    />,
+  );
+}
+
+describe('HeatmapGrid — cells are named for a screen reader', () => {
+  // The grid is a plain CSS-grid div with no role="grid"/rowheader/columnheader, so a cell has no
+  // row or column context to recover its region or date from. Its role="button" therefore has to
+  // carry them itself, or the whole grid announces as ~42 near-identical buttons.
+
+  it('names a rated cell with its region, date and verdict', () => {
+    renderGrid();
+    expect(screen.getByRole('button', { name: `North East, ${shortDate(DATE_1)} — Worth it sunset` }))
+      .toBeInTheDocument();
+  });
+
+  it('keeps the visible verdict phrase contiguous in the name', () => {
+    // WCAG 2.5.3: the accessible name must contain the VISIBLE label, in order, or speech input
+    // ("click Worth it sunset") has nothing to match. An earlier cut read "… sunset — Worth it",
+    // which contains both words and satisfies nothing.
+    renderRatedCell();
+    const name = screen.getByTestId('heatmap-cell').getAttribute('aria-label');
+    expect(screen.getByTestId('heatmap-cell')).toHaveTextContent('Worth it sunset');
+    expect(name).toContain('Worth it sunset');
+  });
+
+  it('carries the star rating into the name — an aria-label REPLACES the content it covers', () => {
+    // The regression this exists to prevent. `aria-label` wins over name-from-contents (accname 2C
+    // over 2F) and `role="button"` is Children Presentational, so naming the cell hides the ★ badge
+    // from screen readers unless the label restates it. A sighted user reads that number at rest;
+    // without this, a screen-reader user had to activate the drill-down for the same fact.
+    renderRatedCell({ rating: 4 });
+    const cell = screen.getByTestId('heatmap-cell');
+    expect(cell).toHaveTextContent('4★');           // visible
+    expect(cell.getAttribute('aria-label')).toContain('4 stars'); // and announced
+  });
+
+  it('carries low confidence into the name, so it is not signalled by colour alone', () => {
+    // ProvisionalMark exists precisely so confidence is not colour-only — its own docstring says
+    // "the label carries it for screen readers". An ancestor aria-label silences that carrier, so
+    // the cell's own name has to say it or the channel becomes a dimmed fill plus an aria-hidden
+    // 5px dot (WCAG 1.4.1).
+    renderRatedCell({ confidence: 'low' });
+    expect(screen.getByTestId('provisional-mark')).toBeInTheDocument();
+    expect(screen.getByTestId('heatmap-cell').getAttribute('aria-label')).toContain('provisional');
+  });
+
+  it('says nothing about confidence when the forecast is not provisional', () => {
+    renderRatedCell({ confidence: 'high' });
+    expect(screen.queryByTestId('provisional-mark')).toBeNull();
+    expect(screen.getByTestId('heatmap-cell').getAttribute('aria-label')).not.toContain('provisional');
+  });
+
+  it('omits the rating rather than saying "null stars" when nothing is scored', () => {
+    // renderGrid's fixture has no claudeRating — the degrade path.
+    renderGrid();
+    for (const cell of screen.getAllByTestId('heatmap-cell')) {
+      expect(cell.getAttribute('aria-label')).not.toMatch(/null|undefined|NaN/);
+      expect(cell.getAttribute('aria-label')).not.toContain('stars');
+    }
+  });
+
+  it('gives a Poor cell more than the word "Poor"', () => {
+    // The defect this pins: a Poor cell renders the single word "Poor", and a role="button" div is
+    // named by its contents — so ~30 of a typical grid's 42 cells announced as "Poor, button" with
+    // nothing to tell them apart.
+    renderGrid({
+      briefingDays: [{
+        date: DATE_1,
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{
+            regionName: 'North East',
+            // The payload enum has no underscore — "STAND_DOWN" falls through
+            // `resolveRegionDisplay`'s default to AWAITING, which is a different cell.
+            verdict: 'STANDDOWN',
+            summary: 'Overcast',
+            slots: [{ locationName: 'Bamburgh', verdict: 'STANDDOWN', solarEventTime: `${DATE_1}T19:30:00` }],
+          }],
+        }],
+      }],
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+    });
+
+    const cell = screen.getByTestId('heatmap-cell');
+    expect(cell).toHaveTextContent('Poor');
+    expect(cell).toHaveAttribute('aria-label', `North East, ${shortDate(DATE_1)} sunset — Poor`);
+    // The accessible name is no longer the bare visible word.
+    expect(cell.getAttribute('aria-label')).not.toBe('Poor');
+  });
+
+  it('names an unevaluated cell by the word it displays, not by its internal signal', () => {
+    // A region with no recognised verdict resolves to AWAITING, but the collapsed cell renders the
+    // literal "Poor" for that state too. The accessible name has to say "Poor" to match — a name of
+    // "Awaiting" over a cell reading "Poor" is a label-in-name mismatch (WCAG 2.5.3) and breaks
+    // speech input, where the user says what they can see.
+    renderGrid({
+      briefingDays: [{
+        date: DATE_1,
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{
+            regionName: 'North East',
+            verdict: 'PENDING', // unrecognised → AWAITING
+            summary: '',
+            slots: [{ locationName: 'Bamburgh', verdict: 'PENDING', solarEventTime: `${DATE_1}T19:30:00` }],
+          }],
+        }],
+      }],
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+    });
+
+    const cell = screen.getByTestId('heatmap-cell');
+    expect(cell).toHaveTextContent('Poor');
+    expect(cell.getAttribute('aria-label')).toContain('Poor');
+    expect(cell.getAttribute('aria-label')).not.toContain('Awaiting');
+  });
+
+  it('distinguishes two cells that differ only by date', () => {
+    // The one assertion that would have failed for every cell before the fix, and the reason the
+    // date belongs in the name: same region, same event, different day.
+    renderGrid();
+    const names = screen.getAllByTestId('heatmap-cell').map((c) => c.getAttribute('aria-label'));
+    expect(names).toHaveLength(2);
+    expect(new Set(names).size).toBe(2);
+    expect(names[0]).toContain(shortDate(DATE_1));
+    expect(names[1]).toContain(shortDate(DATE_2));
+  });
+});
+
 describe('HeatmapGrid — no aurora cells after column removal', () => {
   it('does not render aurora cells when events include no AURORA targetType', () => {
     renderGrid({
@@ -102,7 +279,13 @@ describe('HeatmapGrid — away days (A3b band)', () => {
 
     const bands = screen.getAllByTestId('heatmap-away-band');
     expect(bands).toHaveLength(1);
-    expect(bands[0].textContent).toContain('no forecast generated');
+    // "not forecast", never "not generated" — a travel day's slots exist and only the evaluation
+    // was skipped, so "no forecast generated" claimed a mechanical failure where there was a
+    // deliberate omission. The window-first arm renders this grid too (behind its regional door),
+    // beside a row that already says "not forecast", so one screen used to carry both wordings for
+    // the same fact. Plan §5d handed the reconciliation to P15.
+    expect(bands[0].textContent).toContain('not forecast');
+    expect(bands[0].textContent).not.toContain('generated');
     expect(bands[0].textContent).toContain('Tomorrow'); // DATE_1 === tomorrowStr
     // Only the real day survives as a column header.
     expect(screen.getAllByTestId('heatmap-day-header')).toHaveLength(1);
@@ -137,7 +320,7 @@ describe('HeatmapGrid — away days (A3b band)', () => {
     const bands = screen.getAllByTestId('heatmap-away-band');
     expect(bands).toHaveLength(1); // one band for the whole run, not two
     expect(bands[0].textContent).toContain(`Tomorrow–${endLabel}`); // pins both ends of the range
-    expect(bands[0].textContent).toContain('no forecast generated');
+    expect(bands[0].textContent).toContain('not forecast');
   });
 
   it('renders non-consecutive away days as separate bands, keeping the real day a column', () => {

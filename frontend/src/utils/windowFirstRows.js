@@ -36,9 +36,23 @@ import { badgeChannel } from './windowFirstCards.js';
  * `GET /api/tides` is deliberately Bearer rather than ADMIN for the same reason. So: no gate, one
  * rule for the whole row block, and no `role` plumbed into this arm.
  *
- * <p>{@code HotTopicStrip} is untouched. It is not in this arm yet — P9 builds the hot-topics door —
- * so nothing disagrees on screen today, and editing it would perturb the v1 arm the flag comparison
- * rests on (§4). When P9 wires it in, the blanket blur is the single place to reconverge.
+ * <p><b>⚠️ That reconvergence is now DUE, and this paragraph used to deny it.</b> It read
+ * "{@code HotTopicStrip} … is not in this arm yet — P9 builds the hot-topics door — so nothing
+ * disagrees on screen today", and promised that "when P9 wires it in, the blanket blur is the single
+ * place to reconverge". <b>P9 shipped</b>: {@code WindowFirstDoors:222} renders {@code HotTopicStrip}
+ * in this arm, deliberately unchanged. So the two surfaces DO now disagree on one screen, and for the
+ * snow channel they disagree about the identical objects — {@code PlanWindowProjector:441-443} builds
+ * the badges from {@code topic.facts()} and {@code buildWindowRows} below maps those same facts onto
+ * row segments, so a LITE user reads a fact sharp in a row and blurred in a pill a door away.
+ *
+ * <p>It is left that way on purpose, and the reason is the one this file already gives: the fix is a
+ * <em>pricing</em> decision, not a rendering one. {@code freemium_ui_strategy.md:79} grants LITE the
+ * scores and {@code :98} forbids blocking the core score, so the blur is the deviation and these
+ * ungated rows are the policy — but resolving it edits {@code HotTopicStrip} and
+ * {@code MarkerPopupContent}, both shared with the frozen v1 arm the flag comparison rests on (§4).
+ * Plan §5d and §5e hand it to whoever owns the pricing story, to be decided once across both arms.
+ * The §6 sweep confirmed it is unreachable for the pilot roster (self-registration yields
+ * {@code PRO_USER}), which is why it did not gate the sweep — not because it stopped being true.
  */
 
 /**

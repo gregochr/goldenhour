@@ -545,6 +545,32 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
       : displaySignal === 'WORTH_IT' ? `Worth it ${eventLabel}`
         : `Maybe ${eventLabel}`;
 
+  // The cell's accessible NAME. Without it a `role="button"` div is named by its own contents, so
+  // the ~30 Poor cells in a typical grid all announced as literally "Poor, button" — and no cell,
+  // rated or not, carried its region or its date. The grid is a plain CSS-grid div with no
+  // `role="grid"`/`rowheader`/`columnheader`, so there was no row or column context to recover
+  // either from: a screen-reader user got ~42 near-identical buttons and no way to tell which
+  // region or which day any of them belonged to. Navigable, but not readable.
+  //
+  // Deliberately an `aria-label` rather than adding grid roles: `role="grid"` obliges the full
+  // grid keyboard interaction model (roving tabindex, arrow-key navigation), which is a real
+  // feature and not a sweep fix.
+  //
+  // ⚠️ An `aria-label` REPLACES name-from-contents, it does not extend it (accname 2C beats 2F,
+  // and `role="button"` is Children Presentational). So each branch has to re-state everything its
+  // own cell renders, or naming the cell would silently DELETE content from what is announced —
+  // in both arms. The collapsed branch is safe because its entire content is one word; the rated
+  // branch is not, and its label is built further down, after `meanRating` exists.
+  //
+  // The verdict word here is the one the cell RENDERS, which for a collapsed cell is the literal
+  // "Poor" whether the signal is STAND_DOWN or AWAITING. Using `verdictWord` would put "Awaiting"
+  // in the name of a cell displaying "Poor" — a label-in-name mismatch (WCAG 2.5.3), and it would
+  // break speech input, where "click Poor" has to match what the user can see. That an AWAITING
+  // region shows as "Poor" at all is a separate, pre-existing question about the visible copy in
+  // both arms; it is not one an accessible name may quietly answer differently.
+  const cellPrefix = `${regionName}, ${getShortDate(date)}`;
+  const collapsedAriaLabel = `${cellPrefix} ${eventLabel} — Poor`;
+
   const standdownClickable = isStanddown && showAllLocations;
   const cellDisabled = (isStanddown && !showAllLocations) || !visible || past;
   const cellClickable = !cellDisabled;
@@ -556,6 +582,7 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
       <div
         data-testid="heatmap-cell"
         role="button"
+        aria-label={collapsedAriaLabel}
         tabIndex={cellDisabled ? -1 : 0}
         aria-disabled={cellDisabled || undefined}
         className={`flex items-center justify-center rounded border transition-all
@@ -615,10 +642,34 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
     ? parseFloat((ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1))
     : null;
 
+  // Built HERE, not beside the collapsed one, because `aria-label` REPLACES name-from-contents —
+  // so this string has to carry back everything the label would otherwise silence. A rated cell
+  // renders four things a collapsed one does not, and two of them matter:
+  //
+  //   • `meanRating` (the ★ badge below) — the most decision-relevant number in the cell, and the
+  //     one a sighted user reads at rest. Losing it would have left a screen-reader user needing to
+  //     ACTIVATE the drill-down to learn something everyone else can see without acting.
+  //   • `ProvisionalMark` — whose whole reason for existing is that the confidence channel must not
+  //     be colour-alone (its own docstring: "the label carries it for screen readers"). An ancestor
+  //     label silences exactly that carrier and leaves confidence as a dimmed fill and a 5px
+  //     `aria-hidden` dot, which is WCAG 1.4.1.
+  //
+  // The weather line and tide chip are deliberately NOT carried: on a summary button they are
+  // detail, and the drill-down one keypress away states both. Rating and confidence are not detail.
+  //
+  // `verdictLabel`, not `verdictWord`, and it stays contiguous — the visible text of this cell is
+  // "Worth it sunset", so a name reading "… sunset — Worth it" would contain both words in the
+  // wrong order and satisfy nothing. WCAG 2.5.3 wants the visible phrase intact, or speech input
+  // ("click Worth it sunset") has nothing to match.
+  const ratedAriaLabel = `${cellPrefix} — ${verdictLabel}`
+    + (meanRating != null ? `, ${meanRating} stars` : '')
+    + (treatment.provisional ? ', provisional forecast' : '');
+
   return (
     <div
       data-testid="heatmap-cell"
       role="button"
+      aria-label={ratedAriaLabel}
       tabIndex={cellDisabled ? -1 : 0}
       aria-disabled={cellDisabled || undefined}
       className={`heatmap-cell-hoverable relative flex flex-col gap-0.5 rounded border text-left px-2 py-1.5 transition-transform
@@ -1184,7 +1235,16 @@ export default function HeatmapGrid({
                 padding: '4px 10px',
               }}
             >
-              ✈ {awayRunLabel(run)} · away — no forecast generated
+              {/* "not forecast", never "not generated" — the wording is the accurate one and it is
+                  now the only one on screen. A travel day's slots exist; only the evaluation was
+                  skipped, so "no forecast generated" claimed a mechanical failure where there was a
+                  deliberate omission. The window-first arm settled this at P9 and pins it
+                  (`WindowAwayRow.jsx:35`, and a test named 'says "not forecast", never "not
+                  generated"'), but that arm renders THIS grid too, behind the regional door — so
+                  until now one screen could carry both wordings for the same fact, two elements
+                  apart. Plan §5d handed it to P15 to decide once across both arms; this is that
+                  decision, and it moves v1 onto the wording v1 never had an argument for. */}
+              ✈ {awayRunLabel(run)} · away — not forecast
             </div>
           ))}
         </div>

@@ -167,8 +167,21 @@ export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick, 
           const clickable = tile.ratedCount > 0 && !tile.isAway;
           // Verdict drives the text colour; "today" owns the border, so the two never compete for
           // the same channel — a gold-bordered tile can still read amber or green inside.
+          // BOTH branches resolve through the VERDICT family, and the pairing is the point. The GO
+          // branch used to read `--color-badge-go`, making this the one verdict expression in the
+          // tree that mixed families — `HeatmapGrid`'s own `verdictColour`, `BriefingSummaryStrip`'s
+          // `peakColour` and `MapOverlay`'s tone map all pair verdict-with-verdict. The badge
+          // family is scoped by its declaring comment in `index.css` to "~10px type on a 12–14%
+          // tint of its own hue"; this line is 10.5px on the untinted panel, the case that family
+          // is not for, so nothing forced the lift. The visible cost was a RESTING mismatch, not a
+          // hover one: the `.summary-region-chip[data-pick="best"]` rule paints a chip
+          // `--color-verdict-go` permanently, 4px below this line.
+          //
+          // Cited by SYMBOL, not by line: the first cut of this comment named `HeatmapGrid:594` and
+          // `index.css:104-107`, and the very commit that wrote it moved the first target to :618
+          // while the second was two lines out and half-landed in the run-bar comment.
           const verdictColour = tile.peak === 'go'
-            ? 'var(--color-badge-go)'
+            ? 'var(--color-verdict-go)'
             : tile.peak === 'maybe'
               ? 'var(--color-verdict-marginal)'
               : 'var(--color-plex-text-muted)';
@@ -186,7 +199,20 @@ export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick, 
                 borderRadius: '9px',
                 background: tile.isToday ? 'rgba(201,162,75,0.08)' : 'var(--color-plex-panel)',
                 padding: '9px 11px 10px',
-                opacity: tile.isAway ? 0.45 : 1,
+                // 0.62, matching v1's away pill (`BriefingSummaryStrip`'s `isAway` opacity) — the SECOND half of
+                // the same divergence the verdict colour above fixes. It was 0.45, which is
+                // CLAUDE.md's LITE-gate number (`opacity: 0.45, pointer-events: none`) borrowed for
+                // an unrelated job: an away day is not a gated feature, it is a day the user told us
+                // they are travelling. Measured on the running app over `--color-plex-panel`, the
+                // away verdict line composited to 2.34:1 at 0.45 and 3.33:1 at 0.62.
+                //
+                // ⚠️ 3.33:1 still fails WCAG AA (4.5:1) and is not claimed as fixed — this brings v2
+                // level with the arm it was copied from and recovers more than the colour change
+                // cost (the amber it replaced was 2.66:1). The remaining gap is the dimming itself,
+                // which is a deliberate de-emphasis in BOTH arms and so is one decision across both,
+                // not a change to make inside a sweep. The plan already records this exact wrapper
+                // producing a contrast defect once before (§5c, the "Pro" pill at 3.68:1).
+                opacity: tile.isAway ? 0.62 : 1,
               }}
             >
               <div
@@ -280,7 +306,16 @@ export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick, 
                   fontSize: '10.5px',
                   marginTop: '4px',
                   fontStyle: tile.peak === 'poor' ? 'italic' : 'normal',
-                  color: tile.isAway ? 'var(--color-verdict-marginal)' : verdictColour,
+                  // Away routes to the TIDE channel, not a verdict one — matching the v1 pill this
+                  // tile was copied from (`BriefingSummaryStrip`'s `peakColour`). A travel day has no
+                  // verdict at all (`windowFirstRail` gives it `peak:'away'`, `ratedCount:0`,
+                  // `confidence:null`), so painting it `--color-verdict-marginal` spent the one
+                  // colour `index.css:41` calls "the only colour in the UI that carries meaning" on
+                  // a tile that carries none — and spent it on the same hex as the `maybe` branch,
+                  // so one rail could show "Maybe · sunset" and "✈ Away" in a single colour on the
+                  // surface built for scanning six days at a glance. The override is what created
+                  // the collision: without it `peak:'away'` falls through to the muted text colour.
+                  color: tile.isAway ? 'var(--color-tide)' : verdictColour,
                 }}
               >
                 {tile.peakLabel}

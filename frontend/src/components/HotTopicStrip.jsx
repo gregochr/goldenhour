@@ -882,6 +882,13 @@ export default function HotTopicStrip({
               className="hot-topic-row"
               onClick={handleClick}
               disabled={isLiteUser}
+              // Only a pill that actually discloses gets `aria-expanded`. The others fall through
+              // to the legacy map-filter tap (`handleClick`'s else branch), and a button that
+              // announces itself as collapsed while having nothing to collapse is a worse lie than
+              // saying nothing. Before this, a real disclosure announced as a plain button: the
+              // panel below appeared with no indication the control had a state, so a screen-reader
+              // user had no way to know the pill could be re-pressed to close it.
+              aria-expanded={isExpandable ? isExpanded : undefined}
               style={{
                 display: 'flex',
                 alignItems: 'center',

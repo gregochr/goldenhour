@@ -5,6 +5,69 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the pre-pilot sweep of the new Plan screen
+
+The window-first Plan tab is still behind a setting, and this is the check it has to pass before it
+becomes the default. Seven reviewers went over it, each looking for one specific kind of mistake,
+and every charge they raised was then given to a second reviewer whose job was to knock it down.
+Six survived. Four are fixed here.
+
+**A day with nothing worth shooting said "4 regions".** That number counted every region on the
+books, not the ones being recommended — there was nothing to recommend, which is why the count
+appeared at all. It is the kind of number this project has a standing rule against: a fact about our
+own database dressed up as a fact about tonight. The line above it already says "All poor", which is
+the honest answer, so the count is simply gone rather than replaced.
+
+**Two colours on the day rail were saying the wrong thing.** A good day took its green from the
+palette meant for small text on a tinted badge rather than the one every other verdict in the app
+uses, so the same day could show two different greens four pixels apart. And a day you are away for
+was painted in the amber that means "maybe" — but a travel day has no forecast at all, so it was
+spending the one colour in the app that carries meaning on a day that carries none, in the same
+shade as the days either side of it. Away now uses the same neutral treatment the old Plan screen
+gives it — and the same amount of dimming, which it had also been diverging on: the new screen was
+fading travel days using the number reserved for features you have not paid for, which is a
+different thing from a day you told us you would be away. Measured in a browser, that left the
+words on a travel tile at a contrast of 2.3:1; matching the old screen brings it to 3.3:1.
+
+⚠️ 3.3:1 is still below the accessibility standard of 4.5:1, and is not being claimed as fixed. Both
+Plan screens deliberately fade a travel day, and how far they should fade it is one decision for
+both rather than something to change on one side during a sweep.
+
+**The regional grid was unreadable with a screen reader.** Every cell was an unlabelled button, so
+it announced as whatever word it happened to show — around thirty of the forty-odd cells just said
+"Poor", with no region and no date, and no way to tell any of them apart. Each cell now says which
+region, which day, which event and what the verdict is, and on a cell that has been scored, its
+star rating and whether the forecast is still provisional. Nothing moves on screen, and this
+applies to both the old and new Plan screens.
+
+That last detail is worth spelling out, because the first attempt at this fix got it wrong in a way
+the tests could not see. Labelling a button *replaces* what a screen reader reads out of it rather
+than adding to it — so naming the cells silently took the star rating and the low-confidence marker
+away from the very people the change was meant to help, while a sighted user still saw both. It
+survived a green test run because the test data had no ratings in it. Caught in review, fixed, and
+the tests now use a cell with a rating and a confidence marker on it.
+
+A related fix gives the hot-topic pills the expanded/collapsed state they were never announcing, so
+it is now possible to tell that pressing one again will close it.
+
+**A travel day is described the same way in both places now.** The grid called it "no forecast
+generated", which sounds like something failed; the new Plan screen says "not forecast", which is
+what actually happened — the days exist, we just don't evaluate them while you are away. On the new
+screen both wordings could appear on one page. Both now say "not forecast".
+
+Two more findings are real and deliberately not fixed here, because they are the same question and
+it is a pricing one rather than a display one: the new Plan screen shows the two forecast scores to
+everyone, while the map popup withholds them and offers an upgrade. The product's own freemium
+document says the scores are included for everyone, so it is the paywall that is out of step — but
+changing it edits the old Plan screen too, and that screen is the control this whole comparison
+rests on. It cannot affect the pilot: new accounts are created as Pro, so nobody in the trial can
+reach it.
+
+⚠️ Worth knowing: one item on the pre-flight list could not be checked at all. It covers a panel
+that has not been built yet, and the list warns in its own text that this check passes for free when
+the thing it examines does not exist. It is recorded as untested rather than passed, and the panel
+is the next piece of work.
+
 ## [v2.17.16] - 2026-08-11
 
 ### Fixed — the forecast-movement log was measuring the wrong thing

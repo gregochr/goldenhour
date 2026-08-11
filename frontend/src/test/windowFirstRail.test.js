@@ -127,19 +127,31 @@ describe('buildRailTiles', () => {
       expect(tile.peak).toBe('poor');
     });
 
-    it('falls back to a region count when no chip would render, and drops it when one would', () => {
-      const poor = [day(TODAY, [summary('SUNSET', [region('A', 'STAND_DOWN'), region('B', 'STAND_DOWN')])])];
-      const rated = [day(TODAY, [summary('SUNSET', [region('A', 'WORTH_IT'), region('B', 'STAND_DOWN')])])];
+    it('never labels a tile with a count of the region roster, at any roster size', () => {
+      // Plan §6 bans counts of our own data — "11 aligned is a fact about the database, not about
+      // tonight". This line used to read "2 regions" on an all-poor day, counting the roster
+      // gathered ABOVE the WORTH_IT/MAYBE filter, so it described a set nothing had filtered. The
+      // verdict line already says "All poor", which is the honest answer; nothing replaces it.
+      //
+      // Sizes one and many are both here because the removed code branched on them for the
+      // singular ("1 region" vs "2 regions") — that plural rule is what must not come back.
       const cols = events([TODAY, 'SUNSET']);
+      const one = [day(TODAY, [summary('SUNSET', [region('A', 'STAND_DOWN')])])];
+      const many = [day(TODAY, [summary('SUNSET', [region('A', 'STAND_DOWN'), region('B', 'STAND_DOWN')])])];
+      const rated = [day(TODAY, [summary('SUNSET', [region('A', 'WORTH_IT'), region('B', 'STAND_DOWN')])])];
 
-      expect(buildRailTiles(cols, poor, TODAY, TOMORROW, new Set())[0].countLabel).toBe('2 regions');
+      expect(buildRailTiles(cols, one, TODAY, TOMORROW, new Set())[0].countLabel).toBeNull();
+      expect(buildRailTiles(cols, many, TODAY, TOMORROW, new Set())[0].countLabel).toBeNull();
       expect(buildRailTiles(cols, rated, TODAY, TOMORROW, new Set())[0].countLabel).toBeNull();
     });
 
-    it('says "1 region" rather than "1 regions"', () => {
-      const days = [day(TODAY, [summary('SUNSET', [region('A', 'STAND_DOWN')])])];
-      expect(buildRailTiles(events([TODAY, 'SUNSET']), days, TODAY, TOMORROW, new Set())[0].countLabel)
-        .toBe('1 region');
+    it('keeps countLabel as a field for the away tile, which labels rather than counts', () => {
+      // Why the field survives its only counting use being deleted: the away tile carries
+      // "Not forecast" through it (pinned in the away describe block below). If a later change
+      // deletes the field outright, that string has nowhere to go.
+      const away = buildRailTiles(events([TODAY, 'SUNSET']), [], TODAY, TOMORROW, new Set([TODAY]));
+      expect(away[0].countLabel).toBe('Not forecast');
+      expect(away[0].countLabel).not.toMatch(/\d/);
     });
 
     it('carries no confidence on an all-poor day', () => {
@@ -352,10 +364,12 @@ describe('buildRailTiles', () => {
   });
 
   describe('degrade paths', () => {
-    it('survives a day the briefing has no entry for', () => {
+    it('survives a day the briefing has no entry for, and claims nothing about it', () => {
+      // This used to assert "0 regions" — the worst instance of the banned count, because it
+      // reported an empty roster as a measurement rather than admitting the day is unknown.
       const [tile] = buildRailTiles(events([TODAY, 'SUNSET']), [], TODAY, TOMORROW, new Set());
       expect(tile.peakLabel).toBe('All poor');
-      expect(tile.countLabel).toBe('0 regions');
+      expect(tile.countLabel).toBeNull();
     });
 
     it('returns nothing for an empty event list, and tolerates a null payload', () => {

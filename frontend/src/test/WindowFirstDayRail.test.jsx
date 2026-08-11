@@ -42,8 +42,12 @@ const AWAY = tile({
   regions: [], ratedCount: 0, confidence: null, targetType: null,
 });
 
+// `countLabel` is null here because `buildRailTiles` can no longer produce a count — §6 bans
+// counting our own roster, and the string this fixture used to carry ("4 regions") is the exact
+// one that was removed. The component's `: tile.countLabel` fallback arm still exists and is still
+// exercised, by AWAY above, which is the only tile that now uses it.
 const POOR = tile({
-  peak: 'poor', peakLabel: 'All poor', countLabel: '4 regions', regions: [], ratedCount: 0, confidence: null,
+  peak: 'poor', peakLabel: 'All poor', countLabel: null, regions: [], ratedCount: 0, confidence: null,
 });
 
 describe('WindowFirstDayRail', () => {
@@ -362,10 +366,45 @@ describe('WindowFirstDayRail', () => {
       expect(within(chips[2]).queryByText('◎')).toBeNull();
     });
 
-    it('falls back to the region count when no region is rated', () => {
+    it('renders no chips and no count when no region is rated', () => {
+      // The verdict line above already says "All poor". A count here would describe the roster,
+      // not tonight — §6 bans it, and `buildRailTiles` no longer emits one.
       render(<WindowFirstDayRail tiles={[POOR]} />);
       expect(screen.queryByTestId('rail-region-chip')).toBeNull();
-      expect(screen.getByTestId('rail-day-regions')).toHaveTextContent('4 regions');
+      expect(screen.getByTestId('rail-day-regions')).toHaveTextContent('');
+      expect(screen.getByTestId('rail-day-regions').textContent).not.toMatch(/\d+\s+regions?/);
+    });
+
+    it('still renders the countLabel fallback arm for an away tile', () => {
+      // Why POOR's null above does not make the fallback dead code.
+      render(<WindowFirstDayRail tiles={[AWAY]} />);
+      expect(screen.getByTestId('rail-day-regions')).toHaveTextContent('Not forecast');
+    });
+  });
+
+  describe('verdict colours (§6 clause 5 — one family, and away is not a verdict)', () => {
+    // Inline `style` values, so jsdom CAN read these back even though it evaluates no stylesheet.
+    // Without them both token fixes revert green: the rail suite had no colour assertion at all.
+    it('takes GO from the verdict family, not the badge family', () => {
+      // --color-badge-go is scoped to ~10px type on a tint of its own hue; this line is on the
+      // untinted panel. Mixing families made this the only verdict expression in the tree to do so.
+      render(<WindowFirstDayRail tiles={[tile()]} />);
+      expect(screen.getByTestId('rail-day-verdict').style.color).toBe('var(--color-verdict-go)');
+    });
+
+    it('takes MARGINAL from the same family', () => {
+      render(<WindowFirstDayRail tiles={[tile({ peak: 'maybe', peakLabel: 'Maybe · sunset' })]} />);
+      expect(screen.getByTestId('rail-day-verdict').style.color).toBe('var(--color-verdict-marginal)');
+    });
+
+    it('paints an away tile in the tide channel, never a verdict colour', () => {
+      // A travel day has no verdict (ratedCount 0, confidence null), so it must not spend the one
+      // colour family index.css calls meaning-carrying — least of all the MAYBE hue, which would
+      // put "Maybe · sunset" and "✈ Away" in one colour on a six-day scanning surface.
+      render(<WindowFirstDayRail tiles={[AWAY]} />);
+      const colour = screen.getByTestId('rail-day-verdict').style.color;
+      expect(colour).toBe('var(--color-tide)');
+      expect(colour).not.toContain('verdict');
     });
   });
 
