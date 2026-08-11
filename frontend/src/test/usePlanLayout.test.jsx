@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, cleanup } from '@testing-library/react';
 import React from 'react';
 import usePlanLayout, { PLAN_LAYOUT_KEY, PLAN_V1, PLAN_V2 } from '../hooks/usePlanLayout.js';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
@@ -573,6 +573,66 @@ describe('WindowFirstShell — the rail it hosts', () => {
     renderWithBriefing(briefingWith('2026-08-04T12:00:00', scores), { onEvaluationScoresChange });
 
     expect(onEvaluationScoresChange).toHaveBeenCalledWith(scores);
+  });
+
+  // ── The rail's pick chip and the card's pick badge are one control with two triggers ──
+  //
+  // They carry the same words in the same accent, so a reader who taps one and then the other must
+  // not be shown two different things. This is the assertion that proves it, and it is the reason
+  // the chip opens the EXISTING dialog rather than a second surface of its own.
+  describe('the rail pick chip', () => {
+    const withRailPick = () => {
+      const base = briefingWith('2026-08-04T12:00:00');
+      return {
+        ...base,
+        railTiles: [{
+          ...base.railTiles[0],
+          // Matches CARD's date + targetType, which is how the shell resolves one from the other.
+          pick: { kind: 'best', event: 'sunset', targetType: 'SUNSET' },
+        }],
+      };
+    };
+
+    it('opens the same prose the window card opens, word for word', () => {
+      renderWithBriefing(withRailPick());
+      fireEvent.click(screen.getByTestId('rail-pick-flag'));
+      const fromRail = screen.getByTestId('window-pick-dialog').textContent;
+      // It really is the pick's prose, not an empty shell that happens to match another empty one.
+      expect(fromRail).toContain('Breaking clear');
+      expect(fromRail).toContain('Low cloud clears.');
+      // `renderWithBriefing` returns the harness's handlers, not RTL's result, so the second
+      // render needs an explicit teardown or both dialogs would be in the document at once.
+      cleanup();
+
+      renderWithBriefing(withRailPick());
+      fireEvent.click(screen.getByTestId('window-card-pick'));
+      expect(screen.getByTestId('window-pick-dialog').textContent).toBe(fromRail);
+    });
+
+    // The shell half of the same guard: the rail only knows to suppress if it is TOLD. Dropping
+    // `peeksSuppressed={modalOpen}` passed every other test in the suite.
+    it('silences the rail gloss while the pick dialog it opened is up', () => {
+      renderWithBriefing(withRailPick());
+      fireEvent.click(screen.getByTestId('rail-pick-flag'));
+      expect(screen.getByTestId('window-pick-dialog')).toBeInTheDocument();
+
+      fireEvent.mouseEnter(screen.getByTestId('rail-region-chip'));
+      expect(screen.queryByTestId('popover-host')).toBeNull();
+    });
+
+    it('opens nothing when no window matches, rather than an empty dialog', () => {
+      // The guard, exercised through a rail tile flagged for an event no card carries. The lookup
+      // is total by construction today; this pins that a future divergence degrades to inert rather
+      // than to a dialog about nothing.
+      const base = briefingWith('2026-08-04T12:00:00');
+      renderWithBriefing({
+        ...base,
+        railTiles: [{ ...base.railTiles[0], pick: { kind: 'best', event: 'sunrise', targetType: 'SUNRISE' } }],
+      });
+
+      fireEvent.click(screen.getByTestId('rail-pick-flag'));
+      expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
+    });
   });
 
   it('lifts the seasonal features too, so the map does not depend on which arm you came from', () => {

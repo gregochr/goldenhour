@@ -337,6 +337,23 @@ export default function WindowFirstShell({
   const handleRegion = (regionName, date, targetType) => (
     onShowOnMap?.({ region: regionName, date, eventType: targetType })
   );
+  /**
+   * The rail's pick chip, opening the same dialog the matching window card's badge opens.
+   *
+   * <p>Matched on `date` + `targetType` rather than by rebuilding the card's `key` string. The two
+   * are equivalent today — the key IS `${date}:${targetType}` — but a key that later gained a lens
+   * or a qualifier would leave this silently finding nothing, and a chip that opens nothing is the
+   * one failure mode worse than the read-out it replaced.
+   *
+   * <p>The lookup is total by construction rather than by luck: both builders consume the same
+   * `upcomingEvents`, the rail flags only that date's own covered entries, an away tile carries no
+   * pick at all, and the cards drop only travel days. Every chip that renders has a card. The
+   * `card?.pick` guard is belt and braces, not a real branch.
+   */
+  const handleRailPick = (date, targetType) => {
+    const card = windowCards.find((c) => c.date === date && c.targetType === targetType);
+    if (card?.pick) setOpenPick(card);
+  };
   // The POSITIONAL form, which centres the map on one location — the same call the pick dialog's
   // "show location" already makes. The object form above opens a whole region, which is a different
   // destination: a spot card names one place and must land on it.
@@ -383,7 +400,15 @@ export default function WindowFirstShell({
       </div>
 
       <div data-testid="window-first-rail-region" className={dimmed.trim() || undefined}>
-        <WindowFirstDayRail tiles={railTiles} onTileClick={onShowOnMap} onRegionClick={handleRegion} />
+        <WindowFirstDayRail
+          tiles={railTiles}
+          onTileClick={onShowOnMap}
+          onRegionClick={handleRegion}
+          onOpenPick={handleRailPick}
+          // The rail's gloss panel is `z-index: 60` and `Modal` is `z-50`, so without this a hover
+          // on the way to a dialog paints a tooltip over it. Same signal the cards already take.
+          peeksSuppressed={modalOpen}
+        />
         {!loading && railTiles.length === 0 && (
           <p
             data-testid="window-first-rail-empty"
