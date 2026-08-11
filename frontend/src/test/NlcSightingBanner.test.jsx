@@ -248,43 +248,77 @@ describe('NlcSightingBanner', () => {
       expect(formatReportedAt(undefined)).toBeNull();
     });
 
+    // ── A pinned clock, and the reason is not tidiness ──
+    //
+    // Every assertion below is about which BRANCH `formatReportedAt` takes, and the branches are
+    // chosen by the distance between "now" and the timestamp. Against a real clock the test's
+    // meaning therefore depends on the hour CI happens to run at, and two of these were broken by
+    // that: the "yesterday" case failed for the first ~50 minutes of every day, because a report
+    // stamped yesterday 23:10 is under an hour old at 00:07 and the sub-hour branch wins; and the
+    // "Nh ago" case carried a midnight guard that made it assert NOTHING between 00:00 and 03:00,
+    // passing vacuously for three hours out of every twenty-four.
+    //
+    // A LOCAL-time literal, not the `…Z` the sibling AuroraBanner suite uses: the formatter reads
+    // local getters and formats with `en-GB` locale time, so pinning an instant would still leave
+    // the wall clock differing by an hour between a BST laptop and a UTC runner. Pinning the wall
+    // clock removes the timezone from the question entirely.
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-08-11T14:30:00'));
+    });
+    afterEach(() => vi.useRealTimers());
+
+    const minutesAgo = (n) => new Date(Date.now() - n * 60000).toISOString();
+
     it('returns null for an invalid date string', () => {
       expect(formatReportedAt('not-a-date')).toBeNull();
     });
 
+    it('returns null when there is no timestamp at all', () => {
+      expect(formatReportedAt(null)).toBeNull();
+      expect(formatReportedAt('')).toBeNull();
+    });
+
     it('returns "just now" for a report under a minute old', () => {
-      const now = new Date();
-      now.setSeconds(now.getSeconds() - 20);
-      expect(formatReportedAt(now.toISOString())).toBe('just now');
+      expect(formatReportedAt(new Date(Date.now() - 20000).toISOString())).toBe('just now');
     });
 
     it('returns "Nm ago" for a report under an hour old', () => {
-      const now = new Date();
-      now.setMinutes(now.getMinutes() - 45);
-      expect(formatReportedAt(now.toISOString())).toMatch(/^4[0-9]m ago$/);
+      expect(formatReportedAt(minutesAgo(45))).toBe('45m ago');
+    });
+
+    // The boundary, which nothing pinned before: 59 minutes is still minutes, 60 is an hour.
+    it('switches from minutes to hours at the hour', () => {
+      expect(formatReportedAt(minutesAgo(59))).toBe('59m ago');
+      expect(formatReportedAt(minutesAgo(60))).toBe('1h ago');
     });
 
     it('returns "Nh ago" for a report earlier today', () => {
-      const now = new Date();
-      now.setHours(now.getHours() - 3);
-      // Guard against crossing midnight during the test run
-      if (now.getDate() === new Date().getDate()) {
-        expect(formatReportedAt(now.toISOString())).toMatch(/^\dh ago$/);
-      }
+      // No midnight guard: the clock is pinned to the afternoon, so this can no longer skip itself.
+      expect(formatReportedAt(minutesAgo(180))).toBe('3h ago');
     });
 
     it('returns "yesterday HH:MM" for a report from yesterday', () => {
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
       yesterday.setHours(23, 10, 0, 0);
-      expect(formatReportedAt(yesterday.toISOString())).toMatch(/^yesterday \d{2}:\d{2}$/);
+      expect(formatReportedAt(yesterday.toISOString())).toBe('yesterday 23:10');
+    });
+
+    // The precedence that caused the flake, now stated as a rule rather than discovered as a bug:
+    // "under an hour" beats "yesterday". Just after midnight a report from 23:10 is 57 minutes old,
+    // and how long ago it was is more useful than which calendar day it fell in.
+    it('prefers minutes to "yesterday" when yesterday was under an hour ago', () => {
+      vi.setSystemTime(new Date('2026-08-11T00:07:00'));
+      const lastNight = new Date('2026-08-10T23:10:00');
+      expect(formatReportedAt(lastNight.toISOString())).toBe('57m ago');
     });
 
     it('returns "D Mon HH:MM" for a report two days ago', () => {
       const twoDaysAgo = new Date();
       twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
       twoDaysAgo.setHours(23, 10, 0, 0);
-      expect(formatReportedAt(twoDaysAgo.toISOString())).toMatch(/^\d{1,2} [A-Z][a-z]{2} \d{2}:\d{2}$/);
+      expect(formatReportedAt(twoDaysAgo.toISOString())).toBe('9 Aug 23:10');
     });
   });
 });
