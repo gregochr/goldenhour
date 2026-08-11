@@ -34,27 +34,23 @@ Recovery, if it happens: `git branch -f <feature> <sha>`, `git checkout <feature
 
 ## State, verified at handover
 
-- `main` = **`7443e0ac`**. Frontend suite **125 files / 3035 tests**, all four CI steps green.
+- `main` = **`7443e0ac`**. Frontend suite **125 files / 3036 tests** on the P15a branch, all four CI
+  steps green with **exit 0**.
 - Latest migration **`V139__tide_refresh_description_horizon.sql`** — read it off the tree before
   naming a new one; none of the work below needs a migration.
 - The flag default is still **v1**. Flipping it is a separate, later, one-token change.
-- ⚠️ **`feature/p15a-operations-tab` is committed LOCALLY at `1ef317d1` and NOT pushed.** An
-  adversarial review of it was in flight when this was written and its verdict was never seen. **Do
-  not push or PR it until that review is re-run and its findings addressed** — see task 1.
+- **`feature/p15a-operations-tab` is committed locally at `c7ccb6b2` and NOT pushed.** Its
+  adversarial review **has now run to completion and its findings are fixed** (see task 1). Gate
+  green with exit 0: lint, **3036 tests**, `npm audit`, build. It is ready to push, PR and merge —
+  that is the first thing to do.
 
-### ⚠️ Deployment — check this before believing anything about production
+### Deployment
 
-`main` is **13 commits ahead of `v2.17.14`**, and **no `v2.17.15` tag exists**, locally or on origin
-(`git ls-remote --tags origin | grep v2.17.15` → nothing), even though `fad19bfe` promoted the
-CHANGELOG to v2.17.15 and three more PRs merged after it. `deploy.yml` fires **only** on
-`push: tags: v*`.
-
-Releases are cut with **`./release.sh`**, which promotes the CHANGELOG via an auto-merged PR and
-**then** tags — so a merged "promote [Unreleased]" PR with no tag yet is normal *briefly*. This has
-not been brief. **Do not create or push tags** (CLAUDE.md forbids it; they mark tested releases and
-are the owner's call) — but do tell the owner, once and factually, because if the tag never went out
-then P13, P14, P14a and the three fixes below are **not in production**, and the owner believes they
-are comparing the two arms on a current build.
+**`v2.17.15` is tagged on origin and its deploy completed successfully**, so P13, P14, P14a and the
+three fixes below ARE in production. Releases are cut with **`./release.sh`**, which promotes the
+CHANGELOG via an auto-merged PR and *then* tags — so a merged "promote [Unreleased]" PR with no tag
+yet is a normal intermediate state, not a stalled release. **Never create or push tags yourself**;
+CLAUDE.md reserves that for the owner after real-world testing.
 
 ---
 
@@ -62,30 +58,39 @@ are comparing the two arms on a current build.
 
 ### 1. Land P15a — the admin Operations tab
 
-Built, committed at `1ef317d1`, gate green (lint, 3035 tests, `npm audit`, build — **exit 0**).
-Never reviewed to completion, never pushed.
+**Built, reviewed, findings fixed.** Two commits: `1ef317d1` (the feature) and `c7ccb6b2` (the
+review fixes), plus this handover. Gate green with **exit 0**. **Just push, PR and merge it.**
 
-**Do:** re-run the adversarial review over `git diff 7443e0ac..HEAD`, fix survivors, re-verify,
-push, PR, merge.
-
-What it does, so the review can be aimed properly:
+What it does, in case the PR needs describing:
 
 - `TABS` entries may carry a `slot`; a slotted tab renders **only** when the shell is handed that
   pane. `App` holds `isAdmin` and withholds `operationsPane` — **that is the entire admin gate**, and
   it means no role, no boolean and nothing role-shaped crosses into the arm (plan §5c). Do not
   "improve" this by passing `isAdmin`.
 - The panel **element** is always present so `aria-controls` resolves; its **contents** mount on
-  first selection and then stay. Eager mounting would pull ~633 KB and fire ManageView's fetches on
-  every Plan-tab paint; remounting would discard its sub-view, since it parses the hash at mount only.
-- `effectiveTab` is load-bearing: a selection can outlive its tab when a session loses admin, and
-  without the fallback no tab holds `tabIndex={0}` — the whole keyboard entry point.
-- **Known and accepted:** `ManageView` writes `#manage/<tab>` on sub-tab clicks, `App` reads it, so
-  the v2 exit button can then land an admin in *v1* Manage. Judged coherent; left deliberately.
+  first selection and then stay.
+- `effectiveTab` is load-bearing: a selection can outlive its tab, and without the fallback no tab
+  holds `tabIndex={0}` — the whole keyboard entry point.
 
-**Verified in a browser** (admin, v2): three tabs; bar overflow 0 and page overflow 0 at
-320/375/390/1280; the dashed right-pushed marker; ManageView absent before selection and mounted
-after; no page errors. Mutations caught: undelivered tab list (7 failures), `effectiveTab` removed
-(1), eager mount (1).
+**What the review found (23 agents, 15 charges, 12 refuted):**
+
+- **MUST FIX, and it shipped in the first commit:** the slotted panel had **no class at all** when
+  selected, while both sibling panes wear `wf-body`. The pane sat flush to the frame — 100px against
+  the Plan pane's 118px at 1280, 16px against 30px at 390 — so the content edge jumped on every tab
+  change, and ManageView's group bar landed on the tab rule reading as one two-row control. Fixed
+  and re-measured: insets now identical and the content edge aligns with the tab bar.
+- Two comments stated **false mechanisms** and are corrected: the never-unmount justification was
+  backwards (ManageView *writes* the hash and parses it at mount, so the sub-view is what *survives*
+  a remount), and the memo's note claimed rebuilding an array would "remount the bar", which it
+  would not.
+- ⚠️ **Recorded, deliberately not fixed — decide if it bothers you.** `openedTabs` is add-only, so a
+  pane is never released. A Scheduler sub-view left open keeps its **30-second poll running for the
+  rest of the session** after the reader returns to Plan — measured at +28s and +58s on the Plan
+  tab, invisible, stoppable only by reload. v1 does not do this because v1 unmounts. Admin-only, one
+  interval, ~2 req/min. The false comment was hiding this; the comment now states it.
+- Also noticed and **not attributed to this diff**: `contentDisabled` is not applied to the slotted
+  panel, so a DOWN backend greys the Plan pane but not Operations; and at 390px ManageView's user
+  table overlaps with "Reset PW" clipped — nobody established whether v1 does the same.
 
 ### 2. The full plan on a phone — the owner's own report, and the biggest remaining gain
 
