@@ -59,6 +59,7 @@ function londonToday() {
 function Consumer() {
   const {
     briefing, loading, railTiles, windowCards, evaluationScores, reachLens: lens, homePlace,
+    promotedStrip,
   } = useWindowFirstBriefing();
   return (
     <div>
@@ -69,6 +70,11 @@ function Consumer() {
       <span data-testid="dates">{railTiles.map((t) => t.date).join('|')}</span>
       <span data-testid="scores">{[...evaluationScores.keys()].join('|') || 'none'}</span>
       <span data-testid="cards">{windowCards.length}</span>
+      {/* One descriptor or nothing — the shape is the cap. */}
+      <span data-testid="promo">{promotedStrip ? promotedStrip.windowKey : 'none'}</span>
+      <span data-testid="promo-topics">
+        {promotedStrip ? promotedStrip.topics.map((t) => t.label).join('|') : 'none'}
+      </span>
       <span data-testid="card-keys">{windowCards.map((c) => c.key).join('|')}</span>
       <span data-testid="spots">{windowCards[0]?.spots?.map((s) => s.locationName).join('|') || 'none'}</span>
       <span data-testid="spot-reach">
@@ -702,5 +708,42 @@ describe('WindowFirstBriefingProvider', () => {
     render(<Consumer />);
     expect(screen.getByTestId('tiles')).toHaveTextContent('0');
     expect(screen.getByTestId('generated')).toHaveTextContent('none');
+  });
+  describe('the promoted strip', () => {
+    /** A badge as `BriefingWindow.Badge` serialises one. */
+    const topic = (type, label, rarityRank) => ({
+      type, label, detail: null, eventTime: null, rarityRank,
+      facts: [{ key: 'k', value: 'v', dir: null, emphasis: true, optional: false }],
+    });
+
+    /** `payloadFor`'s single day, with badges put on its one window. */
+    const withBadges = (badges, topRarityRank) => {
+      const payload = payloadFor(londonToday());
+      payload.days[0].eventSummaries[0].window = {
+        ...payload.days[0].eventSummaries[0].window, badges, topRarityRank,
+      };
+      return payload;
+    };
+
+    it('derives no strip from a payload whose windows carry no coincidence', async () => {
+      getDailyBriefing.mockResolvedValue(withBadges([topic('AURORA', 'Aurora', 4)], 4));
+      renderProvider();
+
+      expect(await screen.findByTestId('cards')).toHaveTextContent('1');
+      expect(screen.getByTestId('promo')).toHaveTextContent('none');
+    });
+
+    // The provider is the only place the page-wide cap can live, so this is what proves the field is
+    // actually wired: the shell's own tests inject a descriptor and would pass without it.
+    it('derives one strip from a payload whose window carries two topics', async () => {
+      getDailyBriefing.mockResolvedValue(
+        withBadges([topic('AURORA', 'Aurora', 4), topic('KING_TIDE', 'King tide', 3)], 3),
+      );
+      renderProvider();
+
+      expect(await screen.findByTestId('promo'))
+        .toHaveTextContent(`${londonToday()}:SUNSET`);
+      expect(screen.getByTestId('promo-topics')).toHaveTextContent('King tide|Aurora');
+    });
   });
 });

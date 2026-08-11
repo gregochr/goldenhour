@@ -614,7 +614,7 @@ Backend first for anything shared, so the frontend stays a render layer.
 | **P5** | ~~Window card~~ **DONE.** `WindowFirstWindowCard` + `WindowPickDialog` + `utils/windowFirstCards.js`; the Plan pane renders the list | Header, verdict badge with the confidence decay, pick badge on the two chosen windows, topic badges. **Five decisions worth not re-deriving:** the header says `best N★` and **no count** — reach is P8 and the spots it would count are P6, so any number here describes a set that was never filtered (§6); **no expander** (P9's, and collapsed vs open would differ by a few pixels of padding, making it a demo control); **no footer bar** rather than an empty one, since everything the design puts in it is P6/P11; `AWAITING` renders as "Awaiting" on the **neutral** badge, never the red one; and the lead card is `index === 0 && date === todayStr`, which is the only predicate that yields exactly one and always agrees with the rail's gold tile. "Tonight" is the kicker only on a lead **sunset**; a lead sunrise carries none and keeps the day in its title. ⚠️ The Notes cell here used to describe the change-since-last-forecast row — stale since §2.8 deferred it, and the P1′ row's `priorRating` is stale in the same way (it never shipped and `grep` finds nothing) |
 | **P6** | ~~Spot film strip — **and the reach data on the card**~~ **DONE.** `WindowSpotStrip` + `utils/windowFirstSpots.js`; `GET /api/user/settings/reach` gets its first consumer, fetched by the arm's own provider | Geometry from the spec, not `.cth-window-grid`; no `ScrollRail`; one shared comparator; footer states what is *drawn*. Rating badge from `RATING_COLOURS` (§2.9). **No sparkline** — P16. **Reach moved here from P8, agreed 2026-08-05**: the design has always drawn `41 min · 19 mi` on every spot card, and P3's endpoint had no consumer, so the strip would otherwise render visibly incomplete cards for two phases. P8 keeps the **gate**; P6 takes the **display**. **Seven decisions worth not re-deriving — see §5a** |
 | **P7** | ~~Attribute rows — tide, then snow~~ **DONE.** `WindowAttributeRow` + `utils/windowFirstRows.js` + `components/chart/WindowTideSparkline.jsx`; `BriefingWindow.Badge` gains `facts` | Cap of two per window, and it binds. ⚠️ The old Notes cell here said "the change row is P5's and does not count against it" — **stale since §2.8 deferred that row**, which is why two rows means tide + snow and nothing else. **Nine decisions worth not re-deriving — see §5b** |
-| **P7b** | Promoted strip — both variants; chart 42px curve + 16px label band | Single-strip cap enforced in code. Also owns `UNKNOWN_RANK`'s wire semantics |
+| **P7b** | ~~Promoted strip — both variants; chart 42px curve + 16px label band~~ **DONE.** `WindowFirstPromotedStrip` + `utils/windowFirstPromoted.js`; the provider derives the one strip, the shell renders it above every pane item and owns the route into the list | The cap is arithmetic, not a rule: `buildPromotedStrip` returns one descriptor or null. ⚠️ **The chart is NOT built, and that is a deviation rather than an omission** — the label band is not derivable from the window projection and the curve alone would be the fourth tide chart in this arm on one pane. `UNKNOWN_RANK`'s wire semantics are settled here. **Nine decisions worth not re-deriving — see §5j** |
 | **P8** | ~~Lens bar — **reach only** + persistence policy~~ **DONE.** `WindowFirstLensBar` + `utils/reachLens.js` + `hooks/useReachLens.js`; the gate rides `buildWindowCards`, and the `far` spot variant ships with it | Shrunk: rating floor and type move to P11. Day-derived default; reach expires at the day roll. **The labels are the spec and `LIM` is mock shorthand** — the label is now *derived* from the threshold so no second number exists to drift. First gated control in the arm; `role` enters at the provider only. **Nine decisions worth not re-deriving — see §5c** |
 | **P9** | ~~Collapse/expand, six-window case, away-day row + its rail variant, the two doors~~ **DONE.** `WindowAwayRow` + `utils/windowFirstAway.js`, `WindowFirstDoors` + `WindowFirstRegionalPanel` + `utils/windowFirstRegions.js`; the card gains `open`/`onToggle` and the shell owns the state | ⚠️ The old Notes cell said "the window card shrank" — **stale**, it had grown every phase since P6. Measured: six open windows are **1,969px / 2.74 viewports**, exactly the figure §5a predicted from a different direction; lead-open/rest-collapsed is **996px**, a 49.4% saving. The **rail variant already shipped at P4c** (`isAway`, `✈ Away`, `Not forecast`, and it keeps its sun times) — P9 owned only the pane row. The six-window case needed no feature: `MAX_VISIBLE_EVENTS` already caps it and the rail and cards share one evaluation. **Ten decisions worth not re-deriving — see §5d** |
 | **P10′** | ~~Peek content kind 1 (spot)~~ **DONE.** `WindowSpotPeek` + `utils/windowSpotPeek.js` + `hooks/useSpotPeek.js`; the strip gains the trigger and the card drills the score index through | ⚠️ The Work cell used to add "+ click-to-map", which **shipped at P6** — §5a`:603` already corrected it. The host is **not** P4b's after all: the portal reasoning is taken and cited, the host itself does not fit (above-only placement, no slot for the panel's pointer handlers). **No phone peek** — the row named a `BottomSheet` and no trigger, and the same paragraph gives the phone's only tap to the map. Open delay stays at 180ms, not this row's 140; 160/120 adopted and split. A summary-less spot now *does* get a peek, because the bars are back. **Fifteen decisions worth not re-deriving — see §5e** |
@@ -1993,6 +1993,145 @@ the real phone inset from the screen edge is 16 + 14 = **30px**, not the mock's 
 App chrome the frozen v1 arm uses, so it is P15's to decide, not a responsive pass's to change. And
 still, as of every phase since P4: no touch, no screen reader, no axe, no Lighthouse, Chrome only.
 
+### 5j. What P7b decided — read before anyone revisits the strip
+
+Nine decisions that changed behaviour rather than wording.
+
+- **A coincidence is `badges.length >= 2`, and emphatically NOT "`topRarityRank` is present".**
+  `PlanWindowProjector.rarestRank` is a `min()` over the window's badges and returns null only for
+  an *empty* list, so that field is populated on every single-badge window too — a strip keyed on it
+  would put the pane's largest element above a page whose only "coincidence" is one aurora.
+  `topRarityRank` is the **tie-break**: which of several coincidences wins the one strip. That is
+  what `BriefingWindow`'s own Javadoc has always said ("Advice for the client's promoted strip"), and
+  P7b is its first consumer in five phases.
+- **The badges counted are the window's, not the card's — hence `allBadges`.** `card.badges` has
+  already had the attribute rows' promotions filtered out of it. Counting that list would make a
+  winter dawn carrying `SNOW_TOPS` + `SNOW_FRESH` — a real coincidence, and the *only* reachable
+  same-channel one, since `KING_TIDE` suppresses `SPRING_TIDE` and `STORM_SURGE` never gets an event
+  anchor — look like a single-badge window because one of the two became a row forty pixels lower.
+  `allBadges` is the same before/after pairing `allSpots`/`spots` already carries.
+- **⚠️ The chart is NOT built, and both halves of the reason matter.** §5's P7b row and README §3
+  specify a 320×44 tide curve with two amber markers and four labelled extremes. *The label band is
+  not derivable*: `BriefingWindowTide` carries exactly **one** extreme and no per-extreme x position,
+  and that one clock time is wrapped modulo the day (`TideWording.clock` uses `floorMod`), so a 23:45
+  sunset's 00:05 high water would plot at the opposite edge of the axis. The four-label dataset
+  exists only on `hotTopics[].tideRun`, which only the two tide strategies set and which selects its
+  representative coastline *independently* of the window rollup — `TideRepresentativeSelector`'s own
+  Javadoc says the two "may name different places" — so the join can silently plot one coast's labels
+  over another coast's curve. *And the curve alone would not earn its place*: it would be the FOURTH
+  tide chart in this arm on one pane (the same window's own `WindowTideSparkline`, plus `TideRunRow`
+  and `SurgeRunRow` behind the hot-topics door), and it is meaningful for only 2 of the 12 topic
+  kinds that can become a badge at all. To build it honestly: add an extremes list to
+  `BriefingWindowTide`, or gate a `tideRun` join on `tideRun.locationName === tide.locationName`.
+- **Nothing comes out of the card, and §6's "something should usually come out" is therefore NOT
+  discharged.** Taking the promoted window's badges was the obvious trade and was rejected on the
+  codebase's own doctrine. `windowFirstRows.js` promotes a topic to a richer surface *on the same
+  card, forty pixels away*, and closes with "Nothing is ever lost: a topic the cap drops keeps its
+  badge". The strip is not on that card — it may be four items up the pane — and badges live in the
+  **always-visible card head** while rows live inside `{open && …}`. Removing them would make the
+  page's most notable window its least-marked card, for a reader who has scrolled past the strip.
+  What is offered instead: the strip is capped at one, renders only on a coincidence, and is the
+  smallest it can be. **Measured across two real coincidence shapes: 115–131px desktop, 192–208px
+  phone** — the range is the difference between a keyed headline fact (two lines) and a keyless one
+  (one), and the phone figures are with the labels the strategies really emit
+  (`Noctilucent cloud season`, `Kp 5 · glow reaches ~57°N and north`), which wrap. ⚠️ **An earlier
+  draft of this row said "131px desktop / 154px phone"; the phone half was wrong by 54px** because
+  the harness used an invented short label. The phone strip is about a quarter of an 844px viewport.
+  Against that: the ~150px the height-budget analysis assumed, and the 58px of chart it does not
+  spend.
+- **It is a lede that points INTO the list, not an item in it.** The pane's only ordering spine is
+  time and the strip may describe the fourth window down — the shape CLAUDE.md records as "tried,
+  reverted" for tide runs. What makes it tolerable is that it names its window in the card's own
+  words (`card.kicker` + `card.when`, so the two cannot disagree) and carries a control that opens
+  and reveals that card. **When the promoted window is already the pane's first item the control is
+  not rendered**: it would scroll to the element directly beneath it, and a control with no visible
+  effect is what §6 bans. That is why the builder takes `paneItems` rather than `windowCards` — an
+  away row above the first card makes the strip non-adjacent, and only the pane list knows.
+- **`UNKNOWN_RANK`'s wire semantics, settled here.** It is `Integer.MAX_VALUE` — a real number on the
+  wire, not null. Three rules, deliberately different from one another: an unranked kind **still
+  counts** toward the coincidence (the topic landed; only its *ranking* is unknown, and excluding it
+  would let a missing table row delete a real coincidence); it **loses every rarity contest** (the
+  backend's own stated intent); and a missing or non-integer rank is **treated as unknown, never as
+  rank 0** — 0 would be rarer than `SUPERMOON` and would hand the strip to whichever window had the
+  most broken data.
+- **No right-hand meta, and no "why" clause.** The mock's meta is "tonight · tomorrow · Monday — 61
+  coastal locations, 2 regions"; the count is a fact about our database, which §6 bans and which
+  `WindowAttributeRow`, `WindowFirstDoors` and the day rail have each already dropped for that exact
+  reason. A rarity claim cannot replace it: §2.6 rules out the mock's "first coincidence since 2 Mar"
+  as an unscheduled historical scan, and a fixed ordinal supports *choosing* a winner but not
+  *asserting* a delta. The why clause explains the PAIR, and no field says that — a badge's `detail`
+  explains its own topic, so rendering one of two as though it described both is a sentence about
+  half the strip presented as the whole of it.
+- **It makes no quality claim.** No verdict, no star. A coincidence is about *attributes*, not about
+  whether the sky will deliver — and a second verdict render site would have to be reconciled with
+  §6 clause 5's "verdict colours consistent in every location". The route into the list is the
+  honesty guard: the window's own card carries the verdict, one click away.
+- **Ungated, by the same rule and the same reasoning as the attribute rows.** No `role` reaches this
+  component. The strip shows topic labels and one measured fact each — the same class of content as
+  `WindowAttributeRow`, which ships ungated for every role, and not `HotTopicStrip`'s promotional
+  surface. The LITE split remains the one open pricing decision (§6a), untouched here.
+
+**What was measured in a browser, and what was not.** The local DB has never had an evaluation run,
+so everything below was seen against an **injected payload** at 1280×900 and 390×844, Chrome only:
+one strip on a two-coincidence page and none on a badge-free one; the rarest pair winning over an
+earlier one; every token resolving rather than being pruned to the empty string; `color-mix(in
+oklch, …)` computing to a real colour; the 3px `--color-tide` left edge; the gradient over
+`--color-plex-panel`; the 15.5px title; kicker **9.06:1**, figure label **6.88:1**, value
+**14.45:1**, footer action **10.47:1**, each against the composite it actually renders on; the route
+opening a closed card, focusing its expander, and clearing the sticky lens bar (which needed a new
+`scroll-margin-top` on `.window-card` — it is the first thing on this pane scrolled to
+programmatically rather than by focus); the phone rule being dropped; and no overflow at 390px.
+**Not verified:** any of it against real badge data, and no screen reader, axe, Lighthouse,
+forced-colors, real device, or width above 1440px — the same gap every phase since P4 records.
+
+**The adversarial review before this landed** (six prosecutor lenses over the diff, one independent
+refuter per charge prompted to *refute* and defaulting to REFUTED, then synthesis — 19 agents):
+**18 charges, 12 verified, 3 confirmed**, all fixed before the commit, plus two comment corrections
+the synthesis raised as weak refutations. Six charges fell below the verification cut and are
+recorded in the review as **unexamined, not refuted**. The three that survived are worth carrying,
+because two of them are failures of the *fixture* rather than of the code:
+
+- **A figure's lead-in fell back to the topic's own label, printing that label twice.** The two live
+  producers of a keyless *headline* fact are `AuroraHotTopicStrategy`
+  (`HotTopicFact.metric(null, "Kp 5 · glow reaches ~57°N and north")`) and `NlcHotTopicStrategy` —
+  both NIGHT topics, which `PlanWindowProjector.keysFor` buckets onto the **same two windows**, so
+  aurora × NLC is the ordinary coincidence, not an exotic one. The strip read
+  `Aurora possible × Noctilucent cloud season` and then `Aurora possible / Kp 5 · …` beneath it:
+  exactly the duplication `windowFirstRows.js` refuses to build a row for. ⚠️ **It survived the whole
+  suite, eleven mutants and a browser pass because every fixture invented `{key: 'Kp', value: '5.7'}`
+  — a shape the backend never emits.** The justification in the code cited `SnowTopsHotTopicStrategy`,
+  which does emit a keyless fact but only as its *second*, un-emphasised one, so it can never reach
+  the branch. **Shape a fixture like its producer, or the test proves nothing about production.**
+- **The only whitespace between two topic names lived inside the `aria-hidden` separator.** JSX drops
+  the newline-only whitespace between sibling elements, so pruning the hidden subtree — which is what
+  assistive tech does — left `King tideAurora possible`. Every other decorative glyph in this arm is
+  a prefix or suffix whose removal leaves its label whole; this was the first used as the boundary
+  *between* two labels. `textContent` is identical either way, which is why the pinned header string
+  never moved. The test that now catches it asserts **both** that the separator's own text carries no
+  padding and that the kicker still reads with spaces — either alone passes with the defect restored.
+- **The phone header wrapped by label length.** The mock carries three phone rules for this header
+  and only two were ported; the missing one gives the title its own row. Measured at 390px before the
+  fix: a short pair put all three items on one dense line, a medium pair stranded the clock alone on
+  row 2, a long pair stacked — three layouts at one width, chosen by how long the topic names
+  happened to be. The comment justifying the hidden rule asserted the layout that had not been built.
+
+⚠️ **A third measurement trap, on top of the two below.** Two of the review's "failures" on the
+re-run were the harness's own assertions, not the code: a last-card scroll check keyed to a fraction
+of the viewport (the page genuinely cannot scroll past its end — the honest test is *fully visible
+and clear of the sticky bar*), and a header-row grouping keyed on an exact `top`, which reported a
+15.5px title and a 13.5px clock centred on one row as two rows. Both would have been written up as
+defects by anyone reading the exit code.
+
+⚠️ **Two measurement traps caught in the doing, both of which produce confident false results.**
+`zsh does not word-split unquoted parameters`, so a `$SPECS` holding four test paths reached vitest
+as ONE filter, "No test files found", exit 1 — and an entire mutation run reported eleven mutants
+"killed" when the baseline had failed the same way. Always assert the baseline exits 0 *and* that the
+run found files. And the first contrast pass compared a translucent foreground as if it were opaque,
+reporting the 0.66-alpha secondary ink at the same 14.45:1 as the full-strength value ink; composite
+the foreground over its backdrop too, or every muted tone flatters itself.
+
+---
+
 ---
 
 ## 6. Pre-pilot sweep
@@ -2033,13 +2172,24 @@ independent refuter prompted to **refute** and defaulting to REFUTED without cit
 |---|---|
 | 1 — no demo buttons / annotation cards | pass |
 | 2 — stateless copy, no exposure counter | pass |
-| **3 — promoted strip: renders on a coincidence, never more than one** | ⚠️ **UNTESTED — not pass** |
+| **3 — promoted strip: renders on a coincidence, never more than one** | ⚠️ ~~**UNTESTED — not pass**~~ → **PASS, re-run 2026-08-11 when P7b landed.** Both halves, in the browser against a payload carrying **two** coincidences: one strip rendered, and it named the rarer pair. A no-coincidence payload rendered none. See below |
 | 4 — no invented vocabulary, no counts of our own data | **1 fixed** (rail's "4 regions") |
 | 5 — verdict colours consistent; confidence decay only on the card badge | **first half: 2 fixed** (rail GO token, away hue). **Second half: superseded, not tested** — see below |
 | 6 — every footer's claimed sort and count matches what is rendered | pass |
 | 7 — coherent with no home postcode | pass |
 | 8 — no control whose only visible effect is an `aria-hidden` panel | pass |
 | 9 — no telemetry | pass |
+
+**⚠️ Clause 3 was re-run on 2026-08-11, after P7b shipped, and now passes.** The original entry is
+struck rather than deleted, because the reason it could not be tested is the more useful half of the
+record. What was measured, on the running app rather than in jsdom: a fixture with a coincidence on
+**two** windows (snow×snow at rank 8 on an earlier day, king tide×aurora at rank 3 on a later one)
+rendered **exactly one** strip, and it named the rank-3 pair — so neither half passes vacuously. A
+payload with the badges stripped rendered **none** while still drawing six cards. The row cap was
+checked against it as §6a asked: `windowFirstRows.js` and `windowFirstPromoted.js` both order by
+`rarityRank` with the same absent-sorts-last degrade, and the strip reads `allBadges` — the list
+*before* the row promotion — so a window whose second badge became an attribute row is still counted
+as a coincidence. Original text follows.
 
 **Clause 3 is recorded UNTESTED, and that is the honest reading rather than a pass.** P7b never
 shipped, so there is no strip to check and the clause passes vacuously — which is the failure its own
@@ -2085,6 +2235,21 @@ is inert in v2 but load-bearing in v1, and P15b already recorded the split at `:
 
 ## 7. Deviations from the spec, and why
 
+- **No chart on the promoted strip** (P7b). §5's build-order row and README §3 both specify one
+  (320×44 curve, two amber markers, a 16px band of four labelled extremes). The label band is not
+  derivable — `BriefingWindowTide` carries one extreme, no per-extreme x position, and a clock time
+  wrapped modulo the day — and the only source of four labelled extremes, `hotTopics[].tideRun`,
+  exists on two topic kinds and picks its representative coastline independently of the window
+  rollup. The curve alone would be the fourth tide chart in this arm on one pane, for a strip that
+  is generic over 12 topic kinds. See §5j for what it would take to build honestly.
+- **No right-hand meta and no "why" clause on the promoted strip** (P7b). The mock's meta counts our
+  own data (§6); its rarity alternative is the historical scan §2.6 already ruled out; and no field
+  explains the *pair* rather than one of its topics. §5j.
+- **The promoted strip takes nothing out of the window card** (P7b), so §6's "something should
+  usually come out when something goes in" is not discharged for it. Stated rather than quietly
+  skipped, with the measured cost (131px desktop, 154px phone) and the reason the obvious trade —
+  taking the promoted window's badges — was rejected. Measured 115–131px desktop, 192–208px phone.
+  §5j.
 - **No count on the Coming up tab** (P13). The README specifies "Coming up (with count)" and the
   mock draws a `3`. Two reasons compound. The count does not exist until the feed has been fetched
   and the feed is not fetched until the tab is opened, so it could only ever appear *after* the

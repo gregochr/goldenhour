@@ -2,7 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import WindowSpotStrip from './WindowSpotStrip.jsx';
 import WindowAttributeRow from './WindowAttributeRow.jsx';
-import { badgeChannel, CONFIDENCE_VERDICTS } from '../utils/windowFirstCards.js';
+import { badgeChannel, CONFIDENCE_VERDICTS, windowCardDomId } from '../utils/windowFirstCards.js';
 import { confidenceTreatment, daysOut, resolveConfidence, scaleRgbaAlpha } from '../utils/confidenceUtils.js';
 
 /**
@@ -167,6 +167,11 @@ export default function WindowFirstWindowCard({
 
   return (
     <div
+      // The anchor the promoted strip's "Go to …" scrolls to and focuses within. It is an id rather
+      // than a ref because the strip is not this component's parent — it is a sibling several items
+      // up the pane — and threading a ref per card through the shell to reach one of them would be
+      // a lot of plumbing for a lookup the DOM already indexes.
+      id={windowCardDomId(card.key)}
       data-testid="window-card"
       data-verdict={card.verdict}
       data-lead={card.lead ? 'true' : undefined}

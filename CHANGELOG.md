@@ -5,6 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the Plan tab points at a night when two rare things land on it
+
+Behind the window-first Plan flag, still off by default.
+
+Most nights there is nothing unusual to say. Occasionally two things land on the same shooting
+window — a king tide and an aurora, snow on the tops and a clear dawn — and that combination is the
+thing worth driving for. Until now it showed as two small pills on a card that may be four items
+down the list and collapsed. It now gets a strip at the top of the Plan tab that names the pair, says
+which window it falls on, gives one measured figure for each, and offers a button that opens that
+window's card and takes you to it.
+
+**At most one, ever, and only when there genuinely is a coincidence.** Where several nights qualify,
+the rarer combination wins and ties go to the sooner one. The cap is arithmetic rather than a rule
+anybody has to remember, and it is checked in a browser against a page carrying two coincidences —
+the previous release recorded that check as untested precisely because there was no strip to check.
+
+**What it deliberately does not do.** It draws no chart: the tide data the design's chart needs is
+not on the wire, and the curve alone would be the fourth tide chart on one screen. It states no
+count of locations. It claims no rarity beyond choosing a winner. And it makes no promise about the
+sky — a coincidence is about what is happening, not about whether the sunset will deliver, so the
+verdict stays on the window's own card one click away. Nothing is taken off that card either: its
+pills stay where they are, because the strip may well be scrolled off the top by the time you reach
+it.
+
 ### Fixed — the king tide card can say which day it is, and stops arguing with itself
 
 **Reported from the deployed app: the King tide pill claimed a tide alignment but carried no day, no
