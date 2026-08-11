@@ -5,6 +5,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the forecast-movement log was measuring the wrong thing
+
+The table that records how much a rating moves between evaluations was timing the wrong clock. It
+stored the rating change per *location*, but the elapsed time per *region* — and a region's
+locations are scored across several separate batches, so the moment the first batch landed, the
+clock reset for all of them. The second batch would then record a rating that had genuinely
+changed over a day as having changed in about a minute.
+
+That is not a rounding problem. It meant the fastest-looking entries in the table were mostly
+mislabelled slow ones, so the short intervals could not be read at all — and those are exactly the
+intervals you would consult to ask "is re-forecasting more often actually worth it?". The evidence
+used to justify the horizon-aware refresh change had to route around this by ignoring everything
+under twelve hours.
+
+Each location's result now carries the time it was written, and the elapsed time is measured
+against that. Rows also record which clock was used, because changing what a column means partway
+down a table nobody prunes would repeat the original mistake one level up. Entries cached before
+this change have no per-location time, so they fall back to the old behaviour and are marked as
+such; the diagnostic queries exclude them rather than averaging two different measurements
+together.
+
+⚠️ Worth knowing when reading it: the marked-good rows will be a thin slice at first. Every cached
+entry has to be written once more before the fallback stops appearing, so give it a few cycles
+before treating the table as a full picture.
+
 ### Fixed — tonight's forecast is now re-evaluated on the day of the event
 
 A 5★ Angel of the North sunset was evaluated at 01:05 the day before its event and never looked at

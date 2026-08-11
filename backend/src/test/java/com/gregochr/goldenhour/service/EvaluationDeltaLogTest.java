@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.gregochr.goldenhour.entity.EvaluationDeltaLogEntity;
 import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
@@ -47,7 +48,11 @@ class EvaluationDeltaLogTest {
     void setUp() {
         service = new BriefingEvaluationService(
                 cachedEvaluationRepository, deltaLogRepository,
-                new ObjectMapper(), freshnessResolver, stabilitySnapshotProvider);
+                // JavaTimeModule to match AppConfig's bean — BriefingEvaluationResult now carries
+                // an Instant, and persistToDb only WARNs on a serialisation failure, so a bare
+                // mapper would quietly skip the persistence path instead of failing.
+                new ObjectMapper().registerModule(new JavaTimeModule()),
+                freshnessResolver, stabilitySnapshotProvider);
     }
 
     @SuppressWarnings("unchecked")
@@ -224,6 +229,94 @@ class EvaluationDeltaLogTest {
             assertThat(delta.getOldRating()).isEqualTo(3);
             assertThat(delta.getNewRating()).isEqualTo(5);
             assertThat(delta.getRatingDelta().intValue()).isEqualTo(2);
+        }
+    }
+
+    @Nested
+    @DisplayName("age_hours is measured per location, not per cache key")
+    class AgeBasis {
+
+        /** Stubs a SETTLED snapshot + threshold for Bamburgh. */
+        private void settledBamburgh() {
+            when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(
+                    new StabilitySummaryResponse(Instant.now(), 1,
+                            Map.of(ForecastStability.SETTLED, 1L),
+                            List.of(new StabilitySummaryResponse.GridCellDetail(
+                                    "55.60,-1.71", 55.6, -1.71,
+                                    ForecastStability.SETTLED, "test", 3,
+                                    List.of("Bamburgh")))));
+            when(freshnessResolver.maxAgeFor(ForecastStability.SETTLED))
+                    .thenReturn(Duration.ofHours(36));
+        }
+
+        private EvaluationDeltaLogEntity captureDelta() {
+            ArgumentCaptor<EvaluationDeltaLogEntity> captor =
+                    ArgumentCaptor.forClass(EvaluationDeltaLogEntity.class);
+            verify(deltaLogRepository).save(captor.capture());
+            return captor.getValue();
+        }
+
+        /**
+         * The artefact this change exists to remove.
+         *
+         * <p>A region's slots span several batches, so by the time the second batch of a cycle
+         * lands, the cache-KEY stamp has already been reset by the first — minutes ago. The
+         * location's rating, though, is genuinely a day old. Measuring against the cache key
+         * logged a real 24h rating movement at an age of ~0h, and those rows are what made the
+         * sub-12h buckets of this table unreadable.
+         */
+        @Test
+        @DisplayName("REGRESSION: a 24h-old location in a region written 1 minute ago logs 24h, "
+                + "not 0h")
+        void ageFollowsTheLocationNotTheRegion() throws Exception {
+            String cacheKey = "North East|2026-04-24|SUNRISE";
+            Instant regionTouchedJustNow = Instant.now().minus(Duration.ofMinutes(1));
+            Instant locationScoredYesterday = Instant.now().minus(Duration.ofHours(24));
+            injectCacheEntry(cacheKey, regionTouchedJustNow,
+                    result("Bamburgh", 5).withEvaluatedAt(locationScoredYesterday));
+            settledBamburgh();
+
+            service.writeFromBatch(cacheKey, List.of(result("Bamburgh", 1)));
+
+            EvaluationDeltaLogEntity delta = captureDelta();
+            assertThat(delta.getAgeHours().doubleValue()).isBetween(23.9, 24.1);
+            assertThat(delta.getAgeBasis()).isEqualTo("LOCATION");
+            assertThat(delta.getOldEvaluatedAt()).isEqualTo(locationScoredYesterday);
+        }
+
+        @Test
+        @DisplayName("Legacy prior with no per-location stamp falls back to the region stamp and "
+                + "says so")
+        void fallsBackToRegionStampAndLabelsIt() throws Exception {
+            String cacheKey = "North East|2026-04-24|SUNRISE";
+            Instant regionStamp = Instant.now().minus(Duration.ofHours(10));
+            // result(...) uses the pre-evaluatedAt constructor, so this is exactly the shape a
+            // row cached before this change deserialises to.
+            injectCacheEntry(cacheKey, regionStamp, result("Bamburgh", 3));
+            settledBamburgh();
+
+            service.writeFromBatch(cacheKey, List.of(result("Bamburgh", 4)));
+
+            EvaluationDeltaLogEntity delta = captureDelta();
+            assertThat(delta.getAgeHours().doubleValue()).isBetween(9.9, 10.1);
+            assertThat(delta.getAgeBasis()).isEqualTo("CACHE_KEY");
+            assertThat(delta.getOldEvaluatedAt()).isEqualTo(regionStamp);
+        }
+
+        @Test
+        @DisplayName("The write path stamps results, so the next write measures against it")
+        void writePathStampsSoSubsequentWriteUsesLocationBasis() {
+            String cacheKey = "North East|2026-04-24|SUNRISE";
+            settledBamburgh();
+
+            // First write seeds the cache; no prior, so no delta row.
+            service.writeFromBatch(cacheKey, List.of(result("Bamburgh", 3)));
+            // Second write must find the stamp the first one left behind.
+            service.writeFromBatch(cacheKey, List.of(result("Bamburgh", 4)));
+
+            EvaluationDeltaLogEntity delta = captureDelta();
+            assertThat(delta.getAgeBasis()).isEqualTo("LOCATION");
+            assertThat(delta.getAgeHours().doubleValue()).isLessThan(0.1);
         }
     }
 }

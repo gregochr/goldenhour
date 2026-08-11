@@ -177,18 +177,30 @@ SELECT stability_level,
 FROM evaluation_delta_log
 WHERE logged_at >= NOW() - INTERVAL '30 days'
   AND rating_delta IS NOT NULL
-  AND age_hours >= 12
+  AND age_basis = 'LOCATION'
 GROUP BY stability_level, 2
 ORDER BY stability_level, 2;
 "
-# age_hours >= 12 is deliberate. age_hours is measured per CACHE KEY while ratings are per
-# LOCATION, and a region's slots span several batches (inland/coastal/bluebell/woodland), so the
-# second batch of an ordinary cycle logs a genuine 24h rating movement at age_hours ~ 0. The
-# sub-12h buckets are that artefact, not a noise floor. Drop the filter only to look at it.
+# age_basis = 'LOCATION' is load-bearing, not tidiness. age_hours used to be measured per CACHE
+# KEY while ratings are per LOCATION, and a region's slots span several batches
+# (inland/coastal/bluebell/woodland), so the second batch of an ordinary cycle logged a genuine
+# 24h rating movement at age_hours ~ 0. V140 measures age per location and stamps the basis;
+# CACHE_KEY and NULL rows still carry the old, under-reported quantity and must be excluded rather
+# than averaged in. Expect few LOCATION rows until every cached entry has been rewritten once.
+
+q "Q11b How much of the table is safe to aggregate yet" -c "
+SELECT coalesce(age_basis, 'NULL (pre-V140)') AS basis, count(*),
+       min(logged_at) AT TIME ZONE 'UTC' AS first_seen_utc,
+       max(logged_at) AT TIME ZONE 'UTC' AS last_seen_utc
+FROM evaluation_delta_log
+GROUP BY 1 ORDER BY 2 DESC;
+"
+# Run this before trusting Q11. If LOCATION is a thin slice, Q11 is a small sample rather than a
+# 30-day picture — the fallback stops occurring only once every cached entry has been rewritten.
 
 q "Q12 Stale refreshes that moved a star or more — the trips saved and missed" -c "
 SELECT location_name, evaluation_date, target_type, stability_level,
-       age_hours, old_rating, new_rating, rating_delta,
+       age_hours, age_basis, old_rating, new_rating, rating_delta,
        logged_at AT TIME ZONE 'UTC' AS logged_utc
 FROM evaluation_delta_log
 WHERE logged_at >= NOW() - INTERVAL '30 days'
@@ -197,5 +209,7 @@ WHERE logged_at >= NOW() - INTERVAL '30 days'
 ORDER BY rating_delta DESC, age_hours DESC
 LIMIT 40;
 "
+# age_basis is selected rather than filtered here on purpose: a >= 20h age is already too large
+# for the cache-key artefact to manufacture, so these rows are worth reading whatever their basis.
 
 printf '\n\033[1mDone.\033[0m Q2 explains one slot; Q8 and Q10 say whether it is systemic.\n'
