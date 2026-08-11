@@ -10,7 +10,9 @@ import MapView from './MapView.jsx';
  *
  * <p>P15a's slot mechanism already grows a Map tab the moment {@code App} hands the shell a
  * {@code mapPane}, and nothing about the tab bar changes here. What this component exists to settle
- * is the two things a slotted map needs that a slotted {@code ManageView} did not.
+ * is the three things a slotted map needs that a slotted {@code ManageView} did not: its own date
+ * horizon, a way to hear that its container moved, and — the one review had to find — a rule about
+ * which handoffs a pane that is <em>not on screen</em> is allowed to act on.
  *
  * <h2>It keeps its own date strip, over a different horizon from the rail</h2>
  *
@@ -35,9 +37,30 @@ import MapView from './MapView.jsx';
  *
  * <p>A {@code ResizeObserver} rather than a reveal callback from the shell: the shell would have to
  * learn that one of its panes cares about being shown, and it would still miss a resize that happens
- * while the panel is visible. Observing the box answers both, and it answers the first paint too —
- * {@code display: none} reports a zero box, so the transition to a real one fires the observer
- * without anyone having to notice the tab changed.
+ * while the panel is visible. Observing the box answers both — and the reveal comes free, because
+ * the panel's box goes from zero to real and that transition is an observation like any other.
+ *
+ * <p>The <b>hide</b> is the one that has to be ignored. It reports 0×0, and {@code invalidateSize}
+ * against a 0×0 container makes Leaflet cache that size and prune its tiles, so the map the reader
+ * comes back to is blank until the next poll corrects it. Skipping the zero box leaves Leaflet's
+ * state untouched while it is away, which is what makes the return instant rather than merely
+ * eventually right.
+ *
+ * <h2>A hidden pane must not act on a handoff nobody sent it</h2>
+ *
+ * <p>⚠️ The sharpest thing here, found by review and reproduced at 390px. Because the shell keeps
+ * this pane mounted, its {@code MapView} is alive for the rest of the session after one visit — and
+ * handing it the arm's general {@code mapHandoff}, which <em>every</em> plan-card tap sets, meant a
+ * map that is not on screen still answered. On a phone {@code MapView} answers a location handoff
+ * with a {@code BottomSheet}, and that is {@code createPortal(…, document.body)} at
+ * {@code z-index: 10000}, so {@code display: none} on the panel cannot suppress it: tapping
+ * "Open on map" on the <b>Plan</b> tab raised two stacked sheets and locked body scroll.
+ *
+ * <p>So {@code handoff} here is not {@code mapHandoff}. It is set only when the reader explicitly
+ * asks to be taken to this tab — the overlay's hatch — and every other handoff belongs to the
+ * overlay. The general rule, worth carrying to the next slotted pane: <b>a pane that is never
+ * unmounted must not be wired to state that changes while it is hidden</b>, unless acting on it
+ * while hidden is genuinely what you want.
  *
  * @param {object}   props
  * @param {Array}    props.locations       the enabled locations the map draws
