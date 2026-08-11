@@ -199,8 +199,11 @@ export default function WindowFirstShell({
   /**
    * The tabs this shell actually has, which is a function of the panes it was handed.
    *
-   * <p>Depends on whether each pane is PRESENT, not on the node itself: a parent that rebuilds its
-   * JSX on every render would otherwise rebuild this list every time and remount the bar.
+   * <p>Depends on whether each pane is PRESENT, not on the node itself, because a parent that
+   * rebuilds its JSX every render hands over new node identities every render. The memo is the
+   * right shape; what it buys is a stable array rather than a fresh one per render — it does NOT
+   * prevent a remount, which an earlier version of this comment claimed. Nothing here feeds a
+   * dependency array, and the buttons rebuild each render regardless, keyed by a stable id.
    */
   const hasMapPane = mapPane != null;
   const hasOperationsPane = operationsPane != null;
@@ -642,8 +645,15 @@ export default function WindowFirstShell({
           the selected tab while its panel is always mounted. It matters more here. Mounting
           `ManageView` eagerly would pull 633 KB and fire its waitlist and user fetches on every
           Plan-tab first paint, for a pane most sessions never open. Never unmounting after that is
-          equally deliberate — `ManageView` parses the hash at mount only, so a remount would throw
-          away whichever sub-view the reader was on. */}
+          equally deliberate — but NOT for the reason first written here. `ManageView` writes
+          `#manage/<tab>` on every sub-tab click and parses that hash on mount, so the sub-view is
+          the one thing that WOULD survive a remount. What a remount actually discards is the rest:
+          the selected run, table filters, scroll position, and a re-fired waitlist fetch.
+          ⚠️ The cost of never unmounting is real and measured: a Scheduler sub-view left open keeps
+          its 30-second poll running for the rest of the session, invisibly, after the reader has
+          gone back to Plan. v1 does not do this, because v1 unmounts. Admin-only and one interval,
+          not several — but if that is not wanted, release the pane here rather than deleting the
+          comment. */}
       {tabs.filter((t) => t.slot).map((tab) => (
         <div
           key={tab.id}
@@ -652,7 +662,13 @@ export default function WindowFirstShell({
           aria-labelledby={tabDomId(tab.id)}
           hidden={effectiveTab !== tab.id}
           data-testid={`window-first-panel-${tab.id}`}
-          className={effectiveTab === tab.id ? undefined : 'hidden'}
+          // `wf-body` on BOTH branches, exactly as the two panes above do it. Without it this panel
+          // rendered flush to the frame while its siblings sat at the arm's inset — measured 100px
+          // vs 118px at 1280 and 16px vs 30px at 390 — so the content edge jumped on every tab
+          // change, and ManageView's own group bar landed on the tab rule reading as one two-row
+          // control. That is precisely what this class was introduced to make structurally
+          // impossible, in a comment this file already carries. `gap` is inert on a block panel.
+          className={effectiveTab === tab.id ? 'wf-body' : 'wf-body hidden'}
         >
           {openedTabs.has(tab.id) ? { mapPane, operationsPane }[tab.slot] : null}
         </div>

@@ -188,6 +188,25 @@ describe('WindowFirstShell — the tab bar', () => {
       expect(screen.getByTestId('window-first-panel-operations', { hidden: true })).toHaveAttribute('hidden');
     });
 
+    // The display class, pinned. It sits one line below `hidden={effectiveTab !== tab.id}` and reads
+    // the condition the other way round, so inverting it gives a pane that is `display:none` while
+    // its `hidden` attribute says visible — a blank pane under a green suite, since jsdom parses no
+    // CSS and every other assertion here reads presence, `hidden` or aria. The Plan pane carries a
+    // dedicated pin for exactly this; the slotted panel copied the pattern without it. `wf-body` is
+    // asserted in the same breath because a panel without it renders flush to the frame while its
+    // siblings sit at the arm's inset.
+    it('carries the pane inset in both states, and the display class only when hidden', () => {
+      renderShell({}, { operationsPane: OPS });
+      const panel = () => screen.getByTestId('window-first-panel-operations', { hidden: true });
+
+      expect(panel().className).toContain('wf-body');
+      expect(panel().className).toContain('hidden');
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Operations' }));
+      expect(panel().className).toContain('wf-body');
+      expect(panel().className).not.toContain('hidden');
+    });
+
     it('pairs the new tab and panel the way the widget requires', () => {
       renderShell({}, { operationsPane: OPS });
       const t = screen.getByRole('tab', { name: 'Operations' });
