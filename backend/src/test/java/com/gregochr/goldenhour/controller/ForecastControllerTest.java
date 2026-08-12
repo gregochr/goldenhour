@@ -135,8 +135,11 @@ class ForecastControllerTest extends AbstractControllerTest {
                 .thenReturn(List.of());
         when(dtoMapper.toListDtoList(any(), anyBoolean())).thenReturn(List.of());
 
-        // The window is anchored on the UK civil date, not UTC — the two disagree between 23:00
-        // and 00:00 UTC under BST, and a UTC-based expectation here would fail for that hour.
+        // The window is anchored on the UK civil date. This expectation cannot prove that — it is
+        // the same expression the controller evaluates, against the same real clock this shared
+        // @SpringBootTest context injects, so both sides move together under any change of anchor.
+        // What it pins is the window's *width*; ForecastWindowAnchorTest pins the anchor itself,
+        // on a fixed clock, which is the only way to make that assertion capable of failing.
         LocalDate today = ForecastHorizon.today(Clock.systemUTC());
         mockMvc.perform(get("/api/forecast")).andExpect(status().isOk());
 

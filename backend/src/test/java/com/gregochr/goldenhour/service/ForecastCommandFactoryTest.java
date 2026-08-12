@@ -17,7 +17,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
@@ -268,12 +267,15 @@ class ForecastCommandFactoryTest {
         }
 
         @Test
-        @DisplayName("premise: at this instant the UK and UTC calendars are exactly one day apart")
-        void premise_theTwoCalendarsDisagreeHere() {
+        @DisplayName("premise: the anchor these cases rely on resolves to the UK date, not the UTC one")
+        void premise_theAnchorResolvesToTheUkDate() {
+            // Deliberately routed through ForecastHorizon rather than asserted on java.time
+            // directly: a premise case that only exercises the JDK cannot fail on any change to
+            // this repo, which makes it decoration. The UTC line is the contrast, and is the one
+            // value this whole nested class exists to stop the range being built on.
+            assertThat(ForecastHorizon.today(lateBstEvening)).isEqualTo(ukToday);
             assertThat(LocalDate.now(lateBstEvening.withZone(ZoneOffset.UTC)))
                     .isEqualTo(ukYesterday);
-            assertThat(LocalDate.now(lateBstEvening.withZone(ZoneId.of("Europe/London"))))
-                    .isEqualTo(ukToday);
         }
 
         @Test

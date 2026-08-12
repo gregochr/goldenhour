@@ -425,7 +425,10 @@ public class ForecastCommandExecutor {
      */
     private CloudPointCache prefetchCloudPoints(List<TaskDescriptor> tasks,
             Map<String, WeatherExtractionResult> prefetchedWeather, JobRunEntity jobRun) {
-        LocalDateTime now = LocalDateTime.now(java.time.ZoneOffset.UTC);
+        // Same injected clock as the pipeline's gate, so "single reference clock for the run" is
+        // true rather than nearly true. UTC because this instant is differenced against a UTC
+        // eventTime to work out how far cloud advects.
+        LocalDateTime now = LocalDateTime.now(clock.withZone(ZoneOffset.UTC));
         List<double[]> allPoints = new ArrayList<>();
 
         for (TaskDescriptor task : tasks) {

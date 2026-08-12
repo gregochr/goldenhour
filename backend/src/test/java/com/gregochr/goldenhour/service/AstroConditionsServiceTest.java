@@ -33,6 +33,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -393,10 +394,12 @@ class AstroConditionsServiceTest {
             LocalDateTime dusk = LocalDateTime.of(2026, 12, 21, 17, 0);
             LocalDateTime dawn = LocalDateTime.of(2026, 12, 22, 7, 0);
 
-            // 90% cloud, 2 km visibility
+            // 90% cloud, 2 km visibility. Fifteen hours, not the five the scoring maths needs:
+            // this is a 14-hour December night, and an array stopping at 21:00 on the 21st would
+            // not reach the day dawn falls on — which scoreLocation now declines to score rather
+            // than answering from the third of the night it happens to hold.
             OpenMeteoForecastResponse forecast = buildForecast(dusk, dawn,
-                    List.of(90, 90, 90, 90, 90),
-                    List.of(2000.0, 2000.0, 2000.0, 2000.0, 2000.0));
+                    Collections.nCopies(15, 90), Collections.nCopies(15, 2000.0));
 
             when(lunarCalculator.calculate(any(), anyDouble(), anyDouble()))
                     .thenReturn(lunarPosition(60, 0.95, LunarPhase.FULL_MOON));
@@ -475,6 +478,75 @@ class AstroConditionsServiceTest {
                     LocalDateTime.of(2026, 6, 22, 3, 0));
 
             assertThat(result).isEmpty();
+        }
+    }
+
+    /**
+     * A night runs from one date's dusk to the next date's dawn, so the furthest date a run covers
+     * needs hours from the day after it — and Open-Meteo's array does not always have them. The
+     * hazard is that a short array yields a <em>truncated</em> night rather than an empty one, and
+     * a truncated night scores.
+     */
+    @Nested
+    @DisplayName("Truncated night window")
+    class TruncatedNightWindowTests {
+
+        private final LocalDateTime dusk = LocalDateTime.of(2026, 6, 21, 22, 0);
+        private final LocalDateTime dawn = LocalDateTime.of(2026, 6, 22, 2, 0);
+
+        /** Stops at 23:00 on the 21st — dawn is on the 22nd, a day the array does not carry. */
+        private OpenMeteoForecastResponse arrayEndingBeforeDawnsDay() {
+            return buildForecast(dusk, dawn, List.of(10, 20), List.of(10000.0, 10000.0));
+        }
+
+        @Test
+        @DisplayName("an array that stops before dawn's day does not cover the night")
+        void arrayEndingBeforeDawnsDay_isNotWholeNight() {
+            assertThat(service.coversWholeNight(arrayEndingBeforeDawnsDay(), dawn)).isFalse();
+        }
+
+        @Test
+        @DisplayName("an array reaching dawn's day covers the night, even if it stops before dawn")
+        void arrayReachingDawnsDay_isWholeNight() {
+            // 22:00, 23:00, 00:00 — the last hour is 00:00 on the 22nd, two hours short of dawn but
+            // on its day. This is the boundary the check is deliberately loose about: the defect it
+            // guards is a whole missing day, not an array that ends an hour early.
+            OpenMeteoForecastResponse forecast = buildForecast(dusk, dawn,
+                    List.of(10, 20, 30), List.of(10000.0, 10000.0, 10000.0));
+
+            assertThat(service.coversWholeNight(forecast, dawn)).isTrue();
+        }
+
+        @Test
+        @DisplayName("an empty array does not cover the night")
+        void emptyArray_isNotWholeNight() {
+            OpenMeteoForecastResponse forecast = new OpenMeteoForecastResponse();
+            OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
+            hourly.setTime(Collections.emptyList());
+            forecast.setHourly(hourly);
+
+            assertThat(service.coversWholeNight(forecast, dawn)).isFalse();
+        }
+
+        @Test
+        @DisplayName("a truncated night is skipped, not scored on the hours that happen to exist")
+        void truncatedNight_isNotScored() {
+            // Without the guard this returns a persisted row: extractNightHours filters over
+            // whatever exists, so it yields 22:00 and 23:00 and clears the emptiness check. Two
+            // hours of a five-hour night is a wrong answer shaped like a right one — fogCapped is
+            // an allMatch over the sampled hours, so an early fog that clears would cap the night.
+            LocationEntity location = buildLocation(1L, "Kielder", 3);
+
+            AstroConditionsEntity result = service.scoreLocation(
+                    location, LocalDate.of(2026, 6, 21), dusk, dawn, Instant.now(),
+                    forecastMap(location, arrayEndingBeforeDawnsDay()));
+
+            assertThat(result).isNull();
+            // A null return alone would not prove the guard did it: with the guard deleted,
+            // scoreLocation reaches an unstubbed moon, NPEs, catches it and returns null anyway —
+            // so the test would pass either way. It was written that way first and the mutation run
+            // caught it. Bailing out *before* the moon is consulted is what only the guard does.
+            verify(lunarCalculator, never()).calculate(any(), anyDouble(), anyDouble());
         }
     }
 

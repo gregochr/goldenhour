@@ -181,6 +181,13 @@ public class AstroConditionsService {
                 return null;
             }
 
+            if (!coversWholeNight(forecast, dawn)) {
+                LOG.warn("Forecast array ends before dawn for {} on {} — night window would be"
+                        + " truncated, skipping rather than scoring part of a night",
+                        location.getName(), date);
+                return null;
+            }
+
             List<NightHour> nightHours = extractNightHours(forecast, dusk, dawn);
             if (nightHours.isEmpty()) {
                 LOG.warn("No night hours for {} on {}", location.getName(), date);
@@ -239,6 +246,39 @@ public class AstroConditionsService {
     // -------------------------------------------------------------------------
     // Night hour extraction
     // -------------------------------------------------------------------------
+
+    /**
+     * Whether the forecast's hourly array reaches the calendar day the night ends on.
+     *
+     * <p>A night runs from this date's dusk to the <em>next</em> date's dawn, so the furthest date
+     * a run covers needs hours from the day after it. Open-Meteo's array is seven days from
+     * UTC-today, and once the run's range is anchored on the UK civil date the furthest date can be
+     * UTC-today+6 — whose dawn falls on a day the array does not carry at all.
+     *
+     * <p>Deliberately a <em>day</em> test rather than an instant one. The failure mode is a whole
+     * missing day, and the post-midnight half of the night with it; an instant test would also
+     * reject an array that simply stops an hour short of a dawn it otherwise covers, which is a
+     * different and much less consequential thing.
+     *
+     * <p>This has to exist separately from {@link #extractNightHours}, which filters over whatever
+     * hours are present and so returns a <em>truncated</em> night rather than an empty one — the
+     * pre-midnight hours only. That clears the emptiness guard, and a night scored on two hours
+     * instead of five is a wrong answer wearing the shape of a right one: {@code fogCapped} is an
+     * {@code allMatch} over the sampled hours, so an early fog that cleared by midnight would cap
+     * the whole night at one star.
+     *
+     * @param forecast the location's hourly forecast
+     * @param dawn     the end of the night window (exclusive)
+     * @return {@code true} if the array extends into {@code dawn}'s calendar day
+     */
+    boolean coversWholeNight(OpenMeteoForecastResponse forecast, LocalDateTime dawn) {
+        List<String> times = forecast.getHourly().getTime();
+        if (times == null || times.isEmpty()) {
+            return false;
+        }
+        LocalDateTime lastHour = LocalDateTime.parse(times.get(times.size() - 1));
+        return !lastHour.toLocalDate().isBefore(dawn.toLocalDate());
+    }
 
     /**
      * Extracts hourly weather data falling within the night window.

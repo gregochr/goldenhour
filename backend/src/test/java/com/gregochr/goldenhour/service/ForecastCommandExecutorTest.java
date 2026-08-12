@@ -37,7 +37,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.List;
@@ -2150,12 +2149,14 @@ class ForecastCommandExecutorTest {
         }
 
         @Test
-        @DisplayName("premise: at 23:30 UTC under BST the UK is already a day ahead")
-        void premise_theTwoCalendarsDisagreeHere() {
+        @DisplayName("premise: the day the gate guards resolves to the UK date, not the UTC one")
+        void premise_theGuardedDayResolvesToTheUkDate() {
+            // Through ForecastHorizon, not java.time: an assertion with no production code on
+            // either side cannot fail on any change to this repo. The UTC line is the contrast —
+            // it is the day the gate used to guard.
+            assertThat(ForecastHorizon.today(lateBstEvening)).isEqualTo(ukToday);
             assertThat(LocalDate.now(lateBstEvening.withZone(ZoneOffset.UTC)))
                     .isEqualTo(ukYesterday);
-            assertThat(LocalDate.now(lateBstEvening.withZone(ZoneId.of("Europe/London"))))
-                    .isEqualTo(ukToday);
         }
 
         @Test
@@ -2170,8 +2171,10 @@ class ForecastCommandExecutorTest {
                     List.of(durham()), haikuStrategy, true);
             executorOn(lateBstEvening).execute(cmd);
 
-            // Consulting solarService at all is only reachable once targetDate == the gate's
-            // today, so these two verifications are the assertion that "today" is the UK's.
+            // The gate is the only path that reaches solarService here: prefetchCloudPoints also
+            // calls it, but only for a task with cached weather, and stubPrefetchedWeather is
+            // empty. So these two verifications are the assertion that "today" is the UK's — and
+            // a regression that added a second caller would show up as times(2), not as a pass.
             verify(solarService).sunriseUtc(durham().getLat(), durham().getLon(), ukToday);
             verify(solarService).sunsetUtc(durham().getLat(), durham().getLon(), ukToday);
             // 00:30 BST — neither of the day's events has happened, so both slots survive.

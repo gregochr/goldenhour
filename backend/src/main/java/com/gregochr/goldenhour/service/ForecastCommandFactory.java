@@ -106,9 +106,13 @@ public class ForecastCommandFactory {
      * Returns the default dates for the given run type.
      *
      * <p>The range is anchored on the UK civil date, not UTC: every date it produces names a solar
-     * event at a UK location, so it must be counted from the day those locations are living in. On
-     * a UTC anchor the range began on the UK's <em>yesterday</em> between 23:00 and 00:00 UTC under
-     * BST — a day whose events are all past, and which therefore cost the run its furthest day.
+     * event at a UK location, so it must be counted from the day those locations are living in.
+     * Between 23:00 and 00:00 UTC under BST a UTC anchor shifted every run type's range a day
+     * early. What that cost differs by run type, and only the first case is about a past day:
+     * VERY_SHORT_TERM and SHORT_TERM began on the UK's <em>yesterday</em>, whose events are all
+     * over and whose slots {@code ForecastCommandExecutor}'s already-past gate then dropped, so the
+     * run reached one fewer future day. LONG_TERM starts at T+3 and so never met that gate at all —
+     * it simply ran T+2…T+4 of the UK's days instead of T+3…T+5.
      *
      * @param runType the run type
      * @return list of dates

@@ -7,13 +7,15 @@ import com.gregochr.goldenhour.entity.OptimisationStrategyType;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.util.ForecastHorizon;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -40,10 +42,23 @@ class OptimisationSkipEvaluatorTest {
     @Mock
     private SolarService solarService;
 
-    @InjectMocks
     private OptimisationSkipEvaluator evaluator;
 
-    private static final LocalDate TODAY = LocalDate.now(ZoneOffset.UTC);
+    /** Production's clock. Constructed explicitly because @InjectMocks would supply a null one. */
+    private static final Clock CLOCK = Clock.systemUTC();
+
+    @BeforeEach
+    void buildEvaluator() {
+        evaluator = new OptimisationSkipEvaluator(forecastRepository, solarService, CLOCK);
+    }
+
+    /**
+     * The UK civil date — what FORCE_IMMINENT's same-day test compares a target date against, and
+     * what the target dates reaching this class are built on. Not {@code LocalDate.now(UTC)}: the
+     * two differ between 23:00 and 00:00 UTC under BST, so a UTC constant here would agree with
+     * production only while production was also wrong.
+     */
+    private static final LocalDate TODAY = ForecastHorizon.today(CLOCK);
     private static final TargetType TARGET = TargetType.SUNRISE;
 
     private static final LocationEntity LOCATION = LocationEntity.builder()

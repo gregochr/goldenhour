@@ -9,19 +9,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 Between eleven at night and midnight in summer, Britain has already turned the page on the calendar
 while the clock the app counted days from had not. A forecast run started in that hour therefore
-began a day too early: it opened on a day that was already over, quietly threw away every slot on it
-because sunrise and sunset had both long passed, and stopped a day short of where it should have
-reached. The long-range run had it worse, because nothing was there to throw anything away — it
-re-did a day the shorter runs already cover, and never reached the far end of its own forecast
-window at all.
+began a day too early: it opened on a day that was already over, discarded every slot on it because
+sunrise and sunset had both long passed, and stopped a day short of where it should have reached.
+The long-range run had it worse, because nothing was there to discard anything — it spent a day
+inside the shorter runs' territory, and never reached the far end of its own forecast window at all.
 
 Runs now count their days from the British calendar, which is the one the sunrises and sunsets they
-are forecasting actually happen on. The map's date range moved with them, so it shows what was just
+are forecasting actually happen on. The map's dates moved with them, so it shows what was just
 forecast rather than stopping a day short of it.
 
-This only ever affected runs started by hand inside that one hour, and only in British Summer Time —
-the scheduled runs never fall in it. Nothing that was already forecast was wrong; days were missed,
-not mis-scored.
+Two things travelled with that. The map draws its dates from one place and its scores from another,
+and only the first had moved — so in that same hour the furthest day could show up as a card with no
+score behind it, which the map reads not as "not scored yet" but as a night to stay home. Both now
+agree. And the stargazing scores, which need the small hours of the following morning, no longer
+guess at a night the weather data does not reach the end of; that night is left unscored instead.
+
+Runs are only ever started by hand, so the run half of this needed someone to press the button
+inside that one hour, in British Summer Time. The map half needed nothing but a map. Nothing that
+was already forecast was wrong — days were missed, not mis-scored.
 
 ## [v2.18.3] - 2026-08-12
 
