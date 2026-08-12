@@ -5,7 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Added — the next four UK eclipses, and a fix for the ones that happen at the horizon
+### Changed — pipeline run timestamps say which clock they are on, and how long ago that was
+
+Admin timestamps read like "15:00:00" with no timezone. They were always UK local and always
+correct, but the evidence sitting next to them — cron expressions, container logs, batch records —
+is stated in UTC, so reading the screen meant converting between two clocks with nothing marking
+which was which. They now name the zone: "15:00:00 BST", or GMT in winter, derived from the instant
+rather than from a rule anyone has to maintain.
+
+Naming the zone still doesn't answer the question that prompted this, though, which was *"were
+those batches sent about ninety minutes ago, or longer?"* That is an elapsed time, and no label
+supplies it. So the run's start time and each batch's submission now carry the age beside them, and
+a phase that is still running shows how long it has been running instead of a dash — the number
+that matters most on a cycle waiting for Claude, and the one that was previously invisible until
+after it stopped being interesting.
+
+The relative wording also keeps its minutes past the hour mark. It used to round, which turned
+ninety-four minutes into "2h ago" — losing precisely the distinction the question turns on.
 
 The eclipse feature knew about exactly one eclipse. After tonight it would have gone quiet for
 fifty-five years. It now carries every solar eclipse visible from Britain out to 2030 — 2 August
