@@ -71,6 +71,20 @@ import java.util.List;
  *                     out of {@link #verdict} because the hot-topic headline names the event, and
  *                     that sentence and this chart must not be able to disagree — they used to,
  *                     the headline being a count over a different table with a different window
+ * @param alignmentPhrase the alignment clause on its own — {@code "HW 09:08 · 58m after sunrise"} —
+ *                     or null when no water of this day lands in the light. <b>Non-null exactly
+ *                     when {@link #alignedEvent} is</b>, because both name the same point, and the
+ *                     two are built together from it so they cannot drift apart.
+ *                     <p>Not a duplicate of {@link #verdict}. The verdict is the chart's whole
+ *                     accessible answer and carries whatever else that day needs said — on the
+ *                     run's biggest day it opens {@code "peak range · "} and drops the clock time to
+ *                     fit a 224px column. A surface that states the range in its own chip and names
+ *                     the biggest day in its own line, as the "Coming up" feed does, would print
+ *                     that prefix as a third copy; and a clause labelled <em>alignment</em> that
+ *                     opens by talking about range is the kind of sentence this project keeps having
+ *                     to correct. So the clause exists separately rather than being recovered by
+ *                     trimming the verdict's text, which would make the verdict's punctuation
+ *                     load-bearing
  * @param peak         true on the run's biggest-range day
  * @param phrase       the editorial line for this event type, or null on an unaligned day —
  *                     the draw is only claimed when the water lands in usable light.
@@ -96,6 +110,7 @@ public record TideRunDay(
         String verdict,
         boolean aligned,
         @JsonInclude(JsonInclude.Include.NON_NULL) String alignedEvent,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String alignmentPhrase,
         @JsonInclude(JsonInclude.Include.NON_NULL) RosterAlignment roster,
         boolean peak,
         @JsonInclude(JsonInclude.Include.NON_NULL) String phrase) {
@@ -120,6 +135,7 @@ public record TideRunDay(
      * @param verdict      the plain-language alignment call
      * @param aligned      whether the useful extremum lands near a solar event
      * @param alignedEvent which solar event it aligned with, or null
+     * @param alignmentPhrase the alignment clause alone, or null
      * @param roster       the roster-wide alignment tally, or null
      * @param peak         whether this is the run's biggest-range day
      * @param phrase       the editorial line for this event type
@@ -143,6 +159,7 @@ public record TideRunDay(
             @JsonProperty("verdict") String verdict,
             @JsonProperty("aligned") boolean aligned,
             @JsonProperty("alignedEvent") String alignedEvent,
+            @JsonProperty("alignmentPhrase") String alignmentPhrase,
             @JsonProperty("roster") RosterAlignment roster,
             @JsonProperty("peak") boolean peak,
             @JsonProperty("phrase") String phrase) {
@@ -163,6 +180,7 @@ public record TideRunDay(
         this.verdict = verdict;
         this.aligned = aligned;
         this.alignedEvent = alignedEvent;
+        this.alignmentPhrase = alignmentPhrase;
         this.roster = roster;
         this.peak = peak;
         this.phrase = phrase;

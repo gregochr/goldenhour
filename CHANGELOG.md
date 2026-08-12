@@ -5,6 +5,64 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — "Coming up" was listing tide runs a day or two before the water arrived
+
+**The Plan tab carried a tide card for the Friday and Saturday and the "Coming up" tab showed
+nothing for either day.** It was not a gap in the feed. The two tabs were answering the question two
+different ways, and only one of them could see water.
+
+The Plan tab reads the heights actually stored for each coastal location and asks whether the day's
+high water clears that location's own thresholds. "Coming up" asked the moon: a date qualified when
+it fell within a day of a new or full moon. That sounds equivalent and is not. A port's biggest tide
+of the cycle arrives a day or two *after* the moon lines up — the age of the tide, a property of the
+coastline rather than of the sky — so the lunar window opened early and closed before the water got
+there. Around the August new moon it covered the Wednesday and Thursday while the roster's biggest
+water landed on the Friday and Saturday.
+
+The feed's own figures had been saying so. Both runs on screen reported their biggest day as the
+*last* day of their span, which is what a window truncated before its peak looks like.
+
+Run detection now measures the water, using the Plan tab's own two tests over the whole ninety days
+— the tide fetch horizon was already sized for exactly this. The moon keeps two jobs: it is the
+fallback for a database that cannot answer yet, where dates a day or two early beat no dates at all,
+and a perigean spring still promotes a run to a king tide.
+
+- One extra query per feed build, high waters only. Per-location thresholds are cached for the day
+  they are computed for, and a location added through the Admin UI rebuilds that cache rather than
+  going unmeasured until midnight.
+- **"Nothing was measured" and "nothing qualified" are kept apart** and a test pins it. Collapsed
+  together, a cold database renders as ninety days with no tides in them.
+- **King is not assumed to imply spring.** The two thresholds come from one sample but neither is
+  defined in terms of the other, so a location's P95 can sit either side of 125% of its mean high.
+  Testing only the spring one would drop exactly the biggest day of a run.
+
+### Fixed — a spring tide run said "alignment" over a low water two hours into the dark
+
+**The row read `alignment  peak range · LW 2h12 after sunset`.** Three things wrong in one line: it
+claimed an alignment where there was none, restated a range already in the chip above it, and put a
+low water well after sunset forward as the finding — the same "plug the low water regardless" the
+Plan tab's pills were corrected for in v2.17.11.
+
+The cause was that a whole run's alignment was taken from one arbitrary day of it: the biggest one.
+That day's verdict was published under an "alignment" label, and a verdict always reads as a
+sentence — it has an unaligned form. So a run in which no day worked said so in words that sounded
+like one that did, and a run whose *second* day landed the water perfectly reported the first day's
+miss instead.
+
+Alignment is now a question about the run, asked of the day that answers it:
+
+- The row states the alignment of the one day whose water lands in the light, and **names that day**
+  — "the tide lines up with sunrise" is not actionable without knowing which morning. The biggest
+  day wins when it aligns too; otherwise the first day that does.
+- When no day of the run lands the water in the light, the row **says so** rather than going quiet.
+  Silence would be indistinguishable from "no curve could be derived", which the feed already
+  reports its own way.
+- The clause is built beside the verdict from the same water rather than trimmed out of its text, so
+  it carries the clock time, never the "peak range" prefix, and cannot drift from the sentence the
+  Plan tab's chart states. A rewording of one is no longer able to corrupt the other.
+- The figures still describe the run's biggest day. The two questions are separate and are now
+  allowed to point at different days, which is the whole point.
+
 ### Fixed — a forecast run started late on a summer evening now covers the right days
 
 Between eleven at night and midnight in summer, Britain has already turned the page on the calendar

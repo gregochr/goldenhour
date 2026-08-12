@@ -797,6 +797,8 @@ class SpringTideHotTopicStrategyTest {
                         ? "no clear tide/sun alignment"
                         : "LW 05:44 \u00b7 7m after " + alignedEvent,
                 alignedEvent != null, alignedEvent,
+                // Non-null with alignedEvent, as the builder guarantees.
+                alignedEvent == null ? null : "LW 05:44 · 7m after " + alignedEvent,
                 new TideRunDay.RosterAlignment(
                         "sunrise".equals(alignedEvent) ? 12 : 0,
                         "sunset".equals(alignedEvent) ? 12 : 0,

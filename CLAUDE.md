@@ -308,12 +308,35 @@ its thirteen strategies ignore one — two tide strategies read a 5-day briefing
 cache, six read survivor signals the batch never writes past T+3, aurora inspects only `fromDate` and
 `fromDate+1`. It is also travel-day filtered and simulation-overridable. `AlmanacSource` is a separate
 interface whose contract is *answer for the whole range or do not exist*; five implementations cover
-tide runs, meteor peaks, supermoons, equinox/solstice and the NLC season. **The tide path is
-two-source**: `LunarPhaseService.classifyTide` supplies dates with no horizon, `TideRunBuilder`
-supplies metres and clock times bounded by stored extremes — and beyond that window the entry keeps
-its dates and carries no numbers (`AlmanacEvent.metaOf` drops anything null or blank, so the degrade
-rule is mechanical rather than per-caller). Never synthesise. ETag-revalidated; safe to share because
-it carries no per-user data.
+tide runs, meteor peaks, supermoons, equinox/solstice and the NLC season. **The tide path measures
+water, not the moon** — `TideSizeIndex` applies the Plan tab's own two tests (a day's biggest high
+water clearing that location's `springTideThreshold`, or its `p95HighMetres`, strictly greater, *any*
+coastal location — `TideFactDeriver`'s comparisons and `KingTideHotTopicStrategy.findKingTide`'s
+roster-wide rule, lifted unchanged) across the whole 90 days, then `TideRunBuilder` supplies metres
+and clock times. ⚠️ **`LunarPhaseService.classifyTide` was the detector and must not be restored as
+one.** It qualifies a date within ±1 day of syzygy and the biggest water of a cycle arrives a day or
+two *later* — the age of the tide, a property of the coastline that no epoch arithmetic recovers. In
+Aug 2026 that put the feed's run on 12–13 Aug while the roster's peak was 14–15 Aug: the Plan tab
+carried a tide card on the Friday and the feed showed nothing. The tell was already on screen — both
+runs reported their biggest day as the *last* day of their span. `classifyTide` keeps two jobs: the
+**fallback** when `Sizes.usable()` is false (a cold DB — dates a day or two early beat none, and
+`UNMEASURED` must never be rendered as "no spring tides in 90 days"), and one arm of the **king**
+label, since a perigean spring is the event the copy describes while P95 is a size test that says
+nothing about the moon. King is **not** assumed to imply spring: the two thresholds come from one
+sample but neither is defined in terms of the other. Beyond the stored-extremes window the entry
+keeps its dates and carries no numbers (`AlmanacEvent.metaOf` drops anything null or blank, so the
+degrade rule is mechanical rather than per-caller). Never synthesise. **Alignment is a question about
+the run, and is asked of a different day from the figures** — `pickAligned` takes the day whose
+`TideRunDay.alignmentPhrase` is non-null (peak day preferred, else the first that aligns) and
+publishes `alignment` + `alignmentDate`; when no day aligns it publishes the `noAlignment` flag, and
+the row says so rather than going quiet, because silence is indistinguishable from the empty-meta
+degrade. ⚠️ **Never publish `verdict` under an "alignment" label again** — the verdict has an
+*unaligned* form, so reading it always finds a sentence: taken from the biggest day it printed
+`alignment  peak range · LW 2h12 after sunset`, claiming an alignment for a low water two hours into
+the dark and restating a range already chipped above it. `alignmentPhrase` is built beside the
+verdict from the same `Point` rather than trimmed out of its text (which would make that sentence's
+punctuation load-bearing), so it keeps the clock time and never carries the `peak range · ` prefix.
+ETag-revalidated; safe to share because it carries no per-user data.
 
 ### Astro Conditions (Bearer)
 `GET /api/astro/conditions` | `GET /api/astro/conditions/available-dates`

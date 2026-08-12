@@ -604,6 +604,61 @@ class TideRunBuilderTest {
         assertThat(day.verdict()).isEqualTo("peak range · LW 3h50 after sunrise");
     }
 
+    // ── the alignment clause, which the almanac feed states on its own ────────
+
+    @Test
+    @DisplayName("the alignment clause keeps the clock time and drops the peak-range prefix")
+    void alignmentPhrase_onAPeakDay_carriesNeitherThePrefixNorLosesTheTime() {
+        // Same fixture as verdict_otherExtremumAlignedButNotCoincident, whose verdict compresses to
+        // "peak range · HW 58m after sunrise" to fit a 224px column. The "Coming up" row states the
+        // range in its own chip and names the biggest day in its own line, so that prefix would be
+        // a third copy — under a label that says "alignment".
+        stubSolar();
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
+                low("03:07", 0.4), high("09:08", 5.0)));
+        extremes.addAll(day(ID_SEAHAM, DAY_2,
+                low("03:50", 1.0), high("09:50", 4.0)));
+        stubExtremes(extremes);
+
+        TideRunDay day = builder.build(List.of(DAY_1, DAY_2), List.of(seaham()), false).get(DAY_1);
+
+        assertThat(day.verdict()).isEqualTo("peak range · HW 58m after sunrise");
+        assertThat(day.alignmentPhrase()).isEqualTo("HW 09:08 · 58m after sunrise");
+    }
+
+    @Test
+    @DisplayName("the clause names the same water the verdict does — it is built from that point, "
+            + "not recovered from that sentence")
+    void alignmentPhrase_namesTheVerdictsWater() {
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1, low("08:44", 0.4), high("14:50", 4.0)));
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
+
+        assertThat(day.verdict()).isEqualTo("LW 08:44 · 34m after sunrise");
+        assertThat(day.alignmentPhrase()).isEqualTo("LW 08:44 · 34m after sunrise");
+    }
+
+    @Test
+    @DisplayName("no water in the light means no clause at all — the invariant the almanac reads")
+    void alignmentPhrase_unalignedDay_isNull() {
+        stubSolar();
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
+                low("11:30", 0.8), high("17:40", 4.0), low("23:50", 0.8)));
+        extremes.addAll(day(ID_SEAHAM, DAY_2,
+                low("12:00", 0.4), high("18:10", 5.0), low("23:59", 0.4)));
+        stubExtremes(extremes);
+
+        TideRunDay day = builder.build(List.of(DAY_1, DAY_2), List.of(seaham()), false).get(DAY_2);
+
+        // The verdict still has a sentence — that is its job, and it is why reading it as an
+        // alignment printed a low water 3h50 out of the light as this run's finding.
+        assertThat(day.verdict()).isEqualTo("peak range · LW 3h50 after sunrise");
+        assertThat(day.alignmentPhrase()).isNull();
+        // Non-null together, always. TideAlmanacSource keys the whole distinction on this.
+        assertThat(day.alignedEvent()).isNull();
+    }
+
     @Test
     @DisplayName("a single-day run claims no peak — there is nothing to be the peak of")
     void build_singleDayRun_isNeverPeak() {

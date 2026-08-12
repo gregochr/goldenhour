@@ -17,10 +17,10 @@
  *       {@code peakDate}, {@code figuresFrom}. Somebody has to turn them into "16–18 Aug", and it
  *       cannot be the backend: the span label depends on {@code today}, which is the reader's day,
  *       not the build's.</li>
- *   <li><b>Four {@code meta} values are FLAGS, not measurements</b> — {@code washedOut},
- *       {@code partialCoverage}, {@code startsBeforeWindow}, {@code endsAfterWindow} are the
- *       literal string {@code "true"} and are never emitted as {@code "false"}. Printing one is a
- *       defect; each has to become a sentence or be dropped.</li>
+ *   <li><b>Five {@code meta} values are FLAGS, not measurements</b> — {@code washedOut},
+ *       {@code partialCoverage}, {@code startsBeforeWindow}, {@code endsAfterWindow} and
+ *       {@code noAlignment} are the literal string {@code "true"} and are never emitted as
+ *       {@code "false"}. Printing one is a defect; each has to become a sentence or be dropped.</li>
  * </ol>
  *
  * <p>What is <b>not</b> done here: no number is parsed, compared or re-formatted. {@code range} is
@@ -237,8 +237,13 @@ const strong = (text) => ({ text, tone: 'strong' });
  * <p>Ordered water first, then the light, then the sky — the sequence a reader asks them in. The
  * order is hard-coded because {@code meta}'s own key order is randomised per backend restart
  * (see this file's header); reading it from the payload would reshuffle the line on every deploy.
+ *
+ * @param {object}  meta        the entry's derived facts
+ * @param {boolean} spansOneDay whether the entry's span is a single day, which decides whether a
+ *                              date inside the span is worth naming or is a second copy of the
+ *                              dates already printed to the left
  */
-function factsFor(meta) {
+function factsFor(meta, spansOneDay) {
   const facts = [];
 
   if (meta.range) {
@@ -254,9 +259,25 @@ function factsFor(meta) {
   // two apart on the fact line as well as in the title.
   if (meta.highWater) facts.push({ segments: [base('high water '), strong(meta.highWater)] });
 
-  // No "low water"/"high water" label: the verdict string already opens with LW or HW and carries
-  // its own clock time. "alignment" names the question it answers instead of repeating its answer.
-  if (meta.verdict) facts.push({ segments: [base('alignment '), strong(meta.verdict)] });
+  // No "low water"/"high water" label: the phrase already opens with LW or HW and carries its own
+  // clock time. "alignment" names the question it answers instead of repeating its answer.
+  //
+  // The two keys are exclusive and the backend guarantees it — `alignment` is the clause for the
+  // one day of the run whose water lands in the light, `noAlignment` the flag saying no day does.
+  // They used to be one key carrying the biggest day's verdict, which always has a sentence for it,
+  // so an unaligned run read `alignment  peak range · LW 2h12 after sunset`: a claim of alignment
+  // over a range restatement over a low water two hours into the dark.
+  //
+  // The day is named because a run is several days and "the tide lines up with sunrise" is not
+  // actionable without knowing which morning. Suppressed on a one-day run, where the dates already
+  // say it — the same rule `whenNote` applies to `peakDate`.
+  if (meta.alignment) {
+    const onDay = spansOneDay || !meta.alignmentDate
+      ? '' : ` on ${dayAndMonth(meta.alignmentDate)}`;
+    facts.push({ segments: [base('alignment '), strong(`${meta.alignment}${onDay}`)] });
+  } else if (meta.noAlignment === FLAG_TRUE) {
+    facts.push({ segments: [base('alignment '), strong('none — water misses the light')] });
+  }
 
   if (meta.moonIllumination) {
     facts.push({ segments: [base('moon '), strong(meta.moonIllumination)] });
@@ -311,7 +332,7 @@ function toRow(event, todayStr) {
   // degraded state is derived from the thing that IS pinned: the absence of `meta`.
   const meta = event.meta || {};
   const clippedStart = meta.startsBeforeWindow === FLAG_TRUE;
-  const facts = factsFor(meta);
+  const facts = factsFor(meta, event.startDate === event.endDate);
   return {
     // Composite: ~6 spring-tide entries share a title and a type across one 90-day feed, and a
     // supermoon and a tide run can share a start date. Type plus both ends is unique by

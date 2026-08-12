@@ -47,6 +47,25 @@ public interface TideExtremeRepository extends JpaRepository<TideExtremeEntity, 
             Collection<Long> locationIds, LocalDateTime from, LocalDateTime to);
 
     /**
+     * Returns extremes of one type only, for several locations within a time window.
+     *
+     * <p>The type filter is not a convenience. The almanac's run detection asks a question only
+     * high waters can answer — is this day's water spring-sized or king-sized, by the same
+     * thresholds the Plan tab uses — over a window a hundred days wide and a roster sixty locations
+     * long. Pulling the lows as well doubles a result set already in the tens of thousands of rows,
+     * for data the caller would immediately discard.
+     *
+     * @param locationIds the location primary keys
+     * @param type        the extreme type to return
+     * @param from        window start (inclusive)
+     * @param to          window end (inclusive)
+     * @return chronologically ordered extremes of that type across all the given locations
+     */
+    List<TideExtremeEntity> findByLocationIdInAndTypeAndEventTimeBetweenOrderByEventTimeAsc(
+            Collection<Long> locationIds, TideExtremeType type,
+            LocalDateTime from, LocalDateTime to);
+
+    /**
      * Returns {@code true} if any tide extremes are stored for the given location.
      *
      * <p>Used at startup to decide whether a tide fetch is needed for a coastal location.

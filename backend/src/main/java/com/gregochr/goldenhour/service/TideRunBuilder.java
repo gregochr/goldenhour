@@ -390,6 +390,9 @@ public class TideRunBuilder {
                 // *this* run type came for, and that water did miss the light.
                 namedByVerdict == null
                         ? null : solarWord(namedByVerdict.minutes(), sunriseMinutes, sunsetMinutes),
+                // Built from the same point as alignedEvent, one line above, so the two are non-null
+                // together by construction rather than by a rule someone has to maintain.
+                alignmentPhrase(namedByVerdict, sunriseMinutes, sunsetMinutes),
                 roster,
                 peak,
                 // The editorial line is claimed ONLY on an aligned day. It states what the event
@@ -399,6 +402,28 @@ public class TideRunBuilder {
                 // light, so printing the draw anyway had the two lines arguing, with the more
                 // confident-sounding one wrong. Silence is the honest form of "not tonight".
                 aligned ? (king ? KING_PHRASE : SPRING_PHRASE) : null);
+    }
+
+    /**
+     * The alignment clause for the water the verdict names — {@code "HW 09:08 · 58m after sunrise"}
+     * — or null when no water lands in the light.
+     *
+     * <p>Always the same shape as {@link #verdict}'s aligned branch: label, clock time, offset. It
+     * never carries the {@code "peak range · "} prefix and never drops the clock time, because it is
+     * consumed where the range is already stated in its own chip and where a fact labelled
+     * <em>alignment</em> should open by talking about alignment. Deriving it by trimming the
+     * verdict's text was the alternative, and it would make that sentence's punctuation
+     * load-bearing — a rewording there would silently corrupt this.
+     */
+    private static String alignmentPhrase(Point point, int sunriseMinutes, int sunsetMinutes) {
+        if (point == null) {
+            return null;
+        }
+        long gap = signedGap(point.minutes(), sunriseMinutes, sunsetMinutes);
+        String word = solarWord(point.minutes(), sunriseMinutes, sunsetMinutes);
+        return (point.type() == TideExtremeType.HIGH ? "HW" : "LW")
+                + " " + TideWording.clock(point.minutes())
+                + " · " + TideWording.offsetPhrase(gap, word);
     }
 
     /**
