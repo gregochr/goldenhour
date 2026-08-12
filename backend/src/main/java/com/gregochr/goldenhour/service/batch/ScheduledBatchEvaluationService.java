@@ -612,8 +612,16 @@ public class ScheduledBatchEvaluationService {
 
         EvaluationModel model =
                 modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION);
+        // A pinned zone rather than the JVM default. ⚠️ Nothing *interprets* this date. On the
+        // batch path it reaches CustomIdFactory.forAurora (EvaluationServiceImpl.submitAurora),
+        // and the result processor discards the date it parses back out, keeping only the alert
+        // level; its other reader anywhere is taskKey() ("au/LEVEL/date"), which appears in log
+        // lines. So it is a label, and not the night selector it can look like. Do not start
+        // deriving "which night" from it: an aurora night runs dusk-to-dawn across midnight, so no
+        // calendar date names it correctly in the small hours. See
+        // docs/engineering/aurora-night-selection.md.
         EvaluationTask.Aurora task = new EvaluationTask.Aurora(
-                level, LocalDate.now(), model,
+                level, ForecastHorizon.today(clock), model,
                 triage.viable(), triage.cloudByLocation(),
                 spaceWeather, TriggerType.FORECAST_LOOKAHEAD, null);
         evaluationService.submit(List.of(task), BatchTriggerSource.SCHEDULED);

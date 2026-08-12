@@ -68,7 +68,7 @@ class AuroraOrchestratorTest {
         orchestrator = new AuroraOrchestrator(
                 noaaClient, weatherTriage,
                 stateCache, locationRepository, properties,
-                evaluationService, modelSelectionService);
+                evaluationService, modelSelectionService, java.time.Clock.systemUTC());
     }
 
     // -------------------------------------------------------------------------

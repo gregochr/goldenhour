@@ -113,8 +113,9 @@ public class ForceSubmitBatchService {
 
         EvaluationModel model = modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM);
         // UK civil date, because ForecastService measures the horizon of each of these dates on
-        // that calendar. On a UTC anchor the two disagreed for the hour before UK midnight in
-        // summer, and this range is the side that was wrong: it opened on a day already over,
+        // that calendar. On a UTC anchor the two disagreed for the hour *after* UK midnight in
+        // summer (23:00–00:00 UTC = 00:00–01:00 BST), and this range is the side that was wrong:
+        // it opened on a day already over,
         // which ForecastService then correctly labelled T-1.
         LocalDate today = ForecastHorizon.today(clock);
         List<LocalDate> dates = List.of(today, today.plusDays(1),

@@ -28,6 +28,10 @@ Runs are only ever started by hand, so the run half of this needed someone to pr
 inside that one hour, in British Summer Time. The map half needed nothing but a map. Nothing that
 was already forecast was wrong — days were missed, not mis-scored.
 
+The "Coming up" feed was counting from the same wrong calendar, so for that hour it could open on a
+day Britain had already finished — putting something that had just gone past at the top of a list of
+things still to come. It now starts on the right day, and refreshes on the right day too.
+
 The same wrong calendar was left in one more place, an admin diagnostic that submits a batch of
 forecasts on demand. In that hour a quarter of the batch went on a day that had already finished.
 Two things followed. Where those forecasts were filed for later analysis, the ones that got as far
