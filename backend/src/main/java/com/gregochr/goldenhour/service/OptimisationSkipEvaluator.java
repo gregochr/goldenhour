@@ -6,10 +6,12 @@ import com.gregochr.goldenhour.entity.OptimisationStrategyEntity;
 import com.gregochr.goldenhour.entity.OptimisationStrategyType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -42,17 +44,22 @@ public class OptimisationSkipEvaluator {
 
     private final ForecastEvaluationRepository forecastRepository;
     private final SolarService solarService;
+    private final Clock clock;
 
     /**
      * Constructs an {@code OptimisationSkipEvaluator}.
      *
      * @param forecastRepository repository for querying existing evaluations
      * @param solarService       service for calculating solar event times
+     * @param clock              supplies "today" on the UK civil calendar, via
+     *                           {@link ForecastHorizon} — the same anchor the target dates reaching
+     *                           this class are built on, so a same-day test can match one
      */
     public OptimisationSkipEvaluator(ForecastEvaluationRepository forecastRepository,
-            SolarService solarService) {
+            SolarService solarService, Clock clock) {
         this.forecastRepository = forecastRepository;
         this.solarService = solarService;
+        this.clock = clock;
     }
 
     /**
@@ -98,15 +105,21 @@ public class OptimisationSkipEvaluator {
                             locationId, targetDate, targetType);
         }
 
-        // 2. FORCE_IMMINENT — if target date is today, never skip
+        // 2. FORCE_IMMINENT — if target date is today, never skip. UK civil date, because that is
+        //    the calendar the targetDate on the other side of this equality was built on.
         if (activeTypes.contains(OptimisationStrategyType.FORCE_IMMINENT)
-                && targetDate.equals(LocalDate.now(ZoneOffset.UTC))) {
+                && targetDate.equals(ForecastHorizon.today(clock))) {
             LOG.debug("FORCE_IMMINENT active — evaluating location {} {} on {} (today)",
                     locationId, targetType, targetDate);
             return false;
         }
 
-        // 3. FORCE_STALE — if latest eval was from before today, never skip
+        // 3. FORCE_STALE — if latest eval was from before today, never skip.
+        //    ⚠️ Deliberately UTC on BOTH sides, and not moved to the UK calendar with the rest of
+        //    this class. `evalDate` is the date of a stored UTC instant, so measuring it against a
+        //    UK "today" would call an evaluation written at 23:30 UTC on a BST evening stale
+        //    thirty minutes later — its UTC date is already yesterday's. What matters here is that
+        //    the two sides share a calendar, not which one they share.
         if (activeTypes.contains(OptimisationStrategyType.FORCE_STALE) && latest.isPresent()) {
             LocalDate evalDate = latest.get().getForecastRunAt().toLocalDate();
             if (evalDate.isBefore(LocalDate.now(ZoneOffset.UTC))) {
@@ -165,7 +178,7 @@ public class OptimisationSkipEvaluator {
      */
     private boolean shouldSkipForNextEventOnly(LocationEntity location,
             LocalDate targetDate, TargetType targetType) {
-        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        LocalDateTime now = LocalDateTime.now(clock.withZone(ZoneOffset.UTC));
         double lat = location.getLat();
         double lon = location.getLon();
 
@@ -174,8 +187,10 @@ public class OptimisationSkipEvaluator {
                 ? solarService.sunriseUtc(lat, lon, targetDate)
                 : solarService.sunsetUtc(lat, lon, targetDate);
 
-        // Find the nearest upcoming event across today and tomorrow
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        // Find the nearest upcoming event across today and tomorrow. UK civil date: candidates are
+        // filtered by isAfter(now) anyway, so this only decides which two days are searched — and
+        // on a UTC anchor the first of them is entirely in the past for the hour before UK midnight.
+        LocalDate today = ForecastHorizon.today(clock);
         LocalDate tomorrow = today.plusDays(1);
         LocalDateTime nextEventTime = null;
 

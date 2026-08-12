@@ -65,7 +65,12 @@ public enum RunType {
      * past {@link #FORECAST_HORIZON_DAYS} and past Gate 4's "T+4 and beyond is never evaluated"
      * policy, so it prompt-tested horizons production never scores. This table is production's.
      *
-     * @param today the day to compute the range from (UTC)
+     * @param today the day to compute the range from. ⚠️ The two callers no longer agree on which
+     *              calendar that is: {@code ForecastCommandFactory} passes the UK civil date (see
+     *              {@code ForecastHorizon}), the prompt-test harness still passes a UTC one. They
+     *              differ only between 23:00 and 00:00 UTC under BST; §8b of
+     *              {@code docs/engineering/intraday-settled-refresh-plan.md} records why the
+     *              harness was left behind
      * @return the ordered target dates
      */
     public java.util.List<java.time.LocalDate> defaultDateRange(java.time.LocalDate today) {

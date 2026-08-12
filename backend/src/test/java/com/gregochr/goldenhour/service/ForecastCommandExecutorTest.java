@@ -23,6 +23,7 @@ import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.model.RunPhase;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -32,6 +33,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -112,6 +115,21 @@ class ForecastCommandExecutorTest {
 
     private static final int EXPECTED_CALLS_PER_DAY = 2; // SUNRISE + SUNSET
 
+    /** Production's clock, so these tests keep exercising the real calendar. */
+    private static final Clock CLOCK = Clock.systemUTC();
+
+    /**
+     * The date the executor calls "today" — the UK civil date, which is what its same-day
+     * already-past gate compares a target date against. Not {@code LocalDate.now(UTC)}: under BST
+     * those differ between 23:00 and 00:00 UTC, and a test built on the wrong one would pass for
+     * twenty-three hours a day.
+     *
+     * @return today on the UK civil calendar
+     */
+    private static LocalDate today() {
+        return ForecastHorizon.today(CLOCK);
+    }
+
     private static LocationEntity durham() {
         return LocationEntity.builder()
                 .id(1L)
@@ -147,7 +165,7 @@ class ForecastCommandExecutorTest {
                 commandFactory, Runnable::run, optimisationSkipEvaluator,
                 optimisationStrategyService, progressTracker, eventPublisher,
                 sentinelSelector, astroConditionsService, stabilityClassifier,
-                openMeteoService, stabilitySnapshotProvider);
+                openMeteoService, stabilitySnapshotProvider, CLOCK);
     }
 
     /**
@@ -232,7 +250,7 @@ class ForecastCommandExecutorTest {
         stubSolarNotPast();
         stubDefaultFetch();
         stubDefaultEval();
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         List<LocalDate> dates = List.of(today, today.plusDays(1), today.plusDays(2));
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, dates, List.of(durham()),
                 haikuStrategy, true);
@@ -264,7 +282,7 @@ class ForecastCommandExecutorTest {
         stubSolarNotPast();
         stubDefaultFetch();
         stubDefaultEval();
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         List<LocalDate> dates = List.of(today);
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, dates, List.of(durham()),
                 haikuStrategy, true);
@@ -299,7 +317,7 @@ class ForecastCommandExecutorTest {
                             loc.getName() + "|" + date + "|" + type, null);
                 });
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
                 List.of(durham()), haikuStrategy, true);
 
@@ -314,7 +332,7 @@ class ForecastCommandExecutorTest {
     @DisplayName("execute() with NoOp strategy calls forecastService with WILDLIFE model")
     void execute_wildlife_callsForecastServiceWithWildlife() {
         stubWildlifeDefaults();
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         List<LocalDate> dates = List.of(today);
 
         ForecastCommand cmd = new ForecastCommand(RunType.WEATHER, dates,
@@ -334,7 +352,7 @@ class ForecastCommandExecutorTest {
     void execute_wildlife_excludesColourLocations() {
         stubWildlifeDefaults();
         when(locationService.findAllEnabled()).thenReturn(List.of(durham(), wildlifeReserve()));
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         List<LocalDate> dates = List.of(today);
 
         ForecastCommand cmd = new ForecastCommand(RunType.WEATHER, dates,
@@ -408,7 +426,7 @@ class ForecastCommandExecutorTest {
                 .build();
         when(locationService.findAllEnabled()).thenReturn(List.of(durham(), whitley));
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         // Exclude Whitley Bay — only Durham should be processed
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
                 null, haikuStrategy, true, Set.of(), Set.of("Whitley Bay"));
@@ -458,7 +476,7 @@ class ForecastCommandExecutorTest {
                 .build();
         when(locationService.findAllEnabled()).thenReturn(List.of(durham(), whitley));
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
                 null, haikuStrategy, true, Set.of(), Set.of());
 
@@ -489,7 +507,7 @@ class ForecastCommandExecutorTest {
         stubExecuteDefaults();
         stubDefaultFetch();
         stubDefaultEval();
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         LocalDateTime twoHoursAgo = LocalDateTime.now(ZoneOffset.UTC).minusHours(2);
 
         // Sunrise happened 2 h ago — should be silently dropped before triage
@@ -524,7 +542,7 @@ class ForecastCommandExecutorTest {
         stubDefaultFetch();
         stubDefaultEval();
         // shouldSkipEvent short-circuits on targetDate != today without calling solarService
-        LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+        LocalDate tomorrow = today().plusDays(1);
 
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(tomorrow),
                 List.of(durham()), haikuStrategy, true);
@@ -556,7 +574,7 @@ class ForecastCommandExecutorTest {
         stubDefaultEval();
         // SUNRISE is excluded before shouldSkipEvent — only sunsetUtc is checked
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any())).thenReturn(LocalDateTime.MAX);
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         String excludedSlot = today + "|SUNRISE";
 
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
@@ -585,7 +603,7 @@ class ForecastCommandExecutorTest {
         stubDefaultEval();
         // SUNSET is excluded before shouldSkipEvent — only sunriseUtc is checked
         when(solarService.sunriseUtc(anyDouble(), anyDouble(), any())).thenReturn(LocalDateTime.MAX);
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         String excludedSlot = today + "|SUNSET";
 
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
@@ -615,7 +633,7 @@ class ForecastCommandExecutorTest {
     void execute_allTasksTriaged_noPersistAndNoEvaluate() {
         stubExecuteDefaults();
         stubSolarNotPast();
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         // Both SUNRISE and SUNSET come back triaged
         when(forecastService.fetchWeatherAndTriage(
                 org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
@@ -657,7 +675,7 @@ class ForecastCommandExecutorTest {
                 .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
                 .build();
         when(locationService.findAllEnabled()).thenReturn(List.of(durham(), whitley));
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
 
         // Durham triaged for both event types
         when(forecastService.fetchWeatherAndTriage(
@@ -695,7 +713,7 @@ class ForecastCommandExecutorTest {
     void execute_scheduledOptimisationSkip_persistCannedResultNeverCalled() {
         stubExecuteDefaults();
         stubSolarNotPast();
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         when(optimisationSkipEvaluator.shouldSkip(
                 org.mockito.ArgumentMatchers.anyList(),
                 org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
@@ -739,7 +757,7 @@ class ForecastCommandExecutorTest {
         stubSolarNotPast();
         stubDefaultFetch();
         stubDefaultEval();
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         List<LocalDate> dates = List.of(today);
 
         var strategies = List.of(
@@ -769,7 +787,7 @@ class ForecastCommandExecutorTest {
     void execute_scheduledRun_skipsWhenEvaluatorSaysSkip() {
         stubExecuteDefaults();
         stubSolarNotPast();
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         List<LocalDate> dates = List.of(today);
 
         when(optimisationSkipEvaluator.shouldSkip(
@@ -805,7 +823,7 @@ class ForecastCommandExecutorTest {
         stubSolarNotPast();
         stubDefaultFetch();
         stubDefaultEval();
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         List<LocalDate> dates = List.of(today);
 
         var strategies = List.of(
@@ -849,7 +867,7 @@ class ForecastCommandExecutorTest {
         stubSolarNotPast();
         stubDefaultFetch();
         stubDefaultEval();
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         List<LocalDate> dates = List.of(today);
         when(optimisationStrategyService.serialiseEnabledStrategies(RunType.SHORT_TERM))
                 .thenReturn("SKIP_LOW_RATED(3),FORCE_IMMINENT");
@@ -868,7 +886,7 @@ class ForecastCommandExecutorTest {
     @DisplayName("Wildlife run does not load optimisation strategies")
     void execute_wildlife_noStrategies() {
         stubWildlifeDefaults();
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
 
         ForecastCommand cmd = new ForecastCommand(RunType.WEATHER, List.of(today),
                 List.of(wildlifeReserve()), noOpStrategy, false);
@@ -896,7 +914,7 @@ class ForecastCommandExecutorTest {
         when(optimisationStrategyService.getEnabledStrategies(any()))
                 .thenReturn(List.of(tideAlignmentStrategy));
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
                 List.of(durham()), haikuStrategy, true);
 
@@ -917,7 +935,7 @@ class ForecastCommandExecutorTest {
         stubDefaultEval();
         when(optimisationStrategyService.getEnabledStrategies(any())).thenReturn(List.of());
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
                 List.of(durham()), haikuStrategy, true);
 
@@ -970,7 +988,7 @@ class ForecastCommandExecutorTest {
         when(forecastService.persistCannedResult(any(), any(String.class), any()))
                 .thenReturn(ForecastEvaluationEntity.builder().id(2L).rating(1).build());
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
                 List.of(sentinel, nonSentinel), haikuStrategy, true);
 
@@ -1009,7 +1027,7 @@ class ForecastCommandExecutorTest {
         when(forecastService.evaluateAndPersist(any(ForecastPreEvalResult.class), any()))
                 .thenReturn(ForecastEvaluationEntity.builder().id(1L).rating(4).build());
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
                 List.of(sentinel, nonSentinel), haikuStrategy, true);
 
@@ -1028,7 +1046,7 @@ class ForecastCommandExecutorTest {
         when(optimisationStrategyService.getEnabledStrategies(any()))
                 .thenReturn(List.of(sentinelStrategy(2)));
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
                 List.of(durham()), haikuStrategy, true);
 
@@ -1064,7 +1082,7 @@ class ForecastCommandExecutorTest {
         when(forecastService.evaluateAndPersist(any(ForecastPreEvalResult.class), any()))
                 .thenReturn(ForecastEvaluationEntity.builder().id(1L).rating(3).build());
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
                 List.of(loc1, loc2), haikuStrategy, true);
 
@@ -1111,7 +1129,7 @@ class ForecastCommandExecutorTest {
         when(forecastService.persistCannedResult(any(), any(String.class), any()))
                 .thenReturn(ForecastEvaluationEntity.builder().id(2L).rating(1).build());
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
                 List.of(sentinel, nonSentinel), haikuStrategy, true);
 
@@ -1150,7 +1168,7 @@ class ForecastCommandExecutorTest {
                 .thenAnswer(inv -> {
                     LocalDate date = inv.getArgument(1);
                     int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
-                            LocalDate.now(ZoneOffset.UTC), date);
+                            today(), date);
                     return new ForecastPreEvalResult(false, null, null,
                             loc, date, inv.getArgument(2), LocalDateTime.now(), 90,
                             daysAhead, EvaluationModel.HAIKU, loc.getTideType(),
@@ -1162,7 +1180,7 @@ class ForecastCommandExecutorTest {
                         loc.gridCellKey(), 54.75, -1.625,
                         ForecastStability.UNSETTLED, "Deep low", 0));
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                 List.of(today, today.plusDays(1), today.plusDays(2)),
                 List.of(loc), haikuStrategy, false);
@@ -1193,7 +1211,7 @@ class ForecastCommandExecutorTest {
                 .thenAnswer(inv -> {
                     LocalDate date = inv.getArgument(1);
                     int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
-                            LocalDate.now(ZoneOffset.UTC), date);
+                            today(), date);
                     return new ForecastPreEvalResult(false, null, null,
                             loc, date, inv.getArgument(2), LocalDateTime.now(), 90,
                             daysAhead, EvaluationModel.HAIKU, loc.getTideType(),
@@ -1205,7 +1223,7 @@ class ForecastCommandExecutorTest {
                         loc.gridCellKey(), 54.75, -1.625,
                         ForecastStability.SETTLED, "High pressure", 3));
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                 List.of(today, today.plusDays(1), today.plusDays(2),
                         today.plusDays(3), today.plusDays(4)),
@@ -1236,14 +1254,14 @@ class ForecastCommandExecutorTest {
                 .thenAnswer(inv -> {
                     LocalDate date = inv.getArgument(1);
                     int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
-                            LocalDate.now(ZoneOffset.UTC), date);
+                            today(), date);
                     return new ForecastPreEvalResult(false, null, null,
                             loc, date, inv.getArgument(2), LocalDateTime.now(), 90,
                             daysAhead, EvaluationModel.HAIKU, loc.getTideType(),
                             loc.getName() + "|" + date + "|" + inv.getArgument(2), null);
                 });
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                 List.of(today, today.plusDays(1), today.plusDays(2), today.plusDays(3)),
                 List.of(loc), haikuStrategy, false);
@@ -1274,7 +1292,7 @@ class ForecastCommandExecutorTest {
                 .thenAnswer(inv -> {
                     LocalDate date = inv.getArgument(1);
                     int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
-                            LocalDate.now(ZoneOffset.UTC), date);
+                            today(), date);
                     return new ForecastPreEvalResult(false, null, null,
                             loc, date, inv.getArgument(2), LocalDateTime.now(), 90,
                             daysAhead, EvaluationModel.HAIKU, loc.getTideType(),
@@ -1286,7 +1304,7 @@ class ForecastCommandExecutorTest {
                         loc.gridCellKey(), 54.75, -1.625,
                         ForecastStability.TRANSITIONAL, "Mixed signals", 1));
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                 List.of(today, today.plusDays(1), today.plusDays(2), today.plusDays(3)),
                 List.of(loc), haikuStrategy, false);
@@ -1314,7 +1332,7 @@ class ForecastCommandExecutorTest {
         stubSolarNotPast();
         stubDefaultFetch();
         stubDefaultEval();
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         List<LocalDate> dates = List.of(today, today.plusDays(1));
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, dates,
                 List.of(durham()), haikuStrategy, true);
@@ -1342,7 +1360,7 @@ class ForecastCommandExecutorTest {
                         Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
                 .build();
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
                 List.of(durham(), durham2), haikuStrategy, true);
 
@@ -1361,7 +1379,7 @@ class ForecastCommandExecutorTest {
         stubSolarNotPast();
         stubDefaultFetch();
         stubDefaultEval();
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
                 List.of(durham()), haikuStrategy, true);
 
@@ -1385,7 +1403,7 @@ class ForecastCommandExecutorTest {
         LocationEntity loc = durhamWithGrid();
         OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
         when(forecastService.fetchWeatherAndTriage(
                 any(), eq(today), any(), any(), any(), anyBoolean(), any(),
                 eq(stubPrefetchedWeather), eq(stubCloudCache)))
@@ -1423,7 +1441,7 @@ class ForecastCommandExecutorTest {
         stubSolarNotPast();
         stubDefaultEval();
         LocationEntity loc = durhamWithGrid();
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = today();
 
         // A classifiable task (grid cell + non-null response): if the manual-bypass guard
         // were removed, the filter would classify this cell — making both verifies below
@@ -1463,7 +1481,7 @@ class ForecastCommandExecutorTest {
             stubSolarNotPast();
             stubDefaultFetch();
             stubDefaultEval();
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                     List.of(today), List.of(durham()), haikuStrategy, true);
 
@@ -1493,7 +1511,7 @@ class ForecastCommandExecutorTest {
 
             JobRunEntity preCreated = new JobRunEntity();
             preCreated.setId(99L);
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                     List.of(today), List.of(durham()), haikuStrategy, true);
 
@@ -1509,7 +1527,7 @@ class ForecastCommandExecutorTest {
             stubSolarNotPast();
             stubDefaultFetch();
             stubDefaultEval();
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                     List.of(today), List.of(durham()), haikuStrategy, true);
 
@@ -1525,7 +1543,7 @@ class ForecastCommandExecutorTest {
             stubSolarNotPast();
             stubDefaultFetch();
             stubDefaultEval();
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                     List.of(today), List.of(durham()), haikuStrategy, true);
 
@@ -1538,7 +1556,7 @@ class ForecastCommandExecutorTest {
         @DisplayName("non-colour run type (WEATHER) does NOT trigger astro conditions scoring")
         void execute_nonColourRunType_noAstroScoring() {
             stubWildlifeDefaults();
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.WEATHER,
                     List.of(today), List.of(wildlifeReserve()), noOpStrategy, false);
 
@@ -1554,7 +1572,7 @@ class ForecastCommandExecutorTest {
             stubSolarNotPast();
             stubDefaultFetch();
             stubDefaultEval();
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                     List.of(today), List.of(durham()), haikuStrategy, true);
 
@@ -1578,7 +1596,7 @@ class ForecastCommandExecutorTest {
             stubSolarNotPast();
             stubDefaultFetch();
             stubDefaultEval();
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                     List.of(today), List.of(durham()), haikuStrategy, true);
 
@@ -1594,7 +1612,7 @@ class ForecastCommandExecutorTest {
             stubSolarNotPast();
             stubDefaultFetch();
             stubDefaultEval();
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                     List.of(today), List.of(durham()), haikuStrategy, true);
 
@@ -1610,7 +1628,7 @@ class ForecastCommandExecutorTest {
             stubSolarNotPast();
             stubDefaultFetch();
             stubDefaultEval();
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                     List.of(today), List.of(durham()), haikuStrategy, true);
 
@@ -1627,7 +1645,7 @@ class ForecastCommandExecutorTest {
             stubSolarNotPast();
             stubDefaultFetch();
             stubDefaultEval();
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                     List.of(today), List.of(durham()), haikuStrategy, true);
 
@@ -1657,7 +1675,7 @@ class ForecastCommandExecutorTest {
                                 loc.getName() + "|" + date + "|" + type, null);
                     });
 
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                     List.of(today), List.of(durham()), haikuStrategy, true);
 
@@ -1682,7 +1700,7 @@ class ForecastCommandExecutorTest {
                     .thenReturn(ForecastEvaluationEntity.builder().id(1L).rating(4).build())
                     .thenThrow(new RuntimeException("Claude API error"));
 
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                     List.of(today), List.of(durham()), haikuStrategy, true);
 
@@ -1723,7 +1741,7 @@ class ForecastCommandExecutorTest {
             when(sentinelSelector.selectSentinels(any()))
                     .thenReturn(List.of(sentinelLoc1, sentinelLoc2)); // both are sentinels, no remainder
 
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             when(forecastService.fetchWeatherAndTriage(
                     any(), any(), any(), any(), any(), anyBoolean(), any(),
                     eq(stubPrefetchedWeather), eq(stubCloudCache)))
@@ -1787,7 +1805,7 @@ class ForecastCommandExecutorTest {
             stubDefaultFetch();
             stubDefaultEval();
 
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                     List.of(today), List.of(durham()), haikuStrategy, true);
 
@@ -1822,7 +1840,7 @@ class ForecastCommandExecutorTest {
             when(forecastService.runForecasts(any(), any(), any(), any(), any(), any()))
                     .thenReturn(List.of(ForecastEvaluationEntity.builder().id(1L).build()));
 
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.WEATHER,
                     List.of(today), List.of(wildlifeReserve()), noOpStrategy, false);
 
@@ -1838,7 +1856,7 @@ class ForecastCommandExecutorTest {
             when(forecastService.runForecasts(any(), any(), any(), any(), any(), any()))
                     .thenReturn(List.of(ForecastEvaluationEntity.builder().id(1L).build()));
 
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.WEATHER,
                     List.of(today), List.of(wildlifeReserve()), noOpStrategy, false);
 
@@ -1855,7 +1873,7 @@ class ForecastCommandExecutorTest {
             when(forecastService.runForecasts(any(), any(), any(), any(), any(), any()))
                     .thenReturn(List.of(ForecastEvaluationEntity.builder().id(1L).build()));
 
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.WEATHER,
                     List.of(today), List.of(wildlifeReserve()), noOpStrategy, false);
 
@@ -1877,7 +1895,7 @@ class ForecastCommandExecutorTest {
             when(forecastService.runForecasts(any(), any(), any(), any(), any(), any()))
                     .thenReturn(null);
 
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.WEATHER,
                     List.of(today), List.of(wildlifeReserve()), noOpStrategy, false);
 
@@ -1895,7 +1913,7 @@ class ForecastCommandExecutorTest {
             when(forecastService.runForecasts(any(), any(), any(), any(), any(), any()))
                     .thenReturn(List.of());
 
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.WEATHER,
                     List.of(today), List.of(wildlifeReserve()), noOpStrategy, false);
 
@@ -1921,7 +1939,7 @@ class ForecastCommandExecutorTest {
             stubSolarNotPast();
             stubDefaultFetch();
             stubDefaultEval();
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                     List.of(today), List.of(durham()), haikuStrategy, true);
 
@@ -1937,7 +1955,7 @@ class ForecastCommandExecutorTest {
             stubSolarNotPast();
             stubDefaultFetch();
             stubDefaultEval();
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.VERY_SHORT_TERM,
                     List.of(today), List.of(durham()), haikuStrategy, true);
 
@@ -1953,7 +1971,7 @@ class ForecastCommandExecutorTest {
             stubSolarNotPast();
             stubDefaultFetch();
             stubDefaultEval();
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.LONG_TERM,
                     List.of(today), List.of(durham()), haikuStrategy, true);
 
@@ -1970,7 +1988,7 @@ class ForecastCommandExecutorTest {
             stubDefaultFetch();
             stubDefaultEval();
 
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDate tomorrow = today().plusDays(1);
             ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                     List.of(tomorrow), List.of(durham()), haikuStrategy, true);
 
@@ -1992,7 +2010,7 @@ class ForecastCommandExecutorTest {
             when(solarService.sunsetUtc(anyDouble(), anyDouble(), any()))
                     .thenReturn(LocalDateTime.now(ZoneOffset.UTC).minusHours(1));
 
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                     List.of(today), List.of(durham()), haikuStrategy, true);
 
@@ -2015,7 +2033,7 @@ class ForecastCommandExecutorTest {
             stubDefaultFetch();
             stubDefaultEval();
 
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                     List.of(today), List.of(durham()), haikuStrategy, true);
 
@@ -2041,7 +2059,7 @@ class ForecastCommandExecutorTest {
             stubSolarNotPast();
             LocationEntity loc = durhamWithGrid();
             OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate today = today();
             LocalDate dayAfterTomorrow = today.plusDays(2);
 
             when(forecastService.fetchWeatherAndTriage(
@@ -2068,6 +2086,156 @@ class ForecastCommandExecutorTest {
             // All 4 tasks (2 dates × 2 target types) should be evaluated
             verify(forecastService, times(4))
                     .evaluateAndPersist(any(ForecastPreEvalResult.class), any());
+        }
+    }
+
+    /**
+     * The already-past gate asks two questions that answer to different calendars: <em>is this slot
+     * today?</em>, which is a UK civil-date question because a target date names a UK solar event,
+     * and <em>has its event happened?</em>, which is an instant comparison in UTC. These cases pin
+     * both on fixed clocks — the calendar half at the one instant each day where the two calendars
+     * disagree, the instant half in daylight, where an event genuinely can be in the past.
+     */
+    @Nested
+    @DisplayName("Already-past gate — UK day, UTC instant")
+    class PastEventGateTests {
+
+        /** 00:30 on 12 August in Europe/London (BST); still 23:30 on the 11th in UTC. */
+        private final Clock lateBstEvening =
+                Clock.fixed(Instant.parse("2026-08-11T23:30:00Z"), ZoneOffset.UTC);
+
+        /** Mid-morning on the 12th — both calendars agree, isolating the instant comparison. */
+        private final Clock midMorning =
+                Clock.fixed(Instant.parse("2026-08-12T09:00:00Z"), ZoneOffset.UTC);
+
+        /** The exact instant of the stubbed sunset below, for the boundary case. */
+        private final Clock atSunsetExactly =
+                Clock.fixed(Instant.parse("2026-08-12T19:45:00Z"), ZoneOffset.UTC);
+
+        private final LocalDate ukToday = LocalDate.of(2026, 8, 12);
+        private final LocalDate ukYesterday = LocalDate.of(2026, 8, 11);
+
+        private final LocalDateTime sunriseTime = LocalDateTime.of(2026, 8, 12, 4, 45);
+        private final LocalDateTime sunsetTime = LocalDateTime.of(2026, 8, 12, 19, 45);
+
+        private ForecastCommandExecutor executorOn(Clock pinned) {
+            return new ForecastCommandExecutor(
+                    forecastService, locationService, jobRunService, solarService,
+                    commandFactory, Runnable::run, optimisationSkipEvaluator,
+                    optimisationStrategyService, progressTracker, eventPublisher,
+                    sentinelSelector, astroConditionsService, stabilityClassifier,
+                    openMeteoService, stabilitySnapshotProvider, pinned);
+        }
+
+        private void stubBothSolarEvents() {
+            when(solarService.sunriseUtc(durham().getLat(), durham().getLon(), ukToday))
+                    .thenReturn(sunriseTime);
+            when(solarService.sunsetUtc(durham().getLat(), durham().getLon(), ukToday))
+                    .thenReturn(sunsetTime);
+        }
+
+        private void verifyTriaged(LocalDate date, TargetType type) {
+            verify(forecastService).fetchWeatherAndTriage(
+                    any(LocationEntity.class), eq(date), eq(type), eq(Set.of()),
+                    eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
+                    eq(stubPrefetchedWeather), eq(stubCloudCache));
+        }
+
+        private void verifyNotTriaged(LocalDate date, TargetType type) {
+            verify(forecastService, never()).fetchWeatherAndTriage(
+                    any(LocationEntity.class), eq(date), eq(type), eq(Set.of()),
+                    eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
+                    eq(stubPrefetchedWeather), eq(stubCloudCache));
+        }
+
+        @Test
+        @DisplayName("premise: the day the gate guards resolves to the UK date, not the UTC one")
+        void premise_theGuardedDayResolvesToTheUkDate() {
+            // Through ForecastHorizon, not java.time: an assertion with no production code on
+            // either side cannot fail on any change to this repo. The UTC line is the contrast —
+            // it is the day the gate used to guard.
+            assertThat(ForecastHorizon.today(lateBstEvening)).isEqualTo(ukToday);
+            assertThat(LocalDate.now(lateBstEvening.withZone(ZoneOffset.UTC)))
+                    .isEqualTo(ukYesterday);
+        }
+
+        @Test
+        @DisplayName("in the divergent hour the gate guards the UK's today, and clears both its slots")
+        void inTheDivergentHour_gateGuardsUkToday() {
+            stubExecuteDefaults();
+            stubDefaultFetch();
+            stubDefaultEval();
+            stubBothSolarEvents();
+
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(ukToday),
+                    List.of(durham()), haikuStrategy, true);
+            executorOn(lateBstEvening).execute(cmd);
+
+            // The gate is the only path that reaches solarService here: prefetchCloudPoints also
+            // calls it, but only for a task with cached weather, and stubPrefetchedWeather is
+            // empty. So these two verifications are the assertion that "today" is the UK's — and
+            // a regression that added a second caller would show up as times(2), not as a pass.
+            verify(solarService).sunriseUtc(durham().getLat(), durham().getLon(), ukToday);
+            verify(solarService).sunsetUtc(durham().getLat(), durham().getLon(), ukToday);
+            // 00:30 BST — neither of the day's events has happened, so both slots survive.
+            verifyTriaged(ukToday, TargetType.SUNRISE);
+            verifyTriaged(ukToday, TargetType.SUNSET);
+        }
+
+        @Test
+        @DisplayName("in the divergent hour UTC's today is a past day the gate no longer guards")
+        void inTheDivergentHour_utcTodayIsNoLongerGuarded() {
+            stubExecuteDefaults();
+            stubDefaultFetch();
+            stubDefaultEval();
+
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(ukYesterday),
+                    List.of(durham()), haikuStrategy, true);
+            executorOn(lateBstEvening).execute(cmd);
+
+            // The gate has only ever guarded a single day, and it is now the UK's. No default
+            // range reaches this date any more — ForecastCommandFactory and ForecastController
+            // both anchor on the UK date — so it arrives only when an admin names it explicitly,
+            // and naming a past date is how a deliberate backfill asks for one.
+            verify(solarService, never()).sunriseUtc(anyDouble(), anyDouble(), any());
+            verify(solarService, never()).sunsetUtc(anyDouble(), anyDouble(), any());
+            verifyTriaged(ukYesterday, TargetType.SUNRISE);
+            verifyTriaged(ukYesterday, TargetType.SUNSET);
+        }
+
+        @Test
+        @DisplayName("a solar event already past is still dropped; the day's later one still runs")
+        void pastEventDropped_laterEventKept() {
+            stubExecuteDefaults();
+            stubDefaultFetch();
+            stubDefaultEval();
+            stubBothSolarEvents();
+
+            // 09:00 UTC: sunrise is four hours gone, sunset is ten hours off.
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(ukToday),
+                    List.of(durham()), haikuStrategy, true);
+            executorOn(midMorning).execute(cmd);
+
+            verifyNotTriaged(ukToday, TargetType.SUNRISE);
+            verifyTriaged(ukToday, TargetType.SUNSET);
+        }
+
+        @Test
+        @DisplayName("at the exact instant of the event it is not yet past, so the slot survives")
+        void eventAtTheCurrentInstantIsNotPast() {
+            stubExecuteDefaults();
+            stubDefaultFetch();
+            stubDefaultEval();
+            stubBothSolarEvents();
+
+            // The clock reads 19:45:00 and sunset is 19:45:00. isAfter is strict, so this slot is
+            // still live — one second later it would not be.
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(ukToday),
+                    List.of(durham()), haikuStrategy, true);
+            executorOn(atSunsetExactly).execute(cmd);
+
+            verifyTriaged(ukToday, TargetType.SUNSET);
+            verifyNotTriaged(ukToday, TargetType.SUNRISE);
         }
     }
 }

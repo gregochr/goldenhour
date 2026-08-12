@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.model.LocationEvaluationView;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -13,8 +14,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Clock;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -34,17 +35,23 @@ public class BriefingEvaluationController {
 
     private final BriefingEvaluationService evaluationService;
     private final EvaluationViewService evaluationViewService;
+    private final Clock clock;
 
     /**
      * Constructs a {@code BriefingEvaluationController}.
      *
      * @param evaluationService     the service that owns the cache and admin clear
      * @param evaluationViewService the merged evaluation view service
+     * @param clock                 supplies "today" on the UK civil calendar, via
+     *                              {@link ForecastHorizon} — the same anchor
+     *                              {@code ForecastController}'s list endpoint uses, because the
+     *                              two windows have to match
      */
     public BriefingEvaluationController(BriefingEvaluationService evaluationService,
-            EvaluationViewService evaluationViewService) {
+            EvaluationViewService evaluationViewService, Clock clock) {
         this.evaluationService = evaluationService;
         this.evaluationViewService = evaluationViewService;
+        this.clock = clock;
     }
 
     /**
@@ -59,10 +66,13 @@ public class BriefingEvaluationController {
      */
     @GetMapping("/scores")
     public ResponseEntity<List<LocationEvaluationView>> getAllScores() {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        // Deliberately the same past window as ForecastController's list endpoint. The Map's date
-        // strip derives its dates from the FORECAST payload alone, so any score this returns for a
-        // date older than that window has no chip to surface it — payload nothing can reach.
+        // Deliberately the same window as ForecastController's list endpoint — same two constants
+        // and, since both must name the same days, the same UK civil anchor. The Map's date strip
+        // derives its dates from the FORECAST payload alone, so a score returned for a date outside
+        // that window has no chip to surface it, and a chip with no score behind it reads as a
+        // stand-down rather than as absent (see frontend `standDown.js`). The two drifted apart for
+        // one hour a night when the forecast window moved to Europe/London and this did not.
+        LocalDate today = ForecastHorizon.today(clock);
         LocalDate from = today.minusDays(ForecastController.PAST_WINDOW_DAYS);
         LocalDate horizon = today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
         List<LocationEvaluationView> views = evaluationViewService.forDateRange(

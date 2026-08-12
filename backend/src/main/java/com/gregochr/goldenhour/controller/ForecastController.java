@@ -19,6 +19,7 @@ import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.RunProgressTracker;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -37,8 +38,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.time.Clock;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -74,10 +75,10 @@ public class ForecastController {
      * batch-evaluated. The strip keeps two dimmed chips instead of seven.
      *
      * <p><b>Not zero, for a timezone reason.</b> {@code computeAutoSelection} picks the initial
-     * date from the browser's <em>local</em> date, while this window and the strip's "today" are
-     * both UTC. West of UTC the local date can be a day behind, so auto-selection legitimately
-     * asks for what this endpoint calls T-1; if that date is absent the selection silently
-     * degrades to a fallback. Two days covers that with room to spare.
+     * date from the browser's <em>local</em> date, while this window is anchored on the UK civil
+     * date (see {@link ForecastHorizon}). West of the UK the local date can be a day behind, so
+     * auto-selection legitimately asks for what this endpoint calls T-1; if that date is absent
+     * the selection silently degrades to a fallback. Two days covers that with room to spare.
      *
      * <p>Anything older belongs in {@code GET /api/forecast/history}, which takes explicit
      * from/to dates and is unaffected by this bound.
@@ -94,6 +95,7 @@ public class ForecastController {
     private final JobRunService jobRunService;
     private final RunProgressTracker progressTracker;
     private final Executor forecastExecutor;
+    private final Clock clock;
 
     /**
      * Constructs a {@code ForecastController}.
@@ -108,6 +110,8 @@ public class ForecastController {
      * @param jobRunService             the service for creating job run entities
      * @param progressTracker           tracks live run progress for SSE broadcasting
      * @param forecastExecutor          the executor used for async forecast runs
+     * @param clock                     supplies "today" on the UK civil calendar, via
+     *                                  {@link ForecastHorizon}
      */
     public ForecastController(ForecastEvaluationRepository repository,
             LocationService locationService, ForecastCommandFactory commandFactory,
@@ -115,7 +119,8 @@ public class ForecastController {
             ScheduledForecastService scheduledForecastService,
             ForecastDtoMapper dtoMapper, EvaluationViewService evaluationViewService,
             JobRunService jobRunService,
-            RunProgressTracker progressTracker, Executor forecastExecutor) {
+            RunProgressTracker progressTracker, Executor forecastExecutor,
+            Clock clock) {
         this.repository = repository;
         this.locationService = locationService;
         this.commandFactory = commandFactory;
@@ -126,6 +131,7 @@ public class ForecastController {
         this.jobRunService = jobRunService;
         this.progressTracker = progressTracker;
         this.forecastExecutor = forecastExecutor;
+        this.clock = clock;
     }
 
     /**
@@ -150,7 +156,7 @@ public class ForecastController {
      */
     @GetMapping
     public List<ForecastListDto> getForecasts(Authentication auth) {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = ForecastHorizon.today(clock);
         LocalDate from = today.minusDays(PAST_WINDOW_DAYS);
         LocalDate horizon = today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
         boolean lite = isLiteUser(auth);
@@ -289,7 +295,11 @@ public class ForecastController {
                 && request.dates() != null
                 && !request.dates().isEmpty())
                 ? request.dates().stream().map(LocalDate::parse).toList()
-                : List.of(LocalDate.now(ZoneOffset.UTC));
+                // "Today" here has to be the UK's, and not only for the reason ForecastHorizon
+                // gives: ForecastCommandExecutor's already-past gate is scoped to its own notion
+                // of today, so a UTC date handed to it late on a BST evening would name a UK day
+                // the gate no longer guards — and every event on it is already over.
+                : List.of(ForecastHorizon.today(clock));
         final List<LocalDate> dates = (maxDays != null && maxDays > 0)
                 ? allDates.stream().limit(maxDays).toList()
                 : allDates;

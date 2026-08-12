@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.model.RunProgress;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,10 +25,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -134,7 +135,12 @@ class ForecastControllerTest extends AbstractControllerTest {
                 .thenReturn(List.of());
         when(dtoMapper.toListDtoList(any(), anyBoolean())).thenReturn(List.of());
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        // The window is anchored on the UK civil date. This expectation cannot prove that — it is
+        // the same expression the controller evaluates, against the same real clock this shared
+        // @SpringBootTest context injects, so both sides move together under any change of anchor.
+        // What it pins is the window's *width*; ForecastWindowAnchorTest pins the anchor itself,
+        // on a fixed clock, which is the only way to make that assertion capable of failing.
+        LocalDate today = ForecastHorizon.today(Clock.systemUTC());
         mockMvc.perform(get("/api/forecast")).andExpect(status().isOk());
 
         ArgumentCaptor<Collection<Long>> idsCaptor = ArgumentCaptor.forClass(Collection.class);
