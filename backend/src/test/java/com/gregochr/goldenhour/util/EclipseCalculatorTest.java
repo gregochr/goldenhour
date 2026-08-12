@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.model.BesselianElements;
 import com.gregochr.goldenhour.model.EclipseCircumstances;
 import com.gregochr.goldenhour.service.EclipseCatalog;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
@@ -24,11 +25,23 @@ import org.junit.jupiter.api.Test;
  */
 class EclipseCalculatorTest {
 
-    private static final BesselianElements ECLIPSE_2026 =
-            EclipseCatalog.all().get(0).elements();
+    private static final BesselianElements ECLIPSE_2026 = elementsFor(LocalDate.of(2026, 8, 12));
+    private static final BesselianElements ECLIPSE_2028 = elementsFor(LocalDate.of(2028, 1, 26));
+    private static final BesselianElements ECLIPSE_2029 = elementsFor(LocalDate.of(2029, 6, 12));
+
+    /** By date, not by list position — the catalogue has gained entries and will gain more. */
+    private static BesselianElements elementsFor(LocalDate date) {
+        return EclipseCatalog.on(date).orElseThrow().elements();
+    }
 
     /** BST is UTC+1, and every published UK figure for this eclipse is quoted in it. */
     private static final int BST_OFFSET_HOURS = 1;
+
+    private static EclipseCircumstances at(BesselianElements elements, double lat, double lon) {
+        Optional<EclipseCircumstances> result = EclipseCalculator.circumstances(elements, lat, lon);
+        assertThat(result).as("eclipse visible at %s, %s", lat, lon).isPresent();
+        return result.get();
+    }
 
     private static EclipseCircumstances at(double lat, double lon) {
         Optional<EclipseCircumstances> result =
@@ -228,6 +241,106 @@ class EclipseCalculatorTest {
             assertThat(poly.at(0.0)).isEqualTo(1.0);
             assertThat(poly.at(1.0)).isEqualTo(10.0);
             assertThat(poly.at(2.0)).isEqualTo(1 + 4 + 12 + 32);
+        }
+    }
+
+    @Nested
+    @DisplayName("The horizon clamp — greatest eclipse VISIBLE, not greatest eclipse")
+    class HorizonClamp {
+
+        @Test
+        @DisplayName("2028 over London: the peak is below the horizon, so the maximum is the sunset")
+        void clampsToSunsetWhenThePeakIsBelowTheHorizon() {
+            EclipseCircumstances c = at(ECLIPSE_2028, 51.5074, -0.1278);
+
+            // Unclamped, this eclipse peaks over London at 16:49 UT with the sun 2.4 degrees BELOW
+            // the horizon and 67% of its diameter covered — a coverage, a bearing and an altitude
+            // for an instant nobody can watch. Clamped, the reported moment is the horizon
+            // crossing: the sun setting 59% eaten, which is the picture that actually exists.
+            // -0.833, not 0: the clamp uses the same horizon `SolarService` uses for sunset
+            // (refraction plus the Sun's own semidiameter), so the clamped maximum lands exactly at
+            // the sunset the pill prints beside it. A geometric zero put them 15 minutes apart.
+            assertThat(c.sunAltitudeDeg()).isCloseTo(-0.833, within(0.01));
+            assertThat(c.magnitude()).isCloseTo(0.634, within(0.01));
+            assertThat(c.magnitude()).isLessThan(0.672);
+            assertThat(c.maximumUtc()).isEqualToIgnoringSeconds(LocalDateTime.of(2028, 1, 26, 16, 37));
+        }
+
+        @Test
+        @DisplayName("2028 over Cornwall: the sun is still up at the peak, so nothing is clamped")
+        void leavesThePeakAloneWhereTheSunIsStillUp() {
+            // The far south-west is the one part of Britain that still has the sun above the
+            // horizon at greatest eclipse, and it is therefore the deepest view anyone can
+            // actually see — which is what makes the clamp change WHICH location speaks for the
+            // topic, not merely the number it reports.
+            EclipseCircumstances c = at(ECLIPSE_2028, 50.0657, -5.7132);
+
+            assertThat(c.sunAltitudeDeg()).isGreaterThan(0.0);
+            assertThat(c.magnitude()).isCloseTo(0.658, within(0.01));
+            assertThat(c.obscuration()).isCloseTo(0.554, within(0.01));
+        }
+
+        @Test
+        @DisplayName("2028: the deepest VISIBLE view beats the deeper hidden one")
+        void theVisibleDeepestOutranksTheHiddenDeepest() {
+            double cornwall = at(ECLIPSE_2028, 50.0657, -5.7132).magnitude();
+            double london = at(ECLIPSE_2028, 51.5074, -0.1278).magnitude();
+
+            assertThat(cornwall).isGreaterThan(london);
+        }
+
+        @Test
+        @DisplayName("2029 over London: entirely below the horizon, so nothing is reported")
+        void returnsEmptyWhenTheWholeEclipseIsBelowTheHorizon() {
+            // A pre-dawn eclipse. London's sun is 4.9 degrees down at the peak and does not rise
+            // before last contact, so there is nothing to see and nothing to say.
+            assertThat(EclipseCalculator.circumstances(ECLIPSE_2029, 51.5074, -0.1278)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("2029 over Shetland: the one place the peak clears the horizon")
+        void reportsThePeakWhereItIsVisible() {
+            EclipseCircumstances c = at(ECLIPSE_2029, 60.1546, -1.1494);
+
+            assertThat(c.sunAltitudeDeg()).isGreaterThan(0.0);
+            assertThat(c.obscuration()).isCloseTo(0.191, within(0.01));
+        }
+
+        @Test
+        @DisplayName("2029 over Northumberland: only the tail of it, from sunrise")
+        void clampsToSunriseWhenThePeakIsBeforeDawn() {
+            EclipseCircumstances c = at(ECLIPSE_2029, 55.6089, -1.7188);
+
+            assertThat(c.sunAltitudeDeg()).isCloseTo(-0.833, within(0.01));
+            assertThat(c.maximumUtc()).isAfter(LocalDateTime.of(2029, 6, 12, 3, 11));
+        }
+
+        @Test
+        @DisplayName("a clamped maximum sits at the same horizon sunrise and sunset are defined at")
+        void clampsAtTheSameHorizonAsSunset() {
+            // The invariant behind SUNSET_ALTITUDE_DEG, asserted rather than left to the comment.
+            // Every clamped location must report the horizon altitude solar-utils uses (zenith
+            // 90.833), because the surfaces print this maximum next to a sunset computed there. Two
+            // definitions of "the horizon" one line apart is the contradiction this prevents.
+            for (double[] place : new double[][] {{51.5074, -0.1278}, {55.6089, -1.7188}}) {
+                EclipseCircumstances c = at(ECLIPSE_2028, place[0], place[1]);
+                assertThat(c.sunAltitudeDeg())
+                        .as("clamped altitude at %s, %s", place[0], place[1])
+                        .isCloseTo(-0.833, within(0.01));
+            }
+        }
+
+        @Test
+        @DisplayName("the clamp is inert for an eclipse the sun is up throughout")
+        void changesNothingWhenTheSunIsUpForAllOfIt() {
+            // The 2026 eclipse over London — the anchor case above, asserted again here so that a
+            // regression in the clamp shows up as a failure in the clamp's own tests rather than
+            // only in the ones about something else.
+            EclipseCircumstances c = at(ECLIPSE_2026, 51.5074, -0.1278);
+
+            assertThat(c.sunAltitudeDeg()).isCloseTo(10.2, within(0.6));
+            assertThat(bst(c, EclipseCircumstances::maximumUtc))
+                    .isEqualToIgnoringSeconds(LocalDateTime.of(2026, 8, 12, 19, 13));
         }
     }
 }

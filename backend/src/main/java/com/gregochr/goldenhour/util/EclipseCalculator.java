@@ -59,6 +59,21 @@ public final class EclipseCalculator {
     /** Bisection iterations locating each contact — converges well below a second. */
     private static final int CONTACT_REFINEMENTS = 60;
 
+    /**
+     * The Sun's geometric altitude at sunrise and sunset, in degrees — negative because the Sun is
+     * geometrically below the horizon when its upper limb appears to touch it, by roughly 34' of
+     * atmospheric refraction plus its own 16' semidiameter.
+     *
+     * <p><b>This value is not chosen here; it is copied.</b> {@code solar-utils} computes sunrise and
+     * sunset at a zenith of 90.833°, which is this altitude, and {@code SolarService} is what the
+     * eclipse surfaces call to print "sun sets 20:52". Clamping at a geometric zero instead — the
+     * obvious choice, and the one this method shipped first — put the two definitions 15 minutes
+     * apart on the 2028 eclipse: the clamped maximum came out at 16:30 while the pill's own sunset
+     * chip said 16:45, so the pill implied the eclipse peaked before sunset when in fact the Sun was
+     * still up and the eclipse still deepening. Sharing the horizon makes them agree by construction.
+     */
+    private static final double SUNSET_ALTITUDE_DEG = -0.833;
+
     private static final double SECONDS_PER_HOUR = 3600.0;
     private static final int NANOS_PER_SECOND = 1_000_000_000;
     private static final double DEGREES_PER_CIRCLE = 360.0;
@@ -68,14 +83,32 @@ public final class EclipseCalculator {
     }
 
     /**
-     * The eclipse as seen from one place, or empty when the eclipse does not reach it at all.
+     * The eclipse as seen from one place, or empty when nothing of it can be seen there.
+     *
+     * <p><b>The maximum reported is the greatest eclipse VISIBLE from here, which is not always the
+     * greatest eclipse.</b> An eclipse can peak while the Sun is below the observer's horizon: on
+     * 2028 January 26 the deepest coverage over London falls at 16:49 UT with the Sun already
+     * 2.4° set, and on 2029 June 12 the peak is before sunrise almost everywhere in Britain. Taking
+     * the astronomical maximum regardless would have this method report a coverage, a bearing and an
+     * altitude for an instant nobody can watch — and, worse, would have the roster name whichever
+     * town happened to be deepest under a set Sun as the best place to stand.
+     *
+     * <p>So the search is constrained to the interval in which the Sun is actually up — up by the
+     * same definition {@code SolarService} uses for sunset, see {@link #SUNSET_ALTITUDE_DEG}. Where that
+     * clips the peak, the reported instant is the horizon crossing: the last moment of the eclipse
+     * that is visible, which for a setting Sun is exactly the picture worth having. Where the Sun is
+     * up throughout — every UK location for the 2026 eclipse — the result is unchanged.
+     *
+     * <p>Contact times remain the TRUE astronomical contacts, not clipped. They are real events, the
+     * caller may want the eclipse's full extent, and the surfaces that print them already state the
+     * Sun's relation to sunset alongside.
      *
      * @param elements  the eclipse's published Besselian elements
      * @param latitude  observer geodetic latitude in degrees, north positive
      * @param longitude observer longitude in degrees, <b>east positive</b> — so a UK location is
      *                  negative, matching {@code LocationEntity.lon}
      * @return the local circumstances, or {@link Optional#empty()} when the Sun is never even
-     *     partly covered here
+     *     partly covered here, or is covered only while it is below the horizon
      */
     public static Optional<EclipseCircumstances> circumstances(
             BesselianElements elements, double latitude, double longitude) {
@@ -90,14 +123,73 @@ public final class EclipseCalculator {
         double firstT = bisectContact(elements, latitude, longitude, maximumT - SEARCH_SPAN_HOURS, maximumT);
         double lastT = bisectContact(elements, latitude, longitude, maximumT + SEARCH_SPAN_HOURS, maximumT);
 
+        double visibleT = visibleMaximumT(elements, latitude, longitude, firstT, lastT, maximumT);
+        if (Double.isNaN(visibleT)) {
+            return Optional.empty();
+        }
+        Separation visible = separationAt(elements, latitude, longitude, visibleT);
+
         return Optional.of(new EclipseCircumstances(
-                magnitude(atMaximum),
-                obscuration(atMaximum),
+                magnitude(visible),
+                obscuration(visible),
                 utcAt(elements, firstT),
-                utcAt(elements, maximumT),
+                utcAt(elements, visibleT),
                 utcAt(elements, lastT),
-                atMaximum.sunAltitudeDeg(),
-                atMaximum.sunAzimuthDeg()));
+                visible.sunAltitudeDeg(),
+                visible.sunAzimuthDeg()));
+    }
+
+    /**
+     * The instant of greatest coverage at which the Sun is above the horizon, or {@code NaN} when
+     * there is none.
+     *
+     * <p>Returns the astronomical maximum untouched in the ordinary case, so a location that sees
+     * the whole eclipse in daylight pays one extra altitude evaluation and nothing else.
+     *
+     * <p>Otherwise the peak is hidden and the best visible moment lies at a horizon crossing, because
+     * coverage falls away monotonically on both sides of the peak: whichever end of the visible
+     * stretch is nearer the peak is the deepest thing that can be watched. The coarse sweep finds
+     * which end that is, and the bisection puts the crossing to well under a second — the same shape
+     * as {@link #bisectContact}, on altitude rather than on separation.
+     */
+    private static double visibleMaximumT(BesselianElements elements, double latitude, double longitude,
+            double firstT, double lastT, double maximumT) {
+        if (separationAt(elements, latitude, longitude, maximumT).sunAltitudeDeg() > SUNSET_ALTITUDE_DEG) {
+            return maximumT;
+        }
+
+        double bestT = Double.NaN;
+        double bestSeparation = Double.MAX_VALUE;
+        for (double t = firstT; t <= lastT; t += COARSE_STEP_HOURS) {
+            Separation candidate = separationAt(elements, latitude, longitude, t);
+            if (candidate.sunAltitudeDeg() > SUNSET_ALTITUDE_DEG && candidate.m() < bestSeparation) {
+                bestSeparation = candidate.m();
+                bestT = t;
+            }
+        }
+        if (Double.isNaN(bestT)) {
+            return Double.NaN;
+        }
+
+        // Step toward the hidden peak until the Sun goes under, then bisect for the crossing. When
+        // that step leaves the eclipse entirely the Sun was already up at that end, so the sweep's
+        // answer is the boundary itself and there is nothing to refine.
+        double towardPeak = maximumT > bestT ? COARSE_STEP_HOURS : -COARSE_STEP_HOURS;
+        double below = bestT + towardPeak;
+        if (below < firstT || below > lastT) {
+            return bestT;
+        }
+
+        double above = bestT;
+        for (int i = 0; i < CONTACT_REFINEMENTS; i++) {
+            double mid = (above + below) / HALF;
+            if (separationAt(elements, latitude, longitude, mid).sunAltitudeDeg() > SUNSET_ALTITUDE_DEG) {
+                above = mid;
+            } else {
+                below = mid;
+            }
+        }
+        return above;
     }
 
     /**
