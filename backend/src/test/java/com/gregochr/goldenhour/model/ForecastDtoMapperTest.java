@@ -35,7 +35,6 @@ import java.time.MonthDay;
 import java.util.Optional;
 import java.util.Set;
 import java.time.ZoneOffset;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -56,6 +55,13 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class ForecastDtoMapperTest {
 
+    /**
+     * Pinned to the date most cases here forecast, so the served horizon is a value the test
+     * can state rather than recompute, and never depends on what hour the suite runs at.
+     */
+    private static final java.time.Clock TEST_CLOCK = java.time.Clock.fixed(
+            java.time.Instant.parse("2026-03-08T12:00:00Z"), java.time.ZoneOffset.UTC);
+
     @Mock
     private SolarService solarService;
 
@@ -73,7 +79,7 @@ class ForecastDtoMapperTest {
                 .thenReturn(new SolarWindow(null, null, null, null));
         mapper = new ForecastDtoMapper(new LunarPhaseService(), solarService,
                 new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"),
-                forecastScoreRepository, marineWaveRepository);
+                forecastScoreRepository, marineWaveRepository, TEST_CLOCK);
     }
 
     private static final LocationEntity LOCATION = LocationEntity.builder()
@@ -382,7 +388,7 @@ class ForecastDtoMapperTest {
         LunarPhaseService lunarSpy = spy(new LunarPhaseService());
         ForecastDtoMapper localMapper = new ForecastDtoMapper(lunarSpy, solarService,
                 new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"),
-                forecastScoreRepository, marineWaveRepository);
+                forecastScoreRepository, marineWaveRepository, TEST_CLOCK);
         LocalDate dateA = LocalDate.of(2026, 3, 8);
         LocalDate dateB = LocalDate.of(2026, 3, 9);
         ForecastEvaluationEntity a1 = lunarEntity(dateA, TargetType.SUNRISE);
@@ -602,9 +608,10 @@ class ForecastDtoMapperTest {
         assertThat(dto.tideState()).isNull();
         assertThat(dto.surgeTotalMetres()).isNull();
         assertThat(dto.inversionScore()).isNull();
-        // Daysahead derived from today and target date
-        long expectedDaysAhead = ChronoUnit.DAYS.between(LocalDate.now(ZoneOffset.UTC), date);
-        assertThat(dto.daysAhead().longValue()).isEqualTo(expectedDaysAhead);
+        // daysAhead is derived at serve time, not carried on the view. Asserted as a value
+        // rather than recomputed with the mapper's own formula, which would pass either way:
+        // the clock is pinned to this very date, so the only correct answer is T+0.
+        assertThat(dto.daysAhead()).isZero();
     }
 
     @Test

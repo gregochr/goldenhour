@@ -507,6 +507,16 @@ Inert today: the two diverge only between 23:00 and 00:00 UTC during BST, and bo
 mixes two definitions across disposition categories, so any future analysis that joins on it should
 know. Worth a follow-up that picks one zone; not worth blocking Phase 1.
 
+> **RESOLVED 2026-08-12.** The follow-up landed: every horizon derivation now routes through
+> `util/ForecastHorizon` on `Europe/London`. See §8a of `intraday-settled-refresh-plan.md` for the
+> reasoning and for what was deliberately left. Worth recording that **this paragraph was the
+> accurate account** — "the `days_ahead` column already mixes two definitions across disposition
+> categories" is exactly the defect, verified branch by branch during the fix. The successor plan
+> restated it as a row contradicting its own skip reason, which was never true, and that restatement
+> survived into a commit message before an adversarial review caught it. The lesson is narrow and
+> cheap: a claim about which *variable* reaches a *column* is checkable in one `git show`, and a
+> restatement is where it stopped being checked.
+
 ### 8.2 What the review could not check
 
 - **No production database.** Every figure in §1 was taken as given; only its interpretation was

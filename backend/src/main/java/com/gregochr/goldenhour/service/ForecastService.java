@@ -31,6 +31,7 @@ import com.gregochr.goldenhour.service.batch.BatchTriggerSource;
 import com.gregochr.goldenhour.service.evaluation.EvaluationResult;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
 import com.gregochr.goldenhour.service.notification.NotificationDispatcher;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.github.resilience4j.bulkhead.annotation.Bulkhead;
@@ -39,10 +40,10 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -73,6 +74,7 @@ public class ForecastService {
     private final TideAlignmentEvaluator tideAlignmentEvaluator;
     private final com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter
             survivorAtmosphereWriter;
+    private final Clock clock;
 
     /**
      * Constructs a {@code ForecastService} with all required dependencies.
@@ -89,6 +91,8 @@ public class ForecastService {
      * @param weatherTriageEvaluator  heuristic triage evaluator for skipping unsuitable conditions
      * @param tideAlignmentEvaluator  pre-Claude triage evaluator for tide misalignment at SEASCAPE locations
      * @param survivorAtmosphereWriter writes survivor atmospheric readings to the survivor surface
+     * @param clock                   supplies "today" for the {@code daysAhead} horizon, resolved in
+     *                                {@code Europe/London} by {@link ForecastHorizon}
      */
     public ForecastService(SolarService solarService, OpenMeteoService openMeteoService,
             ForecastDataAugmentor augmentor, EvaluationService evaluationService,
@@ -98,7 +102,8 @@ public class ForecastService {
             ApplicationEventPublisher eventPublisher, WeatherTriageEvaluator weatherTriageEvaluator,
             TideAlignmentEvaluator tideAlignmentEvaluator,
             com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter
-                    survivorAtmosphereWriter) {
+                    survivorAtmosphereWriter,
+            Clock clock) {
         this.solarService = solarService;
         this.openMeteoService = openMeteoService;
         this.augmentor = augmentor;
@@ -110,6 +115,7 @@ public class ForecastService {
         this.weatherTriageEvaluator = weatherTriageEvaluator;
         this.tideAlignmentEvaluator = tideAlignmentEvaluator;
         this.survivorAtmosphereWriter = survivorAtmosphereWriter;
+        this.clock = clock;
     }
 
     /**
@@ -135,8 +141,7 @@ public class ForecastService {
         double lon = location.getLon();
         Long locationId = location.getId();
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        int daysAhead = (int) ChronoUnit.DAYS.between(today, date);
+        int daysAhead = ForecastHorizon.daysAhead(date, clock);
 
         if (model == EvaluationModel.WILDLIFE) {
             return runWildlifeHourly(location, date, daysAhead, tideTypes, jobRun);
@@ -287,8 +292,7 @@ public class ForecastService {
         double lon = location.getLon();
         Long locationId = location.getId();
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        int daysAhead = (int) ChronoUnit.DAYS.between(today, date);
+        int daysAhead = ForecastHorizon.daysAhead(date, clock);
         String taskKey = locationName + "|" + date + "|" + targetType;
         Long runId = jobRun != null ? jobRun.getId() : null;
 

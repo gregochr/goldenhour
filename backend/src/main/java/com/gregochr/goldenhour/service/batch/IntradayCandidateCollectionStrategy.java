@@ -1,10 +1,10 @@
 package com.gregochr.goldenhour.service.batch;
 
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 
 import java.time.Clock;
 import java.time.LocalDate;
-import java.time.ZoneId;
 
 /**
  * Candidate-collection strategy for the {@code INTRADAY} refresh cycle: the
@@ -35,8 +35,6 @@ import java.time.ZoneId;
  */
 public final class IntradayCandidateCollectionStrategy implements CandidateCollectionStrategy {
 
-    private static final ZoneId LONDON = ZoneId.of("Europe/London");
-
     private final LocalDate today;
 
     /**
@@ -47,7 +45,7 @@ public final class IntradayCandidateCollectionStrategy implements CandidateColle
      *              {@code Europe/London} to derive the reference date
      */
     public IntradayCandidateCollectionStrategy(Clock clock) {
-        this.today = LocalDate.now(clock.withZone(LONDON));
+        this.today = ForecastHorizon.today(clock);
     }
 
     @Override
