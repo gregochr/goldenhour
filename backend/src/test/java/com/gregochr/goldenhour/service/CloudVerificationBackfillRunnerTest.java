@@ -153,19 +153,19 @@ class CloudVerificationBackfillRunnerTest {
     }
 
     @Test
-    @DisplayName("start clears blank rows first so a throttled run heals itself")
+    @DisplayName("start clears incomplete rows first so a throttled run heals itself")
     void start_clearsBlankRowsBeforeRunning() {
         when(verificationService.backfill(anyInt())).thenReturn(BackfillBatch.EMPTY);
 
         runner.start();
 
-        verify(verificationService).clearBlankVerifications();
+        verify(verificationService).clearIncompleteVerifications();
     }
 
     @Test
-    @DisplayName("a failing blank-clear does not prevent the run from starting")
+    @DisplayName("a failing incomplete-clear does not prevent the run from starting")
     void start_clearFailure_stillRuns() {
-        when(verificationService.clearBlankVerifications())
+        when(verificationService.clearIncompleteVerifications())
                 .thenThrow(new RuntimeException("db busy"));
         when(verificationService.backfill(anyInt())).thenReturn(BackfillBatch.EMPTY);
 
@@ -190,13 +190,13 @@ class CloudVerificationBackfillRunnerTest {
     }
 
     @Test
-    @DisplayName("a scheduled tick clears blanks first, so a throttled tick heals on the next one")
+    @DisplayName("a scheduled tick clears incomplete rows first, so a throttled tick heals on the next one")
     void runScheduled_clearsBlanksFirst() {
         when(verificationService.backfill(anyInt())).thenReturn(BackfillBatch.EMPTY);
 
         runner.runScheduled();
 
-        verify(verificationService).clearBlankVerifications();
+        verify(verificationService).clearIncompleteVerifications();
     }
 
     @Test

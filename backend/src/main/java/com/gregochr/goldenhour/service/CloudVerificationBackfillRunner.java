@@ -47,10 +47,11 @@ public class CloudVerificationBackfillRunner {
      * Batches attempted per scheduled tick.
      *
      * <p>Sized to sit inside Open-Meteo's hourly allowance rather than to finish quickly. Each
-     * batch is 100 evaluations at four sample points, chunked 20 to a request — about 20 requests.
-     * A dozen batches is therefore ~240 requests an hour, which walks ~25k evaluations down over
-     * roughly a day unattended. Overshooting is not harmful (a throttled batch stops the tick and
-     * is cleared on the next one), but it wastes an hour's progress, so this errs low.
+     * batch is 100 evaluations at five sample points (cone ×3, observer, far-solar), chunked 20
+     * to a request — about 25 requests. A dozen batches is therefore ~300 requests an hour, which
+     * walks ~25k evaluations down over roughly a day unattended. Overshooting is not harmful (a
+     * throttled batch stops the tick and is cleared on the next one), but it wastes an hour's
+     * progress, so this errs low.
      */
     static final int SCHEDULED_BATCHES_PER_RUN = 12;
 
@@ -89,7 +90,7 @@ public class CloudVerificationBackfillRunner {
      * One scheduled tick: works a bounded slice of the backlog, then yields until the next hour.
      *
      * <p>Exists because the backlog cannot be drained in a single pass. Roughly 25,000 evaluations
-     * at four archive points each is ~5,000 requests — far beyond an hour's allowance — so an
+     * at five archive points each is ~6,250 requests — far beyond an hour's allowance — so an
      * unbounded run simply burns the quota, hits a blank batch and stops. Ticking hourly turns that
      * into steady unattended progress instead of something a person has to sit and re-trigger.
      *
@@ -102,9 +103,10 @@ public class CloudVerificationBackfillRunner {
             return;
         }
         try {
-            verificationService.clearBlankVerifications();
+            verificationService.clearIncompleteVerifications();
         } catch (Exception e) {
-            LOG.warn("[CLOUD VERIFY] could not clear blank rows before tick: {}", e.getMessage());
+            LOG.warn("[CLOUD VERIFY] could not clear incomplete rows before tick: {}",
+                    e.getMessage());
         }
         status.set(BackfillStatus.started(LocalDateTime.now(clock), remainingOrNull()));
         runBounded(SCHEDULED_BATCHES_PER_RUN);
@@ -132,12 +134,13 @@ public class CloudVerificationBackfillRunner {
         if (!running.compareAndSet(false, true)) {
             return false;
         }
-        // Clear blanks first so a previously throttled run heals itself rather than leaving
-        // those evaluations permanently masked by the anti-join.
+        // Clear incomplete rows first so a previously throttled run heals itself rather than
+        // leaving those evaluations permanently masked by the anti-join.
         try {
-            verificationService.clearBlankVerifications();
+            verificationService.clearIncompleteVerifications();
         } catch (Exception e) {
-            LOG.warn("[CLOUD VERIFY] could not clear blank rows before run: {}", e.getMessage());
+            LOG.warn("[CLOUD VERIFY] could not clear incomplete rows before run: {}",
+                    e.getMessage());
         }
         status.set(BackfillStatus.started(LocalDateTime.now(clock), remainingOrNull()));
         run();

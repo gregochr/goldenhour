@@ -28,6 +28,11 @@ import java.util.List;
  * @param meanForecastGapLow  mean forecast solar-horizon low cloud (%)
  * @param meanObservedGapLow  mean reanalysis solar-horizon low cloud (%) — compare between
  *                            buckets, never against an absolute threshold
+ * @param meanConeSpread      mean analysed cone spread (max − min low cloud, pp) — reanalysis-
+ *                            internal, so offset-immune
+ * @param meanFarDrop         mean analysed near-minus-far low cloud (pp) — reanalysis-internal,
+ *                            so offset-immune
+ * @param meanFarError        signed mean of (forecast − observed) far-solar low cloud
  */
 public record CloudVerificationBucket(
         String key,
@@ -36,7 +41,10 @@ public record CloudVerificationBucket(
         Double meanAbsGapError,
         Double meanCanvasError,
         Double meanForecastGapLow,
-        Double meanObservedGapLow) {
+        Double meanObservedGapLow,
+        Double meanConeSpread,
+        Double meanFarDrop,
+        Double meanFarError) {
 
     /** Decimal places retained on reported errors. */
     private static final double ROUNDING_SCALE = 100.0;
@@ -50,7 +58,8 @@ public record CloudVerificationBucket(
      */
     public static CloudVerificationBucket of(String key, List<CloudVerificationPair> pairs) {
         if (pairs == null || pairs.isEmpty()) {
-            return new CloudVerificationBucket(key, 0, null, null, null, null, null);
+            return new CloudVerificationBucket(key, 0, null, null, null, null, null,
+                    null, null, null);
         }
 
         int gapSum = 0;
@@ -62,6 +71,12 @@ public record CloudVerificationBucket(
         int forecastCount = 0;
         int observedSum = 0;
         int observedCount = 0;
+        int spreadSum = 0;
+        int spreadCount = 0;
+        int farDropSum = 0;
+        int farDropCount = 0;
+        int farErrorSum = 0;
+        int farErrorCount = 0;
 
         for (CloudVerificationPair pair : pairs) {
             Integer gapError = pair.gapError();
@@ -83,6 +98,21 @@ public record CloudVerificationBucket(
                 observedSum += pair.observedGapLow();
                 observedCount++;
             }
+            Integer coneSpread = pair.coneSpread();
+            if (coneSpread != null) {
+                spreadSum += coneSpread;
+                spreadCount++;
+            }
+            Integer farDrop = pair.farDrop();
+            if (farDrop != null) {
+                farDropSum += farDrop;
+                farDropCount++;
+            }
+            Integer farError = pair.farError();
+            if (farError != null) {
+                farErrorSum += farError;
+                farErrorCount++;
+            }
         }
 
         return new CloudVerificationBucket(
@@ -92,7 +122,10 @@ public record CloudVerificationBucket(
                 gapCount == 0 ? null : round((double) gapAbsSum / gapCount),
                 canvasCount == 0 ? null : round((double) canvasSum / canvasCount),
                 forecastCount == 0 ? null : round((double) forecastSum / forecastCount),
-                observedCount == 0 ? null : round((double) observedSum / observedCount));
+                observedCount == 0 ? null : round((double) observedSum / observedCount),
+                spreadCount == 0 ? null : round((double) spreadSum / spreadCount),
+                farDropCount == 0 ? null : round((double) farDropSum / farDropCount),
+                farErrorCount == 0 ? null : round((double) farErrorSum / farErrorCount));
     }
 
     /**

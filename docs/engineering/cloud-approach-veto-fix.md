@@ -289,3 +289,50 @@ the user before anything is re-baselined.
 Optionally set temperature explicitly to 0 on the scoring calls at the same time. It is one line and
 removes a needless degree of freedom — but the harness data says it is *not* the cause of this failure,
 so it should not be sold as the fix.
+
+## 8. Measurement pass — cone structure and the far corridor (2026-08-12)
+
+The reanalysis verification (§6's successor, `GET /api/admin/cloud-verification`) originally
+scored the two claims a forecast *makes*: the gap and the canvas. It now also measures what the
+forecast's own persistence throws away, so two standing questions about the sampling geometry can
+be answered from data rather than argued from √(2Rh):
+
+- **Cone aggregation (V142 `horizon_low_min`/`horizon_low_max`).** `OpenMeteoService` averages the
+  three cone bearings before anything downstream sees them, and the prompt thresholds (>60 blocked,
+  40–60 partial, <20 clear) run on that mean — so a uniform 60% deck and a 90/0/90 wall-with-gap
+  score identically, though they are very different sunsets. `byConeStructure` buckets every
+  verified pair by the *analysed* spread (uniform <20pp / mixed 20–39 / gapped ≥40) and carries the
+  usual error stats, so "does gap error blow up exactly where the mean hides structure?" is now a
+  report read, not a hypothesis.
+- **Canvas-height blocking distance (V142 `far_low_cloud`).** 113 km is where a horizon-grazing ray
+  crosses 1 km altitude — correct for a *mid-level* canvas. A ray underlighting an 8 km cirrus
+  canvas grazes low-cloud altitude 206–432 km out; the 226 km far-solar point (already fetched for
+  strip-vs-blanket) sits in that corridor, but was never verified and never persisted by this
+  table. `byCorridor` buckets by near-minus-far divergence at ±30pp (the same threshold the
+  production strip-vs-blanket rule uses) with `&highCanvas` sub-buckets. `farClearer&highCanvas`
+  counts the over-pessimism candidates (gate reads blocked, cirrus corridor open — the hard-ceiling
+  rule wrongly kills these); `farCloudier&highCanvas` counts the **false-optimism case no current
+  rule covers** (gate reads clear, cirrus corridor blanketed, "ideal scenario" fires). The
+  forecast's own 226 km claim gets its first accuracy figure (`meanFarError`).
+
+Both new statistics are reanalysis-internal comparisons (spread across bearings; near vs far), so
+the ~25pp horizon baseline offset that invalidated absolute-threshold readings cancels by
+construction. High-canvas dominance is likewise a within-reanalysis layer comparison
+(`observedCanvasHigh > observedCanvasMid`, strict so an empty sky never counts).
+
+**Mechanics.** The backfill samples five archive points per evaluation (cone ×3, observer,
+far-solar — ~25% more requests; the hourly tick budget comment in
+`CloudVerificationBackfillRunner` was updated). The self-healing rule was broadened from "rows with
+no observations" to "rows missing any observation the current sampling records"
+(`deleteIncompleteVerifications`), which deliberately returns every pre-upgrade row to the
+candidate pool on the first post-deploy run: the old rows kept only the cone mean and cannot answer
+either question. Expect the report to be sparse for roughly a day while the hourly ticks re-walk
+the backlog, exactly like the original backfill.
+
+**How to read it against the fix list above:** if `gapped(>=40)` is rare, the mean is an adequate
+aggregate and no forecast-side change is warranted; if it is common and gap error concentrates
+there, min/centre/max should be surfaced to the scorer (a `DirectionalCloudData` + prompt change).
+If `farCloudier&highCanvas` is non-trivial, the "ideal scenario" rule needs a far-corridor guard —
+which, unlike relaxing the veto, *cannot* be gated on `missedOpportunities` (it would create
+wasted trips instead), so it should be sized here first. Neither change should land before this
+report has a re-verified window behind it.

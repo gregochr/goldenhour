@@ -40,6 +40,14 @@ import java.time.LocalDate;
  * @param upwindDistanceKm      how far upwind the sample was taken, or {@code null}
  * @param windDirection         wind-from bearing in degrees, or {@code null}
  * @param azimuthDeg            solar azimuth in degrees, or {@code null}
+ * @param forecastFarLow        predicted low cloud at the 226 km far-solar point (%), or
+ *                              {@code null}
+ * @param observedGapLowMin     lowest analysed low cloud across the cone bearings (%), or
+ *                              {@code null}
+ * @param observedGapLowMax     highest analysed low cloud across the cone bearings (%), or
+ *                              {@code null}
+ * @param observedFarLow        analysed low cloud at the 226 km far-solar point (%), or
+ *                              {@code null}
  */
 public record CloudVerificationPair(
         String locationName,
@@ -57,7 +65,11 @@ public record CloudVerificationPair(
         Integer upwindCurrentLowCloud,
         Integer upwindDistanceKm,
         Integer windDirection,
-        Integer azimuthDeg) {
+        Integer azimuthDeg,
+        Integer forecastFarLow,
+        Integer observedGapLowMin,
+        Integer observedGapLowMax,
+        Integer observedFarLow) {
 
     /** Upwind low cloud (%) at or above which the veto's second trigger is satisfied. */
     private static final int UPWIND_TRIGGER_PERCENT = 60;
@@ -157,5 +169,72 @@ public record CloudVerificationPair(
             return null;
         }
         return Math.max(mid, high);
+    }
+
+    /**
+     * Returns the analysed cone's low-cloud spread — the structure a 3-point mean cannot carry.
+     *
+     * <p>Near zero means the horizon really was uniform and the mean described it faithfully; a
+     * large spread means one bearing was clear while another was blocked (a wall with a gap),
+     * which the forecast's persisted mean renders identically to a uniform mid-level deck.
+     * Computed within one reanalysis baseline, so the forecast-vs-reanalysis offset cancels.
+     *
+     * @return max minus min analysed cone low cloud, or {@code null} if the extremes are missing
+     */
+    public Integer coneSpread() {
+        if (observedGapLowMin == null || observedGapLowMax == null) {
+            return null;
+        }
+        return observedGapLowMax - observedGapLowMin;
+    }
+
+    /**
+     * Returns how much the analysed low cloud drops from the 113 km point to the 226 km point.
+     *
+     * <p>Positive means the corridor clears with distance (a near strip — the 113 km gate reads
+     * blocked while a high canvas could still be underlit); negative means it thickens (the gate
+     * reads clear while the high-canvas corridor is blanketed). Both readings share the reanalysis
+     * baseline, so the comparison is offset-immune.
+     *
+     * @return near minus far analysed low cloud, or {@code null} if either reading is missing
+     */
+    public Integer farDrop() {
+        if (observedGapLow == null || observedFarLow == null) {
+            return null;
+        }
+        return observedGapLow - observedFarLow;
+    }
+
+    /**
+     * Returns the signed far-corridor error — positive when the forecast over-predicted it.
+     *
+     * <p>The forecast's own 226 km claim (the strip-vs-blanket input) has never been verified;
+     * this is its counterpart to {@link #gapError()}.
+     *
+     * @return forecast minus observed far-solar low cloud, or {@code null} if either is missing
+     */
+    public Integer farError() {
+        if (forecastFarLow == null || observedFarLow == null) {
+            return null;
+        }
+        return forecastFarLow - observedFarLow;
+    }
+
+    /**
+     * Returns whether the analysed canvas was high-cloud dominant.
+     *
+     * <p>High dominance is what makes the far corridor the relevant blocking geometry: cirrus
+     * above the observer is underlit through low-cloud altitude 206–432 km sunward, not 113 km.
+     * A strict comparison so an empty sky (0/0) does not count as high-dominant. Layer dominance
+     * is compared within the reanalysis, not against an absolute threshold.
+     *
+     * @return true when analysed high cloud exceeds analysed mid cloud, or {@code null} if either
+     *         layer is missing
+     */
+    public Boolean highCanvasDominant() {
+        if (observedCanvasMid == null || observedCanvasHigh == null) {
+            return null;
+        }
+        return observedCanvasHigh > observedCanvasMid;
     }
 }
