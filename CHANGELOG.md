@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.18.1] - 2026-08-12
+
 ### Added — the eclipse, and every figure on it worked out for your own locations
 
 Wednesday 12 August 2026 is the deepest solar eclipse the British Isles have seen since 1999, and
