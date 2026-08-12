@@ -33,6 +33,8 @@ three hours to come back — so in late December they would land after dark. Tha
 today for unsettled locations and is not made worse in kind, only in volume. The real fix is to
 schedule the run against the decision rather than the clock, which is tracked separately.
 
+## [v2.17.17] - 2026-08-11
+
 ### Added — the Plan tab points at a night when two rare things land on it
 
 Behind the window-first Plan flag, still off by default.
