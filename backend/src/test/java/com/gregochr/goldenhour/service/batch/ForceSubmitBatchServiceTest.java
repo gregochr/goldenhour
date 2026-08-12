@@ -29,6 +29,7 @@ import com.gregochr.goldenhour.service.batch.ForceSubmitBatchService.ForceSubmit
 import com.gregochr.goldenhour.service.evaluation.EvaluationHandle;
 import com.gregochr.goldenhour.service.evaluation.EvaluationService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -37,8 +38,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -52,6 +56,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -96,8 +101,11 @@ class ForceSubmitBatchServiceTest {
     void setUp() {
         service = new ForceSubmitBatchService(
                 anthropicClient, regionRepository, locationService,
-                forecastService, modelSelectionService, evaluationService);
+                forecastService, modelSelectionService, evaluationService, CLOCK);
     }
+
+    /** Production's clock, so the existing cases keep exercising the real calendar. */
+    private static final Clock CLOCK = Clock.systemUTC();
 
     private void stubBatchService() {
         when(anthropicClient.messages()).thenReturn(messageService);
@@ -450,6 +458,70 @@ class ForceSubmitBatchServiceTest {
                         == EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
         assertThat(taskCaptor.getValue())
                 .allMatch(t -> t.model() == EvaluationModel.HAIKU);
+    }
+
+    /**
+     * The JFDI range is anchored on the UK civil date, because {@code ForecastService} measures the
+     * horizon of every date it is handed on that calendar — and persists it. Pinned at the one
+     * instant per day where the two disagree.
+     */
+    @Test
+    @DisplayName("submitJfdiBatch asks for UK T+0..T+3, so no date it sends can be measured as past")
+    void submitJfdiBatch_anchorsRangeOnTheUkCivilDate() {
+        // 00:30 on 12 August in Europe/London (BST); still 23:30 on the 11th in UTC.
+        //
+        // Deliberately a year in the future, and this is load-bearing rather than arbitrary. The
+        // sibling fixtures in ForecastCommandFactoryTest / ForecastWindowAnchorTest pin
+        // 2026-08-11T23:30:00Z, and the mutation they defend against — ForecastHorizon's zone
+        // constant — still flows through the injected clock, so any instant detects it. The
+        // mutation *this* case defends against is different: reverting to LocalDate.now(UTC)
+        // ignores the clock entirely and reads the real system date. A fixture whose UK date
+        // happens to equal the real UTC date therefore agrees with the broken code by coincidence
+        // — which is exactly what happened when this was first written against 2026-08-11 and
+        // verified on 2026-08-12. A far-future instant cannot coincide with any real clock.
+        Clock lateBstEvening = Clock.fixed(Instant.parse("2027-08-11T23:30:00Z"), ZoneOffset.UTC);
+        LocalDate ukToday = LocalDate.of(2027, 8, 12);
+        LocalDate ukYesterday = LocalDate.of(2027, 8, 11);
+
+        ForceSubmitBatchService pinned = new ForceSubmitBatchService(
+                anthropicClient, regionRepository, locationService,
+                forecastService, modelSelectionService, evaluationService, lateBstEvening);
+
+        RegionEntity region = buildRegion(7L, "Northumberland");
+        LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
+        loc.setLocationType(Set.of(com.gregochr.goldenhour.entity.LocationType.LANDSCAPE));
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+
+        AtmosphericData data = mock(AtmosphericData.class);
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
+                any(Boolean.class), any()))
+                .thenAnswer(inv -> new ForecastPreEvalResult(
+                        false, null, data, loc, inv.getArgument(1), inv.getArgument(2),
+                        LocalDateTime.now(), 270, 0,
+                        EvaluationModel.HAIKU, loc.getTideType(), "key", null));
+        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.JFDI)))
+                .thenReturn(new EvaluationHandle(null, "msgbatch_jfdi", 8));
+
+        pinned.submitJfdiBatch(List.of(7L));
+
+        ArgumentCaptor<LocalDate> dateCaptor = ArgumentCaptor.forClass(LocalDate.class);
+        verify(forecastService, times(8)).fetchWeatherAndTriage(
+                any(), dateCaptor.capture(), any(), any(), any(), any(Boolean.class), any());
+
+        assertThat(dateCaptor.getAllValues()).containsOnly(
+                ukToday, ukToday.plusDays(1), ukToday.plusDays(2), ukToday.plusDays(3));
+        assertThat(dateCaptor.getAllValues()).doesNotContain(ukYesterday);
+
+        // The property that actually broke, stated in the consumer's own terms rather than as a
+        // date list: ForecastService derives daysAhead from these dates and persists it, along
+        // with a confidence band derived from it. On the UTC anchor the first date measured as
+        // T-1 — and ConfidenceDeriver.fromHorizon(-1) returns HIGH, so a day already over was
+        // recorded as the most reliable kind of forecast.
+        assertThat(dateCaptor.getAllValues())
+                .allSatisfy(d -> assertThat(ForecastHorizon.daysAhead(d, lateBstEvening))
+                        .isNotNegative());
     }
 
     @Test

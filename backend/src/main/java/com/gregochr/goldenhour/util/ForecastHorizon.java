@@ -52,12 +52,10 @@ import java.time.temporal.ChronoUnit;
  *       {@code resolveTargetTypesForDate}, whose day comes from a caller-supplied UTC instant.
  *       Converting the range alone would split one class across two calendars, which is the defect
  *       this class exists to prevent rather than a step towards fixing it.</li>
- *   <li>{@code ForceSubmitBatchService}'s four-day JFDI range — in the <em>batch</em> engine, and
- *       known-wrong rather than deliberate. It builds a UTC range and hands it to
- *       {@code ForecastService}, whose horizon is already UK-anchored, so in the divergent hour its
- *       first day yields {@code daysAhead = -1}. Left for its own change; it is not on this
- *       engine's path.</li>
  * </ul>
+ *
+ * <p>{@code ForceSubmitBatchService}'s four-day JFDI range was on this list as known-wrong rather
+ * than deliberate; it moved here in its own change (§8c), so the list above is now the whole of it.
  *
  * <p><b>An instant is not a calendar.</b> Nothing here answers "has this moment passed". That
  * question is settled by comparing UTC instants — {@code ForecastCommandExecutor} draws both from

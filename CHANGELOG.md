@@ -28,6 +28,12 @@ Runs are only ever started by hand, so the run half of this needed someone to pr
 inside that one hour, in British Summer Time. The map half needed nothing but a map. Nothing that
 was already forecast was wrong — days were missed, not mis-scored.
 
+The same wrong calendar was left in one more place, an admin diagnostic that submits a batch of
+forecasts on demand. In that hour it spent a quarter of the batch on a day that had already
+finished, and filed those away as the most reliable kind of forecast there is. It now counts from
+the same calendar as everything else. Nothing anyone sees on the map or the plan was affected —
+the mislabelled records are only ever read back for after-the-fact analysis.
+
 ## [v2.18.3] - 2026-08-12
 
 ### Changed — pipeline run timestamps say which clock they are on, and how long ago that was
