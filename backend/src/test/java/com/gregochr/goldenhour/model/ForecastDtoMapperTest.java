@@ -28,13 +28,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.MonthDay;
 import java.util.Optional;
 import java.util.Set;
-import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -55,13 +53,6 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class ForecastDtoMapperTest {
 
-    /**
-     * Pinned to the date most cases here forecast, so the served horizon is a value the test
-     * can state rather than recompute, and never depends on what hour the suite runs at.
-     */
-    private static final java.time.Clock TEST_CLOCK = java.time.Clock.fixed(
-            java.time.Instant.parse("2026-03-08T12:00:00Z"), java.time.ZoneOffset.UTC);
-
     @Mock
     private SolarService solarService;
 
@@ -79,7 +70,7 @@ class ForecastDtoMapperTest {
                 .thenReturn(new SolarWindow(null, null, null, null));
         mapper = new ForecastDtoMapper(new LunarPhaseService(), solarService,
                 new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"),
-                forecastScoreRepository, marineWaveRepository, TEST_CLOCK);
+                forecastScoreRepository, marineWaveRepository);
     }
 
     private static final LocationEntity LOCATION = LocationEntity.builder()
@@ -388,7 +379,7 @@ class ForecastDtoMapperTest {
         LunarPhaseService lunarSpy = spy(new LunarPhaseService());
         ForecastDtoMapper localMapper = new ForecastDtoMapper(lunarSpy, solarService,
                 new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"),
-                forecastScoreRepository, marineWaveRepository, TEST_CLOCK);
+                forecastScoreRepository, marineWaveRepository);
         LocalDate dateA = LocalDate.of(2026, 3, 8);
         LocalDate dateB = LocalDate.of(2026, 3, 9);
         ForecastEvaluationEntity a1 = lunarEntity(dateA, TargetType.SUNRISE);
@@ -567,129 +558,6 @@ class ForecastDtoMapperTest {
         assertThat(dto.surgeAstronomicalRangeMetres()).isNull();
     }
 
-    // ── toSparseDto() — cached_evaluation-only path ─────────────────────────────
-
-    @Test
-    @DisplayName("toSparseDto() fills lat/lon/scores/summary from view and computes solar/lunar scaffolding for SUNSET")
-    void toSparseDto_sunset_fillsScaffolding() {
-        LocalDate date = LocalDate.of(2026, 3, 8);
-        LocalDateTime sunset = LocalDateTime.of(2026, 3, 8, 17, 45);
-        when(solarService.sunsetUtc(anyDouble(), anyDouble(), eq(date))).thenReturn(sunset);
-        when(solarService.sunsetAzimuthDeg(anyDouble(), anyDouble(), eq(date))).thenReturn(255);
-        Instant evaluated = LocalDateTime.of(2026, 3, 7, 22, 0).toInstant(ZoneOffset.UTC);
-        LocationEvaluationView view = new LocationEvaluationView(
-                1L, "Durham UK", null, null, date, TargetType.SUNSET,
-                LocationEvaluationView.Source.CACHED_EVALUATION,
-                4, "Patchy mid cloud — could pop colour.", 72, 80,
-                null, null, "HAIKU", evaluated, DisplayVerdict.WORTH_IT);
-
-        ForecastEvaluationDto dto = mapper.toSparseDto(view, LOCATION, false);
-
-        // From the view
-        assertThat(dto.locationName()).isEqualTo("Durham UK");
-        assertThat(dto.locationLat()).isEqualByComparingTo(BigDecimal.valueOf(54.7753));
-        assertThat(dto.locationLon()).isEqualByComparingTo(BigDecimal.valueOf(-1.5849));
-        assertThat(dto.targetDate()).isEqualTo(date);
-        assertThat(dto.targetType()).isEqualTo(TargetType.SUNSET);
-        assertThat(dto.rating()).isEqualTo(4);
-        assertThat(dto.fierySkyPotential()).isEqualTo(72);
-        assertThat(dto.goldenHourPotential()).isEqualTo(80);
-        assertThat(dto.summary()).isEqualTo("Patchy mid cloud — could pop colour.");
-        // Computed scaffolding
-        assertThat(dto.solarEventTime()).isEqualTo(sunset);
-        assertThat(dto.azimuthDeg()).isEqualTo(255);
-        assertThat(dto.lunarPhase()).isNotNull();
-        assertThat(dto.lunarTideType()).isNotNull();
-        // forecastRunAt comes from view.evaluatedAt()
-        assertThat(dto.forecastRunAt()).isEqualTo(LocalDateTime.ofInstant(evaluated, ZoneOffset.UTC));
-        // Atmospheric fields stay null — cached_evaluation doesn't carry them
-        assertThat(dto.lowCloud()).isNull();
-        assertThat(dto.windSpeed()).isNull();
-        assertThat(dto.tideState()).isNull();
-        assertThat(dto.surgeTotalMetres()).isNull();
-        assertThat(dto.inversionScore()).isNull();
-        // daysAhead is derived at serve time, not carried on the view. Asserted as a value
-        // rather than recomputed with the mapper's own formula, which would pass either way:
-        // the clock is pinned to this very date, so the only correct answer is T+0.
-        assertThat(dto.daysAhead()).isZero();
-    }
-
-    @Test
-    @DisplayName("toSparseDto() calls sunrise-specific solar methods for SUNRISE")
-    void toSparseDto_sunrise_usesSunriseSolarMethods() {
-        LocalDate date = LocalDate.of(2026, 3, 8);
-        LocalDateTime sunrise = LocalDateTime.of(2026, 3, 8, 6, 30);
-        when(solarService.sunriseUtc(anyDouble(), anyDouble(), eq(date))).thenReturn(sunrise);
-        when(solarService.sunriseAzimuthDeg(anyDouble(), anyDouble(), eq(date))).thenReturn(95);
-        LocationEvaluationView view = new LocationEvaluationView(
-                1L, "Durham UK", null, null, date, TargetType.SUNRISE,
-                LocationEvaluationView.Source.CACHED_EVALUATION,
-                3, "Decent.", 60, 55,
-                null, null, null, null, DisplayVerdict.MAYBE);
-
-        ForecastEvaluationDto dto = mapper.toSparseDto(view, LOCATION, false);
-
-        assertThat(dto.targetType()).isEqualTo(TargetType.SUNRISE);
-        assertThat(dto.solarEventTime()).isEqualTo(sunrise);
-        assertThat(dto.azimuthDeg()).isEqualTo(95);
-    }
-
-    @Test
-    @DisplayName("toSparseDto() leaves forecastRunAt null when the view has no evaluatedAt")
-    void toSparseDto_nullEvaluatedAt_leavesRunTimeNull() {
-        LocalDate date = LocalDate.of(2026, 3, 8);
-        when(solarService.sunsetUtc(anyDouble(), anyDouble(), any())).thenReturn(LocalDateTime.of(2026, 3, 8, 17, 45));
-        when(solarService.sunsetAzimuthDeg(anyDouble(), anyDouble(), any())).thenReturn(255);
-        LocationEvaluationView view = new LocationEvaluationView(
-                1L, "Durham UK", null, null, date, TargetType.SUNSET,
-                LocationEvaluationView.Source.CACHED_EVALUATION,
-                4, "ok", 70, 60,
-                null, null, null, null, DisplayVerdict.WORTH_IT);
-
-        ForecastEvaluationDto dto = mapper.toSparseDto(view, LOCATION, false);
-
-        // A missing evaluation instant must not be fabricated as the request time — the frontend
-        // hides the "Forecast generated" footer for a null run time rather than showing "now".
-        assertThat(dto.forecastRunAt()).isNull();
-    }
-
-    @Test
-    @DisplayName("toSparseDto() preserves triageReason and triageMessage from the view")
-    void toSparseDto_triaged_preservesTriageFields() {
-        LocalDate date = LocalDate.of(2026, 3, 8);
-        when(solarService.sunsetUtc(anyDouble(), anyDouble(), any())).thenReturn(LocalDateTime.of(2026, 3, 8, 17, 45));
-        when(solarService.sunsetAzimuthDeg(anyDouble(), anyDouble(), any())).thenReturn(255);
-        LocationEvaluationView view = new LocationEvaluationView(
-                1L, "Durham UK", null, null, date, TargetType.SUNSET,
-                LocationEvaluationView.Source.CACHED_EVALUATION,
-                null, null, null, null,
-                TriageReason.HIGH_CLOUD, "Blanket cloud — no break expected.",
-                null, null, DisplayVerdict.STAND_DOWN);
-
-        ForecastEvaluationDto dto = mapper.toSparseDto(view, LOCATION, false);
-
-        assertThat(dto.rating()).isNull();
-        assertThat(dto.triageReason()).isEqualTo(TriageReason.HIGH_CLOUD);
-        assertThat(dto.triageMessage()).isEqualTo("Blanket cloud — no break expected.");
-    }
-
-    @Test
-    @DisplayName("toSparseDto() returns null solar fields gracefully when SolarService throws")
-    void toSparseDto_solarServiceThrows_returnsNullSolar() {
-        LocalDate date = LocalDate.of(2026, 3, 8);
-        when(solarService.sunsetUtc(anyDouble(), anyDouble(), any()))
-                .thenThrow(new RuntimeException("polar edge case"));
-        LocationEvaluationView view = new LocationEvaluationView(
-                1L, "Durham UK", null, null, date, TargetType.SUNSET,
-                LocationEvaluationView.Source.CACHED_EVALUATION,
-                4, "ok", 70, 60,
-                null, null, null, null, DisplayVerdict.WORTH_IT);
-
-        ForecastEvaluationDto dto = mapper.toSparseDto(view, LOCATION, false);
-
-        assertThat(dto.solarEventTime()).isNull();
-        assertThat(dto.azimuthDeg()).isNull();
-    }
 
     private ForecastEvaluationEntity buildFullEntity() {
         return ForecastEvaluationEntity.builder()

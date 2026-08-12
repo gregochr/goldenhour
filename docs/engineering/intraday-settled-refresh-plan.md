@@ -449,14 +449,16 @@ Since the domain rule — *"a sunrise in Northumberland on April 19th BST is wha
 date"* — makes **UTC the bug**, the fix was applied at source. The rule now has exactly one home,
 `util/ForecastHorizon`, and every derivation delegates to it: `ForecastService` (both sites, with a
 `Clock` injected from the existing `AppConfig` bean), `BriefingCandidateCollector`'s inline loop
-copy, `IntradayCandidateCollectionStrategy`, and `ForecastDtoMapper` — the last of which was found
-during the fix, not before it: it derives a **serve-time** horizon on UTC, so leaving it would have
-let the horizon *shown* disagree with the one *stored* on the same row. ⚠️ That leg is
-**pre-emptive, not user-visible**: the review established that its only reader, `toSparseDto`, has
-no production caller today — the live `toDto` path serves `entity.getDaysAhead()` straight from the
-persisted column, which this commit fixes at source. It is kept because a dormant sparse path that
-derives a horizon on the wrong calendar is a trap for whoever wires it up, but no user sees a
-different number because of it.
+copy, `IntradayCandidateCollectionStrategy`, and — briefly — `ForecastDtoMapper`.
+
+⚠️ **The `ForecastDtoMapper` leg no longer exists, and the way it was resolved is the point.** It was
+found during the fix rather than before it: `toSparseDto` derived a **serve-time** horizon on UTC, so
+leaving it would have let the horizon *shown* disagree with the one *stored* on the same row. The
+adversarial review then established that `toSparseDto` had **no production caller** — orphaned by
+#289, with the live `toDto` path serving `entity.getDaysAhead()` from the persisted column this
+commit fixes at source. So the correct move was not to keep a dormant method on the right calendar
+but to delete it, which a follow-up did. Recorded because the first instinct was to harden dead code
+rather than ask whether it should exist: a method with no callers cannot have a timezone bug.
 `BriefingCandidateCollector.daysAheadFor` is gone rather than delegating: it had one caller and one
 line, and a second door to the same rule on a class named for briefing candidates is how the rule
 gets re-derived next time. It was deliberately **not** routed
