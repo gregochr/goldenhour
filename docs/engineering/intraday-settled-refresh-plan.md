@@ -389,6 +389,47 @@ adequate and it is cheap to falsify later.
 
 ---
 
+## Section 8a — Tracked follow-up: the `daysAhead` timezone basis
+
+**Not fixed in stage one, deliberately. Fix it as its own commit before stage two.**
+
+The §9 review of the shipped diff found that the `daysAhead` reaching the eligibility policy is on
+a **UTC** calendar, while the intraday window, the past-date filter and the disposition rows are all
+on **Europe/London**:
+
+| value | basis | used for |
+|---|---|---|
+| `preEval.daysAhead()` (`ForecastService:290`) | UTC | the policy call at `ForecastTaskCollector:448` |
+| `candidateDaysAhead` (`BriefingCandidateCollector.daysAheadFor`) | London | the `CandidateDisposition` rows at `:457`, `:600` |
+| `IntradayCandidateCollectionStrategy:50` | London | which slots enter the window at all |
+
+The §8.1 note in the predecessor plan spotted this and judged it inert. **This change is what makes
+it decision-relevant**, because `IntradayEligibilityPolicy` is the cycle's first consumer of
+`daysAhead`.
+
+**Blast radius, established under refutation and not merely asserted.** Under BST between 23:00 and
+00:00 UTC the two bases differ by a day. Of the three window slots only the nearest sunset flips,
+and it flips towards *skip* — against intent. No forecast reaches a reader stale: the 01:00 nightly
+picks that slot up 61–120 min later at T+0, where `NightlyEligibilityPolicy` admits every stability
+~18h before the event. What is lost is one afternoon look, and what is wrong is the audit row, which
+would read `daysAhead=0` beside a skip reason saying two further looks are guaranteed.
+
+It is also **not reachable on the seeded cron** (`0 0 14 * * *`), nor on the late-afternoon schedule
+stage two proposes — only via a manual `POST /api/admin/scheduler/jobs/{jobKey}/trigger` inside that
+one-hour band.
+
+**Why it is a separate commit.** The one-line fix — pass `candidateDaysAhead` at
+`ForecastTaskCollector:447` — also changes **nightly** Gate 4 in that same hour, where it currently
+drops a London-T+3 SETTLED candidate as UTC-T+4. That is a behaviour change to a different engine
+path with a different thesis, and it deserves its own reasoning rather than riding along here.
+
+**It needs a test the current ones cannot provide.** Both collector cases added in stage one run
+`NightlyCandidateCollectionStrategy`, so neither can catch a basis disagreement. The fix needs a
+case pairing `IntradayCandidateCollectionStrategy` with `IntradayEligibilityPolicy` against a clock
+pinned inside the 23:00–00:00 UTC BST band.
+
+---
+
 ## Section 9 — Review provenance
 
 Revised 2026-08-11 after an adversarial review run to CLAUDE.md's cadence: six prosecutor lenses
@@ -429,3 +470,49 @@ The material findings, in the order they changed the document:
   population, which would move every cost figure in this document in both directions.
 - **Not assessed**: whether the change is worth doing on product grounds beyond §2's ordering
   argument, and the stage-two trigger redesign itself.
+
+---
+
+## Section 10 — Review of the shipped diff
+
+The plan review in §9 could not catch implementation defects, because there was no implementation.
+Commit `230681b` was therefore put through the same cadence a second time, against the diff. Same
+shape: six lenses, one refutation agent per charge defaulting to REFUTED, synthesis. 18 charges
+verified — 5 survived, 13 refuted, 6 below the per-lens cap. Reviewers were read-only and, unlike
+the plan round, explicitly barred from running the build.
+
+**Verdict: fix two Javadoc lines, then ship.** No behavioural change was required. Every substantive
+attack on the eligibility rule itself was refuted against source: briefing loss on a settled
+afternoon, the "two further looks" claim in winter, unbounded cost, duplicate admin triggers, the
+unbounded `daysAhead > TODAY` predicate, V141's scheduling guarantee, and the CHANGELOG's evidence.
+
+What was fixed here:
+
+- **`PipelinePhase:29-31`** described the intraday gate as choosing "(TRANSITIONAL/UNSETTLED) versus
+  skipped as settled". False as of the same diff. Worse, this plan cites that line at §6 and the
+  commit changed `ReclassSummary` for exactly this reason — the line was read during the change and
+  left standing. Now points at the policy instead of restating a rule that has already narrowed once.
+- **`EligibilityDecision:19-20`** glossed the intraday skip as *"nothing has changed, no refresh
+  needed"*, which `IntradayEligibilityPolicy` explicitly rebuts three files away.
+- **`resolveIsEventBlind`** asserted `eligible()` and `model()` while claiming to prove the decision
+  invariant. `EligibilityDecision` is a record, so whole-record equality is shorter and also pins
+  `skipReason` and `skipDisposition`.
+
+One finding became §8a rather than a fix. Two refutations are worth recording because they rejected
+*fixes that were worse than the code*: running BRIEFING inside the timeout handler would persist a
+half-rated best bet, reverting V103; and `daysAhead == TOMORROW` would have evaluated the further
+slot while skipping the nearer one.
+
+### What this review could not check
+
+- **No build, tests or lint** — the read-only mandate. The commit's "6882 tests pass, Checkstyle 0,
+  SpotBugs 0, JaCoCo passes" was verified by the author, not by the review. Integration tests need
+  Docker and have been run by nobody.
+- **No production database.** Every empirical figure — the 63%/72% star movement, the 419 cache
+  skips, the 98–173 min batch latency, all §1.3 counts — taken as given.
+- **`ForecastStabilityClassifier` / `GridCellStabilityService`**: whether the ephemeral 14:00
+  re-classification materially shifts the SETTLED population. Every cost figure in this document
+  moves with that, in both directions, and no lens read it.
+- **Downstream of the collector**: `BatchRequestFactory` bucketing and prompt-cache homogeneity,
+  `BatchResultProcessor` merge semantics, `BatchWeatherPrefetcher` headroom under a larger candidate
+  set, Anthropic rate limits.

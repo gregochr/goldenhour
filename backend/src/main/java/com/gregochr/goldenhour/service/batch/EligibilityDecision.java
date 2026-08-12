@@ -16,11 +16,12 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
  * <p><b>Why the skip carries its disposition category.</b> The collector used
  * to hardcode {@link DispositionCategory#SKIPPED_STABILITY} for every policy
  * skip. That is correct for nightly's Gate 4 (a candidate beyond its stability
- * window), but intraday's cost-gate skips <em>settled</em> locations for a
- * different reason — "nothing has changed, no refresh needed" — which must be
- * recorded as {@link DispositionCategory#SKIPPED_NO_REFRESH_NEEDED} so the
- * disposition taxonomy stays honest. Letting the policy name the category keeps
- * that decision where the policy lives, not hardcoded in the shared collector.
+ * window), but intraday skips a settled candidate for a different reason — not
+ * "nothing has changed" (its rating moves as much as any other) but "a later
+ * look is already guaranteed before this event" — which must be recorded as
+ * {@link DispositionCategory#SKIPPED_NO_REFRESH_NEEDED} so the disposition
+ * taxonomy stays honest. Letting the policy name the category keeps that
+ * decision where the policy lives, not hardcoded in the shared collector.
  *
  * @param eligible        whether the task should enter the batch
  * @param model           resolved Claude model when eligible; {@code null} otherwise

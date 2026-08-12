@@ -85,12 +85,13 @@ class NightlyEligibilityPolicyTest {
                 for (TargetType targetType : TargetType.values()) {
                     EligibilityDecision actual = policy.resolve(daysAhead, targetType,
                             stability, EvaluationModel.HAIKU, EvaluationModel.SONNET);
-                    assertThat(actual.eligible())
-                            .as("T+%d %s %s eligibility", daysAhead, targetType, stability)
-                            .isEqualTo(baseline.eligible());
-                    assertThat(actual.model())
-                            .as("T+%d %s %s model tier", daysAhead, targetType, stability)
-                            .isEqualTo(baseline.model());
+                    // Whole-record equality, not field-by-field: EligibilityDecision is a record,
+                    // so this also pins skipReason and skipDisposition. The javadoc claims the
+                    // decision is invariant, and this asserts exactly that rather than a subset
+                    // of it.
+                    assertThat(actual)
+                            .as("T+%d %s %s", daysAhead, targetType, stability)
+                            .isEqualTo(baseline);
                 }
             }
         }
