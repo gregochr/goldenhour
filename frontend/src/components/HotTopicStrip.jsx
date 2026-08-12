@@ -740,11 +740,10 @@ function TopicFacts({ topic, accentColor, isLiteUser = false }) {
           <span
             key={`${fact.key ?? ''}-${fact.value}-${i}`}
             data-testid="topic-fact"
-            className={fact.optional ? 'opt' : undefined}
+            className={fact.optional ? 'hot-topic-fact opt' : 'hot-topic-fact'}
             style={{
               fontFamily: 'var(--font-mono)',
               fontSize: '11px',
-              display: 'inline-flex',
               alignItems: 'center',
               gap: '5px',
               whiteSpace: 'nowrap',

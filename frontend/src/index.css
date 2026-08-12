@@ -365,6 +365,22 @@
   min-width: 0;
 }
 
+/* The fact chip's own box. `display` sits here rather than in the component's style object for
+   exactly the reason `.hot-topic-detail` above does: the phone rule below hides the optional chips,
+   and an inline `display` beats a stylesheet rule at any specificity, media query or not. For as
+   long as this lived inline that rule silently did nothing — measured at 375px, an `.opt` chip
+   carried `class="opt"` and computed `display: flex`, and overhung the row's right edge by ~2px.
+   The `.certainty-chip` half of the same rule was never affected, because it sets no inline
+   display, which is what made the failure look selective rather than mechanical.
+
+   Deliberately a single class, so it is *less* specific than `.hot-topic-facts .opt` and the drop
+   holds however the two rules end up ordered. Scoped to the chip rather than written as
+   `.hot-topic-facts > span`, which would also catch the row's italic "where to look" note. The
+   chip's remaining layout stays inline — nothing in a stylesheet needs to reach it. */
+.hot-topic-fact {
+  display: inline-flex;
+}
+
 /* Enriched hot-topic fact line: on narrow viewports drop the least-critical (`.opt`) chips so
    the line stays to the headline metric plus the "where to look" note. The certainty-vocabulary
    chip is likewise meta rather than content, so it drops on mobile to keep the pill's detail

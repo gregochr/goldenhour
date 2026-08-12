@@ -38,6 +38,19 @@ describe('HotTopicStrip enriched facts line', () => {
       .toHaveClass('opt');
   });
 
+  it('leaves `display` to the stylesheet, so the phone rule can actually drop the .opt chips', () => {
+    render(<HotTopicStrip hotTopics={[kingTide]} />);
+    const chip = screen.getByText('4.2 m · very rough').closest('[data-testid="topic-fact"]');
+    // The class the stylesheet hangs `display: inline-flex` on.
+    expect(chip).toHaveClass('hot-topic-fact');
+    // And no INLINE display. This is the whole defect: an inline `display` beats
+    // `.hot-topic-facts .opt` at any specificity, media query or not, so for as long as the
+    // component set it the `@media (max-width: 639px)` drop was dead code — measured at 375px, the
+    // chip computed `display: flex` and overhung the row. jsdom loads no stylesheet, so the inline
+    // style object is both the only thing assertable here and precisely the thing that broke.
+    expect(chip.style.display).toBe('');
+  });
+
   it('renders emphasised values bold and context values regular', () => {
     render(<HotTopicStrip hotTopics={[kingTide]} />);
     expect(screen.getByText('5.8 m')).toHaveStyle({ fontWeight: '600' });

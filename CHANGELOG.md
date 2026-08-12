@@ -34,6 +34,24 @@ the sunrise or sunset being forecast. That also corrects how far ahead each save
 recorded as looking, and the confidence level derived from it, both of which read a day further out
 than they were during that hour.
 
+### Fixed — the hot-topic pill's bonus chips now actually drop on a phone
+
+A hot topic's fact line is meant to shed its least-critical chips on a narrow screen, so that a
+king tide reads as its headline metric plus the "where to look" note rather than four chips
+fighting over 300px. The rule to do that has been in the stylesheet for some time and has never
+once fired: the component set `display` inline on every chip, and an inline style beats a
+stylesheet rule at any specificity, media query or not.
+
+So on a phone the optional chips rendered anyway and the row overhung its own card by ~2px. The
+tell was that the same rule's other half — the certainty chip — dropped correctly, because that one
+sets no inline display. One rule, two clauses, only one of them working, which is why this read as
+a quirk of certain topics rather than a plain cascade bug.
+
+`display` now lives in the stylesheet where the media query can reach it. Affects the tide, aurora
+and storm-surge pills, which are the ones that mark a chip optional. Nothing changes at tablet
+width or above, and nothing changes about which chips a topic carries — only whether the phone
+rule that was always meant to hide two of them is able to.
+
 ## [v2.18.0] - 2026-08-12
 
 ### Changed — the afternoon run now takes another look at settled evenings
