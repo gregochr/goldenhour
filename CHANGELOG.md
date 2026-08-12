@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.18.0] - 2026-08-12
+
 ### Changed — the afternoon run now takes another look at settled evenings
 
 The afternoon forecast run skipped every location where the weather was classified "settled", on
