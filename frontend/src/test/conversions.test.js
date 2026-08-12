@@ -10,6 +10,7 @@ import {
   formatGeneratedAtFull,
   formatTimestampUk,
   formatRelativeTimeUk,
+  formatElapsedSince,
   groupForecastsByDate,
   bortleLabel,
   formatTideHighlight,
@@ -292,10 +293,22 @@ describe('formatRelativeTimeUk', () => {
     expect(result).toMatch(/^\d+m ago$/);
   });
 
-  it('returns "Xh ago" for timestamps a few hours old', () => {
+  it('returns "Xh ago" for a whole number of hours', () => {
     const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
     const result = formatRelativeTimeUk(threeHoursAgo);
     expect(result).toMatch(/^\d+h ago$/);
+  });
+
+  it('keeps the minutes in the hours band — 94m reads as 1h 34m, not 2h', () => {
+    // The case this resolution exists for: "was that batch sent ninety minutes ago or longer?"
+    // Rounding to the nearest hour answers "2h ago" and destroys the distinction.
+    const ninetyFourMinAgo = new Date(Date.now() - 94 * 60 * 1000).toISOString();
+    expect(formatRelativeTimeUk(ninetyFourMinAgo)).toBe('1h 34m ago');
+  });
+
+  it('does not round a 59-minute gap up into the hours band', () => {
+    const fiftyNineMinAgo = new Date(Date.now() - 59 * 60 * 1000).toISOString();
+    expect(formatRelativeTimeUk(fiftyNineMinAgo)).toBe('59m ago');
   });
 
   it('returns "Xd ago" for timestamps over 24 hours old', () => {
@@ -648,5 +661,61 @@ describe('isTravelDate', () => {
     expect(isTravelDate('2026-07-02', [])).toBe(false);
     expect(isTravelDate('2026-07-02', null)).toBe(false);
     expect(isTravelDate('', ranges)).toBe(false);
+  });
+});
+
+describe('formatTimestampUk timezone label', () => {
+  it('names BST in summer, so a local time is never mistaken for the UTC one', () => {
+    // The reason this exists: the intraday cron is 14:00 UTC and the pipeline view rendered
+    // "15:00:00" with no zone, leaving the reader converting between two clocks unaided.
+    expect(formatTimestampUk('2026-08-12T14:00:00Z')).toContain('BST');
+  });
+
+  it('names GMT in winter', () => {
+    expect(formatTimestampUk('2026-02-20T13:31:12Z')).toContain('GMT');
+  });
+
+  it('still renders the UK local time alongside the label', () => {
+    const result = formatTimestampUk('2026-08-12T14:00:00Z');
+    expect(result).toContain('15:00:00');
+    expect(result).toContain('12');
+    expect(result).toContain('Aug');
+  });
+});
+
+describe('formatElapsedSince', () => {
+  const START = '2026-08-12T14:04:22Z';
+  const startMs = Date.parse(START);
+
+  it('returns null for falsy input', () => {
+    expect(formatElapsedSince(null)).toBeNull();
+    expect(formatElapsedSince('')).toBeNull();
+    expect(formatElapsedSince(undefined)).toBeNull();
+  });
+
+  it('returns null for an invalid date', () => {
+    expect(formatElapsedSince('not-a-date')).toBeNull();
+  });
+
+  it('renders seconds under a minute', () => {
+    expect(formatElapsedSince(START, startMs + 42_000)).toBe('42s');
+  });
+
+  it('renders minutes and seconds under an hour', () => {
+    expect(formatElapsedSince(START, startMs + (4 * 60 + 16) * 1000)).toBe('4m 16s');
+  });
+
+  it('renders hours and minutes beyond an hour — the batch-latency case', () => {
+    // 98 minutes: the low end of the observed afternoon batch latency band.
+    expect(formatElapsedSince(START, startMs + 98 * 60 * 1000)).toBe('1h 38m');
+  });
+
+  it('returns null rather than a negative duration when the start is in the future', () => {
+    // Browser/server clock skew. Saying nothing is honest; "-3s" is not.
+    expect(formatElapsedSince(START, startMs - 3000)).toBeNull();
+  });
+
+  it('handles a bare timestamp with no Z suffix identically', () => {
+    expect(formatElapsedSince('2026-08-12T14:04:22', startMs + 60_000)).toBe('1m 0s');
   });
 });

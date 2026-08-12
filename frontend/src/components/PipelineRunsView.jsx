@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import { fetchPipelineRuns, fetchPipelineRunDetail } from '../api/pipelineRunApi.js';
-import { formatTimestampUk } from '../utils/conversions';
+import {
+  formatTimestampUk,
+  formatRelativeTimeUk,
+  formatElapsedSince,
+} from '../utils/conversions';
 import DispositionBreakdown from './DispositionBreakdown.jsx';
 
 /** Poll interval while a RUNNING cycle is visible — fast enough to see waitingOn ticking. */
@@ -424,6 +428,15 @@ function PipelineRunDetail({ runId, onClose }) {
             <span className="text-plex-text-secondary">
               {formatTimestampUk(run.triggerTime)}
             </span>
+            {/* Absolute answers "when", relative answers "how long ago" — and on a running cycle
+                the second is the question actually being asked. The 15s poll re-renders this, so
+                it advances without a timer of its own. */}
+            <span
+              className="ml-1 text-plex-text-muted"
+              data-testid="pipeline-run-started-relative"
+            >
+              ({formatRelativeTimeUk(run.triggerTime)})
+            </span>
           </div>
           <div>
             <span className="text-plex-text-muted">Completed: </span>
@@ -497,7 +510,23 @@ function PipelineRunDetail({ runId, onClose }) {
                   {formatTimestampUk(p.startedAt)}
                 </td>
                 <td className="py-1 pr-3 text-plex-text-secondary">
-                  {formatSeconds(p.durationSeconds)}
+                  {/* A running phase has no recorded duration, so this used to read "—" — which
+                      hid the one number the intraday cycle is judged on. FORECAST_BATCH_WAIT is
+                      where afternoon batch latency shows up (98–173 min observed), and it is only
+                      readable while it is still running. Marked "so far" so a live count is never
+                      mistaken for a final one. */}
+                  {p.durationSeconds == null && p.status === 'RUNNING'
+                    ? (() => {
+                        const elapsed = formatElapsedSince(p.startedAt);
+                        return elapsed ? (
+                          <span data-testid={`pipeline-phase-elapsed-${p.phase}`}>
+                            {elapsed} <span className="text-plex-text-muted">so far</span>
+                          </span>
+                        ) : (
+                          formatSeconds(p.durationSeconds)
+                        );
+                      })()
+                    : formatSeconds(p.durationSeconds)}
                 </td>
                 <td className="py-1 pr-3 text-plex-text-secondary text-xs">
                   {p.detail || '—'}
@@ -565,6 +594,14 @@ function PipelineRunDetail({ runId, onClose }) {
                       </td>
                       <td className="py-1 pr-3 text-plex-text-secondary">
                         {formatTimestampUk(b.submittedAt)}
+                        {b.submittedAt && (
+                          <span
+                            className="ml-1 text-plex-text-muted"
+                            data-testid={`pipeline-batch-submitted-relative-${b.id}`}
+                          >
+                            ({formatRelativeTimeUk(b.submittedAt)})
+                          </span>
+                        )}
                       </td>
                       <td className="py-1 pr-3">
                         {b.jobRunId && (

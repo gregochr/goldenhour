@@ -270,8 +270,13 @@ export function groupForecastsByDate(forecasts) {
 /**
  * Formats a UTC timestamp as a full UK local date+time string.
  *
- * Returns a string like "2 Apr 2026, 14:31:12" for display in admin grids and alerts.
+ * Returns a string like "2 Apr 2026, 14:31:12 BST" for display in admin grids and alerts.
  * Handles both bare ISO strings (no suffix) and those with a trailing 'Z'.
+ *
+ * The zone abbreviation is not decoration. Every admin surface this feeds sits alongside evidence
+ * that is stated in UTC — cron expressions, container logs, `forecast_batch` rows — so an unlabelled
+ * local time leaves the reader silently converting between two clocks. `Intl` derives BST or GMT
+ * from the instant itself, so there is no seasonal rule here to get wrong.
  *
  * @param {string|null} utcDateTimeStr - ISO-like datetime string.
  * @returns {string|null} Formatted string, or null for falsy/invalid input.
@@ -288,13 +293,20 @@ export function formatTimestampUk(utcDateTimeStr) {
     minute: '2-digit',
     second: '2-digit',
     timeZone: 'Europe/London',
+    timeZoneName: 'short',
   });
 }
 
 /**
- * Formats a UTC timestamp as a relative time string ("Xm ago", "Xh ago", etc.).
+ * Formats a UTC timestamp as a relative time string ("Xm ago", "1h 34m ago", etc.).
  *
  * Handles both bare ISO strings (no suffix) and those with a trailing 'Z'.
+ *
+ * The hours band keeps its minutes rather than rounding to the nearest hour. Rounding turned a
+ * 94-minute-old batch into "2h ago", which is exactly the resolution someone loses when asking
+ * whether a batch went out ninety minutes ago or longer — and the intraday cycle's whole latency
+ * question lives in that band (afternoon batches have been observed at 98–173 min). Minutes are
+ * dropped only when they are genuinely zero, so the common case stays short.
  *
  * @param {string|null} utcDateTimeStr - ISO-like datetime string.
  * @returns {string} Relative time string, or empty string for falsy/invalid input.
@@ -306,9 +318,37 @@ export function formatRelativeTimeUk(utcDateTimeStr) {
   const diffMin = Math.round((Date.now() - d.getTime()) / 60000);
   if (diffMin < 1) return 'just now';
   if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHrs = Math.round(diffMin / 60);
-  if (diffHrs < 24) return `${diffHrs}h ago`;
-  return `${Math.floor(diffHrs / 24)}d ago`;
+  if (diffMin < 1440) {
+    const hrs = Math.floor(diffMin / 60);
+    const mins = diffMin % 60;
+    return mins === 0 ? `${hrs}h ago` : `${hrs}h ${mins}m ago`;
+  }
+  return `${Math.floor(diffMin / 1440)}d ago`;
+}
+
+/**
+ * Formats the elapsed time since a start instant as a compact duration ("4m 16s", "1h 34m").
+ *
+ * For a phase or run that is still in flight, where the recorded duration is necessarily null.
+ * Callers re-render on their own poll, so the value advances without a timer of its own.
+ *
+ * @param {string|null} startedAtUtc - ISO-like datetime string for the start instant.
+ * @param {number} [nowMs] - Millisecond epoch to measure against; defaults to now. Injectable so
+ *   tests need not manipulate the clock.
+ * @returns {string|null} Elapsed duration, or null for falsy/invalid input or a future start.
+ */
+export function formatElapsedSince(startedAtUtc, nowMs = Date.now()) {
+  if (!startedAtUtc) return null;
+  const d = new Date(startedAtUtc.endsWith('Z') ? startedAtUtc : startedAtUtc + 'Z');
+  if (isNaN(d.getTime())) return null;
+  const totalSec = Math.floor((nowMs - d.getTime()) / 1000);
+  // A start in the future is clock skew between the browser and the server, not a negative
+  // duration. Saying nothing is honest; "-3s elapsed" is not.
+  if (totalSec < 0) return null;
+  if (totalSec < 60) return `${totalSec}s`;
+  const mins = Math.floor(totalSec / 60);
+  if (mins < 60) return `${mins}m ${totalSec % 60}s`;
+  return `${Math.floor(mins / 60)}h ${mins % 60}m`;
 }
 
 /**
