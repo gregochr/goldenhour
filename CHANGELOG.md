@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.18.2] - 2026-08-12
+
 ### Added — the ERA5 verification now measures the sampling geometry itself
 
 The cloud-verification backfill scored *what* the forecast predicted; it now also records what the
