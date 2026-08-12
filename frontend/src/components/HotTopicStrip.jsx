@@ -15,7 +15,25 @@ import { bortleLabel, moonIlluminationStyle, MOON_EMOJI } from '../utils/convers
 const TIDE_TEAL = '#6FA8B0';
 const NIGHTGLOW_VIOLET = '#8E86D6';
 
+/**
+ * The eclipse accent. Chosen to sit with the topic hues (tide teal, nightglow violet, the snow
+ * blues) at matching lightness and chroma, and deliberately NOT with the verdict reds: it is close
+ * in hue to `--color-verdict-standdown` (#C8452F), which means *don't go*, and a saturated red on
+ * the one topic worth driving hardest for would read as an error state.
+ *
+ * Six-digit hex, and that is load-bearing rather than stylistic. This value is concatenated with
+ * alpha suffixes at the pill's border and background (`${style.color}33`, `${style.color}0F`), so
+ * an eight-digit value here produces a ten-digit string CSS cannot parse and BOTH declarations are
+ * silently dropped \u2014 which is exactly what an unregistered type gets today, since DEFAULT_STYLE is
+ * `#ffffff33`.
+ */
+const ECLIPSE_ROSE = '#C4787F';
+
 const HOT_TOPIC_STYLES = {
+  // A text glyph, not an emoji, matching the v2 kickers and tabs. The catalogue's field is named
+  // `emoji` but is rendered as a plain text child of a span, so a Unicode symbol needs no new
+  // machinery. Half-filled circle: the eclipse's own shape.
+  ECLIPSE:     { color: ECLIPSE_ROSE, emoji: '\u25D0' },
   BLUEBELL:    { color: '#8b5cf6', emoji: '\uD83D\uDC9C' },
   KING_TIDE:   { color: TIDE_TEAL, emoji: '\uD83D\uDC51' },
   SPRING_TIDE: { color: TIDE_TEAL, emoji: '\uD83C\uDF0A' },
@@ -80,6 +98,25 @@ const EVENT_LEAD = {
   SUNSET: { glyph: '↓', word: 'sunset' },
   NIGHT: { glyph: '☾', word: 'night' },
 };
+
+/**
+ * Topic types whose `eventTime` is the topic's OWN instant rather than its window's solar event.
+ *
+ * <p>For every other topic the two coincide — a tide topic's time IS its sunrise, an inversion's IS
+ * its sunrise — so the lead reads "↓ Today sunset · 20:52" and every word of it is true. An eclipse
+ * is the first topic where they diverge: it is bucketed onto the sunset window because it is an
+ * evening shoot, but its time is the eclipse maximum, and on 12 August 2026 that is 19:08 against a
+ * 20:52 sunset. Printing "Today sunset · 19:08" states, in the pill's most prominent line, that the
+ * sun sets an hour and three quarters before it does.
+ *
+ * <p>Caught in a browser, not by a test: every assertion checked the parts, and the parts were each
+ * correct. The design's own mock has it right and reads "↓ Today · 19:13" with no event word — the
+ * glyph still carries which half of the day it is, and the label already says what the event is.
+ *
+ * <p>Derived from the type on the client, the same way `topicCertainty` is, because it is a fact
+ * about how this kind of topic is anchored and not a per-forecast measurement.
+ */
+const OWN_CLOCK_TYPES = new Set(['ECLIPSE']);
 
 /**
  * Compact day word for the timing lead: "Today" / "Tomorrow", or a short weekday ("Sat")
@@ -873,9 +910,23 @@ export default function HotTopicStrip({
               border: `1px solid ${style.color}33`,
               borderLeft: `3px solid ${style.color}`,
               background: `${style.color}0F`,
-              opacity: isLiteUser ? 0.45 : 1,
+              // The safety row is the first child to paint a background of its own, and it is
+              // full-bleed with square corners — so without this it painted over the frame's
+              // rounded bottom-right. Every earlier child was either transparent or self-rounded
+              // and inset, which is why the frame never needed it before.
+              overflow: 'hidden',
             }}
           >
+            {/* The tier gate moved off the frame and onto the content, so that a safety warning can
+                sit outside it. CSS opacity compounds and creates a stacking context, so a child of
+                a 0.45 element cannot restore itself to full strength — the only way to exempt a row
+                is for it not to be inside the dimmed subtree.
+
+                One visual consequence, deliberate: for a LITE reader the pill's border and tint now
+                render at full strength instead of 45%. The dim was always meant to say "this content
+                is premium", and a frame is not content — dimming it made the pill itself harder to
+                locate rather than harder to read. Every other pill is otherwise unchanged. */}
+            <div style={{ opacity: isLiteUser ? 0.45 : 1 }}>
             <button
               data-testid={`hot-topic-pill-${topic.type}`}
               className="hot-topic-row"
@@ -1001,7 +1052,8 @@ export default function HotTopicStrip({
                           color: style.color,
                         }}
                       >
-                        {ev.glyph} {[dayWord, ev.word].filter(Boolean).join(' ')}
+                        {ev.glyph} {[dayWord, OWN_CLOCK_TYPES.has(topic.type) ? null : ev.word]
+                          .filter(Boolean).join(' ')}
                         {time ? ` · ${time}` : ''}
                       </span>
                       {detailText && (
@@ -1162,6 +1214,40 @@ export default function HotTopicStrip({
                 })}
               </div>
             )}
+            </div>
+
+            {/* Outside the dim, and never inside `TopicFacts` — which blurs to 3.5px for LITE.
+                A blurred instruction to fit a solar filter is worse than none at all: it reads as
+                information being withheld rather than information the reader needs.
+
+                The design says the warning "lives on the promoted strip only. Do not repeat it on
+                the pill." That instruction assumed the window-first v2 arm had shipped and the
+                strip was guaranteed to be on screen. The flag still defaults to v1, which has no
+                promoted strip at all — so honouring it literally would ship an eclipse with the
+                warning nowhere. It is repeated here for as long as that is true. */}
+            {topic.safetyNote && (
+              <div
+                data-testid={`topic-safety-${topic.type}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  gap: '6px',
+                  padding: '7px 13px',
+                  borderTop: `1px solid ${style.color}33`,
+                  background: 'rgba(0,0,0,0.2)',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '10.5px',
+                  lineHeight: 1.45,
+                  // Full ink, not the topic accent the design tints it with. At 10.5px the accent
+                  // measures near the AA floor on this fill, and of everything on the pill this is
+                  // the line that must never be the hardest to read.
+                  color: 'var(--color-plex-text)',
+                }}
+              >
+                <span aria-hidden="true">⚠</span>
+                <span>{topic.safetyNote}</span>
+              </div>
+            )}
           </div>
         );
       })}
@@ -1208,6 +1294,7 @@ HotTopicStrip.propTypes = {
         optional: PropTypes.bool,
       })),
       note: PropTypes.string,
+      safetyNote: PropTypes.string,
       tideRun: PropTypes.object,
       surgeRun: PropTypes.object,
     }),

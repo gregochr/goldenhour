@@ -3,9 +3,17 @@ import { topicCertainty, CERTAINTY_KINDS } from '../utils/topicCertainty.js';
 
 describe('topicCertainty', () => {
   it('classifies tides and astronomical events as almanac (fixed)', () => {
-    for (const type of ['KING_TIDE', 'SPRING_TIDE', 'SUPERMOON', 'METEOR', 'EQUINOX']) {
+    for (const type of ['ECLIPSE', 'KING_TIDE', 'SPRING_TIDE', 'SUPERMOON', 'METEOR', 'EQUINOX']) {
       expect(topicCertainty(type).key).toBe('almanac');
     }
+  });
+
+  // Worth its own case rather than only a loop entry: the fail-soft default below is 'forecast',
+  // so an unregistered ECLIPSE does not read as an absence — it reads as a weather forecast, on
+  // the one topic whose timing is fixed to the second centuries ahead. A wrong claim, not a gap.
+  it('never lets an eclipse fall through to the forecast default', () => {
+    expect(topicCertainty('ECLIPSE').key).not.toBe('forecast');
+    expect(topicCertainty('ECLIPSE').label).toBe('almanac');
   });
 
   it('classifies NLC as a chance (window fixed, display unforecastable)', () => {

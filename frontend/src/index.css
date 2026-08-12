@@ -98,6 +98,12 @@
      (--color-tide is the third member and already lives above, where it is in use today.) */
   --color-nlc: #9B8FD4;
   --color-snow: #B7CBD8;
+  /* The eclipse channel. Sits with the three above at matching lightness and chroma rather than
+     with the verdict family, and that is a deliberate refusal: it is close in hue to
+     --color-verdict-standdown (#C8452F, "don't go"), and the two must never be confusable on a
+     topic that is the strongest reason to go this decade. Nothing in this palette exceeds roughly
+     0.08 chroma; a saturated red would read as an error state rather than as a channel. */
+  --color-eclipse: #C4787F;
 
   /* Badge TEXT variants. A badge is ~10px type on a 12–14% tint of its own hue, and at that size
      the full-strength channel colour does not carry — these are the lifted versions that do. Two
@@ -148,6 +154,10 @@
   --color-badge-also: #B3BEEA;
   --color-badge-nlc: #BFB6E8;
   --color-badge-snow: #C6D8E3;
+  /* The eclipse channel's lifted text variant — the same relationship to --color-eclipse that
+     --color-badge-snow has to --color-snow, and the value the design specifies for the kicker and
+     the warning. */
+  --color-badge-eclipse: #D79AA0;
   /* The active segment of a segmented control — the one non-badge member, here because it is the
      same trick: readable type on a 13% tint of --color-close-to-home. */
   --color-segment-active: #EBD9A8;
@@ -2216,6 +2226,10 @@
   --promo-accent: var(--color-nlc);
   --promo-ink: var(--color-badge-nlc);
 }
+.wf-promo[data-channel='eclipse'] {
+  --promo-accent: var(--color-eclipse);
+  --promo-ink: var(--color-badge-eclipse);
+}
 /* Aurora has no CHANNEL token of its own, and this change does not author one.
    ⚠️ A token holding exactly this hue does exist — `--color-verdict-go: #8AAE72` (:42) — and it must
    NOT be borrowed here. Verdict colours are semantic and consistent in every location (§6 clause 5),
@@ -2278,14 +2292,37 @@
   font-variant-numeric: tabular-nums;
   color: var(--color-plex-text);
 }
-/* The design's flexible rule. Nothing follows it — there is no right-hand meta (see the
-   component's Javadoc for why the mock's is unbuildable) — so it closes the header rather than
-   separating two groups. */
+/* The design's flexible rule. On a coincidence strip nothing follows it — the mock's right-hand
+   meta counts our own data and is not built (see the component's Javadoc) — so it closes the
+   header. On a solo-rarity strip the recurrence line follows it, and it does the job the mock gives
+   it: separating the title group from the quiet meta at the far end. */
 .wf-promo-rule {
   flex: 1;
   min-width: 12px;
   height: 1px;
   background: var(--color-plex-border);
+}
+/* The recurrence line. Mono 10px at the muted tier — the design's own weighting, and the point of
+   it: a once-in-a-lifetime claim that shouted would read as marketing. `--color-plex-text-secondary`
+   rather than the design's `--ink-3`, for the tenth time on this redesign and the same reason —
+   muted lands in the 3.4-3.5:1 band at this size on every surface in this arm. */
+.wf-promo-rare {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
+  white-space: nowrap;
+}
+/* The promoted topic's own sentence. Serif italic, matching `.tr-foot .phrase` — this arm's
+   established treatment for an editorial line among measured ones, so it reads as a remark rather
+   than as another figure. Not right-aligned as the design has it: at this width the mock's 250px
+   right-aligned column leaves a ragged gap under the figures, and the sentence belongs with them. */
+.wf-promo-why {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--color-plex-text-secondary);
+  padding: 0 14px 11px;
 }
 
 .wf-promo-b {
@@ -2335,6 +2372,15 @@
    tinting it by channel would make the one control on a snow strip look like a different kind of
    control from the identical one on a tide strip. `cursor` is explicit because Tailwind v4's
    Preflight no longer sets it on buttons, an omission this arm has shipped twice. */
+/* The safety warning. `--color-badge-eclipse` is the design's warning tone and is the ONE place a
+   channel colour is right on the foot: unlike `.wf-promo-go`, this is not a control whose colour
+   means "actionable" — it is a hazard belonging to the subject, and the subject is the eclipse.
+   Measured 8.1:1 on the foot's own rgba(0,0,0,0.2) over the panel. It wraps rather than truncating,
+   because a warning that ends in an ellipsis is not a warning. */
+.wf-promo-warn {
+  color: var(--color-badge-eclipse);
+  white-space: normal;
+}
 .wf-promo-go {
   margin-left: auto;
   font-family: var(--font-mono);
@@ -2372,6 +2418,19 @@
   /* The same thing the window card's header loses at this width, and for the same reason: with the
      kicker on its own row there is no gap left for a rule to fill. */
   .wf-promo-rule { display: none; }
+  /* The rule above is what pushed the recurrence line to its own end of the header, and it is gone
+     at this width — so the line takes a row of its own and is allowed to wrap.
+
+     ⚠️ Both declarations are load-bearing and were measured, not assumed. Without them the line
+     stayed `nowrap` on one row: at 375px it ran 37px past the strip's own right edge, clipped by
+     the frame's `overflow: hidden` so the sentence simply ended mid-word with no scrollbar and
+     nothing on the page to indicate anything was missing. The page itself did not overflow, which
+     is why nothing else showed it. */
+  .wf-promo-rare {
+    flex-basis: 100%;
+    white-space: normal;
+  }
+  .wf-promo-why { padding: 0 12px 10px; }
   .wf-promo-b {
     padding: 0 12px 10px;
     gap: 14px;

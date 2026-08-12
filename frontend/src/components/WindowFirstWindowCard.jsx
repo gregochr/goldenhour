@@ -24,6 +24,9 @@ const VERDICT_TREATMENT = {
 
 /** Badge channels for the hot topics that land on a window. */
 const CHANNEL = {
+  // #C4787F at the same 0.12/0.45 weights as its four siblings. Literals rather than the token,
+  // matching how every other row here spells its hue.
+  eclipse: { fill: 'rgba(196,120,127,0.12)', border: 'rgba(196,120,127,0.45)', text: 'var(--color-badge-eclipse)' },
   tide: { fill: 'rgba(111,168,176,0.12)', border: 'rgba(111,168,176,0.45)', text: 'var(--color-badge-tide)' },
   nlc: { fill: 'rgba(155,143,212,0.12)', border: 'rgba(155,143,212,0.45)', text: 'var(--color-badge-nlc)' },
   aurora: { fill: 'rgba(138,174,114,0.12)', border: 'rgba(138,174,114,0.45)', text: 'var(--color-badge-go)' },
@@ -348,6 +351,36 @@ export default function WindowFirstWindowCard({
           })}
         </span>
 
+        {/* The window card is the ONE surface guaranteed to be on screen whenever a topic is, and
+            that is why it carries this rather than leaving it to the two that already do.
+            `WindowFirstPromotedStrip` shows it only for the window it promotes, and the Hot Topics
+            pill sits behind a door that is shut on a fresh session — so on the v2 pane there were
+            arrangements where a rose "Deep partial eclipse" chip appeared with the solar-filter
+            instruction nowhere on screen or in the accessibility tree. An adversarial review found
+            it; `BriefingWindow.Badge`'s own Javadoc had already named this card as the reason the
+            field rides the badge at all.
+
+            Rendered from whichever badge carries one rather than per badge: a warning is about the
+            hazard, not about the chip, and two identical lines would be worse than one. */}
+        {card.badges.map((badge) => badge.safetyNote).find(Boolean) && (
+          <div
+            data-testid="window-card-safety"
+            className="font-mono"
+            style={{
+              fontSize: '10.5px',
+              lineHeight: 1.45,
+              marginTop: '6px',
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: '6px',
+              color: 'var(--color-plex-text)',
+            }}
+          >
+            <span aria-hidden="true">⚠</span>
+            <span>{card.badges.map((badge) => badge.safetyNote).find(Boolean)}</span>
+          </div>
+        )}
+
         {/* The accessible name carries the window, because `aria-expanded` announces the STATE and
             nothing else distinguishes six identical "Open" buttons in a list. The visible word is
             the first word of the label, so WCAG 2.5.3's label-in-name holds; the caret is decorative
@@ -446,6 +479,7 @@ WindowFirstWindowCard.propTypes = {
       type: PropTypes.string,
       label: PropTypes.string,
       detail: PropTypes.string,
+      safetyNote: PropTypes.string,
     })).isRequired,
     pick: PropTypes.shape({
       kind: PropTypes.oneOf(['best', 'also']).isRequired,

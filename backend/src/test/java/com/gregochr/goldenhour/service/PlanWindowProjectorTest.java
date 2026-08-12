@@ -607,6 +607,41 @@ class PlanWindowProjectorTest {
     class Badges {
 
         @Test
+        @DisplayName("carries the topic's note, recurrence line and safety warning onto the badge")
+        void carriesEveryNullableStringOntoTheBadge() {
+            // These three are consecutive nullable Strings at the end of a positional constructor,
+            // so a transposition compiles and every other test stays green. Three DISTINCT values,
+            // asserted individually, is what makes a swap fail here.
+            //
+            // Without this, replacing `topic.safetyNote()` with `null` in the projector left the
+            // entire backend suite green, the entire frontend suite green (its fixtures hand-build
+            // badges), and the eye-safety warning gone from every v2 surface — the window card and
+            // the promoted strip both render from badges and never join back to the topic list.
+            HotTopic eclipse = topic("ECLIPSE", "SUNSET")
+                    .withScience(List.of(), "look low to the west")
+                    .withRarity("nothing comparable until 2081")
+                    .withSafety("Certified solar filter on the lens");
+
+            DailyBriefingResponse out = project(twoWindowDay(), List.of(eclipse));
+
+            BriefingWindow.Badge badge = windowOf(out, TargetType.SUNSET).badges().get(0);
+            assertThat(badge.note()).isEqualTo("look low to the west");
+            assertThat(badge.rarityNote()).isEqualTo("nothing comparable until 2081");
+            assertThat(badge.safetyNote()).isEqualTo("Certified solar filter on the lens");
+        }
+
+        @Test
+        @DisplayName("leaves all three null for a topic that carries none")
+        void leavesTheNullableStringsNullWhenTheTopicHasNone() {
+            DailyBriefingResponse out = project(twoWindowDay(), List.of(topic("DUST", "SUNSET")));
+
+            BriefingWindow.Badge badge = windowOf(out, TargetType.SUNSET).badges().get(0);
+            assertThat(badge.note()).isNull();
+            assertThat(badge.rarityNote()).isNull();
+            assertThat(badge.safetyNote()).isNull();
+        }
+
+        @Test
         void aSunsetTopicLandsOnThatDaysSunsetOnly() {
             DailyBriefingResponse out = project(twoWindowDay(), List.of(topic("DUST", "SUNSET")));
 
@@ -664,7 +699,7 @@ class PlanWindowProjectorTest {
         void aTopicWithNoDateIsDropped() {
             HotTopic undated = new HotTopic("DUST", "Sahara dust", "detail", null, 1,
                     null, List.of(), "desc", null, "SUNSET", "21:11", null, null, null,
-                    null, null, null, null);
+                    null, null, null, null, null, null);
 
             DailyBriefingResponse out = project(twoWindowDay(), List.of(undated));
 
@@ -1056,6 +1091,6 @@ class PlanWindowProjectorTest {
     private static HotTopic topic(String type, String eventType) {
         return new HotTopic(type, type + " label", type + " detail", TODAY, 1,
                 null, List.of(), "desc", null, eventType, "21:11", null, null, null,
-                null, null, null, null);
+                null, null, null, null, null, null);
     }
 }

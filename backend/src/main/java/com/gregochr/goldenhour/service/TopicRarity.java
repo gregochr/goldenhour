@@ -31,22 +31,41 @@ public final class TopicRarity {
      */
     public static final int UNKNOWN_RANK = Integer.MAX_VALUE;
 
+    /**
+     * The rank at or below which a kind is rare enough to take the promoted strip on its own,
+     * without a second attribute to make a coincidence.
+     *
+     * <p>Set to 1, which is exactly one kind: an eclipse deep enough to be worth driving for
+     * happens over these islands roughly twice a century. Everything at rank 2 and below is at
+     * worst a few-times-a-year event, and a strip that appeared for every supermoon would stop
+     * being the pane's lede and become its wallpaper.
+     *
+     * <p>Lives here rather than on the client because it is a statement about the rarity ordinal,
+     * and the ordinal is defined here. The client reads it off the wire.
+     */
+    public static final int SOLO_PROMOTION_RANK = 1;
+
     private static final Map<String, Integer> RANK_BY_TYPE = Map.ofEntries(
-            Map.entry("SUPERMOON", 1),
-            Map.entry("EQUINOX", 2),
-            Map.entry("KING_TIDE", 3),
-            Map.entry("AURORA", 4),
-            Map.entry("METEOR", 5),
-            Map.entry("STORM_SURGE", 6),
-            Map.entry("INVERSION", 7),
-            Map.entry("SNOW_TOPS", 8),
-            Map.entry("SNOW_MIST", 9),
-            Map.entry("SNOW_FRESH", 10),
-            Map.entry("DUST", 11),
-            Map.entry("CLEARANCE", 12),
-            Map.entry("BLUEBELL", 13),
-            Map.entry("NLC", 14),
-            Map.entry("SPRING_TIDE", 15));
+            // An eclipse this deep is a twice-a-century event over the British Isles: the 2026
+            // one is the closest to total since 1999, with nothing comparable until 2081. Nothing
+            // else in this table is in the same order of magnitude, which is why it — and only it —
+            // clears SOLO_PROMOTION_RANK.
+            Map.entry("ECLIPSE", 1),
+            Map.entry("SUPERMOON", 2),
+            Map.entry("EQUINOX", 3),
+            Map.entry("KING_TIDE", 4),
+            Map.entry("AURORA", 5),
+            Map.entry("METEOR", 6),
+            Map.entry("STORM_SURGE", 7),
+            Map.entry("INVERSION", 8),
+            Map.entry("SNOW_TOPS", 9),
+            Map.entry("SNOW_MIST", 10),
+            Map.entry("SNOW_FRESH", 11),
+            Map.entry("DUST", 12),
+            Map.entry("CLEARANCE", 13),
+            Map.entry("BLUEBELL", 14),
+            Map.entry("NLC", 15),
+            Map.entry("SPRING_TIDE", 16));
 
     private TopicRarity() {
     }

@@ -481,6 +481,7 @@ describe('buildWindowCards', () => {
 
 describe('badgeChannel', () => {
   it.each([
+    ['ECLIPSE', 'eclipse'],
     ['SPRING_TIDE', 'tide'],
     ['KING_TIDE', 'tide'],
     ['STORM_SURGE', 'tide'],
@@ -504,5 +505,14 @@ describe('badgeChannel', () => {
   it('tolerates a missing type', () => {
     expect(badgeChannel(undefined)).toBe('plain');
     expect(badgeChannel(null)).toBe('plain');
+  });
+
+  it('matches ECLIPSE exactly, so no loose substring test can capture it first', () => {
+    // The other five tests are substring matches on the whole type string, and they run in source
+    // order. ECLIPSE is matched first and by equality so that a later kind naming a different body
+    // — a lunar eclipse over a coast, say — cannot be silently claimed by whichever loose test it
+    // happens to hit, which is the failure mode `badgeChannel`'s own comment warns about.
+    expect(badgeChannel('LUNAR_ECLIPSE_TIDE')).toBe('tide');
+    expect(badgeChannel('eclipse')).toBe('eclipse');
   });
 });

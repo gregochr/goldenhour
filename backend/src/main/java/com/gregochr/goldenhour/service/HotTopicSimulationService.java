@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.HotTopicFact;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -129,7 +130,47 @@ public class HotTopicSimulationService {
             String filterAction,
             List<String> regions,
             int dayOffset,
-            ExpandedHotTopicDetail expandedDetail) {
+            ExpandedHotTopicDetail expandedDetail,
+            Enrichment enrichment) {
+
+        /**
+         * The parts of a topic that the plain template shape cannot express.
+         *
+         * <p>Simulated topics have always been built through {@code HotTopic}'s back-compatible
+         * constructor, so none of them carry fact chips, and their event anchor is filled in
+         * afterwards by {@link HotTopicEventEnricher}'s static per-type policy. Neither works for a
+         * topic whose clock time is its own (an eclipse peaks at 19:06, not at the 20:47 sunset it
+         * shares a window with) or whose safety warning is the point of simulating it at all.
+         *
+         * @param eventType  the photographic window, or null to let the enricher decide
+         * @param eventTime  the topic's own local {@code HH:mm}, or null
+         * @param facts      the enriched second-row chips, or null
+         * @param note       the italic where-to-look cue, or null
+         * @param rarityNote the recurrence line, or null
+         * @param safetyNote the warning every surface must show, or null
+         */
+        record Enrichment(String eventType, String eventTime, List<HotTopicFact> facts,
+                String note, String rarityNote, String safetyNote) { }
+
+        /**
+         * A template for the fifteen topics that carry no enrichment of their own.
+         *
+         * @param type           topic type identifier
+         * @param label          human-readable label
+         * @param detail         supporting detail, to which a day word is appended
+         * @param description    the (i) tooltip body
+         * @param priority       ordering priority
+         * @param filterAction   optional map filter key
+         * @param regions        the regions to claim
+         * @param dayOffset      0 = today, 1 = tomorrow, 2 = day after
+         * @param expandedDetail structured expandable data, or null
+         */
+        SimulationTemplate(String type, String label, String detail, String description,
+                int priority, String filterAction, List<String> regions, int dayOffset,
+                ExpandedHotTopicDetail expandedDetail) {
+            this(type, label, detail, description, priority, filterAction, regions, dayOffset,
+                    expandedDetail, null);
+        }
 
         /**
          * Materialises this template into a {@link HotTopic} using the supplied date references.
@@ -150,10 +191,18 @@ public class HotTopicSimulationService {
                 case 2 -> date.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.UK);
                 default -> "tomorrow";
             };
-            return new HotTopic(type, label,
+            HotTopic topic = new HotTopic(type, label,
                     detail + " " + dayLabel,
                     date, priority, filterAction, regions, description,
                     expandedDetail);
+            if (enrichment == null) {
+                return topic;
+            }
+            return topic
+                    .withEvent(enrichment.eventType(), enrichment.eventTime())
+                    .withScience(enrichment.facts(), enrichment.note())
+                    .withRarity(enrichment.rarityNote())
+                    .withSafety(enrichment.safetyNote());
         }
     }
 
@@ -224,7 +273,40 @@ public class HotTopicSimulationService {
             null,
             new ExpandedHotTopicDetail.TideMetrics("Spring tide", "Full Moon", 1, 1));
 
+    /**
+     * The simulated eclipse's enriched second row, and its warning.
+     *
+     * <p>Figures are the ones {@code EclipseHotTopicStrategy} reduces for the Northumberland coast
+     * on 12 August 2026 — copied so that what the admin panel demonstrates is what the pill really
+     * renders, rather than invented placeholders that would drift from it. The safety warning is
+     * the point of being able to simulate this type at all: it is the only warning in the catalogue
+     * and the only way to check it survives every tier gate on a day that is not eclipse day.
+     */
+    private static final SimulationTemplate.Enrichment ECLIPSE_SIM_ENRICHMENT =
+            new SimulationTemplate.Enrichment(
+                    "SUNSET", "19:06",
+                    List.of(
+                            HotTopicFact.directional("max", "90% covered · sun only 13° up", "W", true),
+                            HotTopicFact.metric("contacts", "18:09 → 19:06 → 20:00"),
+                            HotTopicFact.metric("sun", "sets 20:47, 47 min after last contact")
+                                    .asOptional()),
+                    "a clear low western horizon matters more than the last 2%",
+                    "nothing comparable from the UK until 2081 · 1h 51m of it",
+                    "Certified solar filter on the lens — not only over your eye");
+
     private static final List<SimulationTemplate> ALL_SIMULATIONS = List.of(
+            new SimulationTemplate(
+                    "ECLIPSE", "Deep partial eclipse",
+                    "90% of the sun covered, and it sits only 13° up",
+                    "Brightness falls with the uncovered area, not with how dark it feels. At"
+                            + " maximum a sliver of photosphere is still throwing roughly 10% of"
+                            + " full sunlight — thousands of times brighter than a full moon, and a"
+                            + " light meter still reads daylight. What changes is the quality:"
+                            + " colour goes metallic, shadows sharpen to knife edges, and pinholes"
+                            + " between leaves cast crescents on the ground.",
+                    4, null,
+                    List.of("Northumberland", "The North Yorkshire Coast"), 0,
+                    null, ECLIPSE_SIM_ENRICHMENT),
             new SimulationTemplate(
                     "BLUEBELL", "Bluebell conditions",
                     "Misty and still — perfect morning conditions",

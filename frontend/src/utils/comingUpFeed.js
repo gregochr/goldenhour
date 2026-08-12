@@ -80,7 +80,7 @@ const FLAG_TRUE = 'true';
  * needs to know what a type is, and it is here rather than in the renderer so the rule has a single
  * home and a single test.
  */
-const TYPES_WITH_FIGURES = new Set(['spring-tide', 'king-tide']);
+const TYPES_WITH_FIGURES = new Set(['spring-tide', 'king-tide', 'eclipse']);
 
 /** Midday UTC, so no timezone can push a bare `YYYY-MM-DD` onto the day either side. */
 function atMidday(dateStr) {
@@ -197,6 +197,7 @@ const PEAK_WORD = {
   supermoon: 'Closest',
   equinox: 'Exact day',
   solstice: 'Exact day',
+  eclipse: 'Maximum',
 };
 
 /** Fallback for a type this build has never heard of, so a future source still reads sensibly. */
@@ -260,6 +261,15 @@ function factsFor(meta) {
   if (meta.moonIllumination) {
     facts.push({ segments: [base('moon '), strong(meta.moonIllumination)] });
   }
+
+  // Eclipse. Two measurements, and then the recurrence line last, because it is the one fact that
+  // is about the event's place in a century rather than about the night itself.
+  if (meta.coverage) facts.push({ segments: [base('at maximum '), strong(meta.coverage)] });
+  if (meta.maximum) facts.push({ segments: [base('peaks '), strong(meta.maximum)] });
+  // Rendered whole and unlabelled. `EclipseAlmanacSource` composes the sentence — "nothing
+  // comparable from the UK until 2081" — precisely so this file keeps its rule that no number is
+  // parsed, compared or re-formatted here; a bare `returnYears` integer would have broken it.
+  if (meta.rarity) facts.push({ segments: [strong(meta.rarity)] });
 
   return facts;
 }

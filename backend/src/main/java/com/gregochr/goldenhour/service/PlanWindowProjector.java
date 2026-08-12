@@ -440,7 +440,7 @@ public final class PlanWindowProjector {
             }
             BriefingWindow.Badge badge = new BriefingWindow.Badge(
                     topic.type(), topic.label(), topic.detail(), topic.facts(), topic.eventTime(),
-                    TopicRarity.rankOf(topic.type()));
+                    TopicRarity.rankOf(topic.type()), topic.note(), topic.rarityNote(), topic.safetyNote());
             for (WindowKey key : keysFor(topic)) {
                 byWindow.computeIfAbsent(key, k -> new ArrayList<>()).add(badge);
             }

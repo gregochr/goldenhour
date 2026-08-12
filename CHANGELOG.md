@@ -5,6 +5,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the eclipse, and every figure on it worked out for your own locations
+
+Wednesday 12 August 2026 is the deepest solar eclipse the British Isles have seen since 1999, and
+there is nothing comparable again until 2081. PhotoCast now carries it as a hot topic of its own.
+
+Published eclipse times are quoted for cities, almost always London, and they do not transfer. Over
+London the sun peaks 92% covered at 19:13; on the Northumberland coast it is 91% at 19:06, and in
+the Isles of Scilly 96% at 19:16. So nothing here is copied from a source. NASA publishes the
+*Besselian elements* for every eclipse — twelve polynomial coefficients describing where the moon's
+shadow is — and those are seeded once. Everything you actually read is worked out from them for each
+of your own locations: how much of the sun goes, the three contact times, how high the sun is and
+which way to face. The reduction is checked against London's published contacts to the minute, and
+against Reykjavik being inside the path of totality.
+
+The pill leads with the moment of maximum rather than the sunset it shares an evening with, states
+the coverage against how low the sun is, and gives all three contacts. The topic disappears once the
+last contact has passed, because by then there is nothing left to drive to.
+
+On the window-first Plan tab it takes the promoted strip. That strip previously only ever appeared
+for a *coincidence* — two things landing on one window — which would have held the rarest event of
+the century off the top of the page for want of a second thing to pair it with. It now also promotes
+a single topic rare enough not to need one, and exactly one kind qualifies. On that strip it carries
+the recurrence line ("nothing comparable from the UK until 2081 · 1h 51m of it") and the topic's own
+editorial aside.
+
+**The eye-safety warning is on its own field and cannot be switched off.** *Certified solar filter on
+the lens — not only over your eye.* The second clause is the one that matters: eclipse glasses
+protect your eye at the viewfinder while an unfiltered lens concentrates sunlight straight onto the
+sensor. It deliberately does not travel with the science facts, because those are blurred for Lite
+users, and a blurred instruction to fit a solar filter is worse than none at all — it reads as
+something being withheld rather than something you need.
+
+It also leads the 90-day **Coming up** feed, with the same figures worked out the same way — the
+two paths share the catalogue and the reduction, so the Plan tab and the feed cannot disagree about
+what the eclipse looks like from here. The recurrence line is composed on the backend as a finished
+sentence, because that feed's rule is that no number is parsed or re-formatted in the browser.
+
+Two figures from the design were dropped rather than faked. "The lowest sun of any UK eclipse this
+century" needs a catalogue of a hundred years of eclipse circumstances that does not exist here, and
+"clear to the west at 31 of 57 sites" needs a horizon profile for each location that does not exist
+either — no terrain data, no elevation service, and the coast this app knows best faces east. What
+survives is the design's own sentence, which was true all along: a clear low western horizon matters
+more than the last 2%.
+
 ### Removed — an unused code path behind the map's forecast popup
 
 `ForecastDtoMapper.toSparseDto` built a forecast popup from a cached score when no full forecast row

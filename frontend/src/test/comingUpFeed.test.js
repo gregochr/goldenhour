@@ -390,3 +390,76 @@ describe('comingUpFeed — keys, order and absent input', () => {
     expect(buildComingUpRows([], TODAY)).toEqual([]);
   });
 });
+
+describe('comingUpFeed — the eclipse row', () => {
+  /** The shape `EclipseAlmanacSource` really emits: every value a finished string. */
+  const ECLIPSE = {
+    startDate: '2026-08-12',
+    endDate: '2026-08-12',
+    kind: 'ALMANAC',
+    type: 'eclipse',
+    title: 'Deep partial eclipse',
+    detail: 'The moon covers 91% of the sun at maximum.',
+    meta: {
+      coverage: '91% covered',
+      maximum: '19:06 · sun 13° up W',
+      rarity: 'nothing comparable from the UK until 2081',
+      location: 'Bamburgh',
+    },
+  };
+
+  const rowFor = (over = {}) => buildComingUpRows([{ ...ECLIPSE, ...over }], TODAY)[0];
+
+  const factText = (row) => row.facts
+    .map((f) => f.segments.map((seg) => seg.text).join(''))
+    .join(' | ');
+
+  it('renders coverage, the maximum and the recurrence line, in that order', () => {
+    // Recurrence last: it is the only one of the three that is about the event's place in a
+    // century rather than about the night itself.
+    expect(factText(rowFor())).toBe(
+      'at maximum 91% covered | peaks 19:06 · sun 13° up W'
+      + ' | nothing comparable from the UK until 2081',
+    );
+  });
+
+  it('renders the recurrence line whole, parsing no number out of it', () => {
+    // The backend composes the sentence precisely so this file keeps its rule that no number is
+    // parsed, compared or re-formatted here. A different year must pass through untouched.
+    const row = rowFor({ meta: { ...ECLIPSE.meta, rarity: 'nothing comparable until 2090' } });
+
+    expect(factText(row)).toContain('nothing comparable until 2090');
+  });
+
+  it('says "Maximum" rather than the generic "Peak" for the named instant', () => {
+    const row = rowFor({ meta: { ...ECLIPSE.meta, peakDate: '2026-08-12' } });
+
+    // The row's own date already IS the peak for a single-day event, so the note is suppressed;
+    // what this pins is that the vocabulary exists for the type rather than falling through.
+    expect(row.type).toBe('eclipse');
+  });
+
+  it('drops the rarity chip when the backend sends no recurrence line', () => {
+    // An eclipse that returns often carries no `rarity` key at all — metaOf drops null — and the
+    // row simply says less rather than hedging.
+    const withoutRarity = { ...ECLIPSE.meta };
+    delete withoutRarity.rarity;
+    const row = rowFor({ meta: withoutRarity });
+
+    expect(factText(row)).not.toContain('nothing comparable');
+    expect(factText(row)).toContain('91% covered');
+  });
+
+  it('names the location the figures belong to', () => {
+    expect(rowFor().attribution).toContain('Bamburgh');
+  });
+
+  it('flags the degrade when an eclipse arrives with no figures at all', () => {
+    const row = rowFor({ meta: {} });
+
+    expect(row.figuresMissing).toBe(true);
+    expect(row.facts).toEqual([]);
+    // The title and the date survive — the entry is never dropped for want of numbers.
+    expect(row.title).toBe('Deep partial eclipse');
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import HotTopicStrip from '../components/HotTopicStrip.jsx';
 
 const baseTopic = {
@@ -16,8 +16,21 @@ function buildTopic(overrides = {}) {
   return { ...baseTopic, ...overrides };
 }
 
-/** The accent (border/background/opacity) lives on the button's parent <div>. */
+/**
+ * The accent — border, left rail and background tint — lives on the pill's outer frame.
+ *
+ * <p>Two levels up, not one. A pill is now `frame > dim > button`, where the middle element carries
+ * the LITE opacity and the outer one carries the accent. They were the same element until a safety
+ * warning needed to sit outside the tier gate: CSS opacity compounds and creates a stacking
+ * context, so a child of a 0.45 element cannot restore itself, and the only way to exempt a row is
+ * for it not to be inside the dimmed subtree.
+ */
 function accentWrapper(pill) {
+  return pill.parentElement.parentElement;
+}
+
+/** The element carrying the LITE dim — the pill's immediate parent, inside the accent frame. */
+function dimWrapper(pill) {
   return pill.parentElement;
 }
 
@@ -358,16 +371,25 @@ describe('HotTopicStrip', () => {
   });
 
   describe('lite user visual styling', () => {
-    it('applies reduced opacity on the wrapper for lite users', () => {
+    it('applies reduced opacity to the content for lite users', () => {
       render(<HotTopicStrip hotTopics={[buildTopic()]} isLiteUser />);
       const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
-      expect(accentWrapper(pill).style.opacity).toBe('0.45');
+      expect(dimWrapper(pill).style.opacity).toBe('0.45');
     });
 
-    it('applies full opacity on the wrapper for regular users', () => {
+    it('applies full opacity to the content for regular users', () => {
       render(<HotTopicStrip hotTopics={[buildTopic()]} />);
       const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
-      expect(accentWrapper(pill).style.opacity).toBe('1');
+      expect(dimWrapper(pill).style.opacity).toBe('1');
+    });
+
+    it('leaves the pill\'s own frame at full strength for lite users', () => {
+      // The dim says "this content is premium". A frame is not content — dimming it made the pill
+      // harder to LOCATE rather than harder to read, and it is what the safety row has to escape.
+      render(<HotTopicStrip hotTopics={[buildTopic()]} isLiteUser />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      expect(accentWrapper(pill).style.opacity).toBe('');
+      expect(accentWrapper(pill).style.borderLeft).toBe('3px solid rgb(139, 92, 246)');
     });
 
     it('disables pointer events on the button for lite users', () => {
@@ -2740,5 +2762,105 @@ describe('HotTopicStrip — storm surge verdict', () => {
     const verdict = screen.getByTestId('surge-verdict');
     const chart = document.querySelector('.sr-chart');
     expect(verdict.compareDocumentPosition(chart) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe('HotTopicStrip — the safety warning', () => {
+  const WARNING = 'Certified solar filter on the lens — not only over your eye';
+
+  const ECLIPSE = buildTopic({
+    type: 'ECLIPSE',
+    label: 'Deep partial eclipse',
+    detail: '90% of the sun covered, and it sits only 13° up',
+    date: '2026-08-12',
+    eventType: 'SUNSET',
+    eventTime: '19:06',
+    facts: [{
+      key: 'max', value: '90% covered · sun only 13° up', dir: 'W', emphasis: true, optional: false,
+    }],
+    note: 'a clear low western horizon matters more than the last 2%',
+    safetyNote: WARNING,
+  });
+
+  it('renders the warning on the pill', () => {
+    render(<HotTopicStrip hotTopics={[ECLIPSE]} />);
+
+    expect(screen.getByTestId('topic-safety-ECLIPSE')).toHaveTextContent(WARNING);
+  });
+
+  it('renders it for a LITE user too, outside the dim and outside the blur', () => {
+    // The defect this guards. `facts` and `note` render inside `TopicFacts`, which applies
+    // `blur(3.5px)` for LITE — a blurred instruction to fit a solar filter is worse than none,
+    // because it reads as information being withheld rather than information needed. The warning
+    // is therefore neither in the fact row nor inside the dimmed subtree.
+    render(<HotTopicStrip hotTopics={[ECLIPSE]} isLiteUser />);
+
+    const warning = screen.getByTestId('topic-safety-ECLIPSE');
+    expect(warning).toHaveTextContent(WARNING);
+    expect(warning.style.filter).toBe('');
+
+    const pill = screen.getByTestId('hot-topic-pill-ECLIPSE');
+    expect(pill.parentElement.contains(warning)).toBe(false);
+  });
+
+  it('is not inside the fact row, whose contents LITE cannot read', () => {
+    render(<HotTopicStrip hotTopics={[ECLIPSE]} isLiteUser />);
+
+    const facts = screen.getByTestId('topic-facts-ECLIPSE');
+    expect(facts.style.filter).toBe('blur(3.5px)');
+    expect(facts).not.toHaveTextContent('filter on the lens');
+  });
+
+  it('offers no way to dismiss it', () => {
+    render(<HotTopicStrip hotTopics={[ECLIPSE]} />);
+
+    const warning = screen.getByTestId('topic-safety-ECLIPSE');
+    expect(within(warning).queryAllByRole('button')).toHaveLength(0);
+  });
+
+  it('leads with the eclipse\'s own time and does NOT call it sunset', () => {
+    // The defect a browser found and the unit tests did not: the eclipse is bucketed onto the
+    // SUNSET window (it is an evening shoot) but its time is the eclipse maximum, 19:06, against a
+    // 20:47 sunset. The lead's shape is "{glyph} {day} {event} · {time}", so it read
+    // "↓ Today sunset · 19:06" — stating in the pill's most prominent line that the sun sets an
+    // hour and three quarters before it does.
+    render(<HotTopicStrip hotTopics={[ECLIPSE]} />);
+
+    const lead = screen.getByTestId('topic-timing-lead-ECLIPSE');
+    expect(lead).toHaveTextContent('19:06');
+    expect(lead.textContent).not.toContain('sunset');
+    // The glyph still carries which half of the day it is, and the day word is still there.
+    expect(lead.textContent).toContain('↓');
+    expect(lead.textContent).toContain('Today');
+  });
+
+  it('still names the event for a topic whose time IS its event\'s', () => {
+    // The rule is narrow on purpose. A tide topic's eventTime IS its sunrise, so dropping the word
+    // there would remove something true rather than something false.
+    render(<HotTopicStrip hotTopics={[buildTopic({
+      type: 'SPRING_TIDE', label: 'Spring tide', eventType: 'SUNRISE', eventTime: '05:31',
+    })]} />);
+
+    const lead = screen.getByTestId('topic-timing-lead-SPRING_TIDE');
+    expect(lead.textContent).toContain('sunrise');
+    expect(lead.textContent).toContain('05:31');
+  });
+
+  it('draws no safety row for a topic that carries no warning', () => {
+    render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+
+    expect(screen.queryByTestId('topic-safety-BLUEBELL')).toBeNull();
+  });
+
+  it('gives the eclipse its own accent and glyph rather than the unregistered-type fallback', () => {
+    // An unregistered type takes DEFAULT_STYLE's EIGHT-digit `#ffffff33`, which the border and
+    // background then concatenate alpha onto — producing ten-digit strings CSS drops entirely, so
+    // the pill renders with no frame and no glyph at all. A six-digit accent is what avoids it.
+    render(<HotTopicStrip hotTopics={[ECLIPSE]} />);
+
+    const frame = screen.getByTestId('hot-topic-pill-ECLIPSE').parentElement.parentElement;
+    expect(frame.style.borderLeft).toBe('3px solid rgb(196, 120, 127)');
+    expect(frame.style.background).toBe('rgba(196, 120, 127, 0.06)');
+    expect(screen.getByTestId('hot-topic-pill-ECLIPSE')).toHaveTextContent('◐');
   });
 });

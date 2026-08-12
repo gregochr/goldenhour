@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.HotTopicFact;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -108,15 +109,15 @@ class HotTopicSimulationServiceTest {
     }
 
     @Test
-    @DisplayName("getAllTypes returns all 15 simulatable types")
-    void getAllTypes_returnsAllFifteenTypes() {
+    @DisplayName("getAllTypes returns every simulatable type")
+    void getAllTypes_returnsEverySimulatableType() {
         List<HotTopicSimulationService.SimulatableType> types = service.getAllTypes();
 
-        assertThat(types).hasSize(15);
+        assertThat(types).hasSize(16);
         assertThat(types).extracting(HotTopicSimulationService.SimulatableType::type)
                 .containsExactlyInAnyOrder(
-                        "BLUEBELL", "KING_TIDE", "SPRING_TIDE", "STORM_SURGE", "AURORA", "DUST",
-                        "INVERSION", "SUPERMOON", "SNOW_FRESH", "SNOW_MIST", "SNOW_TOPS",
+                        "ECLIPSE", "BLUEBELL", "KING_TIDE", "SPRING_TIDE", "STORM_SURGE", "AURORA",
+                        "DUST", "INVERSION", "SUPERMOON", "SNOW_FRESH", "SNOW_MIST", "SNOW_TOPS",
                         "NLC", "METEOR", "EQUINOX", "CLEARANCE");
     }
 
@@ -290,10 +291,42 @@ class HotTopicSimulationServiceTest {
 
         List<HotTopic> topics = service.getSimulatedTopics(TODAY, TODAY.plusDays(3));
 
-        assertThat(topics).hasSize(15);
+        assertThat(topics).hasSize(16);
         assertThat(topics).extracting(HotTopic::description)
                 .as("every simulated topic must have a non-blank description")
                 .allSatisfy(desc -> assertThat(desc).isNotNull().isNotBlank());
+    }
+
+    @Test
+    @DisplayName("the simulated eclipse carries its warning, its own clock time and its fact chips")
+    void simulatedEclipseIsFullyEnriched() {
+        service.setEnabled(true);
+        service.setTypeActive("ECLIPSE", true);
+
+        HotTopic topic = service.getSimulatedTopics(TODAY, TODAY.plusDays(3)).get(0);
+
+        // The reason the simulation catalogue can express enrichment at all. Without these three,
+        // the only way to see an eclipse pill as a reader sees it would be to wait for an eclipse.
+        assertThat(topic.safetyNote())
+                .isEqualTo("Certified solar filter on the lens — not only over your eye");
+        // Its own maximum, not the sunset HotTopicEventEnricher would resolve for a SUNSET topic.
+        assertThat(topic.eventType()).isEqualTo("SUNSET");
+        assertThat(topic.eventTime()).isEqualTo("19:06");
+        assertThat(topic.facts()).extracting(HotTopicFact::key)
+                .containsExactly("max", "contacts", "sun");
+    }
+
+    @Test
+    @DisplayName("every other simulated topic carries no warning — the field is not decoration")
+    void onlyTheEclipseCarriesAWarning() {
+        service.setEnabled(true);
+        service.getAllTypes().forEach(t -> service.setTypeActive(t.type(), true));
+
+        List<HotTopic> topics = service.getSimulatedTopics(TODAY, TODAY.plusDays(3));
+
+        assertThat(topics).filteredOn(t -> t.safetyNote() != null)
+                .extracting(HotTopic::type)
+                .containsExactly("ECLIPSE");
     }
 
     // ── Regions stored in dedicated field, not appended to detail ──────────

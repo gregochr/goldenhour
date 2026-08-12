@@ -38,7 +38,7 @@ class BriefingEventSummaryWindowSerializationTest {
                         "Breaking clear", "Detail.", 4.0, "Bamburgh", 42L),
                 List.of(new BriefingWindow.Badge("NLC", "Clearest in 11 nights", null,
                         List.of(HotTopicFact.metric("clear at", "6 of 9 dark-sky spots")),
-                        "22:04", 14)),
+                        "22:04", 14, null, null, null)),
                 14,
                 new BriefingWindowTide("Whitby", TideState.MID,
                         BriefingWindowTide.Direction.FALLING, "HW", "19:28", "1h43 before sunset",
@@ -196,6 +196,6 @@ class BriefingEventSummaryWindowSerializationTest {
         // A topic that never called withScience has null facts, and the client's promotion rule is
         // a length check — so the normalisation is what keeps that rule from needing a null guard.
         assertThat(new BriefingWindow.Badge("SNOW_TOPS", "Snow on the fells", "detail",
-                null, "05:31", 8).facts()).isEmpty();
+                null, "05:31", 8, null, null, null).facts()).isEmpty();
     }
 }

@@ -20,8 +20,8 @@ class TopicRarityTest {
      * produces it.
      */
     private static final List<String> EMITTED_TYPES = List.of(
-            "AURORA", "BLUEBELL", "CLEARANCE", "DUST", "EQUINOX", "INVERSION", "KING_TIDE",
-            "METEOR", "NLC", "SNOW_FRESH", "SNOW_MIST", "SNOW_TOPS", "SPRING_TIDE",
+            "AURORA", "BLUEBELL", "CLEARANCE", "DUST", "ECLIPSE", "EQUINOX", "INVERSION",
+            "KING_TIDE", "METEOR", "NLC", "SNOW_FRESH", "SNOW_MIST", "SNOW_TOPS", "SPRING_TIDE",
             "STORM_SURGE", "SUPERMOON");
 
     @Test
@@ -58,6 +58,19 @@ class TopicRarityTest {
         assertThat(TopicRarity.rankOf("SUPERMOON")).isLessThan(TopicRarity.rankOf("SPRING_TIDE"));
         assertThat(TopicRarity.rankOf("AURORA")).isLessThan(TopicRarity.rankOf("BLUEBELL"));
         assertThat(TopicRarity.rankOf("KING_TIDE")).isLessThan(TopicRarity.rankOf("SPRING_TIDE"));
+    }
+
+    @Test
+    @DisplayName("exactly one kind is rare enough to take the strip on its own")
+    void onlyEclipseClearsTheSoloPromotionRank() {
+        // The solo-promotion rule exists so a twice-a-century event is not held off the pane's
+        // lede for want of a second attribute to pair with. It stops being a rule and starts
+        // being wallpaper the moment a second kind clears it, so the count is pinned rather than
+        // the name: adding a kind at rank 1 must be a deliberate act that fails this test first.
+        assertThat(TopicRarity.rankedTypes().entrySet())
+                .filteredOn(e -> e.getValue() <= TopicRarity.SOLO_PROMOTION_RANK)
+                .extracting(java.util.Map.Entry::getKey)
+                .containsExactly("ECLIPSE");
     }
 
     @Test

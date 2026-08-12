@@ -1,13 +1,25 @@
 import { badgeChannel } from './windowFirstCards.js';
 
 /**
- * The Plan pane's promoted strip — the one coincidence worth putting above the list.
+ * The Plan pane's promoted strip — the one thing worth putting above the list.
  *
- * <h2>What a coincidence is, and why it is not `topRarityRank`</h2>
+ * <h2>Two rules earn a strip, and they are separate predicates</h2>
  *
- * <p>Plan §2.6 and the design README §3 both define it the same way: <b>two attributes landing on
- * the same window</b>. One attribute is a row inside a window card; two earn the full-width strip.
- * So the predicate is {@link MIN_COINCIDENCE_BADGES} badges on one window and nothing else.
+ * <p><b>A coincidence.</b> Plan §2.6 and the design README §3 both define it the same way: <b>two
+ * attributes landing on the same window</b>. One attribute is a row inside a window card; two earn
+ * the full-width strip. That predicate is {@link MIN_COINCIDENCE_BADGES} badges on one window and
+ * nothing else, and it is unchanged.
+ *
+ * <p><b>Or a lone topic rare enough not to need a partner</b> — {@link SOLO_PROMOTION_RANK}, which
+ * is exactly one kind. See that constant for why the threshold is 1 and not 2. The descriptor says
+ * which rule fired via {@code reason}, because the component renders the two differently and must
+ * not infer it from {@code topics.length}.
+ *
+ * <p><b>Rarity chooses between them; the shape only breaks ties.</b> The rarest eligible window
+ * wins outright whichever rule made it eligible — so a twice-a-century event does not lose the
+ * pane's lede to a commoner pair that happens to be two things instead of one. Where two tie on
+ * rank the coincidence takes it, because naming a relationship is the strip's original job and a
+ * lone topic has none to name; where they still tie, the earlier window holds it.
  *
  * <p><b>It is emphatically not "`topRarityRank` is present".</b> {@code PlanWindowProjector.rarestRank}
  * is {@code min()} over the window's badges and returns null only for an EMPTY list, so that field is
@@ -36,12 +48,13 @@ import { badgeChannel } from './windowFirstCards.js';
  * <p>Per page rather than per window, because the strip is full-width: a per-window reading would
  * put one between every pair of cards, which is the shape §2.6's "at most one" exists to forbid.
  *
- * <h2>Ordering: rarity chooses, time breaks ties</h2>
+ * <h2>Ordering: rarity chooses, then shape, then time</h2>
  *
- * <p>Rarest wins. Where two coincidences tie the EARLIER window takes it, because the pane's only
- * ordering spine is time (see {@code windowFirstAway.js}, and CLAUDE.md's record of a multi-day tide
- * run that was collapsed out of date order and reverted). `paneItems` is already in date order, so
- * the tie-break is a strict {@code <} and needs no comparator of its own.
+ * <p>Rarest wins, across both rules. Where two tie on rank a coincidence beats a solo; where two of
+ * the same shape tie, the EARLIER window takes it, because the pane's only ordering spine is time
+ * (see {@code windowFirstAway.js}, and CLAUDE.md's record of a multi-day tide run that was collapsed
+ * out of date order and reverted). `paneItems` is already in date order and the eligible list is
+ * built coincidences-first, so both tie-breaks fall out of position and need no comparator.
  *
  * <h2>Nothing here disagrees with the attribute rows</h2>
  *
@@ -51,8 +64,32 @@ import { badgeChannel } from './windowFirstCards.js';
  * lands P7b to check.
  */
 
-/** Two attributes. The definition is the spec's, and the whole predicate. */
+/** Two attributes. The definition is the spec's, and the whole predicate for a COINCIDENCE. */
 export const MIN_COINCIDENCE_BADGES = 2;
+
+/**
+ * The rarity rank at or below which one topic earns the strip on its own.
+ *
+ * <h2>This is a second rule beside the coincidence rule, not a loosening of it</h2>
+ *
+ * <p>{@link MIN_COINCIDENCE_BADGES} is untouched and still means exactly what it meant: two
+ * attributes on one window is a coincidence. What is added is a separate, narrower question — is
+ * this ONE topic rare enough that holding the pane's lede back for want of a second attribute to
+ * pair it with would be the wrong call? For an eclipse deep enough to be worth driving for, which
+ * happens over these islands roughly twice a century, it plainly is.
+ *
+ * <p><b>Why 1 and not 2.</b> Rank 1 is exactly one kind — ECLIPSE — and the backend pins that count
+ * with a test rather than the name, so a second kind arriving at rank 1 fails there first. Rank 2
+ * is SUPERMOON, which happens a few times a year; a strip that appeared for every supermoon would
+ * stop being the pane's lede and become its wallpaper. The threshold is also what keeps the two
+ * existing "a single badge gets no strip" tests green unedited — their fixtures sit at rank 4 —
+ * and that is a constraint on the design rather than a happy accident.
+ *
+ * <p>Duplicated from {@code TopicRarity.SOLO_PROMOTION_RANK} rather than sent on the wire, the same
+ * way {@link UNKNOWN_RANK} duplicates its backend counterpart and for the same reason: it is a
+ * property of an ordinal both sides already have to agree on.
+ */
+export const SOLO_PROMOTION_RANK = 1;
 
 /**
  * {@code TopicRarity.UNKNOWN_RANK} as it arrives on the wire — {@code Integer.MAX_VALUE}, a real
@@ -138,15 +175,44 @@ function topicKey(badge) {
  * pruning trap is exactly that: a token name built at runtime is invisible to Tailwind's scanner and
  * is emitted as the empty string however many times it is used.
  */
-function describe(card, rank, adjacent) {
+function describe(card, rank, adjacent, reason) {
   const ordered = [...card.allBadges].sort((a, b) => rankOfBadge(a) - rankOfBadge(b));
+  const lead = ordered[0];
   return {
     windowKey: card.key,
+    // Which rule put this strip on the pane. The component renders the two differently, and it must
+    // not infer the reason from `topics.length` — a coincidence's second badge could in principle be
+    // filtered out upstream, and a strip would then silently change shape rather than disappear.
+    reason,
+    // Only the solo-rarity branch may carry these two. On a coincidence the strip describes a
+    // PAIR, and both are claims about a single topic: rendering one topic's sentence as though it
+    // described both is the defect the "no why clause" rule was written against.
+    rarityNote: reason === 'rarity' ? (lead?.rarityNote || null) : null,
+    // `note`, NOT `detail`. `detail` summarises the same measurements the headline figure already
+    // shows — for the eclipse, "91% of the sun covered, and it sits only 13° up" beside a figure
+    // reading "91% covered · sun only 13° up" — so rendering it printed the same two numbers twice
+    // on one strip, forty pixels apart. Found in a browser; every unit test asserted the two
+    // separately and both were individually correct. `note` is the topic's editorial aside by
+    // definition ("a clear low western horizon matters more than the last 2%"), which is exactly
+    // the register the design's italic serif line is written in.
+    why: reason === 'rarity' ? (lead?.note || null) : null,
+    // The exception, and it is not symmetric with the two above: a warning is not a description of
+    // the strip's subject, it is a hazard of acting on it. It rides whichever topic carries one,
+    // under either rule, because a coincidence containing an eclipse is still an eclipse.
+    safetyNote: ordered.map((b) => b?.safetyNote).find(Boolean) || null,
     // The window in the pane's own words, composed exactly as the card composes `windowLabel` for
     // its spot strip — "Tonight Sunset" on the lead card, "Thursday sunrise" elsewhere. Sharing the
     // composition is what stops the strip naming a window differently from the card it points at.
     when: [card.kicker, card.when].filter(Boolean).join(' '),
-    time: card.time || '',
+    // The WINDOW's time on a coincidence, the TOPIC's own on a solo rarity — and the difference is
+    // the difference between what the two strips are about. A coincidence strip's subject is the
+    // window (two things landed on it), so the window's clock is the right one. A rarity strip's
+    // subject is one topic, and printing "Tonight Sunset 20:42" as the only time on a strip whose
+    // whole content is an eclipse peaking at 19:08 sends the reader out an hour and a half late.
+    //
+    // `BriefingWindow.Badge`'s own Javadoc names these as different anchors and says to render one
+    // or the other, never both — so this picks, rather than showing two clocks.
+    time: (reason === 'rarity' ? lead?.eventTime : card.time) || card.time || '',
     channel: badgeChannel(ordered[0]?.type),
     rarityRank: rank,
     // Whether the promoted window's card is the very next thing on the pane. When it is, the strip
@@ -188,28 +254,49 @@ function describe(card, rank, adjacent) {
  * @param {Array} paneItems the pane's ordered contents from {@code buildPaneItems} — cards and away
  *        rows. Away rows carry no window and are skipped; the pane's date order is what makes the
  *        tie-break chronological without a comparator.
- * @returns {?object} one strip descriptor, or null when no window carries a coincidence
+ * @returns {?object} one strip descriptor, or null when no window earns one under either rule
  */
 export function buildPromotedStrip(paneItems) {
   const items = paneItems || [];
-  const cards = items
+  const all = items
     .filter((item) => item?.kind === 'card' && item.card)
     .map((item) => item.card)
-    .filter((card) => (card.allBadges || []).length >= MIN_COINCIDENCE_BADGES);
+    .filter((card) => (card.allBadges || []).length > 0);
 
-  if (cards.length === 0) return null;
+  // Two predicates, written separately so each stays readable on its own and neither can be
+  // changed by accident while editing the other.
+  const eligible = [
+    ...all
+      .filter((card) => card.allBadges.length >= MIN_COINCIDENCE_BADGES)
+      .map((card) => ({ card, reason: 'coincidence' })),
+    ...all
+      .filter((card) => card.allBadges.length === 1 && rankOfWindow(card) <= SOLO_PROMOTION_RANK)
+      .map((card) => ({ card, reason: 'rarity' })),
+  ];
+  if (eligible.length === 0) return null;
 
-  let winner = cards[0];
-  let best = rankOfWindow(winner);
-  for (const card of cards.slice(1)) {
-    const rank = rankOfWindow(card);
-    // Strictly less, so an equal rarity leaves the earlier window holding the strip.
+  // Rarity decides. An earlier cut had `rarest(coincidences) ?? rarest(soloRarities)`, giving any
+  // coincidence strict precedence — so a rank-3 king tide paired with a rank-5 aurora took the
+  // strip from a rank-1 eclipse on another day, and the eclipse's safety warning went with it,
+  // because `describe` sources the warning from the winning card alone. An adversarial review
+  // found it. Ranking across both sets is also the simpler rule to state.
+  let winner = eligible[0];
+  let best = rankOfWindow(winner.card);
+  for (const candidate of eligible.slice(1)) {
+    const rank = rankOfWindow(candidate.card);
     if (rank < best) {
-      winner = card;
+      winner = candidate;
       best = rank;
+    } else if (rank === best && winner.reason === 'rarity' && candidate.reason === 'coincidence') {
+      // Equal rank: the pair wins, because naming a relationship is what the strip is for. The
+      // `eligible` list is built coincidences-first over a date-ordered pane, so an equal-rank
+      // contest between two of the SAME kind is already settled by position and needs no branch.
+      winner = candidate;
     }
   }
 
   const first = items[0];
-  return describe(winner, best, first?.kind === 'card' && first.card?.key === winner.key);
+  const adjacent = first?.kind === 'card' && first.card?.key === winner.card.key;
+  return describe(winner.card, best, adjacent, winner.reason);
 }
+

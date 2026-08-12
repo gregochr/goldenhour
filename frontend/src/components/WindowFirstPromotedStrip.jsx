@@ -12,6 +12,31 @@ import PropTypes from 'prop-types';
  * window that is relative to the rest of the list. Those are the strip's whole content. Anything
  * else it drew would be a second, competing copy of a card that is a few pixels further down.
  *
+ * <h2>Two of the three original omissions are now conditional, and one is not</h2>
+ *
+ * <p>The strip promotes under two rules ({@code windowFirstPromoted.js}), and the descriptor says
+ * which via {@code reason}. The refusals below were all written about a COINCIDENCE strip, where
+ * the subject is a pair. Two of them turn out to be arguments about the pair rather than about the
+ * element, and they lapse on a solo-rarity strip:
+ *
+ * <ul>
+ *   <li><b>The "why" clause.</b> Refused because "the design's italic serif line explains the PAIR.
+ *       No field says that … rendering one of the two as though it described both would be a
+ *       sentence about half the strip presented as the whole of it." With ONE topic there is no
+ *       half to mistake for the whole: {@code badge.detail} is, by definition, the sentence about
+ *       the whole strip. So it renders on the rarity branch and is still refused on the
+ *       coincidence branch — the discriminator is what lets both truths stand.</li>
+ *   <li><b>The rarity line.</b> §2.6 ruled out the mock's "first coincidence since 2 Mar" as an
+ *       unscheduled historical scan. Read precisely, that refuses a <em>backward</em> claim needing
+ *       a scan of history. {@code rarityNote} is a <em>forward</em> claim read out of a seeded
+ *       catalogue — no scan, no history, no delta between two observed things — and it is composed
+ *       on the backend, so no number is parsed or re-formatted here.</li>
+ *   <li><b>The right-hand meta stays refused, on both branches.</b> That objection was never about
+ *       the pair: "61 coastal locations" is a count of our own data, which §6 bans outright, and
+ *       nothing about a lone topic changes that. The design's "clear to the west — 31 of 57 sites"
+ *       is the same species and is not built.</li>
+ * </ul>
+ *
  * <h2>What is NOT built, and why — three deliberate deviations</h2>
  *
  * <ul>
@@ -76,6 +101,13 @@ import PropTypes from 'prop-types';
 export default function WindowFirstPromotedStrip({ strip, onOpenWindow }) {
   const figures = strip.topics.filter((topic) => topic.figureValue);
   const showGo = !strip.adjacent && Boolean(onOpenWindow);
+  // The foot is no longer the button's own container. A warning must be unconditional — that is
+  // what "non-dismissible" means — and the original gate hid the whole foot whenever the promoted
+  // window was already the next card on the pane, which on an eclipse evening is exactly the case.
+  // The reason behind that gate ("a control that scrolls to the element directly beneath it has no
+  // visible effect") is about the CONTROL, so the control keeps its own gate and the container
+  // gets a wider one.
+  const showFoot = showGo || Boolean(strip.safetyNote);
 
   return (
     <div
@@ -109,9 +141,14 @@ export default function WindowFirstPromotedStrip({ strip, onOpenWindow }) {
         {strip.time && (
           <span data-testid="window-first-promo-time" className="wf-promo-time">{strip.time}</span>
         )}
-        {/* The design's flexible rule. Decorative, and it is what pushes nothing to the right —
-            there is no right meta, so the rule simply closes the header. */}
+        {/* The design's flexible rule. Decorative. With no rarity line it closes the header; with
+            one it separates the title group from it, which is the job it does in the mock. */}
         <span className="wf-promo-rule" aria-hidden="true" />
+        {strip.rarityNote && (
+          <span data-testid="window-first-promo-rare" className="wf-promo-rare">
+            {strip.rarityNote}
+          </span>
+        )}
       </div>
 
       {/* Omitted entirely when no topic marks a headline quantity, rather than rendered as an empty
@@ -132,17 +169,34 @@ export default function WindowFirstPromotedStrip({ strip, onOpenWindow }) {
         </div>
       )}
 
-      {showGo && (
+      {/* The promoted topic's own sentence, in the serif italic this arm already uses for an
+          editorial line (`.tr-foot .phrase`). Solo-rarity strips only — see the class Javadoc. */}
+      {strip.why && (
+        <div data-testid="window-first-promo-why" className="wf-promo-why">{strip.why}</div>
+      )}
+
+      {showFoot && (
         <div data-testid="window-first-promo-foot" className="wf-promo-foot">
-          <button
-            type="button"
-            data-testid="window-first-promo-go"
-            className="wf-promo-go"
-            onClick={() => onOpenWindow(strip.windowKey)}
-          >
-            {`Go to ${strip.when}`}
-            <span aria-hidden="true"> ↓</span>
-          </button>
+          {/* First item, always visible, no dismiss control and no persisted suppression. This is
+              the one topic in the catalogue whose subject is the sun itself, and the app is
+              actively telling someone to point a camera at it. */}
+          {strip.safetyNote && (
+            <span data-testid="window-first-promo-warn" className="wf-promo-warn">
+              <span aria-hidden="true">⚠ </span>
+              {strip.safetyNote}
+            </span>
+          )}
+          {showGo && (
+            <button
+              type="button"
+              data-testid="window-first-promo-go"
+              className="wf-promo-go"
+              onClick={() => onOpenWindow(strip.windowKey)}
+            >
+              {`Go to ${strip.when}`}
+              <span aria-hidden="true"> ↓</span>
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -156,6 +210,10 @@ WindowFirstPromotedStrip.propTypes = {
     time: PropTypes.string,
     channel: PropTypes.string.isRequired,
     adjacent: PropTypes.bool,
+    reason: PropTypes.oneOf(['coincidence', 'rarity']),
+    rarityNote: PropTypes.string,
+    why: PropTypes.string,
+    safetyNote: PropTypes.string,
     topics: PropTypes.arrayOf(PropTypes.shape({
       key: PropTypes.string.isRequired,
       label: PropTypes.string.isRequired,
