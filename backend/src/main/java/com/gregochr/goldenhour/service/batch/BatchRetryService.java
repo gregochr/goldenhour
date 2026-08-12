@@ -12,6 +12,7 @@ import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
 import com.gregochr.goldenhour.service.evaluation.EvaluationHandle;
 import com.gregochr.goldenhour.service.evaluation.EvaluationService;
@@ -23,8 +24,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
-import java.time.ZoneId;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -77,6 +76,7 @@ public class BatchRetryService {
      * the cap) is a few pence against ~£2.50/night — bounded by construction.
      */
     private final int failureCap;
+    private final java.time.Clock clock;
 
     /**
      * Constructs the retry service.
@@ -88,6 +88,8 @@ public class BatchRetryService {
      * @param modelSelectionService   resolves the model tier (near/far) for a retried request
      * @param evaluationService       submits the reconstructed requests as one retry batch
      * @param failureCap              per-cycle retry cap
+     * @param clock                   supplies "today" for the retried request's model-tier
+     *                                horizon, resolved in {@code Europe/London} by {@link ForecastHorizon}
      */
     public BatchRetryService(ForecastBatchRepository forecastBatchRepository,
             ApiCallLogRepository apiCallLogRepository,
@@ -95,7 +97,8 @@ public class BatchRetryService {
             ForecastService forecastService,
             ModelSelectionService modelSelectionService,
             EvaluationService evaluationService,
-            @Value("${photocast.batch.retry-failure-cap:5}") int failureCap) {
+            @Value("${photocast.batch.retry-failure-cap:5}") int failureCap,
+            java.time.Clock clock) {
         this.forecastBatchRepository = forecastBatchRepository;
         this.apiCallLogRepository = apiCallLogRepository;
         this.locationRepository = locationRepository;
@@ -103,6 +106,7 @@ public class BatchRetryService {
         this.modelSelectionService = modelSelectionService;
         this.evaluationService = evaluationService;
         this.failureCap = failureCap;
+        this.clock = clock;
     }
 
     /**
@@ -292,8 +296,7 @@ public class BatchRetryService {
      * T+2+ → far-term model.
      */
     private EvaluationModel modelFor(LocalDate date) {
-        int daysAhead = (int) ChronoUnit.DAYS.between(
-                LocalDate.now(ZoneId.of("Europe/London")), date);
+        int daysAhead = ForecastHorizon.daysAhead(date, clock);
         RunType runType = daysAhead <= ForecastTaskCollector.NEAR_TERM_MAX_DAYS
                 ? RunType.BATCH_NEAR_TERM
                 : RunType.BATCH_FAR_TERM;

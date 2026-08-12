@@ -21,6 +21,7 @@ import com.gregochr.goldenhour.service.BriefingRatingStats;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,9 +57,6 @@ public final class BriefingRollupBuilder {
 
     /** Maximum number of solar events to include in the rollup (matches frontend grid). */
     private static final int MAX_VISIBLE_EVENTS = 6;
-
-    /** UK civil-date zone for "today" derivation. */
-    private static final ZoneId LONDON = ZoneId.of("Europe/London");
 
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -110,7 +108,7 @@ public final class BriefingRollupBuilder {
      */
     public RollupResult buildRollupJson(List<BriefingDay> days, LocalDateTime now)
             throws JsonProcessingException {
-        LocalDate today = LocalDate.now(clock.withZone(LONDON));
+        LocalDate today = ForecastHorizon.today(clock);
         Set<String> validEvents = new LinkedHashSet<>();
         Set<String> validRegions = new LinkedHashSet<>();
         Set<String> validDayNames = new LinkedHashSet<>();

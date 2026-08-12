@@ -8,10 +8,10 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.service.BriefingGatingPolicy;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 
 import java.time.Clock;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -44,7 +44,6 @@ public final class ForceEvalHeadlineSelector {
     static final int FORCE_EVAL_MAX_DAYS_AHEAD = 3;
 
     /** UK civil-date zone for "today" derivation. */
-    private static final ZoneId LONDON = ZoneId.of("Europe/London");
 
     /**
      * Hard cap on the number of stability-gated far-out candidates force-evaluated
@@ -91,7 +90,7 @@ public final class ForceEvalHeadlineSelector {
         if (forceEvalCap <= 0 || briefing.days() == null) {
             return Set.of();
         }
-        LocalDate today = LocalDate.now(clock.withZone(LONDON));
+        LocalDate today = ForecastHorizon.today(clock);
         List<ForceEvalCell> cells = new ArrayList<>();
         for (BriefingDay day : briefing.days()) {
             int daysAhead = (int) ChronoUnit.DAYS.between(today, day.date());

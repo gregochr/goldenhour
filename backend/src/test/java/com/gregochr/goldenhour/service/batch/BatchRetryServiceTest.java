@@ -25,6 +25,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -58,6 +59,9 @@ class BatchRetryServiceTest {
     private static final Long RUN_ID = 77L;
     private static final int CAP = 5;
     private static final LocalDate DATE = LocalDate.of(2026, 4, 16);
+    /** Fixed so the retried request's model-tier horizon never depends on wall-clock time. */
+    private static final Clock CLOCK = Clock.fixed(
+            java.time.Instant.parse("2026-04-14T12:00:00Z"), java.time.ZoneOffset.UTC);
 
     @Mock
     private ForecastBatchRepository forecastBatchRepository;
@@ -74,7 +78,7 @@ class BatchRetryServiceTest {
 
     private BatchRetryService service() {
         return new BatchRetryService(forecastBatchRepository, apiCallLogRepository,
-                locationRepository, forecastService, modelSelectionService, evaluationService, CAP);
+                locationRepository, forecastService, modelSelectionService, evaluationService, CAP, CLOCK);
     }
 
     private static ForecastBatchEntity precursor(String anthropicBatchId) {
