@@ -46,6 +46,13 @@ import java.util.List;
  *                       stated against high water. Null for every non-surge topic, and whenever the
  *                       in-memory curve carrier is empty (the state after a restart, until the next
  *                       briefing cycle), in which case that pill falls back to {@code facts}
+ * @param safetyNote     a warning that must reach the reader on every surface raising this topic,
+ *                       or null — which is every topic but one. Deliberately NOT carried in
+ *                       {@code note} or in {@code facts}: both render only inside the pill's fact
+ *                       row, which is blurred and dimmed for LITE users, and a blurred instruction
+ *                       to fit a solar filter is worse than none at all because it reads as
+ *                       information being withheld rather than information needed. Its own field so
+ *                       it can be rendered outside every tier gate and every narrow-viewport drop
  */
 public record HotTopic(
         String type,
@@ -75,7 +82,9 @@ public record HotTopic(
         @JsonInclude(JsonInclude.Include.NON_NULL)
         TideRunDay tideRun,
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        SurgeRunDay surgeRun) implements Comparable<HotTopic> {
+        SurgeRunDay surgeRun,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        String safetyNote) implements Comparable<HotTopic> {
 
     /**
      * Explicit canonical constructor with Jackson annotations so that cached briefing
@@ -103,7 +112,8 @@ public record HotTopic(
             @JsonProperty("facts") List<HotTopicFact> facts,
             @JsonProperty("note") String note,
             @JsonProperty("tideRun") TideRunDay tideRun,
-            @JsonProperty("surgeRun") SurgeRunDay surgeRun) {
+            @JsonProperty("surgeRun") SurgeRunDay surgeRun,
+            @JsonProperty("safetyNote") String safetyNote) {
         this.type = type;
         this.label = label;
         this.detail = detail;
@@ -122,6 +132,7 @@ public record HotTopic(
         this.note = note;
         this.tideRun = tideRun;
         this.surgeRun = surgeRun;
+        this.safetyNote = safetyNote;
     }
 
     /**
@@ -151,7 +162,7 @@ public record HotTopic(
             String description,
             ExpandedHotTopicDetail expandedDetail) {
         this(type, label, detail, date, priority, filterAction, regions, description,
-                expandedDetail, null, null, null, null, null, null, null, null, null);
+                expandedDetail, null, null, null, null, null, null, null, null, null, null);
     }
 
     /**
@@ -165,7 +176,7 @@ public record HotTopic(
     public HotTopic withEvent(String eventType, String eventTime) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, safetyNote);
     }
 
     /**
@@ -178,7 +189,7 @@ public record HotTopic(
     public HotTopic withLocations(List<String> locationNames) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, safetyNote);
     }
 
     /**
@@ -191,7 +202,7 @@ public record HotTopic(
     public HotTopic withNlcWindows(NlcWindow eveningWindow, NlcWindow morningWindow) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, safetyNote);
     }
 
     /**
@@ -205,7 +216,7 @@ public record HotTopic(
     public HotTopic withScience(List<HotTopicFact> facts, String note) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, safetyNote);
     }
 
     /**
@@ -220,7 +231,7 @@ public record HotTopic(
     public HotTopic withExpandedDetail(ExpandedHotTopicDetail expandedDetail) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, safetyNote);
     }
 
     /**
@@ -232,7 +243,7 @@ public record HotTopic(
     public HotTopic withTideRun(TideRunDay tideRun) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, safetyNote);
     }
 
     /**
@@ -247,7 +258,23 @@ public record HotTopic(
     public HotTopic withSurgeRun(SurgeRunDay surgeRun) {
         return new HotTopic(type, label, detail, date, priority, filterAction, regions,
                 description, expandedDetail, eventType, eventTime, locationNames,
-                eveningWindow, morningWindow, facts, note, tideRun, surgeRun);
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, safetyNote);
+    }
+
+    /**
+     * Returns a copy of this topic carrying a warning every surface that raises it must show.
+     *
+     * <p>Separate from {@link #withScience} on purpose. The science facts are premium detail and
+     * are gated accordingly; a safety warning is not detail, and the tier least likely to know
+     * what a solar filter is, is exactly the tier whose fact row is blurred.
+     *
+     * @param safetyNote the warning text, or null for the topics that need none
+     * @return a new {@link HotTopic} with {@code safetyNote} set
+     */
+    public HotTopic withSafety(String safetyNote) {
+        return new HotTopic(type, label, detail, date, priority, filterAction, regions,
+                description, expandedDetail, eventType, eventTime, locationNames,
+                eveningWindow, morningWindow, facts, note, tideRun, surgeRun, safetyNote);
     }
 
     /**

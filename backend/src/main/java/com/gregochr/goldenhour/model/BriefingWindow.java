@@ -163,6 +163,10 @@ public record BriefingWindow(
      * @param facts      the topic's "science showing" chips, verbatim; never null, often empty
      * @param eventTime  the topic's own local clock time, or null
      * @param rarityRank the kind's fixed rarity ordinal, 1 = rarest
+     * @param safetyNote a warning every surface raising this topic must show, or null. Carried on
+     *                   the badge rather than looked up from the topic list because the window card
+     *                   and the promoted strip render from badges alone and never join back to
+     *                   {@code hotTopics} — without it here they structurally cannot raise it
      */
     public record Badge(
             String type,
@@ -170,7 +174,8 @@ public record BriefingWindow(
             @JsonInclude(JsonInclude.Include.NON_NULL) String detail,
             List<HotTopicFact> facts,
             @JsonInclude(JsonInclude.Include.NON_NULL) String eventTime,
-            int rarityRank) {
+            int rarityRank,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String safetyNote) {
 
         public Badge {
             facts = facts == null ? List.of() : List.copyOf(facts);

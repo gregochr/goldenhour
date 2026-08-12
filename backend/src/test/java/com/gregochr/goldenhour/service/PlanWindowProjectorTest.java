@@ -664,7 +664,7 @@ class PlanWindowProjectorTest {
         void aTopicWithNoDateIsDropped() {
             HotTopic undated = new HotTopic("DUST", "Sahara dust", "detail", null, 1,
                     null, List.of(), "desc", null, "SUNSET", "21:11", null, null, null,
-                    null, null, null, null);
+                    null, null, null, null, null);
 
             DailyBriefingResponse out = project(twoWindowDay(), List.of(undated));
 
@@ -1056,6 +1056,6 @@ class PlanWindowProjectorTest {
     private static HotTopic topic(String type, String eventType) {
         return new HotTopic(type, type + " label", type + " detail", TODAY, 1,
                 null, List.of(), "desc", null, eventType, "21:11", null, null, null,
-                null, null, null, null);
+                null, null, null, null, null);
     }
 }
