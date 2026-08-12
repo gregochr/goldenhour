@@ -104,7 +104,95 @@ public final class EclipseCatalog {
             0.0045911);
 
     /**
-     * Every eclipse the app knows about, in date order.
+     * The 2027 August 02 total solar eclipse — a partial from Britain, deepest in the far south-west
+     * and shallowest in Shetland. Mid-morning, with the Sun high, so every UK location sees all of it.
+     */
+    private static final BesselianElements ECLIPSE_2027_08_02 = new BesselianElements(
+            "2027 Aug 02",
+            LocalDate.of(2027, 8, 2),
+            10.000,
+            76.0,
+            new Poly(-0.0197720, 0.5447123, -0.0000446, -0.0000092),
+            new Poly(0.1600610, -0.2111582, -0.0001217, 0.0000038),
+            new Poly(17.7624702, -0.0101810, -0.0000040, 0.0000000),
+            new Poly(0.5305960, 0.0000138, -0.0000128, 0.0000000),
+            new Poly(-0.0154640, 0.0000137, -0.0000128, 0.0000000),
+            new Poly(328.422546, 15.002100, 0.000000, 0.000000),
+            0.0046064,
+            0.0045834);
+
+    /**
+     * The 2028 January 26 annular solar eclipse — a partial from Britain, and the one that made the
+     * horizon clamp necessary. Greatest coverage falls at 16:49 UT, by which time the Sun has set
+     * over most of the country; what Britain actually sees is a Sun already more than half eaten
+     * going down. Only the far south-west still has it above the horizon at the peak.
+     */
+    private static final BesselianElements ECLIPSE_2028_01_26 = new BesselianElements(
+            "2028 Jan 26",
+            LocalDate.of(2028, 1, 26),
+            15.000,
+            76.3,
+            new Poly(-0.2052830, 0.4742570, -0.0000390, -0.0000053),
+            new Poly(0.3402800, 0.1738587, 0.0000968, -0.0000021),
+            new Poly(-18.7282505, 0.0100740, 0.0000050, 0.0000000),
+            new Poly(0.5741170, 0.0000420, -0.0000099, 0.0000000),
+            new Poly(0.0278400, 0.0000418, -0.0000099, 0.0000000),
+            new Poly(41.891281, 14.998960, 0.000000, 0.000000),
+            0.0047501,
+            0.0047264);
+
+    /**
+     * The 2029 June 12 partial solar eclipse — the shallowest here, and a pre-dawn one: the peak is
+     * around 03:10 UT with the Sun below the horizon almost everywhere in Britain, so most of the
+     * country sees only the tail of it after sunrise. Shetland is the exception.
+     */
+    private static final BesselianElements ECLIPSE_2029_06_12 = new BesselianElements(
+            "2029 Jun 12",
+            LocalDate.of(2029, 6, 12),
+            4.000,
+            77.2,
+            new Poly(-0.0107990, 0.5247606, 0.0000104, -0.0000065),
+            new Poly(1.2954130, -0.0176365, -0.0002057, 0.0000003),
+            new Poly(23.1593208, 0.0025910, -0.0000050, 0.0000000),
+            new Poly(0.5566620, -0.0001027, -0.0000104, 0.0000000),
+            new Poly(0.0104720, -0.0001022, -0.0000103, 0.0000000),
+            new Poly(240.035584, 14.999200, 0.000000, 0.000000),
+            0.0046048,
+            0.0045819);
+
+    /**
+     * The 2030 June 01 annular solar eclipse — a partial from Britain at breakfast time, deepest in
+     * the south-east, with the Sun low but comfortably up everywhere.
+     */
+    private static final BesselianElements ECLIPSE_2030_06_01 = new BesselianElements(
+            "2030 Jun 01",
+            LocalDate.of(2030, 6, 1),
+            6.000,
+            77.8,
+            new Poly(-0.2693910, 0.5056371, 0.0000182, -0.0000057),
+            new Poly(0.5519770, 0.0210150, -0.0001586, -0.0000002),
+            new Poly(22.0613003, 0.0055810, -0.0000050, 0.0000000),
+            new Poly(0.5661500, -0.0000130, -0.0000097, 0.0000000),
+            new Poly(0.0199120, -0.0000129, -0.0000097, 0.0000000),
+            new Poly(270.539825, 14.999700, 0.000000, 0.000000),
+            0.0046120,
+            0.0045890);
+
+    /**
+     * Every eclipse the app knows about, in date order — every solar eclipse visible from Britain
+     * out to 2030.
+     *
+     * <p>Each entry's elements were checked by reduction before being seeded: the obscuration this
+     * app computes at the deepest UK location agrees with the published UK figure for all five
+     * (2026 96%, 2027 48%, 2028 55%, 2029 19%, 2030 49%). That is an independent check of the
+     * transcription and of the reduction at once, and {@code EclipseCatalogTest} keeps it.
+     *
+     * <p><b>Only 2026 carries a return period, and that is not an oversight.</b>
+     * {@code nextComparable} is documented as researched-or-null, and only 2026's has been
+     * established — by reducing 2081 September 03 and confirming it is the next to reach anything
+     * like the same depth over Britain (99% in Scilly, against 57–67% for everything between). For
+     * the other four "comparable" would be a guess, so the field is null and the rarity line simply
+     * does not appear. That is the degrade the field was designed for.
      *
      * <p>The design handoff proposed a per-eclipse "promote from N days ahead" lead time, so an
      * evening eclipse could take the Plan strip the night before — the drive being planned then.
@@ -114,7 +202,11 @@ public final class EclipseCatalog {
      * be a rule nobody could see working.
      */
     private static final List<Eclipse> ECLIPSES = List.of(
-            new Eclipse(ECLIPSE_2026_08_12, 2081));
+            new Eclipse(ECLIPSE_2026_08_12, 2081),
+            new Eclipse(ECLIPSE_2027_08_02, null),
+            new Eclipse(ECLIPSE_2028_01_26, null),
+            new Eclipse(ECLIPSE_2029_06_12, null),
+            new Eclipse(ECLIPSE_2030_06_01, null));
 
     private EclipseCatalog() {
     }

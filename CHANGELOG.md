@@ -5,6 +5,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the next four UK eclipses, and a fix for the ones that happen at the horizon
+
+The eclipse feature knew about exactly one eclipse. After tonight it would have gone quiet for
+fifty-five years. It now carries every solar eclipse visible from Britain out to 2030 — 2 August
+2027, 26 January 2028, 12 June 2029 and 1 June 2030 — seeded the way the catalogue was designed for:
+the published elements, and everything else worked out from them.
+
+Each set of numbers was checked before being trusted. The coverage this app computes at the place
+published sources name as each eclipse's UK best agrees with the figure those sources quote, for all
+five: 96%, 48%, 55%, 19% and 49%. That is an independent check of a hand-copied table and of the
+maths at the same time.
+
+**Two of the four peak with the sun below the horizon, and that turned out to matter.** On 26 January
+2028 the deepest coverage over London falls four minutes after the sun has set; on 12 June 2029 the
+peak is before dawn nearly everywhere. The app would have reported a coverage, a bearing and an
+altitude for a moment nobody could watch — and named whichever town was deepest under a set sun as
+the best place to stand.
+
+So it now reports the greatest eclipse **visible** from a place, rather than the greatest eclipse.
+Where the sun is up throughout, as it is everywhere in Britain tonight, nothing changes. Where it is
+not, the moment reported is the horizon itself: on that January afternoon, the sun going down with
+more than half of it already gone — which is a better photograph than the deeper one you cannot see.
+A location that never has it above the horizon is dropped rather than described.
+
+The horizon used is the one the rest of the app already means by sunrise and sunset, refraction and
+all. Using the geometric horizon instead put the two definitions fifteen minutes apart, so a pill
+would have said the eclipse peaked at 16:30 directly above its own line saying the sun set at 16:45.
+
+
 ## [v2.18.2] - 2026-08-12
 
 ### Added — the ERA5 verification now measures the sampling geometry itself
