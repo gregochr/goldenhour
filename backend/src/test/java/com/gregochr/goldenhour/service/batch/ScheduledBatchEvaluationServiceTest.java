@@ -440,6 +440,13 @@ class ScheduledBatchEvaluationServiceTest {
         assertThat(captor.getValue()).hasSize(1);
         assertThat(captor.getValue().get(0).alertLevel()).isEqualTo(AlertLevel.MODERATE);
         assertThat(captor.getValue().get(0).viableLocations()).containsExactly(loc);
+        // The task's label date comes from the injected clock, not the JVM's wall clock. It was a
+        // bare LocalDate.now() — no zone at all — and nothing pins TZ in the Dockerfile, so it was
+        // UTC by Alpine's default rather than by contract. Reverting it reads the real system
+        // date, which cannot be CLOCK's. Note the limit: at midday UTC and London agree, so this
+        // pins "uses the clock" and not "in Europe/London" — proportionate for a field that, on
+        // this path, only names a custom ID.
+        assertThat(captor.getValue().get(0).date()).isEqualTo(LocalDate.of(2026, 4, 14));
     }
 
     @Test

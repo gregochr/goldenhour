@@ -189,7 +189,8 @@ public class OptimisationSkipEvaluator {
 
         // Find the nearest upcoming event across today and tomorrow. UK civil date: candidates are
         // filtered by isAfter(now) anyway, so this only decides which two days are searched — and
-        // on a UTC anchor the first of them is entirely in the past for the hour before UK midnight.
+        // on a UTC anchor the first of them is entirely in the past for the hour *after* UK
+        // midnight in summer — 23:00–00:00 UTC, which is 00:00–01:00 BST.
         LocalDate today = ForecastHorizon.today(clock);
         LocalDate tomorrow = today.plusDays(1);
         LocalDateTime nextEventTime = null;

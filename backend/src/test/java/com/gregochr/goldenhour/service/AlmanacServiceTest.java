@@ -2,13 +2,13 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.AlmanacEvent;
 import com.gregochr.goldenhour.model.AlmanacKind;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
@@ -22,8 +22,14 @@ class AlmanacServiceTest {
 
     private static final LocalDate DAY = LocalDate.of(2026, 9, 1);
 
-    /** Production's clock for the cases that do not care which day it is. */
-    private static final Clock CLOCK = Clock.systemUTC();
+    /**
+     * Fixed, for the cases that do not care which day it is. Not {@code Clock.systemUTC()}: six of
+     * these tests call {@code getFeed}, which now reads this clock, and two of those compare the
+     * results of two consecutive calls — on a real clock they would disagree across a midnight
+     * rollover. Far from any real date so it can never coincide with one.
+     */
+    private static final Clock CLOCK =
+            Clock.fixed(Instant.parse("2027-03-05T12:00:00Z"), ZoneOffset.UTC);
 
     /** A source that records how many times it was asked, so caching can be observed. */
     private static final class CountingSource implements AlmanacSource {
@@ -185,9 +191,13 @@ class AlmanacServiceTest {
         Clock lateBstEvening = Clock.fixed(Instant.parse("2027-08-11T23:30:00Z"), ZoneOffset.UTC);
         LocalDate ukToday = LocalDate.of(2027, 8, 12);
 
-        assertThat(LocalDate.now(lateBstEvening.withZone(ZoneId.of("Europe/London"))))
+        // Through ForecastHorizon, not java.time: a premise with no production code on either side
+        // cannot fail on any change to this repo, and worse, it would report "premise holds" while
+        // the real assertions below failed. The UTC line is the contrast the feed used to be on.
+        assertThat(ForecastHorizon.today(lateBstEvening)).isEqualTo(ukToday);
+        assertThat(LocalDate.now(lateBstEvening.withZone(ZoneOffset.UTC)))
                 .as("premise: the UK has turned the page and UTC has not")
-                .isEqualTo(ukToday);
+                .isEqualTo(ukToday.minusDays(1));
 
         AtomicInteger calls = new AtomicInteger();
         LocalDate[] seen = new LocalDate[2];
@@ -206,9 +216,12 @@ class AlmanacServiceTest {
         assertThat(seen[1]).isEqualTo(ukToday.plusDays(29));
         assertThat(calls.get()).isOne();
 
-        // The cache key rides the same `today` variable, so it moved calendars with the range and
-        // needs no separate case — one was written, and deleted for being unable to fail: at a
-        // fixed instant two calls hit the cache whatever calendar the key is on.
+        // The cache key rides the same `today` local as the range — one variable, read twice — so
+        // it cannot be on a different calendar and needs no separate case. A separate one was
+        // written and deleted, and the exact reason matters: with a *fixed* clock two calls hit the
+        // cache whatever calendar the key is on, so it could not fail. A mutable clock stepping
+        // 22:30Z → 23:30Z on 11 Aug would have separated them. So the justification is the shared
+        // local, not an impossibility.
     }
 
     @Test

@@ -31,7 +31,10 @@ today — which has not started. The label says "Tonight".
 
 ## Why moving the anchor to Europe/London is the wrong fix
 
-Measured rather than reasoned, at 00:30 UK on both sides of the year:
+At 00:30 UK on both sides of the year. The dusk/dawn clock times below are **approximate** — they
+were fed in by hand, not computed from `SolarCalculator`, and a review recomputing them properly at
+Durham got 21:06→03:19 UTC in August and 17:24→07:05 in January. What is load-bearing is the last
+column, and every verdict in it survives the correction with hours to spare:
 
 | when | anchor | window it picks for "Tonight" | is the user inside it? |
 |---|---|---|---|
@@ -52,6 +55,28 @@ Two things follow, and they point in opposite directions:
    yesterday. No choice of zone fixes this, because the defect is that a `LocalDate` cannot name a
    thing that straddles midnight.
 
+## ⚠️ There are TWO anchors in this class, and they must move together
+
+`LocalDate.now(ZoneId.of("UTC"))` appears **twice**: once in the preview loop, and again in
+`runForecasts`, where it does something quite different from labelling:
+
+```java
+// Weather triage — accurate for tonight; future dates use optimistic defaults
+WeatherTriageService.TriageResult triage = date.equals(today)
+        ? weatherTriage.triage(candidates)
+        : buildFutureNightTriage(candidates);
+```
+
+and `buildFutureNightTriage` rejects nobody and fabricates a flat 50% cloud for every candidate:
+
+```java
+Map<LocationEntity, Integer> cloudByLocation = candidates.stream()
+        .collect(Collectors.toMap(loc -> loc, loc -> 50));
+```
+
+So `today` is not only a label here — it is the switch between *real weather triage* and
+*optimistic defaults*.
+
 ## The shape of a real fix
 
 The question the code should ask is not *"what is today's date"* but *"which dark window are we in,
@@ -61,13 +86,39 @@ or heading into next"*. Roughly:
 - if `now` is inside the earlier one, that is Tonight and the preview starts there;
 - otherwise Tonight is the window for `date`.
 
-That also settles the labels: `buildDateLabel`'s `"Tonight"` / `"Tomorrow"` become properties of
-which window was selected, not of a loop index. And it removes the last reason for this class to
-care what calendar its date is on — an instant-based selection needs no anchor.
+**Do not implement that without fixing the triage switch in the same change.** Relabelling the
+in-progress night as `date - 1` makes `date.equals(today)` **false** for the very night the user
+just asked to run, so the run silently swaps live cloud triage for a fabricated 50% — sending every
+Bortle-eligible location to Claude on a made-up figure, at full cost and with worse answers. The
+switch has to become the same is-this-the-window-in-progress test as the selection, not a date
+equality. This is the trap in the obvious fix, and it is why a one-line anchor change here is
+particularly dangerous: the class reads as though its date is cosmetic, and in one of two places it
+is not.
 
-`AuroraOrchestrator` already has the right shape to copy: it carries a `TonightWindow` of real
-instants alongside the task, and that window — not the task's date — is what its evaluation is
-about.
+Fixing the selection also settles the labels: `buildDateLabel`'s `"Tonight"` / `"Tomorrow"` become
+properties of which window was selected, not of a loop index. And it removes the last reason for
+this class to care what calendar its date is on — an instant-based selection needs no anchor.
+
+## It is already implemented, one class away
+
+Do not write the above from scratch. `AuroraPollingJob.calculateTonightWindow()` is exactly it:
+
+```java
+LocalDateTime nauticalDawnToday = solarCalculator.civilDawn(...today...).minusMinutes(BUFFER);
+if (now.isBefore(nauticalDawnToday)) {
+    // We are in the current overnight dark period (after yesterday's dusk, before dawn)
+    ... civilDusk(today.minusDays(1)) → nauticalDawnToday
+}
+// Daytime or evening: tonight starts at today's dusk and ends at tomorrow's dawn
+```
+
+Note what it does with its own `LocalDate.now(utc)`: nothing decisive. The date is scaffolding for
+two solar calculations, and the `now.isBefore(dawn)` **instant** test makes the actual choice — which
+is why that method is correct on either calendar and this one is not. That is the pattern to copy,
+and it is where the `TonightWindow` that `AuroraOrchestrator` merely carries comes from.
+
+So the work is to make `AuroraForecastRunService` consume a window the way the orchestrator does,
+rather than deriving nights from a date of its own — plus the triage switch above.
 
 ## What was done instead, and why
 

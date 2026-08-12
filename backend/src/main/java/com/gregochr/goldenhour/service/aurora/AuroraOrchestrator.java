@@ -271,12 +271,16 @@ public class AuroraOrchestrator {
         if (!triage.viable().isEmpty()) {
             EvaluationModel model =
                     modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION);
-            // A pinned zone rather than the JVM default. ⚠️ This date is a *label* — it reaches
-            // only CustomIdFactory.forAurora, and AuroraResultHandler never reads it back — so it
-            // is not the night selector it can look like. The night this task is about is
-            // `tonightWindow`, passed separately below and carrying real instants. Do not start
-            // deriving "which night" from the date: an aurora night runs dusk-to-dawn across
-            // midnight, so no calendar date names it correctly in the small hours. See
+            // A pinned zone rather than the JVM default. ⚠️ Nothing *interprets* this date. On this
+            // class's path the call below is evaluateNow, and evaluateNowAurora builds its message
+            // from alertLevel/viableLocations/cloudByLocation/spaceWeather/triggerType/
+            // tonightWindow — never task.date(). The date's only readers anywhere are two strings:
+            // taskKey() ("au/LEVEL/date"), which AuroraResultHandler puts in log lines, and — on
+            // the batch twin's path only — CustomIdFactory.forAurora, whose parsed date the result
+            // processor discards. So it is a label, in both senses, and a night selector nowhere.
+            // The night this task is about is `tonightWindow`, passed below as real instants. Do
+            // not start deriving "which night" from the date — an aurora night runs dusk-to-dawn
+            // across midnight, so no calendar date names it correctly in the small hours. See
             // docs/engineering/aurora-night-selection.md.
             EvaluationTask.Aurora task = new EvaluationTask.Aurora(
                     level, ForecastHorizon.today(clock), model,

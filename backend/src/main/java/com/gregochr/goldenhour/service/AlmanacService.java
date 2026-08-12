@@ -100,8 +100,9 @@ public class AlmanacService {
         int clamped = Math.clamp(days, MIN_DAYS, MAX_DAYS);
         // The UK civil date, for the same reason the rest of the app counts days that way: every
         // entry in this feed is a UK-dated event — a spring tide run, an equinox, an NLC season.
-        // On a UTC anchor, for the hour before UK midnight in summer, the feed opened on the UK's
-        // *yesterday*, so something that had already happened could lead a list headed "Coming up".
+        // On a UTC anchor, for the hour *after* UK midnight in summer — 23:00–00:00 UTC, which is
+        // 00:00–01:00 BST — the feed opened on the UK's *yesterday*, so something that had already
+        // happened could lead a list headed "Coming up".
         // It also keys the cache, which therefore turned over an hour late for the same reason.
         LocalDate today = ForecastHorizon.today(clock);
 
