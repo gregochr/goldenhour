@@ -58,19 +58,13 @@ import java.time.temporal.ChronoUnit;
  * how a hedge becomes a completeness claim.</b> {@code ForceSubmitBatchService}'s JFDI range headed
  * this list and moved in §8c; the two {@code EvaluationTask.Aurora} label dates
  * ({@code ScheduledBatchEvaluationService}, {@code AuroraOrchestrator}) and {@code AlmanacService}'s
- * feed anchor followed. <b>What remains — bounded, as before, by "reached from a forecast or
- * almanac path", because a bare count is how a hedge becomes a completeness claim again:</b>
+ * feed anchor followed. {@code AuroraForecastRunService} left it by a different door — it stopped
+ * asking a calendar at all, resolving its night on an instant instead
+ * ({@code currentNightDate()}); see {@code docs/engineering/aurora-night-selection.md} for why no
+ * zone was the right answer there. <b>What remains — bounded, as before, by "reached from a
+ * forecast or almanac path", because a bare count is how a hedge becomes a completeness claim
+ * again:</b>
  * <ul>
- *   <li>{@code AuroraForecastRunService}, at <em>two</em> sites that must move together — the
- *       preview-night loop and, in {@code runForecasts}, a {@code date.equals(today)} that switches
- *       between real weather triage and a fabricated flat 50% cloud. ⚠️ <b>Do not "finish the job"
- *       by pointing either here.</b> Its date names a <em>night</em>, which runs dusk-to-dawn
- *       across midnight, and in BST the UTC anchor is accidentally correct for the hour after UK
- *       midnight while {@code Europe/London} would label a window twenty hours away as "Tonight".
- *       The real defect is that a {@code LocalDate} cannot name a night at all — in GMT both
- *       calendars are wrong for several hours every night. Measured, tabulated, and left open in
- *       {@code docs/engineering/aurora-night-selection.md}, which also records why the obvious fix
- *       breaks the triage switch.</li>
  *   <li>{@code TideService} anchors a refresh window and a stats cutoff on
  *       {@code LocalDate.now(ZoneOffset.UTC)} over UK tide dates.</li>
  *   <li>{@code CalibrationController} and {@code CloudVerificationController} default an open-ended
@@ -82,8 +76,9 @@ import java.time.temporal.ChronoUnit;
  * an ECB publication day rather than a UK one, and anything keying a cache purely by "when did I
  * last fetch". All the entries above are pre-existing and none was introduced by the changes above.
  * They are listed rather than fixed because each wants its own reasoning about what its date
- * <em>means</em> — the lesson {@code PromptTestService} taught, and in the aurora case the first
- * time the answer came back "not this calendar".
+ * <em>means</em> — the lesson {@code PromptTestService} taught, and the one
+ * {@code AuroraForecastRunService} then made concrete by being the first case where the answer came
+ * back "no calendar at all".
  *
  * <p><b>An instant is not a calendar.</b> Nothing here answers "has this moment passed". That
  * question is settled by comparing UTC instants — {@code ForecastCommandExecutor} draws both from

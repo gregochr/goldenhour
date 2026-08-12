@@ -20,6 +20,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -79,6 +80,7 @@ public class AuroraForecastRunService {
     private final SolarCalculator solarCalculator;
     private final AuroraStateCache stateCache;
     private final AuroraForecastResultWriter resultWriter;
+    private final Clock clock;
 
     /**
      * Constructs the service with all required dependencies.
@@ -92,6 +94,12 @@ public class AuroraForecastRunService {
      * @param solarCalculator    solar-utils twilight calculator
      * @param stateCache         aurora state machine (checked for simulation mode)
      * @param resultWriter       transactional per-night result writer
+     * @param clock              supplies the instant {@link #currentNightDate()} compares against
+     *                           dawn, and the start of the simulated Kp windows, which have to
+     *                           overlap the nights that selection returns. ⚠️ Not a general "single
+     *                           reference clock": the persisted result timestamp and the synthetic
+     *                           space-weather reading times still read the system clock, since
+     *                           neither is compared against a night
      */
     public AuroraForecastRunService(NoaaSwpcClient noaaClient,
             WeatherTriageService weatherTriage,
@@ -101,7 +109,8 @@ public class AuroraForecastRunService {
             AuroraProperties properties,
             SolarCalculator solarCalculator,
             AuroraStateCache stateCache,
-            AuroraForecastResultWriter resultWriter) {
+            AuroraForecastResultWriter resultWriter,
+            Clock clock) {
         this.noaaClient = noaaClient;
         this.weatherTriage = weatherTriage;
         this.claudeInterpreter = claudeInterpreter;
@@ -111,6 +120,41 @@ public class AuroraForecastRunService {
         this.solarCalculator = solarCalculator;
         this.stateCache = stateCache;
         this.resultWriter = resultWriter;
+        this.clock = clock;
+    }
+
+    /**
+     * The date naming the dark window we are in — or the next one, if we are between dawn and dusk.
+     *
+     * <p><b>A night is not a day, and this is the whole reason this method exists.</b>
+     * {@link #computeWindowForDate} runs a night from dusk on {@code D} to dawn on {@code D+1}, so
+     * between midnight and dawn you are standing inside the window named <em>yesterday</em>. Keying
+     * off the calendar date instead offered a window that had not started and labelled it
+     * "Tonight" — up to seven hours a night in midwinter.
+     *
+     * <p>⚠️ <b>No calendar fixes that</b>, which is why this is an instant test rather than a
+     * timezone choice. {@code Europe/London} would be worse in BST (its date rolls at UK midnight,
+     * when the current night still has hours to run) and identical in GMT. The date read below is
+     * scaffolding for two solar calculations; {@code now.isBefore(dawn)} makes the actual decision,
+     * so the answer is the same on either calendar.
+     *
+     * <p>Deliberately the same rule, in the same shape, as
+     * {@code AuroraPollingJob.calculateTonightWindow()} — which has always been right. A test pins
+     * the two to agree, because two answers to "which night is it" is the defect this removes.
+     *
+     * @return the date whose dusk opened the current or next dark window
+     */
+    LocalDate currentNightDate() {
+        ZoneId utc = ZoneId.of("UTC");
+        LocalDate today = LocalDate.now(clock.withZone(utc));
+        LocalDateTime now = LocalDateTime.now(clock.withZone(utc));
+
+        LocalDateTime nauticalDawnToday = solarCalculator
+                .civilDawn(DURHAM_LAT, DURHAM_LON, today, utc)
+                .minusMinutes(NAUTICAL_BUFFER_MINUTES);
+
+        // Before dawn: the window that began at yesterday's dusk is still running.
+        return now.isBefore(nauticalDawnToday) ? today.minusDays(1) : today;
     }
 
     /**
@@ -145,11 +189,14 @@ public class AuroraForecastRunService {
         int eligibleCount = locationRepository
                 .findByBortleClassLessThanEqualAndEnabledTrue(moderateThreshold).size();
 
-        LocalDate today = LocalDate.now(ZoneId.of("UTC"));
+        // The night in progress, not today's date — see currentNightDate(). Before dawn these
+        // differ, and offering "Tonight" for a window that starts at dusk is no use to someone
+        // already standing under the one that is running.
+        LocalDate currentNight = currentNightDate();
         List<AuroraForecastPreview.NightPreview> nights = new ArrayList<>();
 
         for (int i = 0; i < PREVIEW_NIGHTS; i++) {
-            LocalDate date = today.plusDays(i);
+            LocalDate date = currentNight.plusDays(i);
             TonightWindow window = computeWindowForDate(date);
             double maxKp = maxKpInWindow(kpForecast, window);
             AlertLevel level = AlertLevel.fromKp(maxKp);
@@ -196,7 +243,9 @@ public class AuroraForecastRunService {
                 ? buildSimulatedSpaceWeather(stateCache.getSimulatedData())
                 : noaaClient.fetchAll();
         List<KpForecast> kpForecast = spaceWeather.kpForecast();
-        LocalDate today = LocalDate.now(ZoneId.of("UTC"));
+        // Must be the same selection the preview offered, and for a second reason: it decides
+        // which night gets *real* weather triage below.
+        LocalDate currentNight = currentNightDate();
 
         List<AuroraForecastRunResponse.NightResult> results = new ArrayList<>();
         int totalClaudeCalls = 0;
@@ -232,8 +281,18 @@ public class AuroraForecastRunService {
                 continue;
             }
 
-            // Weather triage — accurate for tonight; future dates use optimistic defaults
-            WeatherTriageService.TriageResult triage = date.equals(today)
+            // Weather triage — real for the night in progress or next up, optimistic defaults for
+            // the ones after it. ⚠️ This equality had to move with the preview's selection, not
+            // after it: WeatherTriageService reads the next TRIAGE_LOOKAHEAD_HOURS from now, so it
+            // can only say something true about a window that overlaps them. Keyed to the calendar
+            // date, at 02:00 this branch took the *real* triage path for a window ~19 h away and
+            // persisted "no clear window in the aurora hours" from cloud that had nothing to do
+            // with it. Keyed to the night in progress, the lookahead lands inside the window.
+            //
+            // Known and deliberately unchanged: from mid-afternoon the current night is still
+            // hours out, so the lookahead does not reach it either. That is a triage-window
+            // question rather than a night-selection one — see aurora-night-selection.md.
+            WeatherTriageService.TriageResult triage = date.equals(currentNight)
                     ? weatherTriage.triage(candidates)
                     : buildFutureNightTriage(candidates);
 
@@ -391,7 +450,7 @@ public class AuroraForecastRunService {
      * Builds a human-readable date label for the night selector popup.
      *
      * @param date   the calendar date
-     * @param offset days from today (0 = tonight, 1 = tomorrow, 2+  = day name)
+     * @param offset nights from the current one (0 = tonight, 1 = tomorrow, 2+ = day name)
      * @return formatted label
      */
     String buildDateLabel(LocalDate date, int offset) {
@@ -467,7 +526,10 @@ public class AuroraForecastRunService {
      * @return list of 24 forecast windows covering the next 72 hours
      */
     private List<KpForecast> buildSimulatedKpForecast(double kp) {
-        ZonedDateTime windowStart = ZonedDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.HOURS);
+        // From the injected clock, not the system one: these windows have to overlap the night
+        // windows currentNightDate() selects, and two different "now"s cannot be made to.
+        ZonedDateTime windowStart =
+                ZonedDateTime.now(clock.withZone(ZoneOffset.UTC)).truncatedTo(ChronoUnit.HOURS);
         List<KpForecast> forecast = new ArrayList<>();
         for (int i = 0; i < 24; i++) {
             forecast.add(new KpForecast(windowStart, windowStart.plusHours(3), kp));
