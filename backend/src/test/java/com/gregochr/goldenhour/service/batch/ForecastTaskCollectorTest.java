@@ -1114,19 +1114,22 @@ class ForecastTaskCollectorTest {
     }
 
     @Test
-    @DisplayName("dispositions: intraday SETTLED candidate skipped as SKIPPED_NO_REFRESH_NEEDED "
-            + "(through the real collect path, IntradayEligibilityPolicy)")
-    void dispositions_intradaySettled_recordedAsNoRefreshNeeded() {
-        // Exercises the policy → disposition-category mapping through the real
-        // collector, NOT a mocked seam: a SETTLED location under the intraday
-        // cost-gate is skipped and recorded as SKIPPED_NO_REFRESH_NEEDED (the
-        // category the disposition acceptance bar checks for), distinct from
-        // nightly's SKIPPED_STABILITY.
+    @DisplayName("dispositions: intraday SETTLED at T+1 SUNSET is skipped as "
+            + "SKIPPED_NO_REFRESH_NEEDED (through the real collect path)")
+    void dispositions_intradaySettledTomorrowSunset_recordedAsNoRefreshNeeded() {
+        // Exercises the policy → disposition-category mapping through the real collector, NOT a
+        // mocked seam. T+1 SUNSET is the one slot where SETTLED is still skipped: two further
+        // looks are guaranteed before it. The category is SKIPPED_NO_REFRESH_NEEDED (what the
+        // disposition acceptance bar checks for), distinct from nightly's SKIPPED_STABILITY.
+        //
+        // Read with its twin below — the pair is what proves candidate.targetType() actually
+        // reaches the policy. Either test alone would still pass if the collector passed a
+        // constant event.
         LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
         loc.setGridLat(54.7500);
         loc.setGridLng(-1.6250);
         DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY.plusDays(1),
-                Verdict.GO, loc.getName());
+                TargetType.SUNSET, Verdict.GO, loc.getName());
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
@@ -1145,12 +1148,49 @@ class ForecastTaskCollectorTest {
                 IntradayEligibilityPolicy.INSTANCE,
                 true);
 
-        // Settled → no Claude call this afternoon; not bucketed.
+        // Settled and covered later → no Claude call this afternoon; not bucketed.
         assertThat(result.isEmpty()).isTrue();
         assertThat(result.dispositions()).hasSize(1);
         CandidateDisposition d = result.dispositions().get(0);
         assertThat(d.category()).isEqualTo(DispositionCategory.SKIPPED_NO_REFRESH_NEEDED);
         assertThat(d.detail()).contains("settled");
+        assertThat(d.locationName()).isEqualTo("Durham UK");
+    }
+
+    @Test
+    @DisplayName("dispositions: intraday SETTLED at T+1 SUNRISE is EVALUATED — its only later "
+            + "run lands while the reader is asleep")
+    void dispositions_intradaySettledTomorrowSunrise_recordedAsEvaluated() {
+        // The twin of the case above: identical in every respect except the solar event. If
+        // ForecastTaskCollector passed a constant TargetType to the policy rather than
+        // candidate.targetType(), exactly one of this pair would fail.
+        LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
+        loc.setGridLat(54.7500);
+        loc.setGridLng(-1.6250);
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY.plusDays(1),
+                TargetType.SUNRISE, Verdict.GO, loc.getName());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        stubModels();
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
+        when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyDouble(), any()))
+                .thenReturn(new GridCellStabilityResult(
+                        loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
+                        ForecastStability.SETTLED, "stable", 3));
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                IntradayEligibilityPolicy.INSTANCE,
+                true);
+
+        assertThat(result.isEmpty()).isFalse();
+        assertThat(result.dispositions()).hasSize(1);
+        CandidateDisposition d = result.dispositions().get(0);
+        assertThat(d.category()).isEqualTo(DispositionCategory.EVALUATED);
         assertThat(d.locationName()).isEqualTo("Durham UK");
     }
 
@@ -1426,19 +1466,38 @@ class ForecastTaskCollectorTest {
 
     private DailyBriefingResponse buildBriefingWithSlots(LocalDate date,
             Verdict verdict, String... locationNames) {
+        return buildBriefingWithSlots(date, TargetType.SUNRISE, verdict, locationNames);
+    }
+
+    /**
+     * Builds a one-region briefing on an explicit solar event.
+     *
+     * <p>The event used to be hardcoded to SUNRISE, which was invisible until
+     * {@code EligibilityPolicy.resolve} started taking a {@link TargetType}: an intraday rule that
+     * differs between sunrise and sunset cannot be exercised through a fixture that only ever emits
+     * one of them.
+     *
+     * @param date          the target date
+     * @param targetType    the solar event the region's slots belong to
+     * @param verdict       the verdict for the region and every slot
+     * @param locationNames one slot per name
+     * @return a briefing carrying exactly those slots
+     */
+    private DailyBriefingResponse buildBriefingWithSlots(LocalDate date, TargetType targetType,
+            Verdict verdict, String... locationNames) {
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
                 20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
         java.util.List<BriefingSlot> slots = new java.util.ArrayList<>();
         for (String name : locationNames) {
             slots.add(new BriefingSlot(name,
-                    date.atTime(5, 30),
+                    date.atTime(targetType == TargetType.SUNSET ? 20 : 5, 30),
                     verdict, weather, BriefingSlot.TideInfo.NONE, List.of(), null));
         }
         BriefingRegion region = new BriefingRegion(
                 "North East", verdict, "Summary", List.of(), slots,
                 null, null, null, null, null, null);
         BriefingEventSummary eventSummary = new BriefingEventSummary(
-                TargetType.SUNRISE, List.of(region), List.of());
+                targetType, List.of(region), List.of());
         BriefingDay day = new BriefingDay(date, List.of(eventSummary));
         return new DailyBriefingResponse(null, null, List.of(day), null, null, null,
                 false, false, 0, null, List.of(), List.of());

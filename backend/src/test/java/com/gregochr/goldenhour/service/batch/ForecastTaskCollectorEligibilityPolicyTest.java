@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service.batch;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastStability;
+import com.gregochr.goldenhour.entity.TargetType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -23,6 +24,13 @@ class ForecastTaskCollectorEligibilityPolicyTest {
 
     private static final EvaluationModel NEAR = EvaluationModel.HAIKU;
     private static final EvaluationModel FAR = EvaluationModel.SONNET;
+
+    /**
+     * The Gate 4 table this class exercises is event-blind, so the event is arbitrary here.
+     * {@code NightlyEligibilityPolicyTest.resolveIsEventBlind} is what pins that indifference;
+     * naming the constant keeps these rows from reading as though SUNSET mattered to them.
+     */
+    private static final TargetType ANY_EVENT = TargetType.SUNSET;
 
     @ParameterizedTest(name = "T+{0} {1} → eligible={2}, model={3}, skipReason={4}")
     @CsvSource({
@@ -47,7 +55,7 @@ class ForecastTaskCollectorEligibilityPolicyTest {
     void resolveEligibility_policyTable(int daysAhead, ForecastStability stability,
             boolean expectedEligible, EvaluationModel expectedModel, String expectedSkipReason) {
         EligibilityDecision decision = ForecastTaskCollector.resolveEligibility(
-                daysAhead, stability, NEAR, FAR);
+                daysAhead, ANY_EVENT, stability, NEAR, FAR);
 
         assertThat(decision.eligible()).isEqualTo(expectedEligible);
         if (expectedEligible) {
@@ -65,9 +73,9 @@ class ForecastTaskCollectorEligibilityPolicyTest {
     @DisplayName("T+1 → T+2 boundary: TRANSITIONAL switches tier (near→far) but stays eligible")
     void boundary_t1ToT2_transitional_switchesTier() {
         EligibilityDecision t1 = ForecastTaskCollector.resolveEligibility(
-                1, ForecastStability.TRANSITIONAL, NEAR, FAR);
+                1, ANY_EVENT, ForecastStability.TRANSITIONAL, NEAR, FAR);
         EligibilityDecision t2 = ForecastTaskCollector.resolveEligibility(
-                2, ForecastStability.TRANSITIONAL, NEAR, FAR);
+                2, ANY_EVENT, ForecastStability.TRANSITIONAL, NEAR, FAR);
 
         assertThat(t1.eligible()).isTrue();
         assertThat(t1.model()).isEqualTo(NEAR);
@@ -79,9 +87,9 @@ class ForecastTaskCollectorEligibilityPolicyTest {
     @DisplayName("T+1 → T+2 boundary: UNSETTLED drops out of the batch")
     void boundary_t1ToT2_unsettled_dropsOut() {
         EligibilityDecision t1 = ForecastTaskCollector.resolveEligibility(
-                1, ForecastStability.UNSETTLED, NEAR, FAR);
+                1, ANY_EVENT, ForecastStability.UNSETTLED, NEAR, FAR);
         EligibilityDecision t2 = ForecastTaskCollector.resolveEligibility(
-                2, ForecastStability.UNSETTLED, NEAR, FAR);
+                2, ANY_EVENT, ForecastStability.UNSETTLED, NEAR, FAR);
 
         assertThat(t1.eligible()).isTrue();
         assertThat(t2.eligible()).isFalse();
@@ -92,9 +100,9 @@ class ForecastTaskCollectorEligibilityPolicyTest {
     @DisplayName("T+2 → T+3 boundary: TRANSITIONAL drops out of the batch")
     void boundary_t2ToT3_transitional_dropsOut() {
         EligibilityDecision t2 = ForecastTaskCollector.resolveEligibility(
-                2, ForecastStability.TRANSITIONAL, NEAR, FAR);
+                2, ANY_EVENT, ForecastStability.TRANSITIONAL, NEAR, FAR);
         EligibilityDecision t3 = ForecastTaskCollector.resolveEligibility(
-                3, ForecastStability.TRANSITIONAL, NEAR, FAR);
+                3, ANY_EVENT, ForecastStability.TRANSITIONAL, NEAR, FAR);
 
         assertThat(t2.eligible()).isTrue();
         assertThat(t3.eligible()).isFalse();
@@ -105,9 +113,9 @@ class ForecastTaskCollectorEligibilityPolicyTest {
     @DisplayName("T+3 → T+4 boundary: SETTLED drops out of the batch")
     void boundary_t3ToT4_settled_dropsOut() {
         EligibilityDecision t3 = ForecastTaskCollector.resolveEligibility(
-                3, ForecastStability.SETTLED, NEAR, FAR);
+                3, ANY_EVENT, ForecastStability.SETTLED, NEAR, FAR);
         EligibilityDecision t4 = ForecastTaskCollector.resolveEligibility(
-                4, ForecastStability.SETTLED, NEAR, FAR);
+                4, ANY_EVENT, ForecastStability.SETTLED, NEAR, FAR);
 
         assertThat(t3.eligible()).isTrue();
         assertThat(t3.model()).isEqualTo(FAR);

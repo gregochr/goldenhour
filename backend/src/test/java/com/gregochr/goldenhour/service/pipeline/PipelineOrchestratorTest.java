@@ -727,7 +727,10 @@ class PipelineOrchestratorTest {
             verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.STABILITY_RECLASSIFY);
             verify(pipelineRunService).completePhase(eq(RUN_ID),
                     eq(PipelinePhase.STABILITY_RECLASSIFY),
-                    eq("3 considered, 1 settled-skipped, 2 unsettled-evaluated"));
+                    // "evaluated", not "unsettled-evaluated" — since the settled skip narrowed to
+                    // T+1 sunset, most of this count is SETTLED on a settled afternoon. The
+                    // number is unchanged; only the claim about what is in it was wrong.
+                    eq("3 considered, 1 settled-skipped, 2 evaluated"));
             verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT);
             verify(pipelineRunService).completePhase(eq(RUN_ID),
                     eq(PipelinePhase.FORECAST_BATCH_SUBMIT), isNull());

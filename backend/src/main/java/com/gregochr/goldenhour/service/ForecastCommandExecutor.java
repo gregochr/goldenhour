@@ -622,7 +622,7 @@ public class ForecastCommandExecutor {
                     ForecastStability stability = gridCellStabilityService.stabilityFor(
                             task.location(), task, stabilityByCell);
                     if (!NightlyEligibilityPolicy.INSTANCE.permitsHorizon(
-                            task.daysAhead(), stability)) {
+                            task.daysAhead(), task.targetType(), stability)) {
                         LOG.debug("Stability filter: skipping {} T+{} — {}",
                                 task.location().getName(), task.daysAhead(), stability);
                         return false;

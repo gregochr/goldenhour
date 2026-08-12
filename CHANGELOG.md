@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the afternoon run now takes another look at settled evenings
+
+The afternoon forecast run skipped every location where the weather was classified "settled", on
+the reasoning that a stable pattern means the morning's forecast still stands. It doesn't. A
+blocking high is stable; the bank of low cloud sitting on the western horizon underneath it is not,
+and that is the thing a sunset rating actually turns on. Measured across a month, a settled
+location re-forecast a day later changed by a full star **63%** of the time.
+
+The effect was the opposite of what the run is for: it worked normally while the weather was
+mixed, and switched itself off entirely once things settled — which is precisely when the sky is
+worth photographing. On one settled evening the afternoon run evaluated nothing at all.
+
+It now re-forecasts settled locations for tonight's sunset and tomorrow's sunrise. Tomorrow's
+sunset is still skipped, but for a different reason than before: it is the one slot guaranteed two
+more looks before it happens, so a call there buys nothing. Nothing that was being forecast stops
+being forecast.
+
+Tomorrow's sunrise is included because of *when* a forecast arrives rather than how far ahead it
+looks. The overnight run is only four hours before a summer sunrise — excellent on paper, useless
+in practice, because the decision it informs is "set an alarm?" and that is taken the previous
+evening by someone who is now asleep. The afternoon run is the last one they will actually read.
+
+⚠️ **This helps summer evenings and does nothing for winter ones.** The afternoon run fires at a
+fixed clock time while sunset moves about five hours across the year, and the ratings take up to
+three hours to come back — so in late December they would land after dark. That is already true
+today for unsettled locations and is not made worse in kind, only in volume. The real fix is to
+schedule the run against the decision rather than the clock, which is tracked separately.
+
 ### Added — the Plan tab points at a night when two rare things land on it
 
 Behind the window-first Plan flag, still off by default.
