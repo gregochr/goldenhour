@@ -27,6 +27,14 @@ import java.util.List;
  *       tracks reality in the uncapped subset, the cap is the dominant defect.</li>
  *   <li>{@code byWindSunAngle} — whether the observer-anchored upwind sample misfires when wind
  *       and sun are aligned, the regime where anchoring introduces a timing error.</li>
+ *   <li>{@code byConeStructure} — the cone-aggregation question. The forecast collapses its three
+ *       cone samples to a mean; these buckets measure how often the analysed horizon is a
+ *       wall-with-gap (large spread) rather than a uniform deck, and whether the forecast's gap
+ *       error grows exactly there.</li>
+ *   <li>{@code byCorridor} — the canvas-height gate question. A high-cloud canvas is underlit
+ *       through low cloud 206–432 km out, not the 113 km the gate reads; these buckets measure
+ *       how often near and far corridor readings structurally diverge, and the {@code &highCanvas}
+ *       variants isolate the skies where that geometry is the one that matters.</li>
  * </ul>
  *
  * @param from            start of the verified window (inclusive)
@@ -38,6 +46,9 @@ import java.util.List;
  * @param vetoUncapped    veto-fired pairs whose upwind sample was below the 200 km cap
  * @param vetoCapped      veto-fired pairs whose upwind sample sat at the cap
  * @param byWindSunAngle  veto-fired pairs bucketed by wind-to-sun separation
+ * @param byConeStructure all pairs bucketed by analysed cone spread (uniform / mixed / gapped)
+ * @param byCorridor      all pairs bucketed by near-vs-far corridor divergence, with
+ *                        high-canvas-dominant sub-buckets
  * @param vetoSeparation  mean observed horizon cloud in {@code vetoFired} minus
  *                        {@code vetoNotFired}. Positive means vetoed slots really were cloudier,
  *                        i.e. the veto discriminates. Near zero means it fires on nothing real.
@@ -55,25 +66,31 @@ public record CloudVerificationReport(
         CloudVerificationBucket vetoUncapped,
         CloudVerificationBucket vetoCapped,
         List<CloudVerificationBucket> byWindSunAngle,
+        List<CloudVerificationBucket> byConeStructure,
+        List<CloudVerificationBucket> byCorridor,
         Double vetoSeparation,
         Double capSeparation) {
 
     /**
-     * Compact constructor — defensive copy to satisfy SpotBugs EI_EXPOSE_REP.
+     * Compact constructor — defensive copies to satisfy SpotBugs EI_EXPOSE_REP.
      *
-     * @param from           start of the window
-     * @param to             end of the window
-     * @param verifiedCount  evaluations verified
-     * @param overall        overall metrics
-     * @param vetoFired      veto-fired metrics
-     * @param vetoNotFired   veto-not-fired metrics
-     * @param vetoUncapped   uncapped veto-fired metrics
-     * @param vetoCapped     capped veto-fired metrics
-     * @param byWindSunAngle per-alignment metrics
-     * @param vetoSeparation fired-minus-not-fired observed cloud
-     * @param capSeparation  uncapped-minus-capped observed cloud
+     * @param from            start of the window
+     * @param to              end of the window
+     * @param verifiedCount   evaluations verified
+     * @param overall         overall metrics
+     * @param vetoFired       veto-fired metrics
+     * @param vetoNotFired    veto-not-fired metrics
+     * @param vetoUncapped    uncapped veto-fired metrics
+     * @param vetoCapped      capped veto-fired metrics
+     * @param byWindSunAngle  per-alignment metrics
+     * @param byConeStructure per-cone-spread metrics
+     * @param byCorridor      per-corridor-divergence metrics
+     * @param vetoSeparation  fired-minus-not-fired observed cloud
+     * @param capSeparation   uncapped-minus-capped observed cloud
      */
     public CloudVerificationReport {
         byWindSunAngle = byWindSunAngle == null ? List.of() : List.copyOf(byWindSunAngle);
+        byConeStructure = byConeStructure == null ? List.of() : List.copyOf(byConeStructure);
+        byCorridor = byCorridor == null ? List.of() : List.copyOf(byCorridor);
     }
 }

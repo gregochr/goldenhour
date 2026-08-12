@@ -103,8 +103,8 @@ class CloudVerificationRepositoryTest {
     }
 
     @Test
-    @DisplayName("deleteBlankVerifications frees masked evaluations without touching real ones")
-    void deleteBlankVerifications_returnsEvaluationsToTheCandidatePool() {
+    @DisplayName("deleteIncompleteVerifications frees masked evaluations without touching real ones")
+    void deleteIncompleteVerifications_returnsEvaluationsToTheCandidatePool() {
         ForecastEvaluationEntity blank = evaluationRepository.save(evaluation(DATE, 30, true));
         ForecastEvaluationEntity real =
                 evaluationRepository.save(evaluation(DATE.minusDays(1), 40, true));
@@ -115,12 +115,36 @@ class CloudVerificationRepositoryTest {
 
         assertThat(repository.findUnverified(DATE.plusDays(1), Limit.of(10))).isEmpty();
 
-        assertThat(repository.deleteBlankVerifications()).isEqualTo(1);
+        assertThat(repository.deleteIncompleteVerifications()).isEqualTo(1);
 
         // The blank one is a candidate again; the real one stays verified.
         assertThat(repository.findUnverified(DATE.plusDays(1), Limit.of(10)))
                 .extracting(VerificationCandidate::evaluationId)
                 .containsExactly(blank.getId());
+    }
+
+    @Test
+    @DisplayName("deleteIncompleteVerifications re-verifies rows that predate the measurement pass")
+    void deleteIncompleteVerifications_clearsPreUpgradeRows() {
+        ForecastEvaluationEntity preUpgrade = evaluationRepository.save(evaluation(DATE, 30, true));
+        // A row exactly as the pre-measurement-pass backfill wrote it: horizon mean present, but
+        // no cone extremes and no far-solar reading. It answered the old questions; it cannot
+        // answer the new ones, so it must return to the candidate pool.
+        repository.save(CloudVerificationEntity.builder()
+                .forecastEvaluationId(preUpgrade.getId())
+                .horizonSampleLat(54.0)
+                .horizonSampleLon(-3.0)
+                .horizonLowCloud(80)
+                .observerMidCloud(55)
+                .observerHighCloud(40)
+                .observedAt(LocalDateTime.of(2026, 5, 10, 21, 0))
+                .verifiedAt(LocalDateTime.of(2026, 5, 17, 9, 0))
+                .build());
+
+        assertThat(repository.deleteIncompleteVerifications()).isEqualTo(1);
+        assertThat(repository.findUnverified(DATE.plusDays(1), Limit.of(10)))
+                .extracting(VerificationCandidate::evaluationId)
+                .containsExactly(preUpgrade.getId());
     }
 
     @Test
@@ -148,6 +172,15 @@ class CloudVerificationRepositoryTest {
         assertThat(pair.upwindCapped()).isTrue();
         // 250 solar azimuth vs 240 wind-from = aligned flow.
         assertThat(pair.windSunAngle()).isEqualTo(10);
+        // Measurement-pass projections: the forecast's far claim and the analysed extremes.
+        assertThat(pair.forecastFarLow()).isEqualTo(20);
+        assertThat(pair.observedGapLowMin()).isEqualTo(60);
+        assertThat(pair.observedGapLowMax()).isEqualTo(95);
+        assertThat(pair.observedFarLow()).isEqualTo(35);
+        assertThat(pair.coneSpread()).isEqualTo(35);
+        // Near 80 vs far 35 — the corridor clears with distance.
+        assertThat(pair.farDrop()).isEqualTo(45);
+        assertThat(pair.farError()).isEqualTo(-15);
     }
 
     @Test
@@ -184,6 +217,7 @@ class CloudVerificationRepositoryTest {
                 .evaluationModel(EvaluationModel.HAIKU)
                 .directionalCloud(DirectionalCloudDetails.builder()
                         .solarLow(solarLow)
+                        .farSolarLow(solarLow == null ? null : 20)
                         .build())
                 .cloudApproach(CloudApproachDetails.builder()
                         .solarTrendBuilding(building)
@@ -196,11 +230,16 @@ class CloudVerificationRepositoryTest {
 
     private CloudVerificationEntity verification(Long evaluationId, Integer horizonLow,
             Integer observerMid, Integer observerHigh) {
+        // A complete row carries every column the current sampling records — the cone extremes
+        // and the far reading included — or deleteIncompleteVerifications would reclaim it.
         return CloudVerificationEntity.builder()
                 .forecastEvaluationId(evaluationId)
                 .horizonSampleLat(54.0)
                 .horizonSampleLon(-3.0)
                 .horizonLowCloud(horizonLow)
+                .horizonLowMin(horizonLow == null ? null : 60)
+                .horizonLowMax(horizonLow == null ? null : 95)
+                .farLowCloud(horizonLow == null ? null : 35)
                 .observerMidCloud(observerMid)
                 .observerHighCloud(observerHigh)
                 .observedAt(LocalDateTime.of(2026, 5, 10, 21, 0))

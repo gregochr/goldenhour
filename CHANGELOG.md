@@ -5,6 +5,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the ERA5 verification now measures the sampling geometry itself
+
+The cloud-verification backfill scored *what* the forecast predicted; it now also records what the
+forecast's own persistence throws away, so two open questions about the 113 km directional
+sampling can be answered with data instead of geometry arguments:
+
+- **Cone structure** (`horizon_low_min`/`horizon_low_max`, V142): the forecast collapses its three
+  cone samples to a mean, which renders a uniform 60% deck and a solid wall with a clear third
+  (90/0/90) identically. The report's new `byConeStructure` buckets (uniform / mixed / gapped)
+  measure how often the analysed horizon really is a wall-with-gap, and whether the forecast's gap
+  error grows exactly there.
+- **The far corridor** (`far_low_cloud`, V142): a high-cloud canvas is underlit through low cloud
+  206–432 km sunward — the 226 km far-solar point's neighbourhood, which the 113 km blocking gate
+  never reads. The new `byCorridor` buckets count how often near and far corridor readings
+  structurally diverge (≥30pp, the same threshold the production strip-vs-blanket rule uses), with
+  `&highCanvas` sub-buckets isolating the skies where that geometry is the one that matters —
+  including the uncovered false-optimism case (near clear, far blanketed, cirrus overhead). The
+  forecast's own 226 km claim is also verified for the first time (`meanFarError`).
+
+Both new statistics are reanalysis-internal comparisons, so the known forecast-vs-reanalysis
+baseline offset cancels. The backfill now samples five archive points per evaluation instead of
+four (~25% more archive requests).
+
+⚠️ **The first backfill run after this deploy re-verifies the entire history — deliberately.**
+Rows verified before this change lack the new columns, and the self-healing rule (clear rows
+missing any observation the current sampling records, then let the anti-join re-select them) now
+treats them as incomplete. The report will be sparse while the hourly ticks walk the backlog down
+(roughly a day, same as the original backfill); nothing needs manual intervention.
+
 ## [v2.18.1] - 2026-08-12
 
 ### Added — the eclipse, and every figure on it worked out for your own locations

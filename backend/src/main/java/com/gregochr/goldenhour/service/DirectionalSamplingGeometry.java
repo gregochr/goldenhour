@@ -121,6 +121,21 @@ public final class DirectionalSamplingGeometry {
     }
 
     /**
+     * Computes the far-solar sampling point (226 km along the solar bearing).
+     *
+     * <p>The last entry of {@link #computeDirectionalCloudPoints}, exposed separately so cloud
+     * verification can sample the same corridor point the forecast's strip-vs-blanket rule reads.
+     *
+     * @param lat             observer latitude
+     * @param lon             observer longitude
+     * @param solarAzimuthDeg compass bearing of the sun
+     * @return [lat, lon] pair at 226 km along the solar bearing
+     */
+    public static double[] computeFarSolarPoint(double lat, double lon, int solarAzimuthDeg) {
+        return GeoUtils.offsetPoint(lat, lon, solarAzimuthDeg, FAR_SOLAR_OFFSET_METRES);
+    }
+
+    /**
      * Computes the upwind sampling point, or {@code null} if conditions don't warrant it.
      *
      * @param lat           observer latitude

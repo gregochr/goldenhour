@@ -59,11 +59,13 @@ class CloudVerificationServiceTest {
     }
 
     @Test
-    @DisplayName("backfill samples the solar horizon and the observer, at the event hour")
-    void backfill_samplesBothPoints() {
+    @DisplayName("backfill samples the cone, the observer and the far-solar point, at the event hour")
+    void backfill_samplesAllPoints() {
         when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
+        // Cone bearings read 60/85/95, the observer the default, the far-solar point 20 — so the
+        // mean, the extremes and the far reading are all distinguishable in the saved row.
         when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(List.of(archive(), archive(), archive(), archive()));
+                .thenReturn(List.of(archive(60), archive(85), archive(95), archive(), archive(20)));
 
         assertThat(service.backfill(10).rowsWritten()).isEqualTo(1);
 
@@ -77,7 +79,11 @@ class CloudVerificationServiceTest {
         assertThat(row.getHorizonSampleLat()).isNotEqualTo(54.7753);
         // 21:37 sunset resolves to the 21:00 slot — the hour the forecast itself scored.
         assertThat(row.getObservedAt()).isEqualTo(LocalDateTime.of(2026, 5, 10, 21, 0));
-        assertThat(row.getHorizonLowCloud()).isEqualTo(85);
+        assertThat(row.getHorizonLowCloud()).isEqualTo(80);
+        // The extremes carry the structure the mean throws away.
+        assertThat(row.getHorizonLowMin()).isEqualTo(60);
+        assertThat(row.getHorizonLowMax()).isEqualTo(95);
+        assertThat(row.getFarLowCloud()).isEqualTo(20);
         assertThat(row.getObserverMidCloud()).isEqualTo(55);
     }
 
@@ -86,7 +92,7 @@ class CloudVerificationServiceTest {
     void backfill_archiveFailure_stillRecordsRow() {
         when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
         when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(Arrays.asList(null, null, null, null));
+                .thenReturn(Arrays.asList(null, null, null, null, null));
 
         assertThat(service.backfill(10).rowsWritten()).isEqualTo(1);
 
@@ -96,20 +102,21 @@ class CloudVerificationServiceTest {
         verify(repository).saveAll(saved.capture());
         CloudVerificationEntity row = saved.getValue().getFirst();
         assertThat(row.getHorizonLowCloud()).isNull();
+        assertThat(row.getFarLowCloud()).isNull();
         assertThat(row.getObservedAt()).isNull();
         assertThat(row.getForecastEvaluationId()).isEqualTo(42L);
     }
 
     @Test
-    @DisplayName("backfill batches one request per date, two points per candidate, in order")
-    void backfill_batchesByDateWithHorizonThenObserver() {
+    @DisplayName("backfill batches one request per date, five points per candidate, in order")
+    void backfill_batchesByDateWithConeObserverThenFar() {
         VerificationCandidate first = candidate();
         VerificationCandidate second = new VerificationCandidate(43L, 55.0, -2.0, 250,
                 LocalDateTime.of(2026, 5, 10, 21, 40), TargetType.SUNSET);
         when(repository.findUnverified(any(), any())).thenReturn(List.of(first, second));
         when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
-                .thenReturn(List.of(archive(), archive(), archive(), archive(),
-                        archive(), archive(), archive(), archive()));
+                .thenReturn(List.of(archive(), archive(), archive(), archive(), archive(),
+                        archive(), archive(), archive(), archive(), archive()));
 
         assertThat(service.backfill(10).rowsWritten()).isEqualTo(2);
 
@@ -119,14 +126,16 @@ class CloudVerificationServiceTest {
         verify(archiveClient).fetchArchiveBatch(
                 points.capture(), eq(LocalDate.of(2026, 5, 10)), anyString());
 
-        // Four points per candidate: the three solar-cone bearings, then the observer. The cone
-        // matters because the forecast's own solar reading is a 3-point average.
-        assertThat(points.getValue()).hasSize(8);
+        // Five points per candidate: the three solar-cone bearings, the observer, then the
+        // far-solar corridor point. The cone matters because the forecast's own solar reading is
+        // a 3-point average; the far point is the corridor a high canvas is underlit through.
+        assertThat(points.getValue()).hasSize(10);
         assertThat(points.getValue().get(3)).containsExactly(54.7753, -1.5849);
-        assertThat(points.getValue().get(7)).containsExactly(55.0, -2.0);
-        // Cone bearings are offset along the azimuth, so they differ from their observer.
+        assertThat(points.getValue().get(8)).containsExactly(55.0, -2.0);
+        // Cone bearings and the far point are offset along the azimuth, not at their observer.
         assertThat(points.getValue().get(0)[0]).isNotEqualTo(54.7753);
-        assertThat(points.getValue().get(4)[0]).isNotEqualTo(55.0);
+        assertThat(points.getValue().get(4)[0]).isNotEqualTo(54.7753);
+        assertThat(points.getValue().get(5)[0]).isNotEqualTo(55.0);
     }
 
     @Test
@@ -222,6 +231,53 @@ class CloudVerificationServiceTest {
     }
 
     @Test
+    @DisplayName("report buckets cone spread, so gapped horizons stop hiding behind the mean")
+    void report_bucketsConeStructure() {
+        // Same mean-ish horizon, radically different structure: a uniform deck, a broken one,
+        // and a wall with a clear bearing that a 3-point mean renders identically to the deck.
+        CloudVerificationPair uniform = conePair(60, 70);
+        CloudVerificationPair mixed = conePair(50, 75);
+        CloudVerificationPair gapped = conePair(0, 90);
+        when(repository.findVerifiedPairs(FROM, TO))
+                .thenReturn(List.of(uniform, mixed, gapped));
+        when(repository.countVerifiedInWindow(FROM, TO)).thenReturn(3L);
+
+        CloudVerificationReport report = service.report(FROM, TO);
+
+        assertThat(report.byConeStructure()).extracting(CloudVerificationBucket::key)
+                .containsExactly("uniform(spread<20)", "mixed(20-39)", "gapped(>=40)");
+        assertThat(report.byConeStructure()).extracting(CloudVerificationBucket::sampleCount)
+                .containsExactly(1, 1, 1);
+        // Spreads 10, 25 and 90 average to 41.67 across the window.
+        assertThat(report.overall().meanConeSpread()).isEqualTo(41.67);
+    }
+
+    @Test
+    @DisplayName("report buckets corridor divergence and isolates the high-canvas cases")
+    void report_bucketsCorridor() {
+        // Near and far agree; the corridor is one deck.
+        CloudVerificationPair similar = corridorPair(50, 40, 55, 40);
+        // Near strip over a clear far corridor, under a high-dominant canvas — the over-pessimism
+        // candidate: the 113 km gate reads blocked while the cirrus corridor is open.
+        CloudVerificationPair clearerHigh = corridorPair(80, 20, 10, 90);
+        // Clear near point, blanketed far corridor, mid-dominant canvas — structurally divergent
+        // but not a high-canvas case, so it must not reach the &highCanvas bucket.
+        CloudVerificationPair cloudierMid = corridorPair(20, 70, 60, 40);
+        when(repository.findVerifiedPairs(FROM, TO))
+                .thenReturn(List.of(similar, clearerHigh, cloudierMid));
+        when(repository.countVerifiedInWindow(FROM, TO)).thenReturn(3L);
+
+        CloudVerificationReport report = service.report(FROM, TO);
+
+        assertThat(report.byCorridor()).extracting(CloudVerificationBucket::key)
+                .containsExactly("farSimilar(|drop|<30)", "farClearer(drop>=30)",
+                        "farClearer&highCanvas", "farCloudier(drop<=-30)",
+                        "farCloudier&highCanvas");
+        assertThat(report.byCorridor()).extracting(CloudVerificationBucket::sampleCount)
+                .containsExactly(1, 1, 1, 1, 0);
+    }
+
+    @Test
     @DisplayName("report rejects a missing or inverted window")
     void report_invalidWindow_throws() {
         assertThatThrownBy(() -> service.report(null, TO))
@@ -237,9 +293,13 @@ class CloudVerificationServiceTest {
     }
 
     private OpenMeteoForecastResponse archive() {
+        return archive(85);
+    }
+
+    private OpenMeteoForecastResponse archive(int lowAtEventHour) {
         OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
         hourly.setTime(List.of("2026-05-10T20:00", "2026-05-10T21:00", "2026-05-10T22:00"));
-        hourly.setCloudCoverLow(List.of(40, 85, 90));
+        hourly.setCloudCoverLow(List.of(40, lowAtEventHour, 90));
         hourly.setCloudCoverMid(List.of(50, 55, 60));
         hourly.setCloudCoverHigh(List.of(30, 35, 40));
         OpenMeteoForecastResponse response = new OpenMeteoForecastResponse();
@@ -251,6 +311,20 @@ class CloudVerificationServiceTest {
             int windDirection, int observedGapLow) {
         return new CloudVerificationPair("Durham UK", DATE, TargetType.SUNSET, 0, 2,
                 30, observedGapLow, 60, 40, 55, 40,
-                building, upwindCurrent, upwindDistanceKm, windDirection, 250);
+                building, upwindCurrent, upwindDistanceKm, windDirection, 250,
+                null, null, null, null);
+    }
+
+    private CloudVerificationPair conePair(int coneMin, int coneMax) {
+        return new CloudVerificationPair("Durham UK", DATE, TargetType.SUNSET, 0, 2,
+                30, 80, 60, 40, 55, 40, false, 20, 120, 240, 250,
+                null, coneMin, coneMax, null);
+    }
+
+    private CloudVerificationPair corridorPair(int nearLow, int farLow, int canvasMid,
+            int canvasHigh) {
+        return new CloudVerificationPair("Durham UK", DATE, TargetType.SUNSET, 0, 2,
+                30, nearLow, 60, 40, canvasMid, canvasHigh, false, 20, 120, 240, 250,
+                25, null, null, farLow);
     }
 }

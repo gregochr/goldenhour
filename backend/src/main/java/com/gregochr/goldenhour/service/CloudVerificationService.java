@@ -32,9 +32,13 @@ import java.util.stream.Collectors;
  * large share of evaluations — is unvalidated. Aesthetic quality still needs a human, but every
  * threshold those rules actually turn on is a <em>cloud</em> claim, and cloud is machine-checkable.
  *
- * <p>Two points are verified per evaluation, matching the two claims a forecast makes: low cloud
- * at the solar horizon decides whether the low sun gets through (the gap), and mid/high cloud
- * overhead is what that light lands on (the canvas).
+ * <p>Two claims are verified per evaluation: low cloud at the solar horizon decides whether the
+ * low sun gets through (the gap), and mid/high cloud overhead is what that light lands on (the
+ * canvas). Alongside them, the <em>measurement pass</em> records what the forecast's own
+ * persistence discards, so the sampling geometry itself can be evaluated: the cone's low-cloud
+ * extremes (is the horizon a uniform deck or a wall with a gap the mean hides?) and the 226 km
+ * far-solar reading (is the blocking corridor for a high-cloud canvas — 206–432 km out — behaving
+ * differently from the 113 km point the gate actually looks at?).
  */
 @Service
 public class CloudVerificationService {
@@ -50,9 +54,35 @@ public class CloudVerificationService {
     /** Hourly variables requested from the archive — the same three layers the forecast uses. */
     private static final String ARCHIVE_HOURLY = "cloud_cover_low,cloud_cover_mid,cloud_cover_high";
 
-    /** Archive points sampled per evaluation: the three solar-cone bearings plus the observer. */
+    /**
+     * Archive points sampled per evaluation: the three solar-cone bearings, the observer, and the
+     * 226 km far-solar corridor point.
+     */
     private static final int POINTS_PER_CANDIDATE =
+            DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT + 2;
+
+    /** Offset of the observer point within a candidate's slice of the batch. */
+    private static final int OBSERVER_OFFSET = DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT;
+
+    /** Offset of the far-solar point within a candidate's slice of the batch. */
+    private static final int FAR_SOLAR_OFFSET =
             DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT + 1;
+
+    /** Cone spread (pp) at or above which the analysed horizon reads as broken rather than uniform. */
+    private static final int CONE_SPREAD_MIXED_PP = 20;
+
+    /**
+     * Cone spread (pp) at or above which the analysed horizon is a wall-with-gap — one bearing
+     * clear while another is blocked, the exact structure a 3-point mean cannot represent.
+     */
+    private static final int CONE_SPREAD_GAPPED_PP = 40;
+
+    /**
+     * Near-vs-far low cloud divergence (pp) treated as structural. Mirrors the production
+     * strip-vs-blanket rule's ≥30pp drop threshold, and is offset-immune here because both
+     * readings come from the same reanalysis baseline.
+     */
+    private static final int FAR_DIVERGENCE_PP = 30;
 
     /** Wind-to-sun separation (degrees) below which cloud approaches from the sun's direction. */
     private static final int ALIGNED_MAX_DEG = 45;
@@ -119,20 +149,28 @@ public class CloudVerificationService {
     }
 
     /**
-     * Deletes verification rows that carry no observations, making them candidates again.
+     * Deletes verification rows missing any observation the current sampling records, making them
+     * candidates again.
      *
      * <p>A row written during an upstream outage records only that an attempt happened. Because
      * candidate selection is an anti-join, such a row would otherwise mask that evaluation
      * permanently. Clearing them is what makes the backfill self-healing rather than needing
      * manual SQL after every throttled run.
      *
-     * @return the number of blank rows removed
+     * <p>The rule covers <em>incomplete</em> rows, not just empty ones: a row verified before the
+     * measurement pass added the cone extremes and the far-solar reading lacks those columns, so
+     * the first run after that deploy deliberately re-verifies the whole history. That is the
+     * measurement pass — the old rows kept only the cone mean, which cannot answer the questions
+     * the new columns exist for.
+     *
+     * @return the number of incomplete rows removed
      */
     @Transactional
-    public int clearBlankVerifications() {
-        int cleared = repository.deleteBlankVerifications();
+    public int clearIncompleteVerifications() {
+        int cleared = repository.deleteIncompleteVerifications();
         if (cleared > 0) {
-            LOG.info("[CLOUD VERIFY] cleared {} blank verification row(s) for re-attempt", cleared);
+            LOG.info("[CLOUD VERIFY] cleared {} incomplete verification row(s) for re-attempt",
+                    cleared);
         }
         return cleared;
     }
@@ -150,9 +188,9 @@ public class CloudVerificationService {
     /**
      * Verifies every candidate sharing one date, in batched archive requests.
      *
-     * <p>Points are laid out two per candidate — horizon at {@code 2i}, observer at
-     * {@code 2i+1} — so a single batch covers both claims for the whole date and the responses
-     * map back positionally.
+     * <p>Points are laid out {@link #POINTS_PER_CANDIDATE} per candidate — the three solar-cone
+     * bearings, then the observer, then the far-solar point — so a single batch covers all claims
+     * for the whole date and the responses map back positionally.
      *
      * @param date       the shared solar-event date
      * @param candidates candidates on that date
@@ -160,15 +198,17 @@ public class CloudVerificationService {
      */
     private List<CloudVerificationEntity> verifyDate(LocalDate date,
             List<VerificationCandidate> candidates) {
-        // POINTS_PER_CANDIDATE laid out as: the three solar-cone bearings, then the observer.
         // The cone matters — the forecast's own solar reading is a 3-point average, so sampling a
         // single centre point here would compare an average against a spot reading and attribute
-        // the difference to forecast error.
+        // the difference to forecast error. The far-solar point is the corridor a high-cloud
+        // canvas is actually underlit through, which the 113 km gate never sees.
         List<double[]> points = new ArrayList<>(candidates.size() * POINTS_PER_CANDIDATE);
         for (VerificationCandidate candidate : candidates) {
             points.addAll(DirectionalSamplingGeometry.computeSolarConePoints(
                     candidate.lat(), candidate.lon(), candidate.azimuthDeg()));
             points.add(new double[]{candidate.lat(), candidate.lon()});
+            points.add(DirectionalSamplingGeometry.computeFarSolarPoint(
+                    candidate.lat(), candidate.lon(), candidate.azimuthDeg()));
         }
 
         List<OpenMeteoForecastResponse> responses =
@@ -186,7 +226,8 @@ public class CloudVerificationService {
             // Centre bearing is the representative coordinate recorded on the row.
             double[] centre = points.get(base + 1);
             rows.add(buildRow(candidate, centre, cone,
-                    responseAt(responses, base + DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT)));
+                    responseAt(responses, base + OBSERVER_OFFSET),
+                    responseAt(responses, base + FAR_SOLAR_OFFSET)));
         }
         return rows;
     }
@@ -214,11 +255,12 @@ public class CloudVerificationService {
      * @param centre          the centre-bearing coordinate, recorded as representative
      * @param coneArchives    archive responses at the three cone bearings; entries may be null
      * @param observerArchive archive response at the observer, or {@code null}
+     * @param farArchive      archive response at the 226 km far-solar point, or {@code null}
      * @return the verification row, with null observations where the archive had no data
      */
     private CloudVerificationEntity buildRow(VerificationCandidate candidate, double[] centre,
             List<OpenMeteoForecastResponse> coneArchives,
-            OpenMeteoForecastResponse observerArchive) {
+            OpenMeteoForecastResponse observerArchive, OpenMeteoForecastResponse farArchive) {
         CloudVerificationEntity.CloudVerificationEntityBuilder builder =
                 CloudVerificationEntity.builder()
                         .forecastEvaluationId(candidate.evaluationId())
@@ -228,6 +270,7 @@ public class CloudVerificationService {
 
         applyConedHorizon(builder, coneArchives, candidate);
         applyLayers(builder, observerArchive, candidate, false);
+        applyFarSolar(builder, farArchive, candidate);
         return builder.build();
     }
 
@@ -245,6 +288,8 @@ public class CloudVerificationService {
     private void applyConedHorizon(CloudVerificationEntity.CloudVerificationEntityBuilder builder,
             List<OpenMeteoForecastResponse> coneArchives, VerificationCandidate candidate) {
         int lowSum = 0;
+        int lowMin = Integer.MAX_VALUE;
+        int lowMax = Integer.MIN_VALUE;
         int midSum = 0;
         int highSum = 0;
         int count = 0;
@@ -264,6 +309,8 @@ public class CloudVerificationService {
                 continue;
             }
             lowSum += low;
+            lowMin = Math.min(lowMin, low);
+            lowMax = Math.max(lowMax, low);
             midSum += orZero(layerAt(hourly.getCloudCoverMid(), idx));
             highSum += orZero(layerAt(hourly.getCloudCoverHigh(), idx));
             count++;
@@ -275,10 +322,39 @@ public class CloudVerificationService {
         if (count == 0) {
             return;
         }
+        // The extremes are what the forecast's own persistence discards: a mean of 60 could be a
+        // uniform deck (min≈max) or a wall with a clear third (min 0, max 90), and only the pair
+        // of extremes lets the report tell those apart.
         builder.horizonLowCloud(lowSum / count)
+                .horizonLowMin(lowMin)
+                .horizonLowMax(lowMax)
                 .horizonMidCloud(midSum / count)
                 .horizonHighCloud(highSum / count)
                 .observedAt(observedAt);
+    }
+
+    /**
+     * Reads the far-solar archive hour matching the solar event and records its low cloud.
+     *
+     * <p>Only the low layer is kept: the far point exists to measure the blocking corridor for a
+     * high-cloud canvas (where the underlighting ray crosses low-cloud altitude 206–432 km out),
+     * and low cloud is the only layer that blocks at that geometry.
+     *
+     * @param builder   the verification row under construction
+     * @param archive   the far-solar archive response, or {@code null} if the fetch failed
+     * @param candidate the candidate being verified
+     */
+    private void applyFarSolar(CloudVerificationEntity.CloudVerificationEntityBuilder builder,
+            OpenMeteoForecastResponse archive, VerificationCandidate candidate) {
+        if (archive == null || archive.getHourly() == null
+                || archive.getHourly().getTime() == null
+                || archive.getHourly().getTime().isEmpty()) {
+            return;
+        }
+        OpenMeteoForecastResponse.Hourly hourly = archive.getHourly();
+        int idx = TimeSlotUtils.findBestIndex(
+                hourly.getTime(), candidate.solarEventTime(), candidate.targetType());
+        builder.farLowCloud(layerAt(hourly.getCloudCoverLow(), idx));
     }
 
     /**
@@ -371,12 +447,15 @@ public class CloudVerificationService {
                 CloudVerificationBucket.of("VETO_CAPPED",
                         fired.stream().filter(CloudVerificationPair::upwindCapped).toList()),
                 windSunBuckets(fired),
+                coneStructureBuckets(pairs),
+                corridorBuckets(pairs),
                 null,
                 null);
         report = new CloudVerificationReport(
                 report.from(), report.to(), report.verifiedCount(), report.overall(),
                 report.vetoFired(), report.vetoNotFired(), report.vetoUncapped(),
                 report.vetoCapped(), report.byWindSunAngle(),
+                report.byConeStructure(), report.byCorridor(),
                 separation(report.vetoFired(), report.vetoNotFired()),
                 separation(report.vetoUncapped(), report.vetoCapped()));
 
@@ -436,5 +515,62 @@ public class CloudVerificationService {
                 .filter(p -> p.windSunAngle() != null)
                 .filter(p -> p.windSunAngle() >= minInclusive && p.windSunAngle() < maxExclusive)
                 .toList();
+    }
+
+    /**
+     * Buckets pairs by the analysed cone's low-cloud spread — the cone-aggregation question.
+     *
+     * <p>The forecast collapses its three cone samples to a mean before anything downstream sees
+     * them. These buckets measure how often the analysed horizon has structure that a mean cannot
+     * carry (one bearing clear, another blocked), and whether the forecast's gap error grows in
+     * exactly those cases. Spread is computed within one reanalysis baseline, so the systematic
+     * forecast-vs-reanalysis offset cancels.
+     *
+     * @param pairs every verified pair in the window
+     * @return one bucket per spread band, over the pairs that carry cone extremes
+     */
+    private List<CloudVerificationBucket> coneStructureBuckets(List<CloudVerificationPair> pairs) {
+        List<CloudVerificationPair> withSpread = pairs.stream()
+                .filter(p -> p.coneSpread() != null).toList();
+        return List.of(
+                CloudVerificationBucket.of("uniform(spread<20)", withSpread.stream()
+                        .filter(p -> p.coneSpread() < CONE_SPREAD_MIXED_PP).toList()),
+                CloudVerificationBucket.of("mixed(20-39)", withSpread.stream()
+                        .filter(p -> p.coneSpread() >= CONE_SPREAD_MIXED_PP
+                                && p.coneSpread() < CONE_SPREAD_GAPPED_PP).toList()),
+                CloudVerificationBucket.of("gapped(>=40)", withSpread.stream()
+                        .filter(p -> p.coneSpread() >= CONE_SPREAD_GAPPED_PP).toList()));
+    }
+
+    /**
+     * Buckets pairs by near-vs-far corridor divergence — the canvas-height gate question.
+     *
+     * <p>A ray underlighting a high-cloud canvas crosses low-cloud altitude 206–432 km out, which
+     * the 226 km point samples and the 113 km gate never sees. {@code farClearer} counts skies
+     * where the near deck ends before the far corridor (the gate reads blocked while a high canvas
+     * could still light — over-pessimism); {@code farCloudier} counts the reverse (the gate reads
+     * clear while the high-canvas corridor is blanketed — false optimism, uncovered by any current
+     * rule). The {@code &highCanvas} variants isolate the cases where the analysed canvas was
+     * actually high-dominant, i.e. where the corridor geometry is the one that matters.
+     *
+     * @param pairs every verified pair in the window
+     * @return corridor buckets over the pairs that carry both near and far readings
+     */
+    private List<CloudVerificationBucket> corridorBuckets(List<CloudVerificationPair> pairs) {
+        List<CloudVerificationPair> withFar = pairs.stream()
+                .filter(p -> p.farDrop() != null).toList();
+        List<CloudVerificationPair> clearer = withFar.stream()
+                .filter(p -> p.farDrop() >= FAR_DIVERGENCE_PP).toList();
+        List<CloudVerificationPair> cloudier = withFar.stream()
+                .filter(p -> p.farDrop() <= -FAR_DIVERGENCE_PP).toList();
+        return List.of(
+                CloudVerificationBucket.of("farSimilar(|drop|<30)", withFar.stream()
+                        .filter(p -> Math.abs(p.farDrop()) < FAR_DIVERGENCE_PP).toList()),
+                CloudVerificationBucket.of("farClearer(drop>=30)", clearer),
+                CloudVerificationBucket.of("farClearer&highCanvas", clearer.stream()
+                        .filter(p -> Boolean.TRUE.equals(p.highCanvasDominant())).toList()),
+                CloudVerificationBucket.of("farCloudier(drop<=-30)", cloudier),
+                CloudVerificationBucket.of("farCloudier&highCanvas", cloudier.stream()
+                        .filter(p -> Boolean.TRUE.equals(p.highCanvasDominant())).toList()));
     }
 }
