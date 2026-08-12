@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Removed — an unused code path behind the map's forecast popup
+
+`ForecastDtoMapper.toSparseDto` built a forecast popup from a cached score when no full forecast row
+existed yet. Nothing has called it since the forecast list was slimmed down and popup detail made
+lazy (#289) — the live path reads the stored row instead. It has been removed along with its tests.
+
+No behaviour changes: the method was unreachable, so nothing that renders today went through it.
+
 ### Fixed — a forecast run started late at night could think tonight was tomorrow
 
 Between 11pm and midnight during British Summer Time, the app worked out how far ahead a forecast
