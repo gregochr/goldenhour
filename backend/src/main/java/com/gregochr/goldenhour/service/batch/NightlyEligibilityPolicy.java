@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service.batch;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastStability;
+import com.gregochr.goldenhour.entity.TargetType;
 
 /**
  * Nightly cycle's Gate 4 horizon-depth eligibility policy. Verbatim move of
@@ -39,8 +40,19 @@ public final class NightlyEligibilityPolicy implements EligibilityPolicy {
     private NightlyEligibilityPolicy() {
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>{@code targetType} is accepted and deliberately unused: the Gate 4 table is a pure
+     * function of horizon and stability, and nightly treats a sunrise and a sunset at the same
+     * horizon identically. The parameter exists for {@link IntradayEligibilityPolicy}, whose rule
+     * is event-specific. Pinned by {@code NightlyEligibilityPolicyTest}, which asserts the decision
+     * is invariant across every {@link TargetType} — so if that ever stops being true, it will be a
+     * deliberate change rather than a silent one.
+     */
     @Override
-    public EligibilityDecision resolve(int daysAhead, ForecastStability stability,
+    public EligibilityDecision resolve(int daysAhead, TargetType targetType,
+            ForecastStability stability,
             EvaluationModel nearTermModel, EvaluationModel farTermModel) {
         return switch (daysAhead) {
             case 0, 1 -> EligibilityDecision.include(nearTermModel);
@@ -61,13 +73,19 @@ public final class NightlyEligibilityPolicy implements EligibilityPolicy {
      * filter in {@code ForecastCommandExecutor}. Delegates to {@code resolve} so the
      * Gate 4 table has exactly one home and the two forecast engines cannot drift.
      *
-     * @param daysAhead forecast horizon (T+0 = 0)
-     * @param stability classified stability for the candidate's grid cell
+     * @param daysAhead  forecast horizon (T+0 = 0)
+     * @param targetType the candidate's solar event. Passed through rather than defaulted, even
+     *                   though this table ignores it — the synchronous path has a real one to hand
+     *                   ({@code ForecastPreEvalResult.targetType}), and inventing a value here
+     *                   would bake in an assumption that only holds while nightly stays
+     *                   event-blind
+     * @param stability  classified stability for the candidate's grid cell
      * @return whether the candidate is within the Gate 4 horizon-depth table
      */
-    public boolean permitsHorizon(int daysAhead, ForecastStability stability) {
+    public boolean permitsHorizon(int daysAhead, TargetType targetType,
+            ForecastStability stability) {
         // Model tiers are irrelevant to the boolean decision — the sync path picks
         // its model from the command, so null placeholders are never read.
-        return resolve(daysAhead, stability, null, null).eligible();
+        return resolve(daysAhead, targetType, stability, null, null).eligible();
     }
 }

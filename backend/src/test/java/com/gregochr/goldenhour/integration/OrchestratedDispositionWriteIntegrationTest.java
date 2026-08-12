@@ -252,16 +252,21 @@ class OrchestratedDispositionWriteIntegrationTest extends IntegrationTestBase {
     @DisplayName("Intraday cycle persists SKIPPED_NO_REFRESH_NEEDED rows through the real "
             + "submit → ForecastDispositionService → DB path (the new disposition value lands)")
     void orchestratedIntradaySubmit_settledSkip_writesNoRefreshNeededRows() {
-        // The intraday acceptance bar: a settled decision-window candidate is
-        // skipped and recorded as SKIPPED_NO_REFRESH_NEEDED. This test proves the
-        // VALUE round-trips through the real persistence path (VARCHAR column,
-        // disposition-anchor run for a zero-bucket cycle) — not a mocked seam.
+        // The intraday acceptance bar: a settled decision-window candidate that IS still skipped
+        // is recorded as SKIPPED_NO_REFRESH_NEEDED. This test proves the VALUE round-trips through
+        // the real persistence path (VARCHAR column, disposition-anchor run for a zero-bucket
+        // cycle) — the collector is mocked, so the policy itself is not exercised here.
+        //
+        // The skipped row is T+1 SUNSET deliberately. It used to be T+0 SUNSET, which the policy
+        // now evaluates — the literal would still have persisted fine, but it would have been a
+        // fixture describing a disposition the code can no longer produce. Policy coverage lives
+        // in IntradayEligibilityPolicyTest and ForecastTaskCollectorTest's include/skip pair.
         LocalDate date = LocalDate.now().plusDays(1);
         List<CandidateDisposition> dispositions = List.of(
                 new CandidateDisposition(null, "Settled Loc A", date,
-                        TargetType.SUNSET, 0, DispositionCategory.SKIPPED_NO_REFRESH_NEEDED,
-                        "settled — no intraday refresh needed"),
-                new CandidateDisposition(null, "Unsettled Loc B", date.plusDays(1),
+                        TargetType.SUNSET, 1, DispositionCategory.SKIPPED_NO_REFRESH_NEEDED,
+                        "settled, and two further looks are guaranteed before the event"),
+                new CandidateDisposition(null, "Unsettled Loc B", date,
                         TargetType.SUNRISE, 1, DispositionCategory.EVALUATED, null));
         // Intraday passes its own policy + ephemeral=true; the candidate strategy
         // is a fresh per-cycle instance, so match it with any().

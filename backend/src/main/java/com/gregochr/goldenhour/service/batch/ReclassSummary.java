@@ -47,7 +47,11 @@ public record ReclassSummary(int considered, int settledSkipped, int evaluated) 
      * @return human-readable detail for the {@code STABILITY_RECLASSIFY} phase row
      */
     public String detail() {
+        // "evaluated", not "unsettled-evaluated". Until the settled skip narrowed to T+1 sunset,
+        // every evaluated candidate was TRANSITIONAL or UNSETTLED and the label was accurate; it
+        // now describes a set that is mostly SETTLED on a settled afternoon. The count itself is
+        // unchanged — only the claim about what is in it was wrong.
         return considered + " considered, " + settledSkipped + " settled-skipped, "
-                + evaluated + " unsettled-evaluated";
+                + evaluated + " evaluated";
     }
 }

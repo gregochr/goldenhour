@@ -209,7 +209,11 @@ photocast:
                                    # governs; set this to 36 to roll back to stability-only at T+0.
       t1-hours: 8                  # survives no cycle boundary — the nightly cycle lands results
                                    # near 01:00 UTC and intraday fires at 14:00, so a 12h+ gap
-                                   # always exceeds it and BOTH cycles refresh a T+1 slot.
+                                   # always exceeds it and a T+1 slot clears this gate at both
+                                   # cycles. Clearing the FRESHNESS gate is not the same as being
+                                   # re-evaluated: a SETTLED T+1 *sunset* is then skipped by
+                                   # IntradayEligibilityPolicy, because two further looks are
+                                   # guaranteed before it. T+1 sunrise and T+0 sunset are not.
                                    # T+2 and beyond are uncapped; stability alone governs.
   forecast-score:
     dual-write: true               # Pass 2: dual-write component scores to forecast_score

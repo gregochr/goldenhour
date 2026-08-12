@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
@@ -446,7 +447,8 @@ public class ForecastTaskCollector {
                 ForecastStability stability = gridCellStabilityService.stabilityFor(
                         candidate.location(), preEval, stabilityByCell);
                 EligibilityDecision decision = eligibilityPolicy.resolve(
-                        daysAhead, stability, nearTermModel, farTermModel);
+                        daysAhead, candidate.targetType(), stability,
+                        nearTermModel, farTermModel);
                 boolean forced = false;
                 if (!decision.eligible()) {
                     String forceKey = ForceEvalHeadlineSelector.forceEvalKey(
@@ -700,12 +702,14 @@ public class ForecastTaskCollector {
      * display-only depth hint for the admin UI.
      *
      * @param daysAhead     forecast horizon (T+0 = 0)
+     * @param targetType    the candidate's solar event; the nightly table ignores it
      * @param stability     classified stability for the grid cell
      * @param nearTermModel resolved {@code BATCH_NEAR_TERM} model for this run
      * @param farTermModel  resolved {@code BATCH_FAR_TERM} model for this run
      * @return include-with-model or skip-with-reason
      */
-    static EligibilityDecision resolveEligibility(int daysAhead, ForecastStability stability,
+    static EligibilityDecision resolveEligibility(int daysAhead, TargetType targetType,
+            ForecastStability stability,
             EvaluationModel nearTermModel, EvaluationModel farTermModel) {
         // Behaviour preserved for legacy callers and existing tests by delegating
         // to the policy where the table's authoritative implementation now lives.
@@ -713,7 +717,7 @@ public class ForecastTaskCollector {
         // to {@link #collectScheduledBatches(CandidateCollectionStrategy,
         // EligibilityPolicy)} instead of calling this helper.
         return NightlyEligibilityPolicy.INSTANCE.resolve(
-                daysAhead, stability, nearTermModel, farTermModel);
+                daysAhead, targetType, stability, nearTermModel, farTermModel);
     }
 
     /**
@@ -801,7 +805,7 @@ public class ForecastTaskCollector {
                 // (legacy contract). Pass `model` as both tiers so the policy's
                 // include branch lands with the right model regardless of horizon.
                 EligibilityDecision decision = NightlyEligibilityPolicy.INSTANCE.resolve(
-                        daysAhead, stability, model, model);
+                        daysAhead, candidate.targetType(), stability, model, model);
                 if (!decision.eligible()) {
                     continue;
                 }

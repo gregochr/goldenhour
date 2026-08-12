@@ -26,9 +26,14 @@ package com.gregochr.goldenhour.entity;
 public enum PipelinePhase {
     /**
      * Intraday-only. Ephemeral re-classification of the decision-window grid
-     * cells with fresh weather — the cost-gate that decides which locations are
-     * re-evaluated (TRANSITIONAL/UNSETTLED) versus skipped as settled
+     * cells with fresh weather, feeding the gate that decides which candidates
+     * are re-evaluated this afternoon and which are skipped as already covered
      * ({@code SKIPPED_NO_REFRESH_NEEDED}). Does not persist a stability snapshot.
+     *
+     * <p>The gate's rule is deliberately not restated here — it has narrowed once
+     * already, from "skip every settled cell" to "skip only where a later look is
+     * guaranteed", and a copy of it in this enum went stale the first time. See
+     * {@code IntradayEligibilityPolicy}, which owns it.
      */
     STABILITY_RECLASSIFY,
 
