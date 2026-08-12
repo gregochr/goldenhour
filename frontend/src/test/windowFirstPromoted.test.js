@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  MIN_COINCIDENCE_BADGES, UNKNOWN_RANK, buildPromotedStrip,
+  MIN_COINCIDENCE_BADGES, SOLO_PROMOTION_RANK, UNKNOWN_RANK, buildPromotedStrip,
 } from '../utils/windowFirstPromoted.js';
 import { buildWindowCards } from '../utils/windowFirstCards.js';
 import { buildPaneItems } from '../utils/windowFirstAway.js';
@@ -70,8 +70,29 @@ const KING_TIDE = badge({
   facts: [{ key: 'high water', value: '5.8 m', dir: null, emphasis: true, optional: false }],
 });
 
-/** Rank 1, the rarest kind there is — used to prove an unranked badge cannot outrank it. */
-const SUPERMOON = badge({ type: 'SUPERMOON', label: 'Supermoon', rarityRank: 1 });
+/** Rank 2 — used to prove an unranked badge cannot outrank a rare one. */
+const SUPERMOON = badge({ type: 'SUPERMOON', label: 'Supermoon', rarityRank: 2 });
+
+/**
+ * Rank 1, and the only kind that clears {@link SOLO_PROMOTION_RANK}.
+ *
+ * <p>Shaped like `EclipseHotTopicStrategy` really emits it: an emphasised `max` fact carrying
+ * coverage and the sun's altitude with a compass `dir`, a composed `rarityNote`, and a
+ * `safetyNote`. The figures are the ones the reduction returns for the Northumberland coast.
+ */
+const ECLIPSE = badge({
+  type: 'ECLIPSE',
+  label: 'Deep partial eclipse',
+  detail: '90% of the sun covered, and it sits only 13° up',
+  rarityRank: 1,
+  eventTime: '19:06',
+  note: 'a clear low western horizon matters more than the last 2%',
+  rarityNote: 'nothing comparable from the UK until 2081 · 1h 51m of it',
+  safetyNote: 'Certified solar filter on the lens — not only over your eye',
+  facts: [{
+    key: 'max', value: '90% covered · sun only 13° up', dir: 'W', emphasis: true, optional: false,
+  }],
+});
 
 function summary(targetType, window = {}) {
   return {
@@ -117,6 +138,14 @@ function paneFor(spec, away = new Set(), travelRanges = []) {
 describe('buildPromotedStrip — what earns a strip', () => {
   it('exports the spec\'s own threshold, which is two attributes', () => {
     expect(MIN_COINCIDENCE_BADGES).toBe(2);
+  });
+
+  it('exports the solo-promotion rank, and it is rank 1 alone', () => {
+    // Not a free parameter. Rank 1 is exactly one kind on the backend (a test there pins the
+    // count), and it is also the largest value that leaves the two "one badge earns no strip"
+    // tests below green — their fixtures sit at rank 4. Raising it to 2 would admit SUPERMOON,
+    // which happens several times a year, and the pane's lede would become its wallpaper.
+    expect(SOLO_PROMOTION_RANK).toBe(1);
   });
 
   it('returns nothing when the pane has no windows at all', () => {
@@ -431,5 +460,155 @@ describe('buildPromotedStrip — adjacency to the card it points at', () => {
     ], away, [{ startDate: TODAY, endDate: TODAY, note: null }]);
     expect(pane[0].kind).toBe('away');
     expect(buildPromotedStrip(pane).adjacent).toBe(false);
+  });
+});
+
+describe('buildPromotedStrip — the solo-rarity rule', () => {
+  it('gives a lone rank-1 topic the strip, and says the rule that put it there', () => {
+    const strip = buildPromotedStrip(paneFor([[TODAY, 'SUNSET', { badges: [ECLIPSE] }]]));
+
+    expect(strip).not.toBeNull();
+    expect(strip.reason).toBe('rarity');
+    expect(strip.topics).toHaveLength(1);
+    expect(strip.topics[0].label).toBe('Deep partial eclipse');
+  });
+
+  it('still refuses a lone topic that is merely rare, not rank 1', () => {
+    // SUPERMOON is rank 2 — the rarest kind after the eclipse, and still a few times a year.
+    // This is the assertion that keeps the rule narrow.
+    expect(buildPromotedStrip(paneFor([[TODAY, 'SUNSET', { badges: [SUPERMOON] }]]))).toBeNull();
+    expect(buildPromotedStrip(paneFor([[TODAY, 'SUNSET', { badges: [AURORA] }]]))).toBeNull();
+  });
+
+  it('lets the rarer window win, even when the commoner one is a pair', () => {
+    // The rule an adversarial review corrected. An earlier cut gave any coincidence strict
+    // precedence, so this rank-3 king tide took the strip from the rank-1 eclipse — and since the
+    // descriptor sources the warning from the WINNING card alone, the eclipse's safety warning
+    // left the strip with it.
+    const strip = buildPromotedStrip(paneFor([
+      [TODAY, 'SUNSET', { badges: [ECLIPSE] }],
+      [TOMORROW, 'SUNRISE', { badges: [KING_TIDE, AURORA] }],
+    ]));
+
+    expect(strip.reason).toBe('rarity');
+    expect(strip.topics.map((t) => t.label)).toEqual(['Deep partial eclipse']);
+    expect(strip.safetyNote).toContain('solar filter');
+  });
+
+  it('gives a tie on rank to the coincidence, which has a relationship to name', () => {
+    // Both windows rank 1: one is the eclipse alone, the other is the eclipse paired with a king
+    // tide. Naming the pair is the strip's original job, so the pair takes it — and the warning
+    // rides along either way.
+    const strip = buildPromotedStrip(paneFor([
+      [TODAY, 'SUNSET', { badges: [ECLIPSE] }],
+      [TOMORROW, 'SUNRISE', { badges: [ECLIPSE, KING_TIDE] }],
+    ]));
+
+    expect(strip.reason).toBe('coincidence');
+    expect(strip.topics).toHaveLength(2);
+    expect(strip.safetyNote).toContain('solar filter');
+  });
+
+  it('still lets a rarer coincidence beat a commoner one', () => {
+    // The original rule, unchanged: between two pairs, the rarer wins.
+    const strip = buildPromotedStrip(paneFor([
+      [TODAY, 'SUNSET', { badges: [NLC, badge()] }],
+      [TOMORROW, 'SUNRISE', { badges: [KING_TIDE, AURORA] }],
+    ]));
+
+    expect(strip.reason).toBe('coincidence');
+    expect(strip.topics[0].label).toBe('King tide');
+  });
+
+  it('carries the rarity line and the topic\'s own sentence on a solo strip', () => {
+    const strip = buildPromotedStrip(paneFor([[TODAY, 'SUNSET', { badges: [ECLIPSE] }]]));
+
+    expect(strip.rarityNote).toBe('nothing comparable from the UK until 2081 · 1h 51m of it');
+    // The topic's editorial NOTE, never its `detail`. `detail` restates the measurements the
+    // headline figure already carries, and printing both put the same two numbers on one strip
+    // twice — a browser found that, and both unit assertions had passed.
+    expect(strip.why).toBe('a clear low western horizon matters more than the last 2%');
+    expect(strip.why).not.toContain('91%');
+    expect(strip.why).not.toContain('13°');
+  });
+
+  it('carries neither on a coincidence — a sentence about one topic is not about the pair', () => {
+    const strip = buildPromotedStrip(paneFor([
+      [TODAY, 'SUNSET', { badges: [KING_TIDE, AURORA] }],
+    ]));
+
+    expect(strip.reason).toBe('coincidence');
+    expect(strip.why).toBeNull();
+    expect(strip.rarityNote).toBeNull();
+  });
+
+  it('carries the safety warning under EITHER rule', () => {
+    // The exception to the rule above, and it is not symmetric with it. A warning is not a
+    // description of the strip's subject — it is a hazard of acting on it — so a coincidence that
+    // happens to contain an eclipse is still an eclipse.
+    const solo = buildPromotedStrip(paneFor([[TODAY, 'SUNSET', { badges: [ECLIPSE] }]]));
+    const pair = buildPromotedStrip(paneFor([
+      [TODAY, 'SUNSET', { badges: [ECLIPSE, KING_TIDE] }],
+    ]));
+
+    const warning = 'Certified solar filter on the lens — not only over your eye';
+    expect(solo.safetyNote).toBe(warning);
+    expect(pair.reason).toBe('coincidence');
+    expect(pair.safetyNote).toBe(warning);
+  });
+
+  it('carries no warning when no topic on the window has one', () => {
+    const strip = buildPromotedStrip(paneFor([
+      [TODAY, 'SUNSET', { badges: [KING_TIDE, AURORA] }],
+    ]));
+
+    expect(strip.safetyNote).toBeNull();
+  });
+
+  it('a lone unranked topic earns nothing, rather than being read as rank 0', () => {
+    const unranked = badge({ type: 'MYSTERY', label: 'Something new', rarityRank: undefined });
+
+    expect(buildPromotedStrip(paneFor([[TODAY, 'SUNSET', { badges: [unranked] }]]))).toBeNull();
+  });
+
+  it('shows the TOPIC\'s own clock on a rarity strip, not the window\'s', () => {
+    // The eclipse peaks at 19:06; its window is the sunset one, whose clock is 20:42. A rarity
+    // strip's subject is the topic, so printing the window's time as the only time on it would
+    // send the reader out an hour and a half late.
+    const strip = buildPromotedStrip(paneFor([
+      [TODAY, 'SUNSET', { badges: [ECLIPSE], eventTime: `${TODAY}T20:42:00` }],
+    ]));
+
+    expect(strip.reason).toBe('rarity');
+    expect(strip.time).toBe('19:06');
+  });
+
+  it('keeps the WINDOW\'s clock on a coincidence strip, whose subject is the window', () => {
+    const strip = buildPromotedStrip(paneFor([
+      [TODAY, 'SUNSET', { badges: [KING_TIDE, AURORA], eventTime: `${TODAY}T20:42:00` }],
+    ]));
+
+    expect(strip.reason).toBe('coincidence');
+    // 21:42, not 20:42: `buildWindowCards` formats the ISO instant in the runner's local zone.
+    // The value under test is WHICH clock is chosen, not how it is formatted.
+    expect(strip.time).toBe('21:42');
+  });
+
+  it('falls back to the window clock when a solo topic carries no time of its own', () => {
+    const timeless = badge({ type: 'ECLIPSE', label: 'Deep partial eclipse', rarityRank: 1, eventTime: null });
+    const strip = buildPromotedStrip(paneFor([
+      [TODAY, 'SUNSET', { badges: [timeless], eventTime: `${TODAY}T20:42:00` }],
+    ]));
+
+    expect(strip.time).toBe('21:42');
+  });
+
+  it('picks the earlier window when two solo rarities tie', () => {
+    const strip = buildPromotedStrip(paneFor([
+      [TODAY, 'SUNSET', { badges: [ECLIPSE] }],
+      [DAY_AFTER, 'SUNSET', { badges: [ECLIPSE] }],
+    ]));
+
+    expect(strip.windowKey).toContain(TODAY);
   });
 });

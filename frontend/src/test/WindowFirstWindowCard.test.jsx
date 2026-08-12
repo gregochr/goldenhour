@@ -607,6 +607,41 @@ describe('WindowFirstWindowCard', () => {
       expect(screen.queryByTestId('window-card-badge')).toBeNull();
     });
 
+    it('carries a badge\'s safety warning, the one surface always present when the topic is', () => {
+      // The promoted strip shows the warning only for the window it promotes, and the Hot Topics
+      // pill sits behind a door that is shut on a fresh session — so without this there were
+      // arrangements of the v2 pane where a "Deep partial eclipse" chip was on screen and the
+      // solar-filter instruction was nowhere at all.
+      renderCard({
+        badges: [{
+          type: 'ECLIPSE',
+          label: 'Deep partial eclipse',
+          safetyNote: 'Certified solar filter on the lens — not only over your eye',
+        }],
+      });
+
+      expect(screen.getByTestId('window-card-safety'))
+        .toHaveTextContent('Certified solar filter on the lens — not only over your eye');
+    });
+
+    it('draws the warning once when two badges carry one', () => {
+      // A warning is about the hazard, not about the chip; two identical lines would be worse
+      // than one.
+      renderCard({
+        badges: [
+          { type: 'ECLIPSE', label: 'Deep partial eclipse', safetyNote: 'Filter on the lens' },
+          { type: 'METEOR', label: 'Meteor shower', safetyNote: 'Filter on the lens' },
+        ],
+      });
+
+      expect(screen.getAllByTestId('window-card-safety')).toHaveLength(1);
+    });
+
+    it('draws no warning when no badge carries one', () => {
+      renderCard({ badges: [{ type: 'NLC', label: '✦ NLC' }] });
+      expect(screen.queryByTestId('window-card-safety')).toBeNull();
+    });
+
     it('never promotes a badge into a strip, which is a later phase\'s single-strip rule', () => {
       // topRarityRank is advice for the promoted strip and nothing here enforces the one-strip
       // rule — so the card must not read it or act on it.

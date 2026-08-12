@@ -2242,9 +2242,15 @@ is inert in v2 but load-bearing in v1, and P15b already recorded the split at `:
   exists on two topic kinds and picks its representative coastline independently of the window
   rollup. The curve alone would be the fourth tide chart in this arm on one pane, for a strip that
   is generic over 12 topic kinds. See §5j for what it would take to build honestly.
-- **No right-hand meta and no "why" clause on the promoted strip** (P7b). The mock's meta counts our
-  own data (§6); its rarity alternative is the historical scan §2.6 already ruled out; and no field
-  explains the *pair* rather than one of its topics. §5j.
+- **No right-hand meta on the promoted strip** (P7b). The mock's meta counts our own data (§6). Still
+  true on both branches.
+  ⚠️ **The "why" clause and the rarity line were revisited when ECLIPSE landed** — both refusals
+  turned out to be arguments about a *pair*, not about the element, and both lapse on a strip
+  promoting a single topic. The strip now carries a `reason: 'coincidence' | 'rarity'` discriminator:
+  on `'rarity'` it renders the topic's editorial `note` (never its `detail`, which restates the
+  figure beside it) and its backend-composed `rarityNote`; on `'coincidence'` both stay refused, for
+  the original reason. The rarity line is a *forward* claim read from a seeded catalogue, which is a
+  different thing from §2.6's rejected *backward* historical scan.
 - **The promoted strip takes nothing out of the window card** (P7b), so §6's "something should
   usually come out when something goes in" is not discharged for it. Stated rather than quietly
   skipped, with the measured cost (131px desktop, 154px phone) and the reason the obvious trade —

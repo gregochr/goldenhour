@@ -185,6 +185,7 @@ public class EclipseHotTopicStrategy implements HotTopicStrategy {
                 // The enricher passes through any topic that already carries an event.
                 .withEvent(eventType(circumstances), londonTime(circumstances.maximumUtc()))
                 .withScience(facts(best), ECLIPSE_NOTE)
+                .withRarity(rarityNote(eclipse, circumstances))
                 .withSafety(SAFETY_NOTE));
     }
 
@@ -219,8 +220,13 @@ public class EclipseHotTopicStrategy implements HotTopicStrategy {
      * thing 13 degrees above the horizon is a picture.
      */
     private String detail(EclipseCircumstances circumstances) {
-        return circumstances.obscurationPct() + "% of the sun covered, and it sits only "
-                + circumstances.sunAltitudeRounded() + "° up";
+        // Carries the headline number ONCE and then says something the fact chips do not. The
+        // chips already state "N% covered · sun only M° up"; an earlier version of this line
+        // restated both, so the pill printed the same two figures twice, one row apart. The design
+        // repeats the percentage too — that much overlap is the summary doing its job — but its
+        // second clause is a different claim, and so is this one.
+        return circumstances.obscurationPct()
+                + "% of the sun covered, and low enough in the west to frame against a foreground";
     }
 
     /**
@@ -240,6 +246,49 @@ public class EclipseHotTopicStrategy implements HotTopicStrategy {
                 + " only becomes obvious in the last few minutes either side of maximum."
                 + " Times and figures are for " + best.location().getName() + ", the deepest view of "
                 + seen.size() + " locations; maximum sweeps west across the UK by a few minutes.";
+    }
+
+    /**
+     * The quiet recurrence line, or null when this eclipse is not rare enough to earn one.
+     *
+     * <p>Two clauses. The first is a <em>forward</em> claim read straight out of the catalogue —
+     * how long until anything comparable — and that direction matters: the Plan strip's own rules
+     * refuse backward claims of the "first since 2 March" kind, because establishing one means an
+     * unscheduled scan of history nobody asked for. Nothing is scanned here. The second is the
+     * event's own scale, arithmetic on two contact times, and it is the natural companion clause:
+     * "rare" and "and it runs for nearly two hours" are together what decide whether to drive.
+     *
+     * <p>Composed here rather than on the client because the rule across this codebase is that the
+     * backend formats every clock time and every number.
+     *
+     * @param eclipse       the catalogued eclipse, carrying the seeded return period
+     * @param circumstances the representative location's circumstances, for the duration
+     * @return the composed line, or null when the eclipse recurs too often to be worth remarking on
+     */
+    private String rarityNote(EclipseCatalog.Eclipse eclipse, EclipseCircumstances circumstances) {
+        if (!eclipse.isRare()) {
+            return null;
+        }
+        Duration duration = displayedGap(circumstances.firstContactUtc(), circumstances.lastContactUtc());
+        return "nothing comparable from the UK until " + eclipse.nextComparable()
+                + " · " + duration.toHours() + "h " + duration.toMinutesPart() + "m of it";
+    }
+
+    /**
+     * The interval between two instants <em>as the reader sees them</em>.
+     *
+     * <p>Both ends are truncated to the minute before the difference is taken, because both are
+     * printed to the minute by {@link #londonTime}. Contacts at 18:09:38 and 20:00:52 are printed as
+     * 18:09 and 20:00 — an hour and 51 minutes apart on screen — while the raw instants are 1h 50m
+     * 14s apart, so an unrounded difference would print a duration the pill's own two clock times
+     * contradict. Round the display, then derive the arithmetic from it.
+     *
+     * @param from the earlier instant
+     * @param to   the later instant
+     * @return the gap between the displayed forms of the two
+     */
+    private static Duration displayedGap(LocalDateTime from, LocalDateTime to) {
+        return Duration.between(from.truncatedTo(ChronoUnit.MINUTES), to.truncatedTo(ChronoUnit.MINUTES));
     }
 
     private List<HotTopicFact> facts(Seen best) {
@@ -272,14 +321,7 @@ public class EclipseHotTopicStrategy implements HotTopicStrategy {
         if (sunset == null) {
             return Optional.empty();
         }
-        // Both instants are truncated to the minute BEFORE the gap is taken, because both are
-        // printed to the minute. Last contact at 19:59:53 renders as "20:00"; diffing the raw
-        // instants against a 20:47 sunset gives 46 minutes, and the pill would then state a gap its
-        // own two clock times contradict. Round the display and derive the arithmetic from it, not
-        // the other way round.
-        long minutes = Duration.between(
-                best.circumstances().lastContactUtc().truncatedTo(ChronoUnit.MINUTES),
-                sunset.truncatedTo(ChronoUnit.MINUTES)).toMinutes();
+        long minutes = displayedGap(best.circumstances().lastContactUtc(), sunset).toMinutes();
         String relation = minutes >= 0
                 ? "sets " + londonTime(sunset) + ", " + minutes + " min after last contact"
                 : "sets " + londonTime(sunset) + ", while the eclipse is still running";

@@ -46,12 +46,8 @@ public final class EclipseCatalog {
      *                        canon for the next century and defining "comparable" numerically;
      *                        this is a catalogue fact taken from the design handoff, and it is
      *                        null rather than guessed for anything not researched
-     * @param promoteFromDays how many days ahead this eclipse may take the Plan pane's promoted
-     *                        strip. An eclipse in the evening has to be decided the evening before,
-     *                        because that is when the drive is planned — so 1, where an ordinary
-     *                        almanac event is 0 and is promoted only on its own day
      */
-    public record Eclipse(BesselianElements elements, Integer nextComparable, int promoteFromDays) {
+    public record Eclipse(BesselianElements elements, Integer nextComparable) {
 
         /**
          * The date the eclipse falls on.
@@ -107,9 +103,18 @@ public final class EclipseCatalog {
             0.0046141,
             0.0045911);
 
-    /** Every eclipse the app knows about, in date order. */
+    /**
+     * Every eclipse the app knows about, in date order.
+     *
+     * <p>The design handoff proposed a per-eclipse "promote from N days ahead" lead time, so an
+     * evening eclipse could take the Plan strip the night before — the drive being planned then.
+     * It is not carried, because this implementation does not need it: {@code buildPromotedStrip}
+     * scans every card on the pane, which spans several days, so an eclipse two days out already
+     * competes for the strip on the same terms as tonight's. A field seeded and never read would
+     * be a rule nobody could see working.
+     */
     private static final List<Eclipse> ECLIPSES = List.of(
-            new Eclipse(ECLIPSE_2026_08_12, 2081, 1));
+            new Eclipse(ECLIPSE_2026_08_12, 2081));
 
     private EclipseCatalog() {
     }

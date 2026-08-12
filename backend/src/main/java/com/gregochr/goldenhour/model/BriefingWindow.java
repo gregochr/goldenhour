@@ -163,6 +163,12 @@ public record BriefingWindow(
      * @param facts      the topic's "science showing" chips, verbatim; never null, often empty
      * @param eventTime  the topic's own local clock time, or null
      * @param rarityRank the kind's fixed rarity ordinal, 1 = rarest
+     * @param note       the topic's editorial "where to look" cue, or null. Carried so the promoted
+     *                   strip has an aside to render that is not a restatement of the figure beside
+     *                   it — {@code detail} summarises the same measurements the headline fact
+     *                   already shows, and printing both put the same two numbers on one strip twice
+     * @param rarityNote the topic's recurrence line, or null. On the badge for the same reason as
+     *                   the warning: the promoted strip renders from badges and never joins back
      * @param safetyNote a warning every surface raising this topic must show, or null. Carried on
      *                   the badge rather than looked up from the topic list because the window card
      *                   and the promoted strip render from badges alone and never join back to
@@ -175,6 +181,8 @@ public record BriefingWindow(
             List<HotTopicFact> facts,
             @JsonInclude(JsonInclude.Include.NON_NULL) String eventTime,
             int rarityRank,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String note,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String rarityNote,
             @JsonInclude(JsonInclude.Include.NON_NULL) String safetyNote) {
 
         public Badge {

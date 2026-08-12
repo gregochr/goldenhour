@@ -150,10 +150,22 @@ class EclipseHotTopicStrategyTest {
         @Test
         @DisplayName("states obscuration and the low sun in the detail line")
         void detailStatesCoverageAndAltitude() {
-            // Bamburgh sees 90% of the sun's AREA covered with the sun 13 degrees up. Both figures
-            // are reduced for Bamburgh; London's widely published 91% at 10 degrees is a different
-            // place and must not appear.
-            assertThat(detectOne().detail()).isEqualTo("90% of the sun covered, and it sits only 13° up");
+            // Bamburgh sees 90% of the sun's AREA covered. The figure is reduced for Bamburgh;
+            // London's widely published 91% is a different place and must not appear.
+            assertThat(detectOne().detail()).isEqualTo(
+                    "90% of the sun covered, and low enough in the west to frame against a foreground");
+        }
+
+        @Test
+        @DisplayName("the detail line does not restate the fact chip sitting under it")
+        void detailDoesNotDuplicateTheHeadlineFact() {
+            // A browser found this: the detail read "90% of the sun covered, and it sits only 13°
+            // up" directly above a chip reading "90% covered · sun only 13° up". Both assertions
+            // passed in isolation, which is exactly how the duplication survived.
+            HotTopic topic = detectOne();
+
+            assertThat(topic.detail()).doesNotContain("13°");
+            assertThat(factWithKey(topic, "max").value()).contains("13° up");
         }
 
         @Test
@@ -268,6 +280,38 @@ class EclipseHotTopicStrategyTest {
     }
 
     @Nested
+    @DisplayName("The recurrence line")
+    class Rarity {
+
+        @BeforeEach
+        void setUp() {
+            stubRoster(location("Bamburgh", BAMBURGH_LAT, BAMBURGH_LON, "Northumberland"));
+            stubStillAhead();
+            stubSunset(ECLIPSE_DAY.atTime(19, 47));
+        }
+
+        @Test
+        @DisplayName("states the return period and the event's own scale, composed on the backend")
+        void statesReturnPeriodAndDuration() {
+            // This assertion exists because the wiring for it was silently dropped once: a
+            // find-and-replace that did not match left `withRarity` off the chain, every test
+            // stayed green, and the missing field was only visible by reading the live payload.
+            // A field that reaches the wire needs an assertion on the wire's own shape.
+            assertThat(detectOne().rarityNote())
+                    .isEqualTo("nothing comparable from the UK until 2081 · 1h 51m of it");
+        }
+
+        @Test
+        @DisplayName("the whole line is formatted here — the client parses no number of its own")
+        void lineIsFullyComposed() {
+            String note = detectOne().rarityNote();
+
+            // No separator, unit or year is left for the client to assemble.
+            assertThat(note).contains("2081").contains("1h").contains("of it");
+        }
+    }
+
+    @Nested
     @DisplayName("Choosing who speaks for the roster")
     class Representative {
 
@@ -353,14 +397,13 @@ class EclipseHotTopicStrategyTest {
 
             assertThat(eclipse.returnYears()).isEqualTo(55);
             assertThat(eclipse.isRare()).isTrue();
-            assertThat(eclipse.promoteFromDays()).isEqualTo(1);
         }
 
         @Test
         @DisplayName("a short return period earns no rarity line — the gate that keeps it off every spring tide")
         void aCommonEventEarnsNoRarityLine() {
             EclipseCatalog.Eclipse frequent = new EclipseCatalog.Eclipse(
-                    EclipseCatalog.on(ECLIPSE_DAY).orElseThrow().elements(), 2029, 0);
+                    EclipseCatalog.on(ECLIPSE_DAY).orElseThrow().elements(), 2029);
 
             assertThat(frequent.returnYears()).isEqualTo(3);
             assertThat(frequent.isRare()).isFalse();
@@ -370,7 +413,7 @@ class EclipseHotTopicStrategyTest {
         @DisplayName("an unresearched return period is null, never guessed")
         void unknownRarityIsNull() {
             EclipseCatalog.Eclipse unknown = new EclipseCatalog.Eclipse(
-                    EclipseCatalog.on(ECLIPSE_DAY).orElseThrow().elements(), null, 0);
+                    EclipseCatalog.on(ECLIPSE_DAY).orElseThrow().elements(), null);
 
             assertThat(unknown.returnYears()).isNull();
             assertThat(unknown.isRare()).isFalse();

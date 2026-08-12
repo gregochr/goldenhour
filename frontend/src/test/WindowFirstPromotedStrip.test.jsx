@@ -96,6 +96,32 @@ const ADJACENT = () => stripFor([
   [TODAY, 'SUNSET', { badges: [badge(), AURORA], topRarityRank: 4 }],
 ]);
 
+/** `EclipseHotTopicStrategy`'s real shape — rank 1, with a recurrence line and a warning. */
+const ECLIPSE = badge({
+  type: 'ECLIPSE',
+  label: 'Deep partial eclipse',
+  detail: '90% of the sun covered, and it sits only 13° up',
+  rarityRank: 1,
+  eventTime: '19:06',
+  note: 'a clear low western horizon matters more than the last 2%',
+  rarityNote: 'nothing comparable from the UK until 2081 · 1h 51m of it',
+  safetyNote: 'Certified solar filter on the lens — not only over your eye',
+  facts: [{
+    key: 'max', value: '90% covered · sun only 13° up', dir: 'W', emphasis: true, optional: false,
+  }],
+});
+
+/** A solo-rarity strip on a window that is NOT the next card, so the route is offered too. */
+const SOLO = () => stripFor([
+  [TODAY, 'SUNSET', { badges: [] }],
+  [TOMORROW, 'SUNRISE', { badges: [ECLIPSE], topRarityRank: 1, eventTime: `${TOMORROW}T19:06:00` }],
+]);
+
+/** The state an eclipse evening actually produces: solo rarity on the pane's FIRST card. */
+const SOLO_ADJACENT = () => stripFor([
+  [TODAY, 'SUNSET', { badges: [ECLIPSE], topRarityRank: 1 }],
+]);
+
 describe('WindowFirstPromotedStrip — the pair it names', () => {
   it('names every topic of the coincidence, rarest first', () => {
     render(<WindowFirstPromotedStrip strip={RICH()} />);
@@ -300,5 +326,95 @@ describe('WindowFirstPromotedStrip — what it deliberately does not draw', () =
     const strip = screen.getByTestId('window-first-promo');
     expect(within(strip).queryByTestId('window-card-verdict')).toBeNull();
     expect(strip.textContent).not.toMatch(/Worth it|Maybe|Poor|Awaiting/);
+  });
+});
+
+describe('WindowFirstPromotedStrip — the solo-rarity strip', () => {
+  it('states the recurrence line, and states it as real text', () => {
+    render(<WindowFirstPromotedStrip strip={SOLO()} />);
+
+    expect(screen.getByTestId('window-first-promo-rare')).toHaveTextContent(
+      'nothing comparable from the UK until 2081 · 1h 51m of it',
+    );
+  });
+
+  it('renders the topic\'s own sentence as the why clause', () => {
+    render(<WindowFirstPromotedStrip strip={SOLO()} />);
+
+    expect(screen.getByTestId('window-first-promo-why')).toHaveTextContent(
+      'a clear low western horizon matters more than the last 2%',
+    );
+  });
+
+  it('does not repeat the figure it sits beside', () => {
+    render(<WindowFirstPromotedStrip strip={SOLO()} />);
+
+    const why = screen.getByTestId('window-first-promo-why').textContent;
+    const figure = screen.getByTestId('window-first-promo-figure').textContent;
+    // The aside and the figure must carry different information. Rendering `detail` here put
+    // "91% ... 13° up" in both, forty pixels apart.
+    expect(figure).toContain('90% covered');
+    expect(why).not.toContain('90%');
+    expect(why).not.toContain('13°');
+  });
+
+  it('draws neither on a coincidence, where a sentence about one topic is not about the pair', () => {
+    render(<WindowFirstPromotedStrip strip={RICH()} />);
+
+    expect(screen.queryByTestId('window-first-promo-rare')).toBeNull();
+    expect(screen.queryByTestId('window-first-promo-why')).toBeNull();
+  });
+});
+
+describe('WindowFirstPromotedStrip — the safety warning', () => {
+  const WARNING = 'Certified solar filter on the lens — not only over your eye';
+
+  it('shows the warning, naming the lens and not only the eye', () => {
+    render(<WindowFirstPromotedStrip strip={SOLO()} />);
+
+    const warn = screen.getByTestId('window-first-promo-warn');
+    expect(warn).toHaveTextContent(WARNING);
+    // The second clause is the load-bearing one: eclipse glasses protect the eye at the viewfinder
+    // while an unfiltered lens concentrates sunlight onto the sensor.
+    expect(warn.textContent).toContain('not only over your eye');
+  });
+
+  it('keeps the warning when the window is adjacent and the route is withdrawn', () => {
+    // The regression this rule exists for, and the state an eclipse evening really produces. The
+    // foot used to be gated entirely on the route being offered, so promoting the pane's FIRST
+    // card — exactly what happens on eclipse day — took the warning off the screen with the button.
+    render(<WindowFirstPromotedStrip strip={SOLO_ADJACENT()} onOpenWindow={vi.fn()} />);
+
+    expect(screen.getByTestId('window-first-promo-foot')).toBeInTheDocument();
+    expect(screen.getByTestId('window-first-promo-warn')).toHaveTextContent(WARNING);
+    expect(screen.queryByTestId('window-first-promo-go')).toBeNull();
+  });
+
+  it('keeps the warning when no onOpenWindow handler is supplied at all', () => {
+    render(<WindowFirstPromotedStrip strip={SOLO()} />);
+
+    expect(screen.getByTestId('window-first-promo-warn')).toBeInTheDocument();
+    expect(screen.queryByTestId('window-first-promo-go')).toBeNull();
+  });
+
+  it('offers the route alongside the warning when the window is not adjacent', () => {
+    render(<WindowFirstPromotedStrip strip={SOLO()} onOpenWindow={vi.fn()} />);
+
+    const foot = screen.getByTestId('window-first-promo-foot');
+    expect(within(foot).getByTestId('window-first-promo-warn')).toBeInTheDocument();
+    expect(within(foot).getByTestId('window-first-promo-go')).toBeInTheDocument();
+  });
+
+  it('draws no foot at all when there is neither a warning nor a route', () => {
+    render(<WindowFirstPromotedStrip strip={ADJACENT()} onOpenWindow={vi.fn()} />);
+
+    expect(screen.queryByTestId('window-first-promo-foot')).toBeNull();
+  });
+
+  it('offers no dismiss control — the warning is not suppressible', () => {
+    render(<WindowFirstPromotedStrip strip={SOLO_ADJACENT()} />);
+
+    const foot = screen.getByTestId('window-first-promo-foot');
+    expect(within(foot).queryAllByRole('button')).toHaveLength(0);
   });
 });

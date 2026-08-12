@@ -262,15 +262,21 @@ export function windowCardDomId(key) {
 /**
  * The badge channel a hot topic's type belongs to.
  *
- * <p>Four channels ship as tokens; anything unrecognised takes the neutral base badge rather than
+ * <p>Five channels ship as tokens; anything unrecognised takes the neutral base badge rather than
  * being forced into the nearest one, because a badge's colour names its channel and a wrong colour
  * is a wrong claim. New topic types are therefore additive and fail quietly.
  *
+ * <p>ECLIPSE is matched FIRST and exactly, ahead of the substring tests below it. Order matters
+ * here in a way it does not for the others: the tests are substring matches on the whole type
+ * string, so a future kind named for an eclipse of a different body — a lunar eclipse at a
+ * coastal spot, say — must not be captured by whichever loose test happens to hit first.
+ *
  * @param {string} type the topic type from the payload
- * @returns {'tide'|'nlc'|'aurora'|'snow'|'plain'} the badge channel
+ * @returns {'eclipse'|'tide'|'nlc'|'aurora'|'snow'|'plain'} the badge channel
  */
 export function badgeChannel(type) {
   const t = String(type || '').toUpperCase();
+  if (t === 'ECLIPSE') return 'eclipse';
   if (t.includes('TIDE') || t.includes('SURGE')) return 'tide';
   if (t.includes('NLC') || t.includes('NOCTILUCENT')) return 'nlc';
   if (t.includes('AURORA')) return 'aurora';

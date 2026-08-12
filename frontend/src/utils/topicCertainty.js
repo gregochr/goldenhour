@@ -35,6 +35,10 @@ export const CERTAINTY_KINDS = {
  * 'forecast'.
  */
 const TYPE_TO_KIND = {
+  // The purest almanac event in the catalogue: NASA publishes eclipse contact times to the second
+  // for every eclipse through 3000 AD. Omitting it would not leave the chip blank — it would read
+  // "forecast" on an event fixed by orbital mechanics, which is a wrong claim rather than a gap.
+  ECLIPSE: 'almanac',
   KING_TIDE: 'almanac',
   SPRING_TIDE: 'almanac',
   SUPERMOON: 'almanac',

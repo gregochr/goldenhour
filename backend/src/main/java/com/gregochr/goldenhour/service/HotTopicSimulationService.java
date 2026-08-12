@@ -146,10 +146,11 @@ public class HotTopicSimulationService {
          * @param eventTime  the topic's own local {@code HH:mm}, or null
          * @param facts      the enriched second-row chips, or null
          * @param note       the italic where-to-look cue, or null
+         * @param rarityNote the recurrence line, or null
          * @param safetyNote the warning every surface must show, or null
          */
         record Enrichment(String eventType, String eventTime, List<HotTopicFact> facts,
-                String note, String safetyNote) { }
+                String note, String rarityNote, String safetyNote) { }
 
         /**
          * A template for the fifteen topics that carry no enrichment of their own.
@@ -200,6 +201,7 @@ public class HotTopicSimulationService {
             return topic
                     .withEvent(enrichment.eventType(), enrichment.eventTime())
                     .withScience(enrichment.facts(), enrichment.note())
+                    .withRarity(enrichment.rarityNote())
                     .withSafety(enrichment.safetyNote());
         }
     }
@@ -289,6 +291,7 @@ public class HotTopicSimulationService {
                             HotTopicFact.metric("sun", "sets 20:47, 47 min after last contact")
                                     .asOptional()),
                     "a clear low western horizon matters more than the last 2%",
+                    "nothing comparable from the UK until 2081 · 1h 51m of it",
                     "Certified solar filter on the lens — not only over your eye");
 
     private static final List<SimulationTemplate> ALL_SIMULATIONS = List.of(
