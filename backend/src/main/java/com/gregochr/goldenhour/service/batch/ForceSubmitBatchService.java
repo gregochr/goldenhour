@@ -19,10 +19,12 @@ import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationHandle;
 import com.gregochr.goldenhour.service.evaluation.EvaluationService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,6 +32,15 @@ import java.util.List;
 /**
  * Submits a force-test batch to the Anthropic Batch API, bypassing all gates
  * (triage, stability, cache). Used for diagnostics to prove the SDK wiring works.
+ *
+ * <p><b>"Bypassing triage" means the triage <em>verdict</em> is ignored, not that triage does not
+ * run.</b> Both entry points call {@code ForecastService.fetchWeatherAndTriage}, which evaluates
+ * the heuristics itself and, when they fire, <em>persists a {@code forecast_evaluation} row</em>
+ * before returning. It returns that row's atmospheric data too, so the null check below passes and
+ * the slot is submitted to Claude regardless — which is the bypass. The consequence worth knowing:
+ * a JFDI run writes rows, so anything wrong with the dates it chooses lands in the table. That is
+ * how a UTC-anchored range here came to persist {@code days_ahead = -1} (and, via
+ * {@code ConfidenceDeriver.fromHorizon}, a {@code confidence} of HIGH) for a day already over.
  */
 @Service
 public class ForceSubmitBatchService {
@@ -42,6 +53,7 @@ public class ForceSubmitBatchService {
     private final ForecastService forecastService;
     private final ModelSelectionService modelSelectionService;
     private final EvaluationService evaluationService;
+    private final Clock clock;
 
     /**
      * Constructs the force-submit batch service.
@@ -54,24 +66,30 @@ public class ForceSubmitBatchService {
      * @param modelSelectionService  resolves the active Claude model
      * @param evaluationService      Pass 3.2 engine — submits forecast tasks via the
      *                               canonical batch path (request build + observability)
+     * @param clock                  supplies "today" for the JFDI range, resolved in
+     *                               {@code Europe/London} by {@link ForecastHorizon} — the same
+     *                               calendar {@code ForecastService} measures the horizon on
      */
     public ForceSubmitBatchService(AnthropicClient anthropicClient,
             RegionRepository regionRepository,
             LocationService locationService,
             ForecastService forecastService,
             ModelSelectionService modelSelectionService,
-            EvaluationService evaluationService) {
+            EvaluationService evaluationService,
+            Clock clock) {
         this.anthropicClient = anthropicClient;
         this.regionRepository = regionRepository;
         this.locationService = locationService;
         this.forecastService = forecastService;
         this.modelSelectionService = modelSelectionService;
         this.evaluationService = evaluationService;
+        this.clock = clock;
     }
 
     /**
      * Submits a JFDI batch for locations in the given regions, bypassing all triage gates.
-     * Evaluates all dates T+0 to T+3 and both SUNRISE and SUNSET for every location.
+     * Evaluates all dates T+0 to T+3 — on the <em>UK civil</em> calendar — and both SUNRISE and
+     * SUNSET for every location.
      *
      * @param regionIds region IDs to include — null or empty means all regions
      * @return submission result, or null if no requests were built
@@ -94,7 +112,11 @@ public class ForceSubmitBatchService {
         }
 
         EvaluationModel model = modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM);
-        LocalDate today = LocalDate.now(java.time.ZoneOffset.UTC);
+        // UK civil date, because ForecastService measures the horizon of each of these dates on
+        // that calendar. On a UTC anchor the two disagreed for the hour before UK midnight in
+        // summer, and this range is the side that was wrong: it opened on a day already over,
+        // which ForecastService then correctly labelled T-1.
+        LocalDate today = ForecastHorizon.today(clock);
         List<LocalDate> dates = List.of(today, today.plusDays(1),
                 today.plusDays(2), today.plusDays(3));
         TargetType[] events = {TargetType.SUNRISE, TargetType.SUNSET};

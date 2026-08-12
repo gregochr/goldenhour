@@ -52,12 +52,26 @@ import java.time.temporal.ChronoUnit;
  *       {@code resolveTargetTypesForDate}, whose day comes from a caller-supplied UTC instant.
  *       Converting the range alone would split one class across two calendars, which is the defect
  *       this class exists to prevent rather than a step towards fixing it.</li>
- *   <li>{@code ForceSubmitBatchService}'s four-day JFDI range — in the <em>batch</em> engine, and
- *       known-wrong rather than deliberate. It builds a UTC range and hands it to
- *       {@code ForecastService}, whose horizon is already UK-anchored, so in the divergent hour its
- *       first day yields {@code daysAhead = -1}. Left for its own change; it is not on this
- *       engine's path.</li>
  * </ul>
+ *
+ * <p><b>And what is still UTC without a defence — a separate list, because collapsing the two is
+ * how a hedge becomes a completeness claim.</b> {@code ForceSubmitBatchService}'s JFDI range used
+ * to head this list and moved to the UK calendar in §8c. What remains, none of it a forecast
+ * horizon and none of it on this engine's path:
+ * <ul>
+ *   <li>{@code ScheduledBatchEvaluationService} and {@code AuroraOrchestrator} both build an
+ *       {@code EvaluationTask.Aurora} date on a bare {@code LocalDate.now()} — no zone argument at
+ *       all, so it follows the JVM default and is neither UTC nor London by contract. They are
+ *       character-for-character the same construct; fix one and the twin is still there.</li>
+ *   <li>{@code AlmanacService} anchors its 90-day feed, and its cache key, on
+ *       {@code LocalDate.now(ZoneOffset.UTC)} — a range of UK-dated events on a UTC anchor.</li>
+ *   <li>{@code AuroraForecastRunService} counts its preview nights from
+ *       {@code LocalDate.now(ZoneId.of("UTC"))}.</li>
+ * </ul>
+ *
+ * <p>All four are pre-existing and none was introduced by the changes above. They are listed rather
+ * than fixed because each wants its own reasoning about what its date <em>means</em>, which is the
+ * lesson {@code PromptTestService} taught: a half-converted class is worse than an unconverted one.
  *
  * <p><b>An instant is not a calendar.</b> Nothing here answers "has this moment passed". That
  * question is settled by comparing UTC instants — {@code ForecastCommandExecutor} draws both from
