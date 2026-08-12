@@ -43,12 +43,16 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -102,6 +106,18 @@ class ForecastServiceTest {
     @Mock
     private com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter
             survivorAtmosphereWriter;
+
+    /**
+     * 2026-08-11 12:00 UTC — midday, where the UTC and Europe/London dates agree, so the
+     * bulk of this class is unaffected by which calendar the horizon is derived on. The
+     * hour where they disagree is exercised deliberately in {@link DaysAheadBasis}.
+     *
+     * <p>A real fixed clock rather than a mock: {@code daysAhead} is arithmetic on a
+     * calendar, and stubbing the clock's own zone conversion would let the assertions
+     * agree with a broken derivation.
+     */
+    @Spy
+    private Clock clock = Clock.fixed(Instant.parse("2026-08-11T12:00:00Z"), java.time.ZoneOffset.UTC);
 
     @InjectMocks
     private ForecastService forecastService;
@@ -1189,7 +1205,9 @@ class ForecastServiceTest {
     @Test
     @DisplayName("fetchWeatherAndTriage() result carries correct daysAhead and forecastResponse")
     void fetchWeatherAndTriage_resultCarriesDaysAheadAndResponse() {
-        LocalDate tomorrow = LocalDate.now(java.time.ZoneOffset.UTC).plusDays(1);
+        // Relative to the injected clock, not the wall clock: this assertion is about the
+        // horizon arithmetic, so it must not also depend on what hour the suite runs at.
+        LocalDate tomorrow = LocalDate.now(clock.withZone(ZoneId.of("Europe/London"))).plusDays(1);
         LocalDateTime sunset = tomorrow.atTime(20, 30);
         AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
         OpenMeteoForecastResponse forecastResp = new OpenMeteoForecastResponse();
@@ -1875,5 +1893,83 @@ class ForecastServiceTest {
                 .apparentTemperature(9.8)
                 .precipProbability(20)
                 .build();
+    }
+
+    /**
+     * The calendar {@code daysAhead} is derived on, at the hour where the choice is visible.
+     *
+     * <p>A forecast target date names a solar event at a UK location, so "today" is the UK
+     * civil date. Under BST those two calendars part company between 23:00 and 00:00 UTC,
+     * where UTC is a day behind and every horizon it produces is one too many. The horizon
+     * is not cosmetic: it gates the intraday and nightly eligibility policies, and it is
+     * persisted on {@code forecast_evaluation.days_ahead} along with the confidence band
+     * derived from it.
+     *
+     * <p>These cases build their own service against a clock inside that band, because the
+     * enclosing class deliberately sits at midday where the two calendars agree.
+     */
+    @Nested
+    @DisplayName("daysAhead timezone basis")
+    class DaysAheadBasis {
+
+        /** 2026-08-11 23:30 UTC — BST, so the UK civil date is already the 12th. */
+        private final Clock bstPreMidnight =
+                Clock.fixed(Instant.parse("2026-08-11T23:30:00Z"), java.time.ZoneOffset.UTC);
+
+        @Test
+        @DisplayName("a sunset on the UK's today is T+0, not the T+1 the UTC date implies")
+        void tonightsSunset_isTodayOnTheUkCalendar() {
+            // 2026-08-12 is "today" in London and "tomorrow" in UTC at this instant. The
+            // whole defect lives in that one day of difference.
+            LocalDate ukToday = LocalDate.of(2026, 8, 12);
+            assertThat(LocalDate.now(bstPreMidnight.withZone(java.time.ZoneOffset.UTC)))
+                    .as("premise: UTC is still on the previous date")
+                    .isEqualTo(ukToday.minusDays(1));
+
+            ForecastPreEvalResult result = fetchAt(bstPreMidnight, ukToday);
+
+            assertThat(result.daysAhead())
+                    .as("tonight's sunset is today's, whatever the UTC date says")
+                    .isZero();
+        }
+
+        @Test
+        @DisplayName("the horizon still counts forward correctly from the UK date")
+        void furtherDates_countFromTheUkToday() {
+            // Guards against "fix" by subtracting one: the basis moves, the arithmetic does not.
+            assertThat(fetchAt(bstPreMidnight, LocalDate.of(2026, 8, 14)).daysAhead()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("outside the divergent hour both calendars agree, so nothing moves")
+        void middayIsUnaffected() {
+            Clock midday = Clock.fixed(Instant.parse("2026-08-11T12:00:00Z"), java.time.ZoneOffset.UTC);
+            assertThat(fetchAt(midday, LocalDate.of(2026, 8, 12)).daysAhead()).isEqualTo(1);
+        }
+
+        /**
+         * Runs the real horizon derivation for one date against one clock, with every
+         * collaborator stubbed to the minimum {@code fetchWeatherAndTriage} needs.
+         */
+        private ForecastPreEvalResult fetchAt(Clock at, LocalDate date) {
+            LocalDateTime sunset = date.atTime(20, 30);
+            when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+            when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
+            when(openMeteoService.getAtmosphericDataWithResponse(
+                    any(ForecastRequest.class), any(), any()))
+                    .thenReturn(new WeatherExtractionResult(
+                            buildAtmosphericData(sunset, TargetType.SUNSET),
+                            new OpenMeteoForecastResponse()));
+            when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
+
+            ForecastService service = new ForecastService(
+                    solarService, openMeteoService, augmentor, evaluationService,
+                    engineEvaluationService, repository, notificationDispatcher,
+                    eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
+                    survivorAtmosphereWriter, at);
+
+            return service.fetchWeatherAndTriage(DURHAM_LOCATION, date, TargetType.SUNSET,
+                    Set.of(), EvaluationModel.SONNET, true, null);
+        }
     }
 }

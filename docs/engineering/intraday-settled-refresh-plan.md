@@ -389,13 +389,14 @@ adequate and it is cheap to falsify later.
 
 ---
 
-## Section 8a — Tracked follow-up: the `daysAhead` timezone basis
+## Section 8a — RESOLVED: the `daysAhead` timezone basis
 
-**Not fixed in stage one, deliberately. Fix it as its own commit before stage two.**
+**Fixed 2026-08-12, as its own commit, before stage two. Kept here because the reasoning for the
+shape chosen is worth more than the diff.**
 
-The §9 review of the shipped diff found that the `daysAhead` reaching the eligibility policy is on
-a **UTC** calendar, while the intraday window, the past-date filter and the disposition rows are all
-on **Europe/London**:
+The §9 review of the shipped diff found that the `daysAhead` reaching the eligibility policy was on
+a **UTC** calendar, while the intraday window, the past-date filter and the disposition rows were
+all on **Europe/London**:
 
 | value | basis | used for |
 |---|---|---|
@@ -403,32 +404,118 @@ on **Europe/London**:
 | `candidateDaysAhead` (`BriefingCandidateCollector.daysAheadFor`) | London | the `CandidateDisposition` rows at `:457`, `:600` |
 | `IntradayCandidateCollectionStrategy:50` | London | which slots enter the window at all |
 
-The §8.1 note in the predecessor plan spotted this and judged it inert. **This change is what makes
+The §8.1 note in the predecessor plan spotted this and judged it inert. **This change is what made
 it decision-relevant**, because `IntradayEligibilityPolicy` is the cycle's first consumer of
-`daysAhead`.
+`daysAhead`. §8.1 also described the audit damage correctly — "the `days_ahead` column already mixes
+two definitions across disposition categories" — which is what this section then lost in restating
+it; see the correction below.
 
 **Blast radius, established under refutation and not merely asserted.** Under BST between 23:00 and
-00:00 UTC the two bases differ by a day. Of the three window slots only the nearest sunset flips,
-and it flips towards *skip* — against intent. No forecast reaches a reader stale: the 01:00 nightly
-picks that slot up 61–120 min later at T+0, where `NightlyEligibilityPolicy` admits every stability
-~18h before the event. What is lost is one afternoon look, and what is wrong is the audit row, which
-would read `daysAhead=0` beside a skip reason saying two further looks are guaranteed.
+00:00 UTC the two bases differ by a day. Of the three window slots only the nearest sunset flipped,
+and it flipped towards *skip* — against intent. No forecast reached a reader stale: the 01:00
+nightly picks that slot up 61–120 min later at T+0, where `NightlyEligibilityPolicy` admits every
+stability ~18h before the event. What was lost was one afternoon look.
 
-It is also **not reachable on the seeded cron** (`0 0 14 * * *`), nor on the late-afternoon schedule
-stage two proposes — only via a manual `POST /api/admin/scheduler/jobs/{jobKey}/trigger` inside that
-one-hour band.
+⚠️ **The audit-row half of this section was wrong, and the adversarial review on the fix killed it.**
+§8a predicted the row "*would* read `daysAhead=0` beside a skip reason saying two further looks are
+guaranteed", and the fix commit initially promoted that prediction to a statement of history. It was
+never true. Pre-fix, `ForecastTaskCollector:446` set `int daysAhead = preEval.daysAhead()` (UTC) and
+fed **that** to both `eligibilityPolicy.resolve` and the stability-skip disposition at `:475`, so the
+row read `1` and agreed with the reason beside it. `candidateDaysAhead` (London) reached only the
+SKIPPED_TRIAGED row at `:441` and the SKIPPED_ERROR row at `:600`. The real audit defect is
+different, and is the one the fix addresses: **which calendar a run's trail spoke depended on which
+branch each candidate took**, so a single run could carry two horizons a day apart for the same
+date. Recorded here because a prediction that was never checked became a claim in four documents.
 
-**Why it is a separate commit.** The one-line fix — pass `candidateDaysAhead` at
-`ForecastTaskCollector:447` — also changes **nightly** Gate 4 in that same hour, where it currently
-drops a London-T+3 SETTLED candidate as UTC-T+4. That is a behaviour change to a different engine
-path with a different thesis, and it deserves its own reasoning rather than riding along here.
+It was also **not reachable on the seeded cron** (`0 0 14 * * *`), nor on the late-afternoon
+schedule stage two proposes — only via a manual `POST /api/admin/scheduler/jobs/{jobKey}/trigger`
+inside that one-hour band.
 
-**It needs a test the current ones cannot provide.** Both collector cases added in stage one run
-`NightlyCandidateCollectionStrategy`, so neither can catch a basis disagreement. The fix needs a
-case pairing `IntradayCandidateCollectionStrategy` with `IntradayEligibilityPolicy` against a clock
-pinned inside the 23:00–00:00 UTC BST band.
+### What was done, and why not the one-line fix
 
----
+§8a originally proposed passing `candidateDaysAhead` at `ForecastTaskCollector:447`. **That was
+reconsidered at implementation time and rejected as too narrow**, on two findings the plan did not
+have:
+
+1. **There was a second UTC derivation.** `ForecastService:138`, in the synchronous `runForecasts`
+   path, computed `daysAhead` on UTC exactly as `:290` did. The one-line fix does not touch it.
+2. **The horizon is persisted, and something else is derived from it.** `daysAhead` is written to
+   `forecast_evaluation.days_ahead` and is the sole input to the `confidence` column (V127, via
+   `ConfidenceDeriver.fromHorizon` at `ForecastService:646`). In the divergent hour both were
+   recorded one band too far out. A collector-local fix leaves two columns wrong and leaves the
+   synchronous engine's Gate 4 (`ForecastCommandExecutor:625`) reading a horizon it will act on.
+
+Since the domain rule — *"a sunrise in Northumberland on April 19th BST is what matters, not the UTC
+date"* — makes **UTC the bug**, the fix was applied at source. The rule now has exactly one home,
+`util/ForecastHorizon`, and every derivation delegates to it: `ForecastService` (both sites, with a
+`Clock` injected from the existing `AppConfig` bean), `BriefingCandidateCollector`'s inline loop
+copy, `IntradayCandidateCollectionStrategy`, and `ForecastDtoMapper` — the last of which was found
+during the fix, not before it: it derives a **serve-time** horizon on UTC, so leaving it would have
+let the horizon *shown* disagree with the one *stored* on the same row. ⚠️ That leg is
+**pre-emptive, not user-visible**: the review established that its only reader, `toSparseDto`, has
+no production caller today — the live `toDto` path serves `entity.getDaysAhead()` straight from the
+persisted column, which this commit fixes at source. It is kept because a dormant sparse path that
+derives a horizon on the wrong calendar is a trap for whoever wires it up, but no user sees a
+different number because of it.
+`BriefingCandidateCollector.daysAheadFor` is gone rather than delegating: it had one caller and one
+line, and a second door to the same rule on a class named for briefing candidates is how the rule
+gets re-derived next time. It was deliberately **not** routed
+through `BriefingCandidateCollector.daysAheadFor` as §8a suggested: the synchronous engine calling a
+*briefing candidate collector* for a general horizon rule is a name that lies, and the neutral home
+costs one small class.
+
+The collector loop additionally now uses **one** horizon variable for both the policy call and every
+disposition row it emits, so those two can no longer disagree by construction rather than by
+coincidence.
+
+**What this changes beyond the intraday bug**, stated plainly because it is a behaviour change to a
+different engine path:
+
+- Nightly Gate 4, in that same hour, no longer drops a London-T+3 SETTLED candidate as UTC-T+4. The
+  direction is *toward* the policy's stated intent, and it admits slots rather than dropping them.
+- `forecast_evaluation.days_ahead` and `confidence` become correct in that hour. No migration and no
+  backfill: historical rows written in the band keep the value they were written with. There are few
+  of them and they are one band pessimistic, which is the safe direction for an analytics column
+  that gates nothing.
+
+### What was deliberately left
+
+- **The synchronous engine's date *range* is still UTC-derived** (`ForecastCommandFactory:107`,
+  and the same-day past-event check at `ForecastCommandExecutor:236`). That selects *which dates* a
+  run covers, not how far ahead they are, so it is an adjacent divergence rather than this one. In
+  the band a run's range therefore starts on the UK's *yesterday*. **The default range persists no
+  negative horizon**, contrary to an earlier draft of this note: `ForecastCommandExecutor:264`
+  applies `shouldSkipEvent` unconditionally, and for that first date — UTC-today, UK-yesterday —
+  both solar events are already in the past at 23:00–00:00 UTC, so every slot on it is skipped
+  before any row is written. (An explicitly-requested past date still yields a negative, as it did
+  before this commit on the UTC basis — unchanged either way.) The residual is milder and pre-existing: in that hour the range spends one of its days on
+  a UK day that is entirely skipped, so it reaches one fewer future UK day than intended. What this
+  commit *does* change there is that the first actionable day (UTC-today+1 = UK-today) is now
+  correctly labelled T+0 rather than T+1, which also moves it from the far-term to the near-term
+  model tier. Moving the range itself wants its own commit and its own reasoning about
+  `shouldSkipEvent`, which compares UTC instants.
+- **Four batch classes still hand-roll the London rule** — `ForceEvalHeadlineSelector:94`,
+  `BatchRetryService:296`, `ScheduledBatchEvaluationService:486`, `BriefingRollupBuilder:113`. All
+  four are already on `Europe/London`, so this is duplication, not divergence, and nothing behaves
+  differently. Worth collapsing onto `ForecastHorizon` opportunistically; not worth a behaviour-
+  neutral sweep of its own here.
+- **No backfill of historical rows.** Rows written in that hour keep the horizon they were written
+  with. They are few, and they are one band pessimistic on a column that gates nothing.
+
+### Tests
+
+`ForecastTaskCollectorHorizonBasisTest` is the case §8a asked for: `IntradayCandidateCollectionStrategy`
+paired with `IntradayEligibilityPolicy` against a clock pinned at `2026-08-11T23:30:00Z`, with the
+stubbed pre-eval carrying **the horizon UTC would have produced**, so the fixture reproduces the
+disagreement instead of describing it. It asserts the premise (the two calendars differ by exactly one
+day at that instant), that tonight's SETTLED sunset is evaluated, that its audit row reads T+0, and
+that tomorrow's SETTLED sunset still skips — the last one so the fix cannot quietly become a blanket
+relaxation. `ForecastServiceTest.DaysAheadBasis` pins the same rule at source, and
+`ForecastHorizonTest` pins it as arithmetic, including a GMT case proving it is a zone rule rather
+than an offset hack applied to late evenings.
+
+All three were **mutation-verified**: reverting the collector to `preEval.daysAhead()` kills 2 cases;
+reverting `ForecastHorizon` to UTC kills 5 across both classes.
 
 ## Section 9 — Review provenance
 

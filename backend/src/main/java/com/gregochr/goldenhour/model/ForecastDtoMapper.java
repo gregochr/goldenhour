@@ -18,13 +18,13 @@ import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.repository.MarineWaveRepository;
 import com.gregochr.goldenhour.service.LunarPhaseService;
 import com.gregochr.goldenhour.service.SolarService;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,6 +45,7 @@ public class ForecastDtoMapper {
     private final SeasonalWindow bluebellSeason;
     private final ForecastScoreRepository forecastScoreRepository;
     private final MarineWaveRepository marineWaveRepository;
+    private final java.time.Clock clock;
 
     /**
      * Constructs a {@code ForecastDtoMapper}.
@@ -54,15 +55,18 @@ public class ForecastDtoMapper {
      * @param bluebellSeason          the configured bluebell season window
      * @param forecastScoreRepository source of the Claude BLUEBELL rating (1–5) for the DTO
      * @param marineWaveRepository    source of coastal sea-state (Hs) for the DTO
+     * @param clock                   supplies "today" for the served {@code daysAhead}, resolved in
+     *                                {@code Europe/London} by {@link ForecastHorizon}
      */
     public ForecastDtoMapper(LunarPhaseService lunarPhaseService, SolarService solarService,
             SeasonalWindow bluebellSeason, ForecastScoreRepository forecastScoreRepository,
-            MarineWaveRepository marineWaveRepository) {
+            MarineWaveRepository marineWaveRepository, java.time.Clock clock) {
         this.lunarPhaseService = lunarPhaseService;
         this.solarService = solarService;
         this.bluebellSeason = bluebellSeason;
         this.forecastScoreRepository = forecastScoreRepository;
         this.marineWaveRepository = marineWaveRepository;
+        this.clock = clock;
     }
 
     /**
@@ -556,9 +560,10 @@ public class ForecastDtoMapper {
         LunarTideType lunarTideType = date != null ? lunarPhaseService.classifyTide(date) : null;
         String lunarPhase = date != null ? lunarPhaseService.getMoonPhase(date) : null;
 
-        Integer daysAhead = date != null
-                ? (int) ChronoUnit.DAYS.between(LocalDate.now(ZoneOffset.UTC), date)
-                : null;
+        // Europe/London, matching the horizon persisted on the row this DTO describes. On UTC
+        // the two disagreed for the BST hour before midnight, so the served horizon could read
+        // one higher than the stored one for the same forecast.
+        Integer daysAhead = date != null ? ForecastHorizon.daysAhead(date, clock) : null;
 
         // The evaluation instant is the honest "forecast generated" time (when the batch/SSE job
         // scored this slot). Leave it null when unknown rather than stamping now() — the frontend

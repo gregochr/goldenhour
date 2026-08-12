@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — a forecast run started late at night could think tonight was tomorrow
+
+Between 11pm and midnight during British Summer Time, the app worked out how far ahead a forecast
+was looking using the wrong calendar. It counted from the UTC date, which in that hour is still on
+the previous day, so every forecast in the queue appeared to be one day further out than it really
+was. Tonight's sunset looked like tomorrow's.
+
+That mattered most to the afternoon run, which decides whether a settled evening is worth another
+look. It skips tomorrow evening on the grounds that two more forecasts are guaranteed before it —
+sound reasoning for tomorrow, wrong for tonight, which gets no further look at all. In that hour
+the nearest sunset was therefore dropped.
+
+Nobody would have seen a stale forecast: the overnight run picked the slot up an hour or two later.
+What was lost was one afternoon look at tonight's sky. The internal record of which slots were
+considered was also inconsistent in that hour, listing some of them a day further out than others.
+
+The date a forecast is measured from is now the UK date everywhere, which is the one that matches
+the sunrise or sunset being forecast. That also corrects how far ahead each saved forecast is
+recorded as looking, and the confidence level derived from it, both of which read a day further out
+than they were during that hour.
+
 ## [v2.18.0] - 2026-08-12
 
 ### Changed — the afternoon run now takes another look at settled evenings

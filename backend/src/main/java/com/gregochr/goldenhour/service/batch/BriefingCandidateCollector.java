@@ -18,13 +18,13 @@ import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.evaluation.CacheKeyFactory;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -45,9 +45,6 @@ import java.util.Map;
 public final class BriefingCandidateCollector {
 
     private static final Logger LOG = LoggerFactory.getLogger(ForecastTaskCollector.class);
-
-    /** UK civil-date zone for "today" derivation. */
-    private static final ZoneId LONDON = ZoneId.of("Europe/London");
 
     private final TravelDayService travelDayService;
     private final LocationService locationService;
@@ -92,20 +89,6 @@ public final class BriefingCandidateCollector {
     }
 
     /**
-     * Days from today (Europe/London) to the given date. Negative for past
-     * dates. Matches the {@code today} computation used in
-     * {@link #collectForecastCandidates}.
-     *
-     * @param date  the target date
-     * @param clock UTC clock supplying "today" (via London)
-     * @return the number of days ahead (negative for past dates)
-     */
-    public static int daysAheadFor(LocalDate date, Clock clock) {
-        LocalDate today = LocalDate.now(clock.withZone(LONDON));
-        return (int) ChronoUnit.DAYS.between(today, date);
-    }
-
-    /**
      * First pass over the briefing: collects all GO/MARGINAL slots that are not
      * already cached. No API calls are made here.
      *
@@ -141,9 +124,9 @@ public final class BriefingCandidateCollector {
 
         Map<String, ForecastStability> stabilityByLocation = buildStabilityLookup();
 
-        // Use Europe/London because solar events are for UK locations — a sunrise
-        // in Northumberland on April 19th BST is what matters, not the UTC date.
-        LocalDate today = LocalDate.now(clock.withZone(LONDON));
+        // Europe/London, not UTC — see ForecastHorizon for why, and for the one place
+        // every daysAhead derivation in the codebase now agrees on.
+        LocalDate today = ForecastHorizon.today(clock);
 
         for (BriefingDay day : briefing.days()) {
             LocalDate date = day.date();

@@ -27,6 +27,7 @@ import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
 import com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -369,8 +370,15 @@ public class ForecastTaskCollector {
                 candidates.size(), forceEvalKeys.size(), forceEvalCap);
 
         for (ForecastCandidate candidate : candidates) {
-            int candidateDaysAhead =
-                    BriefingCandidateCollector.daysAheadFor(candidate.date(), clock);
+            // One horizon per candidate, used by the eligibility policy and by every
+            // disposition row it produces. It was two values — this one and
+            // preEval.daysAhead() — derived on Europe/London and UTC respectively, and which
+            // of them a row carried depended on which branch emitted it: the triage and error
+            // rows took the London one, the stability-skip and include rows the UTC one. For
+            // the BST hour before midnight UTC that put two horizons a day apart in the same
+            // table for the same run and the same date. ForecastHorizon now makes both London;
+            // sharing the variable makes them one value rather than two that agree.
+            int daysAhead = ForecastHorizon.daysAhead(candidate.date(), clock);
             try {
                 ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
                         candidate.location(), candidate.date(), candidate.targetType(),
@@ -438,12 +446,11 @@ public class ForecastTaskCollector {
                             candidate.targetType(), preEval.triageReason());
                     dispositions.add(new CandidateDisposition(
                             candidate.location().getId(), candidate.location().getName(),
-                            candidate.date(), candidate.targetType(), candidateDaysAhead,
+                            candidate.date(), candidate.targetType(), daysAhead,
                             DispositionCategory.SKIPPED_TRIAGED, preEval.triageReason()));
                     skippedTriage++;
                     continue;
                 }
-                int daysAhead = preEval.daysAhead();
                 ForecastStability stability = gridCellStabilityService.stabilityFor(
                         candidate.location(), preEval, stabilityByCell);
                 EligibilityDecision decision = eligibilityPolicy.resolve(
@@ -597,7 +604,7 @@ public class ForecastTaskCollector {
                         candidate.targetType(), e.getMessage());
                 dispositions.add(new CandidateDisposition(
                         candidate.location().getId(), candidate.location().getName(),
-                        candidate.date(), candidate.targetType(), candidateDaysAhead,
+                        candidate.date(), candidate.targetType(), daysAhead,
                         DispositionCategory.SKIPPED_ERROR, e.getMessage()));
                 skippedError++;
             }
