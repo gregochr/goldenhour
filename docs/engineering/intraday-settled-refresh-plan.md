@@ -496,13 +496,20 @@ different engine path:
   correctly labelled T+0 rather than T+1, which also moves it from the far-term to the near-term
   model tier. Moving the range itself wants its own commit and its own reasoning about
   `shouldSkipEvent`, which compares UTC instants.
-- **Four batch classes still hand-roll the London rule** — `ForceEvalHeadlineSelector:94`,
-  `BatchRetryService:296`, `ScheduledBatchEvaluationService:486`, `BriefingRollupBuilder:113`. All
-  four are already on `Europe/London`, so this is duplication, not divergence, and nothing behaves
-  differently. Worth collapsing onto `ForecastHorizon` opportunistically; not worth a behaviour-
-  neutral sweep of its own here.
 - **No backfill of historical rows.** Rows written in that hour keep the horizon they were written
   with. They are few, and they are one band pessimistic on a column that gates nothing.
+
+> **RESOLVED 2026-08-12.** The one item above that was purely cosmetic — four batch classes hand-
+> rolling `LocalDate.now(Europe/London)` on the same rule — is collapsed. `ForceEvalHeadlineSelector`
+> and `BriefingRollupBuilder` already carried an injected `Clock`, so the swap to
+> `ForecastHorizon.today(clock)` touched one line each. `BatchRetryService` (`modelFor`'s
+> `daysAhead`) and `ScheduledBatchEvaluationService` (a log-line-only `"T+N"` breakdown) had none, so
+> each gained a `Clock` constructor parameter wired to the existing `AppConfig` bean — behaviourally
+> identical, since `LocalDate.now(ZoneId.of("Europe/London"))` and `Clock.systemUTC().withZone(...)`
+> both read the same system clock, just through different APIs. Byte-for-byte equivalence was the
+> whole bar: none of these four decide anything, they only label a horizon already decided elsewhere.
+> The other two deliberately-left items above — the synchronous engine's UTC date range and no
+> backfill — are unchanged.
 
 ### Tests
 

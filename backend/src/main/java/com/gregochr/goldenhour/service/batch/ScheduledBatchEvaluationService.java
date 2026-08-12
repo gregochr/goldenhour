@@ -18,13 +18,13 @@ import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationHandle;
 import com.gregochr.goldenhour.service.evaluation.EvaluationService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
@@ -64,6 +64,7 @@ public class ScheduledBatchEvaluationService {
     private final ForecastTaskCollector forecastTaskCollector;
     private final ForecastDispositionService dispositionService;
     private final JobRunService jobRunService;
+    private final java.time.Clock clock;
 
     /**
      * No-op between-steps hook for paths that do not split the submit into
@@ -92,6 +93,8 @@ public class ScheduledBatchEvaluationService {
      * @param forecastTaskCollector       Pass 3.2.1 collector — task construction + triage + bucketing
      * @param dispositionService          persists per-candidate disposition rows tied to the cycle's first job_run
      * @param jobRunService               creates the disposition-anchor run for zero-batch cycles
+     * @param clock                       supplies "today" for the batch-breakdown log line,
+     *                                    resolved in {@code Europe/London} by {@link ForecastHorizon}
      */
     public ScheduledBatchEvaluationService(
             ModelSelectionService modelSelectionService,
@@ -104,7 +107,8 @@ public class ScheduledBatchEvaluationService {
             EvaluationService evaluationService,
             ForecastTaskCollector forecastTaskCollector,
             ForecastDispositionService dispositionService,
-            JobRunService jobRunService) {
+            JobRunService jobRunService,
+            java.time.Clock clock) {
         this.modelSelectionService = modelSelectionService;
         this.noaaSwpcClient = noaaSwpcClient;
         this.weatherTriageService = weatherTriageService;
@@ -116,6 +120,7 @@ public class ScheduledBatchEvaluationService {
         this.forecastTaskCollector = forecastTaskCollector;
         this.dispositionService = dispositionService;
         this.jobRunService = jobRunService;
+        this.clock = clock;
     }
 
     /**
@@ -483,7 +488,7 @@ public class ScheduledBatchEvaluationService {
      * @param label batch label (e.g. "inland" or "coastal")
      */
     private void logBatchBreakdown(List<EvaluationTask.Forecast> tasks, String label) {
-        LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
+        LocalDate today = ForecastHorizon.today(clock);
 
         String dateBreakdown = tasks.stream()
                 .collect(Collectors.groupingBy(

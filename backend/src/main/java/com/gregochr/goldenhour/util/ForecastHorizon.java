@@ -21,12 +21,12 @@ import java.time.temporal.ChronoUnit;
  * absent.
  *
  * <p><b>Scope, stated precisely because the looser version of this sentence was wrong.</b> Every
- * derivation of a <em>horizon</em> — a T+N — routes through here. Several classes still call
- * {@code LocalDate.now(...)} in {@code Europe/London} for their own "today"
+ * derivation of a <em>horizon</em> — a T+N — routes through here, including the four classes
  * ({@code ForceEvalHeadlineSelector}, {@code BatchRetryService},
- * {@code ScheduledBatchEvaluationService}, {@code BriefingRollupBuilder}); they agree with this
- * class on the calendar, so they are duplication rather than divergence. The synchronous engine's
- * date <em>range</em> is a genuine exception and is still UTC-derived — see
+ * {@code ScheduledBatchEvaluationService}, {@code BriefingRollupBuilder}) that used to hand-roll
+ * {@code LocalDate.now(...)} in {@code Europe/London} for the same "today" — collapsed here since
+ * they already agreed with this class on the calendar and the swap was behaviourally inert. The
+ * synchronous engine's date <em>range</em> is a genuine exception and is still UTC-derived — see
  * {@code docs/engineering/intraday-settled-refresh-plan.md} §8a.
  *
  * <p>The clock is passed in rather than read from the system so a cycle sees one stable reference

@@ -30,6 +30,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.lang.reflect.Field;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -95,6 +96,10 @@ class ScheduledBatchEvaluationServiceTest {
     @Mock
     private com.gregochr.goldenhour.service.JobRunService jobRunService;
 
+    /** Fixed so the batch-breakdown log line never depends on wall-clock time. */
+    private static final Clock CLOCK = Clock.fixed(
+            java.time.Instant.parse("2026-04-14T12:00:00Z"), java.time.ZoneOffset.UTC);
+
     private ScheduledBatchEvaluationService service;
 
     @BeforeEach
@@ -107,7 +112,7 @@ class ScheduledBatchEvaluationServiceTest {
                 weatherTriageService, auroraOrchestrator,
                 locationRepository, auroraProperties, dynamicSchedulerService,
                 evaluationService, forecastTaskCollector, dispositionService,
-                jobRunService);
+                jobRunService, CLOCK);
     }
 
     // ── registerJobTargets ───────────────────────────────────────────────────
