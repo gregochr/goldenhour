@@ -744,30 +744,72 @@ A day that had already finished was recorded as the most reliable kind of foreca
 
 Both columns are analytics and gate nothing, and no backfill is planned — consistent with §8a.
 
+### The second sink, which the first draft of this section missed
+
+Stopping at `forecast_evaluation` accounts for one of two things the range steers. The dates also
+ride the submitted tasks — `EvaluationTask.Forecast(location, date, …)` with
+`WriteTarget.BRIEFING_CACHE` — and `ForecastResultHandler` keys `cached_evaluation` off
+`task.date()`. That store is **the rating the UI displays** (see CLAUDE.md's three-store table), and
+`BriefingService` reads a 5-day window from UK today.
+
+So in the divergent hour a JFDI run also spent a quarter of its Claude budget writing cache rows
+keyed on UK-**yesterday**, which is outside that window and can never be read, and wrote **none**
+for UK T+3, which is inside it. Stated carefully, because two reviewers reached opposite verdicts on
+this and both were right about what they had actually checked: the *mislabelled columns* are not
+user-visible — `forecast_evaluation.confidence` has no readers at all and `days_ahead` has one that
+never reaches the frontend — but the *dates* are, one indirection further on. The visible effect is
+an absence rather than a wrong number: the plan's T+3 cells kept whatever the nightly batch had left
+there, because this run refreshed one fewer day than it was asked to.
+
 ### Not changed
 
 `forceSubmit(regionId, date, event)`, the other entry point, takes its date from the request body.
-An admin naming a date explicitly gets that date, on the same reasoning as §8b's residual.
+An admin naming a date explicitly gets that date, on the same reasoning as §8b's residual —
+`BatchAdminController` rejects a null date rather than defaulting it, and no frontend calls the
+endpoint at all. Pinned by `forceSubmit_usesTheCallersDateEvenWhenPast` so the next negative horizon
+in the table is not refiled as a regression of this fix.
 
-`ScheduledBatchEvaluationService:616` builds an `EvaluationTask.Aurora` on a bare `LocalDate.now()`
-— no zone at all, so it reads the JVM default. Noted here because it was found while checking this
-one; it is an aurora task date rather than a forecast horizon, and it does not feed this path.
+Four sites elsewhere are still on a non-UK anchor and are now enumerated in `ForecastHorizon`'s
+javadoc rather than only here: `ScheduledBatchEvaluationService` **and** `AuroraOrchestrator` (the
+same bare `LocalDate.now()` aurora-task construct, twice — fixing one would leave the twin),
+`AlmanacService`'s 90-day feed anchor, and `AuroraForecastRunService`'s preview nights. None is a
+forecast horizon, none feeds this path, and all four predate these changes.
 
-### Test
+### Tests
 
-`ForceSubmitBatchServiceTest.submitJfdiBatch_anchorsRangeOnTheUkCivilDate` captures the dates handed
-to `fetchWeatherAndTriage` and asserts both the exact UK range and — in the consumer's own terms —
-that `ForecastHorizon.daysAhead` is non-negative for every one of them. That second assertion is the
-property that actually broke.
+`ForceSubmitBatchServiceTest.submitJfdiBatch_anchorsRangeOnTheUkCivilDate` asserts **both sinks**:
+the dates handed to `fetchWeatherAndTriage`, and — separately captured off
+`evaluationService.submit` — the dates on the tasks themselves. The second is not redundant. The
+stub echoes the requested date back into the `ForecastPreEvalResult`, so an implementation that
+built tasks from `preEval.date()` instead of the loop variable would satisfy every assertion about
+the first sink while the second still has to hold. The first draft asserted only the first sink,
+and would have passed such a change.
+
+It also asserts, in the consumer's own terms, that `ForecastHorizon.daysAhead` is non-negative for
+every date sent — the property that actually broke. `ForecastServiceTest.DaysAheadBasis` now pins
+the other half, which nothing did: that a **triaged row** stores that horizon and the confidence
+derived from it, with a second case at T+4 proving the column tracks the horizon rather than being
+wired to HIGH — which is what the −1 row looked like from outside.
 
 ⚠️ **Its fixed clock is a year in the future, and that is load-bearing.** The mutation this case
 defends against is a revert to `LocalDate.now(UTC)`, which ignores the injected clock and reads the
 real system date — so a fixture whose UK date happens to equal today's real UTC date agrees with the
 broken code by coincidence. Written first against `2026-08-11T23:30:00Z` and verified on
-2026-08-12, the mutation **survived**; moved to `2027-08-11T23:30:00Z`, it is killed. The sibling
-fixtures in §8b can safely use the 2026 instant because the mutation *they* defend against
-(`ForecastHorizon`'s zone constant) still flows through the injected clock, so any instant detects
-it. Different mutation, different requirement on the fixture.
+2026-08-12, the mutation **survived**; moved to `2027-08-11T23:30:00Z`, it is killed.
+
+⚠️ **The first version of this paragraph then got the general rule wrong, and a reviewer caught it.**
+It said the §8b fixtures could keep the 2026 instant because the mutation *they* defend against is
+`ForecastHorizon`'s zone constant, which flows through the injected clock. That is true of *a*
+mutation they face but not of all of them: §8b moved seven **call sites** onto
+`ForecastHorizon.today(clock)`, so reverting any one of those is the same clock-ignoring mutation
+this section is about — and on 2026-08-12, the day they were written and verified,
+`ForecastCommandFactoryTest`'s `ukToday` equalled the real UTC date, so that revert would have
+survived. They are safe from 2026-08-13 onward by the calendar moving on, not by design.
+
+The general rule, stated so it is not re-derived: **a fixed-clock fixture must not resolve to a date
+a real system clock could currently return.** Any past or far-future instant satisfies it; only
+"today" does not. It costs nothing to pick one, and it is the difference between a mutation-killing
+test and one that agrees with broken code for a day.
 
 ## Section 9 — Review provenance
 

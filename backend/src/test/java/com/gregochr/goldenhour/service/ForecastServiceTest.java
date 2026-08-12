@@ -1947,6 +1947,63 @@ class ForecastServiceTest {
             assertThat(fetchAt(midday, LocalDate.of(2026, 8, 12)).daysAhead()).isEqualTo(1);
         }
 
+        @Test
+        @DisplayName("a triaged row persists the UK horizon, and the confidence derived from it")
+        void triagedRow_persistsTheUkHorizonAndItsConfidence() {
+            // The cases above assert the returned value; this one asserts the *stored* one, which
+            // is the half nothing pinned. It matters because triage is the only branch of
+            // fetchWeatherAndTriage that writes a row, and it writes two horizon-derived columns:
+            // days_ahead, and confidence via ConfidenceDeriver.fromHorizon. A UTC-anchored caller
+            // handing this method the UK's yesterday stored -1 there — and fromHorizon(-1) takes
+            // the `daysAhead <= 1` branch, so a day already over was filed as HIGH confidence.
+            ForecastEvaluationEntity stored = triageAt(bstPreMidnight, LocalDate.of(2026, 8, 12));
+
+            assertThat(stored.getDaysAhead()).isZero();
+            assertThat(stored.getConfidence()).isEqualTo("HIGH");
+        }
+
+        @Test
+        @DisplayName("the stored confidence tracks the stored horizon rather than being constant")
+        void triagedRow_confidenceFollowsTheHorizon() {
+            // Without this, the assertion above passes against a column hard-wired to HIGH — which
+            // is exactly what the -1 row looked like from the outside.
+            ForecastEvaluationEntity stored = triageAt(bstPreMidnight, LocalDate.of(2026, 8, 16));
+
+            assertThat(stored.getDaysAhead()).isEqualTo(4);
+            assertThat(stored.getConfidence()).isEqualTo("LOW");
+        }
+
+        /**
+         * Drives {@code fetchWeatherAndTriage} down its triage branch and returns the entity it
+         * saved, so the persisted horizon columns can be asserted directly.
+         */
+        private ForecastEvaluationEntity triageAt(Clock at, LocalDate date) {
+            LocalDateTime sunset = date.atTime(20, 30);
+            when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+            when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
+            when(openMeteoService.getAtmosphericDataWithResponse(
+                    any(ForecastRequest.class), any(), any()))
+                    .thenReturn(new WeatherExtractionResult(
+                            buildAtmosphericData(sunset, TargetType.SUNSET),
+                            new OpenMeteoForecastResponse()));
+            when(weatherTriageEvaluator.evaluate(any()))
+                    .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
+
+            ForecastService service = new ForecastService(
+                    solarService, openMeteoService, augmentor, evaluationService,
+                    engineEvaluationService, repository, notificationDispatcher,
+                    eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
+                    survivorAtmosphereWriter, at);
+
+            service.fetchWeatherAndTriage(DURHAM_LOCATION, date, TargetType.SUNSET,
+                    Set.of(), EvaluationModel.SONNET, true, null);
+
+            ArgumentCaptor<ForecastEvaluationEntity> captor =
+                    ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+            verify(repository).save(captor.capture());
+            return captor.getValue();
+        }
+
         /**
          * Runs the real horizon derivation for one date against one clock, with every
          * collaborator stubbed to the minimum {@code fetchWeatherAndTriage} needs.

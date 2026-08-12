@@ -495,8 +495,14 @@ class ForceSubmitBatchServiceTest {
                 .thenReturn(EvaluationModel.HAIKU);
 
         AtmosphericData data = mock(AtmosphericData.class);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any()))
+        // Every argument matched exactly, per the file's own precedent in
+        // forceSubmit_passesCorrectArgumentsToForecastService. tideAlignmentEnabled in particular
+        // has to be eq(false): JFDI exists to bypass the gates, and matching it with any(Boolean)
+        // would let a flip to true — which tide-triages every SEASCAPE location out of a
+        // diagnostic batch — pass unnoticed.
+        when(forecastService.fetchWeatherAndTriage(eq(loc), any(LocalDate.class),
+                any(TargetType.class), eq(loc.getTideType()), eq(EvaluationModel.HAIKU),
+                eq(false), isNull()))
                 .thenAnswer(inv -> new ForecastPreEvalResult(
                         false, null, data, loc, inv.getArgument(1), inv.getArgument(2),
                         LocalDateTime.now(), 270, 0,
@@ -506,13 +512,31 @@ class ForceSubmitBatchServiceTest {
 
         pinned.submitJfdiBatch(List.of(7L));
 
+        List<LocalDate> ukRange = List.of(ukToday, ukToday.plusDays(1),
+                ukToday.plusDays(2), ukToday.plusDays(3));
+
         ArgumentCaptor<LocalDate> dateCaptor = ArgumentCaptor.forClass(LocalDate.class);
         verify(forecastService, times(8)).fetchWeatherAndTriage(
-                any(), dateCaptor.capture(), any(), any(), any(), any(Boolean.class), any());
+                eq(loc), dateCaptor.capture(), any(TargetType.class), eq(loc.getTideType()),
+                eq(EvaluationModel.HAIKU), eq(false), isNull());
 
-        assertThat(dateCaptor.getAllValues()).containsOnly(
-                ukToday, ukToday.plusDays(1), ukToday.plusDays(2), ukToday.plusDays(3));
-        assertThat(dateCaptor.getAllValues()).doesNotContain(ukYesterday);
+        // Sink 1 — forecast_evaluation. fetchWeatherAndTriage derives daysAhead from this date
+        // and, on the triage branch, persists it.
+        assertThat(dateCaptor.getAllValues()).containsOnly(ukRange.toArray(new LocalDate[0]));
+
+        // Sink 2 — cached_evaluation, which is the rating the UI displays. The submitted tasks
+        // carry the date independently of the captor above, and this is the sink the first draft
+        // of this test missed entirely: the stub echoes the requested date back into the preEval,
+        // so an implementation that built tasks from preEval.date() rather than from the loop
+        // variable would satisfy every assertion above while this one still has to hold.
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<EvaluationTask.Forecast>> taskCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(evaluationService).submit(taskCaptor.capture(), eq(BatchTriggerSource.JFDI));
+        assertThat(taskCaptor.getValue()).extracting(EvaluationTask.Forecast::date)
+                .containsOnly(ukRange.toArray(new LocalDate[0]));
+        assertThat(taskCaptor.getValue()).extracting(EvaluationTask.Forecast::date)
+                .doesNotContain(ukYesterday);
 
         // The property that actually broke, stated in the consumer's own terms rather than as a
         // date list: ForecastService derives daysAhead from these dates and persists it, along
@@ -522,6 +546,42 @@ class ForceSubmitBatchServiceTest {
         assertThat(dateCaptor.getAllValues())
                 .allSatisfy(d -> assertThat(ForecastHorizon.daysAhead(d, lateBstEvening))
                         .isNotNegative());
+    }
+
+    @Test
+    @DisplayName("forceSubmit uses the caller's date verbatim, past dates included")
+    void forceSubmit_usesTheCallersDateEvenWhenPast() {
+        // The residual, pinned so the next -1 in forecast_evaluation is not refiled as a
+        // regression of the JFDI fix. forceSubmit takes its date from the request body and this
+        // is deliberate: naming a past date explicitly is how a backfill asks for one, and
+        // BatchAdminController rejects a null date rather than defaulting it. Only the *default*
+        // range moved to the UK calendar; an explicit date was never the default's problem.
+        LocalDate longPast = LocalDate.of(2020, 1, 15);
+        RegionEntity region = buildRegion(7L, "Northumberland");
+        LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
+        when(regionRepository.findById(7L)).thenReturn(Optional.of(region));
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+
+        AtmosphericData data = mock(AtmosphericData.class);
+        when(forecastService.fetchWeatherAndTriage(eq(loc), eq(longPast), eq(TargetType.SUNSET),
+                eq(loc.getTideType()), eq(EvaluationModel.HAIKU), eq(false), isNull()))
+                .thenReturn(new ForecastPreEvalResult(
+                        false, null, data, loc, longPast, TargetType.SUNSET,
+                        LocalDateTime.now(), 270, -2400,
+                        EvaluationModel.HAIKU, loc.getTideType(), "key", null));
+        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.FORCE)))
+                .thenReturn(new EvaluationHandle(null, "msgbatch_force", 1));
+
+        service.forceSubmit(7L, longPast, TargetType.SUNSET);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<EvaluationTask.Forecast>> taskCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(evaluationService).submit(taskCaptor.capture(), eq(BatchTriggerSource.FORCE));
+        assertThat(taskCaptor.getValue()).extracting(EvaluationTask.Forecast::date)
+                .containsExactly(longPast);
     }
 
     @Test

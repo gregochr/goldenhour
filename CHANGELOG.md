@@ -29,10 +29,12 @@ inside that one hour, in British Summer Time. The map half needed nothing but a 
 was already forecast was wrong — days were missed, not mis-scored.
 
 The same wrong calendar was left in one more place, an admin diagnostic that submits a batch of
-forecasts on demand. In that hour it spent a quarter of the batch on a day that had already
-finished, and filed those away as the most reliable kind of forecast there is. It now counts from
-the same calendar as everything else. Nothing anyone sees on the map or the plan was affected —
-the mislabelled records are only ever read back for after-the-fact analysis.
+forecasts on demand. In that hour a quarter of the batch went on a day that had already finished.
+Two things followed. Where those forecasts were filed for later analysis, the ones that got as far
+as being filed were marked down as the most reliable kind there is, which they were the opposite of.
+And because the wasted quarter came out of the same budget, the run refreshed one day fewer than
+asked — so the furthest day it was meant to cover kept whatever the overnight run had left there
+instead. It now counts from the same calendar as everything else.
 
 ## [v2.18.3] - 2026-08-12
 
