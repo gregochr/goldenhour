@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.18.3] - 2026-08-12
+
 ### Changed — pipeline run timestamps say which clock they are on, and how long ago that was
 
 Admin timestamps read like "15:00:00" with no timezone. They were always UK local and always
