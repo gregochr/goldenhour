@@ -37,6 +37,11 @@ sensor. It deliberately does not travel with the science facts, because those ar
 users, and a blurred instruction to fit a solar filter is worse than none at all — it reads as
 something being withheld rather than something you need.
 
+It also leads the 90-day **Coming up** feed, with the same figures worked out the same way — the
+two paths share the catalogue and the reduction, so the Plan tab and the feed cannot disagree about
+what the eclipse looks like from here. The recurrence line is composed on the backend as a finished
+sentence, because that feed's rule is that no number is parsed or re-formatted in the browser.
+
 Two figures from the design were dropped rather than faked. "The lowest sun of any UK eclipse this
 century" needs a catalogue of a hundred years of eclipse circumstances that does not exist here, and
 "clear to the west at 31 of 57 sites" needs a horizon profile for each location that does not exist
