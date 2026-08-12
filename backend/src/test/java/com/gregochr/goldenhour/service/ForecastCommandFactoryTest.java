@@ -5,14 +5,19 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +48,9 @@ class ForecastCommandFactoryTest {
 
     private ForecastCommandFactory factory;
 
+    /** Production's clock, so these tests keep asserting against the real calendar. */
+    private final Clock clock = Clock.systemUTC();
+
     @BeforeEach
     void setUp() {
         noOpStrategy = new NoOpEvaluationStrategy();
@@ -51,7 +59,7 @@ class ForecastCommandFactoryTest {
                 EvaluationModel.SONNET, sonnetStrategy,
                 EvaluationModel.OPUS, opusStrategy,
                 EvaluationModel.WILDLIFE, noOpStrategy);
-        factory = new ForecastCommandFactory(modelSelectionService, strategies);
+        factory = new ForecastCommandFactory(modelSelectionService, strategies, clock);
     }
 
     @Test
@@ -219,7 +227,7 @@ class ForecastCommandFactoryTest {
         ForecastCommand cmd = factory.create(RunType.SHORT_TERM, false, null, null);
 
         assertThat(cmd.dates()).hasSize(3); // today, T+1, T+2
-        assertThat(cmd.dates().getFirst()).isEqualTo(LocalDate.now(ZoneOffset.UTC));
+        assertThat(cmd.dates().getFirst()).isEqualTo(ForecastHorizon.today(clock));
     }
 
     @Test
@@ -230,5 +238,81 @@ class ForecastCommandFactoryTest {
         assertThat(cmd.runType()).isEqualTo(RunType.BRIEFING);
         assertThat(cmd.strategy()).isNull();
         assertThat(cmd.dates()).hasSize(6);
+    }
+
+    /**
+     * The default date range is anchored on the UK civil date. Every case here runs at the one
+     * instant where that is not the same thing as UTC — 23:30 UTC under BST, which is already
+     * tomorrow in Britain. On the UTC anchor these ranges each began a day early.
+     */
+    @Nested
+    @DisplayName("Default date range anchor — Europe/London, not UTC")
+    class UkCivilDateAnchorTests {
+
+        /** 00:30 on 12 August in Europe/London (BST); still 23:30 on the 11th in UTC. */
+        private final Clock lateBstEvening =
+                Clock.fixed(Instant.parse("2026-08-11T23:30:00Z"), ZoneOffset.UTC);
+
+        private final LocalDate ukToday = LocalDate.of(2026, 8, 12);
+        private final LocalDate ukYesterday = LocalDate.of(2026, 8, 11);
+
+        private ForecastCommandFactory bandFactory;
+
+        @BeforeEach
+        void buildFactoryOnThePinnedClock() {
+            bandFactory = new ForecastCommandFactory(modelSelectionService,
+                    Map.of(EvaluationModel.HAIKU, haikuStrategy,
+                            EvaluationModel.SONNET, sonnetStrategy,
+                            EvaluationModel.OPUS, opusStrategy),
+                    lateBstEvening);
+        }
+
+        @Test
+        @DisplayName("premise: at this instant the UK and UTC calendars are exactly one day apart")
+        void premise_theTwoCalendarsDisagreeHere() {
+            assertThat(LocalDate.now(lateBstEvening.withZone(ZoneOffset.UTC)))
+                    .isEqualTo(ukYesterday);
+            assertThat(LocalDate.now(lateBstEvening.withZone(ZoneId.of("Europe/London"))))
+                    .isEqualTo(ukToday);
+        }
+
+        @Test
+        @DisplayName("VERY_SHORT_TERM covers UK today and tomorrow — not UK yesterday and today")
+        void veryShortTerm_startsOnUkToday() {
+            when(modelSelectionService.getActiveModel(RunType.VERY_SHORT_TERM))
+                    .thenReturn(EvaluationModel.HAIKU);
+
+            ForecastCommand cmd = bandFactory.create(RunType.VERY_SHORT_TERM, true);
+
+            assertThat(cmd.dates()).containsExactly(ukToday, ukToday.plusDays(1));
+            assertThat(cmd.dates()).doesNotContain(ukYesterday);
+        }
+
+        @Test
+        @DisplayName("SHORT_TERM covers UK today through T+2 — not UK yesterday through T+1")
+        void shortTerm_startsOnUkToday() {
+            when(modelSelectionService.getActiveModel(RunType.SHORT_TERM))
+                    .thenReturn(EvaluationModel.SONNET);
+
+            ForecastCommand cmd = bandFactory.create(RunType.SHORT_TERM, true);
+
+            assertThat(cmd.dates()).containsExactly(
+                    ukToday, ukToday.plusDays(1), ukToday.plusDays(2));
+        }
+
+        @Test
+        @DisplayName("LONG_TERM covers UK T+3 through the horizon, reaching its furthest day")
+        void longTerm_startsThreeDaysAfterUkToday() {
+            when(modelSelectionService.getActiveModel(RunType.LONG_TERM))
+                    .thenReturn(EvaluationModel.OPUS);
+
+            ForecastCommand cmd = bandFactory.create(RunType.LONG_TERM, true);
+
+            // LONG_TERM has no same-day slots, so nothing downstream trims a day-early range:
+            // on the UTC anchor it re-scored T+2 and never reached the far end of the horizon.
+            assertThat(cmd.dates().getFirst()).isEqualTo(ukToday.plusDays(3));
+            assertThat(cmd.dates().getLast())
+                    .isEqualTo(ukToday.plusDays(RunType.FORECAST_HORIZON_DAYS));
+        }
     }
 }

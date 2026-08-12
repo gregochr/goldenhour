@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — a forecast run started late on a summer evening now covers the right days
+
+Between eleven at night and midnight in summer, Britain has already turned the page on the calendar
+while the clock the app counted days from had not. A forecast run started in that hour therefore
+began a day too early: it opened on a day that was already over, quietly threw away every slot on it
+because sunrise and sunset had both long passed, and stopped a day short of where it should have
+reached. The long-range run had it worse, because nothing was there to throw anything away — it
+re-did a day the shorter runs already cover, and never reached the far end of its own forecast
+window at all.
+
+Runs now count their days from the British calendar, which is the one the sunrises and sunsets they
+are forecasting actually happen on. The map's date range moved with them, so it shows what was just
+forecast rather than stopping a day short of it.
+
+This only ever affected runs started by hand inside that one hour, and only in British Summer Time —
+the scheduled runs never fall in it. Nothing that was already forecast was wrong; days were missed,
+not mis-scored.
+
 ## [v2.18.3] - 2026-08-12
 
 ### Changed — pipeline run timestamps say which clock they are on, and how long ago that was

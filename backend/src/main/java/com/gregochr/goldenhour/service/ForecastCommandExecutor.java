@@ -22,11 +22,13 @@ import com.gregochr.goldenhour.model.RunPhase;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.service.batch.GridCellStabilityService;
 import com.gregochr.goldenhour.service.batch.NightlyEligibilityPolicy;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -74,6 +76,7 @@ public class ForecastCommandExecutor {
     private final SentinelSelector sentinelSelector;
     private final AstroConditionsService astroConditionsService;
     private final OpenMeteoService openMeteoService;
+    private final Clock clock;
 
     /**
      * Shared classifier + snapshot producer, wrapping the injected classifier and
@@ -100,6 +103,9 @@ public class ForecastCommandExecutor {
      * @param stabilityClassifier         classifies forecast stability per grid cell
      * @param openMeteoService            Open-Meteo service for batch weather pre-fetching
      * @param stabilitySnapshotProvider   in-memory + DB store for stability snapshots
+     * @param clock                       single reference clock for the run: supplies "today" on the
+     *                                    UK civil calendar via {@link ForecastHorizon}, and the UTC
+     *                                    instant the already-past event check compares against
      */
     public ForecastCommandExecutor(ForecastService forecastService,
             LocationService locationService, JobRunService jobRunService,
@@ -111,7 +117,8 @@ public class ForecastCommandExecutor {
             AstroConditionsService astroConditionsService,
             ForecastStabilityClassifier stabilityClassifier,
             OpenMeteoService openMeteoService,
-            StabilitySnapshotProvider stabilitySnapshotProvider) {
+            StabilitySnapshotProvider stabilitySnapshotProvider,
+            Clock clock) {
         this.forecastService = forecastService;
         this.locationService = locationService;
         this.jobRunService = jobRunService;
@@ -125,6 +132,7 @@ public class ForecastCommandExecutor {
         this.sentinelSelector = sentinelSelector;
         this.astroConditionsService = astroConditionsService;
         this.openMeteoService = openMeteoService;
+        this.clock = clock;
         this.gridCellStabilityService =
                 new GridCellStabilityService(stabilityClassifier, stabilitySnapshotProvider);
     }
@@ -233,8 +241,14 @@ public class ForecastCommandExecutor {
         int succeeded = 0;
         int failed = 0;
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        // Two questions, two calendars, one clock. "Which day is today" is a UK civil-calendar
+        // question, because a target date names a solar event at a UK location — see
+        // ForecastHorizon. "Has this moment passed" is an instant comparison, and the eventTime it
+        // is measured against comes back from solarService as a UTC LocalDateTime, so `now` must
+        // stay UTC; reading it in Europe/London would put the gate an hour into the future in
+        // summer. Both are drawn from the injected clock so the two cannot drift apart mid-run.
+        LocalDate today = ForecastHorizon.today(clock);
+        LocalDateTime now = LocalDateTime.now(clock.withZone(ZoneOffset.UTC));
 
         // Build non-skipped task descriptors; collect skipped keys to publish after tracker init
         List<TaskDescriptor> nonSkippedTasks = new ArrayList<>();
@@ -748,6 +762,20 @@ public class ForecastCommandExecutor {
         return loc.getLocationType().contains(LocationType.WILDLIFE) && !loc.hasColourTypes();
     }
 
+    /**
+     * Whether a slot's solar event has already happened, and so should never be evaluated.
+     *
+     * <p>Only same-day slots can qualify, and {@code today} is therefore a <em>UK civil</em> date —
+     * a target date names a UK solar event. {@code now} and {@code eventTime} are both UTC and are
+     * compared as instants; that comparison is not a calendar question and must not become one.
+     *
+     * @param targetDate the slot's target date
+     * @param targetType SUNRISE or SUNSET
+     * @param location   the location whose solar times decide the event instant
+     * @param today      today on the UK civil calendar
+     * @param now        the current instant, in UTC
+     * @return {@code true} if the slot is today and its event is already past
+     */
     private boolean shouldSkipEvent(LocalDate targetDate, TargetType targetType,
             LocationEntity location, LocalDate today, LocalDateTime now) {
         if (!targetDate.equals(today)) {

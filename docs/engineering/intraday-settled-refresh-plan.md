@@ -482,7 +482,9 @@ different engine path:
 
 ### What was deliberately left
 
-- **The synchronous engine's date *range* is still UTC-derived** (`ForecastCommandFactory:107`,
+- ~~**The synchronous engine's date *range* is still UTC-derived**~~ — **RESOLVED 2026-08-12, see
+  §8b below.** The reasoning is kept verbatim because the shape of the fix turned on it.
+  (`ForecastCommandFactory:107`,
   and the same-day past-event check at `ForecastCommandExecutor:236`). That selects *which dates* a
   run covers, not how far ahead they are, so it is an adjacent divergence rather than this one. In
   the band a run's range therefore starts on the UK's *yesterday*. **The default range persists no
@@ -508,8 +510,8 @@ different engine path:
 > identical, since `LocalDate.now(ZoneId.of("Europe/London"))` and `Clock.systemUTC().withZone(...)`
 > both read the same system clock, just through different APIs. Byte-for-byte equivalence was the
 > whole bar: none of these four decide anything, they only label a horizon already decided elsewhere.
-> The other two deliberately-left items above — the synchronous engine's UTC date range and no
-> backfill — are unchanged.
+> The synchronous engine's UTC date range was still unchanged at that point; §8b closes it. No
+> backfill of historical rows, either then or now.
 
 ### Tests
 
@@ -525,6 +527,119 @@ than an offset hack applied to late evenings.
 
 All three were **mutation-verified**: reverting the collector to `preEval.daysAhead()` kills 2 cases;
 reverting `ForecastHorizon` to UTC kills 5 across both classes.
+
+## Section 8b — RESOLVED: the synchronous engine's date range
+
+**Fixed 2026-08-12, the follow-up §8a's "what was deliberately left" list asked for.**
+
+§8a moved every *horizon* derivation to the UK civil calendar and left the synchronous engine's date
+*range* on UTC, on the grounds that "which dates a run covers" is an adjacent question to "how far
+ahead they are". That was the right call for one commit and the wrong resting place, for a reason
+that only becomes visible once you ask what §8a actually moved.
+
+### What made it stop being optional
+
+`ForecastCommandExecutor`'s already-past gate has only ever guarded **one** day:
+
+```java
+if (!targetDate.equals(today)) {
+    return false;                      // every other date passes, past ones included
+}
+return now.isAfter(eventTime);
+```
+
+§8a did not touch this method — but the day it guards is whatever `today` holds, and this commit
+moves `today` to `Europe/London`. So in the 23:00–00:00 UTC band under BST, the gate stops guarding
+UTC-today and starts guarding UK-today. Any *other* code still handing this engine a UTC "today"
+would then be naming a date the gate had just released — and in that band, a date whose sunrise and
+sunset are both hours gone. Converting the factory without converting those callers would have
+turned a wasted slot into an evaluated one, which is worse than what it started from. That is why
+this is one commit and not three.
+
+### The four sites
+
+| site | what it decides | was | now |
+|---|---|---|---|
+| `ForecastCommandFactory.defaultDates` | the default range for a run type | `LocalDate.now(UTC)` | `ForecastHorizon.today(clock)` |
+| `ForecastCommandExecutor` (the `today` fed to `shouldSkipEvent`) | which single day the already-past gate guards | `LocalDate.now(UTC)` | `ForecastHorizon.today(clock)` |
+| `ForecastController` `POST /run` | the date used when the request body names none | `LocalDate.now(UTC)` | `ForecastHorizon.today(clock)` |
+| `ForecastController` `GET /api/forecast` | the T-2…T+5 serve window | `LocalDate.now(UTC)` | `ForecastHorizon.today(clock)` |
+
+The serve window is in the list because leaving it would have created a *new* disagreement rather
+than preserving an old one: the engine would forecast to UK-today+5 while the map queried only to
+UK-today+4. Pre-fix the two agreed by both being wrong together.
+
+Each class gained a `Clock` constructor parameter wired to the existing unconditional `AppConfig`
+bean — the same shape §8a and the four-class collapse used.
+
+**`now` is not on the UK calendar and must not be.** `ForecastCommandExecutor` still compares
+`now.isAfter(eventTime)` against a UTC `LocalDateTime` from `solarService`, so `now` is read as
+`LocalDateTime.now(clock.withZone(ZoneOffset.UTC))` — sourced from the same injected clock as
+`today`, so a run cannot see the two drift apart, but explicitly UTC. Reading it in `Europe/London`
+would put the gate an hour into the future all summer. The day is a calendar question; the moment is
+not.
+
+### Behaviour change, stated precisely
+
+Everything below is confined to the 23:00–00:00 UTC hour under BST, and only to
+manually-triggered ADMIN runs (`POST /api/forecast/run`, `/run/very-short-term|short-term|long-term`
+— the seeded schedules do not fire in that hour). The mechanism is established by direct code
+reading and pinned by tests; **no production run has been observed doing any of this**, and the
+claims below should not be repeated as though one had.
+
+- **VERY_SHORT_TERM / SHORT_TERM reach one more real day.** The range was
+  `{UK-yesterday … }`; its first day was then entirely dropped by the already-past gate, so the run
+  spent a slot on nothing and stopped one day short. It now starts on UK-today.
+- **LONG_TERM changes more than that, because nothing trimmed it.** Its range is T+3…T+5, so no day
+  in it ever equalled `today` and the gate never fired. It therefore *evaluated* UK-today+2 — a day
+  SHORT_TERM already covers — and never reached UK-today+5. Both ends now land where the run type
+  says they should.
+- **`POST /api/forecast/run` with no dates** ran UK-yesterday, whose events are all past. Pre-fix
+  the gate silently dropped every slot; post-fix that day is not requested at all.
+- **The map's serve window** shifts by a day in that hour, gaining T+5 and dropping what was T-3.
+
+### What is still UTC, deliberately
+
+`PromptTestService.resolveDates` — the admin prompt-test harness — still anchors its range on UTC,
+and `PromptTestServiceTest`'s note that the harness "sweeps exactly production's range" is
+consequently a day out for that one hour. It was converted during this change and then **reverted**:
+the same class decides which target types a date still has in `resolveTargetTypesForDate`, whose day
+comes from a caller-supplied UTC `LocalDateTime` rather than from a clock. Converting the range
+alone would have left one class reasoning on two calendars — the exact defect `ForecastHorizon`
+exists to prevent — and converting both is a separate change with its own reasoning about a
+caller-supplied instant. A wholly-UTC harness is at least self-consistent.
+
+Also unchanged: no backfill of historical rows, and Gate 4 in this engine needed nothing. It reads
+`task.daysAhead()` off `ForecastPreEvalResult`, which `ForecastService` has computed through
+`ForecastHorizon` since §8a.
+
+### Tests
+
+`ForecastCommandFactoryTest.UkCivilDateAnchorTests` and
+`ForecastCommandExecutorTest.PastEventGateTests` both pin `2026-08-11T23:30:00Z` — 00:30 BST on the
+12th — and each opens with a premise case asserting the two calendars really are a day apart at that
+instant, so the fixture reproduces the disagreement rather than describing it. The factory cases
+assert all three run types' ranges start on the UK date, LONG_TERM including its far end. The
+executor cases assert that the gate consults `solarService` for UK-today (reachable only once
+`targetDate == today`) and never for UTC-today, and that UTC-today is consequently evaluated —
+pinning the residual below rather than leaving it to be discovered.
+
+The instant half is pinned separately, at clocks where the calendars agree so it cannot pass for
+calendar behaviour: a past sunrise is dropped while the same day's sunset survives, and an event at
+*exactly* the current instant survives, because `isAfter` is strict.
+
+**Mutation-verified**: reverting `ForecastHorizon` to UTC kills 5 of these cases and leaves the two
+instant cases green — which is the separation working. Restoring the mutation used `cp` from a
+backup, never `git checkout --`.
+
+### The residual, so it is not rediscovered as a bug
+
+An **explicitly named** past date is still evaluated, because the gate has only ever guarded one
+day. That was true before this commit for every past date except UTC-today; it is now true for that
+one too. No default range can reach such a date any more — all four sites above anchor on the UK
+calendar — so it arrives only when an admin names it, and naming a past date is how a deliberate
+backfill asks for one. Making the gate skip *any* past event would be a real improvement and a
+different change: it would also start refusing those backfills.
 
 ## Section 9 — Review provenance
 

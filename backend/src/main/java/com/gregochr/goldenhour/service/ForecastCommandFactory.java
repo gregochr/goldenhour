@@ -4,10 +4,11 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -24,17 +25,21 @@ public class ForecastCommandFactory {
 
     private final ModelSelectionService modelSelectionService;
     private final Map<EvaluationModel, EvaluationStrategy> strategies;
+    private final Clock clock;
 
     /**
      * Constructs a {@code ForecastCommandFactory}.
      *
      * @param modelSelectionService resolves the active model for a run type
      * @param strategies            map from evaluation model to its strategy
+     * @param clock                 supplies "today" for the default date range, resolved in
+     *                              {@code Europe/London} by {@link ForecastHorizon}
      */
     public ForecastCommandFactory(ModelSelectionService modelSelectionService,
-            Map<EvaluationModel, EvaluationStrategy> strategies) {
+            Map<EvaluationModel, EvaluationStrategy> strategies, Clock clock) {
         this.modelSelectionService = modelSelectionService;
         this.strategies = strategies;
+        this.clock = clock;
     }
 
     /**
@@ -100,11 +105,16 @@ public class ForecastCommandFactory {
     /**
      * Returns the default dates for the given run type.
      *
+     * <p>The range is anchored on the UK civil date, not UTC: every date it produces names a solar
+     * event at a UK location, so it must be counted from the day those locations are living in. On
+     * a UTC anchor the range began on the UK's <em>yesterday</em> between 23:00 and 00:00 UTC under
+     * BST — a day whose events are all past, and which therefore cost the run its furthest day.
+     *
      * @param runType the run type
      * @return list of dates
      */
     private List<LocalDate> defaultDates(RunType runType) {
-        return runType.defaultDateRange(LocalDate.now(ZoneOffset.UTC));
+        return runType.defaultDateRange(ForecastHorizon.today(clock));
     }
 
     /**

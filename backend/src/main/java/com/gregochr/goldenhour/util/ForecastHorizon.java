@@ -26,8 +26,27 @@ import java.time.temporal.ChronoUnit;
  * {@code ScheduledBatchEvaluationService}, {@code BriefingRollupBuilder}) that used to hand-roll
  * {@code LocalDate.now(...)} in {@code Europe/London} for the same "today" — collapsed here since
  * they already agreed with this class on the calendar and the swap was behaviourally inert. The
- * synchronous engine's date <em>range</em> is a genuine exception and is still UTC-derived — see
+ * synchronous engine's date <em>range</em> was the one genuine exception; it is no longer, and the
+ * reason it had to stop being one is worth keeping. {@link #today} answers "which day is it", and
+ * moving that answer to the UK calendar moved the single day
+ * {@code ForecastCommandExecutor}'s already-past gate guards. Anything still handing that engine a
+ * UTC "today" would therefore be naming a day the gate had just let go of — and, in the hour where
+ * the two calendars differ, a day whose events are all over. A half-converted engine was worse than
+ * an unconverted one, so {@code ForecastCommandFactory} (the default range) and
+ * {@code ForecastController} (the {@code POST /run} default date, and the {@code GET} serve window
+ * that has to agree with it) moved in the same commit. See
  * {@code docs/engineering/intraday-settled-refresh-plan.md} §8a.
+ *
+ * <p><b>What is deliberately still UTC.</b> {@code PromptTestService.resolveDates} — the admin
+ * prompt-test harness. Its range would belong here, but the same class decides which target types
+ * a date still has via {@code resolveTargetTypesForDate}, whose day comes from a caller-supplied
+ * UTC instant; converting the range alone would split one class across two calendars, which is the
+ * defect this class exists to prevent rather than a step towards fixing it.
+ *
+ * <p><b>An instant is not a calendar.</b> Nothing here answers "has this moment passed". That
+ * question is settled by comparing UTC instants — {@code ForecastCommandExecutor} draws both from
+ * the same injected clock, but reads the day in {@code Europe/London} and the moment in UTC. Do not
+ * collapse the two.
  *
  * <p>The clock is passed in rather than read from the system so a cycle sees one stable reference
  * date and tests can pin the disagreeing hour.
