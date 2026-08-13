@@ -1,11 +1,34 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import MetricsSummary from '../components/MetricsSummary.jsx';
 
-const now = new Date();
-const todayStr = now.toLocaleDateString('en-CA');
-const yesterdayStr = new Date(now.getTime() - 86400000).toLocaleDateString('en-CA');
-const eightDaysAgo = new Date(now.getTime() - 8 * 86400000).toISOString();
+/**
+ * The clock is frozen, and the fixtures are built on the UK calendar rather than on the runner's.
+ *
+ * <p>Both used to come from a live `new Date()` + `toLocaleDateString()` with no zone, which is two
+ * hazards at once. The card now filters "today" on `Europe/London`, so a machine-zone fixture is
+ * asking a different question from the code; and a wall-clock fixture makes the suite's result a
+ * property of when it runs — this repo has been bitten from both directions, once by a `Clock.fixed`
+ * that landed on the real today and let a mutation survive, once by a "Today" fixture that went red
+ * overnight and blocked an unrelated PR.
+ *
+ * <p>16:00 UK on 13 August 2026, i.e. BST — deliberately NOT an instant where the UK and UTC
+ * calendars agree by accident, and far from the midnight boundary so the ±8-day fixtures below stay
+ * unambiguous.
+ */
+const FROZEN_NOW = '2026-08-13T15:00:00Z';
+const todayStr = '2026-08-13';
+const yesterdayStr = '2026-08-12';
+const eightDaysAgo = '2026-08-05T15:00:00Z';
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(FROZEN_NOW));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 const MOCK_RUNS = [
   {

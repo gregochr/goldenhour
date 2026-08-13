@@ -30,6 +30,10 @@ vi.mock('../api/auroraApi', () => ({
 
 vi.mock('../api/briefingApi.js', () => ({
   runBriefing: vi.fn(),
+  // Mocked but never asserted here: the run dialog reads it only to decide whether a slot's solar
+  // event has already happened. Resolving to null is the "no times known" path, under which the
+  // dialog marks nothing past — which is what this file's batch assertions assume.
+  getDailyBriefing: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('../api/modelsApi', () => ({

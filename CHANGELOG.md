@@ -5,6 +5,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — "has this slot already happened?" now asks the sun, and two admin filters read the UK day
+
+**The wall-clock threshold was not mistuned, it was unfixable.** The run dialog decided a slot was
+past with `hour >= 12` for sunrise and `hour >= 22` for sunset. Measured over the GB bounding box in
+the fortnight around the 2026 solstice, sunset reaches **23:06** UK on Lewis and 23:51 at the
+box's north-west corner — and there is no hour above 23. The previous entry's own figure ("~21:55 in
+the Lakes") was optimistic: the Lakes make 22:06, and **Ayrshire, a region actually on this roster,
+makes 22:25**, so the shipped 22:00 marked a sunset past twenty-five minutes before it happened. A
+slot marked past is disabled *and* dropped from the exclusion list, so that is the error direction
+that strands a run.
+
+It is now an instant test against the **latest** solar event across the roster, taken from the
+`/api/briefing` payload the app already serves. ⚠️ **The latest, never `eventSummary.solarEventTime`**
+— that field exists, looks exactly right, and is the *earliest* by design (`BriefingEventSummary`
+chose it for determinism, on the reasonable grounds that the spread "changes nothing a reader could
+see"; true for an afterglow window, false for this). Reading it would reintroduce the same defect in
+a subtler form, so `solarEventTimes.js` takes the max across every regioned and unregioned slot and
+says why.
+
+**Unknown means no claim.** No briefing, a date outside its window, slots without times — every one
+of those leaves the slot selectable rather than guessing, and `ForecastCommandExecutor`'s own
+already-past gate skips whatever is genuinely over. Verified in the browser: locally `/api/briefing`
+is a 204, and the dialog correctly marks nothing past. The marking is also **derived at render**
+rather than baked into the slot list, because the times arrive from a fetch and the dialog can be
+opened before they land — baked in, an admin quick enough to click Run first would get a dialog that
+never marked anything past, permanently and silently. That also removes the term that made a wrong
+"past" dangerous: a past slot stays selected underneath and merely renders disabled and unticked, so
+`!selected` alone cannot carry it into `excludedSlots`.
+
+**And the two display filters that were left last time.** `MetricsSummary` and
+`JobRunsMetricsView`'s `dateFilteredRuns` compared the *device's* date with `startedAt.slice(0, 10)`
+— the *UTC* date of a backend instant — so the "Today" toggle could empty a list that plainly had
+runs in it. Both now read the run's **UK** day via `ukDateStr(parseUtcInstant(...))`, the idiom
+`conversions.js` documents for exactly this. The 7-day branch had the second half of the same bug:
+`startedAt` is a `LocalDateTime` and arrives bare, so `new Date(startedAt)` read it as the reader's
+local time and shifted every run by their offset — four hours in New York, which is enough to drag a
+run across the window edge. Both `useMemo`s also froze "today" at mount and never rolled over at
+midnight.
+
 ### Fixed — the admin run dialog sent UTC slot dates to a backend keyed to the UK
 
 `computeSlots` built its `{date, targetType}` pairs from `toISOString()` and `getUTCHours()`. Those
