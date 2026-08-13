@@ -182,7 +182,7 @@ public class BriefingSlotBuilder {
                         buildingDetected);
         BriefingVerdictEvaluator.TideContext tideContext = new BriefingVerdictEvaluator.TideContext(
                 tideResult.tideState(), tideResult.tideAligned(),
-                tideResult.isKingTide(), tideResult.isSpringTide(),
+                tideResult.heightAboveP95(), tideResult.heightAboveSpringThreshold(),
                 tideResult.lunarTideType(), tidesNotAligned);
         List<String> flags = verdictEvaluator.buildFlags(weatherMetrics, tideContext);
 
@@ -197,7 +197,7 @@ public class BriefingSlotBuilder {
         BriefingSlot.TideInfo tideInfo = new BriefingSlot.TideInfo(
                 tideResult.tideState(), tideResult.tideAligned(),
                 tideResult.nearestHighTime(), tideResult.nearestHighHeight(),
-                tideResult.isKingTide(), tideResult.isSpringTide(),
+                tideResult.heightAboveP95(), tideResult.heightAboveSpringThreshold(),
                 tideResult.lunarTideType(), tideResult.lunarPhase(),
                 tideResult.moonAtPerigee());
 
@@ -241,7 +241,7 @@ public class BriefingSlotBuilder {
      */
     record TideResult(String tideState, boolean tideAligned,
             LocalDateTime nearestHighTime, BigDecimal nearestHighHeight,
-            boolean isKingTide, boolean isSpringTide,
+            boolean heightAboveP95, boolean heightAboveSpringThreshold,
             LunarTideType lunarTideType, String lunarPhase, Boolean moonAtPerigee) {
 
         static final TideResult NONE =
@@ -271,17 +271,17 @@ public class BriefingSlotBuilder {
         // Apply the briefing's high-tide alignment gate around the raw statistical signals from the
         // single derivation. The deriver returns ungated king/spring height flags; the briefing only
         // surfaces them when a high tide falls within +/-90 minutes of the solar event.
-        boolean isKingTide = false;
-        boolean isSpringTide = false;
+        boolean heightAboveP95 = false;
+        boolean heightAboveSpringThreshold = false;
         if (d.tideState() == TideState.HIGH && d.nearestHighTideTime() != null
                 && Math.abs(ChronoUnit.MINUTES.between(d.nearestHighTideTime(), solarTime))
                         <= TIDE_WINDOW_MINUTES) {
-            isKingTide = d.heightAboveP95();
-            isSpringTide = d.heightAboveSpringThreshold();
+            heightAboveP95 = d.heightAboveP95();
+            heightAboveSpringThreshold = d.heightAboveSpringThreshold();
         }
 
         return new TideResult(d.tideState().name(), d.tideAligned(), d.nearestHighTideTime(),
-                d.nextHighTideHeightMetres(), isKingTide, isSpringTide,
+                d.nextHighTideHeightMetres(), heightAboveP95, heightAboveSpringThreshold,
                 d.lunarTideType(), d.lunarPhase(), d.moonAtPerigee());
     }
 

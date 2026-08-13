@@ -290,13 +290,13 @@ public final class BriefingRollupBuilder {
 
         // Legacy: statistical "king tide" detection (P95)
         List<String> kingTideLocations = region.slots().stream()
-                .filter(s -> s.tide().isKingTide())
+                .filter(s -> s.tide().heightAboveP95())
                 .map(BriefingSlot::locationName)
                 .toList();
 
         // Legacy: statistical "spring tide" detection (>125% avg)
         boolean hasSpringTide = region.slots().stream()
-                .anyMatch(s -> s.tide().isSpringTide());
+                .anyMatch(s -> s.tide().heightAboveSpringThreshold());
 
         ObjectNode regionNode = regionsNode.addObject();
         regionNode.put("name", region.regionName());

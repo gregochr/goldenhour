@@ -694,16 +694,39 @@ class KingTideHotTopicStrategyTest {
                 "tide aligned with sunrise at 1 of 1 coastal location");
     }
 
-    // ── Statistical king tide detection ───────────────────────────────────────
+    // ── The size axis does NOT name the event ────────────────────────────────
 
     @Test
-    @DisplayName("statistical king tide (isKingTide=true, lunarTideType=REGULAR) emits pill")
-    void detect_statisticalKingTide_emitsPill() {
-        BriefingSlot.TideInfo statisticalKing = new BriefingSlot.TideInfo(
+    @DisplayName("a merely-big tide is not a king tide — height above P95 with no perigee "
+            + "emits nothing")
+    void detect_heightAboveP95WithoutPerigee_emitsNoKingPill() {
+        // This test asserted the OPPOSITE and passed, which is how the conflation shipped: a high
+        // water in the top 5% for its port printed a card headed "King tide", describing "the
+        // moon's closest approach to Earth" on a date with no perigee anywhere near it. King is a
+        // perigean spring — a lunar configuration — and P95 is a size test that says nothing about
+        // the moon. August 2026 is the case in point: the roster's biggest water of the month
+        // cleared P95 four and a half days after the nearest perigee.
+        BriefingSlot.TideInfo bigButNotPerigean = new BriefingSlot.TideInfo(
                 "HIGH", true, null, null, true, true, LunarTideType.REGULAR_TIDE,
                 "Waxing Gibbous", false);
         when(briefingService.getCachedDays()).thenReturn(List.of(
-                buildDayWithTide(TODAY, statisticalKing)));
+                buildDayWithTide(TODAY, bigButNotPerigean)));
+
+        assertThat(strategy.detect(TODAY, TO_DATE)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a perigean spring is a king tide even when the water is not above P95 — the "
+            + "label follows the moon, not the height")
+    void detect_perigeanSpringWithOrdinaryHeight_emitsKingPill() {
+        // The mirror of the case above, and the reason removing the height arm is not simply
+        // narrowing: the two tests can now disagree, and this one is the direction that used to be
+        // unreachable at a port having a quiet day during a genuine king tide.
+        BriefingSlot.TideInfo perigeanButOrdinary = new BriefingSlot.TideInfo(
+                "HIGH", true, null, null, false, false, LunarTideType.KING_TIDE,
+                "Full Moon", true);
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                buildDayWithTide(TODAY, perigeanButOrdinary)));
         stubCoastalLocations(TODAY, "Northumberland");
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
@@ -1141,10 +1164,10 @@ class KingTideHotTopicStrategyTest {
                 .tideType(Set.of(TideType.HIGH)).region(region).enabled(true).build();
     }
 
-    // ── isKingTide negative — neither flag matches ──────────────────────
+    // ── heightAboveP95 negative — neither flag matches ──────────────────────
 
     @Test
-    @DisplayName("findKingTide returns null when all slots have isKingTide=false and REGULAR_TIDE")
+    @DisplayName("findKingTide returns null when all slots have heightAboveP95=false and REGULAR_TIDE")
     void findKingTide_noKingTideFlags_returnsNull() {
         BriefingSlot.TideInfo notKing = new BriefingSlot.TideInfo(
                 "HIGH", true, null, null, false, true,
@@ -1295,6 +1318,8 @@ class KingTideHotTopicStrategyTest {
                         ? "no clear tide/sun alignment"
                         : "HW 04:58 · 39m before " + alignedEvent,
                 alignedEvent != null, alignedEvent,
+                // Non-null with alignedEvent, as the builder guarantees.
+                alignedEvent == null ? null : "HW 04:58 · 39m before " + alignedEvent,
                 new TideRunDay.RosterAlignment(sunriseAligned, sunsetAligned, measured),
                 false, null);
     }

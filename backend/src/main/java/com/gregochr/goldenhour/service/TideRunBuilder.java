@@ -347,6 +347,12 @@ public class TideRunBuilder {
         Point otherPoint = nearestSolar(day.points(),
                 king ? TideExtremeType.LOW : TideExtremeType.HIGH, sunriseMinutes, sunsetMinutes);
 
+        // Whether this port's water is actually big today, as opposed to whether the moon says the
+        // event is a spring or a king one. Withheld rather than assumed when the location has no
+        // observed spring-neap cycle to have a threshold from.
+        boolean notablyHigh = stats != null && stats.springTideThreshold() != null
+                && day.high() > stats.springTideThreshold().doubleValue();
+
         // A one-day run has no peak to point at — every day is trivially the biggest, and a "peak
         // range" badge on a lone card claims a comparison that was never made.
         boolean peak = dayCount > 1 && Math.abs(day.range() - peakRange) < 1e-9;
@@ -365,13 +371,21 @@ public class TideRunBuilder {
                 location.getName(),
                 TideWording.metres(day.range()),
                 rangeAnomaly(day.range(), stats == null ? null : stats.avgRangeMetres()),
-                // King runs carry the absolute high water as well. The range against the mean is a
-                // SPRING framing — what makes a tide king is how far the water clears the spring
-                // threshold, and swapping the chart in for the fact chips would otherwise lose the
-                // one number that distinguishes the two events.
-                king ? TideWording.metres(day.high()) : null,
-                king ? springExcess(day.high(), stats == null ? null : stats.springTideThreshold()) : null,
-                king ? highWaterRank(day.high(), stats) : null,
+                // The absolute high water, its excess over the spring mark, and its rank against the
+                // port's record — the "how big is this one, really" chips.
+                //
+                // GATED ON SIZE, NOT ON THE LUNAR LABEL. These used to be king-only, which was the
+                // spring/king conflation one level down: king is now a statement about the moon
+                // (a perigean spring), and the moon does not decide whether this port's water is
+                // remarkable. A big spring tide has a notable high water and a reader deciding
+                // whether to drive wants the number; a perigean spring at a port having an
+                // unremarkable day does not, and would previously have got three chips saying so in
+                // three ways. The size test is the port's own spring threshold — the same
+                // comparison TideSizeIndex uses to decide which dates a run covers, so the chips and
+                // the run's own dates cannot disagree about what counts as big.
+                notablyHigh ? TideWording.metres(day.high()) : null,
+                notablyHigh ? springExcess(day.high(), stats.springTideThreshold()) : null,
+                notablyHigh ? highWaterRank(day.high(), stats) : null,
                 TideWording.clock(sunriseMinutes),
                 TideWording.clock(sunsetMinutes),
                 seas(location.getId(), date, usefulPoint, sunriseMinutes, sunsetMinutes),
@@ -390,6 +404,9 @@ public class TideRunBuilder {
                 // *this* run type came for, and that water did miss the light.
                 namedByVerdict == null
                         ? null : solarWord(namedByVerdict.minutes(), sunriseMinutes, sunsetMinutes),
+                // Built from the same point as alignedEvent, one line above, so the two are non-null
+                // together by construction rather than by a rule someone has to maintain.
+                alignmentPhrase(namedByVerdict, sunriseMinutes, sunsetMinutes),
                 roster,
                 peak,
                 // The editorial line is claimed ONLY on an aligned day. It states what the event
@@ -399,6 +416,28 @@ public class TideRunBuilder {
                 // light, so printing the draw anyway had the two lines arguing, with the more
                 // confident-sounding one wrong. Silence is the honest form of "not tonight".
                 aligned ? (king ? KING_PHRASE : SPRING_PHRASE) : null);
+    }
+
+    /**
+     * The alignment clause for the water the verdict names — {@code "HW 09:08 · 58m after sunrise"}
+     * — or null when no water lands in the light.
+     *
+     * <p>Always the same shape as {@link #verdict}'s aligned branch: label, clock time, offset. It
+     * never carries the {@code "peak range · "} prefix and never drops the clock time, because it is
+     * consumed where the range is already stated in its own chip and where a fact labelled
+     * <em>alignment</em> should open by talking about alignment. Deriving it by trimming the
+     * verdict's text was the alternative, and it would make that sentence's punctuation
+     * load-bearing — a rewording there would silently corrupt this.
+     */
+    private static String alignmentPhrase(Point point, int sunriseMinutes, int sunsetMinutes) {
+        if (point == null) {
+            return null;
+        }
+        long gap = signedGap(point.minutes(), sunriseMinutes, sunsetMinutes);
+        String word = solarWord(point.minutes(), sunriseMinutes, sunsetMinutes);
+        return (point.type() == TideExtremeType.HIGH ? "HW" : "LW")
+                + " " + TideWording.clock(point.minutes())
+                + " · " + TideWording.offsetPhrase(gap, word);
     }
 
     /**
@@ -555,9 +594,10 @@ public class TideRunBuilder {
      * threshold has nothing to claim, so it is left unstated rather than shown as a negative.
      */
     private static String springExcess(double highWater, BigDecimal springThreshold) {
-        if (springThreshold == null) {
-            return null;
-        }
+        // No null guard: the sole call site is behind `notablyHigh`, which is itself defined as
+        // "stats and its spring threshold both exist and the water clears the threshold". A check
+        // here was unreachable — CodeQL said so on #495 — and worse than redundant: it told a reader
+        // this could be called without a threshold, which is the state the gate exists to exclude.
         double excess = highWater - springThreshold.doubleValue();
         return excess > TideWording.MIN_ANOMALY_METRES ? "+" + TideWording.metres(excess) + " over spring" : null;
     }

@@ -38,9 +38,12 @@ import java.util.List;
  * @param range        the day's tidal range, {@code "3.6 m"}
  * @param rangeAnomaly signed range anomaly against the location's mean, {@code "+0.4"}; null when
  *                     no historical baseline exists, or when the difference is below display noise
- * @param highWater    the day's highest water, {@code "5.8 m"} — populated for KING runs only,
- *                     because a king tide's defining number is how high the water gets, not how far
- *                     it swings. Null on a spring run, where the range is the story
+ * @param highWater    the day's highest water, {@code "5.8 m"}. Populated when the water actually
+ *                     clears the location's own spring-tide threshold — <b>a size test, not the
+ *                     run's lunar label</b>. It was king-only, which was the same spring/king
+ *                     conflation one level down: "king" says the moon was at perigee, and the moon
+ *                     does not decide whether this port's water is remarkable today. Null when the
+ *                     day is unremarkable there, or when the location has no threshold yet
  * @param highWaterAnomaly how far that high water clears the location's spring-tide threshold,
  *                     {@code "+0.4 m over spring"} — the thing that makes a tide king rather than
  *                     merely spring. Null when there is no threshold or the excess is display noise
@@ -50,8 +53,8 @@ import java.util.List;
  *                     The spring threshold is defined as 125% of mean high water, so a
  *                     metres-over-the-mean figure would be the spring excess plus a per-location
  *                     constant — a restatement, not a second reading. Distance to the ceiling moves
- *                     independently of it. Null on a spring run, or when the location's history is
- *                     too short for its maximum to be called a record
+ *                     independently of it. Null when the day does not clear the spring threshold,
+ *                     or when the location's history is too short for its maximum to be a record
  * @param sunrise      the day's sunrise, {@code "05:10"}
  * @param sunset       the day's sunset, {@code "21:22"}
  * @param seas         significant wave height with its sea-state band, {@code "0.3 m · smooth"};
@@ -71,6 +74,20 @@ import java.util.List;
  *                     out of {@link #verdict} because the hot-topic headline names the event, and
  *                     that sentence and this chart must not be able to disagree — they used to,
  *                     the headline being a count over a different table with a different window
+ * @param alignmentPhrase the alignment clause on its own — {@code "HW 09:08 · 58m after sunrise"} —
+ *                     or null when no water of this day lands in the light. <b>Non-null exactly
+ *                     when {@link #alignedEvent} is</b>, because both name the same point, and the
+ *                     two are built together from it so they cannot drift apart.
+ *                     <p>Not a duplicate of {@link #verdict}. The verdict is the chart's whole
+ *                     accessible answer and carries whatever else that day needs said — on the
+ *                     run's biggest day it opens {@code "peak range · "} and drops the clock time to
+ *                     fit a 224px column. A surface that states the range in its own chip and names
+ *                     the biggest day in its own line, as the "Coming up" feed does, would print
+ *                     that prefix as a third copy; and a clause labelled <em>alignment</em> that
+ *                     opens by talking about range is the kind of sentence this project keeps having
+ *                     to correct. So the clause exists separately rather than being recovered by
+ *                     trimming the verdict's text, which would make the verdict's punctuation
+ *                     load-bearing
  * @param peak         true on the run's biggest-range day
  * @param phrase       the editorial line for this event type, or null on an unaligned day —
  *                     the draw is only claimed when the water lands in usable light.
@@ -96,6 +113,7 @@ public record TideRunDay(
         String verdict,
         boolean aligned,
         @JsonInclude(JsonInclude.Include.NON_NULL) String alignedEvent,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String alignmentPhrase,
         @JsonInclude(JsonInclude.Include.NON_NULL) RosterAlignment roster,
         boolean peak,
         @JsonInclude(JsonInclude.Include.NON_NULL) String phrase) {
@@ -120,6 +138,7 @@ public record TideRunDay(
      * @param verdict      the plain-language alignment call
      * @param aligned      whether the useful extremum lands near a solar event
      * @param alignedEvent which solar event it aligned with, or null
+     * @param alignmentPhrase the alignment clause alone, or null
      * @param roster       the roster-wide alignment tally, or null
      * @param peak         whether this is the run's biggest-range day
      * @param phrase       the editorial line for this event type
@@ -143,6 +162,7 @@ public record TideRunDay(
             @JsonProperty("verdict") String verdict,
             @JsonProperty("aligned") boolean aligned,
             @JsonProperty("alignedEvent") String alignedEvent,
+            @JsonProperty("alignmentPhrase") String alignmentPhrase,
             @JsonProperty("roster") RosterAlignment roster,
             @JsonProperty("peak") boolean peak,
             @JsonProperty("phrase") String phrase) {
@@ -163,6 +183,7 @@ public record TideRunDay(
         this.verdict = verdict;
         this.aligned = aligned;
         this.alignedEvent = alignedEvent;
+        this.alignmentPhrase = alignmentPhrase;
         this.roster = roster;
         this.peak = peak;
         this.phrase = phrase;

@@ -431,8 +431,8 @@ class BriefingSlotBuilderTest {
                 TargetType.SUNSET);
 
         assertThat(slot).isNotNull();
-        assertThat(slot.tide().isKingTide()).isTrue();
-        assertThat(slot.tide().isSpringTide()).isTrue();
+        assertThat(slot.tide().heightAboveP95()).isTrue();
+        assertThat(slot.tide().heightAboveSpringThreshold()).isTrue();
         assertThat(slot.flags()).contains("Tide aligned");
     }
 
@@ -950,12 +950,12 @@ class BriefingSlotBuilderTest {
                     TargetType.SUNSET);
 
             assertThat(slot).isNotNull();
-            assertThat(slot.tide().isKingTide()).isFalse();
+            assertThat(slot.tide().heightAboveP95()).isFalse();
         }
 
         @Test
         @DisplayName("Height one cent above P95 threshold IS a king tide")
-        void heightAboveP95_isKingTide() {
+        void heightAboveP95_heightAboveP95() {
             stubSolarWindow();
             stubLunar();
             LocationEntity loc = coastalLoc();
@@ -976,7 +976,7 @@ class BriefingSlotBuilderTest {
                     TargetType.SUNSET);
 
             assertThat(slot).isNotNull();
-            assertThat(slot.tide().isKingTide()).isTrue();
+            assertThat(slot.tide().heightAboveP95()).isTrue();
         }
 
         @Test
@@ -1002,7 +1002,7 @@ class BriefingSlotBuilderTest {
                     TargetType.SUNSET);
 
             assertThat(slot).isNotNull();
-            assertThat(slot.tide().isSpringTide()).isFalse();
+            assertThat(slot.tide().heightAboveSpringThreshold()).isFalse();
         }
     }
 

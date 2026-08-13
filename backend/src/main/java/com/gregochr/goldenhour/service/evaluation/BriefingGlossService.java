@@ -282,8 +282,8 @@ public class BriefingGlossService {
 
         long tideAlignedCount = region.slots().stream()
                 .filter(s -> s.tide().tideAligned()).count();
-        boolean hasKingTide = region.slots().stream().anyMatch(s -> s.tide().isKingTide());
-        boolean hasSpringTide = region.slots().stream().anyMatch(s -> s.tide().isSpringTide());
+        boolean hasKingTide = region.slots().stream().anyMatch(s -> s.tide().heightAboveP95());
+        boolean hasSpringTide = region.slots().stream().anyMatch(s -> s.tide().heightAboveSpringThreshold());
         long coastalCount = region.slots().stream()
                 .filter(s -> s.tide().tideState() != null).count();
 

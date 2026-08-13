@@ -398,6 +398,50 @@ class TideRunBuilderTest {
 
     // ── highWaterRank — how extraordinary, measured against the record ────────
 
+    // ── the size axis, which is independent of the run's lunar label ─────────
+
+    @Test
+    @DisplayName("a SPRING run whose water is genuinely big carries the high-water chips")
+    void build_springRun_bigWater_carriesTheSizeChips() {
+        // These were king-only, which was the spring/king conflation one level down: "king" is a
+        // statement about the moon being at perigee, and the moon does not decide whether this
+        // port's water is remarkable. A spring tide clearing the port's own threshold is exactly
+        // the case a reader wants the number for — and, since the height arm was removed from the
+        // king label, it is now also the common case.
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1,
+                low("02:00", 0.4), high("08:35", 5.0), low("14:20", 0.4)));
+        when(tideService.getTideStats(ID_SEAHAM))
+                .thenReturn(Optional.of(ranked("5.4", "4.9", 1400L)));
+
+        // false = a spring run, not a king one.
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
+
+        assertThat(day.highWater()).isEqualTo("5.0 m");
+        assertThat(day.highWaterRank()).isEqualTo("0.4 m off the record");
+    }
+
+    @Test
+    @DisplayName("a KING run at a port having an ordinary day carries no size chips")
+    void build_kingRun_ordinaryWater_claimsNoSize() {
+        // The mirror image, and the reason this is not simply "show it everywhere". A perigean
+        // spring is a king tide wherever you are, but the water at one particular port can still be
+        // unremarkable — and three chips insisting otherwise would be the old defect with the
+        // arguments swapped.
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1,
+                low("02:00", 1.2), high("08:35", 3.9), low("14:20", 1.2)));
+        when(tideService.getTideStats(ID_SEAHAM))
+                .thenReturn(Optional.of(ranked("5.4", "4.9", 1400L)));
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), true).get(DAY_1);
+
+        // 3.9 m is below the 4.4 m spring threshold, so nothing about size is claimed.
+        assertThat(day.highWater()).isNull();
+        assertThat(day.highWaterAnomaly()).isNull();
+        assertThat(day.highWaterRank()).isNull();
+    }
+
     @Test
     @DisplayName("high water short of the record states the shortfall")
     void build_kingRun_belowRecord_statesDistanceToIt() {
@@ -604,6 +648,61 @@ class TideRunBuilderTest {
         assertThat(day.verdict()).isEqualTo("peak range · LW 3h50 after sunrise");
     }
 
+    // ── the alignment clause, which the almanac feed states on its own ────────
+
+    @Test
+    @DisplayName("the alignment clause keeps the clock time and drops the peak-range prefix")
+    void alignmentPhrase_onAPeakDay_carriesNeitherThePrefixNorLosesTheTime() {
+        // Same fixture as verdict_otherExtremumAlignedButNotCoincident, whose verdict compresses to
+        // "peak range · HW 58m after sunrise" to fit a 224px column. The "Coming up" row states the
+        // range in its own chip and names the biggest day in its own line, so that prefix would be
+        // a third copy — under a label that says "alignment".
+        stubSolar();
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
+                low("03:07", 0.4), high("09:08", 5.0)));
+        extremes.addAll(day(ID_SEAHAM, DAY_2,
+                low("03:50", 1.0), high("09:50", 4.0)));
+        stubExtremes(extremes);
+
+        TideRunDay day = builder.build(List.of(DAY_1, DAY_2), List.of(seaham()), false).get(DAY_1);
+
+        assertThat(day.verdict()).isEqualTo("peak range · HW 58m after sunrise");
+        assertThat(day.alignmentPhrase()).isEqualTo("HW 09:08 · 58m after sunrise");
+    }
+
+    @Test
+    @DisplayName("the clause names the same water the verdict does — it is built from that point, "
+            + "not recovered from that sentence")
+    void alignmentPhrase_namesTheVerdictsWater() {
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1, low("08:44", 0.4), high("14:50", 4.0)));
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
+
+        assertThat(day.verdict()).isEqualTo("LW 08:44 · 34m after sunrise");
+        assertThat(day.alignmentPhrase()).isEqualTo("LW 08:44 · 34m after sunrise");
+    }
+
+    @Test
+    @DisplayName("no water in the light means no clause at all — the invariant the almanac reads")
+    void alignmentPhrase_unalignedDay_isNull() {
+        stubSolar();
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
+                low("11:30", 0.8), high("17:40", 4.0), low("23:50", 0.8)));
+        extremes.addAll(day(ID_SEAHAM, DAY_2,
+                low("12:00", 0.4), high("18:10", 5.0), low("23:59", 0.4)));
+        stubExtremes(extremes);
+
+        TideRunDay day = builder.build(List.of(DAY_1, DAY_2), List.of(seaham()), false).get(DAY_2);
+
+        // The verdict still has a sentence — that is its job, and it is why reading it as an
+        // alignment printed a low water 3h50 out of the light as this run's finding.
+        assertThat(day.verdict()).isEqualTo("peak range · LW 3h50 after sunrise");
+        assertThat(day.alignmentPhrase()).isNull();
+        // Non-null together, always. TideAlmanacSource keys the whole distinction on this.
+        assertThat(day.alignedEvent()).isNull();
+    }
+
     @Test
     @DisplayName("a single-day run claims no peak — there is nothing to be the peak of")
     void build_singleDayRun_isNeverPeak() {
@@ -793,7 +892,13 @@ class TideRunBuilderTest {
         return new TideStats(null, new BigDecimal(maxHigh), null, null, dataPoints,
                 new BigDecimal("3.5"), null, null,
                 p95 == null ? null : new BigDecimal(p95),
-                0L, null, null, null, 0L);
+                // A spring threshold below the high waters these tests use, so the size gate opens.
+                // It moves with p95 rather than being independent of it because TideService derives
+                // both under one `cycleObserved` check — a location has both or neither, and a
+                // fixture supplying only one describes a state production cannot reach. This helper
+                // used to omit it entirely, which was harmless only while the high-water chips were
+                // gated on the run's lunar label instead of on the size of the water.
+                0L, null, p95 == null ? null : new BigDecimal("4.4"), null, 0L);
     }
 
     private static MarineWaveEntity wave(double hs) {

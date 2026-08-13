@@ -30,7 +30,8 @@ const event = (over = {}) => {
 const TIDE_META = {
   range: '4.6 m',
   rangeAnomaly: '+0.4',
-  verdict: 'LW 05:44 · 34m after sunrise',
+  alignment: 'LW 05:44 · 34m after sunrise',
+  alignmentDate: '2026-08-17',
   location: 'Bamburgh Beach',
   peakDate: '2026-08-16',
 };
@@ -219,20 +220,61 @@ describe('comingUpFeed — the fact line', () => {
     expect(factText(first({ meta: noAnomaly }))[0]).toBe('range 4.6 m');
   });
 
-  it('labels the verdict "alignment" rather than repeating the water it already names', () => {
-    // The verdict opens with LW or HW and carries its own clock time; a "low water" label in front
+  it('labels the alignment without repeating the water it already names', () => {
+    // The clause opens with LW or HW and carries its own clock time; a "low water" label in front
     // of it would say the same thing twice.
-    expect(factText(first({ meta: TIDE_META }))).toContain('alignment LW 05:44 · 34m after sunrise');
+    expect(factText(first({ meta: TIDE_META })))
+      .toContain('alignment LW 05:44 · 34m after sunrise on 17\u00A0Aug');
   });
 
-  it('shows a high-water height only on a king run', () => {
-    // `TideRunBuilder` passes null for a spring run, so this chip is what separates the two on the
-    // fact line as well as in the title.
-    expect(factText(first({ meta: TIDE_META })).join(' ')).not.toContain('high water');
+  it('names the day the alignment falls on, because a run is several days', () => {
+    // "The tide lines up with sunrise" is not actionable without knowing which morning — and the
+    // aligned day is frequently not the biggest day the rest of the row describes.
+    // Non-breaking space inside the date, as every other date on this row uses — it keeps the
+    // day and month atomic so a wrapping phrase breaks before them rather than between them.
+    expect(factText(first({ meta: TIDE_META })).join(' ')).toContain('on 17\u00A0Aug');
+  });
+
+  it('drops the day on a one-day run, where the dates already say it', () => {
+    const oneDay = first({ startDate: '2026-08-17', endDate: '2026-08-17', meta: TIDE_META });
+    expect(factText(oneDay)).toContain('alignment LW 05:44 · 34m after sunrise');
+  });
+
+  it('states plainly when no day of the run lands the water in the light', () => {
+    // The defect this replaced: the row published the biggest day's verdict under an "alignment"
+    // label, and the verdict always has a sentence — so an unaligned run read
+    // "alignment peak range · LW 2h12 after sunset", claiming an alignment for a low water two
+    // hours into the dark. Silence was not the fix either: it is indistinguishable from "no curve
+    // could be derived", which the empty-meta caveat already reports.
+    const unaligned = { ...TIDE_META, alignment: undefined, alignmentDate: undefined,
+      noAlignment: 'true' };
+    expect(factText(first({ meta: unaligned })))
+      .toContain('alignment none — water misses the light');
+  });
+
+  it('never prints the raw verdict, which is the field it deliberately stopped reading', () => {
+    const legacy = { range: '4.6 m', verdict: 'peak range · LW 2h12 after sunset' };
+    expect(factText(first({ meta: legacy })).join(' ')).not.toContain('LW 2h12');
+  });
+
+  it('shows a high-water height on any run whose water is big, king or spring', () => {
+    // Was "only on a king run". `TideRunBuilder` now populates this when the day's water clears the
+    // port's own spring threshold — a SIZE test — rather than when the moon happens to be at
+    // perigee. So the chip is present or absent by how big the tide is, and the title is what
+    // separates spring from king.
+    const bigSpring = first({ meta: { ...TIDE_META, highWater: '5.8 m' } });
+    expect(factText(bigSpring)).toContain('high water 5.8 m');
     const king = first({
       type: 'king-tide', title: 'King tide run', meta: { ...TIDE_META, highWater: '5.8 m' },
     });
     expect(factText(king)).toContain('high water 5.8 m');
+  });
+
+  it('omits the high-water chip when the backend judged the water unremarkable', () => {
+    // The backend withholds it rather than sending a number with no claim attached, so absence has
+    // to render as absence — including on a king run, where a port can still have a quiet day.
+    const king = first({ type: 'king-tide', title: 'King tide run', meta: TIDE_META });
+    expect(factText(king).join(' ')).not.toContain('high water');
   });
 
   it('shows the moon percentage for a meteor peak', () => {
@@ -268,6 +310,7 @@ describe('comingUpFeed — the fact line', () => {
         partialCoverage: 'true',
         startsBeforeWindow: 'true',
         endsAfterWindow: 'true',
+        noAlignment: 'true',
       },
     });
     expect(factText(row).join(' ')).not.toContain('true');
@@ -284,8 +327,8 @@ describe('comingUpFeed — the fact line', () => {
     // `AlmanacEvent`'s canonical constructor runs Map.copyOf, which returns a salt-randomised map —
     // so the JSON's key order changes on every backend restart. Reading the order off the payload
     // would reshuffle the fact line on every deploy.
-    const forwards = { range: '4.6 m', verdict: 'HW at sunrise', moonIllumination: '30%' };
-    const backwards = { moonIllumination: '30%', verdict: 'HW at sunrise', range: '4.6 m' };
+    const forwards = { range: '4.6 m', alignment: 'HW at sunrise', moonIllumination: '30%' };
+    const backwards = { moonIllumination: '30%', alignment: 'HW at sunrise', range: '4.6 m' };
     expect(factText(first({ meta: backwards }))).toEqual(factText(first({ meta: forwards })));
     expect(factText(first({ meta: forwards })))
       .toEqual(['range 4.6 m', 'alignment HW at sunrise', 'moon 30%']);
