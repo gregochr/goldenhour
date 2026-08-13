@@ -74,6 +74,22 @@ rate was an accident of the port's lunitidal interval, ranging from **0% to 57%*
 values — at some harbours the pill would never have highlighted anything. The new rule holds at
 52–59% regardless, because it is a property of the geometry rather than of the coastline.
 
+### Fixed — "Tomorrow" on the Plan screen, on the two nights the clocks change
+
+The Plan screen worked out tomorrow's date by stepping **your device's** calendar forward a day and
+only then reading the result as a UK date. Those are two different calendars, and on the two nights
+a year the clocks change they disagree — so the answer was a day out.
+
+In October the two collapsed onto the same date: nothing on the Plan screen was labelled
+"Tomorrow", the real tomorrow showed as a bare weekday, and "Best Bet — tomorrow's sunset" opened
+the map on **today**. In March it jumped the other way, skipping the real tomorrow and pointing at
+the day after — worse, because that still reads as correct.
+
+Both screens now use the shared UK-date helper introduced with the map fix below, which steps the UK
+date itself. The two private copies are gone. Nobody in the UK on a correctly-set device would have
+seen this, which is why it survived: pinned to UK time the old code was right, and so was every test
+of it. The new tests are pinned to a zone that disagrees.
+
 ### Fixed — the app now reads dates on the UK calendar, wherever you are
 
 Every forecast date this app serves is a UK date. The map was reading them on your device's

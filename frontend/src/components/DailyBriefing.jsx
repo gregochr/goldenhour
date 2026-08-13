@@ -24,6 +24,7 @@ import {
   msToMph, formatDriveDuration, formatTime, getEventTime, isEventPast,
 } from '../utils/briefingDisplay.js';
 import { formatTideHighlight, isTravelDate } from '../utils/conversions.js';
+import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 import { formatRelativeAge } from '../utils/relativeTime.js';
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
@@ -1199,12 +1200,12 @@ export default function DailyBriefing({
   }, [briefing, upcomingEvents]);
 
   // todayStr / tomorrowStr needed by mobile day labels and aurora pill matching.
-  const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
-  const tomorrowStr = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(d);
-  })();
+  // UK calendar, not the browser's — every date on the wire is keyed to the backend's
+  // `ForecastHorizon.today`. `ukDateStrOffset` steps the UK date STRING; the local copy this
+  // replaced stepped the browser's calendar and only then formatted in London, so its offset was a
+  // hybrid of two calendars that collapsed onto today across an autumn DST boundary.
+  const todayStr = ukDateStr();
+  const tomorrowStr = ukDateStrOffset(1);
 
   // Best bet / Also good region names, so the strip chips can colour-match their headline cards.
   // PRO/ADMIN only — LITE sees a redacted banner, so colouring its strip chips would point at cards
