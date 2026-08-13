@@ -17,7 +17,7 @@ import { getSettings } from './api/settingsApi.js';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { AuroraStatusProvider } from './context/AuroraStatusContext.jsx';
 import { useAuroraStatus } from './hooks/useAuroraStatus.js';
-import { localDateStr, localDateStrOffset, resolveAuroraNight } from './utils/mapDates.js';
+import { ukDateStr, ukDateStrOffset, resolveAuroraNight } from './utils/mapDates.js';
 import { useForecasts } from './hooks/useForecasts.js';
 import { useHealthStatus } from './hooks/useHealthStatus.js';
 import { useRunNotifications } from './hooks/useRunNotifications.js';
@@ -221,12 +221,11 @@ function AppInner() {
 
   // Default to today (or the nearest future date) when data loads.
   //
-  // Local, not UTC. These used to be `toISOString().slice(0, 10)` while MapView's own date logic
-  // and `computeAutoSelection` read the browser-local date — two calendars on one screen, which
-  // disagree for the hour after UK midnight under BST. `localDateStr` is now the single basis and
-  // its javadoc records the measurement. See also DateStrip, which had the same split.
-  const todayStr = localDateStr();
-  const tomorrowStr = localDateStrOffset(1);
+  // The UK calendar, which is the one every forecast date on the wire is keyed to. These were UTC
+  // (a day behind for an hour after UK midnight under BST), then the browser's own zone (a day out
+  // all day for a reader outside the UK). `ukDateStr` records both measurements.
+  const todayStr = ukDateStr();
+  const tomorrowStr = ukDateStrOffset(1);
 
   // The night aurora results are stored under, which in the small hours is YESTERDAY's date — a
   // night runs dusk-to-dawn, so it is not a calendar question and the backend answers it. Only the

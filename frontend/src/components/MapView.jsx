@@ -21,7 +21,7 @@ import { isTravelDate, formatEventTimeUk } from '../utils/conversions.js';
 import { fitBoundsKey } from '../utils/fitBoundsKey.js';
 import { buildBriefingScoreIndex, lookupBriefingScore } from '../utils/briefingScoreIndex.js';
 import { resolveStandDown } from '../utils/standDown.js';
-import { resolveAuroraNight } from '../utils/mapDates.js';
+import { resolveAuroraNight, ukDateStr } from '../utils/mapDates.js';
 import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel, SKY_SUBJECT_TYPES } from '../utils/locationTypes.js';
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 
@@ -436,7 +436,9 @@ const MAP_FILTER_CHIPS = DISPLAY_TYPES.map((type) => [type, LOCATION_TYPE_META[t
  */
 function getNextEventType(locations, date) {
   const now = new Date();
-  const todayStr = now.toLocaleDateString('en-CA'); // YYYY-MM-DD
+  // UK calendar — `date` is a backend date keyed to Europe/London, so judging it on the browser's
+  // zone made a reader outside the UK take the future-date branch on the actual current day.
+  const todayStr = ukDateStr(now);
   if (date !== todayStr) return 'SUNSET';
 
   for (const loc of locations) {

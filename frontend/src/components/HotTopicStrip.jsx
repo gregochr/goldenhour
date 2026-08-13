@@ -5,6 +5,7 @@ import CertaintyChip from './shared/CertaintyChip.jsx';
 import TideRunRow from './TideRunRow.jsx';
 import SurgeRunRow from './SurgeRunRow.jsx';
 import { bortleLabel, moonIlluminationStyle, MOON_EMOJI } from '../utils/conversions.js';
+import { ukDayOffset } from '../utils/mapDates.js';
 
 /**
  * Accent colours keyed by topic type. Per the Kodachrome tidy-up, atmospheric
@@ -131,9 +132,11 @@ function leadDayWord(dateStr, now = new Date()) {
   const parts = dateStr.split('-').map(Number);
   if (parts.length !== 3 || parts.some(Number.isNaN)) return '';
   const [year, month, day] = parts;
-  const todayUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
   const targetUtc = Date.UTC(year, month - 1, day);
-  const diffDays = Math.round((targetUtc - todayUtc) / 86400000);
+  // UK calendar, same as `formatDateLabel` — the mirroring this comment claims is only true if both
+  // answer to the same one. A topic card reading "Tomorrow" beside a strip chip reading "Today" for
+  // the same date is what a second basis buys.
+  const diffDays = ukDayOffset(dateStr, now);
   if (diffDays === 0) return 'Today';
   if (diffDays === 1) return 'Tomorrow';
   return new Date(targetUtc).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });

@@ -47,6 +47,22 @@ rate was an accident of the port's lunitidal interval, ranging from **0% to 57%*
 values — at some harbours the pill would never have highlighted anything. The new rule holds at
 52–59% regardless, because it is a property of the geometry rather than of the coastline.
 
+### Fixed — the app now reads dates on the UK calendar, wherever you are
+
+Every forecast date this app serves is a UK date. The map was reading them on your device's
+calendar, which is the same thing only while the device is in the UK. Open it from abroad — or with
+a device left on the wrong timezone — and the date strip could be a day out, all day: the wrong chip
+marked "Today", the real one dimmed as though it had passed, and the automatic "next sunset" pick
+looking up a day the forecast had no entry for, so it quietly did nothing.
+
+The same split could put "Today" on two chips at once, and let a Hot Topic card say "Tomorrow"
+directly beside a strip chip saying "Today" for the same date.
+
+There is now one calendar — `Europe/London`, the one the forecasts are keyed to — behind every date
+the map shows, every "Today"/"Tomorrow" label, and the next-event auto-selection. For anyone using
+the app in the UK nothing changes; this closes the gap for everyone else.
+
+
 ### Fixed — the map now opens on the aurora night you just ran
 
 Run an aurora forecast at 02:00 and the map showed you nothing. The backend had already been taught
