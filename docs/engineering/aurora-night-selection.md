@@ -265,17 +265,47 @@ the overlay reads its own date) is not load-bearing, because that date falls thr
 `effectiveDate` whenever the trigger carried none. Left uncorrected it would have invited someone to
 add a handler there on false grounds.
 
-⚠️ **Follow-up, deliberately not done here: the map's date basis should be `Europe/London`, not the
-browser's.** The review established that `localDateStr` equals the backend's civil date only while
-the browser is in the UK, and that `DailyBriefing` already resolves the backend's own "today" token
-on `Europe/London` before handing it to `setSelectedDate` — so a London-basis date meets a
-browser-local judgement on this path. This change did not *introduce* the browser-local basis (it
-was already what `MapView.getNextEventType` and `computeAutoSelection` read; the change took the
-path from two bases to one, retiring UTC), but for a UK user abroad it is worse than the UTC basis
-it replaced: UTC was wrong by at most an hour, browser-local can be wrong all day. Doing it properly
-means moving `computeAutoSelection` and `getNextEventType` too — or reintroducing the split — and
-`computeAutoSelection.test.js` is twelve wall-clock-dependent tests that need rebuilding on a frozen
-clock first. That is its own change.
+**The date basis is now `Europe/London`, done as its own change immediately after.** The review had
+established that the browser's zone equals the backend's civil date only while the device is in the
+UK, and that `DailyBriefing` and `WindowFirstBriefingContext` already resolve the backend's own
+"today"/"tomorrow" tokens on `Europe/London` before handing the result to `setSelectedDate` — so a
+UK-basis date was being judged against a browser-basis one on the same path.
+
+**Five derivations moved, not the three first estimated.** `mapDates`' helpers (renamed
+`ukDateStr` / `ukDateStrOffset`, plus a new `ukDayOffset`), `computeAutoSelection` and
+`getNextEventType` were the known set. Two more turned up only by following the call graph, and each
+would have re-split the basis on its own:
+
+- **`conversions.formatDateLabel`** derived "Today"/"Tomorrow" from browser-local calendar fields.
+  `DateStrip` marks *which* chip is today with `ukDateStr` and then calls this for every other chip,
+  so on two bases **two chips could both read "Today"**.
+- **`HotTopicStrip.leadDayWord`**, whose own comment says it "mirrors the relative-day logic in
+  `formatDateLabel`" — a claim that is only true if both answer to the same calendar. A topic card
+  reading "Tomorrow" beside a strip chip reading "Today" for the same date is what the second basis
+  bought.
+
+The shared arithmetic is `ukDayOffset`, and both now call it.
+
+**Anchored at UTC noon, deliberately.** Every date-string step and difference goes through a
+`Date.UTC(y, m, d, 12)` anchor rather than midnight: a midnight anchor can be shunted onto the
+adjacent day by any offset up to ±12 h, and adding 24 h of milliseconds is not a day on the two
+dates a year that are 23 or 25 hours long. Both are tested.
+
+**Left alone, and checked rather than assumed:** `AuroraBanner` and `NlcSightingBanner` (relative
+*elapsed-time* wording on a timestamp — a different question from "what day is it"), and
+`JobRunsMetricsView` / `MetricsSummary` (admin surfaces, not on the map's date path).
+
+⚠️ **`mapDatesAbroad.test.js` pins `America/New_York` and must stay that way.** A UK-pinned test
+cannot tell "the UK calendar" from "the browser's calendar" — under `Europe/London` they are the
+same string, so every assertion passes either way and proves nothing about which one the code asked
+for. Only a non-UK zone separates them. That file opens by asserting the two calendars genuinely
+disagree at its fixture instant, so a TZ pin that stopped taking effect fails loudly instead of
+quietly turning the file into a duplicate of the UK-pinned one. Do not "harmonise" it.
+
+The full suite was run under `UTC`, `Europe/London`, `America/New_York` and `Australia/Sydney`. The
+first two are clean. The other two each surface **one pre-existing** failure —
+`UserManagementView.test.jsx` on New York and `HealthIndicator.test.jsx` on Sydney — both confirmed
+present on a clean `origin/main` checkout under the same zone, and neither on the map's date path.
 
 ⚠️ **The tests pin the timezone as well as the clock, and both are load-bearing.** Nothing in this
 repo pins `TZ`: the dev Mac is `Europe/London` and GitHub's runners are UTC, so an unpinned date test

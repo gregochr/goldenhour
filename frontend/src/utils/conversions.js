@@ -1,6 +1,7 @@
 /**
  * Utility functions for unit conversions and date/label formatting.
  */
+import { ukDateStr, ukDateStrOffset, ukDayOffset } from './mapDates.js';
 
 const COMPASS_POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 const MS_TO_MPH = 2.23694;
@@ -71,10 +72,12 @@ export function degreesToCompass(degrees) {
  * @returns {string} Human-readable label.
  */
 export function formatDateLabel(dateStr, now = new Date(), skipRelative = false) {
-  const todayUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  // "Today"/"Tomorrow" on the UK calendar, not the browser's. `DateStrip` decides which chip is
+  // today with `ukDateStr` and then calls this for every other chip, so a second basis here could
+  // put "Today" on two chips at once for a reader outside the UK.
+  const diffDays = ukDayOffset(dateStr, now);
   const [year, month, day] = dateStr.split('-').map(Number);
   const targetUtc = Date.UTC(year, month - 1, day);
-  const diffDays = Math.round((targetUtc - todayUtc) / (1000 * 60 * 60 * 24));
 
   if (!skipRelative) {
     if (diffDays === 0) return 'Today';
@@ -389,7 +392,9 @@ const AUTO_SELECTION_BUFFER_MS = 30 * 60 * 1000; // 30-minute afterglow buffer
  * @returns {{ date: string, eventType: string }|null}
  */
 export function computeAutoSelection(locations, now) {
-  const todayStr = now.toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
+  // UK calendar: this looks up `forecastsByDate`, whose keys are backend dates keyed to
+  // Europe/London. On the browser's own zone a reader outside the UK looked up the wrong day.
+  const todayStr = ukDateStr(now);
 
   let earliestSunset = null;
   for (const loc of locations) {
@@ -407,8 +412,7 @@ export function computeAutoSelection(locations, now) {
     return { date: todayStr, eventType: 'SUNSET' };
   }
 
-  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-  return { date: tomorrow.toLocaleDateString('en-CA'), eventType: 'SUNRISE' };
+  return { date: ukDateStrOffset(1, now), eventType: 'SUNRISE' };
 }
 
 /**

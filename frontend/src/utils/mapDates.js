@@ -5,68 +5,116 @@
  * stop:
  *
  * <ul>
- *   <li><b>What day is it?</b> — a calendar question. {@link localDateStr}.</li>
+ *   <li><b>What day is it?</b> — a calendar question, answered on the <b>UK</b> calendar.
+ *       {@link ukDateStr}.</li>
  *   <li><b>Which night are we in?</b> — <em>not</em> a calendar question, and no timezone answers
  *       it. {@link resolveAuroraNight}.</li>
  * </ul>
  */
 
+/** The one calendar this app has. Every forecast date on the wire is keyed to it. */
+const UK_ZONE = 'Europe/London';
+
 /**
- * Today, as the browser's own local date in {@code YYYY-MM-DD}.
- *
- * <p><b>Local, not UTC, and the difference is a real defect rather than a tidy-up.</b> The map's
- * date surface used to derive "today" two ways: {@code toISOString().slice(0, 10)} (UTC) in
- * {@code App.jsx} and {@code DateStrip.jsx}, and {@code toLocaleDateString('en-CA')} (local) in
- * {@code MapView}'s event-type and viewline logic and in {@code computeAutoSelection}. Under BST
- * those disagree from 23:00–00:00 UTC — that is 00:00–01:00 UK, the hour straight after UK
- * midnight — so the strip labelled yesterday's chip "Today" while the auto-selection had already
- * moved on. Measured, not assumed: at {@code 2026-08-13T23:30:00Z} in {@code Europe/London},
- * {@code toISOString} gives {@code 2026-08-13} and {@code toLocaleDateString('en-CA')} gives
- * {@code 2026-08-14}.
- *
- * <p>Local was chosen because it was already the map's dominant basis — {@code MapView}'s
- * {@code getNextEventType} and {@code computeAutoSelection} both read it — so unifying here took
- * the path from two calendars to one. {@code en-CA} is used purely because its locale format is
- * ISO {@code YYYY-MM-DD}.
- *
- * <p>⚠️ <b>This equals the backend's {@code Europe/London} civil date only while the browser is in
- * the UK</b>, and that assumption is load-bearing rather than incidental. Every forecast date on
- * the wire is keyed to {@code ForecastHorizon.today}, i.e. {@code Europe/London}; a device on
- * {@code America/New_York} reads a UK evening as the previous day and would mislabel the strip all
- * day, not for an hour. The app is UK-only, so this is the UK-user-abroad case rather than a
- * foreign-user one — but it is a real limit, not a rounding error, and it is worse than the UTC
- * basis it replaced for exactly that population (UTC was wrong by at most an hour).
- *
- * <p>The unconditional fix is {@code Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' })},
- * which this codebase already uses in {@code WindowFirstBriefingContext} and throughout
- * {@code conversions.js}'s time formatting — and which {@code DailyBriefing} uses to resolve the
- * backend's own "today"/"tomorrow" tokens before handing the result to {@code setSelectedDate}. So
- * a London-basis date already meets a browser-local judgement on this path. Moving to it is
- * deliberately NOT done here: it would have to take {@code computeAutoSelection} and
- * {@code getNextEventType} with it or reintroduce the split, and {@code computeAutoSelection.test.js}
- * is twelve wall-clock-dependent tests that would need rebuilding on a frozen clock first. Recorded
- * in {@code docs/engineering/aurora-night-selection.md} as the follow-up.
- *
- * @param {Date} [now] - the instant to read; injectable so tests can pin it
- * @returns {string} the local calendar date as YYYY-MM-DD
+ * Built once. {@code en-CA} purely because its locale format is ISO {@code YYYY-MM-DD}; the
+ * {@code timeZone} is what does the work.
  */
-export function localDateStr(now = new Date()) {
-  return now.toLocaleDateString('en-CA');
+const UK_DATE_FORMAT = new Intl.DateTimeFormat('en-CA', { timeZone: UK_ZONE });
+
+/** Milliseconds in a day. Only ever applied to UTC-noon anchors, which have no DST. */
+const DAY_MS = 86400000;
+
+/**
+ * Anchors a {@code YYYY-MM-DD} string at 12:00 UTC.
+ *
+ * <p>Noon, not midnight, and that is the whole trick: a date anchored at midnight can be shunted
+ * onto the previous or next day by any offset up to ±12 h, whereas noon survives every real-world
+ * zone and every DST transition. Arithmetic between two of these is exact whole days.
+ *
+ * @param {string} dateStr - ISO date, YYYY-MM-DD
+ * @param {number} [days]  - whole days to add; may be negative
+ * @returns {number} epoch milliseconds at 12:00 UTC on the resulting date
+ */
+function utcNoon(dateStr, days = 0) {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return Date.UTC(year, month - 1, day + days, 12);
+}
+
+/** Formats a UTC-noon anchor back to {@code YYYY-MM-DD}. */
+function fromUtcNoon(ms) {
+  const d = new Date(ms);
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${month}-${day}`;
 }
 
 /**
- * The local date {@code days} days from {@code now}, as YYYY-MM-DD.
+ * Today, on the UK calendar, as {@code YYYY-MM-DD}.
  *
- * <p>Steps the date through local calendar fields rather than adding 24h of milliseconds, so it
- * stays correct across a DST boundary — the day the clocks change is 23 or 25 hours long.
+ * <p><b>{@code Europe/London}, not the browser's zone and not UTC.</b> This app's data is UK data:
+ * every forecast date on the wire is keyed to the backend's {@code ForecastHorizon.today}, which is
+ * the {@code Europe/London} civil date. So "what day is it" has one correct answer here, and it is
+ * not a property of where the reader's device happens to be.
+ *
+ * <p>The map has now been wrong in both of the other two ways, which is why this is stated at
+ * length:
+ *
+ * <ul>
+ *   <li><b>UTC</b> (the original {@code toISOString().slice(0, 10)} in {@code App.jsx} and
+ *       {@code DateStrip.jsx}) is right only in GMT. Under BST it is a day behind from 23:00–00:00
+ *       UTC — the hour after UK midnight — so the strip labelled <em>yesterday's</em> chip "Today".
+ *       Measured: at {@code 2026-08-13T23:30:00Z} it gives {@code 2026-08-13} where the UK is
+ *       already on the 14th.</li>
+ *   <li><b>The browser's zone</b> (what replaced it, and what {@code computeAutoSelection} and
+ *       {@code getNextEventType} had always used) is right only while the device is in the UK. On
+ *       {@code America/New_York} a UK evening reads as the previous day <em>all day</em>, not for
+ *       an hour — an unbounded error where UTC's was capped at one hour. That is the UK-user-abroad
+ *       case, and a device left on the wrong zone.</li>
+ * </ul>
+ *
+ * <p>Naming the zone outright is the only form with no such caveat, and it is what this codebase
+ * already does everywhere it formats a UK <em>time</em> ({@code conversions.js}) and where
+ * {@code DailyBriefing} and {@code WindowFirstBriefingContext} resolve the backend's own
+ * "today"/"tomorrow" tokens. Those resolved dates are fed straight to {@code setSelectedDate}, so
+ * before this change a UK-basis date was being judged against a browser-basis one on the same path.
+ *
+ * @param {Date} [now] - the instant to read; injectable so tests can pin it
+ * @returns {string} the UK calendar date as YYYY-MM-DD
+ */
+export function ukDateStr(now = new Date()) {
+  return UK_DATE_FORMAT.format(now);
+}
+
+/**
+ * The UK date {@code days} days from {@code now}, as {@code YYYY-MM-DD}.
+ *
+ * <p>Steps the UK <em>date string</em> rather than the instant, so it cannot be dragged onto the
+ * wrong day by the reader's zone, and cannot lose or gain a day across a DST boundary — the day
+ * the clocks change is 23 or 25 hours long, so adding 24 h of milliseconds to an instant is not a
+ * day.
  *
  * @param {number} days - offset in days; may be negative
  * @param {Date} [now]  - the instant to read; injectable so tests can pin it
- * @returns {string} the offset local calendar date as YYYY-MM-DD
+ * @returns {string} the offset UK calendar date as YYYY-MM-DD
  */
-export function localDateStrOffset(days, now = new Date()) {
-  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days);
-  return localDateStr(d);
+export function ukDateStrOffset(days, now = new Date()) {
+  return fromUtcNoon(utcNoon(ukDateStr(now), days));
+}
+
+/**
+ * Whole days from today (UK) to {@code dateStr} — negative for past dates.
+ *
+ * <p>Exists so that every "Today"/"Tomorrow" label in the app answers to the same calendar as the
+ * date strip it sits beside. {@code formatDateLabel} and {@code HotTopicStrip}'s
+ * {@code leadDayWord} both derived this from browser-local calendar fields, which is how a card
+ * could read "Tomorrow" over a date the strip was calling "Today".
+ *
+ * @param {string} dateStr - ISO date, YYYY-MM-DD
+ * @param {Date} [now]     - the instant "today" is read from; injectable for tests
+ * @returns {number} whole days ahead (0 = today, 1 = tomorrow, -1 = yesterday)
+ */
+export function ukDayOffset(dateStr, now = new Date()) {
+  return Math.round((utcNoon(dateStr) - utcNoon(ukDateStr(now))) / DAY_MS);
 }
 
 /**
@@ -84,14 +132,15 @@ export function localDateStrOffset(days, now = new Date()) {
  * duplicating solar geometry in the browser is how the two halves drift apart, and this rule
  * already has one home.
  *
- * <p>Falls back to the local calendar date when the field is absent — a LITE user (status is null),
- * a failed fetch, or a backend deployed before the field existed. That fallback is exactly the old
- * behaviour, so the degrade is "no worse than before" rather than a guess.
+ * <p>Falls back to the UK calendar date when the field is absent — a LITE user (status is null), a
+ * failed fetch, or a backend deployed before the field existed. A calendar date is the wrong answer
+ * for a night, but it is the same wrong answer the map gave before the field existed, so the
+ * degrade is "no worse than before" rather than a guess.
  *
  * @param {object|null} auroraStatus - the shared aurora status payload, or null
  * @param {Date} [now]               - the instant behind the fallback; injectable for tests
  * @returns {string} the current night's date as YYYY-MM-DD
  */
 export function resolveAuroraNight(auroraStatus, now = new Date()) {
-  return auroraStatus?.currentNightDate ?? localDateStr(now);
+  return auroraStatus?.currentNightDate ?? ukDateStr(now);
 }
