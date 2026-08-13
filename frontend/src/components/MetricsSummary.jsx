@@ -1,6 +1,8 @@
 import React, { useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { formatCostUsd } from '../utils/formatCost';
+import { ukDateStr } from '../utils/mapDates.js';
+import { parseUtcInstant } from '../utils/conversions.js';
 
 /**
  * Summary cards showing aggregated job run statistics.
@@ -16,18 +18,33 @@ import { formatCostUsd } from '../utils/formatCost';
  */
 const MetricsSummary = ({ runs, apiCalls, range, onRangeChange }) => {
 
-  const todayStr = useMemo(() => new Date().toLocaleDateString('en-CA'), []);
-
+  /**
+   * Runs narrowed to the selected range.
+   *
+   * <p>`startedAt` is a backend `LocalDateTime` and arrives bare, so it goes through
+   * `parseUtcInstant` — `new Date("2026-08-13T06:00:00")` would read a UTC value as local time.
+   * "Today" is the run's **UK** day against the UK today; slicing UTC digits and comparing them
+   * with the device's calendar mixed two calendars, and during a BST evening this card could total
+   * zero runs for a day that plainly had them. The old `[]`-dep memo also froze "today" at mount,
+   * so it never rolled over at midnight.
+   */
   const filteredRuns = useMemo(() => {
     if (!runs || runs.length === 0) return [];
     if (range === 'today') {
-      return runs.filter((r) => r.startedAt && r.startedAt.slice(0, 10) === todayStr);
+      const today = ukDateStr();
+      return runs.filter((r) => {
+        const startedAt = parseUtcInstant(r.startedAt);
+        return startedAt && ukDateStr(startedAt) === today;
+      });
     }
     // Last 7 days
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 7);
-    return runs.filter((r) => r.startedAt && new Date(r.startedAt) >= cutoff);
-  }, [runs, range, todayStr]);
+    return runs.filter((r) => {
+      const startedAt = parseUtcInstant(r.startedAt);
+      return startedAt && startedAt >= cutoff;
+    });
+  }, [runs, range]);
 
   const filteredRunIds = useMemo(() => new Set(filteredRuns.map((r) => r.id)), [filteredRuns]);
 

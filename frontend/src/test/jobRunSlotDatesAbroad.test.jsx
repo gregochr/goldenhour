@@ -16,15 +16,16 @@
  * device basis and the UTC basis are the same string and the other half does. Do not "harmonise"
  * this file with either.
  *
- * <p>The hour is pinned for the same reason as the date. It answers "has today's event already
- * happened?", so it has to be read on the same clock as the date it is asked about — and the
- * thresholds below are therefore UK wall-clock hours, which through BST is not what the UTC hour
- * says.
+ * <p>The zone does a second job here. "Has this event already happened?" is answered against real
+ * solar event times, which arrive as bare {@code LocalDateTime} strings — and a bare string read as
+ * the device's local time is a four-hour error on this zone, far wider than the 25 minutes between
+ * the first and last UK location to see the sun set. Under the suite's UTC pin that same misreading
+ * is a no-op, so these assertions would pass on the broken form.
  */
 process.env.TZ = 'America/New_York';
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import JobRunsMetricsView from '../components/JobRunsMetricsView.jsx';
 import { ukDateStr } from '../utils/mapDates.js';
 
@@ -56,6 +57,7 @@ vi.mock('../api/auroraApi', () => ({
 
 vi.mock('../api/briefingApi.js', () => ({
   runBriefing: vi.fn(),
+  getDailyBriefing: vi.fn(),
 }));
 
 vi.mock('../api/modelsApi', () => ({
@@ -74,6 +76,7 @@ import { getRegions } from '../api/batchApi';
 import { getJobRuns, getApiCalls } from '../api/metricsApi';
 import { fetchLocations, runVeryShortTermForecast, runShortTermForecast } from '../api/forecastApi';
 import { getAvailableModels } from '../api/modelsApi';
+import { getDailyBriefing } from '../api/briefingApi.js';
 
 // ── Instants ─────────────────────────────────────────────────────────────
 
@@ -86,20 +89,44 @@ const UK_SMALL_HOURS = '2026-08-13T23:30:00Z';
 /** 15:00 on 13 August, UK time — an ordinary afternoon, when all three calendars agree. */
 const UK_AFTERNOON = '2026-08-13T14:00:00Z';
 
-/** 11:59 UK, BST — one minute below the sunrise threshold. */
-const UK_BST_1159 = '2026-08-13T10:59:00Z';
+/** 23:30 UK on the 13th — past every UK sunset that day, but not into the 14th. */
+const UK_LATE_EVENING = '2026-08-13T22:30:00Z';
 
-/** 12:00 UK, BST — the sunrise threshold exactly. */
-const UK_BST_1200 = '2026-08-13T11:00:00Z';
-
-/** 21:59 UK, BST — one minute below the sunset threshold. */
-const UK_BST_2159 = '2026-08-13T20:59:00Z';
-
-/** 22:00 UK, BST — the sunset threshold exactly, and the same instant 21:00 UTC always named. */
-const UK_BST_2200 = '2026-08-13T21:00:00Z';
-
-/** 21:30 UK in January, where GMT makes the UK hour and the UTC hour identical. */
-const UK_GMT_2130 = '2026-01-15T21:30:00Z';
+/**
+ * A briefing carrying real solar event times for the two days the VST dialog offers.
+ *
+ * <p>The two regions on the 13th are the point: the Lakes set at 20:30 UK and Ayrshire at 20:55,
+ * and the dialog must wait for the **later** one. Times are bare `LocalDateTime` strings because
+ * that is what the backend serialises, and reading them as anything but UTC is a four-hour error
+ * on this file's zone.
+ */
+const BRIEFING = {
+  days: [
+    {
+      date: '2026-08-13',
+      eventSummaries: [
+        {
+          targetType: 'SUNRISE',
+          regions: [{ slots: [{ solarEventTime: '2026-08-13T04:40:00' }] }],
+        },
+        {
+          targetType: 'SUNSET',
+          regions: [
+            { slots: [{ solarEventTime: '2026-08-13T19:30:00' }] }, // 20:30 UK — the Lakes
+            { slots: [{ solarEventTime: '2026-08-13T19:55:00' }] }, // 20:55 UK — Ayrshire
+          ],
+        },
+      ],
+    },
+    {
+      date: '2026-08-14',
+      eventSummaries: [
+        { targetType: 'SUNRISE', regions: [{ slots: [{ solarEventTime: '2026-08-14T04:42:00' }] }] },
+        { targetType: 'SUNSET', regions: [{ slots: [{ solarEventTime: '2026-08-14T19:53:00' }] }] },
+      ],
+    },
+  ],
+};
 
 const noop = () => {};
 
@@ -116,15 +143,19 @@ function setupDefaultMocks() {
   getAvailableModels.mockResolvedValue({ optimisationStrategies: {} });
   runVeryShortTermForecast.mockResolvedValue({ status: 'Forecast run started', jobRunId: 1 });
   runShortTermForecast.mockResolvedValue({ status: 'Forecast run started', jobRunId: 2 });
+  getDailyBriefing.mockResolvedValue(BRIEFING);
 }
 
 /**
  * Renders the view and opens a run dialog's slot list.
  *
- * <p>Waiting on the run button would be the mistake `JobRunsMetricsViewBatch.test.jsx` documents —
- * it is static markup and says nothing about any fetch. It is honest here only because the slot
- * list is not gated on a fetch either: `computeSlots` is pure, so `confirm-dialog-slots` is the
- * thing under test and awaiting it is awaiting the render that produced it.
+ * <p>⚠️ Returning here proves the slot list is on screen and NOTHING about the solar times. The
+ * dates are pure (`computeSlots`) and render immediately; the past-marking comes from
+ * `getDailyBriefing` and lands later. Awaiting the button or the list and then asserting
+ * `toBeDisabled` synchronously is the un-gated wait this suite has been bitten by before — it would
+ * pass on a quiet machine and fail under load. Every past-marking assertion therefore goes through
+ * `waitFor`/`findBy`, and the "nothing is past" cases assert a state that a late briefing could
+ * only move AWAY from, so they cannot pass for the wrong reason.
  */
 async function openSlots(buttonTestId) {
   render(
@@ -239,93 +270,108 @@ describe('slot dates in the hour after UK midnight', () => {
 
 // ── The "has it passed?" hour ────────────────────────────────────────────
 
-describe('the past-event hour, read on the UK clock', () => {
-  it('leaves the new UK day\'s sunrise selectable at 00:30, when the UTC hour says 23', async () => {
-    // The mirror image of the date bug, and the reason the hour could not stay on UTC while the
-    // date moved: marked past, the checkbox is disabled AND filtered out of `excluded`, so the
-    // admin could neither run it knowingly nor skip it.
-    freeze(UK_SMALL_HOURS);
+describe('whether a slot has already happened', () => {
+  it('marks nothing past while the solar times are still unknown', async () => {
+    // The degrade path, and the reason it is the DEFAULT rather than a fallback: a slot marked
+    // past is disabled and unticked, so over-claiming costs an admin a slot they can neither run
+    // knowingly nor deselect. Under-claiming costs nothing — the backend's own already-past gate
+    // skips a finished event regardless.
+    getDailyBriefing.mockResolvedValue(null);
+    freeze(UK_AFTERNOON); // 15:00 UK, hours after sunrise
     await openSlots('run-very-short-term-btn');
 
-    const sunrise = screen.getByTestId('slot-2026-08-14-SUNRISE');
-    expect(sunrise).toBeEnabled();
-    expect(sunrise).toBeChecked();
-    expect(screen.getByTestId('slot-2026-08-14-SUNSET')).toBeEnabled();
+    expect(await screen.findByTestId('slot-2026-08-13-SUNRISE')).toBeEnabled();
+    expect(screen.getByTestId('slot-2026-08-13-SUNRISE')).toBeChecked();
   });
 
-  it('leaves sunrise selectable at 11:59 UK', async () => {
-    freeze(UK_BST_1159);
+  it('marks a slot past once its event time has gone by', async () => {
+    freeze(UK_AFTERNOON); // 15:00 UK; sunrise was 05:40, sunset is not until 20:30
     await openSlots('run-very-short-term-btn');
 
-    expect(screen.getByTestId('slot-2026-08-13-SUNRISE')).toBeEnabled();
+    await waitFor(() => expect(screen.getByTestId('slot-2026-08-13-SUNRISE')).toBeDisabled());
+    expect(screen.getByTestId('slot-2026-08-13-SUNSET')).toBeEnabled();
   });
 
-  it('marks only TODAY\'s sunrise past at 12:00 UK, never a later day\'s', async () => {
-    // The `isToday &&` term, which nothing else in this file exercises: without it every day's
-    // sunrise goes past at noon, and a past slot is disabled AND dropped from `excluded`, so the
-    // admin can neither run tomorrow's knowingly nor skip it. Both halves are asserted here
-    // because the disabled one alone passes with the guard deleted.
-    freeze(UK_BST_1200);
+  it('never marks a later day past, however late today is', async () => {
+    freeze(UK_LATE_EVENING); // 23:30 UK — past every UK sunset on the 13th
     await openSlots('run-very-short-term-btn');
 
-    expect(screen.getByTestId('slot-2026-08-13-SUNRISE')).toBeDisabled();
-    expect(screen.getByTestId('slot-2026-08-14-SUNRISE')).toBeEnabled();
-    expect(screen.getByTestId('slot-2026-08-14-SUNRISE')).toBeChecked();
-  });
-
-  it('marks only TODAY\'s sunset past at 22:00 UK, never a later day\'s', async () => {
-    // 22:00 UK is the same instant 21:00 UTC always named, through BST — so the threshold change
-    // is inert here and this is the `isToday` guard again, on the sunset line.
-    freeze(UK_BST_2200);
-    await openSlots('run-very-short-term-btn');
-
-    expect(screen.getByTestId('slot-2026-08-13-SUNSET')).toBeDisabled();
+    await waitFor(() => expect(screen.getByTestId('slot-2026-08-13-SUNSET')).toBeDisabled());
     expect(screen.getByTestId('slot-2026-08-14-SUNSET')).toBeEnabled();
     expect(screen.getByTestId('slot-2026-08-14-SUNSET')).toBeChecked();
   });
 
-  it('names a past slot as past in its accessible name', async () => {
-    freeze(UK_BST_1200);
+  it('waits for the LATEST location, not the first to set', async () => {
+    // The defect a fixed hour could never avoid and the briefing summary field would reintroduce:
+    // at 20:35 UK the Lakes have set (20:30) and Ayrshire has not (20:55). Marking the slot past
+    // here would strand a run the admin still wanted.
+    freeze('2026-08-13T19:35:00Z'); // 20:35 UK
     await openSlots('run-very-short-term-btn');
 
-    const sunrise = screen.getByTestId('slot-2026-08-13-SUNRISE');
-    expect(sunrise).toBeDisabled();
+    // Gated on the sunrise, which IS long past at this hour. Asserting the sunset's enabled state
+    // on its own would pass just as well if the briefing never arrived — the absence of a claim
+    // and the correct claim look identical, so the wait has to prove the data landed first.
+    await waitFor(() => expect(screen.getByTestId('slot-2026-08-13-SUNRISE')).toBeDisabled());
+    expect(screen.getByTestId('slot-2026-08-13-SUNSET')).toBeEnabled();
+  });
+
+  it('marks it past once even the latest location has set', async () => {
+    freeze('2026-08-13T19:56:00Z'); // 20:56 UK, one minute after Ayrshire
+
+    await openSlots('run-very-short-term-btn');
+
+    await waitFor(() => expect(screen.getByTestId('slot-2026-08-13-SUNSET')).toBeDisabled());
+  });
+
+  it('marks a slot past when the briefing lands after the dialog was opened', async () => {
+    // Why `isPast` is derived at render rather than baked into the slot list: an admin fast enough
+    // to click Run before the briefing responds would otherwise get a dialog that never marks
+    // anything past, permanently and silently.
+    let release;
+    getDailyBriefing.mockReturnValue(new Promise((resolve) => { release = resolve; }));
+    freeze(UK_AFTERNOON);
+    await openSlots('run-very-short-term-btn');
+    expect(screen.getByTestId('slot-2026-08-13-SUNRISE')).toBeEnabled();
+
+    release(BRIEFING);
+
+    await waitFor(() => expect(screen.getByTestId('slot-2026-08-13-SUNRISE')).toBeDisabled());
+  });
+
+  it('names a past slot as past in its accessible name', async () => {
+    freeze(UK_AFTERNOON);
+    await openSlots('run-very-short-term-btn');
+
+    const sunrise = await screen.findByTestId('slot-2026-08-13-SUNRISE');
+    await waitFor(() => expect(sunrise).toBeDisabled());
     // Run together because the "(past)" marker is an inline sibling with no whitespace between it
     // and the label — the gap on screen is flex `gap-1.5`, which contributes nothing to the name.
     // Pre-existing markup, asserted as it really reads rather than as it looks.
     expect(sunrise).toHaveAccessibleName('🌅 Sunrise(past)');
   });
 
-  it('leaves sunset selectable at 21:59 UK, an hour a UK summer sun can still be up', async () => {
-    // The threshold moved from 21 UTC to 22 UK precisely so this hour survives BST: at these
-    // latitudes the sun does not set until ~21:55 in midsummer, and marking a slot past before its
-    // event makes it impossible to deselect.
-    freeze(UK_BST_2159);
-    await openSlots('run-very-short-term-btn');
-
-    expect(screen.getByTestId('slot-2026-08-13-SUNSET')).toBeEnabled();
-  });
-
-  it('leaves sunset selectable at 21:30 in GMT, where the old UTC threshold had already fired', async () => {
-    // The one place the new threshold is deliberately later than the old one. Erring late costs
-    // nothing — the slot stays selectable and the backend's own already-past gate skips a finished
-    // event regardless.
-    freeze(UK_GMT_2130);
-    await openSlots('run-very-short-term-btn');
-
-    expect(screen.getByTestId('slot-2026-01-15-SUNSET')).toBeEnabled();
-  });
-
-  it('never puts a past slot on the wire, so an early threshold cannot be skipped around', async () => {
-    // Why the asymmetry above matters: `excluded` drops isPast slots, so a slot wrongly marked
-    // past is one the admin cannot exclude. Confirming with nothing touched must send nothing.
+  it('never puts a past slot on the wire', async () => {
+    // A past slot stays `selected` underneath and renders unticked, so `!s.selected` cannot carry
+    // it into the exclusions. Confirming with nothing touched must send nothing.
     freeze(UK_AFTERNOON);
     await openSlots('run-very-short-term-btn');
+    await waitFor(() => expect(screen.getByTestId('slot-2026-08-13-SUNRISE')).toBeDisabled());
 
-    expect(screen.getByTestId('slot-2026-08-13-SUNRISE')).toBeDisabled();
     fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
 
     expect(runVeryShortTermForecast).toHaveBeenCalledWith([], []);
+  });
+
+  it('leaves the new UK day\'s slots selectable at 00:30, when the UTC hour says 23', async () => {
+    // The date fix and the past test agreeing: at 00:30 UK the day is the 14th and none of its
+    // events have happened, so nothing is past even though the UTC hour is 23.
+    freeze(UK_SMALL_HOURS);
+    await openSlots('run-very-short-term-btn');
+
+    const sunrise = await screen.findByTestId('slot-2026-08-14-SUNRISE');
+    expect(sunrise).toBeEnabled();
+    expect(sunrise).toBeChecked();
+    expect(screen.getByTestId('slot-2026-08-14-SUNSET')).toBeEnabled();
   });
 });
 

@@ -4,7 +4,7 @@ import { getJobRuns, getApiCalls } from '../api/metricsApi';
 import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast, refreshTideData, backfillTideData, fetchLocations } from '../api/forecastApi';
 import { enrichBortle } from '../api/auroraApi';
 import { getRegions, submitScheduledBatch, submitJfdiBatch } from '../api/batchApi';
-import { runBriefing } from '../api/briefingApi.js';
+import { runBriefing, getDailyBriefing } from '../api/briefingApi.js';
 import { getAvailableModels } from '../api/modelsApi';
 import { useAuth } from '../context/AuthContext';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
@@ -17,7 +17,9 @@ import RunProgressPanel from './RunProgressPanel';
 import AuroraForecastModal from './AuroraForecastModal';
 import AuroraSimulateModal from './AuroraSimulateModal';
 import { isSkyPromptCandidate } from '../utils/locationTypes.js';
-import { ukDateStr, ukDateStrOffset, ukHour } from '../utils/mapDates.js';
+import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
+import { latestSolarEventTimes, hasEventPassed } from '../utils/solarEventTimes.js';
+import { parseUtcInstant } from '../utils/conversions.js';
 
 /** Human-readable labels for optimisation strategies shown in the run confirmation dialog. */
 const STRATEGY_LABELS = {
@@ -31,60 +33,45 @@ const STRATEGY_LABELS = {
   TIDE_ALIGNMENT: 'Weather/Tide Triage',
 };
 
-/**
- * The UK hour after which today's sunrise is certainly over.
- *
- * <p>Unchanged from the UTC basis it replaced, because nothing about it is marginal: the latest
- * sunrise anywhere in the UK is around 09:00 in late December, and BST — where a UK hour is one
- * ahead of the UTC hour, so a fixed threshold fires an hour earlier in wall-clock terms — is not in
- * December.
- */
-const SUNRISE_PAST_UK_HOUR = 12;
-
-/**
- * The UK hour after which today's sunset is certainly over.
- *
- * <p><b>22, where the UTC basis this replaced used 21.</b> Through BST a UK hour is one ahead of
- * the UTC hour at the same instant, so 22:00 UK <em>is</em> 21:00 UTC: the threshold fires at the
- * identical moment it always has for the seven months that matter, and an hour later — the safe
- * direction — under GMT. Carrying 21 across unchanged would have moved it to 21:00 BST, which in
- * midsummer is before the sun has set at this roster's latitudes (~21:55 in the Lakes, later still
- * in northern Scotland).
- *
- * <p>The asymmetry is deliberate. Marking a slot past too <em>late</em> costs nothing: it stays
- * selectable, and {@code ForecastCommandExecutor}'s own already-past gate skips a genuinely
- * finished event regardless. Marking it past too <em>early</em> disables the checkbox <em>and</em>
- * drops the slot from {@code excluded} below, so an admin cannot deselect a slot that will then run
- * at full cost — the same failure this whole function was fixed for.
- */
-const SUNSET_PAST_UK_HOUR = 22;
+/** The two solar events a colour run evaluates, in the order the dialog lists them. */
+const SLOT_EVENT_TYPES = ['SUNRISE', 'SUNSET'];
 
 /**
  * Builds the list of (date, targetType) slots for a given run type.
- * Past slots (sunrise past noon UK; sunset past 22:00 UK) are marked disabled.
  *
- * <p><b>Every date here is a UK civil date, and the hour is read on the same clock.</b> These are
- * not labels: the un-ticked ones travel to {@code POST /api/forecast/run/*} as {@code excludedSlots}
- * and are matched against dates the backend derived from {@code ForecastHorizon.today}, which is
- * {@code Europe/London}. Deriving them from UTC — as this did — meant that between 00:00 and 01:00
- * UK under BST the dialog offered the previous UK day, so an admin skipping "today's" sunrise
- * excluded a slot the run was never going to reach and the one they meant to skip ran anyway.
+ * <p><b>Every date here is a UK civil date.</b> These are not labels: the un-ticked ones travel to
+ * {@code POST /api/forecast/run/*} as {@code excludedSlots} and are matched against dates the
+ * backend derived from {@code ForecastHorizon.today}, which is {@code Europe/London}. Deriving them
+ * from UTC — as this did — meant that between 00:00 and 01:00 UK under BST the dialog offered the
+ * previous UK day, so an admin skipping "today's" sunrise excluded a slot the run was never going
+ * to reach and the one they meant to skip ran anyway.
+ *
+ * <p><b>"Already past" is not decided here, and is no longer a wall-clock hour anywhere.</b> It
+ * used to be {@code hour >= 12} for sunrise and {@code hour >= 22} for sunset, and no such constant
+ * can be correct: measured over the GB bounding box around the 2026 solstice, sunset reaches 23:06
+ * UK on Lewis, and there is no hour above 23. It is now an instant test against the latest real
+ * event time across the roster ({@link hasEventPassed}), <em>derived at render</em> — because those
+ * times arrive from a fetch and this dialog can be opened before they land. Baked in here, an admin
+ * quick enough to click Run before the briefing responded would get a dialog that never marked
+ * anything past, permanently, with no way to tell.
+ *
+ * <p>That also removes the term that made a wrong "past" dangerous. A past slot stays
+ * {@code selected} underneath and merely renders disabled and unticked, so {@code !s.selected}
+ * alone cannot carry it into {@code excludedSlots} — where before, a slot wrongly marked past was
+ * both undeselectable and silently dropped from the exclusions.
  *
  * @param {'VERY_SHORT_TERM'|'SHORT_TERM'} runType
  * @param {Date} [now] - the instant to read; injectable so tests can pin it
- * @returns {Array<{date: string, targetType: string, isPast: boolean, selected: boolean}>}
+ * @returns {Array<{date: string, targetType: string, selected: boolean}>}
  */
 function computeSlots(runType, now = new Date()) {
-  const hourUk = ukHour(now);
   const days = runType === 'VERY_SHORT_TERM' ? 2 : 3;
   const slots = [];
   for (let i = 0; i < days; i++) {
     const date = ukDateStrOffset(i, now);
-    const isToday = i === 0;
-    const sunrisePast = isToday && hourUk >= SUNRISE_PAST_UK_HOUR;
-    const sunsetPast = isToday && hourUk >= SUNSET_PAST_UK_HOUR;
-    slots.push({ date, targetType: 'SUNRISE', isPast: sunrisePast, selected: !sunrisePast });
-    slots.push({ date, targetType: 'SUNSET', isPast: sunsetPast, selected: !sunsetPast });
+    for (const targetType of SLOT_EVENT_TYPES) {
+      slots.push({ date, targetType, selected: true });
+    }
   }
   return slots;
 }
@@ -255,6 +242,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   const [runStatus, setRunStatus] = useState(null);
   const { config: confirmDialog, openDialog, closeDialog, setConfig: setConfirmDialog } = useConfirmDialog();
   const [allLocations, setAllLocations] = useState([]);
+  const [solarEventTimes, setSolarEventTimes] = useState(null);
   const [dateRange, setDateRange] = useState('7d');
   const [showBriefingRuns, setShowBriefingRuns] = useState(false);
   const [showBatchRuns, setShowBatchRuns] = useState(true);
@@ -265,13 +253,20 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   const [batchDialog, setBatchDialog] = useState(null);
   const PAGE_SIZE = 20;
 
-  // Load locations, optimisation strategies, and batch regions once
+  // Load locations, optimisation strategies, batch regions and solar event times once
   useEffect(() => {
     fetchLocations().then(setAllLocations).catch(() => {});
     getAvailableModels()
       .then((data) => setStrategies(data.optimisationStrategies || {}))
       .catch(() => {});
     getRegions().then(setBatchRegions).catch(() => {});
+    // Solely so the run dialog can say whether a slot's event has already happened. The failure
+    // path is deliberately silent and empty rather than retried or surfaced: with no times the
+    // dialog marks nothing past, which is the safe direction — every slot stays selectable and the
+    // backend's own already-past gate skips whatever is genuinely over.
+    getDailyBriefing()
+      .then((briefing) => setSolarEventTimes(latestSolarEventTimes(briefing)))
+      .catch(() => {});
   }, []);
 
   const loadJobRuns = useCallback(async (pageNum) => {
@@ -361,7 +356,11 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
         // out. Index 0 is the UK today by construction, so its date IS the staleness test — no
         // second stored field to fall out of step with the slots themselves.
         if (resolvedSlots?.length && resolvedSlots[0].date !== ukDateStr()) {
-          setConfirmDialog((prev) => ({ ...prev, slots: computeSlots(runType), datesRolled: true }));
+          setConfirmDialog((prev) => ({
+            ...prev,
+            slots: computeSlots(runType),
+            datesRolled: true,
+          }));
           return;
         }
         closeDialog();
@@ -369,7 +368,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
         setRunStatus(null);
         try {
           const excluded = resolvedSlots
-            ? resolvedSlots.filter((s) => !s.selected && !s.isPast).map(({ date, targetType }) => ({ date, targetType }))
+            ? resolvedSlots.filter((s) => !s.selected).map(({ date, targetType }) => ({ date, targetType }))
             : [];
           const excludedLocations = [];
           if (selectedRegions && locationSummary) {
@@ -572,7 +571,18 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
     }
   };
 
-  const todayStr = useMemo(() => new Date().toLocaleDateString('en-CA'), []);
+  /**
+   * Runs narrowed to the selected date range.
+   *
+   * <p>Both branches read {@code startedAt} through {@link parseUtcInstant}, because it is a
+   * {@code LocalDateTime} and so arrives <b>bare</b> — {@code new Date("2026-08-13T06:00:00")}
+   * parses that as the reader's local time, silently shifting a UTC value by their own offset.
+   * "Today" then compares the run's <b>UK</b> day against the UK today rather than slicing UTC
+   * digits and comparing them with the device's calendar: those were two different calendars, so
+   * during a BST evening the toggle could show nothing while runs were plainly listed beneath it.
+   * Not a frozen memo either — the old {@code []} dependency list pinned "today" to whenever the
+   * tab first mounted, so it never rolled over at midnight.
+   */
   const dateFilteredRuns = useMemo(() => {
     if (!runs || runs.length === 0) return [];
     let filtered = runs;
@@ -584,12 +594,19 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
       filtered = filtered.filter((r) => !batchTypes.has(r.runType));
     }
     if (dateRange === 'today') {
-      return filtered.filter((r) => r.startedAt && r.startedAt.slice(0, 10) === todayStr);
+      const today = ukDateStr();
+      return filtered.filter((r) => {
+        const startedAt = parseUtcInstant(r.startedAt);
+        return startedAt && ukDateStr(startedAt) === today;
+      });
     }
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 7);
-    return filtered.filter((r) => r.startedAt && new Date(r.startedAt) >= cutoff);
-  }, [runs, dateRange, todayStr, showBriefingRuns, showBatchRuns]);
+    return filtered.filter((r) => {
+      const startedAt = parseUtcInstant(r.startedAt);
+      return startedAt && startedAt >= cutoff;
+    });
+  }, [runs, dateRange, showBriefingRuns, showBatchRuns]);
 
   // Auto-refresh every 60 s while any batch run is still in progress
   const hasInProgressBatch = useMemo(
@@ -822,7 +839,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
           {/* Slot selector — VST and ST only */}
           {confirmDialog.slots && (() => {
             const slots = confirmDialog.slots;
-            const anyDeselected = slots.some((s) => !s.isPast && !s.selected);
+            const anyDeselected = slots.some((s) => !s.selected);
             const hasJfdi = confirmDialog.activeStrategies?.some((s) => s.type === 'FORCE_IMMINENT');
             const hasNextEventOnly = confirmDialog.activeStrategies?.some((s) => s.type === 'NEXT_EVENT_ONLY');
             const uniqueDates = [...new Set(slots.map((s) => s.date))];
@@ -841,20 +858,23 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
                       <span className="text-xs text-plex-text-muted w-20 shrink-0">{formatSlotDate(date, di)}</span>
                       {slots.filter((s) => s.date === date).map((slot) => {
                         const id = `slot-${slot.date}-${slot.targetType}`;
+                        // Derived here rather than stored on the slot, so a briefing that lands
+                        // after the dialog opened still marks the past slots.
+                        const isPast = hasEventPassed(solarEventTimes, slot.date, slot.targetType, new Date());
                         return (
                           <label
                             key={id}
                             htmlFor={id}
-                            className={`flex items-center gap-1.5 text-xs cursor-pointer select-none ${slot.isPast ? 'opacity-40 cursor-not-allowed' : 'text-plex-text'}`}
+                            className={`flex items-center gap-1.5 text-xs cursor-pointer select-none ${isPast ? 'opacity-40 cursor-not-allowed' : 'text-plex-text'}`}
                           >
                             <input
                               id={id}
                               type="checkbox"
-                              checked={slot.selected}
-                              disabled={slot.isPast}
+                              checked={slot.selected && !isPast}
+                              disabled={isPast}
                               data-testid={id}
                               onChange={() => {
-                                if (slot.isPast) return;
+                                if (isPast) return;
                                 setConfirmDialog((prev) => ({
                                   ...prev,
                                   slots: prev.slots.map((s) =>
@@ -867,7 +887,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
                               className="accent-blue-400"
                             />
                             {slot.targetType === 'SUNRISE' ? '🌅 Sunrise' : '🌇 Sunset'}
-                            {slot.isPast && <span className="text-plex-text-muted italic">(past)</span>}
+                            {isPast && <span className="text-plex-text-muted italic">(past)</span>}
                           </label>
                         );
                       })}
