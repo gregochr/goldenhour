@@ -15,10 +15,13 @@
 //
 // ⚠️ This is a default, not a ceiling. A test file that pins its own zone still wins: setup files
 // run before the test module is evaluated, so a file-scope `process.env.TZ = …` is applied second.
-// Six files rely on that (`mapDates`, `computeAutoSelection`, `DateStripToday`, `MapViewAuroraNight`
-// pin Europe/London; `mapDatesAbroad` and `instantsAbroad` pin America/New_York), and BOTH abroad
-// files carry a "the zone fixture itself" test asserting the disagreement outright — so if this line
-// ever defeated a per-file pin, those files fail rather than quietly becoming duplicates.
+// Seven files rely on that (`mapDates`, `computeAutoSelection`, `DateStripToday`,
+// `MapViewAuroraNight` pin Europe/London; `mapDatesAbroad`, `instantsAbroad` and
+// `jobRunSlotDatesAbroad` pin America/New_York), and ALL THREE abroad files carry a "the zone
+// fixture itself" test — so if this line ever defeated a per-file pin, those files fail rather than
+// quietly becoming duplicates. ⚠️ A date assertion is not always enough to be that guard: at
+// `jobRunSlotDatesAbroad`'s headline instant New York and UTC are on the SAME date, so that file
+// has to assert `resolvedOptions().timeZone` outright. Check which one a new abroad file needs.
 // `testEnvironmentTimezone.test.js` is the other half: it fails if this line stops taking effect at
 // all.
 process.env.TZ = 'UTC';

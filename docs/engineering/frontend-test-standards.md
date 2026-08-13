@@ -92,9 +92,21 @@ Three rules follow:
 - **Zone-separation coverage belongs in a file pinned to a non-UK zone.** Under a UK pin, "the UK
   calendar" and "the browser's calendar" are the same string and no assertion can tell them apart —
   and under the UTC pin they still never differ by a whole *day*, which is the form these defects
-  keep taking. `mapDatesAbroad.test.js` (map dates) and `instantsAbroad.test.jsx` (backend instants
-  on nine surfaces) exist for exactly that and say so at length. That is the designed detection
+  keep taking. `mapDatesAbroad.test.js` (map dates), `instantsAbroad.test.jsx` (backend instants
+  on nine surfaces) and `jobRunSlotDatesAbroad.test.jsx` (the admin run dialog's outgoing slot
+  dates) exist for exactly that and say so at length. That is the designed detection
   mechanism; do not rely on whose laptop happens to run the suite.
+- **An abroad file's own "is the pin still in force" guard has to be checked against its instants.**
+  Asserting that the device date differs from the UK date is the usual form, but it only detects a
+  lost pin when the device and *UTC* also differ — otherwise the file passes identically under the
+  suite default and decays into a duplicate without failing. `jobRunSlotDatesAbroad.test.jsx` sits
+  on an instant where New York and UTC share a date, so it asserts
+  `Intl.DateTimeFormat().resolvedOptions().timeZone` directly. `instantsAbroad.test.jsx` hit the
+  same rule from the other end a day earlier: its *hot-topic day word* block re-asserts the
+  disagreement at its own instant rather than leaning on the file's opening check, because a day
+  word only discriminates inside the divergent band. Both say the same thing — the guard has to be
+  measured where the assertions are. Work out which form your instants need rather than copying a
+  sibling's.
 
 `testEnvironmentTimezone.test.js` asserts the pin is in force, because a deleted pin fails silently:
 every test would go back to reading the developer's own zone and the suite would stay green on their

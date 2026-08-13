@@ -16,7 +16,7 @@
 process.env.TZ = 'Europe/London';
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { ukDateStr, ukDateStrOffset, ukDayOffset, resolveAuroraNight } from '../utils/mapDates.js';
+import { ukDateStr, ukDateStrOffset, ukDayOffset, ukHour, resolveAuroraNight } from '../utils/mapDates.js';
 
 /** The hour after UK midnight in BST — UTC still says the 13th, the UK says the 14th. */
 const BST_SMALL_HOURS = '2026-08-13T23:30:00Z';
@@ -59,6 +59,54 @@ describe('ukDateStr', () => {
     freeze('2026-08-13T12:00:00Z');
 
     expect(ukDateStr(new Date('2026-12-25T12:00:00Z'))).toBe('2026-12-25');
+  });
+});
+
+describe('ukHour', () => {
+  it('returns 0 at UK midnight, not 24', () => {
+    // The `hourCycle: 'h23'` claim, which is the whole reason that option is spelled out. Under
+    // `hour12: false` some implementations render midnight as "24", and every caller compares the
+    // result with `>=` against a daytime threshold — so a 24 would read as "the event has passed"
+    // for the one hour of the day when it certainly has not.
+    freeze(BST_SMALL_HOURS); // 00:30 BST on the 14th
+
+    expect(ukHour()).toBe(0);
+  });
+
+  it('reads the UK wall clock, an hour ahead of the UTC hour under BST', () => {
+    freeze(BST_SMALL_HOURS);
+
+    expect(ukHour()).toBe(0);
+    expect(new Date().getUTCHours()).toBe(23);
+  });
+
+  it('agrees with the UTC hour in GMT, which is why the UTC basis looked correct for half the year', () => {
+    freeze(GMT_SMALL_HOURS);
+
+    expect(ukHour()).toBe(23);
+    expect(new Date().getUTCHours()).toBe(23);
+  });
+
+  it('returns a finite integer rather than NaN, whatever the formatter emits', () => {
+    // Guards the `formatToParts` read. Parsing the formatted STRING is what fails silently: a
+    // locale literal beside the number gives NaN, and `NaN >= 12` is false, so every caller would
+    // quietly decide nothing had passed instead of throwing.
+    freeze('2026-08-13T14:00:00Z');
+
+    expect(Number.isInteger(ukHour())).toBe(true);
+    expect(ukHour()).toBe(15);
+  });
+
+  it('reads 23 at the last hour of a UK day', () => {
+    freeze('2026-08-13T22:30:00Z'); // 23:30 BST
+
+    expect(ukHour()).toBe(23);
+  });
+
+  it('takes an injected instant in preference to the clock', () => {
+    freeze('2026-08-13T12:00:00Z');
+
+    expect(ukHour(new Date('2026-08-13T20:00:00Z'))).toBe(21);
   });
 });
 
