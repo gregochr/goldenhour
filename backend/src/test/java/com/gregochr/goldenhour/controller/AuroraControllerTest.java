@@ -154,15 +154,30 @@ class AuroraControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/aurora/status omits currentNightDate when the night cannot be derived")
+    @DisplayName("GET /api/aurora/status still answers, carrying no date, if the night is ever null")
     @WithMockUser(roles = {"ADMIN"})
-    void getStatus_nullCurrentNightDate_omitsField() throws Exception {
-        // Degrade path: the map falls back to its own date when the field is absent, which is also
-        // what a client sees against a backend deployed before this field existed.
+    void getStatus_nullCurrentNightDate_stillAnswersWithNoDate() throws Exception {
+        // Defensive pass-through only, and worth being honest about what it does and does not say.
+        //
+        // The server state is not currently reachable: currentNightDate() returns `today` or
+        // `today.minusDays(1)` and SolarCalculator.civilDawn is pure arithmetic with no null path.
+        // What this pins is that the controller relays whatever the service returns rather than
+        // substituting a calendar date of its own — the substitution being the entire defect this
+        // field exists to fix.
+        //
+        // ⚠️ `doesNotExist()` asserts the JSON path resolves to null, which is true both when the
+        // key is absent AND when it is present as an explicit null. No profile sets
+        // spring.jackson.default-property-inclusion, so Jackson's ALWAYS default means the wire
+        // almost certainly carries `"currentNightDate": null` rather than omitting the key. This
+        // assertion cannot tell those apart and is not claiming to. It does not matter to any
+        // consumer: the map reads `auroraStatus?.currentNightDate ?? <local date>`, which treats
+        // absent and null identically, and that degrade is tested on the frontend in
+        // `mapDates.test.js`.
         when(forecastRunService.currentNightDate()).thenReturn(null);
 
         mockMvc.perform(get("/api/aurora/status"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.level").value("QUIET"))
                 .andExpect(jsonPath("$.currentNightDate").doesNotExist());
     }
 

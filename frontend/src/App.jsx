@@ -295,9 +295,18 @@ function AppInner() {
    * which §6 bans. The window-first arm reaches the map through the same overlay every plan card
    * uses, so the banner is routed through that instead of being hidden.
    *
-   * <p>The v1 path below is byte-identical to what it has always been. Both arms end up handing
-   * `MapView` the same `handoffEventType`, which is what makes this a route rather than a second
-   * behaviour.
+   * <p>Both arms hand `MapView` the same `handoffEventType` AND the same date, which is what makes
+   * this a route rather than a second behaviour.
+   *
+   * <p>⚠️ The v1 path used to set only the handoff, leaving the date alone. That was survivable
+   * while the viewline was gated on the calendar date, because the map's default and the gate
+   * agreed. Once the gate moved to the night in progress they stopped agreeing, and the case that
+   * broke is the one the banner exists for: a live alert at 02:00 with no stored run for that
+   * night. The date default lands on today, the night is yesterday, and `MapView`'s jump cannot
+   * help — it is gated on stored aurora RESULTS, which a live NOAA alert does not imply. So the
+   * banner would take the reader to the map and the viewline would be missing, for up to seven
+   * hours a night in midwinter. Setting the date here is what keeps the gate and the destination
+   * on the same night. Found by review; the two conditions are genuinely independent.
    */
   const handleAuroraViewOnMap = () => {
     if (planLayout === PLAN_V2) {
@@ -306,6 +315,9 @@ function AppInner() {
       handleShowOnMap({ kind: 'aurora', date: auroraNightStr });
       return;
     }
+    // Fails soft: `effectiveDate` ignores a date not on the strip, so this can never strand the
+    // map on a day it cannot render.
+    setSelectedDate(auroraNightStr);
     setMapHandoff({ eventType: 'AURORA', nonce: handoffNonce.current++ });
     setViewMode('map');
   };
@@ -699,10 +711,13 @@ function AppInner() {
             <MapView
               locations={visibleLocations}
               date={mapOverlay.date ?? effectiveDate}
-              // Deliberately NO onSelectDate. The overlay reads `mapOverlay.date`, so a date the
-              // map asked for would not reach it — it would only move the Plan tab underneath,
-              // which the reader is not looking at. The aurora path into the overlay already
-              // opens on the right night: `handleAuroraViewOnMap` targets it directly.
+              // Deliberately NO onSelectDate, and the omission IS the mechanism — `MapView` checks
+              // for the handler and asks for nothing without one. Do not "fix" that by adding one
+              // on the assumption the overlay would ignore it: the date below falls through to
+              // `effectiveDate` whenever the trigger carried none, and `effectiveDate` is driven by
+              // `selectedDate`, so a handler here would move the Plan tab under the reader and
+              // could move the overlay itself. The aurora path in already opens on the right night
+              // — `handleAuroraViewOnMap` targets it directly.
               autoEventType={autoSelection?.eventType ?? null}
               handoffEventType={mapOverlay.handoff.eventType ?? null}
               handoffFilterAction={mapOverlay.handoff.filterAction ?? null}

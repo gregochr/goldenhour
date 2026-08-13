@@ -24,10 +24,28 @@
  * {@code toISOString} gives {@code 2026-08-13} and {@code toLocaleDateString('en-CA')} gives
  * {@code 2026-08-14}.
  *
- * <p>Local is the right basis because this is a UK app whose users are in the UK: it matches the
- * backend's {@code Europe/London} civil date ({@code ForecastHorizon.today}), which is what every
- * forecast date on the wire is keyed to. UTC agreed with it only in GMT, i.e. by accident for half
- * the year. {@code en-CA} is used purely because its locale format is ISO {@code YYYY-MM-DD}.
+ * <p>Local was chosen because it was already the map's dominant basis — {@code MapView}'s
+ * {@code getNextEventType} and {@code computeAutoSelection} both read it — so unifying here took
+ * the path from two calendars to one. {@code en-CA} is used purely because its locale format is
+ * ISO {@code YYYY-MM-DD}.
+ *
+ * <p>⚠️ <b>This equals the backend's {@code Europe/London} civil date only while the browser is in
+ * the UK</b>, and that assumption is load-bearing rather than incidental. Every forecast date on
+ * the wire is keyed to {@code ForecastHorizon.today}, i.e. {@code Europe/London}; a device on
+ * {@code America/New_York} reads a UK evening as the previous day and would mislabel the strip all
+ * day, not for an hour. The app is UK-only, so this is the UK-user-abroad case rather than a
+ * foreign-user one — but it is a real limit, not a rounding error, and it is worse than the UTC
+ * basis it replaced for exactly that population (UTC was wrong by at most an hour).
+ *
+ * <p>The unconditional fix is {@code Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' })},
+ * which this codebase already uses in {@code WindowFirstBriefingContext} and throughout
+ * {@code conversions.js}'s time formatting — and which {@code DailyBriefing} uses to resolve the
+ * backend's own "today"/"tomorrow" tokens before handing the result to {@code setSelectedDate}. So
+ * a London-basis date already meets a browser-local judgement on this path. Moving to it is
+ * deliberately NOT done here: it would have to take {@code computeAutoSelection} and
+ * {@code getNextEventType} with it or reintroduce the split, and {@code computeAutoSelection.test.js}
+ * is twelve wall-clock-dependent tests that would need rebuilding on a frozen clock first. Recorded
+ * in {@code docs/engineering/aurora-night-selection.md} as the follow-up.
  *
  * @param {Date} [now] - the instant to read; injectable so tests can pin it
  * @returns {string} the local calendar date as YYYY-MM-DD

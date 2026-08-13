@@ -980,9 +980,17 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
       return;
     }
     if (auroraNightRequested.current || !onSelectDate) return;
+    // Nothing to land on yet — either no run for this night, or the fetch has not returned. Do NOT
+    // latch here: `auroraAvailableDates` starts empty and arrives async, so latching on an empty
+    // list would spend the one look before there was anything to look at.
     if (!auroraAvailableDates.includes(auroraNight)) return;
-    if (date === auroraNight || auroraAvailableDates.includes(date)) return;
+    // Latched HERE, before the last guard, because the decision is made at this point whether or
+    // not it moves anything. Latching only on the firing path meant that entering aurora mode
+    // already ON the night — the ordinary daytime case, since both default to today — left the
+    // effect armed, and it then ate the reader's very next date-strip click and snapped back.
+    // Reproduced in a browser, not theorised.
     auroraNightRequested.current = true;
+    if (date === auroraNight || auroraAvailableDates.includes(date)) return;
     onSelectDate(auroraNight);
   }, [isAuroraMode, auroraAvailableDates, auroraNight, date, onSelectDate]);
 

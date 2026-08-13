@@ -272,6 +272,35 @@ describe('MapView aurora night date selection', () => {
     expect(onSelectDate).not.toHaveBeenCalled();
   });
 
+  it('does not eat the next date click after entering aurora mode already on the night', async () => {
+    // ⚠️ REGRESSION TEST. The latch was originally set only on the branch that fires, so entering
+    // aurora mode while already ON the aurora night returned through a guard without arming it —
+    // and that is the ORDINARY case, because the map's default date and the current night are both
+    // today for most of the day. The effect stayed live, and the reader's very next date-strip
+    // click satisfied it: the click was swallowed and the map snapped back. Reproduced in a
+    // browser before being fixed, not theorised.
+    const onSelectDate = vi.fn();
+    const { rerender } = await renderMap({ date: THE_NIGHT, onSelectDate });
+    await enterAuroraMode();
+
+    // Nothing to do on entry — already on the night.
+    expect(onSelectDate).not.toHaveBeenCalled();
+
+    // The reader now picks a night with no results. This must be honoured, not undone.
+    await act(async () => {
+      rerender(
+        <MapView
+          locations={makeLocations()}
+          date={THE_CALENDAR_DAY}
+          autoEventType={null}
+          onSelectDate={onSelectDate}
+        />,
+      );
+    });
+
+    expect(onSelectDate).not.toHaveBeenCalled();
+  });
+
   it('does not ask again after the reader moves the date themselves', async () => {
     // The latch. It fires once per entry into aurora mode, so the strip stays the reader's —
     // including a deliberate move to a night with nothing on it. Without this the component would

@@ -236,6 +236,47 @@ different. And the **window-first (v2) arm**: its shell needs briefing data the 
 not have, so `WindowFirstMapPane`'s one-line wiring is covered by a prop-identity test in
 `WindowFirstMapPane.test.jsx` and nothing more. The jump was browser-verified on the v1 Map tab only.
 
+**What the adversarial review found, and it was not cosmetic.** Three focused read-only reviewers ran
+against the diff. Two defects survived verification, and the first was on the *common* path — the
+browser session had missed it by only ever testing the lucky case.
+
+1. **The latch was armed only when the jump fired**, so a *blocked* first evaluation left the effect
+   live. Entering aurora mode while already on the aurora night — which is the ordinary daytime
+   state, because the map's default date and the current night are both today — returned through a
+   guard without arming, and the reader's very **next** date-strip click then satisfied the effect
+   and was swallowed. First-click-eaten, silent, no error. Reproduced in a browser before being
+   fixed. The latch now arms as soon as the night is known to have results, whether or not it
+   moves anything — "we have looked, once", not "we have jumped". It is deliberately *not* armed
+   above the `auroraAvailableDates` guard, because that list arrives async and starts empty: arming
+   there would spend the one look before there was anything to look at. The regression test fails
+   against the original placement.
+2. **The v1 aurora banner set the handoff but never the date.** Survivable while the viewline was
+   gated on the calendar date, because the map's default and the gate agreed; moving the gate to the
+   night broke it. The case that fails is the one the banner exists for — a live NOAA alert at 02:00
+   with **no stored run** for that night. `MapView`'s jump cannot compensate, because it is gated on
+   stored aurora *results* and a live alert does not imply one: the two conditions are genuinely
+   independent. The banner would land on the map with the viewline missing, for up to seven hours a
+   night in midwinter. The v1 branch now sets the date like the v2 branch already did.
+
+A third charge — that the overlay's "no `onSelectDate`" comment named the wrong mechanism — was
+upheld as a comment defect rather than a behavioural one, and the comment was corrected. The
+omission *is* the mechanism (`MapView` asks for nothing without a handler); the stated reason (that
+the overlay reads its own date) is not load-bearing, because that date falls through to
+`effectiveDate` whenever the trigger carried none. Left uncorrected it would have invited someone to
+add a handler there on false grounds.
+
+⚠️ **Follow-up, deliberately not done here: the map's date basis should be `Europe/London`, not the
+browser's.** The review established that `localDateStr` equals the backend's civil date only while
+the browser is in the UK, and that `DailyBriefing` already resolves the backend's own "today" token
+on `Europe/London` before handing it to `setSelectedDate` — so a London-basis date meets a
+browser-local judgement on this path. This change did not *introduce* the browser-local basis (it
+was already what `MapView.getNextEventType` and `computeAutoSelection` read; the change took the
+path from two bases to one, retiring UTC), but for a UK user abroad it is worse than the UTC basis
+it replaced: UTC was wrong by at most an hour, browser-local can be wrong all day. Doing it properly
+means moving `computeAutoSelection` and `getNextEventType` too — or reintroducing the split — and
+`computeAutoSelection.test.js` is twelve wall-clock-dependent tests that need rebuilding on a frozen
+clock first. That is its own change.
+
 ⚠️ **The tests pin the timezone as well as the clock, and both are load-bearing.** Nothing in this
 repo pins `TZ`: the dev Mac is `Europe/London` and GitHub's runners are UTC, so an unpinned date test
 is two different tests, and the assertions here turn on a disagreement that exists *only* under BST —
