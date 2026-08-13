@@ -271,6 +271,16 @@ UK, and that `DailyBriefing` and `WindowFirstBriefingContext` already resolve th
 "today"/"tomorrow" tokens on `Europe/London` before handing the result to `setSelectedDate` — so a
 UK-basis date was being judged against a browser-basis one on the same path.
 
+⚠️ **Those two are only half right, and an earlier draft of this note wrongly held them up as the
+model.** Their `londonDate(offset)` steps the *browser's* calendar and only then formats in London,
+so the offset mixes two calendars. `todayStr` (offset 0) is correct; `tomorrowStr` is not. Measured:
+at `2026-10-24T23:30:00Z` it yields `2026-10-25` for **both** today and tomorrow — so no Plan card
+is labelled "Tomorrow", and "Best Bet — tomorrow's sunset" resolves to today's date and opens the
+map on the wrong day — and at `2026-03-28T23:30:00Z` it skips the 28th straight to the 30th. Under
+`Europe/London` both are correct, which is why nothing catches it. Pre-existing, confined to the DST
+transitions, in different components, and **tracked separately** rather than swept into this change.
+`ukDateStrOffset` is the form that steps the UK date itself.
+
 **Five derivations moved, not the three first estimated.** `mapDates`' helpers (renamed
 `ukDateStr` / `ukDateStrOffset`, plus a new `ukDayOffset`), `computeAutoSelection` and
 `getNextEventType` were the known set. Two more turned up only by following the call graph, and each
@@ -291,9 +301,21 @@ The shared arithmetic is `ukDayOffset`, and both now call it.
 adjacent day by any offset up to ±12 h, and adding 24 h of milliseconds is not a day on the two
 dates a year that are 23 or 25 hours long. Both are tested.
 
-**Left alone, and checked rather than assumed:** `AuroraBanner` and `NlcSightingBanner` (relative
-*elapsed-time* wording on a timestamp — a different question from "what day is it"), and
-`JobRunsMetricsView` / `MetricsSummary` (admin surfaces, not on the map's date path).
+**Left alone, and checked rather than assumed:** `AuroraBanner` and `NlcSightingBanner` — relative
+*elapsed-time* wording on a timestamp, a different question from "what day is it", and internally
+consistent because the clock time they print beside it is browser-local too; and
+`JobRunsMetricsView` / `MetricsSummary`'s display filters, which are admin-only and reach no map
+date. ⚠️ That last clause does **not** cover `JobRunsMetricsView.computeSlots`, which derives slot
+dates via `toISOString()` and puts them **on the wire** in the `excluded` array of a run request,
+against a backend keyed to `Europe/London` — so for one hour a day under BST an admin de-selecting
+"today" excludes UK-yesterday and the intended slot runs anyway. Pre-existing, admin-only, tracked
+separately.
+
+⚠️ **Known coverage gap:** `HotTopicStrip.leadDayWord` is one of the five moved sites, but
+`HotTopicStrip.test.jsx` pins no timezone and freezes at midday, where every zone within ±12 h
+agrees — so its Today/Tomorrow assertions pass on either basis, and `mapDatesAbroad.test.js` never
+renders the component. The line is correct but unguarded against a revert. The shared helper it now
+calls (`ukDayOffset`) *is* covered abroad.
 
 ⚠️ **`mapDatesAbroad.test.js` pins `America/New_York` and must stay that way.** A UK-pinned test
 cannot tell "the UK calendar" from "the browser's calendar" — under `Europe/London` they are the

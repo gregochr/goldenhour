@@ -27,9 +27,10 @@ const DAY_MS = 86400000;
 /**
  * Anchors a {@code YYYY-MM-DD} string at 12:00 UTC.
  *
- * <p>Noon, not midnight, and that is the whole trick: a date anchored at midnight can be shunted
- * onto the previous or next day by any offset up to ±12 h, whereas noon survives every real-world
- * zone and every DST transition. Arithmetic between two of these is exact whole days.
+ * <p>Noon rather than midnight is <b>defensive, not load-bearing</b>. Every read-back here is
+ * {@code getUTC*}, so no local field is ever consulted and midnight would give identical answers;
+ * the margin exists so that a later edit reaching for {@code getFullYear()} instead cannot silently
+ * shift a date by a day. Arithmetic between two of these anchors is exact whole days regardless.
  *
  * @param {string} dateStr - ISO date, YYYY-MM-DD
  * @param {number} [days]  - whole days to add; may be negative
@@ -73,10 +74,17 @@ function fromUtcNoon(ms) {
  * </ul>
  *
  * <p>Naming the zone outright is the only form with no such caveat, and it is what this codebase
- * already does everywhere it formats a UK <em>time</em> ({@code conversions.js}) and where
- * {@code DailyBriefing} and {@code WindowFirstBriefingContext} resolve the backend's own
- * "today"/"tomorrow" tokens. Those resolved dates are fed straight to {@code setSelectedDate}, so
- * before this change a UK-basis date was being judged against a browser-basis one on the same path.
+ * already does everywhere it formats a UK <em>time</em> ({@code conversions.js}).
+ *
+ * <p>⚠️ {@code DailyBriefing} and {@code WindowFirstBriefingContext} also resolve the backend's
+ * "today"/"tomorrow" tokens against {@code Europe/London} and feed the result to
+ * {@code setSelectedDate} — but <b>do not copy their helper</b>. Their {@code londonDate(offset)}
+ * steps the <em>browser's</em> calendar ({@code d.setDate(d.getDate() + offset)}) and only then
+ * formats in London, so the offset is a hybrid of two calendars and is wrong whenever the two day
+ * steps disagree. Measured: at {@code 2026-10-24T23:30:00Z} it returns {@code 2026-10-25} for
+ * <em>both</em> today and tomorrow, and at {@code 2026-03-28T23:30:00Z} it skips from the 28th to
+ * the 30th. {@link ukDateStrOffset} is the form that steps the UK date itself. Pre-existing and
+ * tracked separately; noted here because this javadoc previously cited those two as the pattern.
  *
  * @param {Date} [now] - the instant to read; injectable so tests can pin it
  * @returns {string} the UK calendar date as YYYY-MM-DD

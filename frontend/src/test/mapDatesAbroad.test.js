@@ -25,14 +25,14 @@ import { computeAutoSelection, formatDateLabel } from '../utils/conversions.js';
 
 /**
  * 21:00 UK on 13 August 2026 — an ordinary UK evening, around sunset, when someone would actually
- * be looking at this app. New York is five hours behind (16:00 on the 13th), so both agree on the
- * date here; this is the control.
+ * be looking at this app. New York is four hours behind in August (EDT), so 16:00 on the 13th, and
+ * both calendars agree on the date; this is the control.
  */
 const UK_EVENING = '2026-08-13T20:00:00Z';
 
 /**
- * 02:00 UK on 14 August 2026. New York is on 22:00 of the 13th, so the two calendars DISAGREE:
- * UK 2026-08-14, New York 2026-08-13. Every headline assertion uses this instant.
+ * 02:00 UK on 14 August 2026. New York is on 21:00 of the 13th (EDT, UTC−4), so the two calendars
+ * DISAGREE: UK 2026-08-14, New York 2026-08-13. Every headline assertion uses this instant.
  */
 const UK_SMALL_HOURS = '2026-08-14T01:00:00Z';
 
@@ -129,9 +129,14 @@ describe('computeAutoSelection abroad', () => {
     });
   });
 
-  it('rolls to the UK tomorrow once the sunset buffer has passed', () => {
-    // 22:00 UK on the 13th; New York is on 17:00 of the same day, so the device would answer with
-    // the 14th here only by coincidence of both rolling forward — the assertion pins the UK date.
+  it('rolls forward once the sunset buffer has passed (control — not zone-discriminating)', () => {
+    // ⚠️ NOT load-bearing, and labelled so rather than left to imply otherwise. At 22:00 UK the New
+    // York calendar reads the same date, so this assertion passes on the old browser-zone basis too
+    // — it survives a full revert. It cannot be fixed at this zone either: the UK and New York
+    // calendars diverge only while the UK clock reads 00:00–05:00, and the sunset-plus-buffer
+    // branch is unreachable then. Making it discriminating needs a zone EAST of the UK (in
+    // Pacific/Auckland, 21:00 BST is 08:00 the next day), i.e. another file. Kept as a plain
+    // regression guard on the buffer logic.
     freeze('2026-08-13T21:00:00Z');
     const loc = locationWithSunsetOn('2026-08-13', '2026-08-13T19:00:00');
 
