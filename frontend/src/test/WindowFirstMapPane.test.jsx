@@ -181,6 +181,20 @@ describe('WindowFirstMapPane', () => {
       expect(MapStub.lastProps.handoffNonce).toBe(7);
     });
 
+    it('gives the map the same date setter the strip above it uses', () => {
+      // So the map can land on the aurora night when aurora mode is entered, and the strip follows
+      // rather than disagreeing with the map about which day is on screen. Identity, not just
+      // presence: a different handler here would move some other state and leave the strip behind.
+      //
+      // ⚠️ This assertion is the v2 arm's only coverage of that wiring. The window-first shell
+      // needs briefing data, which a local dev DB does not have, so the jump itself was
+      // browser-verified on the v1 Map tab only.
+      const onSelectDate = vi.fn();
+      renderPane({ onSelectDate });
+
+      expect(MapStub.lastProps.onSelectDate).toBe(onSelectDate);
+    });
+
     it('nulls every handoff field when there is no handoff, rather than passing undefined', () => {
       // `MapView` defaults these to null and branches on null; `undefined` would reach the same
       // place by luck. Asserted because the pane spreads from a possibly-absent object.

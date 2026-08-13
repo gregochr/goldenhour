@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
@@ -136,6 +137,33 @@ class AuroraControllerTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/aurora/status"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.bzNanoTesla").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("GET /api/aurora/status serves the run service's night, not a calendar date")
+    @WithMockUser(roles = {"ADMIN"})
+    void getStatus_carriesCurrentNightDateFromRunService() throws Exception {
+        // A fixed date in the past, deliberately never today: the whole point of this field is that
+        // the night in progress is NOT derivable from a calendar, so a controller that re-derived
+        // one — on any zone — would fail here rather than agreeing by coincidence.
+        when(forecastRunService.currentNightDate()).thenReturn(LocalDate.of(2026, 4, 1));
+
+        mockMvc.perform(get("/api/aurora/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currentNightDate").value("2026-04-01"));
+    }
+
+    @Test
+    @DisplayName("GET /api/aurora/status omits currentNightDate when the night cannot be derived")
+    @WithMockUser(roles = {"ADMIN"})
+    void getStatus_nullCurrentNightDate_omitsField() throws Exception {
+        // Degrade path: the map falls back to its own date when the field is absent, which is also
+        // what a client sees against a backend deployed before this field existed.
+        when(forecastRunService.currentNightDate()).thenReturn(null);
+
+        mockMvc.perform(get("/api/aurora/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currentNightDate").doesNotExist());
     }
 
     // -------------------------------------------------------------------------

@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.model;
 import com.gregochr.goldenhour.entity.AlertLevel;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZonedDateTime;
 
 /**
@@ -42,6 +43,14 @@ import java.time.ZonedDateTime;
  * @param gScale             NOAA geomagnetic storm scale label ({@code "G1"}–{@code "G5"}), or
  *                           {@code null} below the G1 storm threshold; drives the banner's
  *                           severity index ({@code Strong · G4})
+ * @param currentNightDate   the date naming the dark window we are in, or the next one if it is
+ *                           daylight — <b>not</b> today's date. A night runs from dusk on {@code D}
+ *                           to dawn on {@code D+1}, so between midnight and dawn this is
+ *                           <em>yesterday</em>, and that is the date aurora results for the night in
+ *                           progress are stored under. Carried here so the map can default to the
+ *                           night the user just ran instead of deriving a calendar date of its own;
+ *                           see {@code AuroraForecastRunService.currentNightDate()}, which owns the
+ *                           rule and is the only place it lives
  */
 public record AuroraStatusResponse(
         AlertLevel level,
@@ -60,5 +69,6 @@ public record AuroraStatusResponse(
         ZonedDateTime updatedAt,
         boolean simulated,
         Instant detectedAt,
-        String gScale) {
+        String gScale,
+        LocalDate currentNightDate) {
 }

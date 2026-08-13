@@ -155,9 +155,15 @@ public class AuroraForecastRunService {
      * one and nothing goes red. If you change the buffer, the zone or the comparison in one, change
      * it in the other.
      *
+     * <p><b>Public because the map needs the same answer.</b> {@code GET /api/aurora/status}
+     * carries this date so the frontend can default to the night in progress rather than to a
+     * calendar date of its own — the client half of the same defect. Read-only: the rule, its
+     * inputs and its existing callers are unchanged, and nothing outside this class may decide
+     * which night is current by any other means.
+     *
      * @return the date whose dusk opened the current or next dark window
      */
-    LocalDate currentNightDate() {
+    public LocalDate currentNightDate() {
         ZoneId utc = ZoneId.of("UTC");
         LocalDate today = LocalDate.now(clock.withZone(utc));
         LocalDateTime now = LocalDateTime.now(clock.withZone(utc));

@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { formatDateLabel } from '../utils/conversions.js';
+import { localDateStr, localDateStrOffset } from '../utils/mapDates.js';
 
 /**
  * Horizontal scrollable strip of date chips for selecting a target date.
@@ -15,8 +16,11 @@ import { formatDateLabel } from '../utils/conversions.js';
 export default function DateStrip({ dates, selectedDate, onSelect }) {
   const scrollRef = useRef(null);
   const now = new Date();
-  const today = now.toISOString().slice(0, 10);
-  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString().slice(0, 10);
+  // Local, not UTC — these label a chip "Today" and draw the past/future divider, so on the UTC
+  // basis the strip named yesterday's chip "Today" for the hour after UK midnight under BST while
+  // the rest of the map had already moved on. `localDateStr` records the measurement.
+  const today = localDateStr(now);
+  const tomorrow = localDateStrOffset(1, now);
 
   // Scroll so today (or the selected date) is visible on mount
   useEffect(() => {
