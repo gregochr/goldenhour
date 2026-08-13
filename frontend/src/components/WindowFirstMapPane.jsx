@@ -119,6 +119,9 @@ export default function WindowFirstMapPane({
         <DateStrip dates={dates} selectedDate={selectedDate} onSelect={onSelectDate} />
       )}
       <MapView
+        // The same handler the strip above uses, so a jump to the aurora night moves the strip
+        // with it rather than leaving the two disagreeing about what is on screen.
+        onSelectDate={onSelectDate}
         locations={locations}
         date={selectedDate}
         autoEventType={autoEventType}

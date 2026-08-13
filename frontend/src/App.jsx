@@ -16,6 +16,8 @@ import UserSettingsModal from './components/UserSettingsModal.jsx';
 import { getSettings } from './api/settingsApi.js';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { AuroraStatusProvider } from './context/AuroraStatusContext.jsx';
+import { useAuroraStatus } from './hooks/useAuroraStatus.js';
+import { localDateStr, localDateStrOffset, resolveAuroraNight } from './utils/mapDates.js';
 import { useForecasts } from './hooks/useForecasts.js';
 import { useHealthStatus } from './hooks/useHealthStatus.js';
 import { useRunNotifications } from './hooks/useRunNotifications.js';
@@ -218,12 +220,21 @@ function AppInner() {
   );
 
   // Default to today (or the nearest future date) when data loads.
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const tomorrowStr = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().slice(0, 10);
-  })();
+  //
+  // Local, not UTC. These used to be `toISOString().slice(0, 10)` while MapView's own date logic
+  // and `computeAutoSelection` read the browser-local date — two calendars on one screen, which
+  // disagree for the hour after UK midnight under BST. `localDateStr` is now the single basis and
+  // its javadoc records the measurement. See also DateStrip, which had the same split.
+  const todayStr = localDateStr();
+  const tomorrowStr = localDateStrOffset(1);
+
+  // The night aurora results are stored under, which in the small hours is YESTERDAY's date — a
+  // night runs dusk-to-dawn, so it is not a calendar question and the backend answers it. Only the
+  // aurora paths below use it; the colour map keeps its calendar default, because at 02:00 a
+  // landscape photographer wants today's sunrise, not last night's sunset.
+  const { status: auroraStatus } = useAuroraStatus();
+  const auroraNightStr = resolveAuroraNight(auroraStatus);
+
   const defaultDate = allDates.find((d) => d >= todayStr) ?? allDates[allDates.length - 1] ?? null;
   const autoDate = autoSelection?.date ?? null;
   const effectiveDate = (selectedDate && allDates.includes(selectedDate))
@@ -284,15 +295,29 @@ function AppInner() {
    * which §6 bans. The window-first arm reaches the map through the same overlay every plan card
    * uses, so the banner is routed through that instead of being hidden.
    *
-   * <p>The v1 path below is byte-identical to what it has always been. Both arms end up handing
-   * `MapView` the same `handoffEventType`, which is what makes this a route rather than a second
-   * behaviour.
+   * <p>Both arms hand `MapView` the same `handoffEventType` AND the same date, which is what makes
+   * this a route rather than a second behaviour.
+   *
+   * <p>⚠️ The v1 path used to set only the handoff, leaving the date alone. That was survivable
+   * while the viewline was gated on the calendar date, because the map's default and the gate
+   * agreed. Once the gate moved to the night in progress they stopped agreeing, and the case that
+   * broke is the one the banner exists for: a live alert at 02:00 with no stored run for that
+   * night. The date default lands on today, the night is yesterday, and `MapView`'s jump cannot
+   * help — it is gated on stored aurora RESULTS, which a live NOAA alert does not imply. So the
+   * banner would take the reader to the map and the viewline would be missing, for up to seven
+   * hours a night in midwinter. Setting the date here is what keeps the gate and the destination
+   * on the same night. Found by review; the two conditions are genuinely independent.
    */
   const handleAuroraViewOnMap = () => {
     if (planLayout === PLAN_V2) {
-      handleShowOnMap({ kind: 'aurora', date: todayStr });
+      // The night in progress, not today. Pressed at 02:00 this used to open the map on a date the
+      // run that produced the banner's own alert never scored.
+      handleShowOnMap({ kind: 'aurora', date: auroraNightStr });
       return;
     }
+    // Fails soft: `effectiveDate` ignores a date not on the strip, so this can never strand the
+    // map on a day it cannot render.
+    setSelectedDate(auroraNightStr);
     setMapHandoff({ eventType: 'AURORA', nonce: handoffNonce.current++ });
     setViewMode('map');
   };
@@ -572,6 +597,9 @@ function AppInner() {
                   <MapView
                     locations={visibleLocations}
                     date={effectiveDate}
+                    // Lets the map land on the aurora night when aurora mode is entered. The same
+                    // setter the DateStrip above uses, so the strip follows the jump.
+                    onSelectDate={setSelectedDate}
                     autoEventType={autoSelection?.eventType ?? null}
                     handoffEventType={mapHandoff?.eventType ?? null}
                     handoffFilterAction={mapHandoff?.filterAction ?? null}
@@ -683,6 +711,13 @@ function AppInner() {
             <MapView
               locations={visibleLocations}
               date={mapOverlay.date ?? effectiveDate}
+              // Deliberately NO onSelectDate, and the omission IS the mechanism — `MapView` checks
+              // for the handler and asks for nothing without one. Do not "fix" that by adding one
+              // on the assumption the overlay would ignore it: the date below falls through to
+              // `effectiveDate` whenever the trigger carried none, and `effectiveDate` is driven by
+              // `selectedDate`, so a handler here would move the Plan tab under the reader and
+              // could move the overlay itself. The aurora path in already opens on the right night
+              // — `handleAuroraViewOnMap` targets it directly.
               autoEventType={autoSelection?.eventType ?? null}
               handoffEventType={mapOverlay.handoff.eventType ?? null}
               handoffFilterAction={mapOverlay.handoff.filterAction ?? null}

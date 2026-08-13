@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
@@ -136,6 +137,48 @@ class AuroraControllerTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/aurora/status"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.bzNanoTesla").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("GET /api/aurora/status serves the run service's night, not a calendar date")
+    @WithMockUser(roles = {"ADMIN"})
+    void getStatus_carriesCurrentNightDateFromRunService() throws Exception {
+        // A fixed date in the past, deliberately never today: the whole point of this field is that
+        // the night in progress is NOT derivable from a calendar, so a controller that re-derived
+        // one — on any zone — would fail here rather than agreeing by coincidence.
+        when(forecastRunService.currentNightDate()).thenReturn(LocalDate.of(2026, 4, 1));
+
+        mockMvc.perform(get("/api/aurora/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currentNightDate").value("2026-04-01"));
+    }
+
+    @Test
+    @DisplayName("GET /api/aurora/status still answers, carrying no date, if the night is ever null")
+    @WithMockUser(roles = {"ADMIN"})
+    void getStatus_nullCurrentNightDate_stillAnswersWithNoDate() throws Exception {
+        // Defensive pass-through only, and worth being honest about what it does and does not say.
+        //
+        // The server state is not currently reachable: currentNightDate() returns `today` or
+        // `today.minusDays(1)` and SolarCalculator.civilDawn is pure arithmetic with no null path.
+        // What this pins is that the controller relays whatever the service returns rather than
+        // substituting a calendar date of its own — the substitution being the entire defect this
+        // field exists to fix.
+        //
+        // ⚠️ `doesNotExist()` asserts the JSON path resolves to null, which is true both when the
+        // key is absent AND when it is present as an explicit null. No profile sets
+        // spring.jackson.default-property-inclusion, so Jackson's ALWAYS default means the wire
+        // almost certainly carries `"currentNightDate": null` rather than omitting the key. This
+        // assertion cannot tell those apart and is not claiming to. It does not matter to any
+        // consumer: the map reads `auroraStatus?.currentNightDate ?? <local date>`, which treats
+        // absent and null identically, and that degrade is tested on the frontend in
+        // `mapDates.test.js`.
+        when(forecastRunService.currentNightDate()).thenReturn(null);
+
+        mockMvc.perform(get("/api/aurora/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.level").value("QUIET"))
+                .andExpect(jsonPath("$.currentNightDate").doesNotExist());
     }
 
     // -------------------------------------------------------------------------

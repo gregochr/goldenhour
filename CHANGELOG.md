@@ -5,6 +5,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the map now opens on the aurora night you just ran
+
+Run an aurora forecast at 02:00 and the map showed you nothing. The backend had already been taught
+that a night is not a day — it runs from dusk on one date to dawn on the next, so in the small hours
+you are standing inside the window named *yesterday*, and that is the date the results are filed
+under. The map was still asking a calendar. It opened on today, found no aurora results there, and a
+run you had just paid for looked as though it had produced nothing. Clicking back a day to find the
+results then hid the aurora viewline, because that was gated on the date being today as well.
+
+The map now takes the night from the backend, which is the only place that rule lives. Entering
+aurora mode lands on the night the results are under, the viewline draws on that night, and the
+aurora banner's "View on map" goes there too. It moves the date only when the day you are on has no
+aurora results and the night in progress does, and only once — after that the date strip is yours
+again, including a deliberate move to a quiet night.
+
+**Only in aurora mode.** The sunrise and sunset map is untouched: at 02:00 a landscape photographer
+wants this morning's sunrise, not last night's sunset.
+
+### Fixed — the date strip could call yesterday "Today"
+
+The map was reading two different calendars. The date strip and the map's default date used the
+**UTC** date; the map's own event-type and viewline logic, and the next-event auto-selection, used
+the **browser's local** date. Under British Summer Time those disagree for the hour after UK
+midnight — so between 00:00 and 01:00 BST the strip labelled yesterday's chip "Today", dimmed the
+real one as though it had passed, and disagreed with the rest of the screen. In winter the two
+agreed, which is why it went unnoticed.
+
+There is now one basis, the local date, matching the UK civil date every forecast on the wire is
+keyed to. This is the same two-calendars fault that was removed from the backend earlier; the hour it
+affects is the same hour the aurora fix above is about.
 ### Fixed — a spring tide is not a low-water event, and the run stopped saying it was
 
 **`TideRunBuilder` hard-coded which water a tidal run was about: `useful = king ? HIGH : LOW`.** So

@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.AuroraViewlineResponse;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.model.OvationReading;
+import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.service.aurora.TriggerType;
 import org.springframework.http.ResponseEntity;
@@ -35,16 +36,23 @@ public class AuroraController {
 
     private final AuroraStateCache stateCache;
     private final NoaaSwpcClient noaaClient;
+    private final AuroraForecastRunService forecastRunService;
 
     /**
      * Constructs the controller.
      *
-     * @param stateCache the aurora state machine and score cache
-     * @param noaaClient NOAA SWPC client for enriching the status response
+     * @param stateCache         the aurora state machine and score cache
+     * @param noaaClient         NOAA SWPC client for enriching the status response
+     * @param forecastRunService consulted only for {@code currentNightDate()} — the map needs the
+     *                           same night the run pipeline uses, and this keeps that rule in the
+     *                           one class that owns it rather than reimplementing dusk/dawn
+     *                           geometry in the browser
      */
-    public AuroraController(AuroraStateCache stateCache, NoaaSwpcClient noaaClient) {
+    public AuroraController(AuroraStateCache stateCache, NoaaSwpcClient noaaClient,
+            AuroraForecastRunService forecastRunService) {
         this.stateCache = stateCache;
         this.noaaClient = noaaClient;
+        this.forecastRunService = forecastRunService;
     }
 
     /**
@@ -52,6 +60,11 @@ public class AuroraController {
      *
      * <p>Includes the latest Kp and OVATION probability to give the frontend raw signal
      * data alongside the derived level.
+     *
+     * <p>It also carries {@code currentNightDate} — the night in progress, which between midnight
+     * and dawn is <em>yesterday's</em> date. The map defaults to it in aurora mode, so that a
+     * forecast run at 02:00 opens on the night it scored rather than on a date with no results.
+     * The rule lives in {@code AuroraForecastRunService} and is read here, never re-derived.
      *
      * @return current aurora status
      */
@@ -127,7 +140,8 @@ public class AuroraController {
                 updatedAt != null ? updatedAt : ZonedDateTime.now(ZoneOffset.UTC),
                 stateCache.isSimulated(),
                 stateCache.getActiveSince(),
-                gScale));
+                gScale,
+                forecastRunService.currentNightDate()));
     }
 
     /**

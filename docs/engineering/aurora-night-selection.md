@@ -157,12 +157,133 @@ branch: fabricated flat 50% cloud, a full Claude call, and the result handed to
 replaced by assumed ones.** `runForecast` now skips any night whose dawn is already past, writing
 nothing at all — clearing it would destroy the same rows by another route.
 
-**Open — the map does not default to the night you just ran.** `App.jsx` picks the first strip date
-`>= today`, and `MapView.jsx` shows the aurora viewline only when the selected date *is* today. Run
-"Tonight" at 02:00 and the map opens on D with no results, and clicking back to D−1 to find them
-suppresses the viewline. Not fixed here: the frontend has no source of truth for "the current
-night" other than the preview payload's `nights[0].date`, and this project requires UI changes to be
-browser-verified before landing. Its own PR.
+**Fixed 2026-08-13, in its own PR — the map now defaults to the night you just ran.** What follows
+is what was done and, as importantly, what was deliberately left alone.
+
+**The frontend does not derive the night; it is told.** `AuroraStatusResponse` gained a
+`currentNightDate` component, populated in `AuroraController.getStatus()` from
+`AuroraForecastRunService.currentNightDate()` — the same method, widened from package-private to
+public and otherwise untouched. `GET /api/aurora/status` was chosen over the three alternatives
+because `AuroraStatusProvider` already fetches it app-wide, so both `App.jsx` and `MapView.jsx` read
+the night at the cost of **zero new requests**. The rejected options, and why:
+
+- *Infer it client-side from `/forecast/results/available-dates`* (D−1 has results, D does not) —
+  cheap and needs no backend change, but it is an inference *about* the rule rather than the rule,
+  and it is simply wrong when both dates have results, which is what running Tonight and Tomorrow
+  together produces.
+- *Fetch `/api/aurora/forecast/preview` for `nights[0].date`* — exactly the right answer from a
+  run-modal-shaped endpoint, at the cost of a request on every map load to read one field.
+- *Re-derive dusk/dawn in the browser* — rejected on the grounds this whole note argues: the rule
+  should have one home.
+
+**The scope is aurora mode only, and that was a product decision, not an implementation limit.** The
+colour map keeps its calendar default, because at 02:00 a landscape photographer wants the coming
+sunrise, not last night's sunset. Three paths were changed and one deliberately was not:
+
+- `MapView` requests the aurora night when aurora mode is entered, via a new optional `onSelectDate`
+  prop — the same setter `DateStrip` already drives, so the strip follows the jump instead of
+  disagreeing with the map. Three guards, each of which is the difference between a default and a
+  component that fights its reader: **once per entry** (the latch resets only on leaving, so the
+  strip is the reader's afterwards, including a deliberate move to an unscored night); **only when
+  the night has results** (otherwise it swaps one empty day for another); **only when the current
+  date has none** (someone already on a scored night came for it).
+- The viewline gate compares against the night rather than the calendar date. It is a *gate*, not a
+  removal: at 02:00 the window named by today's date is still ~19 hours away, and a nowcast does not
+  belong on it.
+- `handleAuroraViewOnMap` targets the night.
+- The **map overlay** gets no `onSelectDate`, deliberately. It reads `mapOverlay.date`, so a
+  requested date could not reach it and would only move the Plan tab behind it. The aurora path into
+  the overlay already opens on the right night.
+
+**A second, independent defect in the same code was fixed with it**, because it lands in exactly the
+hour this work is about. The frontend derived "today" on **two calendars**: UTC
+(`toISOString().slice(0, 10)`) in `App.jsx` and `DateStrip.jsx`, browser-local
+(`toLocaleDateString('en-CA')`) in `MapView` and `computeAutoSelection`. Measured, not assumed: at
+`2026-08-13T23:30:00Z` in `Europe/London` those give `2026-08-13` and `2026-08-14`. So for the hour
+after UK midnight under BST the strip labelled yesterday's chip "Today" and dimmed the real one as
+past, while the rest of the map had moved on; in GMT they agree, which is why it survived. Both are
+now `utils/mapDates.js`, on the **local** basis — it matches the backend's `Europe/London` civil
+date, which is what every forecast date on the wire is keyed to. UTC agreed with it only for half
+the year.
+
+**Degrade path.** `resolveAuroraNight` falls back to the local calendar date when the field is
+absent — a LITE user (status is null), a failed fetch, or a browser on a cached bundle against an
+older backend. That fallback *is* the old behaviour, so the degrade is "no worse than before" rather
+than a guess, and it is a named test.
+
+**What was checked and left alone.** `useForecasts.js` (a 7-day backward outcomes window, where a
+one-day edge is immaterial and the question is a different one), `JobRunsMetricsView`,
+`MetricsSummary` and `windowFirstAway.js` all still derive a date of their own. They are other
+surfaces; none is on the map's date path. Not swept in, so as not to hide this change inside a
+codemod.
+
+**What was seen in a browser, and what was not.** Stated plainly because a local H2 database has no
+evaluation run and the interesting states need a fixture. Against the local backend on 8083 with
+seeded locations, forecast rows over T−2…T+5, and aurora results, all of this was *observed*:
+entering aurora mode moved the date from a day with no results to the night in progress; a second
+aurora date was seeded so that **two** dates had results, and it still landed on the night rather
+than on either date-with-results — which is the discriminating case against the client-side
+inference option, and the reason that option was rejected; the latch held when the date was then
+moved by hand; leaving aurora mode did not snap the date back; re-entering jumped again; the viewline
+drew on the night (two polylines) and not on another night (zero) under a simulated MODERATE alert;
+the date strip marked the right chip; and the network trail showed **two** results requests rather
+than a loop, with no console errors at any point.
+
+**Not** seen in a browser, and neither is claimed: the small-hours case itself. `currentNightDate`
+is derived from the server's real clock, so a run at 02:00 could not be staged — what was exercised
+is the same comparison (selected date vs. whatever the backend names) with the two deliberately
+different. And the **window-first (v2) arm**: its shell needs briefing data the local database does
+not have, so `WindowFirstMapPane`'s one-line wiring is covered by a prop-identity test in
+`WindowFirstMapPane.test.jsx` and nothing more. The jump was browser-verified on the v1 Map tab only.
+
+**What the adversarial review found, and it was not cosmetic.** Three focused read-only reviewers ran
+against the diff. Two defects survived verification, and the first was on the *common* path — the
+browser session had missed it by only ever testing the lucky case.
+
+1. **The latch was armed only when the jump fired**, so a *blocked* first evaluation left the effect
+   live. Entering aurora mode while already on the aurora night — which is the ordinary daytime
+   state, because the map's default date and the current night are both today — returned through a
+   guard without arming, and the reader's very **next** date-strip click then satisfied the effect
+   and was swallowed. First-click-eaten, silent, no error. Reproduced in a browser before being
+   fixed. The latch now arms as soon as the night is known to have results, whether or not it
+   moves anything — "we have looked, once", not "we have jumped". It is deliberately *not* armed
+   above the `auroraAvailableDates` guard, because that list arrives async and starts empty: arming
+   there would spend the one look before there was anything to look at. The regression test fails
+   against the original placement.
+2. **The v1 aurora banner set the handoff but never the date.** Survivable while the viewline was
+   gated on the calendar date, because the map's default and the gate agreed; moving the gate to the
+   night broke it. The case that fails is the one the banner exists for — a live NOAA alert at 02:00
+   with **no stored run** for that night. `MapView`'s jump cannot compensate, because it is gated on
+   stored aurora *results* and a live alert does not imply one: the two conditions are genuinely
+   independent. The banner would land on the map with the viewline missing, for up to seven hours a
+   night in midwinter. The v1 branch now sets the date like the v2 branch already did.
+
+A third charge — that the overlay's "no `onSelectDate`" comment named the wrong mechanism — was
+upheld as a comment defect rather than a behavioural one, and the comment was corrected. The
+omission *is* the mechanism (`MapView` asks for nothing without a handler); the stated reason (that
+the overlay reads its own date) is not load-bearing, because that date falls through to
+`effectiveDate` whenever the trigger carried none. Left uncorrected it would have invited someone to
+add a handler there on false grounds.
+
+⚠️ **Follow-up, deliberately not done here: the map's date basis should be `Europe/London`, not the
+browser's.** The review established that `localDateStr` equals the backend's civil date only while
+the browser is in the UK, and that `DailyBriefing` already resolves the backend's own "today" token
+on `Europe/London` before handing it to `setSelectedDate` — so a London-basis date meets a
+browser-local judgement on this path. This change did not *introduce* the browser-local basis (it
+was already what `MapView.getNextEventType` and `computeAutoSelection` read; the change took the
+path from two bases to one, retiring UTC), but for a UK user abroad it is worse than the UTC basis
+it replaced: UTC was wrong by at most an hour, browser-local can be wrong all day. Doing it properly
+means moving `computeAutoSelection` and `getNextEventType` too — or reintroducing the split — and
+`computeAutoSelection.test.js` is twelve wall-clock-dependent tests that need rebuilding on a frozen
+clock first. That is its own change.
+
+⚠️ **The tests pin the timezone as well as the clock, and both are load-bearing.** Nothing in this
+repo pins `TZ`: the dev Mac is `Europe/London` and GitHub's runners are UTC, so an unpinned date test
+is two different tests, and the assertions here turn on a disagreement that exists *only* under BST —
+on a UTC runner they would pass while proving nothing. Each test file sets
+`process.env.TZ = 'Europe/London'`; vitest gives every file its own process, so this is isolated, and
+it was verified to survive `TZ=UTC` in the environment. Do not "tidy" it into `setup.js`: a global
+pin would silently change every other date test in the suite.
 
 **Open — `buildKpSummary` can report elapsed hours as forthcoming.** It formats the peak overlapping
 Kp block without comparing it to now, so at 02:00 the modal can read "Kp 6 expected 00:00–03:00"

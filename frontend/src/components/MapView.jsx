@@ -21,6 +21,7 @@ import { isTravelDate, formatEventTimeUk } from '../utils/conversions.js';
 import { fitBoundsKey } from '../utils/fitBoundsKey.js';
 import { buildBriefingScoreIndex, lookupBriefingScore } from '../utils/briefingScoreIndex.js';
 import { resolveStandDown } from '../utils/standDown.js';
+import { resolveAuroraNight } from '../utils/mapDates.js';
 import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel, SKY_SUBJECT_TYPES } from '../utils/locationTypes.js';
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 
@@ -657,7 +658,7 @@ const OVERLAY_MAP_HEIGHT_PX = 470;
 const OVERLAY_MAP_HEIGHT_FILTERS_OPEN_PX = 300;
 const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
 
-function MapView({ locations, date, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null, resizeNonce = null }) {
+function MapView({ locations, date, onSelectDate = null, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null, resizeNonce = null }) {
   const { role } = useAuth();
   const isMobile = useIsMobile();
   const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
@@ -714,6 +715,10 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
     setMapBounds((prev) => (prev && prev.every((v, i) => v === next[i]) ? prev : next));
   }, []);
   const { status: auroraStatus } = useAuroraStatus();
+  // The night aurora results are keyed to — from the backend, which owns the dusk/dawn rule.
+  // Falls back to the local calendar date when status is absent (LITE, failed fetch, or a backend
+  // older than the field), which is the behaviour this replaced.
+  const auroraNight = resolveAuroraNight(auroraStatus);
   const viewlineEnabled = role !== 'LITE_USER' && auroraStatus != null
     && ALERT_WORTHY_LEVELS.has(auroraStatus.level);
   const [viewlineUpsellDismissed, setViewlineUpsellDismissed] = useState(false);
@@ -944,6 +949,50 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
 
   const isAuroraMode = eventType === 'AURORA';
   const isAstroMode = eventType === 'ASTRO';
+
+  /**
+   * Entering aurora mode lands on the night the results are stored under.
+   *
+   * <p>A night is not a day. Run a forecast at 02:00 and the backend scores the window in progress
+   * and stores it under <em>yesterday</em>; the map's date is a calendar date, so it opened on
+   * today with nothing on it. The results were reachable — the strip carries T−2 — but not where
+   * anyone would look, which made a paid run appear to have produced nothing.
+   *
+   * <p>Three guards, and each one is the difference between a default and a component that fights
+   * its reader:
+   * <ul>
+   *   <li><b>Once per entry into aurora mode.</b> The latch resets only on leaving, so after the
+   *       jump the strip is the reader's again — including to a night with no results.</li>
+   *   <li><b>Only when the night actually has results.</b> Otherwise this would move the date to
+   *       land on an equally empty day.</li>
+   *   <li><b>Only when the current date has none.</b> Someone who opened the map on a scored night
+   *       is already looking at what they came for.</li>
+   * </ul>
+   *
+   * <p>Fails soft in both directions: with no {@code onSelectDate} it does nothing, and the parent
+   * ignores a date that is not on the strip, so a night with aurora results but no colour forecast
+   * row simply does not move the map.
+   */
+  const auroraNightRequested = useRef(false);
+  useEffect(() => {
+    if (!isAuroraMode) {
+      auroraNightRequested.current = false;
+      return;
+    }
+    if (auroraNightRequested.current || !onSelectDate) return;
+    // Nothing to land on yet — either no run for this night, or the fetch has not returned. Do NOT
+    // latch here: `auroraAvailableDates` starts empty and arrives async, so latching on an empty
+    // list would spend the one look before there was anything to look at.
+    if (!auroraAvailableDates.includes(auroraNight)) return;
+    // Latched HERE, before the last guard, because the decision is made at this point whether or
+    // not it moves anything. Latching only on the firing path meant that entering aurora mode
+    // already ON the night — the ordinary daytime case, since both default to today — left the
+    // effect armed, and it then ate the reader's very next date-strip click and snapped back.
+    // Reproduced in a browser, not theorised.
+    auroraNightRequested.current = true;
+    if (date === auroraNight || auroraAvailableDates.includes(date)) return;
+    onSelectDate(auroraNight);
+  }, [isAuroraMode, auroraAvailableDates, auroraNight, date, onSelectDate]);
 
   /** True when this location's forecast for the current event was triaged (stand-down). */
   const isStandDownLocation = useCallback((loc) => {
@@ -1542,7 +1591,11 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
             nonce={handoffNonce}
             markerRefs={markerRefs}
           />
-          {viewlineEnabled && eventType === 'AURORA' && date === new Date().toLocaleDateString('en-CA') && (
+          {/* Gated to the CURRENT NIGHT, not to today. The viewline is a nowcast of where the
+              aurora is visible right now, so it belongs on the night in progress — which between
+              midnight and dawn is yesterday's date. Comparing against the calendar date hid it on
+              exactly the night the reader had come to look at. */}
+          {viewlineEnabled && eventType === 'AURORA' && date === auroraNight && (
             <AuroraViewlineOverlay viewline={viewline} forecastKp={auroraStatus?.forecastKp} />
           )}
 
@@ -1775,6 +1828,11 @@ MapView.propTypes = {
     })
   ).isRequired,
   date: PropTypes.string,
+  /**
+   * Asks the parent to move the selected date. Used only to land on the aurora night when aurora
+   * mode is entered; the parent stays the owner of the date and may ignore one not on the strip.
+   */
+  onSelectDate: PropTypes.func,
   autoEventType: PropTypes.string,
   handoffEventType: PropTypes.string,
   handoffFilterAction: PropTypes.string,
