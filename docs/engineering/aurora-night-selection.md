@@ -311,11 +311,26 @@ against a backend keyed to `Europe/London` — so for one hour a day under BST a
 "today" excludes UK-yesterday and the intended slot runs anyway. Pre-existing, admin-only, tracked
 separately.
 
-⚠️ **Known coverage gap:** `HotTopicStrip.leadDayWord` is one of the five moved sites, but
+**Coverage gap closed** (was: `HotTopicStrip.leadDayWord` is one of the five moved sites, but
 `HotTopicStrip.test.jsx` pins no timezone and freezes at midday, where every zone within ±12 h
 agrees — so its Today/Tomorrow assertions pass on either basis, and `mapDatesAbroad.test.js` never
-renders the component. The line is correct but unguarded against a revert. The shared helper it now
-calls (`ukDayOffset`) *is* covered abroad.
+renders the component). `instantsAbroad.test.jsx` now carries a **the hot-topic day word abroad**
+block: `America/New_York`, frozen at `2026-08-14T01:00:00Z` (02:00 BST on the 14th UK, 21:00 on the
+13th there), asserting all three branches of the day word against the **UK** day — the 14th reads
+"Today", the 15th "Tomorrow", the 13th "Thu" and explicitly not "Today".
+
+Two things about it are deliberate rather than incidental. **The zone, not a cleverly chosen UTC
+instant.** A UTC pin does separate the two bases — for the one hour a day between 23:00 and 00:00
+UTC, and only during BST. New York separates them for the five hours after UK midnight, all year.
+The wider band is the point: a fixture inside a one-hour window is one edit away from being outside
+it. And **the block re-asserts the zone disagreement at its own instant** rather than leaning on the
+file's opening `the zone fixture itself` check, which uses a different one — a day word is only
+discriminating inside the divergent band, so the guard has to be measured where the assertions are.
+
+Verified by reverting `:139` to `Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())`: all
+three fail, and each fails *differently* — the 14th degrades to "Tomorrow", the 15th past the
+relative words entirely to "Sat", the 13th up to "Today". `HotTopicStrip.test.jsx` stayed green
+through the same revert, which is the original gap stated as a measurement rather than an inference.
 
 ⚠️ **`mapDatesAbroad.test.js` pins `America/New_York` and must stay that way.** A UK-pinned test
 cannot tell "the UK calendar" from "the browser's calendar" — under `Europe/London` they are the

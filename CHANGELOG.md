@@ -5,6 +5,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — a test that can tell the Hot Topic day word from the browser's calendar
+
+**The line was right; nothing would have caught it going wrong.** #500 moved
+`HotTopicStrip.leadDayWord` — the "Today" / "Tomorrow" / short-weekday wording on a topic pill — off
+browser-local calendar fields and onto `ukDayOffset`, so it agrees with the date strip beside it.
+`HotTopicStrip.test.jsx` freezes at midday (`12:00:00Z`), and at midday every zone within ±12 h
+agrees on the date, so its Today/Tomorrow assertions passed identically on both bases. Reverting the
+line should have turned something red and did not. Found by adversarial review during #500 and
+recorded there as a known gap.
+
+**Covered from a non-UK zone, not from a cleverly chosen UTC instant.** `instantsAbroad.test.jsx`
+gains a *the hot-topic day word abroad* block: `America/New_York`, frozen at `2026-08-14T01:00:00Z`
+— 02:00 BST on the 14th in the UK, 21:00 on the 13th there — asserting all three branches against
+the **UK** day. The suite's own UTC pin does separate the two bases, but only between 23:00 and
+00:00 UTC and only during BST; New York separates them for the five hours after UK midnight, in
+every month. A fixture living inside a one-hour window is one edit away from being outside it.
+
+The block **re-asserts the zone disagreement at its own instant** rather than leaning on the file's
+opening `the zone fixture itself` check, which uses a different one: a day word only discriminates
+inside the divergent band, so the guard has to be measured where the assertions are. Without it, a
+TZ pin that stopped taking effect would quietly turn these into duplicates of the midday tests
+instead of failing.
+
+Proved by construction rather than by assertion. With `:139` reverted to
+`Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())` all three fail, and each fails
+*differently* — the 14th degrades to "Tomorrow", the 15th past the relative words entirely to "Sat",
+the 13th up to "Today" over a day already gone. `HotTopicStrip.test.jsx` stayed green through the
+same revert, which is the original gap restated as a measurement instead of an inference.
+
 ### Fixed — the admin health pill, missing from the window-first Plan
 
 `HealthIndicator` lived in the v1 app header, and the window-first arm suppresses that header in
