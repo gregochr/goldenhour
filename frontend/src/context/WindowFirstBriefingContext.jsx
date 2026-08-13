@@ -16,6 +16,7 @@ import { buildWindowCards } from '../utils/windowFirstCards.js';
 import { buildPaneItems } from '../utils/windowFirstAway.js';
 import { buildPromotedStrip } from '../utils/windowFirstPromoted.js';
 import { buildBriefingScoreIndex } from '../utils/briefingScoreIndex.js';
+import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 
 /** Matched to v1's. The payload regenerates every ~8–10h; polling faster only adds revalidations. */
 const POLL_INTERVAL_MS = 10 * 60 * 1000;
@@ -48,13 +49,6 @@ const WindowFirstBriefingContext = createContext({
   isPro: false,
   isLiteUser: false,
 });
-
-/** Today's ISO date in the forecast's own timezone. */
-function londonDate(offsetDays = 0) {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(d);
-}
 
 /** Up to 6 upcoming (non-past) solar events [{date, targetType}], in payload order. */
 function selectUpcomingEvents(briefingDays) {
@@ -272,8 +266,12 @@ export function WindowFirstBriefingProvider({ children, homeSettingsVersion }) {
       .catch(() => {});
   }, []);
 
-  const todayStr = londonDate(0);
-  const tomorrowStr = londonDate(1);
+  // UK calendar, not the browser's — every date on the wire is keyed to the backend's
+  // `ForecastHorizon.today`. `ukDateStrOffset` steps the UK date STRING; the local copy this
+  // replaced stepped the browser's calendar and only then formatted in London, so its offset was a
+  // hybrid of two calendars that collapsed onto today across an autumn DST boundary.
+  const todayStr = ukDateStr();
+  const tomorrowStr = ukDateStrOffset(1);
 
   // The lens lives here rather than in the shell because the cards are built here: the gate has to
   // run inside the same memo that derives them, or the shell would filter a list the provider had

@@ -43,17 +43,22 @@ import { getDriveTimes } from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { getSimulationState } from '../api/hotTopicSimulationApi.js';
 import { writeSwrCache, readSwrCache } from '../utils/swrCache.js';
+import { ukDateStrOffset } from '../utils/mapDates.js';
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
 
-// Mirror DailyBriefing's own today/tomorrow derivation exactly: local-calendar day
-// arithmetic, formatted in Europe/London. Using UTC here diverges from the component in
-// the 23:00–24:00 UTC window under BST (UTC-tomorrow collapses to London-today), which
-// flips the first heatmap column from "Tomorrow" to "Today" and fails the header tests.
+// Mirror DailyBriefing's own today/tomorrow derivation exactly, by calling the helper it calls.
+// Deriving these on the browser's calendar instead diverges from the component in the 23:00–24:00
+// UTC window under BST (UTC-tomorrow collapses to London-today), which flips the first heatmap
+// column from "Tomorrow" to "Today" and fails the header tests.
+//
+// This used to be a third hand-rolled copy of the `londonDate` helper the component carried, which
+// stepped the BROWSER's calendar and formatted in London — so it mirrored the component's bug as
+// faithfully as its behaviour, and the fixture moved in lockstep with the defect. These dates still
+// come off the wall clock, so this file remains silent about the DST boundary either way;
+// `briefingDayStepDst.test.jsx` is where that is pinned, on a frozen clock and a pinned zone.
 function londonDateStr(offsetDays = 0) {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(d);
+  return ukDateStrOffset(offsetDays);
 }
 
 function futureDateStr(daysAhead = 1) {
