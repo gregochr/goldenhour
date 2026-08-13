@@ -384,7 +384,7 @@ public class TideRunBuilder {
                 // comparison TideSizeIndex uses to decide which dates a run covers, so the chips and
                 // the run's own dates cannot disagree about what counts as big.
                 notablyHigh ? TideWording.metres(day.high()) : null,
-                notablyHigh ? springExcess(day.high(), stats == null ? null : stats.springTideThreshold()) : null,
+                notablyHigh ? springExcess(day.high(), stats.springTideThreshold()) : null,
                 notablyHigh ? highWaterRank(day.high(), stats) : null,
                 TideWording.clock(sunriseMinutes),
                 TideWording.clock(sunsetMinutes),
@@ -594,9 +594,10 @@ public class TideRunBuilder {
      * threshold has nothing to claim, so it is left unstated rather than shown as a negative.
      */
     private static String springExcess(double highWater, BigDecimal springThreshold) {
-        if (springThreshold == null) {
-            return null;
-        }
+        // No null guard: the sole call site is behind `notablyHigh`, which is itself defined as
+        // "stats and its spring threshold both exist and the water clears the threshold". A check
+        // here was unreachable — CodeQL said so on #495 — and worse than redundant: it told a reader
+        // this could be called without a threshold, which is the state the gate exists to exclude.
         double excess = highWater - springThreshold.doubleValue();
         return excess > TideWording.MIN_ANOMALY_METRES ? "+" + TideWording.metres(excess) + " over spring" : null;
     }
