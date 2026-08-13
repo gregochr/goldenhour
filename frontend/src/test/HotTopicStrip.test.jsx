@@ -2766,6 +2766,19 @@ describe('HotTopicStrip — storm surge verdict', () => {
 });
 
 describe('HotTopicStrip — the safety warning', () => {
+  // Pin the clock, exactly as the timing-lead block above does and for the same reason: one of
+  // these cases asserts the lead reads "Today", which is derived by comparing the topic's date to
+  // the real one. The fixture's 2026-08-12 was today when it was written and stopped being so the
+  // next morning, at which point the lead rendered "Wed" and the case failed on every branch —
+  // nothing to do with whatever was being reviewed. A date fixture must not depend on when it runs.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-08-12T12:00:00Z')); // Wednesday, the eclipse date below
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   const WARNING = 'Certified solar filter on the lens — not only over your eye';
 
   const ECLIPSE = buildTopic({
