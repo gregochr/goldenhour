@@ -5,6 +5,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the frontend suite has its own timezone, instead of borrowing the runner's
+
+**Nothing pinned `TZ`, so the machine decided which tests ran.** Dev machines here are
+`Europe/London`; GitHub runners are UTC. Both were green, which is exactly why the divergence went
+unnoticed for so long — a suite can only tell you about the zone it was run in, and no one was
+running the zone where the interesting failures live. `src/test/setup.js` now pins
+`process.env.TZ = 'UTC'`, so CI and every developer exercise the same calendar.
+
+UTC rather than `Europe/London` for two reasons. It is what CI already ran, so the 3,272 existing
+fixtures need no reinterpretation and a CI failure now reproduces locally byte for byte. And it
+*disagrees* with `Europe/London` for the seven months of BST — under a London pin the UK calendar and
+the device calendar are the same string all year, and no assertion could ever tell them apart.
+
+**It found a live defect on the way in.** Run against `TZ=America/New_York`, the previously green
+suite failed `UserManagementView`: the admin detail row renders `termsAcceptedAt` with
+`toLocaleDateString` and no `timeZone`, so an acceptance stored at `2026-04-01T00:00:00Z` reads
+*"31 Mar 2026"* to an admin whose device is west of Greenwich. Same family as the map-date fix above,
+one surface further out. Not fixed here — this change is the measurement, and mixing the two would
+hide which one the evidence came from.
+
+Two guards, because a timezone pin is the kind of thing that fails silently — delete it and every
+test goes back to reading the developer's own zone with the suite still green:
+
+- `testEnvironmentTimezone.test.js` asserts the pin is in force, including the BST offset (the
+  arithmetic every date derivation actually goes through, rather than a cosmetic label).
+- The pin is a **default, not a ceiling**. Five files pin their own zone and still win, because setup
+  files run before a test module is evaluated. `mapDatesAbroad.test.js`'s own "the zone fixture
+  itself" test asserts the New York/UK disagreement outright, so a global pin that ever defeated a
+  per-file one fails there rather than turning those tests into duplicates.
+
+Verified green with the machine's own zone set to `Europe/London`, `America/New_York`, UTC and
+`Pacific/Kiritimati` (UTC+14) — the point being that the machine no longer changes the answer.
+
 ### Fixed — a promoted-strip test waited for an element that was already on screen
 
 **`WindowFirstBriefingContext.test.jsx` failed about one full-suite run in three on a loaded
