@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import { useNlcSighting } from '../hooks/useNlcSighting.js';
+import { formatInstantUk, parseUtcInstant } from '../utils/conversions.js';
+import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 
 /**
  * Formats a sighting timestamp as a short relative label for the banner headline.
@@ -11,32 +13,35 @@ import { useNlcSighting } from '../hooks/useNlcSighting.js';
  * - yesterday: "yesterday 23:10"
  * - older:     "3 Jul 23:10"
  *
+ * <p>The first two bands are pure instant arithmetic and have no calendar in them. The last three
+ * do, and they read the <b>UK</b> one: `reportedAt` is a UTC `Instant` describing a noctilucent
+ * display over the UK, so both the clock time shown and the day it is credited to belong to that
+ * sky rather than to the reader's device. The two have to move together — a UK "23:10" under a
+ * device-calendar day label is worse than either basis alone.
+ *
  * @param {string} isoTimestamp - ISO 8601 instant from the API
+ * @param {Date} [now] - the instant "today" is read from; injectable so tests can pin it
  * @returns {string|null} formatted label, or null if invalid/missing
  */
-export function formatReportedAt(isoTimestamp) {
-  if (!isoTimestamp) return null;
-  const reported = new Date(isoTimestamp);
-  if (isNaN(reported.getTime())) return null;
+export function formatReportedAt(isoTimestamp, now = new Date()) {
+  const reported = parseUtcInstant(isoTimestamp);
+  if (!reported) return null;
 
-  const now = new Date();
   const diffMin = Math.round((now - reported) / 60000);
 
   if (diffMin < 1) return 'just now';
   if (diffMin < 60) return `${diffMin}m ago`;
 
-  const time = reported.toLocaleTimeString('en-GB', {
+  const time = formatInstantUk(reported, {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
   });
 
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (reported >= todayStart) return `${Math.floor(diffMin / 60)}h ago`;
-
-  const yesterdayStart = new Date(todayStart.getTime() - 86400000);
-  if (reported >= yesterdayStart) return `yesterday ${time}`;
-  return `${reported.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${time}`;
+  const reportedDay = ukDateStr(reported);
+  if (reportedDay === ukDateStr(now)) return `${Math.floor(diffMin / 60)}h ago`;
+  if (reportedDay === ukDateStrOffset(-1, now)) return `yesterday ${time}`;
+  return `${formatInstantUk(reported, { day: 'numeric', month: 'short' })} ${time}`;
 }
 
 /**

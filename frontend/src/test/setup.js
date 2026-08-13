@@ -15,11 +15,12 @@
 //
 // ⚠️ This is a default, not a ceiling. A test file that pins its own zone still wins: setup files
 // run before the test module is evaluated, so a file-scope `process.env.TZ = …` is applied second.
-// Five files rely on that (`mapDates`, `computeAutoSelection`, `DateStripToday`, `MapViewAuroraNight`
-// pin Europe/London; `mapDatesAbroad` pins America/New_York), and `mapDatesAbroad`'s own "the zone
-// fixture itself" test asserts the disagreement outright — so if this line ever defeated a per-file
-// pin, that file fails rather than quietly becoming a duplicate. `testEnvironmentTimezone.test.js`
-// is the other half: it fails if this line stops taking effect at all.
+// Six files rely on that (`mapDates`, `computeAutoSelection`, `DateStripToday`, `MapViewAuroraNight`
+// pin Europe/London; `mapDatesAbroad` and `instantsAbroad` pin America/New_York), and BOTH abroad
+// files carry a "the zone fixture itself" test asserting the disagreement outright — so if this line
+// ever defeated a per-file pin, those files fail rather than quietly becoming duplicates.
+// `testEnvironmentTimezone.test.js` is the other half: it fails if this line stops taking effect at
+// all.
 process.env.TZ = 'UTC';
 
 import '@testing-library/jest-dom';

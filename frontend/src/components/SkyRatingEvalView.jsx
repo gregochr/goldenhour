@@ -6,6 +6,7 @@ import {
   runSkyRatingEval, getSkyRatingEvalRuns, getSkyRatingEvalRun, getSkyRatingEvalTrend,
 } from '../api/skyRatingEvalApi';
 import { formatCostUsd } from '../utils/formatCost';
+import { formatInstantUk } from '../utils/conversions.js';
 import useConfirmDialog from '../hooks/useConfirmDialog.js';
 import ConfirmDialog from './shared/ConfirmDialog.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
@@ -17,6 +18,25 @@ const DEFAULT_FIXTURE_COUNT = 6;
 const POLL_INTERVAL_MS = 4000;
 const FIXTURE_COLOURS = ['#a78bfa', '#f87171', '#fbbf24', '#34d399', '#60a5fa', '#f472b6', '#fb923c', '#22d3ee'];
 const MODEL_COLOURS = { HAIKU: '#60a5fa', SONNET: '#a78bfa', OPUS: '#fbbf24' };
+
+/**
+ * The x-axis tick for a trend point — the run's date on the UK calendar.
+ *
+ * <p>`runTimestamp` is a bare `LocalDateTime` produced in UTC. The `Z` was already being appended,
+ * so the instant was right and only the rendering zone was wrong: an overnight batch at 04:00 BST
+ * plotted under the previous day west of Greenwich, which makes a drift chart answer a different
+ * question from the one its axis is labelled with.
+ *
+ * <p>At module scope, and exported, because it is the only way to assert it. Recharts needs a
+ * laid-out container to emit tick text and jsdom has none, so the rendered axis is empty in tests —
+ * the same reason `formatDetectedAt` and `formatReportedAt` are exported from their own components.
+ *
+ * @param {string|null} iso - the run timestamp
+ * @returns {string} the tick label, or '' when there is no usable instant
+ */
+export function tsLabel(iso) {
+  return formatInstantUk(iso, { month: 'short', day: 'numeric' }) ?? '';
+}
 
 /**
  * Sky-rating calibration eval — the persisted, graphable counterpart to the gated
@@ -114,11 +134,6 @@ const SkyRatingEvalView = () => {
 
   // --- chart data ---
 
-  const tsLabel = (iso) => {
-    if (!iso) return '';
-    const d = new Date(iso.endsWith('Z') ? iso : `${iso}Z`);
-    return d.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' });
-  };
 
   // Per-fixture drift, scoped to the selected model so the small-multiples aren't 3× lines.
   const byFixture = useMemo(() => {

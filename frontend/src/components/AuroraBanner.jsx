@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
 import { useAuroraViewline } from '../hooks/useAuroraViewline.js';
+import { formatInstantUk, parseUtcInstant } from '../utils/conversions.js';
+import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 
 // Alert levels that should show the banner (MODERATE or STRONG)
 const ALERT_WORTHY = new Set(['MODERATE', 'STRONG']);
@@ -13,27 +15,32 @@ const ALERT_WORTHY = new Set(['MODERATE', 'STRONG']);
  * - Yesterday: "yesterday 21:34"
  * - Older: "3 Apr 21:34"
  *
+ * <p>All three read the <b>UK</b> calendar and clock. `detectedAt` is a UTC `Instant` describing an
+ * aurora over the UK, so the wall clock a reader wants is the one at the thing being described, not
+ * the one on their own wrist — a 21:34 detection said "16:34" to the same person sitting in New
+ * York.
+ *
+ * <p>⚠️ The day boundary moved with the clock, and had to. Rendering "21:34" in London while
+ * deciding *which day* that was on the device's calendar is worse than either basis on its own: it
+ * puts a UK time under a foreign day label, so a detection at 00:30 UK reads "yesterday 00:30".
+ * Both questions now go to `mapDates`.
+ *
  * @param {string} isoTimestamp - ISO 8601 instant from the API
+ * @param {Date} [now] - the instant "today" is read from; injectable so tests can pin it
  * @returns {string|null} formatted detection label, or null if invalid/missing
  */
-export function formatDetectedAt(isoTimestamp) {
-  if (!isoTimestamp) return null;
-  const detected = new Date(isoTimestamp);
-  if (isNaN(detected.getTime())) return null;
-
-  const now = new Date();
-  const time = detected.toLocaleTimeString('en-GB', {
+export function formatDetectedAt(isoTimestamp, now = new Date()) {
+  const time = formatInstantUk(isoTimestamp, {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
   });
+  if (!time) return null;
 
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterdayStart = new Date(todayStart.getTime() - 86400000);
-
-  if (detected >= todayStart) return time;
-  if (detected >= yesterdayStart) return `yesterday ${time}`;
-  return `${detected.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${time}`;
+  const detectedDay = ukDateStr(parseUtcInstant(isoTimestamp));
+  if (detectedDay === ukDateStr(now)) return time;
+  if (detectedDay === ukDateStrOffset(-1, now)) return `yesterday ${time}`;
+  return `${formatInstantUk(isoTimestamp, { day: 'numeric', month: 'short' })} ${time}`;
 }
 
 /**

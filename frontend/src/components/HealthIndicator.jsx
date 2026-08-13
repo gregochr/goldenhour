@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
+import { formatInstantUk } from '../utils/conversions.js';
 
 /** Maps backend service keys to display labels. */
 const SERVICE_LABELS = {
@@ -90,17 +91,21 @@ export default function HealthIndicator({
     bgClass = 'bg-red-900/30 border-red-700 text-red-400';
   }
 
-  const timeStr = checkedAt
-    ? checkedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    : null;
+  // All three timestamps in this popup read the UK clock. `commitTime` and `startedAt` are backend
+  // instants and were being rendered in the reader's zone; `checkedAt` is the browser's own probe
+  // time and was not wrong on its own — but leaving it alone would have put two clocks side by side
+  // under one heading, which is a harder thing to read than either being uniformly off.
+  const timeStr = formatInstantUk(checkedAt, {
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  });
 
   const buildStr = build?.commitId
     ? `${build.commitId}${build.dirty ? ' (dirty)' : ''} on ${build.branch || 'unknown'}`
     : null;
 
-  const buildTimeStr = build?.commitTime
-    ? new Date(build.commitTime).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })
-    : null;
+  const buildTimeStr = formatInstantUk(build?.commitTime, {
+    year: 'numeric', month: 'short', day: 'numeric',
+  });
 
   const loginAgo = session?.loginTime
     // Snapshot of elapsed time since login, recomputed on each render of this
@@ -109,9 +114,9 @@ export default function HealthIndicator({
     ? formatDuration(Date.now() - new Date(session.loginTime).getTime())
     : null;
 
-  const startedAtStr = startedAt
-    ? new Date(startedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
-      + ' ' + new Date(startedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+  const startedAtDay = formatInstantUk(startedAt, { day: '2-digit', month: 'short' });
+  const startedAtStr = startedAtDay
+    ? `${startedAtDay} ${formatInstantUk(startedAt, { hour: '2-digit', minute: '2-digit', hour12: false })}`
     : null;
 
   const serviceEntries = services ? Object.entries(services) : [];

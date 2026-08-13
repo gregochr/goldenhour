@@ -5,6 +5,72 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — nine surfaces dated a UK instant on the reader's own calendar
+
+**The defect the timezone pin found, plus every sibling of it.** `UserManagementView` rendered
+`termsAcceptedAt` with `toLocaleDateString` and no `timeZone`, so an acceptance stored at
+`2026-04-01T00:00:00Z` read *"31 Mar 2026"* to an admin whose device was west of Greenwich — a day
+early, on the one row in this app where the date **is** the record. Same family as #500's map dates,
+one surface further out, and #502 deliberately measured it without fixing it.
+
+A grep for unguarded `toLocale*` calls found eight more sites, and they are all the same mistake with
+different consequences:
+
+| surface | field | what it showed off Greenwich |
+|---|---|---|
+| `UserManagementView` | `termsAcceptedAt` | acceptance dated a day early |
+| `WaitlistManagementView` | `submittedAt` | UTC digits presented as local time |
+| `AuroraBanner` | `detectedAt` | a 23:34 UK detection as "18:34" |
+| `NlcSightingBanner` | `reportedAt` | last night's display as "2h ago" today |
+| `HealthIndicator` | `startedAt`, `commitTime`, `checkedAt` | container start a day out |
+| `SkyRatingEvalView` | `runTimestamp` | drift chart ticked a day early |
+| `HotTopicStrip` | ISO `eventTime` | a second clock in the same strip |
+
+**One helper rather than a ninth hand-rolled `Intl`.** `conversions.js` gains `formatInstantUk(value,
+options)`, which supplies `timeZone: Europe/London` **itself** — the zone is deliberately not a
+parameter, so a call site cannot forget it, and a test pins that a caller passing its own zone is
+ignored. The four existing UK formatters now delegate to it, so the zone literal has one definition
+(`UK_ZONE`, exported from `mapDates.js`); this removes hand-rolled option objects rather than adding
+one.
+
+**The bare-`LocalDateTime` trap is why several of these were invisible.** Jackson serialises an
+`Instant` with a trailing `Z` and a `LocalDateTime` without one, and JavaScript parses the bare form
+as **local** time. So `WaitlistManagementView` was wrong twice — parsed as local, then formatted as
+local — and the two errors cancelled to the stored UTC digits. It looked right and was an hour off
+the UK all summer. The shared `parseUtcInstant` states what the value already meant.
+
+**Two day boundaries had to move with the clocks.** `AuroraBanner` and `NlcSightingBanner` chose
+between "23:34" / "yesterday 23:34" / "11 Aug 23:34" using the device's calendar fields. Fixing only
+the rendering would have been *worse* than either basis alone — a UK wall clock under a foreign day
+label, so a detection at 00:30 UK reads "yesterday 00:30". Both now ask `mapDates`.
+
+**Coverage is in a file pinned to `America/New_York`** (`instantsAbroad.test.jsx`), because under the
+suite's UTC pin a Europe/London assertion cannot tell the UK calendar from the device's — and never
+separates them by a whole *day*, which is the form this defect took. It follows `mapDatesAbroad`,
+including the guard-the-guard test that asserts the zones really do disagree. Measured rather than
+assumed: dropping `timeZone` from `formatInstantUk` fails **16 of its 25** tests, one per fixed
+surface, each naming the New York value; the 9 that survive are the parse, degrade and
+instant-arithmetic cases that are zone-independent by design.
+
+**Three existing test files had fixtures written in machine-local wall clock**, on reasoning that
+inverted with the fix: `NlcSightingBanner`'s block said pinning the wall clock "removes the timezone
+from the question entirely", which was true while the formatter read local getters and false once it
+read `Europe/London`. Those fixtures are now explicit instants. The affected suites pass under
+`UTC`, `Europe/London`, `America/New_York`, `Pacific/Auckland` and `Pacific/Kiritimati` — three of
+which they failed before.
+
+`SkyRatingEvalView`'s `tsLabel` moved to module scope and is exported, because recharts needs a
+laid-out container to emit tick text and jsdom has none: the rendered axis is empty in tests, so a
+`findByText` against it could not have failed. Verified before writing the assertion, not after.
+
+**Found and deliberately not fixed:** `MetricsSummary` and `JobRunsMetricsView` derive "today" as
+`new Date().toLocaleDateString('en-CA')` and compare it to `startedAt.slice(0, 10)`, which is a
+**UTC** date. That is a two-sided comparison rather than a display of an instant, and making it
+consistent means deciding which calendar the filter lives on — a separate change, not a wider version
+of this one. `CloseToHome`, `PromptTestView` and `TravelDaysView` were checked and are correct:
+they anchor a date-only civil string at local midnight and format it locally, which agrees in every
+zone.
+
 ### Changed — the frontend suite has its own timezone, instead of borrowing the runner's
 
 **Nothing pinned `TZ`, so the machine decided which tests ran.** Dev machines here are

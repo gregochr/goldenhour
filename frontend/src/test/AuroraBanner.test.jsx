@@ -514,27 +514,22 @@ describe('AuroraBanner', () => {
     });
 
     it('returns time-only for a detection today', () => {
-      const now = new Date();
-      now.setMinutes(now.getMinutes() - 30);
-      const result = formatDetectedAt(now.toISOString());
-      expect(result).toMatch(/^\d{2}:\d{2}$/);
+      expect(formatDetectedAt('2026-01-15T11:30:00Z')).toBe('11:30');
     });
 
+    // ── Explicit instants, not `new Date()` + local setters ──
+    //
+    // The clock above is pinned, but these fixtures used to step it with `setDate`/`setHours`,
+    // which read and write the RUNNER's calendar fields. `formatDetectedAt` now decides the day on
+    // the UK one, so the two disagree off Greenwich: in America/New_York, "yesterday 21:34" local
+    // is 02:34Z the same UK day, and the assertion below is about the branch that is no longer
+    // taken. January, so the UK is on GMT and these instants are also their own UK wall clock.
     it('returns "yesterday HH:MM" for a detection yesterday', () => {
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      yesterday.setHours(21, 34, 0, 0);
-      const result = formatDetectedAt(yesterday.toISOString());
-      expect(result).toMatch(/^yesterday \d{2}:\d{2}$/);
+      expect(formatDetectedAt('2026-01-14T21:34:00Z')).toBe('yesterday 21:34');
     });
 
     it('returns "D Mon HH:MM" for a detection two days ago', () => {
-      const twoDaysAgo = new Date();
-      twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-      twoDaysAgo.setHours(14, 22, 0, 0);
-      const result = formatDetectedAt(twoDaysAgo.toISOString());
-      // Should be like "2 Apr 14:22"
-      expect(result).toMatch(/^\d{1,2} [A-Z][a-z]{2} \d{2}:\d{2}$/);
+      expect(formatDetectedAt('2026-01-13T14:22:00Z')).toBe('13 Jan 14:22');
     });
   });
 
@@ -543,35 +538,30 @@ describe('AuroraBanner', () => {
   // ---------------------------------------------------------------------------
 
   it('shows "Detected HH:MM" in headline when detectedAt is present', () => {
-    const thirtyMinsAgo = new Date();
-    thirtyMinsAgo.setMinutes(thirtyMinsAgo.getMinutes() - 30);
     renderBanner({
       level: 'MODERATE',
       hexColour: '#ff9900',
       description: 'Amber alert: possible aurora',
       active: true,
       eligibleLocations: 3,
-      detectedAt: thirtyMinsAgo.toISOString(),
+      detectedAt: '2026-01-15T11:30:00Z',
     });
     const el = screen.getByTestId('aurora-banner-detected');
     expect(el).toBeInTheDocument();
-    expect(el.textContent).toMatch(/^Detected \d{2}:\d{2}$/);
+    expect(el.textContent).toBe('Detected 11:30');
   });
 
   it('shows "Detected yesterday HH:MM" when alert persisted from yesterday', () => {
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    yesterday.setHours(21, 34, 0, 0);
     renderBanner({
       level: 'STRONG',
       hexColour: '#ff0000',
       description: 'Red alert: aurora likely',
       active: true,
       eligibleLocations: 5,
-      detectedAt: yesterday.toISOString(),
+      detectedAt: '2026-01-14T21:34:00Z',
     });
     const el = screen.getByTestId('aurora-banner-detected');
-    expect(el.textContent).toMatch(/^Detected yesterday \d{2}:\d{2}$/);
+    expect(el.textContent).toBe('Detected yesterday 21:34');
   });
 
   it('does not show detection timestamp when detectedAt is null', () => {

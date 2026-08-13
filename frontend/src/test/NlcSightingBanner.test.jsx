@@ -81,11 +81,16 @@ describe('NlcSightingBanner', () => {
 
   it('shows the relative "Xh ago" report label', () => {
     // Pin the clock. `activeSighting()` derives reportedAt as "two hours ago" from the real one,
-    // so on any run between 00:00 and 01:59 local that lands on the previous calendar day and
+    // so on any run within two hours of UK midnight that lands on the previous day and
     // formatReportedAt correctly returns "yesterday HH:MM" instead. The component was right and
     // the test was wrong: this assertion is about the same-day branch, so it has to own the time.
+    //
+    // An INSTANT, not the local literal this used to be. The same-day branch is now decided on the
+    // UK calendar, so a wall-clock pin only names a UK midday on a runner that happens to be in the
+    // UK — in Pacific/Auckland `'2026-07-15T12:00:00'` is 01:00 BST and the sighting falls on the
+    // 14th, which is a real failure this file caught.
     vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2026-07-15T12:00:00'));
+    vi.setSystemTime(new Date('2026-07-15T11:00:00Z')); // 12:00 BST
     try {
       renderBanner(activeSighting());
       expect(screen.getByText(/Sighting · 2h ago/i)).toBeInTheDocument();
@@ -258,13 +263,28 @@ describe('NlcSightingBanner', () => {
     // "Nh ago" case carried a midnight guard that made it assert NOTHING between 00:00 and 03:00,
     // passing vacuously for three hours out of every twenty-four.
     //
-    // A LOCAL-time literal, not the `…Z` the sibling AuroraBanner suite uses: the formatter reads
-    // local getters and formats with `en-GB` locale time, so pinning an instant would still leave
-    // the wall clock differing by an hour between a BST laptop and a UTC runner. Pinning the wall
-    // clock removes the timezone from the question entirely.
+    // ── INSTANT literals, and the reason inverted with the fix ──
+    //
+    // These were local wall-clock literals (`new Date('2026-08-11T14:30:00')`, `setHours(23, 10)`)
+    // on the argument that the formatter read local getters, so pinning the wall clock "removed the
+    // timezone from the question entirely". That was true of the old code and is now false of the
+    // new: `formatReportedAt` reads Europe/London for both the clock it prints and the day it
+    // credits, so a local literal is the thing that moves with the runner. Under the suite's UTC pin
+    // `setHours(23, 10)` on 10 August is 00:10 BST on the ELEVENTH — today, not yesterday — and the
+    // two day-branch cases below failed for exactly that reason.
+    //
+    // So each literal is now an explicit instant, chosen so the UK wall clock is the one the
+    // assertion names. August, so BST: UTC+1.
+    /** 14:30 BST on 11 August 2026 — an ordinary UK afternoon. */
+    const NOW = '2026-08-11T13:30:00Z';
+    /** 23:10 BST on 10 August — last night, and comfortably more than an hour before NOW. */
+    const YESTERDAY_2310 = '2026-08-10T22:10:00Z';
+    /** 23:10 BST on 9 August — two nights back, past the "yesterday" band. */
+    const TWO_NIGHTS_AGO_2310 = '2026-08-09T22:10:00Z';
+
     beforeEach(() => {
       vi.useFakeTimers({ toFake: ['Date'] });
-      vi.setSystemTime(new Date('2026-08-11T14:30:00'));
+      vi.setSystemTime(new Date(NOW));
     });
     afterEach(() => vi.useRealTimers());
 
@@ -299,26 +319,28 @@ describe('NlcSightingBanner', () => {
     });
 
     it('returns "yesterday HH:MM" for a report from yesterday', () => {
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      yesterday.setHours(23, 10, 0, 0);
-      expect(formatReportedAt(yesterday.toISOString())).toBe('yesterday 23:10');
+      expect(formatReportedAt(YESTERDAY_2310)).toBe('yesterday 23:10');
     });
 
     // The precedence that caused the flake, now stated as a rule rather than discovered as a bug:
     // "under an hour" beats "yesterday". Just after midnight a report from 23:10 is 57 minutes old,
     // and how long ago it was is more useful than which calendar day it fell in.
     it('prefers minutes to "yesterday" when yesterday was under an hour ago', () => {
-      vi.setSystemTime(new Date('2026-08-11T00:07:00'));
-      const lastNight = new Date('2026-08-10T23:10:00');
-      expect(formatReportedAt(lastNight.toISOString())).toBe('57m ago');
+      vi.setSystemTime(new Date('2026-08-10T23:07:00Z')); // 00:07 BST on the 11th
+      expect(formatReportedAt(YESTERDAY_2310)).toBe('57m ago');
     });
 
     it('returns "D Mon HH:MM" for a report two days ago', () => {
-      const twoDaysAgo = new Date();
-      twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-      twoDaysAgo.setHours(23, 10, 0, 0);
-      expect(formatReportedAt(twoDaysAgo.toISOString())).toBe('9 Aug 23:10');
+      expect(formatReportedAt(TWO_NIGHTS_AGO_2310)).toBe('9 Aug 23:10');
+    });
+
+    // The defect this fix is about, at the boundary where it bites: 00:30 BST on the 11th is
+    // "today" in the UK and "yesterday" (19:30 on the 10th) in New York. The old code decided the
+    // day from the device's calendar fields, so this rendered "yesterday 00:30" — a UK clock time
+    // under a foreign day label, which neither basis would have produced on its own.
+    it('credits a UK small-hours report to the UK day, not the device day', () => {
+      vi.setSystemTime(new Date('2026-08-11T05:00:00Z')); // 06:00 BST, so 5.5h after the report
+      expect(formatReportedAt('2026-08-10T23:30:00Z')).toBe('5h ago');
     });
   });
 });

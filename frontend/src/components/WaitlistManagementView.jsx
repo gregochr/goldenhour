@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import { getWaitlist } from '../api/waitlistApi.js';
+import { formatInstantUk } from '../utils/conversions.js';
 
 /**
  * Admin view displaying waitlist email submissions ordered oldest-first.
@@ -54,11 +55,13 @@ export default function WaitlistManagementView({ onCountChange }) {
                 {entry.email}
               </td>
               <td className="py-2 text-plex-text-muted text-xs" data-testid={`waitlist-submitted-${index}`}>
-                {entry.submittedAt
-                  ? new Date(entry.submittedAt).toLocaleDateString('en-GB', {
-                    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-                  })
-                  : '—'}
+                {/* `submittedAt` is a bare LocalDateTime produced in UTC, so it was being parsed as
+                    the reader's local time AND formatted in it — the two errors cancelled to the
+                    stored digits, which is UTC wearing the reader's clock. An hour early for the UK
+                    all summer, and a day out west of Greenwich near midnight. */}
+                {formatInstantUk(entry.submittedAt, {
+                  day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+                }) ?? '—'}
               </td>
             </tr>
           ))}

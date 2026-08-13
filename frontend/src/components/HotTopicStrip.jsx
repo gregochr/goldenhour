@@ -4,7 +4,7 @@ import InfoTip from './InfoTip.jsx';
 import CertaintyChip from './shared/CertaintyChip.jsx';
 import TideRunRow from './TideRunRow.jsx';
 import SurgeRunRow from './SurgeRunRow.jsx';
-import { bortleLabel, moonIlluminationStyle, MOON_EMOJI } from '../utils/conversions.js';
+import { bortleLabel, moonIlluminationStyle, MOON_EMOJI, formatInstantUk } from '../utils/conversions.js';
 import { ukDayOffset } from '../utils/mapDates.js';
 
 /**
@@ -152,9 +152,10 @@ function leadDayWord(dateStr, now = new Date()) {
 function formatEventTime(eventTime) {
   if (!eventTime) return null;
   if (eventTime.includes('T')) {
-    const d = new Date(eventTime);
-    if (Number.isNaN(d.getTime())) return null;
-    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+    // UK clock. The bare "HH:mm" the API normally sends is already UK local — the backend formats
+    // it — so a datetime falling through this branch and being rendered in the device's zone would
+    // put two different clocks in one strip depending on which shape arrived.
+    return formatInstantUk(eventTime, { hour: '2-digit', minute: '2-digit', hour12: false });
   }
   return eventTime;
 }
