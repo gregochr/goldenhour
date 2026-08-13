@@ -37,8 +37,10 @@ import java.util.stream.Collectors;
  * canvas). Alongside them, the <em>measurement pass</em> records what the forecast's own
  * persistence discards, so the sampling geometry itself can be evaluated: the cone's low-cloud
  * extremes (is the horizon a uniform deck or a wall with a gap the mean hides?) and the 226 km
- * far-solar reading (is the blocking corridor for a high-cloud canvas — 206–432 km out — behaving
- * differently from the 113 km point the gate actually looks at?).
+ * far-solar reading (is the canvas-underlighting corridor behaving differently from the 113 km
+ * point the gate actually looks at? 226 km is the geometric centre of a 4 km mid canvas's blocking
+ * corridor and only the near edge of an 8 km high canvas's, whose centre is ~319 km — see
+ * {@code DirectionalSamplingGeometry.FAR_SOLAR_OFFSET_METRES}).
  */
 @Service
 public class CloudVerificationService {
@@ -200,8 +202,9 @@ public class CloudVerificationService {
             List<VerificationCandidate> candidates) {
         // The cone matters — the forecast's own solar reading is a 3-point average, so sampling a
         // single centre point here would compare an average against a spot reading and attribute
-        // the difference to forecast error. The far-solar point is the corridor a high-cloud
-        // canvas is actually underlit through, which the 113 km gate never sees.
+        // the difference to forecast error. The far-solar point reads the canvas-underlighting
+        // corridor the 113 km gate never sees (centre of the 4 km mid-canvas corridor, near edge
+        // of the 8 km high-canvas one — see FAR_SOLAR_OFFSET_METRES).
         List<double[]> points = new ArrayList<>(candidates.size() * POINTS_PER_CANDIDATE);
         for (VerificationCandidate candidate : candidates) {
             points.addAll(DirectionalSamplingGeometry.computeSolarConePoints(
@@ -336,9 +339,9 @@ public class CloudVerificationService {
     /**
      * Reads the far-solar archive hour matching the solar event and records its low cloud.
      *
-     * <p>Only the low layer is kept: the far point exists to measure the blocking corridor for a
-     * high-cloud canvas (where the underlighting ray crosses low-cloud altitude 206–432 km out),
-     * and low cloud is the only layer that blocks at that geometry.
+     * <p>Only the low layer is kept: the far point exists to measure the canvas-underlighting
+     * corridor (dead centre of a 4 km mid canvas's 113–339 km blocking corridor; near edge of an
+     * 8 km high canvas's 206–432 km one), and low cloud is the only layer that blocks there.
      *
      * @param builder   the verification row under construction
      * @param archive   the far-solar archive response, or {@code null} if the fetch failed
@@ -545,13 +548,19 @@ public class CloudVerificationService {
     /**
      * Buckets pairs by near-vs-far corridor divergence — the canvas-height gate question.
      *
-     * <p>A ray underlighting a high-cloud canvas crosses low-cloud altitude 206–432 km out, which
-     * the 226 km point samples and the 113 km gate never sees. {@code farClearer} counts skies
-     * where the near deck ends before the far corridor (the gate reads blocked while a high canvas
-     * could still light — over-pessimism); {@code farCloudier} counts the reverse (the gate reads
-     * clear while the high-canvas corridor is blanketed — false optimism, uncovered by any current
-     * rule). The {@code &highCanvas} variants isolate the cases where the analysed canvas was
-     * actually high-dominant, i.e. where the corridor geometry is the one that matters.
+     * <p>The 226 km point is the geometric centre of a 4 km mid canvas's low-cloud blocking corridor
+     * (113–339 km) and the near edge of an 8 km high canvas's (206–432 km, centred ~319 km) — see
+     * {@code DirectionalSamplingGeometry.FAR_SOLAR_OFFSET_METRES}. The 113 km gate sees neither.
+     * {@code farClearer} counts skies where the near deck ends before the far corridor (the gate
+     * reads blocked while a lit canvas is still possible — over-pessimism); {@code farCloudier}
+     * counts the reverse (the gate reads clear while the underlighting corridor is blanketed —
+     * false optimism, uncovered by any current rule). The {@code &highCanvas} variants isolate the
+     * cases where the analysed canvas was actually high-dominant; for those the 226 km reading is
+     * a near-edge proxy for a corridor centred ~90 km further out, correlated at synoptic scale
+     * (frontal bands are 100–300 km wide) but not a direct measurement. The {@code &midCanvas}
+     * variants are therefore the rigorous cut of this data — the point sits near the centre of
+     * their corridor rather than at its edge (exactly so at 4 km geometric, ~16–21 km short once
+     * refraction is allowed for) — and sit beside the high-canvas proxy rather than replacing it.
      *
      * @param pairs every verified pair in the window
      * @return corridor buckets over the pairs that carry both near and far readings
@@ -569,8 +578,12 @@ public class CloudVerificationService {
                 CloudVerificationBucket.of("farClearer(drop>=30)", clearer),
                 CloudVerificationBucket.of("farClearer&highCanvas", clearer.stream()
                         .filter(p -> Boolean.TRUE.equals(p.highCanvasDominant())).toList()),
+                CloudVerificationBucket.of("farClearer&midCanvas", clearer.stream()
+                        .filter(p -> Boolean.TRUE.equals(p.midCanvasDominant())).toList()),
                 CloudVerificationBucket.of("farCloudier(drop<=-30)", cloudier),
                 CloudVerificationBucket.of("farCloudier&highCanvas", cloudier.stream()
-                        .filter(p -> Boolean.TRUE.equals(p.highCanvasDominant())).toList()));
+                        .filter(p -> Boolean.TRUE.equals(p.highCanvasDominant())).toList()),
+                CloudVerificationBucket.of("farCloudier&midCanvas", cloudier.stream()
+                        .filter(p -> Boolean.TRUE.equals(p.midCanvasDominant())).toList()));
     }
 }

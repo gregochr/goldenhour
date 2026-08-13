@@ -33,8 +33,10 @@ import java.util.List;
  *       error grows exactly there.</li>
  *   <li>{@code byCorridor} — the canvas-height gate question. A high-cloud canvas is underlit
  *       through low cloud 206–432 km out, not the 113 km the gate reads; these buckets measure
- *       how often near and far corridor readings structurally diverge, and the {@code &highCanvas}
- *       variants isolate the skies where that geometry is the one that matters.</li>
+ *       how often near and far corridor readings structurally diverge. The 226 km sample centres
+ *       a 4 km mid canvas's corridor, so the {@code &midCanvas} variants measure that geometry
+ *       directly, while the {@code &highCanvas} ones sit at the near edge of the cirrus corridor
+ *       (centred ~319 km) and are proxy evidence.</li>
  * </ul>
  *
  * @param from            start of the verified window (inclusive)
@@ -47,8 +49,8 @@ import java.util.List;
  * @param vetoCapped      veto-fired pairs whose upwind sample sat at the cap
  * @param byWindSunAngle  veto-fired pairs bucketed by wind-to-sun separation
  * @param byConeStructure all pairs bucketed by analysed cone spread (uniform / mixed / gapped)
- * @param byCorridor      all pairs bucketed by near-vs-far corridor divergence, with
- *                        high-canvas-dominant sub-buckets
+ * @param byCorridor      all pairs bucketed by near-vs-far corridor divergence, with high- and
+ *                        mid-canvas-dominant sub-buckets
  * @param vetoSeparation  mean observed horizon cloud in {@code vetoFired} minus
  *                        {@code vetoNotFired}. Positive means vetoed slots really were cloudier,
  *                        i.e. the veto discriminates. Near zero means it fires on nothing real.

@@ -5,6 +5,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the 226 km sample was documented as a cirrus probe; it is a mid-canvas one
+
+A first-principles re-derivation of the far-solar geometry found the docs claiming something the
+number does not support. With a canvas at height *h* and the sun *δ* below the horizon, last light
+grazes at `√(2Rh)`, and low cloud with tops *z* blocks it over `√(2Rh) ± √(2Rz)`. Run that:
+**226 km is exactly √(2R·4 km)** — the dead centre of a **4 km mid** canvas's blocking corridor
+(113–339 km). For an **8 km cirrus** canvas the corridor is 206–432 km, **centred at ~319 km**, so
+the same point sits at its near *edge* and steals only the final 0.08° of a 2.87° lit arc. The
+point was chosen as "2 × horizon distance" for strip-vs-blanket detection and lands on the
+mid-canvas centre by coincidence.
+
+Nothing was miscomputed — the sampling, the persistence and the buckets were all doing what they
+said. What was wrong was the **claim about what they measure**: every doc and javadoc site that
+described 226 km as the corridor a high canvas is underlit through made proxy evidence read as
+direct measurement. Those are corrected, and the veto doc's §8 now shows the derivation with the
+two false claims struck through rather than quietly rewritten. The figures are geometric and say
+so: refraction stretches them 7–10%, which moves the mid-canvas centre to ~242–247 km — enough that
+"exact centre" would be its own overclaim, not enough to disturb near-centre versus near-edge.
+
+Two sites carrying the same struck text are deliberately **left alone**: `V142`'s migration comment
+(editing an applied migration changes its Flyway checksum, a worse hazard than a stale comment) and
+this file's own history below.
+
+### Added — `&midCanvas` corridor sub-buckets on the cloud-verification report
+
+Given the corrected geometry, the data already collected answers the **mid-canvas** question
+exactly, so `byCorridor` gains `farClearer&midCanvas` and `farCloudier&midCanvas` beside the
+existing `&highCanvas` pair — a free re-cut of the same rows, no new sampling, no migration, no
+backfill re-run (this adds no observation, so the self-healing pass must not and does not fire).
+`farCloudier&midCanvas` is the sharp one: the gate reads clear, the corridor that actually matters
+is blanketed, and "ideal scenario" fires — the false-optimism case no current scoring rule covers,
+now measured rather than proxied. The high-canvas buckets stay, relabelled in the javadoc as
+synoptic-scale proxy evidence (frontal bands are 100–300 km wide, so a reading ~90 km short of
+centre still correlates) pending a possible sixth archive point at ~319 km.
+
+Additive JSON on a `List<CloudVerificationBucket>`, so no DTO, controller or schema change; the
+only consumer is curl.
+
 ### Fixed — six identically-named checkboxes in the run dialog, with nothing saying which day
 
 The slot picker renders the same two labels on every row — `🌅 Sunrise`, `🌇 Sunset` — and the date

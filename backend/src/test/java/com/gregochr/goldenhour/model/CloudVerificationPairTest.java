@@ -134,6 +134,20 @@ class CloudVerificationPairTest {
         assertThat(withCanvas(55, null).highCanvasDominant()).isNull();
     }
 
+    @Test
+    @DisplayName("midCanvasDominant is strict, so an empty sky does not count as a mid canvas")
+    void midCanvasDominant_strictComparison() {
+        // Mid dominance is the cut the 226 km point measures directly rather than proxies.
+        assertThat(withCanvas(55, 40).midCanvasDominant()).isTrue();
+        assertThat(withCanvas(10, 90).midCanvasDominant()).isFalse();
+        // Equal layers — including 0/0, the empty sky — are neither mid- nor high-dominant.
+        assertThat(withCanvas(0, 0).midCanvasDominant()).isFalse();
+        assertThat(withCanvas(0, 0).highCanvasDominant()).isFalse();
+        // Half a canvas cannot settle dominance either way — unknown, not "not mid-dominant".
+        assertThat(withCanvas(null, 40).midCanvasDominant()).isNull();
+        assertThat(withCanvas(55, null).midCanvasDominant()).isNull();
+    }
+
     private CloudVerificationPair pair(Boolean building, Integer upwindCurrent,
             Integer windDirection, Integer azimuthDeg) {
         return new CloudVerificationPair("Durham", DATE, TargetType.SUNSET, 0, 2,

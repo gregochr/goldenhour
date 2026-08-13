@@ -28,8 +28,8 @@ import java.time.LocalDateTime;
  * own persistence throws away, so the sampling geometry itself can be evaluated: the cone
  * extremes ({@code horizonLowMin}/{@code horizonLowMax} — the forecast keeps only the mean, which
  * cannot tell a uniform deck from a wall with a clear third) and the far-solar corridor reading
- * ({@code farLowCloud} at 226 km — where the blocking corridor actually sits when the canvas is
- * high cloud rather than the mid-level canvas the 113 km gate assumes).
+ * ({@code farLowCloud} at 226 km — the centre of a 4 km mid canvas's blocking corridor and only
+ * the near edge of an 8 km cirrus one, whose centre is ~319 km; the 113 km gate reads neither).
  *
  * <p>Unlike {@code actual_outcome} this needs no human: it verifies the <em>cloud</em> claims the
  * scoring rules rest on, not the aesthetic judgement. It cannot tell you a sunset was beautiful —
@@ -84,7 +84,10 @@ public class CloudVerificationEntity {
     @Column(name = "horizon_high_cloud")
     private Integer horizonHighCloud;
 
-    /** Analysed low cloud (%) at the 226 km far-solar point — the high-canvas blocking corridor. */
+    /**
+     * Analysed low cloud (%) at the 226 km far-solar point — the centre of a 4 km mid canvas's
+     * blocking corridor, and only the near edge of an 8 km cirrus one.
+     */
     @Column(name = "far_low_cloud")
     private Integer farLowCloud;
 
