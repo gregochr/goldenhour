@@ -5,6 +5,48 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — a spring tide is not a low-water event, and the run stopped saying it was
+
+**`TideRunBuilder` hard-coded which water a tidal run was about: `useful = king ? HIGH : LOW`.** So
+every spring run was framed around low water — the verdict measured it, the `aligned` flag tracked
+it, the editorial line spoke for it, and the roster tally counted it — regardless of what the
+coastline in question is actually shot for. A spring tide's gift is a big *range*, which lifts high
+water exactly as far as it drops low water, and most of this coastal roster is configured for the
+high one. The moon was deciding what the reader came to photograph.
+
+The symptom was a card arguing with itself. On a spring morning whose high water landed 58 minutes
+after sunrise, the headline read *"no sunrise or sunset alignment"* directly above a chart drawing
+`HW 09:08 · 58m after sunrise`, with the editorial line withheld because the *low* water — five
+hours away, at 00:12, in the dark — was the one being judged. Three separate escape hatches had been
+added to `verdict()` over time, each one catching a case where the rule named a water nobody could
+use, and they disagreed with each other about which point the row was about.
+
+**There is no "useful" water any more.** Each day names the extremum nearest a solar event, high or
+low, and calls itself aligned when that water is within the hour. One point now drives the verdict,
+the `aligned` flag, `alignedEvent`, `alignmentPhrase`, the sea-state sample and the editorial
+phrase — so the row cannot contradict itself rather than being defended against doing so by a rule
+per field.
+
+Consequences worth knowing:
+
+- **The editorial line follows the water, not the run.** `LOW_WATER_PHRASE` ("low water bares the
+  foreground") and `HIGH_WATER_PHRASE` ("causeways & foreshore submerged — shoot reflections") were
+  always describing waters; they read as run-type phrases only while the run type picked the water.
+  A king run whose low water is the one in the light now gets the bared-foreground line, and a
+  spring run whose high water is in the light gets the submerged one.
+- **The second threshold is gone.** A 30-minute "coincident" test sat alongside the 60-minute
+  alignment window, answering the same question — *is this water near a solar event?* — with the
+  stricter of the two guarding the more useful sentence. That gap is exactly where the 58-minute
+  high water fell. One window now, and the "at sunrise" wording it existed for lives in
+  `TideWording.offsetPhrase`, which applies it to every form.
+- **The roster tally stays astronomical**, measuring the same rule at each location's own sunrise
+  and sunset. It deliberately does *not* consult each location's stored `TideType`: a
+  preference-weighted count answers a different question from the badge above it, and cannot answer
+  at all for a location with no preference set. That mistake is what once printed "no tide
+  alignments" over a chart drawing one.
+- The `king` flag now decides only the run's **label**, which is all a statement about the moon
+  should decide.
+
 ### Fixed — the moon arithmetic was wrong, and it reached further than the tides
 
 **Every lunar figure in the app came from counting mean months forward from two reference dates,

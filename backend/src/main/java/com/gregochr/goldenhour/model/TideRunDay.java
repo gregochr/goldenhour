@@ -16,11 +16,15 @@ import java.util.List;
  * and {@link #dayCount} let the pill render a {@code SPRING RUN 2/4} chip that ties the days back
  * together without reordering anything.
  *
- * <p>The question a tidal photographer actually asks is <em>does low water land near sunrise?</em>
- * Tide clock times and solar clock times used to live in different parts of the UI, leaving that
- * as mental arithmetic. Everything here is stated against the day's own sunrise and sunset so the
- * answer is readable at a glance — {@link #verdict} states it in words, {@link #aligned} flags it,
- * and the extrema plus solar times let the client draw it.
+ * <p>The question a tidal photographer actually asks is <em>does a water I can use land near the
+ * light?</em> Tide clock times and solar clock times used to live in different parts of the UI,
+ * leaving that as mental arithmetic. Everything here is stated against the day's own sunrise and
+ * sunset so the answer is readable at a glance — {@link #verdict} states it in words,
+ * {@link #aligned} flags it, and the extrema plus solar times let the client draw it.
+ *
+ * <p><b>Which water counts is not decided by the moon.</b> Every field that names a water names the
+ * same one — the extremum nearest a solar event, high or low — so this record cannot describe two
+ * different waters in two of its own fields. It could, and did.
  *
  * <p><b>All clock times are Europe/London local {@code "HH:mm"}</b>, already formatted: the chart's
  * geometry is a local-day 24-hour axis, so converting on the client would put the timezone rule in
@@ -68,7 +72,12 @@ import java.util.List;
  *                     coastline and the headline is the roster, so both must name their scope: this
  *                     is what lets the pill say "at 47 of 61 coastal locations" instead of implying
  *                     all 61 from a single location's geometry. Null when nothing could be measured
- * @param aligned      true when the useful extremum falls within an hour of sunrise or sunset
+ * @param aligned      true when a water of either kind falls within an hour of sunrise or sunset.
+ *                     It used to mean "the useful extremum", where useful was
+ *                     {@code king ? high : low}: a claim about what the reader came to shoot, made
+ *                     by the moon, and wrong for the majority of a roster configured to shoot high
+ *                     water. A spring tide's gift is a big <em>range</em>, which lifts high water as
+ *                     far as it drops low water; which end is worth the drive is not the moon's call
  * @param alignedEvent which solar event it aligned with, {@code "sunrise"} or {@code "sunset"};
  *                     null when {@link #aligned} is false. Carried rather than left to be parsed
  *                     out of {@link #verdict} because the hot-topic headline names the event, and
@@ -89,11 +98,12 @@ import java.util.List;
  *                     trimming the verdict's text, which would make the verdict's punctuation
  *                     load-bearing
  * @param peak         true on the run's biggest-range day
- * @param phrase       the editorial line for this event type, or null on an unaligned day —
- *                     the draw is only claimed when the water lands in usable light.
- *                     {@code "low water bares the
- *                     foreground"} — a king run's draw is highest water, not exposed foreground,
- *                     so the wording differs
+ * @param phrase       the editorial line for the water that reached the light, or null when none
+ *                     did — the draw is only claimed when a water lands in usable light.
+ *                     Keyed to the <b>water</b>, not to the run: {@code "low water bares the
+ *                     foreground"} when the low is the one in the light, and a submerged-foreshore
+ *                     line when the high is. Both sentences always described a water; they read as
+ *                     run-type phrases only while the run type was picking the water
  */
 public record TideRunDay(
         String runLabel,
@@ -192,10 +202,14 @@ public record TideRunDay(
     /**
      * How many coastal locations share this day's alignment, per solar event.
      *
-     * <p>Measured by the <b>same rule</b> the representative's own row uses — the useful extremum if
-     * it falls inside the alignment window, otherwise the other extremum if that one does — at each
-     * location's own sunrise and sunset. Identical rules matter: it makes the representative a
-     * member of its own tally, so an aligned chart can never sit above a count of zero.
+     * <p>Measured by the <b>same rule</b> the representative's own row uses — the extremum nearest a
+     * solar event, if it falls inside the alignment window — at each location's own sunrise and
+     * sunset. Identical rules matter: it makes the representative a member of its own tally, so an
+     * aligned chart can never sit above a count of zero.
+     *
+     * <p>Astronomical, never preference-weighted. Counting only locations whose stored
+     * {@link com.gregochr.goldenhour.entity.TideType} matched would answer a different question from
+     * the badge it sits under, and could not answer at all for a location with no preference set.
      *
      * @param sunriseAligned locations whose tide lands within the window of their own sunrise
      * @param sunsetAligned  locations whose tide lands within the window of their own sunset

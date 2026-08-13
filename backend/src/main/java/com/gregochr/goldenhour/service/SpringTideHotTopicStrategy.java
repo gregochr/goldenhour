@@ -46,15 +46,15 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
                     + " dramatic foreground and wave action.";
 
     /**
-     * What a spring tide day says for itself when its low water misses the light. Unlike a king
-     * tide it claims no consolation — the draw of a spring tide <em>is</em> the bared foreground,
-     * and at 01:00 in the dark there is nothing to offer in its place.
+     * What a spring tide day says for itself when <em>neither</em> of its waters reaches the light.
+     * Unlike a king tide it claims no consolation — a spring tide's draw is the swing between the
+     * two, and with both of them in the dark there is nothing to offer in its place.
      */
     static final String SPRING_UNALIGNED =
             "no sunrise or sunset alignment, but good coastal foreground";
 
     /**
-     * What a spring tide day says when its low water <em>did</em> land in the light, but that light
+     * What a spring tide day says when a water <em>did</em> land in the light, but that light
      * has already passed. Kept distinct from {@link #SPRING_UNALIGNED} for the reason given on
      * {@link KingTideHotTopicStrategy#alignmentInfo}: the chart below still draws the alignment, so
      * denying it outright would have the two lines arguing.

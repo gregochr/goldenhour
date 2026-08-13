@@ -452,8 +452,8 @@
 }
 
 /* ── Multi-day tide run: one card per day, one chart per card ──
-   A spring tide is a RUN, not n unrelated days, and the question it has to answer is whether the
-   useful water lands near a solar event. Tide times and solar times used to sit in different parts
+   A spring tide is a RUN, not n unrelated days, and the question it has to answer is whether a
+   usable water lands near a solar event. Tide times and solar times used to sit in different parts
    of the UI, leaving that as subtraction; here the curve is drawn against the day's own sunrise and
    sunset. Uses existing tokens only — the topic accent arrives as --tr-accent from the component. */
 .tide-run {
