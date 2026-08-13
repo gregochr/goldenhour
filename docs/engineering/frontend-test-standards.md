@@ -57,6 +57,32 @@ synchronously — but the button sits *above* the component's `loading ?` gate, 
 from the first paint and the wait was satisfied before any data arrived. It passed on a quiet
 machine and failed roughly one full-suite run in six. Wait for the thing the response renders.
 
+**The suite runs in UTC, and that is a fact about the repository, not about your laptop.**
+`src/test/setup.js` pins `process.env.TZ = 'UTC'`. Before it did, the machine's zone decided: dev
+machines here are `Europe/London` and GitHub runners are UTC, so the two were running measurably
+different tests. Both of those passed, which is why nobody noticed —
+`TZ=America/New_York` did not, and the failure was a *product* defect (`UserManagementView`
+formatting a UK date in the device's own zone) that a zone nobody ran had hidden.
+
+Three rules follow:
+
+- **Do not read the machine's zone in a fixture.** A bare `new Date().toLocaleDateString()` or a
+  `new Intl.DateTimeFormat(…)` with no `timeZone` is answering a question about the runner. If the
+  code under test means the UK calendar, the fixture must say `Europe/London` explicitly — the same
+  rule the app itself now follows since #500.
+- **A file may pin its own zone, and it wins.** Setup files run before the test module is evaluated,
+  so a file-scope `process.env.TZ = 'Europe/London'` (four files) or `'America/New_York'`
+  (`mapDatesAbroad.test.js`) is applied second. Put the assignment above the imports, as those files
+  do.
+- **Zone-separation coverage belongs in a file pinned to a non-UK zone.** Under a UK pin, "the UK
+  calendar" and "the browser's calendar" are the same string and no assertion can tell them apart —
+  `mapDatesAbroad.test.js` exists for exactly that and says so at length. That is the designed
+  detection mechanism; do not rely on whose laptop happens to run the suite.
+
+`testEnvironmentTimezone.test.js` asserts the pin is in force, because a deleted pin fails silently:
+every test would go back to reading the developer's own zone and the suite would stay green on their
+machine.
+
 ---
 
 ## Queries: roles where there is a role contract, test-ids elsewhere
