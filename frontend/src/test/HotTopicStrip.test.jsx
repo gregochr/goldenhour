@@ -2766,13 +2766,14 @@ describe('HotTopicStrip — storm surge verdict', () => {
 });
 
 describe('HotTopicStrip — the safety warning', () => {
-  // Pin the clock. ECLIPSE below is dated 2026-08-12 and one of these tests asserts the timing lead
-  // reads "Today", so without this the test passes only while the real date happens to be that day
-  // and then starts failing on its own — which is what it did. Same treatment, and same reason, as
-  // the 'timing lead' block above.
+  // Pin the clock, exactly as the timing-lead block above does and for the same reason: one of
+  // these cases asserts the lead reads "Today", which is derived by comparing the topic's date to
+  // the real one. The fixture's 2026-08-12 was today when it was written and stopped being so the
+  // next morning, at which point the lead rendered "Wed" and the case failed on every branch —
+  // nothing to do with whatever was being reviewed. A date fixture must not depend on when it runs.
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2026-08-12T12:00:00Z'));
+    vi.setSystemTime(new Date('2026-08-12T12:00:00Z')); // Wednesday, the eclipse date below
   });
   afterEach(() => {
     vi.useRealTimers();

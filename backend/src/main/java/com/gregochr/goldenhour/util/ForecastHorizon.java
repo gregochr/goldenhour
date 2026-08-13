@@ -55,23 +55,30 @@ import java.time.temporal.ChronoUnit;
  * </ul>
  *
  * <p><b>And what is still UTC without a defence — a separate list, because collapsing the two is
- * how a hedge becomes a completeness claim.</b> {@code ForceSubmitBatchService}'s JFDI range used
- * to head this list and moved to the UK calendar in §8c. What remains, none of it a forecast
- * horizon and none of it on this engine's path:
+ * how a hedge becomes a completeness claim.</b> {@code ForceSubmitBatchService}'s JFDI range headed
+ * this list and moved in §8c; the two {@code EvaluationTask.Aurora} label dates
+ * ({@code ScheduledBatchEvaluationService}, {@code AuroraOrchestrator}) and {@code AlmanacService}'s
+ * feed anchor followed. {@code AuroraForecastRunService} left it by a different door — it stopped
+ * asking a calendar at all, resolving its night on an instant instead
+ * ({@code currentNightDate()}); see {@code docs/engineering/aurora-night-selection.md} for why no
+ * zone was the right answer there. <b>What remains — bounded, as before, by "reached from a
+ * forecast or almanac path", because a bare count is how a hedge becomes a completeness claim
+ * again:</b>
  * <ul>
- *   <li>{@code ScheduledBatchEvaluationService} and {@code AuroraOrchestrator} both build an
- *       {@code EvaluationTask.Aurora} date on a bare {@code LocalDate.now()} — no zone argument at
- *       all, so it follows the JVM default and is neither UTC nor London by contract. They are
- *       character-for-character the same construct; fix one and the twin is still there.</li>
- *   <li>{@code AlmanacService} anchors its 90-day feed, and its cache key, on
- *       {@code LocalDate.now(ZoneOffset.UTC)} — a range of UK-dated events on a UTC anchor.</li>
- *   <li>{@code AuroraForecastRunService} counts its preview nights from
- *       {@code LocalDate.now(ZoneId.of("UTC"))}.</li>
+ *   <li>{@code TideService} anchors a refresh window and a stats cutoff on
+ *       {@code LocalDate.now(ZoneOffset.UTC)} over UK tide dates.</li>
+ *   <li>{@code CalibrationController} and {@code CloudVerificationController} default an open-ended
+ *       range's end to a bare {@code LocalDate.now()} — JVM default zone, the same unpinned
+ *       construct this class has now removed from two other places.</li>
  * </ul>
  *
- * <p>All four are pre-existing and none was introduced by the changes above. They are listed rather
- * than fixed because each wants its own reasoning about what its date <em>means</em>, which is the
- * lesson {@code PromptTestService} taught: a half-converted class is worse than an unconverted one.
+ * <p>Outside that bound and deliberately not tracked here: {@code ExchangeRateService}, whose day is
+ * an ECB publication day rather than a UK one, and anything keying a cache purely by "when did I
+ * last fetch". All the entries above are pre-existing and none was introduced by the changes above.
+ * They are listed rather than fixed because each wants its own reasoning about what its date
+ * <em>means</em> — the lesson {@code PromptTestService} taught, and the one
+ * {@code AuroraForecastRunService} then made concrete by being the first case where the answer came
+ * back "no calendar at all".
  *
  * <p><b>An instant is not a calendar.</b> Nothing here answers "has this moment passed". That
  * question is settled by comparing UTC instants — {@code ForecastCommandExecutor} draws both from

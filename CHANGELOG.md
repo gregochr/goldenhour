@@ -133,6 +133,20 @@ Alignment is now a question about the run, asked of the day that answers it:
   Plan tab's chart states. A rewording of one is no longer able to corrupt the other.
 - The figures still describe the run's biggest day. The two questions are separate and are now
   allowed to point at different days, which is the whole point.
+### Fixed — after midnight, the aurora forecast now offers you the night you are actually standing in
+
+A night doesn't end at midnight, but the aurora page thought it did. Ask it for a forecast at two in
+the morning and "Tonight" meant the night starting at dusk that evening — the better part of a day
+away — while the sky you could have walked outside and looked at was the night already underway. It
+offered you the wrong one, and the aurora is a thing people check at two in the morning.
+
+Worse, the same confusion decided which night got a real cloud check. The night it thought was
+tonight got one, and the night actually overhead got a stand-in figure instead. So the forecast you
+were shown for the sky above you was built on an assumption about the cloud, not a look at it.
+
+Both now follow the sky rather than the calendar: before dawn, "Tonight" is the night still running.
+This is not a summer-only or an hour-long thing — it was every night, from midnight until dawn, which
+in midwinter is seven hours.
 
 ### Fixed — a forecast run started late on a summer evening now covers the right days
 
@@ -156,6 +170,10 @@ guess at a night the weather data does not reach the end of; that night is left 
 Runs are only ever started by hand, so the run half of this needed someone to press the button
 inside that one hour, in British Summer Time. The map half needed nothing but a map. Nothing that
 was already forecast was wrong — days were missed, not mis-scored.
+
+The "Coming up" feed was counting from the same wrong calendar, so for that hour it could open on a
+day Britain had already finished — putting something that had just gone past at the top of a list of
+things still to come. It now starts on the right day, and refreshes on the right day too.
 
 The same wrong calendar was left in one more place, an admin diagnostic that submits a batch of
 forecasts on demand. In that hour a quarter of the batch went on a day that had already finished.

@@ -1,12 +1,13 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.AlmanacEvent;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
@@ -54,6 +55,7 @@ public class AlmanacService {
     public static final int MAX_DAYS = 365;
 
     private final List<AlmanacSource> sources;
+    private final Clock clock;
 
     /** Today's fully-built feed, or null before the first build of the day. */
     private final AtomicReference<CachedFeed> cache = new AtomicReference<>();
@@ -71,9 +73,12 @@ public class AlmanacService {
      * Constructs an {@code AlmanacService}.
      *
      * @param sources every almanac source Spring can find
+     * @param clock   supplies "today" — the feed's first day and its cache key — resolved in
+     *                {@code Europe/London} by {@link ForecastHorizon}
      */
-    public AlmanacService(List<AlmanacSource> sources) {
+    public AlmanacService(List<AlmanacSource> sources, Clock clock) {
         this.sources = List.copyOf(sources);
+        this.clock = clock;
     }
 
     /**
@@ -93,7 +98,13 @@ public class AlmanacService {
      */
     public List<AlmanacEvent> getFeed(int days) {
         int clamped = Math.clamp(days, MIN_DAYS, MAX_DAYS);
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        // The UK civil date, for the same reason the rest of the app counts days that way: every
+        // entry in this feed is a UK-dated event — a spring tide run, an equinox, an NLC season.
+        // On a UTC anchor, for the hour *after* UK midnight in summer — 23:00–00:00 UTC, which is
+        // 00:00–01:00 BST — the feed opened on the UK's *yesterday*, so something that had already
+        // happened could lead a list headed "Coming up".
+        // It also keys the cache, which therefore turned over an hour late for the same reason.
+        LocalDate today = ForecastHorizon.today(clock);
 
         CachedFeed cached = cache.get();
         if (cached != null && cached.builtFor().isEqual(today) && cached.days() == clamped) {

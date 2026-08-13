@@ -17,11 +17,12 @@ import com.gregochr.goldenhour.service.batch.BatchTriggerSource;
 import com.gregochr.goldenhour.service.evaluation.EvaluationResult;
 import com.gregochr.goldenhour.service.evaluation.EvaluationService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDate;
+import java.time.Clock;
 import java.time.ZonedDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -62,6 +63,7 @@ public class AuroraOrchestrator {
     private final AuroraProperties properties;
     private final EvaluationService evaluationService;
     private final ModelSelectionService modelSelectionService;
+    private final Clock clock;
 
     /**
      * Constructs the orchestrator with all required dependencies.
@@ -77,6 +79,8 @@ public class AuroraOrchestrator {
      *                              observability for the aurora real-time path that previously
      *                              had none)
      * @param modelSelectionService resolves the active aurora model
+     * @param clock                 supplies the label date on the submitted evaluation task,
+     *                              resolved in {@code Europe/London} by {@link ForecastHorizon}
      */
     public AuroraOrchestrator(NoaaSwpcClient noaaClient,
             WeatherTriageService weatherTriage,
@@ -84,7 +88,8 @@ public class AuroraOrchestrator {
             LocationRepository locationRepository,
             AuroraProperties properties,
             EvaluationService evaluationService,
-            ModelSelectionService modelSelectionService) {
+            ModelSelectionService modelSelectionService,
+            Clock clock) {
         this.noaaClient = noaaClient;
         this.weatherTriage = weatherTriage;
         this.stateCache = stateCache;
@@ -92,6 +97,7 @@ public class AuroraOrchestrator {
         this.properties = properties;
         this.evaluationService = evaluationService;
         this.modelSelectionService = modelSelectionService;
+        this.clock = clock;
     }
 
     /**
@@ -265,8 +271,19 @@ public class AuroraOrchestrator {
         if (!triage.viable().isEmpty()) {
             EvaluationModel model =
                     modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION);
+            // A pinned zone rather than the JVM default. ⚠️ Nothing *interprets* this date. On this
+            // class's path the call below is evaluateNow, and evaluateNowAurora builds its message
+            // from alertLevel/viableLocations/cloudByLocation/spaceWeather/triggerType/
+            // tonightWindow — never task.date(). The date's only readers anywhere are two strings:
+            // taskKey() ("au/LEVEL/date"), which AuroraResultHandler puts in log lines, and — on
+            // the batch twin's path only — CustomIdFactory.forAurora, whose parsed date the result
+            // processor discards. So it is a label, in both senses, and a night selector nowhere.
+            // The night this task is about is `tonightWindow`, passed below as real instants. Do
+            // not start deriving "which night" from the date — an aurora night runs dusk-to-dawn
+            // across midnight, so no calendar date names it correctly in the small hours. See
+            // docs/engineering/aurora-night-selection.md.
             EvaluationTask.Aurora task = new EvaluationTask.Aurora(
-                    level, LocalDate.now(), model,
+                    level, ForecastHorizon.today(clock), model,
                     triage.viable(), triage.cloudByLocation(),
                     spaceWeather, triggerType, tonightWindow);
             EvaluationResult result =
