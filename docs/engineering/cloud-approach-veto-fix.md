@@ -304,16 +304,38 @@ be answered from data rather than argued from √(2Rh):
   verified pair by the *analysed* spread (uniform <20pp / mixed 20–39 / gapped ≥40) and carries the
   usual error stats, so "does gap error blow up exactly where the mean hides structure?" is now a
   report read, not a hypothesis.
-- **Canvas-height blocking distance (V142 `far_low_cloud`).** 113 km is where a horizon-grazing ray
-  crosses 1 km altitude — correct for a *mid-level* canvas. A ray underlighting an 8 km cirrus
-  canvas grazes low-cloud altitude 206–432 km out; the 226 km far-solar point (already fetched for
-  strip-vs-blanket) sits in that corridor, but was never verified and never persisted by this
-  table. `byCorridor` buckets by near-minus-far divergence at ±30pp (the same threshold the
-  production strip-vs-blanket rule uses) with `&highCanvas` sub-buckets. `farClearer&highCanvas`
-  counts the over-pessimism candidates (gate reads blocked, cirrus corridor open — the hard-ceiling
+- **Canvas-height blocking distance (V142 `far_low_cloud`).** *Physics corrected 2026-08-13 by
+  first-principles re-derivation — the two struck claims below were wrong.* In the parabolic
+  approximation, a ray through a canvas at height *h* over the observer, with the sun *δ* below the
+  horizon, sits at height `g(x) = h − δx + x²/2R` above the surface at distance *x* sunward. Last
+  direct light on the canvas is `δ_end = √(2h/R)`, grazing at `x = √(2Rh)`; low cloud with tops *z*
+  blocks it over the corridor `√(2Rh) ± √(2Rz)`. Numbers (geometric; refraction k ≈ 1.15–1.2
+  stretches all distances ~7–10%):
+  - **113 km** (= √(2R·1)) is the far edge of the corridor where 1 km-top low cloud blocks *direct
+    low sun reaching the observer* — and only that. ~~Correct for a mid-level canvas~~: low cloud at
+    113 km starts shadowing a 4 km canvas at 2.03° depression, which *is* that canvas's last-light
+    depression — a zero-width window.
+  - **226 km** is exactly √(2R·4): the grazing point and corridor *centre* for a **4 km mid
+    canvas** (corridor 113–339 km). Chosen as "2 × horizon" for strip-vs-blanket, it is by
+    coincidence the dead-centre mid-canvas probe.
+  - An **8 km cirrus canvas** is blocked over **206–432 km, centred at 319 km** (= √(2R·8)).
+    ~~The 226 km point sits in that corridor~~ — it sits at the near *edge*: 1 km-top cloud at
+    226 km steals only the final 0.08° of the canvas's 2.87° lit arc. Deeper low decks (tops
+    2–3 km, which Open-Meteo's low layer includes) widen the corridor to ~160–515 km and can
+    amputate the whole red phase — so the 226 km reading still carries high-canvas signal, but as
+    a synoptic-scale proxy ~90 km short of centre, not a direct measurement. A rigorous cirrus
+    probe would be a sixth archive point at ~319 km.
+
+  The far-solar point was never verified and never persisted by this table before V142.
+  `byCorridor` buckets by near-minus-far divergence at ±30pp (the same threshold the production
+  strip-vs-blanket rule uses) with `&highCanvas` sub-buckets. `farClearer&highCanvas` counts the
+  over-pessimism candidates (gate reads blocked, underlighting corridor open — the hard-ceiling
   rule wrongly kills these); `farCloudier&highCanvas` counts the **false-optimism case no current
-  rule covers** (gate reads clear, cirrus corridor blanketed, "ideal scenario" fires). The
-  forecast's own 226 km claim gets its first accuracy figure (`meanFarError`).
+  rule covers** (gate reads clear, corridor blanketed, "ideal scenario" fires). The forecast's own
+  226 km claim gets its first accuracy figure (`meanFarError`). Given the corrected geometry, the
+  existing data answers the **mid-canvas** question exactly as-is — a `&midCanvas` sub-bucket is a
+  free re-cut — while the high-canvas buckets should be read as proxy evidence pending a ~319 km
+  sample.
 
 Both new statistics are reanalysis-internal comparisons (spread across bearings; near vs far), so
 the ~25pp horizon baseline offset that invalidated absolute-threshold readings cancels by

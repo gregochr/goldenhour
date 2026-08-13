@@ -28,6 +28,12 @@ public final class DirectionalSamplingGeometry {
      * Far-field distance for horizon cloud structure detection (2 × horizon distance = 226 km).
      * Comparing low cloud at this distance to {@link #DIRECTIONAL_OFFSET_METRES} reveals whether
      * high solar horizon low cloud is a thin strip (drops sharply) or an extensive blanket.
+     *
+     * <p>Canvas-height identity (first-principles check, 2026-08-13): 226 km is also
+     * sqrt(2R × 4 km) — the grazing point of the last ray to reach a 4 km mid-level canvas, and
+     * the exact centre of that canvas's low-cloud blocking corridor (113–339 km for 1 km tops).
+     * For an 8 km high canvas the corridor is 206–432 km centred at 319 km, so this point samples
+     * only its near edge; a dedicated high-canvas probe would sit at ~319 km (sqrt(2R × 8 km)).
      */
     public static final double FAR_SOLAR_OFFSET_METRES = 226_000.0;
 

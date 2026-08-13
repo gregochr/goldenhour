@@ -128,7 +128,8 @@ class CloudVerificationServiceTest {
 
         // Five points per candidate: the three solar-cone bearings, the observer, then the
         // far-solar corridor point. The cone matters because the forecast's own solar reading is
-        // a 3-point average; the far point is the corridor a high canvas is underlit through.
+        // a 3-point average; the far point reads the canvas-underlighting corridor (centre of the
+        // mid-canvas corridor, near edge of the high-canvas one).
         assertThat(points.getValue()).hasSize(10);
         assertThat(points.getValue().get(3)).containsExactly(54.7753, -1.5849);
         assertThat(points.getValue().get(8)).containsExactly(55.0, -2.0);
@@ -253,15 +254,17 @@ class CloudVerificationServiceTest {
     }
 
     @Test
-    @DisplayName("report buckets corridor divergence and isolates the high-canvas cases")
+    @DisplayName("report buckets corridor divergence and cuts it by both canvas heights")
     void report_bucketsCorridor() {
         // Near and far agree; the corridor is one deck.
         CloudVerificationPair similar = corridorPair(50, 40, 55, 40);
         // Near strip over a clear far corridor, under a high-dominant canvas — the over-pessimism
-        // candidate: the 113 km gate reads blocked while the cirrus corridor is open.
+        // candidate: the 113 km gate reads blocked while the cirrus corridor is open. Being
+        // high-dominant it is proxy evidence only, and must stay out of the &midCanvas cut.
         CloudVerificationPair clearerHigh = corridorPair(80, 20, 10, 90);
-        // Clear near point, blanketed far corridor, mid-dominant canvas — structurally divergent
-        // but not a high-canvas case, so it must not reach the &highCanvas bucket.
+        // Clear near point, blanketed far corridor, mid-dominant canvas — the false-optimism case
+        // measured directly, since 226 km centres a 4 km canvas's corridor. It belongs in
+        // &midCanvas and must not reach &highCanvas.
         CloudVerificationPair cloudierMid = corridorPair(20, 70, 60, 40);
         when(repository.findVerifiedPairs(FROM, TO))
                 .thenReturn(List.of(similar, clearerHigh, cloudierMid));
@@ -271,10 +274,13 @@ class CloudVerificationServiceTest {
 
         assertThat(report.byCorridor()).extracting(CloudVerificationBucket::key)
                 .containsExactly("farSimilar(|drop|<30)", "farClearer(drop>=30)",
-                        "farClearer&highCanvas", "farCloudier(drop<=-30)",
-                        "farCloudier&highCanvas");
+                        "farClearer&highCanvas", "farClearer&midCanvas",
+                        "farCloudier(drop<=-30)", "farCloudier&highCanvas",
+                        "farCloudier&midCanvas");
+        // The two canvas cuts are complementary here: the divergent clearer sky is high-dominant,
+        // the divergent cloudier one mid-dominant, so neither lands in both.
         assertThat(report.byCorridor()).extracting(CloudVerificationBucket::sampleCount)
-                .containsExactly(1, 1, 1, 1, 0);
+                .containsExactly(1, 1, 1, 0, 1, 0, 1);
     }
 
     @Test

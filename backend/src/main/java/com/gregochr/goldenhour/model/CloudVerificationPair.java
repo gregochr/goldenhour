@@ -223,10 +223,13 @@ public record CloudVerificationPair(
     /**
      * Returns whether the analysed canvas was high-cloud dominant.
      *
-     * <p>High dominance is what makes the far corridor the relevant blocking geometry: cirrus
-     * above the observer is underlit through low-cloud altitude 206–432 km sunward, not 113 km.
-     * A strict comparison so an empty sky (0/0) does not count as high-dominant. Layer dominance
-     * is compared within the reanalysis, not against an absolute threshold.
+     * <p>Cirrus above the observer is underlit through low-cloud altitude 206–432 km sunward,
+     * which the 113 km gate never reads. That corridor is centred at ~319 km, so the 226 km
+     * far-solar point samples only its near <em>edge</em> — synoptic-scale proxy evidence rather
+     * than a direct measurement, which is why {@link #midCanvasDominant()}, whose corridor the
+     * point does centre, is bucketed alongside it. A strict comparison so an empty sky (0/0) does
+     * not count as high-dominant. Layer dominance is compared within the reanalysis, not against
+     * an absolute threshold.
      *
      * @return true when analysed high cloud exceeds analysed mid cloud, or {@code null} if either
      *         layer is missing
@@ -236,5 +239,25 @@ public record CloudVerificationPair(
             return null;
         }
         return observedCanvasHigh > observedCanvasMid;
+    }
+
+    /**
+     * Returns whether the analysed canvas was mid-cloud dominant.
+     *
+     * <p>Mid dominance is what makes the 226 km far-solar point the <em>centre</em> of the
+     * relevant blocking corridor rather than its near edge: a 4 km mid canvas is underlit through
+     * low-cloud altitude over 113–339 km, centred at 226 km = sqrt(2R × 4 km). So for mid-dominant
+     * skies the far reading is a direct measurement of the corridor that matters, not the proxy it
+     * is under {@link #highCanvasDominant()}. A strict comparison so an empty sky (0/0) counts as
+     * neither dominant.
+     *
+     * @return true when analysed mid cloud exceeds analysed high cloud, or {@code null} if either
+     *         layer is missing
+     */
+    public Boolean midCanvasDominant() {
+        if (observedCanvasMid == null || observedCanvasHigh == null) {
+            return null;
+        }
+        return observedCanvasMid > observedCanvasHigh;
     }
 }
