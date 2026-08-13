@@ -854,8 +854,23 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
                 )}
                 <div className="flex flex-col gap-1.5">
                   {uniqueDates.map((date, di) => (
-                    <div key={date} className="flex items-center gap-3">
-                      <span className="text-xs text-plex-text-muted w-20 shrink-0">{formatSlotDate(date, di)}</span>
+                    // Grouped and named by its date, because the two checkboxes inside carry the
+                    // same accessible names on every row ("🌅 Sunrise", "🌇 Sunset"). Without this
+                    // a screen-reader user tabbing the dialog hears six identically-named
+                    // checkboxes with nothing saying which day any of them belongs to — on the one
+                    // control that decides which days get evaluated at full Claude cost. The date
+                    // was already on screen, just not programmatically attached to anything.
+                    //
+                    // `role="group"` + `aria-labelledby` rather than `<fieldset>`/`<legend>`: the
+                    // native pair is the better semantic, but it brings default borders and margins
+                    // and does not sit in a flex row without a reset, and this file is Tailwind-only.
+                    <div
+                      key={date}
+                      role="group"
+                      aria-labelledby={`slot-row-${date}`}
+                      className="flex items-center gap-3"
+                    >
+                      <span id={`slot-row-${date}`} className="text-xs text-plex-text-muted w-20 shrink-0">{formatSlotDate(date, di)}</span>
                       {slots.filter((s) => s.date === date).map((slot) => {
                         const id = `slot-${slot.date}-${slot.targetType}`;
                         // Derived here rather than stored on the slot, so a briefing that lands

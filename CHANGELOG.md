@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — six identically-named checkboxes in the run dialog, with nothing saying which day
+
+The slot picker renders the same two labels on every row — `🌅 Sunrise`, `🌇 Sunset` — and the date
+beside them was a bare `<span>` with no programmatic association. So a screen-reader user tabbing
+the dialog heard six identically-named checkboxes in a row with no way to tell Today's sunrise from
+Saturday's, on the one control that decides which days get evaluated at full Claude cost. The
+information was on screen the whole time; it just wasn't attached to anything.
+
+Each row is now a `role="group"` named by its own date via `aria-labelledby`. `<fieldset>`/`<legend>`
+is the better native semantic, but it brings default borders and margins and does not sit in a flex
+row without a reset, and this file is Tailwind-only.
+
+**Found as a test-quality finding, which is how these usually surface.** The review flagged that the
+slot tests queried checkboxes by `data-testid` where `frontend-test-standards.md` requires role
+queries for interactive elements. The reason they had to was the defect: with names repeating across
+rows, `getByRole('checkbox', { name: '🌅 Sunrise' })` matches three elements, so the test-id was
+doing the disambiguating work that the accessibility tree should have been doing. Fixing the markup
+made the compliant query possible, and the assertions now go through a `slotBox(day, event)` helper
+that reaches each checkbox the way a keyboard user does — by the day's group, then the event's name.
+
+Measured rather than assumed: removing `aria-labelledby`, removing `role="group"`, or breaking the
+id the label points at each fail **11** tests. All three were silent before.
+
 ### Fixed — "has this slot already happened?" now asks the sun, and two admin filters read the UK day
 
 **The wall-clock threshold was not mistuned, it was unfixable.** The run dialog decided a slot was

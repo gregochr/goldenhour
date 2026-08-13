@@ -165,6 +165,27 @@ async function openSlots(buttonTestId) {
   return screen.findByTestId('confirm-dialog-slots');
 }
 
+/**
+ * One slot's checkbox, found the way a keyboard or screen-reader user reaches it: by the day's
+ * group and the event's own name.
+ *
+ * <p>Test-ids would be shorter and would not notice the thing that matters. Every row renders the
+ * same two accessible names, so the ONLY thing tying a checkbox to a date for anyone not using a
+ * pointer is the row's `role="group"` + `aria-labelledby`. Querying through it means a change that
+ * breaks that association fails the suite rather than passing it silently — which is what the
+ * test-id form did, on the one dialog that decides which days get evaluated at full Claude cost.
+ *
+ * <p>The name is a regex, not an exact string, because a past slot's name gains `(past)`.
+ *
+ * @param {string} day   the row's visible label — "Today", "Tomorrow", "Sun 16 Aug"
+ * @param {string} event "Sunrise" or "Sunset"
+ */
+function slotBox(day, event) {
+  return within(screen.getByRole('group', { name: day })).getByRole('checkbox', {
+    name: new RegExp(event),
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   setupDefaultMocks();
@@ -234,10 +255,16 @@ describe('slot dates in the hour after UK midnight', () => {
     // Precondition, not decoration: on a UTC base date the 14th still exists as TOMORROW, so
     // un-ticking "the 14th" would produce this exact payload from the wrong row. Pinning the
     // absence of the 13th is what makes the click below unambiguously today's sunrise.
+    //
+    // By test-id on purpose, and the split is the rule for this file: a DATE assertion reads the
+    // id, because the id is the value that goes on the wire and no role query can express "the
+    // 13th is not offered" — the rows are named "Today"/"Tomorrow", which the 13th would answer to
+    // if it were there. Anything about a checkbox's STATE goes through `slotBox`.
     expect(screen.queryByTestId('slot-2026-08-13-SUNRISE')).toBeNull();
 
-    const sunrise = screen.getByTestId('slot-2026-08-14-SUNRISE');
+    const sunrise = slotBox('Today', 'Sunrise');
     expect(sunrise).toHaveAccessibleName('🌅 Sunrise');
+    expect(sunrise.id).toBe('slot-2026-08-14-SUNRISE'); // the row named "Today" IS the 14th
     fireEvent.click(sunrise);
     fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
 
@@ -280,25 +307,25 @@ describe('whether a slot has already happened', () => {
     freeze(UK_AFTERNOON); // 15:00 UK, hours after sunrise
     await openSlots('run-very-short-term-btn');
 
-    expect(await screen.findByTestId('slot-2026-08-13-SUNRISE')).toBeEnabled();
-    expect(screen.getByTestId('slot-2026-08-13-SUNRISE')).toBeChecked();
+    expect(slotBox('Today', 'Sunrise')).toBeEnabled();
+    expect(slotBox('Today', 'Sunrise')).toBeChecked();
   });
 
   it('marks a slot past once its event time has gone by', async () => {
     freeze(UK_AFTERNOON); // 15:00 UK; sunrise was 05:40, sunset is not until 20:30
     await openSlots('run-very-short-term-btn');
 
-    await waitFor(() => expect(screen.getByTestId('slot-2026-08-13-SUNRISE')).toBeDisabled());
-    expect(screen.getByTestId('slot-2026-08-13-SUNSET')).toBeEnabled();
+    await waitFor(() => expect(slotBox('Today', 'Sunrise')).toBeDisabled());
+    expect(slotBox('Today', 'Sunset')).toBeEnabled();
   });
 
   it('never marks a later day past, however late today is', async () => {
     freeze(UK_LATE_EVENING); // 23:30 UK — past every UK sunset on the 13th
     await openSlots('run-very-short-term-btn');
 
-    await waitFor(() => expect(screen.getByTestId('slot-2026-08-13-SUNSET')).toBeDisabled());
-    expect(screen.getByTestId('slot-2026-08-14-SUNSET')).toBeEnabled();
-    expect(screen.getByTestId('slot-2026-08-14-SUNSET')).toBeChecked();
+    await waitFor(() => expect(slotBox('Today', 'Sunset')).toBeDisabled());
+    expect(slotBox('Tomorrow', 'Sunset')).toBeEnabled();
+    expect(slotBox('Tomorrow', 'Sunset')).toBeChecked();
   });
 
   it('waits for the LATEST location, not the first to set', async () => {
@@ -311,8 +338,8 @@ describe('whether a slot has already happened', () => {
     // Gated on the sunrise, which IS long past at this hour. Asserting the sunset's enabled state
     // on its own would pass just as well if the briefing never arrived — the absence of a claim
     // and the correct claim look identical, so the wait has to prove the data landed first.
-    await waitFor(() => expect(screen.getByTestId('slot-2026-08-13-SUNRISE')).toBeDisabled());
-    expect(screen.getByTestId('slot-2026-08-13-SUNSET')).toBeEnabled();
+    await waitFor(() => expect(slotBox('Today', 'Sunrise')).toBeDisabled());
+    expect(slotBox('Today', 'Sunset')).toBeEnabled();
   });
 
   it('marks it past once even the latest location has set', async () => {
@@ -320,7 +347,7 @@ describe('whether a slot has already happened', () => {
 
     await openSlots('run-very-short-term-btn');
 
-    await waitFor(() => expect(screen.getByTestId('slot-2026-08-13-SUNSET')).toBeDisabled());
+    await waitFor(() => expect(slotBox('Today', 'Sunset')).toBeDisabled());
   });
 
   it('marks a slot past when the briefing lands after the dialog was opened', async () => {
@@ -331,19 +358,19 @@ describe('whether a slot has already happened', () => {
     getDailyBriefing.mockReturnValue(new Promise((resolve) => { release = resolve; }));
     freeze(UK_AFTERNOON);
     await openSlots('run-very-short-term-btn');
-    expect(screen.getByTestId('slot-2026-08-13-SUNRISE')).toBeEnabled();
+    expect(slotBox('Today', 'Sunrise')).toBeEnabled();
 
     release(BRIEFING);
 
-    await waitFor(() => expect(screen.getByTestId('slot-2026-08-13-SUNRISE')).toBeDisabled());
+    await waitFor(() => expect(slotBox('Today', 'Sunrise')).toBeDisabled());
   });
 
   it('names a past slot as past in its accessible name', async () => {
     freeze(UK_AFTERNOON);
     await openSlots('run-very-short-term-btn');
 
-    const sunrise = await screen.findByTestId('slot-2026-08-13-SUNRISE');
-    await waitFor(() => expect(sunrise).toBeDisabled());
+    await waitFor(() => expect(slotBox('Today', 'Sunrise')).toBeDisabled());
+    const sunrise = slotBox('Today', 'Sunrise');
     // Run together because the "(past)" marker is an inline sibling with no whitespace between it
     // and the label — the gap on screen is flex `gap-1.5`, which contributes nothing to the name.
     // Pre-existing markup, asserted as it really reads rather than as it looks.
@@ -355,7 +382,7 @@ describe('whether a slot has already happened', () => {
     // it into the exclusions. Confirming with nothing touched must send nothing.
     freeze(UK_AFTERNOON);
     await openSlots('run-very-short-term-btn');
-    await waitFor(() => expect(screen.getByTestId('slot-2026-08-13-SUNRISE')).toBeDisabled());
+    await waitFor(() => expect(slotBox('Today', 'Sunrise')).toBeDisabled());
 
     fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
 
@@ -368,10 +395,10 @@ describe('whether a slot has already happened', () => {
     freeze(UK_SMALL_HOURS);
     await openSlots('run-very-short-term-btn');
 
-    const sunrise = await screen.findByTestId('slot-2026-08-14-SUNRISE');
-    expect(sunrise).toBeEnabled();
-    expect(sunrise).toBeChecked();
-    expect(screen.getByTestId('slot-2026-08-14-SUNSET')).toBeEnabled();
+    // The 14th IS "Today" at this instant — the date fix restated through the a11y tree.
+    expect(slotBox('Today', 'Sunrise')).toBeEnabled();
+    expect(slotBox('Today', 'Sunrise')).toBeChecked();
+    expect(slotBox('Today', 'Sunset')).toBeEnabled();
   });
 });
 
@@ -417,7 +444,7 @@ describe('a dialog whose slots have gone stale', () => {
     fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
     await screen.findByTestId('slot-dates-rolled-warning');
 
-    fireEvent.click(screen.getByTestId('slot-2026-08-14-SUNRISE'));
+    fireEvent.click(slotBox('Today', 'Sunrise')); // the rebuilt row: "Today" is now the 14th
     fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
 
     expect(runVeryShortTermForecast).toHaveBeenCalledWith(
