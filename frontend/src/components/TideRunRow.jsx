@@ -145,9 +145,10 @@ TideChart.propTypes = {
  * solar event — high or low, on a spring run or a king one. This row renders that answer; it must
  * not assume a spring tide is about low water, which is what the backend used to assume.
  *
- * <p>Emphasis, never reordering: the aligned day's verdict takes the topic accent. The run stays in
- * date order — a second ordering by quality inside a chronological list hides that the run
- * continues on days with poor timing, which is exactly what someone planning Thursday needs.
+ * <p>Emphasis, never reordering: the run's <em>best-aligned</em> day takes the topic accent — one
+ * card, not every card whose water reaches the light. The run stays in date order — a second
+ * ordering by quality inside a chronological list hides that the run continues on days with poor
+ * timing, which is exactly what someone planning Thursday needs.
  *
  * @param {Object}    props
  * @param {Object}    props.day         the run day from `topic.tideRun`
@@ -161,7 +162,10 @@ export default function TideRunRow({ day, accentColor, onShowOnMap = null }) {
       className="tide-run"
       style={{ '--tr-accent': accentColor }}
     >
-      <div className={`tide-row${day.aligned ? ' aligned' : ''}${day.peak ? ' peak' : ''}`}>
+      <div
+        className={`tide-row${day.aligned ? ' aligned' : ''}`
+          + `${day.bestAligned ? ' best' : ''}${day.peak ? ' peak' : ''}`}
+      >
         {/* A king run leads with how HIGH the water gets and how far that clears the spring
             threshold — that excess is what makes it king rather than merely spring. A spring run
             leads with the swing against its own mean. Same slot, different question. */}
@@ -236,6 +240,7 @@ TideRunRow.propTypes = {
     })).isRequired,
     verdict: PropTypes.string.isRequired,
     aligned: PropTypes.bool,
+    bestAligned: PropTypes.bool,
     alignedEvent: PropTypes.oneOf(['sunrise', 'sunset']),
     peak: PropTypes.bool,
     phrase: PropTypes.string,

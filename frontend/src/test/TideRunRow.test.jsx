@@ -34,6 +34,7 @@ function day(overrides = {}) {
     ],
     verdict: 'LW 05:44 · 34m after sunrise',
     aligned: true,
+    bestAligned: true,
     peak: false,
     phrase: 'low water bares the foreground',
     ...overrides,
@@ -135,9 +136,31 @@ describe('TideRunRow', () => {
     const { container, rerender } = renderRow();
     expect(container.querySelector('.tide-row')).toHaveClass('aligned');
 
-    rerender(<TideRunRow day={day({ aligned: false, peak: true })} accentColor={ACCENT} />);
+    rerender(<TideRunRow day={day({ aligned: false, bestAligned: false, peak: true })} accentColor={ACCENT} />);
     expect(container.querySelector('.tide-row')).not.toHaveClass('aligned');
     expect(container.querySelector('.tide-row')).toHaveClass('peak');
+  });
+
+  it('carries the accent class only on the run best-aligned day, not every aligned one', () => {
+    // The accent is what tells a reader which morning to pick. Once either water can align, a run
+    // can have every day aligned, and an accent on all of them marks nothing — so `.best` is the
+    // class the accent hangs off, and `.aligned` no longer earns it on its own.
+    const { container, rerender } = renderRow();
+    expect(container.querySelector('.tide-row')).toHaveClass('best');
+
+    rerender(<TideRunRow day={day({ aligned: true, bestAligned: false })} accentColor={ACCENT} />);
+    const row = container.querySelector('.tide-row');
+    expect(row).toHaveClass('aligned');
+    expect(row).not.toHaveClass('best');
+  });
+
+  it('leaves an aligned-but-unaccented day everything except the emphasis', () => {
+    // Narrowing the accent must not quietly demote the day in any other way — it keeps its verdict
+    // and the editorial line for the water that did reach the light.
+    renderRow(day({ aligned: true, bestAligned: false }));
+    expect(screen.getByTestId('tide-run-verdict'))
+      .toHaveTextContent('LW 05:44 · 34m after sunrise');
+    expect(screen.getByText('low water bares the foreground')).toBeInTheDocument();
   });
 
   it('leads a king run with high water above spring, not range against mean', () => {

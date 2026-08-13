@@ -78,6 +78,20 @@ import java.util.List;
  *                     by the moon, and wrong for the majority of a roster configured to shoot high
  *                     water. A spring tide's gift is a big <em>range</em>, which lifts high water as
  *                     far as it drops low water; which end is worth the drive is not the moon's call
+ * @param bestAligned  true on the single day of the run whose water lands closest to the light —
+ *                     the day the pill accents. Every aligned day keeps its verdict and its
+ *                     editorial line; this only decides which one is emphasised.
+ *                     <p>It exists because {@link #aligned} stopped being scarce. While alignment
+ *                     meant "the low water, on a spring run", it fired on about a third of run-days
+ *                     and never on all four of a run — so accenting every aligned day happened to
+ *                     read as emphasis. Measured over a simulated year at the anchor, alignment on
+ *                     either water fires on ~58%, and <b>28% of runs have all four days aligned</b>,
+ *                     where the accent marks everything and therefore nothing.
+ *                     <p><b>Unlike {@link #peak}, this is true on a one-day run.</b> {@code peak}
+ *                     is a comparative badge and a lone day is trivially its own biggest, so
+ *                     claiming it asserts a comparison never made. This is an emphasis marker, not
+ *                     a claim: suppressing it on a one-day run would leave a genuinely aligned day
+ *                     with no accent at all, which is a regression rather than a scruple
  * @param alignedEvent which solar event it aligned with, {@code "sunrise"} or {@code "sunset"};
  *                     null when {@link #aligned} is false. Carried rather than left to be parsed
  *                     out of {@link #verdict} because the hot-topic headline names the event, and
@@ -122,6 +136,7 @@ public record TideRunDay(
         List<Extreme> tides,
         String verdict,
         boolean aligned,
+        boolean bestAligned,
         @JsonInclude(JsonInclude.Include.NON_NULL) String alignedEvent,
         @JsonInclude(JsonInclude.Include.NON_NULL) String alignmentPhrase,
         @JsonInclude(JsonInclude.Include.NON_NULL) RosterAlignment roster,
@@ -146,7 +161,11 @@ public record TideRunDay(
      * @param seas         wave height and sea-state band, or null
      * @param tides        every tide extreme in the local day
      * @param verdict      the plain-language alignment call
-     * @param aligned      whether the useful extremum lands near a solar event
+     * @param aligned      whether a water of either kind lands near a solar event
+     * @param bestAligned  whether this is the run's closest-aligned day, the one that takes the
+     *                     accent. Absent from legacy cached payloads, where it deserializes to
+     *                     {@code false} — a run served from one shows no accent until the next
+     *                     refresh, which is a degraded emphasis rather than a wrong claim
      * @param alignedEvent which solar event it aligned with, or null
      * @param alignmentPhrase the alignment clause alone, or null
      * @param roster       the roster-wide alignment tally, or null
@@ -171,6 +190,7 @@ public record TideRunDay(
             @JsonProperty("tides") List<Extreme> tides,
             @JsonProperty("verdict") String verdict,
             @JsonProperty("aligned") boolean aligned,
+            @JsonProperty("bestAligned") boolean bestAligned,
             @JsonProperty("alignedEvent") String alignedEvent,
             @JsonProperty("alignmentPhrase") String alignmentPhrase,
             @JsonProperty("roster") RosterAlignment roster,
@@ -192,6 +212,7 @@ public record TideRunDay(
         this.tides = tides;
         this.verdict = verdict;
         this.aligned = aligned;
+        this.bestAligned = bestAligned;
         this.alignedEvent = alignedEvent;
         this.alignmentPhrase = alignmentPhrase;
         this.roster = roster;

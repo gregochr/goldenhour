@@ -5,6 +5,48 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the tide run accents one day again, not half of them
+
+Follow-up to the spring-tide framing fix. Letting either water align was correct, but it made
+`aligned` roughly twice as common, and the accent hung off it — so the emphasis stopped emphasising.
+
+Measured over a simulated year at the anchor (semidiurnal M2 tide against real solar geometry,
+alignment window unchanged at 60 minutes):
+
+| | low water only | either water |
+|---|---|---|
+| run-days aligned | 35% | 58% |
+| mean accented days per 4-day run | 1.40 | 2.32 |
+| runs with **every** day accented | 0 of 25 | **7 of 25** |
+
+An accent on all four cards of a run marks nothing, and the reader loses the one thing the accent is
+for: which morning to pick.
+
+New `TideRunDay.bestAligned` marks the single day of the run whose water lands closest to the light,
+and the accent moves to it (`.tide-row.best`, was `.tide-row.aligned`). **Nothing else changes for
+the other aligned days** — they keep their verdict, their chart and their editorial line; only the
+emphasis is reserved. That matches what the component's own doc already claimed, in the singular.
+
+Two rules worth not re-deriving:
+
+- **Unlike `peak`, it is claimed on a one-day run.** `peak` is comparative — a lone day is trivially
+  its own biggest, so the badge would assert a comparison never made. This is an emphasis marker:
+  withholding it would leave a genuinely aligned day with no accent anywhere, which is a regression
+  rather than a scruple.
+- **It is decided across the run, before any row is built.** A new `DayGeometry` record computes each
+  day's solar times and its water-in-the-light once, and both the run-wide choice and the row's own
+  fields read it — so the accent and the verdict cannot come to different views about which water a
+  day is about. That split is the exact failure the previous fix existed to remove.
+
+Ties go to the earlier date: of two equally good mornings, the sooner is the one still worth acting
+on. An unaligned day can never take the accent — its gap is `MAX_VALUE` and loses every comparison
+by construction.
+
+The simulation also showed something worth recording: under the old low-water-only rule the accent
+rate was an accident of the port's lunitidal interval, ranging from **0% to 57%** across plausible
+values — at some harbours the pill would never have highlighted anything. The new rule holds at
+52–59% regardless, because it is a property of the geometry rather than of the coastline.
+
 ### Fixed — the map now opens on the aurora night you just ran
 
 Run an aurora forecast at 02:00 and the map showed you nothing. The backend had already been taught

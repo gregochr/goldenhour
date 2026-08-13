@@ -554,8 +554,15 @@
 .tr-verdict b { color: var(--color-plex-text-secondary); font-weight: 500; }
 /* Ranking by EMPHASIS, not by order: the aligned day's verdict takes the topic accent while the
    run stays in date order. Reordering would hide that the run continues on badly-timed days. */
-.tide-row.aligned .tr-verdict { color: var(--tr-accent); }
-.tide-row.aligned .tr-verdict b { color: var(--tr-accent); font-weight: 600; }
+/* The accent marks the ONE day of the run whose water lands closest to the light, not every day
+   whose water lands in it. It used to key on `.aligned`, which was scarce enough to read as
+   emphasis while alignment meant "the low water, on a spring run" — about a third of run-days, and
+   never all four of a run. Now that either water can align it fires on ~58% of run-days and around
+   a quarter of runs have every day aligned, where an accent on all four cards marks nothing and the
+   reader loses the day to pick. Nothing is hidden by narrowing it: an aligned day keeps its
+   verdict, its chart and its editorial line, and only the emphasis is reserved. */
+.tide-row.best .tr-verdict { color: var(--tr-accent); }
+.tide-row.best .tr-verdict b { color: var(--tr-accent); font-weight: 600; }
 
 .tr-foot {
   display: flex;

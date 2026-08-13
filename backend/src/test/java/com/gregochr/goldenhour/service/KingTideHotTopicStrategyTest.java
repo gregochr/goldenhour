@@ -1317,7 +1317,9 @@ class KingTideHotTopicStrategyTest {
                 alignedEvent == null
                         ? "no clear tide/sun alignment"
                         : "HW 04:58 · 39m before " + alignedEvent,
-                alignedEvent != null, alignedEvent,
+                // bestAligned mirrors aligned: this is a one-day run, so an aligned day is
+                // trivially the run's best and is the card that takes the accent.
+                alignedEvent != null, alignedEvent != null, alignedEvent,
                 // Non-null with alignedEvent, as the builder guarantees.
                 alignedEvent == null ? null : "HW 04:58 · 39m before " + alignedEvent,
                 new TideRunDay.RosterAlignment(sunriseAligned, sunsetAligned, measured),

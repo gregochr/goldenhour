@@ -798,7 +798,9 @@ class SpringTideHotTopicStrategyTest {
                 alignedEvent == null
                         ? "no clear tide/sun alignment"
                         : "LW 05:44 \u00b7 7m after " + alignedEvent,
-                alignedEvent != null, alignedEvent,
+                // bestAligned mirrors aligned: this is a one-day run, so an aligned day is
+                // trivially the run's best and is the card that takes the accent.
+                alignedEvent != null, alignedEvent != null, alignedEvent,
                 // Non-null with alignedEvent, as the builder guarantees.
                 alignedEvent == null ? null : "LW 05:44 · 7m after " + alignedEvent,
                 new TideRunDay.RosterAlignment(
