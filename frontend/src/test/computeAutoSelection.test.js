@@ -1,180 +1,186 @@
-import { describe, it, expect } from 'vitest';
+/**
+ * Tests for the map's next-solar-event auto-selection.
+ *
+ * ⚠️ REBUILT ON A PINNED CLOCK AND A PINNED TIMEZONE. Every fixture here used to come from
+ * `new Date()` and every expectation from `new Date().toLocaleDateString('en-CA')` — so the file
+ * derived both sides from the same wall clock and agreed with itself under any zone, including a
+ * wrong one. That made it blind to the defect this change fixes: `computeAutoSelection` looks up
+ * `forecastsByDate`, whose keys are backend dates on the UK calendar, and it was reading them with
+ * the browser's. It also meant a test running across local midnight could compare two different
+ * days.
+ *
+ * Nothing in this repo pins `TZ` (dev machines are `Europe/London`, CI is UTC), so the pin below is
+ * what makes this file the same test everywhere. `mapDatesAbroad.test.js` is its counterpart: it
+ * pins a NON-UK zone and asserts this function still answers on the UK calendar, which is the one
+ * thing a UK-pinned file can never show.
+ */
+process.env.TZ = 'Europe/London';
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { computeAutoSelection } from '../utils/conversions.js';
 
+/** A BST day, so UK local time is UTC+1 and the two calendars are distinguishable. */
+const TODAY = '2026-08-13';
+const TOMORROW = '2026-08-14';
+
+/** A Date at hh:mm UK on {@link TODAY}. The TZ pin above makes local time UK time. */
+function ukAt(hour, minute = 0) {
+  return new Date(2026, 7, 13, hour, minute, 0, 0);
+}
+
 /**
- * Converts a Date to a naive UTC datetime string (no 'Z' suffix) matching
- * how the backend serialises LocalDateTime via Jackson.
+ * Converts a Date to a naive UTC datetime string (no 'Z' suffix), matching how the backend
+ * serialises LocalDateTime via Jackson — which is what `computeAutoSelection` parses.
  */
 function toBackendFormat(date) {
   return date.toISOString().slice(0, 19);
 }
 
-/**
- * Builds a minimal location object with a sunset time for today's date.
- */
+/** A minimal location carrying a sunset time on TODAY. */
 function makeLocation({ sunsetTime, locationType = ['LANDSCAPE'] } = {}) {
-  const todayStr = new Date().toLocaleDateString('en-CA');
   const forecastsByDate = new Map();
   if (sunsetTime) {
-    forecastsByDate.set(todayStr, { sunset: { solarEventTime: sunsetTime } });
+    forecastsByDate.set(TODAY, { sunset: { solarEventTime: sunsetTime } });
   }
   return { name: 'Test', lat: 55, lon: -1.7, forecastsByDate, locationType };
 }
 
-/** Returns a Date at hh:mm today in local time. */
-function todayAt(hour, minute = 0) {
-  const d = new Date();
-  d.setHours(hour, minute, 0, 0);
-  return d;
-}
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(ukAt(12));
+});
 
-/** Returns today's date string YYYY-MM-DD in local time. */
-function todayStr() {
-  return new Date().toLocaleDateString('en-CA');
-}
-
-/** Returns tomorrow's date string YYYY-MM-DD in local time. */
-function tomorrowStr() {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  return d.toLocaleDateString('en-CA');
-}
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('computeAutoSelection', () => {
   describe('returns null when no usable data', () => {
     it('returns null for empty locations array', () => {
-      expect(computeAutoSelection([], new Date())).toBeNull();
+      expect(computeAutoSelection([], ukAt(12))).toBeNull();
     });
 
     it('returns null when no location has today sunset data', () => {
       const loc = makeLocation({ sunsetTime: null });
-      expect(computeAutoSelection([loc], new Date())).toBeNull();
+      expect(computeAutoSelection([loc], ukAt(12))).toBeNull();
     });
 
     it('returns null when all locations are WILDLIFE (no sunset data used)', () => {
-      const loc = makeLocation({ sunsetTime: toBackendFormat(todayAt(18, 0)), locationType: ['WILDLIFE'] });
-      expect(computeAutoSelection([loc], new Date())).toBeNull();
+      const loc = makeLocation({ sunsetTime: toBackendFormat(ukAt(18)), locationType: ['WILDLIFE'] });
+      expect(computeAutoSelection([loc], ukAt(12))).toBeNull();
     });
   });
 
   describe('today + SUNSET when sunset has not passed', () => {
     it('returns today + SUNSET when now is before sunset', () => {
-      const sunset = todayAt(20, 0); // 8 PM
-      const now = todayAt(14, 0);    // 2 PM — well before
-      const loc = makeLocation({ sunsetTime: toBackendFormat(sunset) });
-      expect(computeAutoSelection([loc], now)).toEqual({
-        date: todayStr(),
-        eventType: 'SUNSET',
-      });
+      const loc = makeLocation({ sunsetTime: toBackendFormat(ukAt(20)) });
+
+      expect(computeAutoSelection([loc], ukAt(14))).toEqual({ date: TODAY, eventType: 'SUNSET' });
     });
 
     it('returns today + SUNSET when now is exactly at sunset', () => {
-      const sunset = todayAt(18, 12);
+      // The boundary: now === sunset is still inside the 30-minute afterglow buffer.
+      const sunset = ukAt(18, 12);
       const loc = makeLocation({ sunsetTime: toBackendFormat(sunset) });
-      // now === sunset → still within the 30-min window
-      expect(computeAutoSelection([loc], sunset)).toEqual({
-        date: todayStr(),
-        eventType: 'SUNSET',
-      });
+
+      expect(computeAutoSelection([loc], sunset)).toEqual({ date: TODAY, eventType: 'SUNSET' });
     });
 
-    it('returns today + SUNSET when now is 29 min after sunset (within buffer)', () => {
-      const sunset = todayAt(18, 0);
+    it('returns today + SUNSET 29 minutes after sunset, one minute inside the buffer', () => {
+      const sunset = ukAt(18);
       const now = new Date(sunset.getTime() + 29 * 60 * 1000);
       const loc = makeLocation({ sunsetTime: toBackendFormat(sunset) });
-      expect(computeAutoSelection([loc], now)).toEqual({
-        date: todayStr(),
-        eventType: 'SUNSET',
-      });
+
+      expect(computeAutoSelection([loc], now)).toEqual({ date: TODAY, eventType: 'SUNSET' });
     });
   });
 
   describe('tomorrow + SUNRISE when sunset + buffer has passed', () => {
-    it('returns tomorrow + SUNRISE when now is 31 min after sunset (past buffer)', () => {
-      const sunset = todayAt(18, 0);
+    it('returns tomorrow + SUNRISE 31 minutes after sunset, one minute past the buffer', () => {
+      const sunset = ukAt(18);
       const now = new Date(sunset.getTime() + 31 * 60 * 1000);
       const loc = makeLocation({ sunsetTime: toBackendFormat(sunset) });
-      expect(computeAutoSelection([loc], now)).toEqual({
-        date: tomorrowStr(),
-        eventType: 'SUNRISE',
-      });
+
+      expect(computeAutoSelection([loc], now)).toEqual({ date: TOMORROW, eventType: 'SUNRISE' });
     });
 
     it('returns tomorrow + SUNRISE well after sunset', () => {
-      const sunset = todayAt(18, 0);
-      const now = todayAt(22, 0); // 10 PM
-      const loc = makeLocation({ sunsetTime: toBackendFormat(sunset) });
-      expect(computeAutoSelection([loc], now)).toEqual({
-        date: tomorrowStr(),
-        eventType: 'SUNRISE',
-      });
+      const loc = makeLocation({ sunsetTime: toBackendFormat(ukAt(18)) });
+
+      expect(computeAutoSelection([loc], ukAt(22))).toEqual({ date: TOMORROW, eventType: 'SUNRISE' });
+    });
+
+    it('rolls to the next month correctly on the last day of one', () => {
+      // The tomorrow step is date arithmetic, so the month boundary is its real edge case.
+      vi.setSystemTime(new Date(2026, 7, 31, 22));
+      const sunset = new Date(2026, 7, 31, 18);
+      const forecastsByDate = new Map([
+        ['2026-08-31', { sunset: { solarEventTime: toBackendFormat(sunset) } }],
+      ]);
+      const loc = { name: 'Test', lat: 55, lon: -1.7, forecastsByDate, locationType: ['LANDSCAPE'] };
+
+      expect(computeAutoSelection([loc], new Date(2026, 7, 31, 22)))
+        .toEqual({ date: '2026-09-01', eventType: 'SUNRISE' });
+    });
+
+    it('steps a whole day across the 25-hour day the clocks go back', () => {
+      // 2026-10-25 is the last Sunday in October: BST ends and the local day is 25 hours long, so
+      // adding 24h of milliseconds to an instant would land back on the 25th.
+      const sunset = new Date(2026, 9, 25, 16, 45);
+      const forecastsByDate = new Map([
+        ['2026-10-25', { sunset: { solarEventTime: toBackendFormat(sunset) } }],
+      ]);
+      const loc = { name: 'Test', lat: 55, lon: -1.7, forecastsByDate, locationType: ['LANDSCAPE'] };
+
+      expect(computeAutoSelection([loc], new Date(2026, 9, 25, 20)))
+        .toEqual({ date: '2026-10-26', eventType: 'SUNRISE' });
     });
   });
 
   describe('uses earliest sunset across multiple locations', () => {
-    it('uses the earlier of two sunset times', () => {
-      const earlierSunset = todayAt(17, 30);
-      const laterSunset = todayAt(19, 0);
-      // now is after earlier sunset + buffer but before later sunset
-      const now = new Date(earlierSunset.getTime() + 35 * 60 * 1000);
+    /** Two landscape locations on TODAY with the given sunset instants. */
+    function twoLocations(earlier, later) {
+      return [
+        { name: 'A', lat: 55, lon: -1, locationType: ['LANDSCAPE'],
+          forecastsByDate: new Map([[TODAY, { sunset: { solarEventTime: toBackendFormat(earlier) } }]]) },
+        { name: 'B', lat: 56, lon: -2, locationType: ['LANDSCAPE'],
+          forecastsByDate: new Map([[TODAY, { sunset: { solarEventTime: toBackendFormat(later) } }]]) },
+      ];
+    }
 
-      const todayStr_ = todayStr();
-      const loc1 = { name: 'A', lat: 55, lon: -1, locationType: ['LANDSCAPE'],
-        forecastsByDate: new Map([[todayStr_, { sunset: { solarEventTime: toBackendFormat(earlierSunset) } }]]) };
-      const loc2 = { name: 'B', lat: 56, lon: -2, locationType: ['LANDSCAPE'],
-        forecastsByDate: new Map([[todayStr_, { sunset: { solarEventTime: toBackendFormat(laterSunset) } }]]) };
+    it('flips to tomorrow once the EARLIEST sunset plus buffer has passed', () => {
+      const earlier = ukAt(17, 30);
+      const now = new Date(earlier.getTime() + 35 * 60 * 1000); // past earlier + buffer, before later
 
-      // Should flip to tomorrow because earliest sunset + buffer is passed
-      expect(computeAutoSelection([loc1, loc2], now)).toEqual({
-        date: tomorrowStr(),
-        eventType: 'SUNRISE',
-      });
+      expect(computeAutoSelection(twoLocations(earlier, ukAt(19)), now))
+        .toEqual({ date: TOMORROW, eventType: 'SUNRISE' });
     });
 
-    it('stays today+SUNSET when now is within earliest sunset buffer', () => {
-      const earlierSunset = todayAt(17, 30);
-      const laterSunset = todayAt(19, 0);
-      const now = new Date(earlierSunset.getTime() + 10 * 60 * 1000); // 10 min after earlier
+    it('stays on today while within the earliest sunset buffer', () => {
+      const earlier = ukAt(17, 30);
+      const now = new Date(earlier.getTime() + 10 * 60 * 1000);
 
-      const todayStr_ = todayStr();
-      const loc1 = { name: 'A', lat: 55, lon: -1, locationType: ['LANDSCAPE'],
-        forecastsByDate: new Map([[todayStr_, { sunset: { solarEventTime: toBackendFormat(earlierSunset) } }]]) };
-      const loc2 = { name: 'B', lat: 56, lon: -2, locationType: ['LANDSCAPE'],
-        forecastsByDate: new Map([[todayStr_, { sunset: { solarEventTime: toBackendFormat(laterSunset) } }]]) };
-
-      expect(computeAutoSelection([loc1, loc2], now)).toEqual({
-        date: todayStr(),
-        eventType: 'SUNSET',
-      });
+      expect(computeAutoSelection(twoLocations(earlier, ukAt(19)), now))
+        .toEqual({ date: TODAY, eventType: 'SUNSET' });
     });
   });
 
   describe('WILDLIFE locations are excluded', () => {
-    it('ignores sunset from WILDLIFE locations when selecting reference time', () => {
-      // Wildlife loc has an early sunset; landscape has none.
-      // Should return null (no usable sunset) rather than using wildlife's time.
-      const wildlifeLoc = makeLocation({
-        sunsetTime: toBackendFormat(todayAt(17, 0)),
-        locationType: ['WILDLIFE'],
-      });
-      const landscapeLoc = makeLocation({ sunsetTime: null, locationType: ['LANDSCAPE'] });
-      expect(computeAutoSelection([wildlifeLoc, landscapeLoc], todayAt(14, 0))).toBeNull();
+    it('ignores a WILDLIFE sunset when choosing the reference time', () => {
+      // Wildlife has an early sunset, landscape has none: the answer must be null rather than the
+      // wildlife time, because wildlife locations are not sky-colour subjects.
+      const wildlife = makeLocation({ sunsetTime: toBackendFormat(ukAt(17)), locationType: ['WILDLIFE'] });
+      const landscape = makeLocation({ sunsetTime: null, locationType: ['LANDSCAPE'] });
+
+      expect(computeAutoSelection([wildlife, landscape], ukAt(14))).toBeNull();
     });
 
-    it('uses non-wildlife location sunset when mixed location types are present', () => {
-      const wildlifeLoc = makeLocation({
-        sunsetTime: toBackendFormat(todayAt(17, 0)),
-        locationType: ['WILDLIFE'],
-      });
-      const landscapeLoc = makeLocation({
-        sunsetTime: toBackendFormat(todayAt(20, 0)),
-        locationType: ['LANDSCAPE'],
-      });
-      const now = todayAt(14, 0);
-      expect(computeAutoSelection([wildlifeLoc, landscapeLoc], now)).toEqual({
-        date: todayStr(),
-        eventType: 'SUNSET',
-      });
+    it('uses the non-wildlife sunset when both kinds are present', () => {
+      const wildlife = makeLocation({ sunsetTime: toBackendFormat(ukAt(17)), locationType: ['WILDLIFE'] });
+      const landscape = makeLocation({ sunsetTime: toBackendFormat(ukAt(20)), locationType: ['LANDSCAPE'] });
+
+      expect(computeAutoSelection([wildlife, landscape], ukAt(14)))
+        .toEqual({ date: TODAY, eventType: 'SUNSET' });
     });
   });
 });
