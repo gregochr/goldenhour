@@ -6,6 +6,7 @@ import useConfirmDialog from '../hooks/useConfirmDialog.js';
 import Modal from './shared/Modal.jsx';
 import SortableHeader from './shared/SortableHeader.jsx';
 import useSortAndFilter from '../hooks/useSortAndFilter.js';
+import { formatInstantUk } from '../utils/conversions.js';
 
 /**
  * User management view with list/add/edit modes, sorting, filtering, and consistent card pattern.
@@ -406,9 +407,12 @@ export default function UserManagementView() {
                                 <span>
                                   <span className="text-plex-text-muted">Terms accepted: </span>
                                   <span data-testid={`terms-accepted-${user.id}`}>
-                                    {user.termsAcceptedAt
-                                      ? new Date(user.termsAcceptedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-                                      : <span className="text-plex-text-muted">Not accepted</span>}
+                                    {/* UK calendar, not the reader's. `termsAcceptedAt` is a UTC
+                                        instant, and an acceptance stored at 2026-04-01T00:00:00Z
+                                        read "31 Mar 2026" to an admin west of Greenwich — a legal
+                                        record dated a day early. */}
+                                    {formatInstantUk(user.termsAcceptedAt, { day: 'numeric', month: 'short', year: 'numeric' })
+                                      ?? <span className="text-plex-text-muted">Not accepted</span>}
                                   </span>
                                 </span>
                                 <span>

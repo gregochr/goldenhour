@@ -12,8 +12,15 @@
  * </ul>
  */
 
-/** The one calendar this app has. Every forecast date on the wire is keyed to it. */
-const UK_ZONE = 'Europe/London';
+/**
+ * The one calendar this app has. Every forecast date on the wire is keyed to it.
+ *
+ * <p>Exported so that {@code conversions.js} — which formats the same calendar for <em>display</em>
+ * rather than deriving dates from it — names the zone from here instead of repeating the literal.
+ * The two modules answer different questions and neither belongs inside the other, but a second
+ * spelling of the zone is a second thing to get wrong.
+ */
+export const UK_ZONE = 'Europe/London';
 
 /**
  * Built once. {@code en-CA} purely because its locale format is ISO {@code YYYY-MM-DD}; the

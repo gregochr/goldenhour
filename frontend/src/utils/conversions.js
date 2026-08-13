@@ -1,7 +1,7 @@
 /**
  * Utility functions for unit conversions and date/label formatting.
  */
-import { ukDateStr, ukDateStrOffset, ukDayOffset } from './mapDates.js';
+import { ukDateStr, ukDateStrOffset, ukDayOffset, UK_ZONE } from './mapDates.js';
 
 const COMPASS_POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 const MS_TO_MPH = 2.23694;
@@ -94,6 +94,71 @@ export function formatDateLabel(dateStr, now = new Date(), skipRelative = false)
 }
 
 /**
+ * True when a datetime string already names its own offset, so appending `Z` would corrupt it.
+ *
+ * <p>Anchored at the end on purpose: the `-` in `2026-04-08` is not an offset, and an unanchored
+ * `[+-]` would match it.
+ */
+const HAS_ZONE_SUFFIX = /(?:Z|[+-]\d{2}:?\d{2})$/;
+
+/**
+ * Parses a backend instant into a {@code Date}, or null when there is nothing usable.
+ *
+ * <p>The API sends instants in two shapes and this has to accept both, because which one you get is
+ * a property of the Java type on the other side rather than of the field's meaning. A Jackson
+ * {@code Instant} serialises with a trailing {@code Z} ({@code termsAcceptedAt},
+ * {@code detectedAt}); a {@code LocalDateTime} serialises bare ({@code submittedAt},
+ * {@code runTimestamp}, every solar event time) even though the value it holds was produced in UTC.
+ *
+ * <p>⚠️ A bare string is the dangerous one, and it is why this exists rather than each caller doing
+ * its own {@code new Date(…)}. JavaScript parses {@code "2026-04-08T14:32:00"} as <b>local</b> time,
+ * so a UTC value read that way is silently shifted by the reader's own offset — and then formatting
+ * it locally shifts it back, which is what made the bug invisible: the digits came out right, but
+ * they were UTC digits presented as if they were the reader's clock, an hour off the UK for the
+ * seven months of BST. Appending {@code Z} states what the value already meant.
+ *
+ * <p>Exported because a caller that needs the UK <em>day</em> of an instant (rather than a rendering
+ * of it) still has to get the instant right first — {@code ukDateStr(parseUtcInstant(x))} rather
+ * than {@code ukDateStr(new Date(x))}, which would reintroduce the bare-string trap above for the
+ * one question where being a day out is the whole failure.
+ *
+ * @param {string|Date|null} value - a backend instant, or a Date already in hand
+ * @returns {Date|null} the instant, or null when absent or unparseable
+ */
+export function parseUtcInstant(value) {
+  if (!value) return null;
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+  if (typeof value !== 'string') return null;
+  const d = new Date(HAS_ZONE_SUFFIX.test(value) ? value : `${value}Z`);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Formats a backend instant on the <b>UK</b> calendar and clock, with the caller's own field set.
+ *
+ * <p>This is the general form the named helpers below are built from, and the one to reach for
+ * when none of them fits. The point is not brevity — it is that {@code timeZone} is supplied
+ * <em>here</em> rather than by the caller, so a call site cannot forget it. Every hand-rolled
+ * {@code toLocaleDateString('en-GB', …)} in this codebase that did forget it rendered a UK instant
+ * on the reader's own calendar: an acceptance stored at {@code 2026-04-01T00:00:00Z} read
+ * "31 Mar 2026" to an admin west of Greenwich. The zone is deliberately not a parameter.
+ *
+ * <p>{@code Europe/London} rather than UTC because these are wall-clock facts for a UK audience,
+ * and it is the calendar the rest of the app already answers to — the backend keys every forecast
+ * date to it (`ForecastHorizon.today`) and {@code mapDates.js} reads it. {@code Intl} derives BST or
+ * GMT from the instant itself, so there is no seasonal rule here to get wrong.
+ *
+ * @param {string|Date|null} value - a backend instant (bare or `Z`-suffixed), or a Date
+ * @param {Intl.DateTimeFormatOptions} options - the fields to render; `timeZone` is ignored
+ * @returns {string|null} the formatted string, or null when the instant is absent or unparseable
+ */
+export function formatInstantUk(value, options) {
+  const d = parseUtcInstant(value);
+  if (!d) return null;
+  return d.toLocaleString('en-GB', { ...options, timeZone: UK_ZONE });
+}
+
+/**
  * Formats a UTC solar event timestamp shifted by an offset as UK local time (HH:MM).
  *
  * Useful for computing golden hour and blue hour window boundaries.
@@ -103,15 +168,10 @@ export function formatDateLabel(dateStr, now = new Date(), skipRelative = false)
  * @returns {string|null} Formatted time like "07:30", or null.
  */
 export function formatShiftedEventTimeUk(utcDateTimeStr, offsetMinutes) {
-  if (!utcDateTimeStr) return null;
-  const utcDate = new Date(utcDateTimeStr + 'Z');
-  if (isNaN(utcDate.getTime())) return null;
-  utcDate.setMinutes(utcDate.getMinutes() + offsetMinutes);
-  return utcDate.toLocaleTimeString('en-GB', {
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Europe/London',
-  });
+  const utcDate = parseUtcInstant(utcDateTimeStr);
+  if (!utcDate) return null;
+  const shifted = new Date(utcDate.getTime() + offsetMinutes * 60000);
+  return formatInstantUk(shifted, { hour: '2-digit', minute: '2-digit' });
 }
 
 /**
@@ -124,14 +184,7 @@ export function formatShiftedEventTimeUk(utcDateTimeStr, offsetMinutes) {
  * @returns {string|null} Formatted time like "07:30", or null.
  */
 export function formatEventTimeUk(utcDateTimeStr) {
-  if (!utcDateTimeStr) return null;
-  const utcDate = new Date(utcDateTimeStr + 'Z');
-  if (isNaN(utcDate.getTime())) return null;
-  return utcDate.toLocaleTimeString('en-GB', {
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Europe/London',
-  });
+  return formatInstantUk(utcDateTimeStr, { hour: '2-digit', minute: '2-digit' });
 }
 
 /**
@@ -140,25 +193,17 @@ export function formatEventTimeUk(utcDateTimeStr) {
  * Returns a string like "23 Feb 2026 13:25" for display in map popups and detail views.
  * Returns null for falsy input.
  *
+ * <p>Two calls rather than one options object with all five fields: `en-GB` puts a comma between
+ * the date and the time when asked for both at once, and this format is on screen beside others
+ * that have never had one.
+ *
  * @param {string|null} utcDateTimeStr - ISO-like datetime string without timezone suffix.
  * @returns {string|null} Formatted string like "23 Feb 2026 13:25", or null.
  */
 export function formatGeneratedAtFull(utcDateTimeStr) {
-  if (!utcDateTimeStr) return null;
-  const utcDate = new Date(utcDateTimeStr + 'Z');
-  if (isNaN(utcDate.getTime())) return null;
-  const date = utcDate.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'Europe/London',
-  });
-  const time = utcDate.toLocaleTimeString('en-GB', {
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Europe/London',
-  });
-  return `${date} ${time}`;
+  const date = formatInstantUk(utcDateTimeStr, { day: 'numeric', month: 'short', year: 'numeric' });
+  if (!date) return null;
+  return `${date} ${formatInstantUk(utcDateTimeStr, { hour: '2-digit', minute: '2-digit' })}`;
 }
 
 /**
@@ -285,17 +330,13 @@ export function groupForecastsByDate(forecasts) {
  * @returns {string|null} Formatted string, or null for falsy/invalid input.
  */
 export function formatTimestampUk(utcDateTimeStr) {
-  if (!utcDateTimeStr) return null;
-  const d = new Date(utcDateTimeStr.endsWith('Z') ? utcDateTimeStr : utcDateTimeStr + 'Z');
-  if (isNaN(d.getTime())) return null;
-  return d.toLocaleString('en-GB', {
+  return formatInstantUk(utcDateTimeStr, {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
-    timeZone: 'Europe/London',
     timeZoneName: 'short',
   });
 }

@@ -57,6 +57,31 @@ synchronously — but the button sits *above* the component's `loading ?` gate, 
 from the first paint and the wait was satisfied before any data arrived. It passed on a quiet
 machine and failed roughly one full-suite run in six. Wait for the thing the response renders.
 
+**And never put the click inside the wait.** `waitFor` re-runs its callback every ~50ms, so a
+`fireEvent.click` in there re-fires on every poll: a failing assertion on an expand/collapse toggle
+collapses and re-expands the row twenty times a second instead of failing. That is a hang dressed as
+a slow test, and it took a `--testTimeout` and a process kill to recognise. Await the element, click
+once, then assert:
+
+```jsx
+fireEvent.click(await screen.findByTestId('expand-user-1'));
+expect(screen.getByTestId('terms-accepted-1')).toHaveTextContent('1 Apr 2026');
+```
+
+**A date fixture is written on a *basis*, and the basis is part of the code under test.**
+`NlcSightingBanner.test.jsx` built its fixtures with local wall-clock literals and `setHours`, on
+explicit and correct reasoning: the formatter read local getters, so pinning the wall clock "removes
+the timezone from the question entirely". When that formatter moved to `Europe/London`, the reasoning
+inverted — the local literal became the thing that moves with the runner, and `setHours(23, 10)` on
+10 August is 00:10 BST on the *eleventh*, so the "yesterday" case tested the wrong branch. Three
+files needed re-anchoring on explicit instants.
+
+So when you change which calendar a formatter reads, **the fixtures are part of the change**, and the
+comment explaining the old basis is the first thing to re-read: it is usually right about the code it
+was written against and silently wrong about the code in front of you. Prove the result across zones
+rather than on yours — `TZ=Pacific/Auckland` caught one of these that `TZ=America/New_York` did not,
+because a zone *east* of the UK fails in the opposite direction.
+
 ---
 
 ## Queries: roles where there is a role contract, test-ids elsewhere
