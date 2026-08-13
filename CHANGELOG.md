@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.18.5] - 2026-08-13
+
 ### Fixed — the 226 km sample was documented as a cirrus probe; it is a mid-canvas one
 
 A first-principles re-derivation of the far-solar geometry found the docs claiming something the
