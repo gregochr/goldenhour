@@ -71,11 +71,18 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  * a different wordmark in one arm makes every comparison a brand comparison too. The {@code compact}
  * variant exists for this masthead's height budget. Recorded in plan §7.
  *
- * <h2>No status pill</h2>
+ * <h2>The status pill, and why it is a slot rather than a component</h2>
  *
- * <p>The design shows {@code ● UP v2.17.7} unconditionally. Build version and service health are
- * not a pilot user's business, and {@code HealthIndicator} is admin-only today — so the pill is
- * dropped rather than reproduced. Plan §7.
+ * <p>The design shows {@code ● UP v2.17.7} unconditionally, and this arm shipped without it: build
+ * version and service health are not a pilot user's business (plan §7). That reasoning was right
+ * about the <em>pilot user</em> and wrong about the admin, who had the control in the v1 header and
+ * simply lost it on switching arms — the first thing anyone running the app notices is that they can
+ * no longer see whether the backend is up.
+ *
+ * <p>So it returns as {@code healthPill}, a NODE the caller supplies, on the same idiom as
+ * {@code operationsPane}: {@code App} holds {@code isAdmin} and withholds the node, so a pilot user
+ * still sees no pill and nothing role-shaped crosses this boundary (plan §5c). The unconditional
+ * pill the design draws is still not what ships — the design has no roles in it.
  *
  * <h2>The tab bar carries Plan and Coming up, and still not Map or Manage</h2>
  *
@@ -191,7 +198,7 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  */
 export default function WindowFirstShell({
   onExit, onOpenSettings, onSignOut, contentDisabled, onShowOnMap, onEvaluationScoresChange,
-  onSeasonalFeaturesChange, locations, mapPane, operationsPane, tabRequest,
+  onSeasonalFeaturesChange, locations, mapPane, operationsPane, tabRequest, healthPill,
 }) {
   const {
     railTiles, windowCards, paneItems, promotedStrip, loading, briefing, evaluationScores,
@@ -508,6 +515,11 @@ export default function WindowFirstShell({
       >
         <BrandLockup variant="compact" />
         <div className="ml-auto flex items-center gap-2">
+          {/* Leftmost of the three, which is where the v1 header put it relative to the same two
+              buttons — and it is a reading, not a control the reader operates to get somewhere, so
+              it sits before the pair rather than between them. Absent for everyone but an admin,
+              and the gap collapses on its own. */}
+          {healthPill}
           <button
             type="button"
             onClick={onOpenSettings}
@@ -862,4 +874,9 @@ WindowFirstShell.propTypes = {
    * caller holds the role and withholds the pane, so nothing role-shaped reaches this component.
    */
   operationsPane: PropTypes.node,
+  /**
+   * The masthead's status pill, on the same terms as {@code operationsPane}: absent means no pill,
+   * which is how the admin gate reaches this arm without a role crossing into it.
+   */
+  healthPill: PropTypes.node,
 };

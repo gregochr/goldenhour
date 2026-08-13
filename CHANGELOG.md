@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the admin health pill, missing from the window-first Plan
+
+`HealthIndicator` lived in the v1 app header, and the window-first arm suppresses that header in
+favour of its own masthead — so an admin switching layouts lost the only readout of whether the
+backend was up. It is back in the v2 masthead, in that arm's palette.
+
+**A slot, not a component.** `WindowFirstShell` takes a `healthPill` node on the same terms as
+`operationsPane`: `App` holds `isAdmin` and withholds the node, so a pilot user still sees no pill
+and nothing role-shaped crosses into the arm. The shell's own Javadoc previously recorded the pill
+as deliberately dropped — that reasoning was right about the pilot user and silent about the admin,
+and the note now says so.
+
+**Kodachrome tones, opted into by the caller.** A `variant` prop defaulting to the v1 header's look,
+so the frozen control arm renders byte-identically. The masthead variant swaps Tailwind's
+green/amber/red for the palette's own verdict hues at the window-first badge weights (12–14% fill,
+40–50% border, the lifted `--color-badge-*` for type at 10.5px), and takes the geometry of the two
+buttons beside it — measured on the running app at 28px tall, 7px radius, identical baselines.
+Panel ink moved muted → secondary in this variant: **3.46:1 → 6.44:1** measured, the sixth time this
+project has made that correction.
+
+**And the placement bug the move introduced.** The panel is right-anchored to the *pill*, which in
+the v1 header is the rightmost element — in the masthead the cog and Sign out follow it, so at 390px
+the panel opened at `left: −45` with its entire label column clipped ("nd started", "ase", "Tides").
+`computePosition` now clamps the inset so the left edge stays on screen; the clamp is inert wherever
+the anchor was already right, which is asserted rather than assumed.
+
 ## [v2.18.4] - 2026-08-13
 
 ### Fixed — nine surfaces dated a UK instant on the reader's own calendar
