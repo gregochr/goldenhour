@@ -21,7 +21,31 @@ vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: mockRole 
 
 const CACHE_KEY = 'briefing:PRO_USER';
 
-/** A payload whose one rated day the rail can roll up. Dates are computed so "today" is real. */
+/**
+ * The instant every test in this file runs at, installed by {@link freezeClock}.
+ *
+ * <p>The fixture's events sit at 20:11Z. Run against the real clock between 20:41Z (that time plus
+ * the 30-minute afterglow) and the London date roll, `selectUpcomingEvents` drops every event, the
+ * rail is empty and every test here fails — a suite that only passes before nine in the evening.
+ * Frozen at mid-morning the day's events are unambiguously ahead, and the past-event cases below
+ * can state their own time rather than inheriting one.
+ */
+const NOON_ISH = new Date('2026-08-04T09:00:00Z');
+
+/**
+ * The fixture's "today": the London date OF THE PINNED INSTANT, computed once and never read from
+ * the clock.
+ *
+ * <p>It was `new Intl.DateTimeFormat(…).format(new Date())`, evaluated per call inside each test.
+ * That happened to agree with {@link NOON_ISH} — `vi.useFakeTimers` fakes `Date`, and the
+ * `beforeEach` freezes it before any test body runs — but the agreement rested on an invariant
+ * nothing stated, in a file whose later blocks move the clock (`vi.setSystemTime`) and re-install
+ * it. A fixture that asks the clock what day it is has cost this repo three separate defects; a
+ * date derived from the instant the suite is pinned to cannot drift from it.
+ */
+const TODAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(NOON_ISH);
+
+/** A payload whose one rated day the rail can roll up, dated {@link TODAY}. */
 function payloadFor(dateStr, { generatedAt = null } = {}) {
   const region = {
     regionName: 'Northumberland & Tyneside',
@@ -50,9 +74,20 @@ function payloadFor(dateStr, { generatedAt = null } = {}) {
   };
 }
 
-/** Today in the forecast's own timezone — the provider derives its labels the same way. */
-function londonToday() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
+/**
+ * Fake timers pinned to {@link NOON_ISH} — the only way this file starts a clock.
+ *
+ * <p>Two blocks below re-install timers mid-test to drop `shouldAdvanceTime`. Vitest carries the
+ * frozen instant across that re-install (the new clock reads its start time from the `Date` the
+ * old one already faked), so they are correct today — but nothing says so, and the difference
+ * between inheriting a pin and inheriting the wall clock is invisible at the call site. Going
+ * through here states it.
+ *
+ * @param {object} [options] sinon fake-timer options; defaults to advancing with real time
+ */
+function freezeClock(options = { shouldAdvanceTime: true }) {
+  vi.useFakeTimers(options);
+  vi.setSystemTime(NOON_ISH);
 }
 
 /** A real consumer rather than a bespoke harness: this is what the shell reads. */
@@ -127,17 +162,6 @@ const renderProvider = () => render(
   <WindowFirstBriefingProvider><Consumer /></WindowFirstBriefingProvider>,
 );
 
-/**
- * A fixed instant, because "upcoming" is a fact about the clock and this suite asserts it.
- *
- * <p>The fixture's events sit at 20:11Z. Run for real between 20:41Z (that time plus the 30-minute
- * afterglow) and the London date roll, `selectUpcomingEvents` drops every event, the rail is empty
- * and every test here fails — a suite that only passes before nine in the evening. Frozen at
- * mid-morning the day's events are unambiguously ahead, and the past-event cases below can state
- * their own time rather than inheriting one.
- */
-const NOON_ISH = new Date('2026-08-04T09:00:00Z');
-
 describe('WindowFirstBriefingProvider', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -151,14 +175,13 @@ describe('WindowFirstBriefingProvider', () => {
     getReach.mockResolvedValue([]);
     getSettings.mockReset();
     getSettings.mockResolvedValue({ homePostcode: null, homePlaceName: null });
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    vi.setSystemTime(NOON_ISH);
+    freezeClock();
   });
 
   afterEach(() => vi.useRealTimers());
 
   it('fetches the briefing once on mount and derives the rail from it', async () => {
-    getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+    getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
     renderProvider();
 
     expect(await screen.findByText('Worth it · sunset')).toBeInTheDocument();
@@ -170,8 +193,7 @@ describe('WindowFirstBriefingProvider', () => {
   it('paints instantly from the cache, so a cold mount is not an empty rail', async () => {
     // The briefing IS the page here; waiting a round-trip to draw anything is the difference
     // between a rail that is there and one that appears.
-    const today = londonToday();
-    writeSwrCache(CACHE_KEY, payloadFor(today));
+    writeSwrCache(CACHE_KEY, payloadFor(TODAY));
     getDailyBriefing.mockReturnValue(new Promise(() => {})); // never resolves
     renderProvider();
 
@@ -180,8 +202,7 @@ describe('WindowFirstBriefingProvider', () => {
   });
 
   it('keys the cache by role, so one account never paints another\'s briefing', async () => {
-    const today = londonToday();
-    writeSwrCache('briefing:LITE_USER', payloadFor(today));
+    writeSwrCache('briefing:LITE_USER', payloadFor(TODAY));
     getDailyBriefing.mockReturnValue(new Promise(() => {}));
     renderProvider(); // mounts as PRO_USER
 
@@ -191,8 +212,7 @@ describe('WindowFirstBriefingProvider', () => {
   it('ignores an empty revalidation rather than blanking a good rail', async () => {
     // /api/briefing answers 204 when nothing is cached server-side, and the client turns that into
     // null. Storing it would clear the rail AND poison the SWR entry for the next cold start.
-    const today = londonToday();
-    writeSwrCache(CACHE_KEY, payloadFor(today));
+    writeSwrCache(CACHE_KEY, payloadFor(TODAY));
     getDailyBriefing.mockResolvedValue(null);
     renderProvider();
 
@@ -202,8 +222,7 @@ describe('WindowFirstBriefingProvider', () => {
   });
 
   it('keeps what is on screen when the fetch rejects', async () => {
-    const today = londonToday();
-    writeSwrCache(CACHE_KEY, payloadFor(today));
+    writeSwrCache(CACHE_KEY, payloadFor(TODAY));
     getDailyBriefing.mockRejectedValue(new Error('offline'));
     renderProvider();
 
@@ -223,7 +242,7 @@ describe('WindowFirstBriefingProvider', () => {
   });
 
   it('writes a successful fetch back to the cache for the next cold start', async () => {
-    getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+    getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
     renderProvider();
     await act(async () => {});
 
@@ -234,9 +253,8 @@ describe('WindowFirstBriefingProvider', () => {
   it('marks a travel day Away instead of rolling it up as a forecast', async () => {
     // Without the travel ranges an away day rolls up from whatever the briefing happens to hold,
     // which says the forecast was assessed when in fact none was run.
-    const today = londonToday();
-    getDailyBriefing.mockResolvedValue(payloadFor(today));
-    fetchTravelDayRanges.mockResolvedValue([{ startDate: today, endDate: today }]);
+    getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+    fetchTravelDayRanges.mockResolvedValue([{ startDate: TODAY, endDate: TODAY }]);
     renderProvider();
 
     expect(await screen.findByText('✈ Away')).toBeInTheDocument();
@@ -245,7 +263,7 @@ describe('WindowFirstBriefingProvider', () => {
   it('still renders the rail when the travel-day fetch fails', async () => {
     // Travel days are an overlay on the forecast, not a precondition for it. A failure there must
     // not take the whole rail with it.
-    getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+    getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
     fetchTravelDayRanges.mockRejectedValue(new Error('nope'));
     renderProvider();
 
@@ -253,7 +271,7 @@ describe('WindowFirstBriefingProvider', () => {
   });
 
   it('re-fetches on window focus, so a laptop reopened at dawn is not showing last night', async () => {
-    getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+    getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
     renderProvider();
     await act(async () => {});
     expect(getDailyBriefing).toHaveBeenCalledTimes(1);
@@ -263,8 +281,8 @@ describe('WindowFirstBriefingProvider', () => {
   });
 
   it('polls every ten minutes, matching the payload\'s own regeneration rate', async () => {
-    vi.useFakeTimers();
-    getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+    freezeClock({ shouldAdvanceTime: false });
+    getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
     renderProvider();
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(getDailyBriefing).toHaveBeenCalledTimes(1);
@@ -276,8 +294,8 @@ describe('WindowFirstBriefingProvider', () => {
   it('tears down its poll and its focus listener on unmount', async () => {
     // The arm unmounts whenever the flag is switched back. A surviving interval would keep polling
     // /api/briefing alongside DailyBriefing's own, for a subtree nobody is looking at.
-    vi.useFakeTimers();
-    getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+    freezeClock({ shouldAdvanceTime: false });
+    getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
     const { unmount } = renderProvider();
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     unmount();
@@ -295,13 +313,12 @@ describe('WindowFirstBriefingProvider', () => {
     // each region's confidence are all computed at SERVE time — so two responses can carry the same
     // timestamp and different content. A rail memoised on generatedAt holds the stale one, and a
     // pick that moved between two serves of the same build would never appear.
-    const today = londonToday();
-    getDailyBriefing.mockResolvedValueOnce(payloadFor(today, { generatedAt: `${today}T12:00:00` }));
+    getDailyBriefing.mockResolvedValueOnce(payloadFor(TODAY, { generatedAt: `${TODAY}T12:00:00` }));
     renderProvider();
     await act(async () => {});
     expect(screen.getByTestId('labels')).toHaveTextContent('Worth it · sunset');
 
-    const reserved = payloadFor(today, { generatedAt: `${today}T12:00:00` }); // SAME build
+    const reserved = payloadFor(TODAY, { generatedAt: `${TODAY}T12:00:00` }); // SAME build
     reserved.days[0].eventSummaries[0].regions[0].displayVerdict = 'MAYBE';
     getDailyBriefing.mockResolvedValue(reserved);
 
@@ -310,12 +327,11 @@ describe('WindowFirstBriefingProvider', () => {
   });
 
   it('picks up a genuinely newer forecast', async () => {
-    const today = londonToday();
-    getDailyBriefing.mockResolvedValueOnce(payloadFor(today, { generatedAt: `${today}T12:00:00` }));
+    getDailyBriefing.mockResolvedValueOnce(payloadFor(TODAY, { generatedAt: `${TODAY}T12:00:00` }));
     renderProvider();
     await act(async () => {});
 
-    const newer = payloadFor(today, { generatedAt: `${today}T18:00:00` });
+    const newer = payloadFor(TODAY, { generatedAt: `${TODAY}T18:00:00` });
     newer.days[0].eventSummaries[0].regions[0].displayVerdict = 'MAYBE';
     getDailyBriefing.mockResolvedValue(newer);
 
@@ -416,13 +432,12 @@ describe('WindowFirstBriefingProvider', () => {
     it('draws no card for a day the rail is showing as Away', async () => {
       // The travel day still carries slots, so the projector gives it a verdict — a naive card list
       // would put a "Poor" card under a rail tile reading "Not forecast".
-      const today = londonToday();
-      getDailyBriefing.mockResolvedValue(multiDayPayload(today, 2));
-      fetchTravelDayRanges.mockResolvedValue([{ startDate: today, endDate: today }]);
+      getDailyBriefing.mockResolvedValue(multiDayPayload(TODAY, 2));
+      fetchTravelDayRanges.mockResolvedValue([{ startDate: TODAY, endDate: TODAY }]);
       renderProvider();
 
       await act(async () => {});
-      expect(screen.getByTestId('card-keys').textContent).not.toContain(today);
+      expect(screen.getByTestId('card-keys').textContent).not.toContain(TODAY);
       // And the rail still shows the day, so the absence is explained on screen.
       expect(screen.getByTestId('labels')).toHaveTextContent('✈ Away');
     });
@@ -439,7 +454,7 @@ describe('WindowFirstBriefingProvider', () => {
       // Not read by anything the rail draws — they feed the overlay's narrative and MapView's
       // visibility filter, both reachable from this arm for the first time. The key format is
       // load-bearing: buildBriefingScoreIndex splits on the last three `|` fields.
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       getAllEvaluationScores.mockResolvedValue([
         { regionName: 'N&T', date: '2026-08-04', targetType: 'SUNSET', locationName: 'Bamburgh', rating: 4 },
       ]);
@@ -449,7 +464,7 @@ describe('WindowFirstBriefingProvider', () => {
     });
 
     it('skips a row missing the region or the location that keys it', async () => {
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       getAllEvaluationScores.mockResolvedValue([
         { regionName: null, date: '2026-08-04', targetType: 'SUNSET', locationName: 'Bamburgh', rating: 4 },
         { regionName: 'N&T', date: '2026-08-04', targetType: 'SUNSET', locationName: null, rating: 4 },
@@ -462,7 +477,7 @@ describe('WindowFirstBriefingProvider', () => {
 
     it('still renders the rail when the scores fetch fails', async () => {
       // They are an input to a downstream surface, not a precondition for this one.
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       getAllEvaluationScores.mockRejectedValue(new Error('nope'));
       renderProvider();
 
@@ -472,7 +487,7 @@ describe('WindowFirstBriefingProvider', () => {
 
   describe('per-user reach — the spot strip\'s second contract', () => {
     it('joins reach onto the window\'s spots by location id', async () => {
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       getReach.mockResolvedValue([{ locationId: 7, driveMinutes: 41, distanceMiles: 19 }]);
       renderProvider();
 
@@ -484,7 +499,7 @@ describe('WindowFirstBriefingProvider', () => {
     it('fetches it from its own endpoint, never from the briefing', async () => {
       // Plan §2.2: /api/briefing is ETag-revalidated, which persists the body to a browser HTTP
       // cache JavaScript cannot evict on logout. Drive times must not ride it.
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       renderProvider();
 
       await act(async () => {});
@@ -492,7 +507,7 @@ describe('WindowFirstBriefingProvider', () => {
     });
 
     it('never writes reach to the SWR cache, which is keyed by role and shared between users', async () => {
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       getReach.mockResolvedValue([{ locationId: 7, driveMinutes: 41, distanceMiles: 19 }]);
       renderProvider();
 
@@ -504,7 +519,7 @@ describe('WindowFirstBriefingProvider', () => {
     it('renders every spot without its reach line when the request fails', async () => {
       // Indistinguishable from the first-run state — no home postcode — which is the normal one.
       // The strip must still render; a lens with no data is not a gate.
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       getReach.mockRejectedValue(new Error('nope'));
       renderProvider();
 
@@ -514,7 +529,7 @@ describe('WindowFirstBriefingProvider', () => {
     });
 
     it('renders every spot without its reach line when the roster is empty', async () => {
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       getReach.mockResolvedValue([]);
       renderProvider();
 
@@ -526,7 +541,7 @@ describe('WindowFirstBriefingProvider', () => {
       // Both halves in one payload deliberately. With only the malformed entry the test passes
       // whether the loop skips it or abandons the whole list, so the good entry is what makes the
       // `continue` load-bearing.
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       getReach.mockResolvedValue([
         { driveMinutes: 99, distanceMiles: 99 },
         { locationId: 7, driveMinutes: 41, distanceMiles: 19 },
@@ -543,7 +558,7 @@ describe('WindowFirstBriefingProvider', () => {
       // a full reload — the setting appeared to do nothing". It is worse here, because the modal
       // that saves the postcode is a SIBLING of this provider in App — so it re-renders it and
       // never remounts it, and a first-run user would wait forever.
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       getReach.mockResolvedValue([]);
       const { rerender } = render(
         <WindowFirstBriefingProvider homeSettingsVersion={0}><Consumer /></WindowFirstBriefingProvider>,
@@ -564,7 +579,7 @@ describe('WindowFirstBriefingProvider', () => {
     it('gates a spot beyond the day-derived tier, and marks nothing that survives it', async () => {
       // The frozen clock is a Tuesday, so the default is 45 min. This is the gate running for
       // real, end to end: the lens the provider derives reaching the cards it builds.
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       getReach.mockResolvedValue([{ locationId: 7, driveMinutes: 66, distanceMiles: 47 }]);
       renderProvider();
 
@@ -577,7 +592,7 @@ describe('WindowFirstBriefingProvider', () => {
     it('marks a spot the widened lens let through as beyond today\'s reach', async () => {
       // The pairing that makes the `far` mark meaningful: at the default nothing past it is on
       // screen, so the tint appears exactly when the user has widened to see it.
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       getReach.mockResolvedValue([{ locationId: 7, driveMinutes: 66, distanceMiles: 47 }]);
       renderProvider();
       await act(async () => {});
@@ -593,7 +608,7 @@ describe('WindowFirstBriefingProvider', () => {
       // half that is only observable from the provider — `role` enters the arm here and nowhere
       // below it.
       mockRole = 'LITE_USER';
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       getReach.mockResolvedValue([{ locationId: 7, driveMinutes: 66, distanceMiles: 47 }]);
       renderProvider();
 
@@ -606,7 +621,7 @@ describe('WindowFirstBriefingProvider', () => {
     it('leaves a PRO user\'s control live', async () => {
       // The negative half. Without it the gating assertion above passes on a component that locks
       // every role, which is a strictly worse product than one that locks none.
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       renderProvider();
 
       await act(async () => {});
@@ -617,7 +632,7 @@ describe('WindowFirstBriefingProvider', () => {
     it('does not refetch on an ordinary re-render', async () => {
       // The counter is the signal, not every render. Refetching on each one would put an
       // uncacheable per-user request behind the 10-minute poll and every focus event.
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       const { rerender } = render(
         <WindowFirstBriefingProvider homeSettingsVersion={3}><Consumer /></WindowFirstBriefingProvider>,
       );
@@ -633,7 +648,7 @@ describe('WindowFirstBriefingProvider', () => {
 
   describe('the home the reach figures are measured from', () => {
     it('prefers the resolved place name, which is what the design\'s slot reads', async () => {
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       getSettings.mockResolvedValue({ homePostcode: 'NE61 1AA', homePlaceName: 'Morpeth' });
       renderProvider();
 
@@ -642,7 +657,7 @@ describe('WindowFirstBriefingProvider', () => {
     });
 
     it('falls back to the postcode when the lookup resolved no place name', async () => {
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       getSettings.mockResolvedValue({ homePostcode: 'NE61 1AA', homePlaceName: null });
       renderProvider();
 
@@ -651,7 +666,7 @@ describe('WindowFirstBriefingProvider', () => {
     });
 
     it('says "no home" only on a response that actually said so', async () => {
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       getSettings.mockResolvedValue({ homePostcode: null, homePlaceName: null });
       renderProvider();
 
@@ -663,7 +678,7 @@ describe('WindowFirstBriefingProvider', () => {
       // Plan §2.5 refuses a second source of truth for this, so a dropped request has no other
       // answer to fall back on — and "Home not set" shown to a user who set one is a false claim
       // where silence costs nothing.
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       getSettings.mockRejectedValue(new Error('nope'));
       renderProvider();
 
@@ -674,7 +689,7 @@ describe('WindowFirstBriefingProvider', () => {
     it('never rides the briefing payload, which is ETag-revalidated', async () => {
       // Plan §2.2. The postcode is per-user data and the briefing body is persisted to a browser
       // HTTP cache JavaScript cannot evict on logout.
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       getSettings.mockResolvedValue({ homePostcode: 'NE61 1AA', homePlaceName: 'Morpeth' });
       renderProvider();
 
@@ -684,7 +699,7 @@ describe('WindowFirstBriefingProvider', () => {
     });
 
     it('refetches when the user saves a home, without a page reload', async () => {
-      getDailyBriefing.mockResolvedValue(payloadFor(londonToday()));
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       getSettings.mockResolvedValue({ homePostcode: null, homePlaceName: null });
       const { rerender } = render(
         <WindowFirstBriefingProvider homeSettingsVersion={0}><Consumer /></WindowFirstBriefingProvider>,
@@ -718,7 +733,7 @@ describe('WindowFirstBriefingProvider', () => {
 
     /** `payloadFor`'s single day, with badges put on its one window. */
     const withBadges = (badges, topRarityRank) => {
-      const payload = payloadFor(londonToday());
+      const payload = payloadFor(TODAY);
       payload.days[0].eventSummaries[0].window = {
         ...payload.days[0].eventSummaries[0].window, badges, topRarityRank,
       };
@@ -729,7 +744,15 @@ describe('WindowFirstBriefingProvider', () => {
       getDailyBriefing.mockResolvedValue(withBadges([topic('AURORA', 'Aurora', 4)], 4));
       renderProvider();
 
-      expect(await screen.findByTestId('cards')).toHaveTextContent('1');
+      // Wait on the rail label, which only exists once the response has been folded in — NOT on
+      // `cards`, which the consumer renders from the first paint. Waiting for an element that is
+      // already on screen is satisfied before the fetch resolves, and this file's other blocks
+      // failed the same way once already (see `frontend-test-standards.md` on SkyRatingEvalView).
+      // Here it made a §6 clause 3 test pass vacuously in the exact shape that clause names: with
+      // no cards drawn, "no strip" is true of an empty pane and says nothing about the rule. Under
+      // full-suite load it lost the race outright and failed on `cards` reading 0.
+      expect(await screen.findByText('Worth it · sunset')).toBeInTheDocument();
+      expect(screen.getByTestId('cards')).toHaveTextContent('1');
       expect(screen.getByTestId('promo')).toHaveTextContent('none');
     });
 
@@ -741,8 +764,11 @@ describe('WindowFirstBriefingProvider', () => {
       );
       renderProvider();
 
-      expect(await screen.findByTestId('promo'))
-        .toHaveTextContent(`${londonToday()}:SUNSET`);
+      // Same reason as the sibling above: `promo` is on screen from the first paint reading
+      // "none", so waiting for the element proves nothing about the fetch. This one has not been
+      // seen to fail, and it is the same defect — it wins the race rather than avoiding it.
+      expect(await screen.findByText('Worth it · sunset')).toBeInTheDocument();
+      expect(screen.getByTestId('promo')).toHaveTextContent(`${TODAY}:SUNSET`);
       expect(screen.getByTestId('promo-topics')).toHaveTextContent('King tide|Aurora');
     });
   });

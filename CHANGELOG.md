@@ -5,6 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — a promoted-strip test waited for an element that was already on screen
+
+**`WindowFirstBriefingContext.test.jsx` failed about one full-suite run in three on a loaded
+machine**, on *"derives no strip from a payload whose windows carry no coincidence"*. The wait was
+`await screen.findByTestId('cards')` — but the test consumer renders `cards` from the first paint,
+so the wait was satisfied before `getDailyBriefing` resolved and the assertion read `0`. The same
+trap `frontend-test-standards.md` already records against `SkyRatingEvalView`: a wait is worth only
+what the element you waited for proves.
+
+It was worse than an ordinary flake, because on the runs it *passed* it passed for the wrong reason.
+The test's job is plan §6 clause 3 — *"at most one strip" passes vacuously on a page that never
+built one* — and with no cards drawn, "no strip" is exactly that vacuous truth. Both tests in the
+block now wait on the rail label, which only exists once the response has been folded in. Proved by
+construction rather than by repetition: with the mocked response deferred to a macrotask the old
+shape fails both tests deterministically and the new shape passes both.
+
+The sibling test (*"derives one strip…"*) carried the identical defect and had never been seen to
+fail — it was winning the race, not avoiding it. Fixed alongside.
+
+**Not the wall clock, which is where this looked like it was going.** The fixture's `londonToday()`
+read `new Date()`, the family of defect this repo has now been bitten by three times — but
+`vi.useFakeTimers` fakes `Date` and the `beforeEach` freezes it before any test body runs, so it
+was already pinned, and a re-installed clock inherits the pin rather than resetting to the wall
+clock (measured, not assumed). Hardened anyway, since the agreement rested on an invariant nothing
+stated: the fixture's `TODAY` is now derived from the pinned instant itself, and `freezeClock()` is
+the only way the file starts a clock.
+
 ### Changed — the tide run accents one day again, not half of them
 
 Follow-up to the spring-tide framing fix. Letting either water align was correct, but it made
