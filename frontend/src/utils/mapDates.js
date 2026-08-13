@@ -1,5 +1,5 @@
 /**
- * The two date questions the map asks, and the one place each is answered.
+ * The date questions this app asks, and the one place each is answered.
  *
  * <p>They are genuinely different questions, and conflating them is what this module exists to
  * stop:
@@ -7,6 +7,9 @@
  * <ul>
  *   <li><b>What day is it?</b> — a calendar question, answered on the <b>UK</b> calendar.
  *       {@link ukDateStr}.</li>
+ *   <li><b>What time is it today?</b> — the same calendar's clock, and it must be read from here
+ *       rather than from {@code getUTCHours()} whenever it is paired with a date from
+ *       {@link ukDateStr}. {@link ukHour}.</li>
  *   <li><b>Which night are we in?</b> — <em>not</em> a calendar question, and no timezone answers
  *       it. {@link resolveAuroraNight}.</li>
  * </ul>
@@ -27,6 +30,26 @@ export const UK_ZONE = 'Europe/London';
  * {@code timeZone} is what does the work.
  */
 const UK_DATE_FORMAT = new Intl.DateTimeFormat('en-CA', { timeZone: UK_ZONE });
+
+/**
+ * Built once. Two of these options are load-bearing rather than stylistic:
+ *
+ * <ul>
+ *   <li>{@code hourCycle: 'h23'} rather than {@code hour12: false}, so midnight is {@code 00} and
+ *       not {@code 24} — the two are not interchangeable, and only one of them is safe to compare
+ *       with {@code >=}.</li>
+ *   <li>{@code en-GB} because it renders ASCII digits. Read via {@link Intl.DateTimeFormat#formatToParts}
+ *       rather than {@code format}, since a formatted string may carry a locale literal beside the
+ *       number ({@code ja-JP} gives {@code "00時"}) and {@code Number()} turns that into
+ *       {@code NaN} — which every {@code >=} test then reads as {@code false}, silently marking
+ *       nothing past rather than failing.</li>
+ * </ul>
+ */
+const UK_HOUR_FORMAT = new Intl.DateTimeFormat('en-GB', {
+  timeZone: UK_ZONE,
+  hour: '2-digit',
+  hourCycle: 'h23',
+});
 
 /** Milliseconds in a day. Only ever applied to UTC-noon anchors, which have no DST. */
 const DAY_MS = 86400000;
@@ -101,6 +124,34 @@ function fromUtcNoon(ms) {
  */
 export function ukDateStr(now = new Date()) {
   return UK_DATE_FORMAT.format(now);
+}
+
+/**
+ * The hour of the day on the UK clock, {@code 0}–{@code 23}.
+ *
+ * <p>Exists because an hour is almost never asked on its own: it is paired with a date, in a test
+ * of the form "has today's event already happened?" — and the two halves have to be read on the
+ * same clock or the question is incoherent. Under BST the UTC hour and the UK hour name different
+ * days for an hour every night, so {@code getUTCHours()} beside a {@link ukDateStr} date asks about
+ * the wrong day exactly when it matters.
+ *
+ * <p>That is not hypothetical: the admin run dialog's slot list derived both from UTC, so between
+ * 00:00 and 01:00 UK it offered <em>yesterday's</em> date, and an admin un-ticking a slot excluded
+ * a day the backend was not going to run — the slot they meant to skip ran anyway, at full Claude
+ * cost. Moving only the date would have swapped that for its mirror image: the new day's sunrise
+ * marked "past" at 00:30, disabled, and therefore impossible to deselect.
+ *
+ * <p>⚠️ <b>A threshold compared against this is a wall-clock UK hour, not a UTC one.</b> Through
+ * BST the same constant fires an hour earlier in real terms than it did against
+ * {@code getUTCHours()}, so a threshold that was tuned against a solar event has to be re-checked
+ * rather than carried across unchanged.
+ *
+ * @param {Date} [now] - the instant to read; injectable so tests can pin it
+ * @returns {number} the hour on the UK clock, 0–23
+ */
+export function ukHour(now = new Date()) {
+  const hour = UK_HOUR_FORMAT.formatToParts(now).find((part) => part.type === 'hour');
+  return Number(hour.value);
 }
 
 /**

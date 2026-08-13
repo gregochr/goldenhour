@@ -17,6 +17,7 @@ import RunProgressPanel from './RunProgressPanel';
 import AuroraForecastModal from './AuroraForecastModal';
 import AuroraSimulateModal from './AuroraSimulateModal';
 import { isSkyPromptCandidate } from '../utils/locationTypes.js';
+import { ukDateStr, ukDateStrOffset, ukHour } from '../utils/mapDates.js';
 
 /** Human-readable labels for optimisation strategies shown in the run confirmation dialog. */
 const STRATEGY_LABELS = {
@@ -31,31 +32,70 @@ const STRATEGY_LABELS = {
 };
 
 /**
+ * The UK hour after which today's sunrise is certainly over.
+ *
+ * <p>Unchanged from the UTC basis it replaced, because nothing about it is marginal: the latest
+ * sunrise anywhere in the UK is around 09:00 in late December, and BST — where a UK hour is one
+ * ahead of the UTC hour, so a fixed threshold fires an hour earlier in wall-clock terms — is not in
+ * December.
+ */
+const SUNRISE_PAST_UK_HOUR = 12;
+
+/**
+ * The UK hour after which today's sunset is certainly over.
+ *
+ * <p><b>22, where the UTC basis this replaced used 21.</b> Through BST a UK hour is one ahead of
+ * the UTC hour at the same instant, so 22:00 UK <em>is</em> 21:00 UTC: the threshold fires at the
+ * identical moment it always has for the seven months that matter, and an hour later — the safe
+ * direction — under GMT. Carrying 21 across unchanged would have moved it to 21:00 BST, which in
+ * midsummer is before the sun has set at this roster's latitudes (~21:55 in the Lakes, later still
+ * in northern Scotland).
+ *
+ * <p>The asymmetry is deliberate. Marking a slot past too <em>late</em> costs nothing: it stays
+ * selectable, and {@code ForecastCommandExecutor}'s own already-past gate skips a genuinely
+ * finished event regardless. Marking it past too <em>early</em> disables the checkbox <em>and</em>
+ * drops the slot from {@code excluded} below, so an admin cannot deselect a slot that will then run
+ * at full cost — the same failure this whole function was fixed for.
+ */
+const SUNSET_PAST_UK_HOUR = 22;
+
+/**
  * Builds the list of (date, targetType) slots for a given run type.
- * Past slots (sunrise past noon UTC; sunset past 21:00 UTC) are marked disabled.
+ * Past slots (sunrise past noon UK; sunset past 22:00 UK) are marked disabled.
+ *
+ * <p><b>Every date here is a UK civil date, and the hour is read on the same clock.</b> These are
+ * not labels: the un-ticked ones travel to {@code POST /api/forecast/run/*} as {@code excludedSlots}
+ * and are matched against dates the backend derived from {@code ForecastHorizon.today}, which is
+ * {@code Europe/London}. Deriving them from UTC — as this did — meant that between 00:00 and 01:00
+ * UK under BST the dialog offered the previous UK day, so an admin skipping "today's" sunrise
+ * excluded a slot the run was never going to reach and the one they meant to skip ran anyway.
  *
  * @param {'VERY_SHORT_TERM'|'SHORT_TERM'} runType
+ * @param {Date} [now] - the instant to read; injectable so tests can pin it
  * @returns {Array<{date: string, targetType: string, isPast: boolean, selected: boolean}>}
  */
-function computeSlots(runType) {
-  const now = new Date();
-  const hourUtc = now.getUTCHours();
+function computeSlots(runType, now = new Date()) {
+  const hourUk = ukHour(now);
   const days = runType === 'VERY_SHORT_TERM' ? 2 : 3;
   const slots = [];
   for (let i = 0; i < days; i++) {
-    const d = new Date(now);
-    d.setUTCDate(d.getUTCDate() + i);
-    const date = d.toISOString().slice(0, 10);
+    const date = ukDateStrOffset(i, now);
     const isToday = i === 0;
-    const sunrisePast = isToday && hourUtc >= 12;
-    const sunsetPast = isToday && hourUtc >= 21;
+    const sunrisePast = isToday && hourUk >= SUNRISE_PAST_UK_HOUR;
+    const sunsetPast = isToday && hourUk >= SUNSET_PAST_UK_HOUR;
     slots.push({ date, targetType: 'SUNRISE', isPast: sunrisePast, selected: !sunrisePast });
     slots.push({ date, targetType: 'SUNSET', isPast: sunsetPast, selected: !sunsetPast });
   }
   return slots;
 }
 
-/** Formats a slot date for display, e.g. "Today", "Tomorrow", or "Wed 25 Mar". */
+/**
+ * Formats a slot date for display, e.g. "Today", "Tomorrow", or "Wed 25 Mar".
+ *
+ * <p>The relative words key off the index rather than the date, which is only correct because
+ * {@link computeSlots} builds index 0 as the UK today. On the UTC basis it replaced, this label
+ * read "Today" over yesterday's date for the hour after UK midnight through BST.
+ */
 function formatSlotDate(dateStr, index) {
   if (index === 0) return 'Today';
   if (index === 1) return 'Tomorrow';
@@ -310,6 +350,20 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
       hasDriveTimes,
       driveTimeThreshold: 0,
       onConfirm: async (resolvedSlots, threshold, selectedRegions, locationSummary) => {
+        // The slot list is a snapshot taken when the dialog opened, and the dialog can sit open
+        // indefinitely. Confirm it across UK midnight and it would send the previous UK day's
+        // dates against a run whose range the backend derives from the NEW day — the same wrong
+        // value on the wire this function was fixed for, reached by dwell time instead of by BST.
+        //
+        // Rebuilt rather than remapped, because there is no honest remapping: the rows are
+        // labelled relative ("Today") AND absolute ("Sun 16 Aug"), so an admin who un-ticked one
+        // may have meant either the day or the date, and guessing is how a wrong exclusion goes
+        // out. Index 0 is the UK today by construction, so its date IS the staleness test — no
+        // second stored field to fall out of step with the slots themselves.
+        if (resolvedSlots?.length && resolvedSlots[0].date !== ukDateStr()) {
+          setConfirmDialog((prev) => ({ ...prev, slots: computeSlots(runType), datesRolled: true }));
+          return;
+        }
         closeDialog();
         setRunning(true);
         setRunStatus(null);
@@ -775,6 +829,12 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
             return (
               <div data-testid="confirm-dialog-slots">
                 <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2">Slots to evaluate</p>
+                {confirmDialog.datesRolled && (
+                  <p className="mb-2 text-xs text-amber-400" data-testid="slot-dates-rolled-warning">
+                    ⚠️ It is past midnight in the UK, so these slots have been rebuilt for the new
+                    day. Nothing has been submitted — check them and press {confirmDialog.confirmLabel} again.
+                  </p>
+                )}
                 <div className="flex flex-col gap-1.5">
                   {uniqueDates.map((date, di) => (
                     <div key={date} className="flex items-center gap-3">

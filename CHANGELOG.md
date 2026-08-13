@@ -5,6 +5,52 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the admin run dialog sent UTC slot dates to a backend keyed to the UK
+
+`computeSlots` built its `{date, targetType}` pairs from `toISOString()` and `getUTCHours()`. Those
+are not labels: the un-ticked ones ride `excludedSlots` to `POST /api/forecast/run/*`, where they
+are matched against dates the backend derived from `ForecastHorizon.today` — the `Europe/London`
+civil date. Under BST the two calendars name different days between 23:00 and 00:00 UTC, so an
+admin un-ticking "today's" sunrise in that hour excluded **yesterday**: the slot they meant to skip
+was not excluded and ran anyway, at full Claude cost. The `Today` label was wrong in the same hour,
+which is the visible half of one defect rather than a second one. Both now come from
+`mapDates.ukDateStrOffset`, the module #500 moved the whole map date path onto.
+
+**The hour moved too, and it had to.** The date and the "has today's event already happened?" test
+are two halves of one question, so leaving the hour on `getUTCHours()` would have swapped the bug
+for its mirror image — at 00:30 UK the new day's sunrise reads as hour 23, is marked past, and a
+past slot is disabled **and** dropped from `excluded`, so it could be neither run knowingly nor
+skipped. A new `mapDates.ukHour` reads the same clock as the same module's calendar.
+
+**One threshold changed value: sunset, 21 → 22.** A UK hour is one ahead of the UTC hour through
+BST, so a constant carried across unchanged fires an hour earlier in real terms — and 21:00 BST is
+before the sun sets at this roster's latitudes in midsummer (~21:55 in the Lakes, later in northern
+Scotland). 22:00 UK *is* 21:00 UTC for the seven months that matter, so the threshold fires at the
+instant it always has, and an hour later under GMT. That direction is the safe one: a slot marked
+past too late stays selectable and `ForecastCommandExecutor`'s own already-past gate skips a
+finished event regardless, whereas one marked past too early is the un-deselectable case above.
+Sunrise keeps 12 — the latest UK sunrise is around 09:00 in late December, and BST is not December.
+
+**And the second route to the same wrong value: a dialog left open across UK midnight.** The slot
+list is a snapshot taken when the dialog opens, and the dialog can sit open indefinitely — so
+confirming it after midnight sent the previous UK day's dates against a run whose range the backend
+builds from the new day. Same symptom, reached by dwell time instead of by BST. Confirm now checks
+that the slots still start on the UK today (index 0 *is* today by construction, so its date is the
+test — no second stored field to fall out of step) and, when they do not, **rebuilds them and asks
+again** rather than submitting. Rebuilt rather than remapped because there is no honest remapping:
+the rows carry relative labels ("Today") *and* absolute ones ("Sun 16 Aug"), so an admin who
+un-ticked one may have meant either the day or the date, and guessing is how a wrong exclusion goes
+out in the first place.
+
+**Assessed and deliberately left:** `MetricsSummary` and `JobRunsMetricsView`'s `dateFilteredRuns`
+still read the device's calendar. Re-confirmed rather than assumed: `getJobRuns` takes only
+run-type/page/size, and neither `MetricsSummary` nor `JobRunsGrid` imports an API module, so both
+remain display-only filters over an already-fetched `startedAt` with no path to the wire.
+
+Covered by `jobRunSlotDatesAbroad.test.jsx`, pinned to `America/New_York` so that one instant
+separates the UK calendar from *both* wrong answers — UTC and the device — which neither a London
+pin nor the suite's UTC default can do alone.
+
 ### Added — a test that can tell the Hot Topic day word from the browser's calendar
 
 **The line was right; nothing would have caught it going wrong.** #500 moved

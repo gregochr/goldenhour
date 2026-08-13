@@ -20,7 +20,7 @@
 process.env.TZ = 'America/New_York';
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { ukDateStr, ukDateStrOffset, ukDayOffset, resolveAuroraNight } from '../utils/mapDates.js';
+import { ukDateStr, ukDateStrOffset, ukDayOffset, ukHour, resolveAuroraNight } from '../utils/mapDates.js';
 import { computeAutoSelection, formatDateLabel } from '../utils/conversions.js';
 
 /**
@@ -75,6 +75,27 @@ describe('ukDateStr abroad', () => {
 
     expect(ukDateStrOffset(1)).toBe('2026-08-15');
     expect(ukDateStrOffset(-1)).toBe('2026-08-13');
+  });
+});
+
+describe('ukHour abroad', () => {
+  it('reads the UK clock while the device is five hours behind it', () => {
+    // The property that cannot be tested under a UK pin: with `timeZone` dropped from the
+    // formatter, this returns the device's 21 instead of the UK's 02, and a UK-pinned file would
+    // see the same number either way. The admin run dialog compares this against a daytime
+    // threshold, so a device-zone read marks a slot past whenever the reader is far enough west.
+    freeze(UK_SMALL_HOURS); // 02:00 UK, 21:00 in New York
+
+    expect(ukHour()).toBe(2);
+    expect(new Date().getHours()).toBe(21);
+  });
+
+  it('agrees with neither the device nor UTC during the UK evening', () => {
+    freeze(UK_EVENING); // 21:00 UK, 16:00 New York, 20:00 UTC
+
+    expect(ukHour()).toBe(21);
+    expect(new Date().getHours()).toBe(16);
+    expect(new Date().getUTCHours()).toBe(20);
   });
 });
 
