@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.18.4] - 2026-08-13
+
 ### Fixed — nine surfaces dated a UK instant on the reader's own calendar
 
 **The defect the timezone pin found, plus every sibling of it.** `UserManagementView` rendered
