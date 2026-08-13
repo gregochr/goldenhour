@@ -183,6 +183,33 @@ public class TideRunBuilder {
     }
 
     /**
+     * A day's solar times and the water its row is about, computed once.
+     *
+     * <p>Exists so the run-wide "which day is best aligned?" question and the row's own fields are
+     * answered from the <em>same</em> arithmetic. Deriving the best day separately would mean two
+     * places deciding which water a day is about — the class of split this builder has already been
+     * bitten by twice.
+     *
+     * @param sunriseMinutes the day's sunrise, minutes past local midnight
+     * @param sunsetMinutes  the day's sunset, minutes past local midnight
+     * @param nearest        the extremum nearest a solar event, whatever its distance
+     * @param inLight        that extremum when it falls inside the alignment window, else null
+     */
+    private record DayGeometry(int sunriseMinutes, int sunsetMinutes, Point nearest, Point inLight) {
+
+        /**
+         * How far this day's water in the light sits from its event.
+         *
+         * @return the gap in minutes, or {@link Long#MAX_VALUE} when no water reaches the light —
+         *         a value that loses every comparison, so an unaligned day can never be "best"
+         */
+        long alignedGap() {
+            return inLight == null ? Long.MAX_VALUE
+                    : Math.abs(signedGap(inLight.minutes(), sunriseMinutes, sunsetMinutes));
+        }
+    }
+
+    /**
      * Builds the run rows for the given dates, or an empty list when no run can be drawn.
      *
      * @param dates            the run's dates, ascending; one topic exists per date
@@ -226,14 +253,74 @@ public class TideRunBuilder {
         Map<LocalDate, TideRunDay.RosterAlignment> roster =
                 rosterAlignment(coastalLocations, byLocation, perDay.keySet());
 
+        // Computed for the whole run before any row is built, because the accent is a statement
+        // about this day RELATIVE TO the others and no single day can make it.
+        Map<LocalDate, DayGeometry> geometry = new LinkedHashMap<>();
+        for (Map.Entry<LocalDate, DayTides> entry : perDay.entrySet()) {
+            geometry.put(entry.getKey(),
+                    geometryOf(representative, entry.getKey(), entry.getValue()));
+        }
+        LocalDate bestAligned = bestAlignedDate(geometry);
+
         Map<LocalDate, TideRunDay> result = new LinkedHashMap<>();
         int dayNumber = 1;
         for (Map.Entry<LocalDate, DayTides> entry : perDay.entrySet()) {
             result.put(entry.getKey(), buildDay(entry.getKey(), entry.getValue(), representative,
-                    dayNumber++, perDay.size(), peakRange, stats, king,
-                    roster.get(entry.getKey())));
+                    geometry.get(entry.getKey()), dayNumber++, perDay.size(), peakRange, stats,
+                    king, roster.get(entry.getKey()), entry.getKey().equals(bestAligned)));
         }
         return result;
+    }
+
+    /**
+     * The day's solar times and the water its row is about.
+     *
+     * @param location the representative the run is drawn for
+     * @param date     the local day
+     * @param day      that day's extrema
+     * @return the geometry every field of the row is derived from
+     */
+    private DayGeometry geometryOf(LocationEntity location, LocalDate date, DayTides day) {
+        int sunriseMinutes = localMinutes(
+                solarService.sunriseUtc(location.getLat(), location.getLon(), date));
+        int sunsetMinutes = localMinutes(
+                solarService.sunsetUtc(location.getLat(), location.getLon(), date));
+        Point nearest = nearestSolar(day.points(), sunriseMinutes, sunsetMinutes);
+        return new DayGeometry(sunriseMinutes, sunsetMinutes, nearest,
+                withinWindow(nearest, sunriseMinutes, sunsetMinutes));
+    }
+
+    /**
+     * The run's closest-aligned day — the one that takes the accent — or null when no day's water
+     * reaches the light.
+     *
+     * <p><b>Why the run needs one at all.</b> While alignment meant "the low water, on a spring
+     * run", it was scarce enough that accenting every aligned day read as emphasis. Measured over a
+     * simulated year at the anchor, alignment on either water fires on ~58% of run-days and
+     * <b>28% of runs have all four days aligned</b> — and an accent on every card marks nothing.
+     * Nothing is hidden by narrowing it: every aligned day keeps its verdict, its editorial line and
+     * its chart, and only the emphasis is reserved.
+     *
+     * <p>Ties break toward the <b>earlier</b> date. The comparison is strict and {@code geometry} is
+     * in ascending date order, so of two equally good mornings the sooner one wins — it is the one
+     * a reader can still act on.
+     *
+     * @param geometry each day's geometry, in ascending date order
+     * @return the winning date, or null when no day is aligned
+     */
+    private static LocalDate bestAlignedDate(Map<LocalDate, DayGeometry> geometry) {
+        LocalDate best = null;
+        long bestGap = Long.MAX_VALUE;
+        for (Map.Entry<LocalDate, DayGeometry> entry : geometry.entrySet()) {
+            long gap = entry.getValue().alignedGap();
+            if (gap < bestGap) {
+                bestGap = gap;
+                best = entry.getKey();
+            }
+        }
+        // An all-unaligned run leaves every gap at MAX_VALUE, which never beats the initial bound,
+        // so `best` stays null and no card is accented.
+        return best;
     }
 
     /**
@@ -380,20 +467,21 @@ public class TideRunBuilder {
     }
 
     private TideRunDay buildDay(LocalDate date, DayTides day, LocationEntity location,
-            int dayNumber, int dayCount, double peakRange, TideStats stats, boolean king,
-            TideRunDay.RosterAlignment roster) {
-        int sunriseMinutes = localMinutes(
-                solarService.sunriseUtc(location.getLat(), location.getLon(), date));
-        int sunsetMinutes = localMinutes(
-                solarService.sunsetUtc(location.getLat(), location.getLon(), date));
+            DayGeometry geo, int dayNumber, int dayCount, double peakRange, TideStats stats,
+            boolean king, TideRunDay.RosterAlignment roster, boolean bestAligned) {
+        int sunriseMinutes = geo.sunriseMinutes();
+        int sunsetMinutes = geo.sunsetMinutes();
 
         // ONE point drives this whole row: the water nearest a solar event, whichever kind it is.
         // The row used to run on two — a "useful" water picked by the run's lunar label, and
         // whatever else happened to land in the light — and every field below had to be told which
         // of them it followed. They disagreed, which is how a headline came to deny an alignment
         // the line directly beneath it stated. See the class Javadoc.
-        Point nearest = nearestSolar(day.points(), sunriseMinutes, sunsetMinutes);
-        Point inLight = withinWindow(nearest, sunriseMinutes, sunsetMinutes);
+        //
+        // It arrives as DayGeometry rather than being derived here so that the run-wide accent
+        // decision and this row are answered from the same arithmetic.
+        Point nearest = geo.nearest();
+        Point inLight = geo.inLight();
 
         // Whether this port's water is actually big today, as opposed to whether the moon says the
         // event is a spring or a king one. Withheld rather than assumed when the location has no
@@ -438,6 +526,9 @@ public class TideRunBuilder {
                         .toList(),
                 verdict(nearest, sunriseMinutes, sunsetMinutes, aligned, peak),
                 aligned,
+                // Decided across the run, not here — see bestAlignedDate. An unaligned day can
+                // never carry it, because its gap loses every comparison by construction.
+                bestAligned,
                 // These four all read `inLight`, so they cannot disagree about which water the day
                 // is about — the property that used to need a comment per field explaining which of
                 // two points it followed, and that still went wrong.

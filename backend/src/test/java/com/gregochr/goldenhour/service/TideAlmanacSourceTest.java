@@ -578,6 +578,9 @@ class TideAlmanacSourceTest {
         return new TideRunDay("SPRING RUN", 1, 2, "Mon", "Bamburgh Beach", range,
                 "+0.8 m", "4.9 m", null, null, "06:20", "19:44", null, List.of(),
                 "peak range · LW 2h12 after sunset", alignmentPhrase != null,
+                // bestAligned tracks aligned here — the almanac reads alignmentPhrase, not the
+                // accent, so this fixture only has to stay internally consistent.
+                alignmentPhrase != null,
                 alignmentPhrase == null ? null : "sunrise", alignmentPhrase,
                 new TideRunDay.RosterAlignment(3, 0, 4), peak, null);
     }

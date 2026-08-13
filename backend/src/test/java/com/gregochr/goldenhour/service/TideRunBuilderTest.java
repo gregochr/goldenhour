@@ -790,6 +790,116 @@ class TideRunBuilderTest {
         assertThat(day.alignedEvent()).isNull();
     }
 
+    // ── bestAligned — which single day of the run takes the accent ────────────
+
+    @Test
+    @DisplayName("only the closest-aligned day of the run is marked best, not every aligned day")
+    void build_bestAligned_marksOneDayEvenWhenSeveralAlign() {
+        // The reason this field exists. Once either water can align, a run can have every day
+        // aligned — measured at ~28% of runs — and an accent on all of them marks nothing. DAY_1's
+        // low is 34m after sunrise, DAY_2's is 5m. Both are aligned; only the nearer takes the
+        // accent, and the other keeps everything else it had.
+        //
+        // DAY_2 also carries the bigger range, so DAY_1 is not the peak day — that keeps the
+        // verdict assertion below on the plain aligned form rather than the peak one, which
+        // compresses the clock time away. Peak and best-aligned are pulled apart in their own test.
+        stubSolar();
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
+                low("08:44", 0.4), high("14:56", 5.0)));
+        extremes.addAll(day(ID_SEAHAM, DAY_2,
+                low("08:15", 0.5), high("14:20", 5.6)));
+        stubExtremes(extremes);
+
+        Map<LocalDate, TideRunDay> run = builder.build(
+                List.of(DAY_1, DAY_2), List.of(seaham()), false);
+
+        assertThat(run.get(DAY_1).aligned()).isTrue();
+        assertThat(run.get(DAY_2).aligned()).isTrue();
+        assertThat(run.get(DAY_1).bestAligned()).isFalse();
+        assertThat(run.get(DAY_2).bestAligned()).isTrue();
+        // The un-accented day is not demoted in any other way: it keeps its verdict and the
+        // editorial line for the water that did reach the light. Only emphasis is reserved.
+        assertThat(run.get(DAY_1).verdict()).isEqualTo("LW 08:44 · 34m after sunrise");
+        assertThat(run.get(DAY_1).phrase()).isEqualTo(TideRunBuilder.LOW_WATER_PHRASE);
+    }
+
+    @Test
+    @DisplayName("a run where nothing reaches the light accents no day at all")
+    void build_bestAligned_absentWhenNoDayAligns() {
+        stubSolar();
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
+                low("11:30", 0.8), high("17:40", 4.0), low("23:50", 0.8)));
+        extremes.addAll(day(ID_SEAHAM, DAY_2,
+                low("12:00", 0.4), high("18:10", 5.0), low("23:59", 0.4)));
+        stubExtremes(extremes);
+
+        Map<LocalDate, TideRunDay> run = builder.build(
+                List.of(DAY_1, DAY_2), List.of(seaham()), false);
+
+        assertThat(run.values()).allSatisfy(d -> {
+            assertThat(d.aligned()).isFalse();
+            assertThat(d.bestAligned()).isFalse();
+        });
+    }
+
+    @Test
+    @DisplayName("an aligned single-day run still takes the accent — unlike peak, this is no claim")
+    void build_bestAligned_isClaimedOnASingleDayRun() {
+        // `peak` is suppressed on a one-day run because "biggest of the run" asserts a comparison
+        // never made. This is an emphasis marker, not a comparative badge: withholding it would
+        // leave a genuinely aligned day with no accent anywhere, which is a regression.
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1,
+                low("08:30", 0.4), high("14:40", 5.0), low("20:50", 0.4)));
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
+
+        assertThat(day.peak()).isFalse();
+        assertThat(day.aligned()).isTrue();
+        assertThat(day.bestAligned()).isTrue();
+    }
+
+    @Test
+    @DisplayName("equally aligned days give the accent to the earlier date")
+    void build_bestAligned_tieGoesToTheEarlierDay() {
+        // Both lows sit 34m after their own sunrise. The sooner morning is the one a reader can
+        // still act on, and the rule has to be decidable rather than left to map ordering.
+        stubSolar();
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
+                low("08:44", 0.4), high("14:56", 5.0)));
+        extremes.addAll(day(ID_SEAHAM, DAY_2,
+                low("08:44", 0.5), high("14:56", 4.5)));
+        stubExtremes(extremes);
+
+        Map<LocalDate, TideRunDay> run = builder.build(
+                List.of(DAY_1, DAY_2), List.of(seaham()), false);
+
+        assertThat(run.get(DAY_1).bestAligned()).isTrue();
+        assertThat(run.get(DAY_2).bestAligned()).isFalse();
+    }
+
+    @Test
+    @DisplayName("the accent is independent of peak range — the best light need not be the biggest")
+    void build_bestAligned_isNotThePeakDay() {
+        // Two separate questions about a run, and conflating them would put the accent on the
+        // biggest swing rather than the best light. DAY_1 has the bigger range; DAY_2 has the
+        // closer water.
+        stubSolar();
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
+                low("08:44", 0.4), high("14:56", 5.6)));
+        extremes.addAll(day(ID_SEAHAM, DAY_2,
+                low("08:12", 1.0), high("14:20", 4.0)));
+        stubExtremes(extremes);
+
+        Map<LocalDate, TideRunDay> run = builder.build(
+                List.of(DAY_1, DAY_2), List.of(seaham()), false);
+
+        assertThat(run.get(DAY_1).peak()).isTrue();
+        assertThat(run.get(DAY_1).bestAligned()).isFalse();
+        assertThat(run.get(DAY_2).peak()).isFalse();
+        assertThat(run.get(DAY_2).bestAligned()).isTrue();
+    }
+
     @Test
     @DisplayName("a single-day run claims no peak — there is nothing to be the peak of")
     void build_singleDayRun_isNeverPeak() {
