@@ -17,10 +17,16 @@ point was chosen as "2 × horizon distance" for strip-vs-blanket detection and l
 mid-canvas centre by coincidence.
 
 Nothing was miscomputed — the sampling, the persistence and the buckets were all doing what they
-said. What was wrong was the **claim about what they measure**: four places described 226 km as the
-corridor a high canvas is underlit through, which made proxy evidence read as direct measurement.
-Those are corrected, and the veto doc's §8 now shows the derivation with the two false claims struck
-through rather than quietly rewritten.
+said. What was wrong was the **claim about what they measure**: every doc and javadoc site that
+described 226 km as the corridor a high canvas is underlit through made proxy evidence read as
+direct measurement. Those are corrected, and the veto doc's §8 now shows the derivation with the
+two false claims struck through rather than quietly rewritten. The figures are geometric and say
+so: refraction stretches them 7–10%, which moves the mid-canvas centre to ~242–247 km — enough that
+"exact centre" would be its own overclaim, not enough to disturb near-centre versus near-edge.
+
+Two sites carrying the same struck text are deliberately **left alone**: `V142`'s migration comment
+(editing an applied migration changes its Flyway checksum, a worse hazard than a stale comment) and
+this file's own history below.
 
 ### Added — `&midCanvas` corridor sub-buckets on the cloud-verification report
 

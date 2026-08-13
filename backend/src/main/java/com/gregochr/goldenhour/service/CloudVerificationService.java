@@ -38,7 +38,7 @@ import java.util.stream.Collectors;
  * persistence discards, so the sampling geometry itself can be evaluated: the cone's low-cloud
  * extremes (is the horizon a uniform deck or a wall with a gap the mean hides?) and the 226 km
  * far-solar reading (is the canvas-underlighting corridor behaving differently from the 113 km
- * point the gate actually looks at? 226 km is the exact centre of a 4 km mid canvas's blocking
+ * point the gate actually looks at? 226 km is the geometric centre of a 4 km mid canvas's blocking
  * corridor and only the near edge of an 8 km high canvas's, whose centre is ~319 km — see
  * {@code DirectionalSamplingGeometry.FAR_SOLAR_OFFSET_METRES}).
  */
@@ -548,7 +548,7 @@ public class CloudVerificationService {
     /**
      * Buckets pairs by near-vs-far corridor divergence — the canvas-height gate question.
      *
-     * <p>The 226 km point is the exact centre of a 4 km mid canvas's low-cloud blocking corridor
+     * <p>The 226 km point is the geometric centre of a 4 km mid canvas's low-cloud blocking corridor
      * (113–339 km) and the near edge of an 8 km high canvas's (206–432 km, centred ~319 km) — see
      * {@code DirectionalSamplingGeometry.FAR_SOLAR_OFFSET_METRES}. The 113 km gate sees neither.
      * {@code farClearer} counts skies where the near deck ends before the far corridor (the gate
@@ -558,8 +558,9 @@ public class CloudVerificationService {
      * cases where the analysed canvas was actually high-dominant; for those the 226 km reading is
      * a near-edge proxy for a corridor centred ~90 km further out, correlated at synoptic scale
      * (frontal bands are 100–300 km wide) but not a direct measurement. The {@code &midCanvas}
-     * variants are therefore the rigorous cut of this data — the point centres their corridor, so
-     * they measure it directly — and sit beside the high-canvas proxy rather than replacing it.
+     * variants are therefore the rigorous cut of this data — the point sits near the centre of
+     * their corridor rather than at its edge (exactly so at 4 km geometric, ~16–21 km short once
+     * refraction is allowed for) — and sit beside the high-canvas proxy rather than replacing it.
      *
      * @param pairs every verified pair in the window
      * @return corridor buckets over the pairs that carry both near and far readings

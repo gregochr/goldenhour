@@ -266,9 +266,13 @@ class CloudVerificationServiceTest {
         // measured directly, since 226 km centres a 4 km canvas's corridor. It belongs in
         // &midCanvas and must not reach &highCanvas.
         CloudVerificationPair cloudierMid = corridorPair(20, 70, 60, 40);
+        // Same divergence as clearerHigh but under a mid-dominant canvas, so the two clearer
+        // sub-buckets split one parent between them. Without this the &midCanvas cut would only
+        // ever be asserted as zero — a bucket wired to return nothing would pass.
+        CloudVerificationPair clearerMid = corridorPair(80, 20, 70, 30);
         when(repository.findVerifiedPairs(FROM, TO))
-                .thenReturn(List.of(similar, clearerHigh, cloudierMid));
-        when(repository.countVerifiedInWindow(FROM, TO)).thenReturn(3L);
+                .thenReturn(List.of(similar, clearerHigh, cloudierMid, clearerMid));
+        when(repository.countVerifiedInWindow(FROM, TO)).thenReturn(4L);
 
         CloudVerificationReport report = service.report(FROM, TO);
 
@@ -277,10 +281,10 @@ class CloudVerificationServiceTest {
                         "farClearer&highCanvas", "farClearer&midCanvas",
                         "farCloudier(drop<=-30)", "farCloudier&highCanvas",
                         "farCloudier&midCanvas");
-        // The two canvas cuts are complementary here: the divergent clearer sky is high-dominant,
-        // the divergent cloudier one mid-dominant, so neither lands in both.
+        // Each canvas cut both holds a sample and excludes the other's: the two clearer pairs
+        // split 1/1 by dominance, and the sole cloudier pair is mid-dominant so &highCanvas is 0.
         assertThat(report.byCorridor()).extracting(CloudVerificationBucket::sampleCount)
-                .containsExactly(1, 1, 1, 0, 1, 0, 1);
+                .containsExactly(1, 2, 1, 1, 1, 0, 1);
     }
 
     @Test

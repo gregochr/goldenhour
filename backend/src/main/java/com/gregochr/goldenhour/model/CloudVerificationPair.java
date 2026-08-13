@@ -244,12 +244,14 @@ public record CloudVerificationPair(
     /**
      * Returns whether the analysed canvas was mid-cloud dominant.
      *
-     * <p>Mid dominance is what makes the 226 km far-solar point the <em>centre</em> of the
-     * relevant blocking corridor rather than its near edge: a 4 km mid canvas is underlit through
-     * low-cloud altitude over 113–339 km, centred at 226 km = sqrt(2R × 4 km). So for mid-dominant
-     * skies the far reading is a direct measurement of the corridor that matters, not the proxy it
-     * is under {@link #highCanvasDominant()}. A strict comparison so an empty sky (0/0) counts as
-     * neither dominant.
+     * <p>Mid dominance is what puts the 226 km far-solar point near the <em>centre</em> of the
+     * relevant blocking corridor rather than at its near edge: a 4 km mid canvas is underlit
+     * through low-cloud altitude over 113–339 km, centred at 226 km = sqrt(2R × 4 km). So for
+     * mid-dominant skies the far reading measures the corridor that matters, where under
+     * {@link #highCanvasDominant()} it only proxies it. Geometric figures — refraction stretches
+     * them 7–10%, moving that centre to ~242–247 km, which the near-centre-not-near-edge reading
+     * survives but a calibrated-distance one would not. A strict comparison so an empty sky (0/0)
+     * counts as neither dominant.
      *
      * @return true when analysed mid cloud exceeds analysed high cloud, or {@code null} if either
      *         layer is missing
