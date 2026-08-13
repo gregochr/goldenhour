@@ -139,8 +139,21 @@ public class AuroraForecastRunService {
      * so the answer is the same on either calendar.
      *
      * <p>Deliberately the same rule, in the same shape, as
-     * {@code AuroraPollingJob.calculateTonightWindow()} — which has always been right. A test pins
-     * the two to agree, because two answers to "which night is it" is the defect this removes.
+     * {@code AuroraPollingJob.calculateTonightWindow()} — which has always been right.
+     *
+     * <p>⚠️ <b>That agreement is by construction and review, not pinned by a test</b>, and the
+     * reason is worth knowing before someone tries: {@code calculateTonightWindow} reads the system
+     * clock directly, so it cannot be put on the same pinned instant as this method. Comparing them
+     * at wall-clock time would be a real assertion but a flaky one — two separate reads of "now"
+     * can straddle the dawn boundary. Give that method a {@code Clock} and the comparison becomes
+     * both possible and worth writing.
+     *
+     * <p>Until then the two rules can drift, and on <em>four independently declared constants</em>:
+     * {@link #DURHAM_LAT}, {@link #DURHAM_LON} and {@link #NAUTICAL_BUFFER_MINUTES} each have a
+     * twin in {@code AuroraPollingJob} (and the latitude pair has two more, in
+     * {@code ClaudeAuroraInterpreter} and {@code BriefingAuroraSummaryBuilder}). Change 35 to 30 in
+     * one and nothing goes red. If you change the buffer, the zone or the comparison in one, change
+     * it in the other.
      *
      * @return the date whose dusk opened the current or next dark window
      */
@@ -253,6 +266,25 @@ public class AuroraForecastRunService {
 
         for (LocalDate date : nights) {
             TonightWindow window = computeWindowForDate(date);
+
+            // ⚠️ A night whose window has already ended is never run, and this guard exists
+            // because selecting the night *in progress* is what made it reachable. The preview's
+            // first night now names a window that ends rather than one that starts, so a modal
+            // opened at 02:00 offers D-1 — and if the user clicks Run at 08:00, D-1 is no longer
+            // the current night. Without this it would take the future-night branch below,
+            // fabricate a flat 50% cloud, spend a Claude call, and hand the result to
+            // replaceNightResults — which deletes before it inserts. Last night's *measured*
+            // results would be replaced by assumed ones. Skipping writes nothing at all: clearing
+            // the night would destroy the same rows by a different route.
+            if (window.dawn().toInstant().isBefore(clock.instant())) {
+                LOG.info("Aurora forecast {}: window closed at {} — skipping, results left intact",
+                        date, window.dawn());
+                results.add(new AuroraForecastRunResponse.NightResult(
+                        date, "window_closed", 0, 0, 0.0,
+                        "That night has already ended — its stored results were left untouched"));
+                continue;
+            }
+
             double maxKp = maxKpInWindow(kpForecast, window);
 
             if (maxKp < 1.0) {
@@ -287,7 +319,10 @@ public class AuroraForecastRunService {
             // can only say something true about a window that overlaps them. Keyed to the calendar
             // date, at 02:00 this branch took the *real* triage path for a window ~19 h away and
             // persisted "no clear window in the aurora hours" from cloud that had nothing to do
-            // with it. Keyed to the night in progress, the lookahead lands inside the window.
+            // with it. Keyed to the night in progress, the lookahead lands inside the window —
+            // though note that is arithmetic (02:00 + 6 h against a window ending 03:25), not
+            // something a test pins: WeatherTriageService takes no Clock and is mocked here, so a
+            // change to TRIAGE_LOOKAHEAD_HOURS would break the overlap silently.
             //
             // Known and deliberately unchanged: from mid-afternoon the current night is still
             // hours out, so the lookahead does not reach it either. That is a triage-window

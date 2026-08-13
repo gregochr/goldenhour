@@ -152,11 +152,13 @@ class AuroraForecastRunServiceTest {
     }
 
     @Test
-    @DisplayName("the selected night is the same window AuroraPollingJob would have picked")
-    void currentNightDate_windowMatchesTheAuroraPollingJobRule() {
-        // The point of the fix: one answer to "which night is it", not two. AuroraPollingJob has
-        // always resolved the in-progress window correctly; this asserts the preview now agrees,
-        // by the only property that matters — the window itself.
+    @DisplayName("before dawn the selected night's window is the one now falls inside")
+    void currentNightDate_selectsTheWindowNowIsInside() {
+        // ⚠️ This does NOT compare against AuroraPollingJob, and an earlier name and comment said
+        // it did. It cannot: calculateTonightWindow reads the system clock, so it cannot be put on
+        // this pinned instant, and comparing at wall-clock time would straddle the dawn boundary
+        // often enough to flake. What this pins is the property that makes the rule right —
+        // the selected window contains `now` — which is the same property that method satisfies.
         AuroraForecastRunService preDawn = serviceAt("2027-02-11T02:00:00Z");
         TonightWindow window = preDawn.computeWindowForDate(preDawn.currentNightDate());
 
@@ -247,6 +249,49 @@ class AuroraForecastRunServiceTest {
                 assertThat(cloud).as("the following night is assumed").isEqualTo(50);
             }
         }
+    }
+
+    @Test
+    @DisplayName("a night whose window has closed is skipped, and its stored results survive")
+    void runForecast_closedWindow_isSkippedAndNotOverwritten() {
+        // The regression selecting the in-progress night introduced, and the reason the guard
+        // exists. A modal opened at 02:00 offers D-1 as "Tonight"; run it at 08:00 and D-1 is no
+        // longer current. Without the guard it takes the future-night branch, fabricates 50%
+        // cloud, spends a Claude call, and hands the result to replaceNightResults — which deletes
+        // before it inserts, so last night's *measured* results are replaced by assumed ones.
+        AuroraForecastRunService afterDawn = serviceAt("2027-02-11T08:00:00Z");
+        LocalDate lastNight = LocalDate.of(2027, 2, 10);
+
+        when(noaaClient.fetchAll()).thenReturn(
+                new SpaceWeatherData(List.of(), List.of(), null, List.of(), List.of()));
+
+        AuroraForecastRunResponse response =
+                afterDawn.runForecast(new AuroraForecastRunRequest(List.of(lastNight)));
+
+        assertThat(response.nights()).hasSize(1);
+        assertThat(response.nights().get(0).status()).isEqualTo("window_closed");
+        // Nothing written and nothing spent — note this is never(), not "written with empty":
+        // clearing the night would destroy the same rows by a different route.
+        verify(resultWriter, never()).replaceNightResults(any(), any());
+        verify(claudeInterpreter, never()).interpret(any(), any(), any(), any(), any(), any());
+        verify(weatherTriage, never()).triage(any());
+    }
+
+    @Test
+    @DisplayName("the night still in progress is run, not mistaken for a closed one")
+    void runForecast_windowStillOpen_isNotSkipped() {
+        // The boundary the guard must not overreach: at 02:00 the same night's window runs to
+        // 03:25, so it is current and must still be evaluated.
+        AuroraForecastRunService preDawn = serviceAt("2027-02-11T02:00:00Z");
+        LocalDate nightInProgress = LocalDate.of(2027, 2, 10);
+
+        when(noaaClient.fetchAll()).thenReturn(
+                new SpaceWeatherData(List.of(), List.of(), null, List.of(), List.of()));
+
+        AuroraForecastRunResponse response =
+                preDawn.runForecast(new AuroraForecastRunRequest(List.of(nightInProgress)));
+
+        assertThat(response.nights().get(0).status()).isNotEqualTo("window_closed");
     }
 
     // -------------------------------------------------------------------------

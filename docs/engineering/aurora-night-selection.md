@@ -145,11 +145,40 @@ Three things worth knowing:
   each `interpret` call's window with its cloud figure: 20% (measured) must land on the night in
   progress, 50% (fabricated) on the one after.
 
-**Still not fixed, and separate:** `WeatherTriageService` reads the next `TRIAGE_LOOKAHEAD_HOURS`
-(6) from now, so from mid-afternoon the current night is still hours beyond the lookahead and "real"
-triage is measuring cloud outside the window it is judging. This fix makes the small-hours case
-correct — the lookahead now lands inside the running window — but does not address the daytime one.
-That is a triage-window question, not a night-selection one.
+## What selecting the in-progress night made reachable
+
+Naming a window by its *end* rather than its start opens cases that could not happen before, when
+night 0 always started in the future. One was a regression and is fixed here; the rest are logged.
+
+**Fixed — a closed window is never run.** A modal opened at 02:00 offers D−1 as "Tonight" and
+pre-ticks it. Click Run at 08:00 and D−1 is no longer current, so it would take the *future-night*
+branch: fabricated flat 50% cloud, a full Claude call, and the result handed to
+`replaceNightResults`, which deletes before it inserts. **Last night's measured results would be
+replaced by assumed ones.** `runForecast` now skips any night whose dawn is already past, writing
+nothing at all — clearing it would destroy the same rows by another route.
+
+**Open — the map does not default to the night you just ran.** `App.jsx` picks the first strip date
+`>= today`, and `MapView.jsx` shows the aurora viewline only when the selected date *is* today. Run
+"Tonight" at 02:00 and the map opens on D with no results, and clicking back to D−1 to find them
+suppresses the viewline. Not fixed here: the frontend has no source of truth for "the current
+night" other than the preview payload's `nights[0].date`, and this project requires UI changes to be
+browser-verified before landing. Its own PR.
+
+**Open — `buildKpSummary` can report elapsed hours as forthcoming.** It formats the peak overlapping
+Kp block without comparing it to now, so at 02:00 the modal can read "Kp 6 expected 00:00–03:00"
+when two of those hours have gone. Cosmetic, and newly reachable for the same reason.
+
+**Open, and pre-existing:** `WeatherTriageService` reads the next `TRIAGE_LOOKAHEAD_HOURS` (6) from
+now, so from mid-afternoon the current night is still hours beyond the lookahead and "real" triage
+measures cloud outside the window it judges. This fix makes the small-hours case correct — the
+lookahead now lands inside the running window — but not the daytime one. A triage-window question,
+not a night-selection one. Note it is arithmetic rather than a tested property: that class takes no
+`Clock` and is mocked in these tests.
+
+**Open, and pre-existing:** the two night rules agree on four independently declared constants —
+`DURHAM_LAT`, `DURHAM_LON`, `NAUTICAL_BUFFER_MINUTES` here and their twins in `AuroraPollingJob`
+(the latitude pair has two further copies in `ClaudeAuroraInterpreter` and
+`BriefingAuroraSummaryBuilder`). Change 35 to 30 in one and nothing goes red.
 
 ## What was done in the preceding change, and why not this
 
