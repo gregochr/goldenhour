@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — after midnight, the aurora forecast now offers you the night you are actually standing in
+
+A night doesn't end at midnight, but the aurora page thought it did. Ask it for a forecast at two in
+the morning and "Tonight" meant the night starting at dusk that evening — the better part of a day
+away — while the sky you could have walked outside and looked at was the night already underway. It
+offered you the wrong one, and the aurora is a thing people check at two in the morning.
+
+Worse, the same confusion decided which night got a real cloud check. The night it thought was
+tonight got one, and the night actually overhead got a stand-in figure instead. So the forecast you
+were shown for the sky above you was built on an assumption about the cloud, not a look at it.
+
+Both now follow the sky rather than the calendar: before dawn, "Tonight" is the night still running.
+This is not a summer-only or an hour-long thing — it was every night, from midnight until dawn, which
+in midwinter is seven hours.
+
 ### Fixed — a forecast run started late on a summer evening now covers the right days
 
 Between eleven at night and midnight in summer, Britain has already turned the page on the calendar
