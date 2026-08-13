@@ -27,6 +27,7 @@ import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
 import com.gregochr.goldenhour.service.evaluation.BluebellGlossService;
+import com.gregochr.solarutils.LunarCalculator;
 import com.gregochr.goldenhour.service.evaluation.BriefingGlossService;
 import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
@@ -150,7 +151,7 @@ class BriefingServiceTest {
                             .collect(java.util.stream.Collectors.toList());
                 });
         BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
-        LunarPhaseService lunarPhaseService = new LunarPhaseService();
+        LunarPhaseService lunarPhaseService = new LunarPhaseService(new LunarCalculator());
         BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
                 solarService, locationService,
                 new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
@@ -737,7 +738,7 @@ class BriefingServiceTest {
 
         // Re-create service to trigger @PostConstruct
         BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
-        LunarPhaseService lunarPhaseService = new LunarPhaseService();
+        LunarPhaseService lunarPhaseService = new LunarPhaseService(new LunarCalculator());
         BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
                 solarService, locationService,
                 new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
@@ -770,7 +771,7 @@ class BriefingServiceTest {
         when(briefingCacheRepository.findById(1)).thenReturn(Optional.of(entity));
 
         BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
-        LunarPhaseService lunarPhaseService = new LunarPhaseService();
+        LunarPhaseService lunarPhaseService = new LunarPhaseService(new LunarCalculator());
         BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
                 solarService, locationService,
                 new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
@@ -797,7 +798,7 @@ class BriefingServiceTest {
         when(briefingCacheRepository.findById(1)).thenReturn(Optional.empty());
 
         BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
-        LunarPhaseService lunarPhaseService = new LunarPhaseService();
+        LunarPhaseService lunarPhaseService = new LunarPhaseService(new LunarCalculator());
         BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
                 solarService, locationService,
                 new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
@@ -1339,7 +1340,7 @@ class BriefingServiceTest {
             when(briefingCacheRepository.findById(1)).thenReturn(Optional.of(entity));
 
             BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
-            LunarPhaseService lunarPhaseService = new LunarPhaseService();
+            LunarPhaseService lunarPhaseService = new LunarPhaseService(new LunarCalculator());
             BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
                     solarService, locationService,
                     new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,

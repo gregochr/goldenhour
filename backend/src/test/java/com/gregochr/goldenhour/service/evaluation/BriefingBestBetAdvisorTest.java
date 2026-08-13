@@ -1322,7 +1322,7 @@ class BriefingBestBetAdvisorTest {
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             LocalDateTime now = FIXED_NOW;
 
-            // isKingTide=true → statisticalSize()=EXTRA_EXTRA_HIGH
+            // heightAboveP95=true → statisticalSize()=EXTRA_EXTRA_HIGH
             BriefingSlot extraExtraHighSlot = new BriefingSlot(
                     "Bamburgh", null, Verdict.GO,
                     new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
@@ -1331,7 +1331,7 @@ class BriefingBestBetAdvisorTest {
                             new BigDecimal("6.5"), true, false,
                             LunarTideType.KING_TIDE, "New Moon", true),
                     List.of(), null);
-            // isSpringTide=true → statisticalSize()=EXTRA_HIGH
+            // heightAboveSpringThreshold=true → statisticalSize()=EXTRA_HIGH
             BriefingSlot extraHighSlot = new BriefingSlot(
                     "Dunstanburgh", null, Verdict.GO,
                     new BriefingSlot.WeatherConditions(15, BigDecimal.ZERO, 20000, 65,

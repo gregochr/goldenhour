@@ -257,14 +257,24 @@ describe('comingUpFeed — the fact line', () => {
     expect(factText(first({ meta: legacy })).join(' ')).not.toContain('LW 2h12');
   });
 
-  it('shows a high-water height only on a king run', () => {
-    // `TideRunBuilder` passes null for a spring run, so this chip is what separates the two on the
-    // fact line as well as in the title.
-    expect(factText(first({ meta: TIDE_META })).join(' ')).not.toContain('high water');
+  it('shows a high-water height on any run whose water is big, king or spring', () => {
+    // Was "only on a king run". `TideRunBuilder` now populates this when the day's water clears the
+    // port's own spring threshold — a SIZE test — rather than when the moon happens to be at
+    // perigee. So the chip is present or absent by how big the tide is, and the title is what
+    // separates spring from king.
+    const bigSpring = first({ meta: { ...TIDE_META, highWater: '5.8 m' } });
+    expect(factText(bigSpring)).toContain('high water 5.8 m');
     const king = first({
       type: 'king-tide', title: 'King tide run', meta: { ...TIDE_META, highWater: '5.8 m' },
     });
     expect(factText(king)).toContain('high water 5.8 m');
+  });
+
+  it('omits the high-water chip when the backend judged the water unremarkable', () => {
+    // The backend withholds it rather than sending a number with no claim attached, so absence has
+    // to render as absence — including on a king run, where a port can still have a quiet day.
+    const king = first({ type: 'king-tide', title: 'King tide run', meta: TIDE_META });
+    expect(factText(king).join(' ')).not.toContain('high water');
   });
 
   it('shows the moon percentage for a meteor peak', () => {

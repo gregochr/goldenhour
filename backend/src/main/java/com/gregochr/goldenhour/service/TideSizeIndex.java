@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicReference;
  *
  * <p>The Plan tab and the "Coming up" feed used to classify tides by two different methods, and the
  * feed's was the one that could not see water. The Plan tab reads
- * {@code BriefingSlot.TideInfo.isKingTide}/{@code isSpringTide}, which {@code TideFactDeriver}
+ * {@code BriefingSlot.TideInfo.heightAboveP95}/{@code heightAboveSpringThreshold}, which {@code TideFactDeriver}
  * derives from stored heights against each location's own thresholds. The feed asked
  * {@code LunarPhaseService.classifyTide}, which is pure arithmetic over two reference epochs: a date
  * qualifies when it falls within ±1 day of syzygy.

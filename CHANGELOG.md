@@ -5,6 +5,77 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the moon arithmetic was wrong, and it reached further than the tides
+
+**Every lunar figure in the app came from counting mean months forward from two reference dates,
+and both dates were wrong.** The perigee epoch was 3.45 days off an actual perigee; the new moon
+epoch was recorded as a bare date when the event was at 18:15 that evening. On top of that, both
+counts assumed a constant month — the real Moon wanders either side of the mean, and the
+perigee-to-perigee interval is not 27.55 days but anything from 24.6 to 28.6.
+
+Measured against an independent implementation of Meeus:
+
+| | error |
+|---|---|
+| new moon timing | +0.595 days on average, spread over 1.15 days |
+| "is it near a new or full moon" | wrong on ~17 days a year |
+| illuminated fraction | out by up to 7.1 percentage points |
+| perigee timing | out by up to **4.65 days** |
+
+Against a perigee window half a day wide, that last one made the king tide classification noise: it
+found **one king tide in twelve months**, on a date that was not the closest coincidence, and missed
+both genuine perigean springs in the period. The pill's own copy says king tides happen 5–10 times a
+year.
+
+It was never only a tide bug. The same illuminated fraction gates the meteor showers — it landed on
+the wrong side of the 50% moon threshold on 26 days in three years — and the same perigee distance
+dates the supermoon card, whose 3-day window was narrower than the error in it.
+
+**The fix is to stop doing the astronomy.** `solar-utils` was already a dependency, already had an
+accurate ephemeris, and was already wired up as a bean — the supermoon card was calling its
+illumination on one line while using the broken perigee on another. `LunarPhaseService` now delegates
+to it and keeps no epochs and no mean months of its own. Nearest new moon, full moon and perigee are
+found by locating the turning points of illumination and distance rather than by counting cycles.
+
+- Verified over 1096 dates: new and full moon timing now within **0.3 hours** of the reference,
+  perigee within 2.8 hours, and the tide classification agrees on 1095 of 1096 days. The one
+  exception sits exactly on the 1-day threshold, where two implementations 17 minutes apart
+  disagree by construction.
+- **`solar-utils` needed no changes.** Its illumination minima and maxima match the same reference
+  to within 0.7 hours, which was the measurement floor.
+- The perigee window widens from 0.5 days to **1.5 days** — the conventional threshold for a
+  perigean spring, and measured over 30 years it fires 5.5 times a year, matching the copy. A test
+  pins the rate so the claim cannot quietly become false again.
+- **King-ness is now a property of the event, not of each date.** The perigee test is applied to the
+  syzygy, so every day of a run gets the same answer. Applied per date, the days on the perigee side
+  of a syzygy could qualify while the far side did not — labelling one tidal event two ways across
+  its own days.
+- The old tests could not have caught any of this: they asserted that the reference new moon had
+  phase zero and that the reference perigee was a perigee, both true by construction for any epoch
+  including the wrong ones. Every date in the new suite is an externally checkable event.
+
+### Changed — a big tide and a king tide are now different claims
+
+**"King tide" named two unrelated things.** Half the code meant the astronomical event — a new or
+full moon at the Moon's closest approach. The other half meant a high water in the top 5% of what
+that port has recorded. The two were OR'd together, so a merely large spring tide printed a card
+headed "King tide" explaining "the moon's closest approach to Earth" on a date the Moon was four and
+a half days from perigee.
+
+The label now follows the moon alone, everywhere: hot topics, the coastal fact lines and the
+"Coming up" feed. The height tests keep their jobs, under names that say what they measure —
+`isKingTide` and `isSpringTide` on the briefing slot become `heightAboveP95` and
+`heightAboveSpringThreshold`.
+
+**How big the tide is has become its own signal rather than a word.** The high-water figure, its
+excess over the spring mark, and its distance from the port's record were king-only, which was the
+same conflation one level down. They are now shown whenever the water actually clears that port's
+own threshold — so a big spring tide carries them, and a genuine king tide at a port having a quiet
+day does not.
+
+Which dates a run covers is still measured from the water, because of the tidal lag. The three
+questions now have three answers and none of them borrows another's.
+
 ### Fixed — "Coming up" was listing tide runs a day or two before the water arrived
 
 **The Plan tab carried a tide card for the Friday and Saturday and the "Coming up" tab showed

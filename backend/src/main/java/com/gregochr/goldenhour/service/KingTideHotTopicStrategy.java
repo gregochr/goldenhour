@@ -299,13 +299,13 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
         for (BriefingEventSummary event : day.eventSummaries()) {
             for (BriefingRegion region : event.regions()) {
                 for (BriefingSlot slot : region.slots()) {
-                    if (isKingTide(slot.tide())) {
+                    if (isPerigeanSpring(slot.tide())) {
                         return slot.tide();
                     }
                 }
             }
             for (BriefingSlot slot : event.unregioned()) {
-                if (isKingTide(slot.tide())) {
+                if (isPerigeanSpring(slot.tide())) {
                     return slot.tide();
                 }
             }
@@ -313,10 +313,22 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
         return null;
     }
 
-    private static boolean isKingTide(BriefingSlot.TideInfo tide) {
-        return tide != null
-                && (tide.isKingTide()
-                        || tide.lunarTideType() == LunarTideType.KING_TIDE);
+    /**
+     * Whether this slot's date is a king tide — <b>a question about the moon, and only the moon</b>.
+     *
+     * <p>A king tide is a perigean spring: new or full moon coinciding with lunar perigee. It is
+     * defined by the configuration that causes it, which is exactly what this pill's own copy
+     * describes ("the moon's closest approach to Earth... only 5–10 times per year").
+     *
+     * <p>This used to also accept {@code tide.heightAboveP95()}, so a high water in the top 5% for
+     * its port printed the word "king" with no perigee anywhere in sight. That is labelling by
+     * outcome something the copy defines by cause, and the two genuinely come apart: a big spring
+     * tide clears P95 without being perigean, and August 2026's did. How big the water actually
+     * gets is a real and useful signal — it is simply a different one, and it is surfaced as size
+     * rather than as a name.
+     */
+    private static boolean isPerigeanSpring(BriefingSlot.TideInfo tide) {
+        return tide != null && tide.lunarTideType() == LunarTideType.KING_TIDE;
     }
 
     /**

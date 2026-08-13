@@ -255,8 +255,10 @@ function factsFor(meta, spansOneDay) {
     facts.push({ segments });
   }
 
-  // King runs only — `TideRunBuilder` passes null for a spring run, so this chip is what tells the
-  // two apart on the fact line as well as in the title.
+  // The size axis, and deliberately independent of the run's lunar label. `TideRunBuilder`
+  // populates this when the day's water clears the port's own spring threshold, so a big spring run
+  // carries it and a perigean run at a port having an ordinary day does not. What tells spring and
+  // king apart is the title; what tells big from ordinary is this.
   if (meta.highWater) facts.push({ segments: [base('high water '), strong(meta.highWater)] });
 
   // No "low water"/"high water" label: the phrase already opens with LW or HW and carries its own

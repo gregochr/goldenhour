@@ -534,19 +534,21 @@ class SpringTideHotTopicStrategyTest {
     // ── Statistical spring tide detection ─────────────────────────────────────
 
     @Test
-    @DisplayName("statistical spring tide (isSpringTide=true, lunarTideType=REGULAR) emits pill")
-    void detect_statisticalSpringTide_emitsPill() {
-        BriefingSlot.TideInfo statisticalSpring = new BriefingSlot.TideInfo(
+    @DisplayName("a merely-big tide is not a spring tide — height above the threshold with the "
+            + "moon at first quarter emits nothing")
+    void detect_heightAboveThresholdWithoutSyzygy_emitsNoPill() {
+        // Asserted the opposite until the two axes were separated. A spring tide is a lunar event
+        // — syzygy — and a port can have a high water above its 125%-of-mean threshold on a day the
+        // moon is nowhere near new or full, for reasons that are weather rather than astronomy.
+        // Naming that "spring tide" tells the reader the wrong thing about why it is happening and
+        // about whether tomorrow will be similar.
+        BriefingSlot.TideInfo bigButNotSyzygy = new BriefingSlot.TideInfo(
                 "HIGH", true, null, null, false, true, LunarTideType.REGULAR_TIDE,
                 "Waxing Crescent", false);
         when(briefingService.getCachedDays()).thenReturn(List.of(
-                buildDayWithTide(TODAY, statisticalSpring)));
-        stubCoastalLocations(TODAY, "Northumberland");
+                buildDayWithTide(TODAY, bigButNotSyzygy)));
 
-        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
-
-        assertThat(topics).hasSize(1);
-        assertThat(topics.get(0).type()).isEqualTo("SPRING_TIDE");
+        assertThat(strategy.detect(TODAY, TO_DATE)).isEmpty();
     }
 
     @Test

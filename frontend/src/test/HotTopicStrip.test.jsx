@@ -2766,6 +2766,18 @@ describe('HotTopicStrip — storm surge verdict', () => {
 });
 
 describe('HotTopicStrip — the safety warning', () => {
+  // Pin the clock. ECLIPSE below is dated 2026-08-12 and one of these tests asserts the timing lead
+  // reads "Today", so without this the test passes only while the real date happens to be that day
+  // and then starts failing on its own — which is what it did. Same treatment, and same reason, as
+  // the 'timing lead' block above.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-08-12T12:00:00Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   const WARNING = 'Certified solar filter on the lens — not only over your eye';
 
   const ECLIPSE = buildTopic({

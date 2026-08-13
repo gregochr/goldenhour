@@ -19,6 +19,7 @@ import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.service.LunarPhaseService;
 import com.gregochr.goldenhour.service.SolarService;
+import com.gregochr.solarutils.LunarCalculator;
 import com.gregochr.goldenhour.service.SolarService.SolarWindow;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -68,7 +69,7 @@ class ForecastDtoMapperTest {
     void setUp() {
         lenient().when(solarService.goldenBlueWindow(anyDouble(), anyDouble(), any(), anyBoolean()))
                 .thenReturn(new SolarWindow(null, null, null, null));
-        mapper = new ForecastDtoMapper(new LunarPhaseService(), solarService,
+        mapper = new ForecastDtoMapper(new LunarPhaseService(new LunarCalculator()), solarService,
                 new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"),
                 forecastScoreRepository, marineWaveRepository);
     }
@@ -376,7 +377,7 @@ class ForecastDtoMapperTest {
     @Test
     @DisplayName("toDtoList() computes lunar once per DISTINCT date, proving per-date keying (K1)")
     void toDtoList_lunarComputedOncePerDistinctDate() {
-        LunarPhaseService lunarSpy = spy(new LunarPhaseService());
+        LunarPhaseService lunarSpy = spy(new LunarPhaseService(new LunarCalculator()));
         ForecastDtoMapper localMapper = new ForecastDtoMapper(lunarSpy, solarService,
                 new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"),
                 forecastScoreRepository, marineWaveRepository);

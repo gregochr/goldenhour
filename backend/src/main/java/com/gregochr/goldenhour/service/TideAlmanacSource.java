@@ -17,11 +17,11 @@ import java.util.Map;
  * Spring and king tide runs across the whole feed, detected from the lunar cycle and enriched from
  * stored tide extremes where they reach.
  *
- * <p><strong>Which dates qualify is measured from the water, not from the moon.</strong>
- * {@link TideSizeIndex} applies the Plan tab's own two tests — a high water clearing its location's
- * spring threshold, or its P95 — across the whole feed, so both surfaces answer one question the
- * same way. The lunar classifier survives as the <em>fallback</em> for a database that cannot answer
- * yet, and as one of the two arms of the king label.
+ * <p><strong>Two axes, and neither may answer for the other.</strong> <em>Which dates</em> a run
+ * covers is measured from the water: {@link TideSizeIndex} applies the Plan tab's own height tests
+ * across the whole feed. <em>What kind of event</em> it is comes from the moon: a king run is a
+ * perigean spring, which is what the word means and what the copy describes. The lunar classifier
+ * is also the <em>fallback</em> for dates when the database cannot answer at all.
  *
  * <p><strong>Why the moon alone was wrong.</strong> {@code classifyTide} qualifies a date within
  * ±1 day of syzygy, and a port's biggest tide lags syzygy by a day or two — the age of the tide,
@@ -53,7 +53,8 @@ import java.util.Map;
  *
  * <p>A run is a maximal block of consecutive spring-or-king days. King wins the label for the whole
  * run if any day in it is perigean, matching the product's existing rule that a run is one event
- * rather than n unrelated days.
+ * rather than n unrelated days — and {@code LunarPhaseService.classifyTide} now measures perigee
+ * from the syzygy instant rather than per date, so every day of one lunar event already agrees.
  */
 @Component
 public class TideAlmanacSource implements AlmanacSource {
@@ -200,7 +201,7 @@ public class TideAlmanacSource implements AlmanacSource {
         // is the one most likely to fall outside the window.
         boolean king = false;
         for (LocalDate date = start; !date.isAfter(end); date = date.plusDays(1)) {
-            if (isKing(date, sizes)) {
+            if (isKing(date)) {
                 king = true;
                 break;
             }
@@ -225,17 +226,21 @@ public class TideAlmanacSource implements AlmanacSource {
     }
 
     /**
-     * Whether a date is king-sized, by the same disjunction the Plan tab's detector uses.
+     * Whether a date belongs to a king tide — <b>an astronomical question, answered astronomically</b>.
      *
-     * <p>{@code KingTideHotTopicStrategy} accepts either arm: a high water above the location's P95
-     * (a <em>statistical</em> size test, which says nothing about the moon) or a perigean spring
-     * (the astronomical event the pill's copy actually describes). Lifting the same disjunction is
-     * what keeps the two surfaces from labelling one event two ways. Where nothing was measured only
-     * the astronomical arm can answer.
+     * <p>The two axes this class uses are deliberately not interchangeable. <em>Which dates</em> a
+     * run covers comes from the water, because a port's biggest tide lags syzygy by a day or two and
+     * no lunar arithmetic recovers that lag. <em>What kind of event</em> it is comes from the moon,
+     * because that is what the words mean: a king tide is a perigean spring.
+     *
+     * <p>This briefly accepted {@code sizes.kingOn(date)} as an alternative arm, lifted from the
+     * Plan tab's detector for consistency. That was wrong in the direction that matters — it let a
+     * high water in the top 5% for its port print the word "king" with no perigee involved, which
+     * is labelling by outcome an event the card's copy defines by cause. The Plan tab's height arm
+     * has been removed too, so the two surfaces still agree; they now agree on the right answer.
      */
-    private boolean isKing(LocalDate date, TideSizeIndex.Sizes sizes) {
-        return (sizes.usable() && sizes.kingOn(date))
-                || lunarPhaseService.classifyTide(date) == LunarTideType.KING_TIDE;
+    private boolean isKing(LocalDate date) {
+        return lunarPhaseService.classifyTide(date) == LunarTideType.KING_TIDE;
     }
 
     private AlmanacEvent toEvent(Run run, List<LocationEntity> coastal) {

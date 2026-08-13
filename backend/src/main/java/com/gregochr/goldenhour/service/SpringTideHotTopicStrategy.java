@@ -199,17 +199,16 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
         return null;
     }
 
+    /**
+     * Whether this slot's date is a spring tide but not a king one — the lunar axis alone.
+     *
+     * <p>The height tests are deliberately gone. They asked whether the water at one port cleared a
+     * percentile, which is a different question from whether the moon is at syzygy, and mixing them
+     * meant a merely-big tide could be named "king" and an ordinary-sized spring tide could fail to
+     * be named "spring" at all. See {@code KingTideHotTopicStrategy#isPerigeanSpring}.
+     */
     private static boolean isSpringNotKing(BriefingSlot.TideInfo tide) {
-        if (tide == null) {
-            return false;
-        }
-        boolean isKing = tide.isKingTide()
-                || tide.lunarTideType() == LunarTideType.KING_TIDE;
-        if (isKing) {
-            return false;
-        }
-        return tide.isSpringTide()
-                || tide.lunarTideType() == LunarTideType.SPRING_TIDE;
+        return tide != null && tide.lunarTideType() == LunarTideType.SPRING_TIDE;
     }
 
     private List<String> extractRegionNames(List<LocationEntity> locations) {

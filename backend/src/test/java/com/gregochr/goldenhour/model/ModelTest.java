@@ -187,7 +187,7 @@ class ModelTest {
     }
 
     @Test
-    @DisplayName("BriefingSlot.TideInfo.statisticalSize() derives from isKingTide")
+    @DisplayName("BriefingSlot.TideInfo.statisticalSize() derives from heightAboveP95")
     void tideInfo_statisticalSize_kingTide() {
         var info = new BriefingSlot.TideInfo("HIGH", true, null,
                 new BigDecimal("6.2"), true, false,
@@ -197,7 +197,7 @@ class ModelTest {
     }
 
     @Test
-    @DisplayName("BriefingSlot.TideInfo.statisticalSize() derives from isSpringTide")
+    @DisplayName("BriefingSlot.TideInfo.statisticalSize() derives from heightAboveSpringThreshold")
     void tideInfo_statisticalSize_springTide() {
         var info = new BriefingSlot.TideInfo("HIGH", true, null,
                 new BigDecimal("5.1"), false, true,

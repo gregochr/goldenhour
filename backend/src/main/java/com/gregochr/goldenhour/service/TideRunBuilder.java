@@ -347,6 +347,12 @@ public class TideRunBuilder {
         Point otherPoint = nearestSolar(day.points(),
                 king ? TideExtremeType.LOW : TideExtremeType.HIGH, sunriseMinutes, sunsetMinutes);
 
+        // Whether this port's water is actually big today, as opposed to whether the moon says the
+        // event is a spring or a king one. Withheld rather than assumed when the location has no
+        // observed spring-neap cycle to have a threshold from.
+        boolean notablyHigh = stats != null && stats.springTideThreshold() != null
+                && day.high() > stats.springTideThreshold().doubleValue();
+
         // A one-day run has no peak to point at — every day is trivially the biggest, and a "peak
         // range" badge on a lone card claims a comparison that was never made.
         boolean peak = dayCount > 1 && Math.abs(day.range() - peakRange) < 1e-9;
@@ -365,13 +371,21 @@ public class TideRunBuilder {
                 location.getName(),
                 TideWording.metres(day.range()),
                 rangeAnomaly(day.range(), stats == null ? null : stats.avgRangeMetres()),
-                // King runs carry the absolute high water as well. The range against the mean is a
-                // SPRING framing — what makes a tide king is how far the water clears the spring
-                // threshold, and swapping the chart in for the fact chips would otherwise lose the
-                // one number that distinguishes the two events.
-                king ? TideWording.metres(day.high()) : null,
-                king ? springExcess(day.high(), stats == null ? null : stats.springTideThreshold()) : null,
-                king ? highWaterRank(day.high(), stats) : null,
+                // The absolute high water, its excess over the spring mark, and its rank against the
+                // port's record — the "how big is this one, really" chips.
+                //
+                // GATED ON SIZE, NOT ON THE LUNAR LABEL. These used to be king-only, which was the
+                // spring/king conflation one level down: king is now a statement about the moon
+                // (a perigean spring), and the moon does not decide whether this port's water is
+                // remarkable. A big spring tide has a notable high water and a reader deciding
+                // whether to drive wants the number; a perigean spring at a port having an
+                // unremarkable day does not, and would previously have got three chips saying so in
+                // three ways. The size test is the port's own spring threshold — the same
+                // comparison TideSizeIndex uses to decide which dates a run covers, so the chips and
+                // the run's own dates cannot disagree about what counts as big.
+                notablyHigh ? TideWording.metres(day.high()) : null,
+                notablyHigh ? springExcess(day.high(), stats == null ? null : stats.springTideThreshold()) : null,
+                notablyHigh ? highWaterRank(day.high(), stats) : null,
                 TideWording.clock(sunriseMinutes),
                 TideWording.clock(sunsetMinutes),
                 seas(location.getId(), date, usefulPoint, sunriseMinutes, sunsetMinutes),

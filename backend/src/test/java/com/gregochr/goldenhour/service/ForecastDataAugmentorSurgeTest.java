@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 import com.gregochr.goldenhour.model.TideRiskLevel;
 import com.gregochr.goldenhour.model.TideSnapshot;
+import com.gregochr.solarutils.LunarCalculator;
 import com.gregochr.goldenhour.model.TideStats;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -60,7 +61,7 @@ class ForecastDataAugmentorSurgeTest {
     @BeforeEach
     void setUp() {
         augmentor = new ForecastDataAugmentor(openMeteoService, solarService, tideService,
-                new TideFactDeriver(tideService, new LunarPhaseService(), solarService),
+                new TideFactDeriver(tideService, new LunarPhaseService(new LunarCalculator()), solarService),
                 weatherAugmentedTideService, surgeCalibrationLogger,
                 new BluebellConditionService(),
                 new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"));

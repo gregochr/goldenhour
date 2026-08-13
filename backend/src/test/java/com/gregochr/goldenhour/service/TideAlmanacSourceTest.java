@@ -125,33 +125,38 @@ class TideAlmanacSourceTest {
         }
 
         @Test
-        @DisplayName("a king-sized date qualifies even when it is not also spring-sized — the two "
+        @DisplayName("a king-sized date still qualifies as part of a run — the two height "
                 + "thresholds are independent and neither implies the other")
         void kingSizedWaterQualifiesOnItsOwn() {
             // P95 and 125%-of-mean are computed from one sample but neither is defined in terms of
-            // the other, so a location's P95 can sit above its spring threshold. Treating king as a
-            // subset of spring would drop exactly the biggest day of the run.
+            // the other, so a location's P95 can sit above its spring threshold. Treating king-sized
+            // as a subset of spring-sized would drop exactly the biggest day of the run. This is
+            // about MEMBERSHIP — which dates the run covers — not about its label.
+            when(lunarPhaseService.classifyTide(any())).thenReturn(LunarTideType.SPRING_TIDE);
+
             List<TideAlmanacSource.Run> runs = source().detectRuns(
                     MONDAY, MONDAY.plusDays(2), sizes(Set.of(), Set.of(1)));
 
             assertThat(runs).hasSize(1);
             assertThat(runs.getFirst().start()).isEqualTo(MONDAY.plusDays(1));
-            assertThat(runs.getFirst().king()).isTrue();
         }
 
         @Test
-        @DisplayName("a statistically king-sized day makes the run a king run, matching the Plan "
-                + "tab's own detector")
-        void measuredKingPromotesTheRun() {
-            when(lunarPhaseService.classifyTide(any())).thenReturn(LunarTideType.REGULAR_TIDE);
+        @DisplayName("king-SIZED water does not make a KING run — the label is the moon's, the "
+                + "dates are the water's")
+        void measuredKingDoesNotPromoteTheRun() {
+            // The two axes, in one assertion. Every day of this run carries water above its port's
+            // P95, and none of it is perigean: the run is real and correctly dated, and it is a
+            // SPRING run. Promoting it would print a card about "the moon's closest approach" on a
+            // date the moon was not close, which is what the Plan tab used to do and what the
+            // height arm was removed from both surfaces to stop.
+            when(lunarPhaseService.classifyTide(any())).thenReturn(LunarTideType.SPRING_TIDE);
 
             List<TideAlmanacSource.Run> runs = source().detectRuns(
-                    MONDAY, MONDAY.plusDays(2), sizes(Set.of(0, 1, 2), Set.of(1)));
+                    MONDAY, MONDAY.plusDays(2), sizes(Set.of(0, 1, 2), Set.of(0, 1, 2)));
 
             assertThat(runs).hasSize(1);
-            // KingTideHotTopicStrategy accepts the P95 arm with no perigee anywhere in sight; if
-            // this source demanded the astronomical arm the two tabs would label one event twice.
-            assertThat(runs.getFirst().king()).isTrue();
+            assertThat(runs.getFirst().king()).isFalse();
         }
 
         @Test

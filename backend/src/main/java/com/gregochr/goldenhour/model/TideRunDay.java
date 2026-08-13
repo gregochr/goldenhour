@@ -38,9 +38,12 @@ import java.util.List;
  * @param range        the day's tidal range, {@code "3.6 m"}
  * @param rangeAnomaly signed range anomaly against the location's mean, {@code "+0.4"}; null when
  *                     no historical baseline exists, or when the difference is below display noise
- * @param highWater    the day's highest water, {@code "5.8 m"} — populated for KING runs only,
- *                     because a king tide's defining number is how high the water gets, not how far
- *                     it swings. Null on a spring run, where the range is the story
+ * @param highWater    the day's highest water, {@code "5.8 m"}. Populated when the water actually
+ *                     clears the location's own spring-tide threshold — <b>a size test, not the
+ *                     run's lunar label</b>. It was king-only, which was the same spring/king
+ *                     conflation one level down: "king" says the moon was at perigee, and the moon
+ *                     does not decide whether this port's water is remarkable today. Null when the
+ *                     day is unremarkable there, or when the location has no threshold yet
  * @param highWaterAnomaly how far that high water clears the location's spring-tide threshold,
  *                     {@code "+0.4 m over spring"} — the thing that makes a tide king rather than
  *                     merely spring. Null when there is no threshold or the excess is display noise
@@ -50,8 +53,8 @@ import java.util.List;
  *                     The spring threshold is defined as 125% of mean high water, so a
  *                     metres-over-the-mean figure would be the spring excess plus a per-location
  *                     constant — a restatement, not a second reading. Distance to the ceiling moves
- *                     independently of it. Null on a spring run, or when the location's history is
- *                     too short for its maximum to be called a record
+ *                     independently of it. Null when the day does not clear the spring threshold,
+ *                     or when the location's history is too short for its maximum to be a record
  * @param sunrise      the day's sunrise, {@code "05:10"}
  * @param sunset       the day's sunset, {@code "21:22"}
  * @param seas         significant wave height with its sea-state band, {@code "0.3 m · smooth"};

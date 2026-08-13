@@ -145,13 +145,13 @@ public class BriefingVerdictEvaluator {
      *
      * @param tideState       HIGH/MID/LOW or null for inland
      * @param tideAligned     whether tide matches the location's preference
-     * @param isKingTide      whether this is a statistically exceptional tide (exceeds P95)
-     * @param isSpringTide    whether this is a statistically high tide (exceeds 125% avg)
+     * @param heightAboveP95      whether this is a statistically exceptional tide (exceeds P95)
+     * @param heightAboveSpringThreshold    whether this is a statistically high tide (exceeds 125% avg)
      * @param lunarTideType   astronomical tide classification, or null for inland
      * @param tidesNotAligned true when the coastal tide demotion was applied
      */
     public record TideContext(String tideState, boolean tideAligned,
-            boolean isKingTide, boolean isSpringTide,
+            boolean heightAboveP95, boolean heightAboveSpringThreshold,
             LunarTideType lunarTideType, boolean tidesNotAligned) {
     }
 
@@ -449,7 +449,7 @@ public class BriefingVerdictEvaluator {
         for (BriefingSlot slot : slots) {
             TideContext ctx = new TideContext(
                     slot.tide().tideState(), slot.tide().tideAligned(),
-                    slot.tide().isKingTide(), slot.tide().isSpringTide(),
+                    slot.tide().heightAboveP95(), slot.tide().heightAboveSpringThreshold(),
                     slot.tide().lunarTideType(), false);
             String label = combinedTideLabel(ctx);
             if (label != null) {
@@ -488,9 +488,9 @@ public class BriefingVerdictEvaluator {
 
         // Statistical dimension (renamed from "King"/"Spring" to avoid confusion)
         String statLabel = null;
-        if (tide.isKingTide()) {
+        if (tide.heightAboveP95()) {
             statLabel = "Extra Extra High";
-        } else if (tide.isSpringTide()) {
+        } else if (tide.heightAboveSpringThreshold()) {
             statLabel = "Extra High";
         }
 

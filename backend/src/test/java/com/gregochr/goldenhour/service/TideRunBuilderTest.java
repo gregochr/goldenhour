@@ -398,6 +398,50 @@ class TideRunBuilderTest {
 
     // ── highWaterRank — how extraordinary, measured against the record ────────
 
+    // ── the size axis, which is independent of the run's lunar label ─────────
+
+    @Test
+    @DisplayName("a SPRING run whose water is genuinely big carries the high-water chips")
+    void build_springRun_bigWater_carriesTheSizeChips() {
+        // These were king-only, which was the spring/king conflation one level down: "king" is a
+        // statement about the moon being at perigee, and the moon does not decide whether this
+        // port's water is remarkable. A spring tide clearing the port's own threshold is exactly
+        // the case a reader wants the number for — and, since the height arm was removed from the
+        // king label, it is now also the common case.
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1,
+                low("02:00", 0.4), high("08:35", 5.0), low("14:20", 0.4)));
+        when(tideService.getTideStats(ID_SEAHAM))
+                .thenReturn(Optional.of(ranked("5.4", "4.9", 1400L)));
+
+        // false = a spring run, not a king one.
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
+
+        assertThat(day.highWater()).isEqualTo("5.0 m");
+        assertThat(day.highWaterRank()).isEqualTo("0.4 m off the record");
+    }
+
+    @Test
+    @DisplayName("a KING run at a port having an ordinary day carries no size chips")
+    void build_kingRun_ordinaryWater_claimsNoSize() {
+        // The mirror image, and the reason this is not simply "show it everywhere". A perigean
+        // spring is a king tide wherever you are, but the water at one particular port can still be
+        // unremarkable — and three chips insisting otherwise would be the old defect with the
+        // arguments swapped.
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1,
+                low("02:00", 1.2), high("08:35", 3.9), low("14:20", 1.2)));
+        when(tideService.getTideStats(ID_SEAHAM))
+                .thenReturn(Optional.of(ranked("5.4", "4.9", 1400L)));
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), true).get(DAY_1);
+
+        // 3.9 m is below the 4.4 m spring threshold, so nothing about size is claimed.
+        assertThat(day.highWater()).isNull();
+        assertThat(day.highWaterAnomaly()).isNull();
+        assertThat(day.highWaterRank()).isNull();
+    }
+
     @Test
     @DisplayName("high water short of the record states the shortfall")
     void build_kingRun_belowRecord_statesDistanceToIt() {
@@ -848,7 +892,13 @@ class TideRunBuilderTest {
         return new TideStats(null, new BigDecimal(maxHigh), null, null, dataPoints,
                 new BigDecimal("3.5"), null, null,
                 p95 == null ? null : new BigDecimal(p95),
-                0L, null, null, null, 0L);
+                // A spring threshold below the high waters these tests use, so the size gate opens.
+                // It moves with p95 rather than being independent of it because TideService derives
+                // both under one `cycleObserved` check — a location has both or neither, and a
+                // fixture supplying only one describes a state production cannot reach. This helper
+                // used to omit it entirely, which was harmless only while the high-water chips were
+                // gated on the run's lunar label instead of on the size of the water.
+                0L, null, p95 == null ? null : new BigDecimal("4.4"), null, 0L);
     }
 
     private static MarineWaveEntity wave(double hs) {

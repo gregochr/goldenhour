@@ -83,8 +83,10 @@ public class CoastalTideFactsBuilder {
      * @return the king-tide science, or null
      */
     public CoastalScience buildKing(BriefingDay day, List<LocationEntity> coastalLocations) {
+        // Lunar only — a king tide is a perigean spring, not a height percentile. See
+        // KingTideHotTopicStrategy#heightAboveP95 for why the height arm was removed.
         Candidate rep = selectRepresentative(day, coastalLocations,
-                t -> t.isKingTide() || t.lunarTideType() == LunarTideType.KING_TIDE,
+                t -> t.lunarTideType() == LunarTideType.KING_TIDE,
                 CoastalTideFactsBuilder::highWaterMetric);
         return rep == null ? null : buildKingFacts(rep, day.date());
     }
@@ -98,8 +100,7 @@ public class CoastalTideFactsBuilder {
      */
     public CoastalScience buildSpring(BriefingDay day, List<LocationEntity> coastalLocations) {
         Candidate rep = selectRepresentative(day, coastalLocations,
-                t -> !(t.isKingTide() || t.lunarTideType() == LunarTideType.KING_TIDE)
-                        && (t.isSpringTide() || t.lunarTideType() == LunarTideType.SPRING_TIDE),
+                t -> t.lunarTideType() == LunarTideType.SPRING_TIDE,
                 CoastalTideFactsBuilder::rangeMetric);
         return rep == null ? null : buildSpringFacts(rep, day.date());
     }

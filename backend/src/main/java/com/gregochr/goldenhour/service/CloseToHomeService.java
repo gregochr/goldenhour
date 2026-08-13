@@ -624,10 +624,10 @@ public class CloseToHomeService {
         }
         // King and spring do NOT depend on tideState — a notable tide is worth saying even when
         // the state is unknown. The first port gated them on a non-null state and dropped them.
-        if (Boolean.TRUE.equals(tide.isKingTide())) {
+        if (Boolean.TRUE.equals(tide.heightAboveP95())) {
             return "king tide";
         }
-        if (Boolean.TRUE.equals(tide.isSpringTide())) {
+        if (Boolean.TRUE.equals(tide.heightAboveSpringThreshold())) {
             return "spring tide";
         }
         // A plain state is only worth a chip when it MATCHES the location's preference. Without

@@ -227,8 +227,8 @@ public record BriefingSlot(
      * @param tideAligned         true if tide matches location preference
      * @param nearestHighTideTime UTC time of nearest high tide, or null
      * @param nearestHighTideHeight height of nearest high tide in metres, or null
-     * @param isKingTide          true if the nearest high tide exceeds P95 (statistical)
-     * @param isSpringTide        true if the nearest high tide exceeds 125% avg (statistical)
+     * @param heightAboveP95          true if the nearest high tide exceeds P95 (statistical)
+     * @param heightAboveSpringThreshold        true if the nearest high tide exceeds 125% avg (statistical)
      * @param lunarTideType       astronomical tide classification, or null for inland
      * @param lunarPhase          human-readable moon phase name, or null for inland
      * @param moonAtPerigee       true if the moon is near perigee, or null for inland
@@ -238,8 +238,8 @@ public record BriefingSlot(
             boolean tideAligned,
             LocalDateTime nearestHighTideTime,
             BigDecimal nearestHighTideHeight,
-            boolean isKingTide,
-            boolean isSpringTide,
+            boolean heightAboveP95,
+            boolean heightAboveSpringThreshold,
             LunarTideType lunarTideType,
             String lunarPhase,
             Boolean moonAtPerigee) {
@@ -251,15 +251,15 @@ public record BriefingSlot(
         /**
          * Derives the statistical size classification from the existing boolean flags.
          *
-         * @return {@link TideStatisticalSize#EXTRA_EXTRA_HIGH} if {@code isKingTide},
-         *         {@link TideStatisticalSize#EXTRA_HIGH} if {@code isSpringTide},
+         * @return {@link TideStatisticalSize#EXTRA_EXTRA_HIGH} if {@code heightAboveP95},
+         *         {@link TideStatisticalSize#EXTRA_HIGH} if {@code heightAboveSpringThreshold},
          *         or {@code null} for regular-sized tides
          */
         public TideStatisticalSize statisticalSize() {
-            if (isKingTide) {
+            if (heightAboveP95) {
                 return TideStatisticalSize.EXTRA_EXTRA_HIGH;
             }
-            if (isSpringTide) {
+            if (heightAboveSpringThreshold) {
                 return TideStatisticalSize.EXTRA_HIGH;
             }
             return null;
