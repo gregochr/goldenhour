@@ -6,7 +6,7 @@ import TideRunRow from '../components/TideRunRow.jsx';
 /**
  * Tests for the multi-day tide run row.
  *
- * The row exists to answer one question in a glance — does the useful water land near a solar
+ * The row exists to answer one question in a glance — does a usable water land near a solar
  * event? — so what is pinned here is that the answer survives in words for anyone who cannot see
  * the chart, that the curve is drawn from the day's real extrema, and that a label never
  * overprints a sun marker. The verdict string itself is derived on the backend and covered by

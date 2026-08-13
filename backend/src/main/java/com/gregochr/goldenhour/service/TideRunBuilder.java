@@ -32,10 +32,39 @@ import java.util.OptionalDouble;
  * Builds the per-day {@link TideRunDay} rows behind a spring or king tide pill's 24-hour chart.
  *
  * <p>A spring tide is a multi-day <em>run</em>, not a set of unrelated days, and the one question it
- * has to answer is <em>does the useful water land near a solar event?</em> Answering that needs tide
+ * has to answer is <em>does a useful water land near a solar event?</em> Answering that needs tide
  * clock times and solar clock times side by side, which is what this builder assembles: the day's
  * extrema, its sunrise and sunset, its range against the location's own mean, the sea state, and a
  * plain-language {@link TideRunDay#verdict()} stating the alignment in words.
+ *
+ * <h2>The run is framed by the water that lands in the light, not by its lunar label</h2>
+ *
+ * <p>This used to hard-code the answer — {@code useful = king ? HIGH : LOW} — so every spring run was
+ * framed around low water and every king run around high. That is a claim about what a reader came
+ * to photograph, decided by the moon. It is wrong for most of this roster: a spring tide's gift is a
+ * big <em>range</em>, which lifts high water exactly as far as it drops low water, and most coastal
+ * locations here are configured to shoot the high one.
+ *
+ * <p>So there is no "useful" water any more. Each day names the extremum sitting nearest a solar
+ * event, and calls itself aligned when that water is inside {@link #ALIGNED_WINDOW_MINUTES}. <b>One
+ * point drives everything the row says</b> — {@link TideRunDay#verdict()},
+ * {@link TideRunDay#aligned()}, {@link TideRunDay#alignedEvent()},
+ * {@link TideRunDay#alignmentPhrase()}, the sea-state sample and the editorial
+ * {@link TideRunDay#phrase()} — so the row can no longer contradict itself. It used to, repeatedly:
+ * two candidate waters and two thresholds produced a headline denying an alignment the line beneath
+ * it had just stated, and each fix bolted on another rule keyed to a different point. That
+ * contradiction is now structurally impossible rather than defended by rules.
+ *
+ * <p>The editorial phrase follows the <b>water</b>, which is what it was always describing —
+ * {@link #LOW_WATER_PHRASE} is about a bared foreground, {@link #HIGH_WATER_PHRASE} about a
+ * submerged one. They read as run-type phrases only because the run type had already picked the
+ * water.
+ *
+ * <p>The tally in {@link #rosterAlignment} stays <b>astronomical</b>, applying the same rule at every
+ * location's own sunrise and sunset. It deliberately does not consult each location's
+ * {@link com.gregochr.goldenhour.entity.TideType} preference: a preference-weighted count answers a
+ * different question from the badge above it, and that mismatch is what once printed "no tide
+ * alignments" over a chart drawing one.
  *
  * <h2>One location for the whole run</h2>
  *
@@ -66,21 +95,35 @@ public class TideRunBuilder {
     /** The run chip text for a perigean (king) run. */
     public static final String KING_RUN_LABEL = "KING RUN";
 
-    /** A spring run's draw is the exposed foreground at low water. */
-    public static final String SPRING_PHRASE = "low water bares the foreground";
+    /**
+     * The draw when <b>low</b> water is the one that lands in the light — a big range bares ground
+     * that is normally covered. Keyed to the water, not to the run: a spring run whose high water is
+     * the one in the light has nothing to say about an exposed foreground.
+     */
+    public static final String LOW_WATER_PHRASE = "low water bares the foreground";
 
-    /** A king run's draw is the highest water, not the exposed foreground — different framing. */
-    public static final String KING_PHRASE = "causeways & foreshore submerged — shoot reflections";
+    /**
+     * The draw when <b>high</b> water is the one that lands in the light — the same tide, a
+     * different picture. Keyed to the water for the reason given on {@link #LOW_WATER_PHRASE}.
+     */
+    public static final String HIGH_WATER_PHRASE =
+            "causeways & foreshore submerged — shoot reflections";
 
     private static final ZoneId LONDON = ZoneId.of("Europe/London");
     private static final DateTimeFormatter DAY_LABEL =
             DateTimeFormatter.ofPattern("EEE d", Locale.UK);
 
-    /** Within this many minutes of a solar event, the useful water counts as aligned. */
+    /**
+     * Within this many minutes of a solar event, a water counts as landing in the light.
+     *
+     * <p>The <b>only</b> threshold in this class, deliberately. There used to be a second one at 30
+     * minutes, and the two answered the same question — <em>is this water near a solar event?</em> —
+     * with the stricter of them guarding the more useful sentence. A high water 58 minutes after
+     * sunrise fell between them and was discarded in favour of a low water five hours out, in the
+     * dark. The wording that second threshold existed for ("at sunrise" rather than "0m after
+     * sunrise") belongs to {@link TideWording#offsetPhrase}, which applies it to every form here.
+     */
     private static final long ALIGNED_WINDOW_MINUTES = 60;
-
-    /** Within this many minutes, the *other* extremum is close enough to say "at sunrise". */
-    private static final long COINCIDENT_MINUTES = 30;
 
     /**
      * Stored extremes (highs and lows together) a location needs before its highest recorded water
@@ -181,7 +224,7 @@ public class TideRunBuilder {
         TideStats stats = tideService.getTideStats(representative.getId()).orElse(null);
 
         Map<LocalDate, TideRunDay.RosterAlignment> roster =
-                rosterAlignment(coastalLocations, byLocation, perDay.keySet(), king);
+                rosterAlignment(coastalLocations, byLocation, perDay.keySet());
 
         Map<LocalDate, TideRunDay> result = new LinkedHashMap<>();
         int dayNumber = 1;
@@ -209,22 +252,25 @@ public class TideRunBuilder {
      * writing. Every extreme needed here is already in {@code byLocation}; only the per-location
      * solar times are new, and those are arithmetic.
      *
-     * <p><b>The rule is identical to the representative's</b>, deliberately: useful extremum if it
-     * falls inside the window, otherwise the other extremum if that one does. That makes the
-     * representative a member of its own tally, so an aligned chart can never print above a zero.
+     * <p><b>The rule is identical to the representative's</b>, deliberately: the extremum nearest a
+     * solar event, if it lands inside the window. That makes the representative a member of its own
+     * tally, so an aligned chart can never print above a zero. It is also why this takes no
+     * {@code king} flag — the question is the same one on either kind of run.
+     *
+     * <p><b>It stays astronomical.</b> Weighting it by each location's
+     * {@link com.gregochr.goldenhour.entity.TideType} would ask whether the water matched a stored
+     * preference, which is a different question from the one the badge above it asks, and one the
+     * badge cannot answer for a location whose preference is unset.
      *
      * @param coastalLocations the roster to measure
      * @param byLocation       every location's stored extremes, already fetched
      * @param dates            the dates the run draws
-     * @param king             true for a king run, whose useful water is high
      * @return the tally per date
      */
     private Map<LocalDate, TideRunDay.RosterAlignment> rosterAlignment(
             List<LocationEntity> coastalLocations,
             Map<Long, List<TideExtremeEntity>> byLocation,
-            java.util.Collection<LocalDate> dates, boolean king) {
-        TideExtremeType useful = king ? TideExtremeType.HIGH : TideExtremeType.LOW;
-        TideExtremeType other = king ? TideExtremeType.LOW : TideExtremeType.HIGH;
+            java.util.Collection<LocalDate> dates) {
         Map<LocalDate, TideRunDay.RosterAlignment> out = new LinkedHashMap<>();
         for (LocalDate date : dates) {
             int sunriseAligned = 0;
@@ -243,7 +289,7 @@ public class TideRunBuilder {
                         solarService.sunriseUtc(location.getLat(), location.getLon(), date));
                 int sunsetMinutes = localMinutes(
                         solarService.sunsetUtc(location.getLat(), location.getLon(), date));
-                Point named = alignedPoint(day, useful, other, sunriseMinutes, sunsetMinutes);
+                Point named = waterInTheLight(day, sunriseMinutes, sunsetMinutes);
                 if (named == null) {
                     continue;
                 }
@@ -259,16 +305,15 @@ public class TideRunBuilder {
     }
 
     /**
-     * The extremum a day's row would name: the useful one if it lands inside the alignment window,
-     * otherwise the other one if it does. Null when neither does.
+     * The water a day's row is about: the extremum nearest a solar event, when that water lands
+     * inside the alignment window. Null when nothing of this day reaches the light.
+     *
+     * <p>Type-blind on purpose — see the class Javadoc. Whether a reader wants the high or the low
+     * is not the moon's to decide, and the one question this row can actually answer is which water
+     * the sun will be on.
      */
-    private static Point alignedPoint(DayTides day, TideExtremeType useful, TideExtremeType other,
-            int sunriseMinutes, int sunsetMinutes) {
-        Point usefulPoint = withinWindow(
-                nearestSolar(day.points(), useful, sunriseMinutes, sunsetMinutes),
-                sunriseMinutes, sunsetMinutes);
-        return usefulPoint != null ? usefulPoint : withinWindow(
-                nearestSolar(day.points(), other, sunriseMinutes, sunsetMinutes),
+    private static Point waterInTheLight(DayTides day, int sunriseMinutes, int sunsetMinutes) {
+        return withinWindow(nearestSolar(day.points(), sunriseMinutes, sunsetMinutes),
                 sunriseMinutes, sunsetMinutes);
     }
 
@@ -342,10 +387,13 @@ public class TideRunBuilder {
         int sunsetMinutes = localMinutes(
                 solarService.sunsetUtc(location.getLat(), location.getLon(), date));
 
-        TideExtremeType useful = king ? TideExtremeType.HIGH : TideExtremeType.LOW;
-        Point usefulPoint = nearestSolar(day.points(), useful, sunriseMinutes, sunsetMinutes);
-        Point otherPoint = nearestSolar(day.points(),
-                king ? TideExtremeType.LOW : TideExtremeType.HIGH, sunriseMinutes, sunsetMinutes);
+        // ONE point drives this whole row: the water nearest a solar event, whichever kind it is.
+        // The row used to run on two — a "useful" water picked by the run's lunar label, and
+        // whatever else happened to land in the light — and every field below had to be told which
+        // of them it followed. They disagreed, which is how a headline came to deny an alignment
+        // the line directly beneath it stated. See the class Javadoc.
+        Point nearest = nearestSolar(day.points(), sunriseMinutes, sunsetMinutes);
+        Point inLight = withinWindow(nearest, sunriseMinutes, sunsetMinutes);
 
         // Whether this port's water is actually big today, as opposed to whether the moon says the
         // event is a spring or a king one. Withheld rather than assumed when the location has no
@@ -356,12 +404,7 @@ public class TideRunBuilder {
         // A one-day run has no peak to point at — every day is trivially the biggest, and a "peak
         // range" badge on a lone card claims a comparison that was never made.
         boolean peak = dayCount > 1 && Math.abs(day.range() - peakRange) < 1e-9;
-        long gap = usefulPoint == null ? Long.MAX_VALUE
-                : signedGap(usefulPoint.minutes(), sunriseMinutes, sunsetMinutes);
-        boolean aligned = usefulPoint != null && Math.abs(gap) <= ALIGNED_WINDOW_MINUTES;
-        Point namedByVerdict = aligned
-                ? usefulPoint
-                : withinWindow(otherPoint, sunriseMinutes, sunsetMinutes);
+        boolean aligned = inLight != null;
 
         return new TideRunDay(
                 king ? KING_RUN_LABEL : SPRING_RUN_LABEL,
@@ -388,34 +431,26 @@ public class TideRunBuilder {
                 notablyHigh ? highWaterRank(day.high(), stats) : null,
                 TideWording.clock(sunriseMinutes),
                 TideWording.clock(sunsetMinutes),
-                seas(location.getId(), date, usefulPoint, sunriseMinutes, sunsetMinutes),
+                seas(location.getId(), date, nearest, sunriseMinutes, sunsetMinutes),
                 day.points().stream()
                         .map(p -> new TideRunDay.Extreme(
                                 p.type() == TideExtremeType.HIGH ? "H" : "L", TideWording.clock(p.minutes())))
                         .toList(),
-                verdict(usefulPoint, otherPoint, sunriseMinutes, sunsetMinutes, aligned, peak, king),
+                verdict(nearest, sunriseMinutes, sunsetMinutes, aligned, peak),
                 aligned,
-                // Follows the VERDICT's water, not the useful one. Verdict rules 2 and 3 name the
-                // other extremum when the useful water misses the light and that one does not — so
-                // keying this off usefulPoint alone put "no tide alignment" in the headline directly
-                // above "HW 06:18 · 58m after sunrise" in the line below it. That is the exact
-                // contradiction this field exists to prevent, reintroduced one rule further down.
-                // `aligned` and `phrase` deliberately stay false: they mark the water a reader of
-                // *this* run type came for, and that water did miss the light.
-                namedByVerdict == null
-                        ? null : solarWord(namedByVerdict.minutes(), sunriseMinutes, sunsetMinutes),
-                // Built from the same point as alignedEvent, one line above, so the two are non-null
-                // together by construction rather than by a rule someone has to maintain.
-                alignmentPhrase(namedByVerdict, sunriseMinutes, sunsetMinutes),
+                // These four all read `inLight`, so they cannot disagree about which water the day
+                // is about — the property that used to need a comment per field explaining which of
+                // two points it followed, and that still went wrong.
+                inLight == null ? null : solarWord(inLight.minutes(), sunriseMinutes, sunsetMinutes),
+                alignmentPhrase(inLight, sunriseMinutes, sunsetMinutes),
                 roster,
                 peak,
-                // The editorial line is claimed ONLY on an aligned day. It states what the event
-                // gives a photographer — "low water bares the foreground" — and on an unaligned day
-                // that is true of the water and useless to the reader: the foreground is bared at
-                // 01:00, in the dark. The verdict beside it already says the water misses the
-                // light, so printing the draw anyway had the two lines arguing, with the more
+                // The editorial line is claimed ONLY when a water reaches the light, and names the
+                // water that got there. On a day where nothing does, the draw is true and useless —
+                // the foreground is bared at 01:00, in the dark — and the verdict beside it already
+                // says so, so printing it anyway had the two lines arguing with the more
                 // confident-sounding one wrong. Silence is the honest form of "not tonight".
-                aligned ? (king ? KING_PHRASE : SPRING_PHRASE) : null);
+                phraseFor(inLight));
     }
 
     /**
@@ -452,14 +487,35 @@ public class TideRunBuilder {
                 ? point : null;
     }
 
-    /** The extremum of the given type sitting closest to either solar event, or null if none. */
-    private static Point nearestSolar(List<Point> points, TideExtremeType type,
-            int sunriseMinutes, int sunsetMinutes) {
+    /**
+     * The extremum sitting closest to either solar event, of whichever type, or null when the day
+     * carries no extremes at all.
+     *
+     * <p><b>Ties break toward the earlier water, not toward a type.</b> {@code points} is sorted by
+     * clock time and {@link java.util.stream.Stream#min} keeps the first minimum, so the rule is
+     * deterministic without smuggling the old lunar-label preference back in as a tiebreak. Both
+     * extremes can genuinely be in the light: they sit about 6h12 apart, and a deep-winter day is
+     * short enough for a high water just after sunrise and a low water just before sunset.
+     */
+    private static Point nearestSolar(List<Point> points, int sunriseMinutes, int sunsetMinutes) {
         return points.stream()
-                .filter(p -> p.type() == type)
                 .min(Comparator.comparingLong(
                         p -> Math.abs(signedGap(p.minutes(), sunriseMinutes, sunsetMinutes))))
                 .orElse(null);
+    }
+
+    /**
+     * The editorial line for the water that reached the light, or null when none did.
+     *
+     * <p>Keyed to the <b>water</b>, which is what both sentences were always describing. While the
+     * run's lunar label picked the water, keying them to the label was indistinguishable from
+     * keying them to the water; it stopped being so the moment the label stopped deciding.
+     */
+    private static String phraseFor(Point inLight) {
+        if (inLight == null) {
+            return null;
+        }
+        return inLight.type() == TideExtremeType.HIGH ? HIGH_WATER_PHRASE : LOW_WATER_PHRASE;
     }
 
     /**
@@ -480,61 +536,41 @@ public class TideRunBuilder {
     }
 
     /**
-     * The plain-language alignment call, in priority order: the aligned day states the gap exactly;
-     * a day whose <em>other</em> extremum sits on a solar event says so, since "high water at
-     * sunrise" is itself a reason to go; a day whose other extremum is merely <em>aligned</em> is
-     * described by that extremum rather than by the useful one, because the sentence has to be
-     * about the water a reader can act on; the peak day leads with its range; and everything else
-     * places the useful water in the day and measures it to the nearer event.
+     * The plain-language alignment call for the water nearest the light — three forms, all of them
+     * about the same point.
      *
-     * <p>The third rule exists because the second one used the wrong threshold. {@code aligned}
-     * asks whether water is within {@link #ALIGNED_WINDOW_MINUTES} of an event; the "other
-     * extremum" test asked whether it was within the much tighter {@link #COINCIDENT_MINUTES}.
-     * One question, two answers — and the strict answer guarded the useful sentence, so a spring
-     * run at St. Mary's read <em>"peak range · LW 5h03 before sunrise"</em> (a low water at 00:12,
-     * in the dark) on a morning when high water landed 58 minutes after sunrise.
+     * <p>The run's peak day leads with its range and trades the clock time away; otherwise an
+     * aligned day states its clock time and the exact gap, and an unaligned day places the water in
+     * the day in words and measures it to the nearer event anyway. Nothing is lost by dropping a
+     * clock time on the peak day: every extreme is labelled with its own on the chart directly
+     * below, and {@link TideRunDay#alignmentPhrase()} carries the full clause for surfaces that
+     * state the range separately.
+     *
+     * <p><b>There is no longer a branch for "the other extremum".</b> There were three, added one at
+     * a time as each previous rule was caught naming a water nobody could use, and they disagreed
+     * about which point the row was about. The last of them existed only because a second, stricter
+     * threshold guarded the more useful sentence — see {@link #ALIGNED_WINDOW_MINUTES}. With one
+     * candidate water there is nothing left for those branches to arbitrate.
      *
      * <p>Kept under ~40 characters — the verdict column is 224px of monospace.
      */
-    private static String verdict(Point useful, Point other, int sunriseMinutes, int sunsetMinutes,
-            boolean aligned, boolean peak, boolean king) {
-        if (useful == null) {
+    private static String verdict(Point nearest, int sunriseMinutes, int sunsetMinutes,
+            boolean aligned, boolean peak) {
+        if (nearest == null) {
             return peak ? "peak range" : "no clear tide/sun alignment";
         }
-        String usefulLabel = king ? "HW" : "LW";
-        String otherLabel = king ? "LW" : "HW";
-        long gap = signedGap(useful.minutes(), sunriseMinutes, sunsetMinutes);
-        String against = TideWording.offsetPhrase(gap, solarWord(useful.minutes(), sunriseMinutes, sunsetMinutes));
+        String label = nearest.type() == TideExtremeType.HIGH ? "HW" : "LW";
+        long gap = signedGap(nearest.minutes(), sunriseMinutes, sunsetMinutes);
+        String against = TideWording.offsetPhrase(
+                gap, solarWord(nearest.minutes(), sunriseMinutes, sunsetMinutes));
 
-        if (aligned) {
-            return usefulLabel + " " + TideWording.clock(useful.minutes()) + " · " + against;
-        }
-        if (other != null) {
-            long otherGap = signedGap(other.minutes(), sunriseMinutes, sunsetMinutes);
-            String otherWord = solarWord(other.minutes(), sunriseMinutes, sunsetMinutes);
-            if (Math.abs(otherGap) <= COINCIDENT_MINUTES) {
-                return otherLabel + " at " + otherWord
-                        + " · " + usefulLabel + " " + against;
-            }
-            // The other extremum is aligned by the very rule `aligned` uses, and the useful one is
-            // not. Two thresholds were answering one question — "is this water near a solar event?"
-            // — and the stricter of them guarded the more useful sentence, so a high water 58
-            // minutes after sunrise was discarded while a low water five hours earlier, at 00:12
-            // in the dark, was stated as the finding. Name the water that actually lands near the
-            // event. Nothing is hidden by doing so: every extreme is already labelled with its
-            // clock time on the chart directly below, and the one the reader can act on is the one
-            // the sentence should be about.
-            if (Math.abs(otherGap) <= ALIGNED_WINDOW_MINUTES) {
-                String offset = TideWording.offsetPhrase(otherGap, otherWord);
-                return peak
-                        ? "peak range · " + otherLabel + " " + offset
-                        : otherLabel + " " + TideWording.clock(other.minutes()) + " · " + offset;
-            }
-        }
         if (peak) {
-            return "peak range · " + usefulLabel + " " + against;
+            return "peak range · " + label + " " + against;
         }
-        return usefulLabel + " " + timeOfDay(useful.minutes()) + " · " + against;
+        if (aligned) {
+            return label + " " + TideWording.clock(nearest.minutes()) + " · " + against;
+        }
+        return label + " " + timeOfDay(nearest.minutes()) + " · " + against;
     }
 
     /** Places an unaligned extremum in the day without repeating its clock time. */
@@ -565,14 +601,14 @@ public class TideRunBuilder {
     }
 
     /**
-     * The sea state sampled for the solar event the useful water is measured against, falling back
-     * to the other event — a sample exists per (location, date, event), and either one describes
-     * the same day's sea well enough for a qualifier.
+     * The sea state sampled for the solar event the day's named water is measured against, falling
+     * back to the other event — a sample exists per (location, date, event), and either one
+     * describes the same day's sea well enough for a qualifier.
      */
-    private String seas(Long locationId, LocalDate date, Point useful,
+    private String seas(Long locationId, LocalDate date, Point nearest,
             int sunriseMinutes, int sunsetMinutes) {
-        TargetType preferred = useful != null
-                && "sunset".equals(solarWord(useful.minutes(), sunriseMinutes, sunsetMinutes))
+        TargetType preferred = nearest != null
+                && "sunset".equals(solarWord(nearest.minutes(), sunriseMinutes, sunsetMinutes))
                 ? TargetType.SUNSET : TargetType.SUNRISE;
         TargetType fallback = preferred == TargetType.SUNSET
                 ? TargetType.SUNRISE : TargetType.SUNSET;

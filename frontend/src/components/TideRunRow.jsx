@@ -138,8 +138,12 @@ TideChart.propTypes = {
  *
  * <p>This replaces the generic fact chips on a tide pill because it answers the question those
  * chips left as mental arithmetic. `LW 22:19` and `sunrise 05:10` were true, adjacent, and useless
- * together — the reader had to subtract. Here the low water is drawn against the sun and the
- * verdict states the gap, so <em>does low water land near sunrise?</em> is readable at a glance.
+ * together — the reader had to subtract. Here both waters are drawn against the sun and the verdict
+ * states the gap, so <em>does a water I can use land near the light?</em> is readable at a glance.
+ *
+ * <p>Which water the verdict names is the backend's call, and it is whichever one lands nearest a
+ * solar event — high or low, on a spring run or a king one. This row renders that answer; it must
+ * not assume a spring tide is about low water, which is what the backend used to assume.
  *
  * <p>Emphasis, never reordering: the aligned day's verdict takes the topic accent. The run stays in
  * date order — a second ordering by quality inside a chronological list hides that the run

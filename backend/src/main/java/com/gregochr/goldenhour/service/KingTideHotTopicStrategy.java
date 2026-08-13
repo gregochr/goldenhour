@@ -52,9 +52,9 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
                     + " coastal locations.";
 
     /**
-     * What a king tide day says for itself when its high water misses the light. Stated rather than
-     * left silent because a king tide is worth knowing about either way — the water still covers
-     * ground it normally does not.
+     * What a king tide day says for itself when <em>neither</em> of its waters reaches the light.
+     * Stated rather than left silent because a king tide is worth knowing about either way — the
+     * water still covers ground it normally does not.
      */
     static final String KING_UNALIGNED =
             "no tide alignment — but exceptional coastal foreground";

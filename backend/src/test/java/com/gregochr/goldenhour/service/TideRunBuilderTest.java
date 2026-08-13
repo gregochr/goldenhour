@@ -33,11 +33,17 @@ import static org.mockito.Mockito.when;
 /**
  * Unit tests for {@link TideRunBuilder}.
  *
- * <p>The run rows exist to answer one question — <em>does the useful water land near a solar
- * event?</em> — so what is pinned here is the arithmetic behind that answer: which location the run
- * is drawn for, how a day's range and anomaly are derived, when a day counts as aligned, and which
- * of the four verdict forms a day earns. Times are fixed rather than relative so the assertions read
- * as the strings a photographer sees.
+ * <p>The run rows exist to answer one question — <em>does a water land near a solar event?</em> — so
+ * what is pinned here is the arithmetic behind that answer: which location the run is drawn for, how
+ * a day's range and anomaly are derived, when a day counts as aligned, and which of the three
+ * verdict forms a day earns. Times are fixed rather than relative so the assertions read as the
+ * strings a photographer sees.
+ *
+ * <p><b>Which water a day is about is decided by the sun, not by the run's lunar label.</b> Several
+ * tests here pair a run type with the opposite water on purpose — a spring run named by its high
+ * water, a king run named by its low — because the defect being pinned was the reverse: the label
+ * chose the water, so a spring run at a roster shooting high water was reported unaligned on exactly
+ * the mornings it was not.
  *
  * <p>Dates sit in <b>January</b>, where Europe/London is UTC, so a stored UTC extreme and its local
  * clock time coincide and each assertion reads unambiguously. The BST offset is exercised separately.
@@ -265,10 +271,11 @@ class TideRunBuilderTest {
     }
 
     @Test
-    @DisplayName("a king run is labelled and framed by high water, not exposed foreground")
+    @DisplayName("a king run whose high water is the one in the light takes the high-water line")
     void build_kingRun_usesHighWaterAndItsOwnPhrase() {
-        // A king tide's draw is the highest water — "low water bares the foreground" is the wrong
-        // sentence for it, and the verdict must measure HW rather than LW.
+        // "low water bares the foreground" is the wrong sentence for a morning whose high water is
+        // the one on the sun. Note what makes it the wrong sentence: the water, not the run label.
+        // The low waters here are 6h10 and 2h10 out, so the high wins on distance alone.
         stubSolar();
         stubExtremes(day(ID_SEAHAM, DAY_1,
                 low("02:00", 0.4), high("08:35", 5.0), low("14:20", 0.4)));
@@ -278,7 +285,7 @@ class TideRunBuilderTest {
         TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), true).get(DAY_1);
 
         assertThat(day.runLabel()).isEqualTo("KING RUN");
-        assertThat(day.phrase()).isEqualTo(TideRunBuilder.KING_PHRASE);
+        assertThat(day.phrase()).isEqualTo(TideRunBuilder.HIGH_WATER_PHRASE);
         assertThat(day.verdict()).isEqualTo("HW 08:35 · 25m after sunrise");
         assertThat(day.aligned()).isTrue();
         // A king tide's defining number is how HIGH the water gets and how far that clears the
@@ -304,26 +311,78 @@ class TideRunBuilderTest {
     }
 
     @Test
-    @DisplayName("when the verdict names the OTHER extremum, so does the aligned event")
-    void build_verdictNamesOtherExtremum_alignedEventFollowsIt() {
-        // The defect an adversarial review found in the first cut of this field. On a SPRING run the
-        // useful water is LW; here LW sits at 02:00 (unaligned) but HW lands 50 minutes after
-        // sunrise, so verdict rule 3 names the HIGH water. Deriving alignedEvent from the useful
-        // point alone left it null, and the hot-topic headline then printed "no sunrise or sunset
-        // alignment" directly above "HW 09:00 · 50m after sunrise" — the same self-contradiction the
-        // headline rewrite exists to remove, reintroduced one rule further down.
+    @DisplayName("a SPRING run whose high water is the one in the light is aligned, and says so")
+    void build_springRun_highWaterInTheLight_isAlignedThroughout() {
+        // THE case this change exists for. A spring tide's gift is a big RANGE, which lifts high
+        // water exactly as far as it drops low water, and most of this coastal roster is configured
+        // to shoot the high one. While `useful = king ? HIGH : LOW` decided the framing, this
+        // morning — high water 50 minutes after sunrise — was reported as a day whose water missed
+        // the light: no emphasis, no editorial line, and a headline denying an alignment the chart
+        // beneath it drew.
+        //
+        // Every field is asserted together on purpose. They read one point now, so the only way
+        // this can regress is a field going back to a water of its own.
         stubSolar();
         stubExtremes(day(ID_SEAHAM, DAY_1,
                 low("02:00", 0.4), high("09:00", 5.0), low("15:20", 0.4)));
 
         TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
 
+        assertThat(day.runLabel()).isEqualTo("SPRING RUN");
         assertThat(day.verdict()).isEqualTo("HW 09:00 · 50m after sunrise");
+        assertThat(day.aligned()).isTrue();
         assertThat(day.alignedEvent()).isEqualTo("sunrise");
-        // The useful water still missed the light, so the emphasis and the editorial line — which
-        // speak for the water a SPRING reader came for — stay withheld.
-        assertThat(day.aligned()).isFalse();
-        assertThat(day.phrase()).isNull();
+        assertThat(day.alignmentPhrase()).isEqualTo("HW 09:00 · 50m after sunrise");
+        assertThat(day.phrase()).isEqualTo(TideRunBuilder.HIGH_WATER_PHRASE);
+    }
+
+    @Test
+    @DisplayName("a KING run whose low water is the one in the light takes the low-water line")
+    void build_kingRun_lowWaterInTheLight_takesTheLowWaterPhrase() {
+        // The mirror of the test above, and the reason it is here: the fix is not "spring now means
+        // high water". The label stopped choosing at all. A king run whose low water is the one on
+        // the sun gets the bared-foreground sentence, because that is what the reader will find.
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1,
+                low("08:30", 0.4), high("14:40", 5.0), low("20:50", 0.4)));
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), true).get(DAY_1);
+
+        assertThat(day.runLabel()).isEqualTo("KING RUN");
+        assertThat(day.verdict()).isEqualTo("LW 08:30 · 20m after sunrise");
+        assertThat(day.aligned()).isTrue();
+        assertThat(day.phrase()).isEqualTo(TideRunBuilder.LOW_WATER_PHRASE);
+    }
+
+    @Test
+    @DisplayName("when both waters reach the light, the nearer one is the day's water")
+    void build_bothWatersInTheLight_namesTheNearer() {
+        // A short winter day is not much longer than the ~6h12 between a high and a low, so both
+        // can sit inside the window: the high is 40m after sunrise, the low 60m before sunset.
+        // Nothing arbitrates that but distance — a type preference here would be the old hard-coded
+        // framing surviving in the one place it still had something to decide.
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1, high("08:50", 5.0), low("15:30", 0.4)));
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
+
+        assertThat(day.verdict()).isEqualTo("HW 08:50 · 40m after sunrise");
+        assertThat(day.alignedEvent()).isEqualTo("sunrise");
+        assertThat(day.phrase()).isEqualTo(TideRunBuilder.HIGH_WATER_PHRASE);
+    }
+
+    @Test
+    @DisplayName("equal gaps break toward the earlier water, never toward a type")
+    void build_equalGaps_breakTowardTheEarlierWater() {
+        // Constructed spacing — the subject is the tiebreak, not the tide. Both waters sit exactly
+        // 30 minutes from their nearer event, and the rule has to be decidable without asking which
+        // kind of water it is, or `king ? HIGH : LOW` is back in the last place it could hide.
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1, high("07:40", 5.0), low("17:00", 0.4)));
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
+
+        assertThat(day.verdict()).isEqualTo("HW 07:40 · 30m before sunrise");
     }
 
     // ── roster alignment — the count behind "at N of M coastal locations" ─────
@@ -365,6 +424,27 @@ class TideRunBuilderTest {
 
         assertThat(day.aligned()).isTrue();
         assertThat(day.roster().alignedWith(day.alignedEvent())).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("the roster tally counts a high-water alignment on a spring run")
+    void build_rosterAlignment_countsHighWaterOnASpringRun() {
+        // The tally and the chart must run one rule, or the headline prints "at 0 of N" over a
+        // chart drawing an alignment. While the rule was `spring means low water`, a roster that
+        // shoots high water counted for nothing on exactly the mornings it cared about — and the
+        // tally is what the pill's "at N of M coastal locations" clause is built from.
+        stubSolar();
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
+                low("02:00", 0.4), high("08:35", 5.0), low("14:20", 0.4)));
+        extremes.addAll(day(ID_WHITBY, DAY_1,
+                low("03:00", 1.0), high("08:45", 3.0), low("15:10", 1.0)));
+        stubExtremes(extremes);
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(whitby(), seaham()), false).get(DAY_1);
+
+        assertThat(day.roster().measured()).isEqualTo(2);
+        assertThat(day.roster().sunriseAligned()).isEqualTo(2);
+        assertThat(day.roster().sunsetAligned()).isZero();
     }
 
     @Test
@@ -574,18 +654,20 @@ class TideRunBuilderTest {
     }
 
     @Test
-    @DisplayName("high water sitting on sunrise is said plainly, then low water is placed")
-    void verdict_otherExtremumCoincides() {
-        // The low water is hours away, but "high water at sunrise" is itself a reason to go, so it
-        // leads — and the low water is still measured against its own nearer event.
+    @DisplayName("the row states one water, not the near one and then the far one")
+    void verdict_waterNearSunrise_isStatedAlone() {
+        // This used to read "HW at sunrise · LW 2h05 before sunset" — a second clause about a low
+        // water two hours out of the light, printed because the row was obliged to say something
+        // about the "useful" water whatever the sun was doing. The high water eleven minutes before
+        // sunrise is the whole answer; the low is on the chart with its own clock time.
         stubSolar();
         stubExtremes(day(ID_SEAHAM, DAY_1,
                 high("07:59", 5.0), low("14:25", 0.4), high("20:24", 5.0)));
 
         TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
 
-        assertThat(day.verdict()).isEqualTo("HW at sunrise · LW 2h05 before sunset");
-        assertThat(day.aligned()).isFalse();
+        assertThat(day.verdict()).isEqualTo("HW 07:59 · 11m before sunrise");
+        assertThat(day.aligned()).isTrue();
     }
 
     @Test
@@ -608,9 +690,12 @@ class TideRunBuilderTest {
         TideRunDay day = builder.build(List.of(DAY_1, DAY_2), List.of(seaham()), false).get(DAY_1);
 
         assertThat(day.verdict()).isEqualTo("peak range · HW 58m after sunrise");
-        // Still not "aligned": that flag describes the useful water — a spring run's low — and the
-        // low really is five hours out. The flag and the sentence answer different questions.
-        assertThat(day.aligned()).isFalse();
+        // And the flag now agrees with the sentence. It used to read false here — it described the
+        // "useful" water, a spring run's low, which really was five hours out — so the emphasis and
+        // the editorial line were withheld from the run's best morning while the verdict beside
+        // them named the high water on the sunrise.
+        assertThat(day.aligned()).isTrue();
+        assertThat(day.phrase()).isEqualTo(TideRunBuilder.HIGH_WATER_PHRASE);
     }
 
     @Test
@@ -644,8 +729,10 @@ class TideRunBuilderTest {
         TideRunDay day = builder.build(List.of(DAY_1, DAY_2), List.of(seaham()), false).get(DAY_2);
 
         assertThat(day.peak()).isTrue();
-        // The 12:00 low is 3h50 after sunrise and 4h30 before sunset — the nearer event wins.
-        assertThat(day.verdict()).isEqualTo("peak range · LW 3h50 after sunrise");
+        // The high water 1h40 after sunset is this day's nearest miss; the low at 12:00 is 3h50 out.
+        // Neither is in the light, so the peak day leads with the range it does have.
+        assertThat(day.verdict()).isEqualTo("peak range · HW 1h40 after sunset");
+        assertThat(day.aligned()).isFalse();
     }
 
     // ── the alignment clause, which the almanac feed states on its own ────────
@@ -696,8 +783,8 @@ class TideRunBuilderTest {
         TideRunDay day = builder.build(List.of(DAY_1, DAY_2), List.of(seaham()), false).get(DAY_2);
 
         // The verdict still has a sentence — that is its job, and it is why reading it as an
-        // alignment printed a low water 3h50 out of the light as this run's finding.
-        assertThat(day.verdict()).isEqualTo("peak range · LW 3h50 after sunrise");
+        // alignment printed a water well out of the light as this run's finding.
+        assertThat(day.verdict()).isEqualTo("peak range · HW 1h40 after sunset");
         assertThat(day.alignmentPhrase()).isNull();
         // Non-null together, always. TideAlmanacSource keys the whole distinction on this.
         assertThat(day.alignedEvent()).isNull();
@@ -721,27 +808,48 @@ class TideRunBuilderTest {
     void verdict_plainlyUnaligned() {
         stubSolar();
         stubExtremes(day(ID_SEAHAM, DAY_1,
-                low("10:46", 0.4), high("19:00", 5.0), low("23:11", 0.4)));
+                low("10:46", 0.4), high("13:00", 5.0), low("23:11", 0.4)));
 
         TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
 
-        // 10:46 is 2h36 after sunrise and 5h44 before sunset — the nearer event wins.
+        // 10:46 is 2h36 after sunrise and 5h44 before sunset — the nearer event wins. It is also
+        // this day's nearest water to the light at all: the 13:00 high is 3h30 from sunset.
         assertThat(day.verdict()).isEqualTo("LW mid-morning · 2h36 after sunrise");
         assertThat(day.aligned()).isFalse();
     }
 
     @Test
-    @DisplayName("a late low water is measured forward from sunset, never back across midnight")
-    void verdict_lateWater_doesNotWrapMidnight() {
-        // 23:50 against a 16:30 sunset is 7h20 after it. Wrapping the day would instead measure it
-        // 8h20 before the *next* morning's sunrise — a different day, and not what the card is about.
+    @DisplayName("an evening water is measured forward from sunset, never back across midnight")
+    void verdict_eveningWater_doesNotWrapMidnight() {
+        // 17:40 against a 16:30 sunset is 1h10 after it. Wrapping the day would instead measure the
+        // gap to the *next* morning's sunrise — a different day, and not what the card is about.
+        //
+        // The 23:50 low this test used to assert on can no longer be the named water: with the row
+        // naming whatever water is nearest the light, something is always nearer than a water seven
+        // hours past sunset. That is the rule working, not a gap in it — the late low is still drawn
+        // on the chart with its own clock time.
         stubSolar();
         stubExtremes(day(ID_SEAHAM, DAY_1,
-                high("05:20", 5.0), high("17:45", 5.0), low("23:50", 0.4)));
+                low("11:30", 0.8), high("17:40", 4.0), low("23:50", 0.8)));
 
         TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
 
-        assertThat(day.verdict()).isEqualTo("LW overnight · 7h20 after sunset");
+        assertThat(day.verdict()).isEqualTo("HW early evening · 1h10 after sunset");
+    }
+
+    @Test
+    @DisplayName("an overnight water is measured back to sunrise and placed in words")
+    void verdict_overnightWater_measuredBackToSunrise() {
+        // The other end of the same rule, and the band a run at this latitude in winter can still
+        // reach: the 04:30 low is 3h40 before sunrise, nearer the light than the midday high, which
+        // sits at the furthest point a water can be from both events at once.
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1, low("04:30", 0.4), high("12:20", 5.0)));
+
+        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
+
+        assertThat(day.verdict()).isEqualTo("LW overnight · 3h40 before sunrise");
+        assertThat(day.aligned()).isFalse();
     }
 
     // ── range anomaly, seas, extrema ──────────────────────────────────────────
@@ -774,7 +882,7 @@ class TideRunBuilderTest {
     }
 
     @Test
-    @DisplayName("sea state is sampled for the event the useful water is measured against")
+    @DisplayName("sea state is sampled for the event the day's named water is measured against")
     void build_seas_prefersTheMeasuredEvent() {
         // The low water sits nearest sunrise, so the sunrise sample is the one that describes it.
         stubSolar();
@@ -940,14 +1048,19 @@ class TideRunBuilderTest {
                 .build();
     }
     @Test
-    @DisplayName("an UNALIGNED day claims no draw — the phrase stands down")
+    @DisplayName("a day with NO water in the light claims no draw — the phrase stands down")
     void build_unalignedDay_hasNoPhrase() {
         // "low water bares the foreground" is true of the water and useless to the reader when the
         // low is at 01:00 in the dark. The verdict beside it already says the water misses the
         // light; printing the draw anyway had the two lines arguing, the confident one wrong.
+        //
+        // Both waters have to miss now, which is what makes this an honest silence rather than an
+        // artefact of the run's label: the 12:00 high is 3h50 out and the 18:00 low 1h30 past
+        // sunset. Under the old framing this same day was silent because the LOW missed, while a
+        // high water 50 minutes after sunrise would have been ignored.
         stubSolar();
         stubExtremes(day(ID_SEAHAM, DAY_1,
-                low("01:00", 0.4), high("07:20", 5.0), low("13:40", 0.4)));
+                low("01:00", 0.4), high("12:00", 5.0), low("18:00", 0.4)));
 
         TideRunDay result = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
 
@@ -967,6 +1080,6 @@ class TideRunBuilderTest {
         TideRunDay result = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
 
         assertThat(result.aligned()).isTrue();
-        assertThat(result.phrase()).isEqualTo(TideRunBuilder.SPRING_PHRASE);
+        assertThat(result.phrase()).isEqualTo(TideRunBuilder.LOW_WATER_PHRASE);
     }
 }
