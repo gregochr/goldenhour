@@ -83,15 +83,18 @@ function fromUtcNoon(ms) {
  * <p>Naming the zone outright is the only form with no such caveat, and it is what this codebase
  * already does everywhere it formats a UK <em>time</em> ({@code conversions.js}).
  *
- * <p>⚠️ {@code DailyBriefing} and {@code WindowFirstBriefingContext} also resolve the backend's
- * "today"/"tomorrow" tokens against {@code Europe/London} and feed the result to
- * {@code setSelectedDate} — but <b>do not copy their helper</b>. Their {@code londonDate(offset)}
- * steps the <em>browser's</em> calendar ({@code d.setDate(d.getDate() + offset)}) and only then
- * formats in London, so the offset is a hybrid of two calendars and is wrong whenever the two day
- * steps disagree. Measured: at {@code 2026-10-24T23:30:00Z} it returns {@code 2026-10-25} for
- * <em>both</em> today and tomorrow, and at {@code 2026-03-28T23:30:00Z} it skips from the 28th to
- * the 30th. {@link ukDateStrOffset} is the form that steps the UK date itself. Pre-existing and
- * tracked separately; noted here because this javadoc previously cited those two as the pattern.
+ * <p>⚠️ <b>The hybrid form must not come back.</b> {@code DailyBriefing} and
+ * {@code WindowFirstBriefingContext} resolve the backend's "today"/"tomorrow" tokens and feed the
+ * result to {@code setSelectedDate}; both used to carry a private {@code londonDate(offset)} that
+ * stepped the <em>browser's</em> calendar ({@code d.setDate(d.getDate() + offset)}) and only then
+ * formatted in London. Formatting in the right zone is not enough — the day step has to happen on
+ * the same calendar as the format, or the two disagree across a DST boundary. Measured with
+ * {@code TZ=UTC}: at {@code 2026-10-24T23:30:00Z} it returned {@code 2026-10-25} for <em>both</em>
+ * today and tomorrow, so nothing was labelled "Tomorrow" and "Best Bet — tomorrow's sunset" opened
+ * the map on today; at {@code 2026-03-28T23:30:00Z} it skipped the 28th to the 30th. Under
+ * {@code TZ=Europe/London} both came out right, which is why no test caught it for as long as the
+ * suite was UK-pinned. Both now call {@link ukDateStr} / {@link ukDateStrOffset}, which step the UK
+ * date itself.
  *
  * @param {Date} [now] - the instant to read; injectable so tests can pin it
  * @returns {string} the UK calendar date as YYYY-MM-DD

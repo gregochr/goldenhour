@@ -1,3 +1,28 @@
+// The suite's timezone, pinned so it is a property of the repository rather than of whoever ran it.
+//
+// Nothing pinned it before, so the machine's zone decided: dev machines here are Europe/London and
+// GitHub runners are UTC, which means the two were running measurably different tests. `TZ=UTC` and
+// `TZ=Europe/London` both passed, so the divergence was invisible — but `TZ=America/New_York` failed
+// `UserManagementView`, on a component formatting a UK date in the device's own zone. That is a
+// product defect (the same family as #500's map dates), not a test one, and it is exactly what a
+// zone nobody happened to run hid.
+//
+// UTC rather than Europe/London for two reasons. It is what CI already runs, so a failure there
+// reproduces here byte for byte and the fixtures need no reinterpretation. And it is the zone that
+// DISAGREES with `Europe/London` for the seven months of BST, so a date the app reads on the
+// device's zone where it means the UK calendar can at least diverge — under a London pin the two
+// strings are identical all year and no assertion could ever tell them apart.
+//
+// ⚠️ This is a default, not a ceiling. A test file that pins its own zone still wins: setup files
+// run before the test module is evaluated, so a file-scope `process.env.TZ = …` is applied second.
+// Six files rely on that (`mapDates`, `computeAutoSelection`, `DateStripToday`, `MapViewAuroraNight`
+// pin Europe/London; `mapDatesAbroad` and `instantsAbroad` pin America/New_York), and BOTH abroad
+// files carry a "the zone fixture itself" test asserting the disagreement outright — so if this line
+// ever defeated a per-file pin, those files fail rather than quietly becoming duplicates.
+// `testEnvironmentTimezone.test.js` is the other half: it fails if this line stops taking effect at
+// all.
+process.env.TZ = 'UTC';
+
 import '@testing-library/jest-dom';
 
 // Recharts uses ResizeObserver — stub it for JSDOM
