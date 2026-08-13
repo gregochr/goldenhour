@@ -10,7 +10,7 @@ import SessionExpiryBanner from './components/SessionExpiryBanner.jsx';
 import AuroraBanner from './components/AuroraBanner.jsx';
 import NlcSightingBanner from './components/NlcSightingBanner.jsx';
 import DailyBriefing from './components/DailyBriefing.jsx';
-import HealthIndicator from './components/HealthIndicator.jsx';
+import HealthIndicator, { VARIANT_MASTHEAD } from './components/HealthIndicator.jsx';
 import BrandLockup from './components/shared/BrandLockup.jsx';
 import UserSettingsModal from './components/UserSettingsModal.jsx';
 import { getSettings } from './api/settingsApi.js';
@@ -497,6 +497,24 @@ function AppInner() {
                 onSignOut={logout}
                 contentDisabled={isDown}
                 onShowOnMap={handleShowOnMap}
+                // The same admin gate the Operations pane uses, and for the same reason: the role
+                // stays here, and the shell renders whatever node it is handed. Withheld for a
+                // pilot user, who has no use for a build id or a WorldTides latency. The pill is
+                // fed by `useHealthStatus` above, which both arms already run — no second stream.
+                healthPill={isAdmin ? (
+                  <HealthIndicator
+                    status={healthStatus}
+                    degraded={healthDegraded}
+                    checkedAt={healthCheckedAt}
+                    build={healthBuild}
+                    services={healthServices}
+                    database={healthDatabase}
+                    session={healthSession}
+                    appVersion={healthAppVersion}
+                    startedAt={healthStartedAt}
+                    variant={VARIANT_MASTHEAD}
+                  />
+                ) : null}
                 onEvaluationScoresChange={handleEvaluationScoresChange}
                 onSeasonalFeaturesChange={handleSeasonalFeaturesChange}
                 locations={visibleLocations}
