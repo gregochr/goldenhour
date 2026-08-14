@@ -286,6 +286,33 @@ class BriefingVerdictEvaluatorTest {
         }
 
         @Test
+        @DisplayName("Low cloud >= 15% — there IS cloud in the sky, no clear-sky demotion")
+        void lowCloudCanvas_noDemotion() {
+            // The third arm of the same conjunction, and until now the only one no fixture moved.
+            // `mid` and `high` are each taken across the threshold above (25 and 20); every fixture
+            // in this class pinned `low` at 5, so `low < CLEAR_ALL_LAYERS_MAX` was dead input —
+            // deleting it left all eight tests green.
+            //
+            // What that would ship: a sky with 30% low cloud is GO out of determineVerdict, passes
+            // the mid-cloud demotion, and would then be demoted to MARGINAL and labelled
+            // "Clear sky — no canvas" — a clear-sky claim about a sky nearly a third full of cloud.
+            var metrics = new BriefingVerdictEvaluator.WeatherMetrics(
+                    30, BigDecimal.ZERO, 15000, 70, 8, 10, false);
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.GO, metrics))
+                    .isEqualTo(Verdict.GO);
+        }
+
+        @Test
+        @DisplayName("Low cloud exactly at 15% — the boundary is strictly less-than")
+        void lowCloudExactlyAtThreshold_noDemotion() {
+            var metrics = new BriefingVerdictEvaluator.WeatherMetrics(
+                    BriefingVerdictEvaluator.CLEAR_ALL_LAYERS_MAX,
+                    BigDecimal.ZERO, 15000, 70, 8, 10, false);
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.GO, metrics))
+                    .isEqualTo(Verdict.GO);
+        }
+
+        @Test
         @DisplayName("Already MARGINAL stays MARGINAL")
         void alreadyMarginal_noChange() {
             var metrics = new BriefingVerdictEvaluator.WeatherMetrics(

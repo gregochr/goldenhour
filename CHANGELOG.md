@@ -5,6 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — three more operands no fixture could vary
+
+An audit for the shape behind #514 — a predicate whose operands move together across every fixture,
+so any one of them can be deleted with the suite green — swept ~40 of the highest-risk multi-operand
+predicates. Most came back clean: `InversionScoreCalculator`, `ConfidenceDeriver`,
+`NightlyEligibilityPolicy` and `StormSurgeService` all vary their axes independently. Three did not,
+and all three are pinned here. **Nothing was broken on `main`; these are tests that could not have
+noticed if it were.**
+
+- **`BriefingVerdictEvaluator.applyClearSkyDemotion`** — `low < 15 && mid < 15 && high < 15`. Every
+  one of the eight fixtures pinned `lowCloud = 5`; only `mid` and `high` were ever taken across the
+  threshold. Deleting the low arm left them all green, and would ship a **"Clear sky — no canvas"**
+  demotion for a sky 30% full of low cloud. Now pinned, with the boundary case beside it.
+- **`CoastalTideFactsBuilder.buildSpring`'s lunar arm** — every `buildSpring` fixture set
+  `heightAboveSpringThreshold = true`, so the same disjunction #514 fixed in one direction was still
+  blind in the other. The new case is a run's leading edge: syzygy, water not yet up to this port's
+  threshold — which is also the state `BriefingSlotBuilder`'s ±90-minute gate produces whenever the
+  big water misses the light, so it is common rather than contrived.
+- **`CoastalTideFactsBuilder.buildSpring`'s king guard** — `springSelectorSkipsKingTideSlots`
+  asserted only that the result was null, and null also arrives when the deriver returns empty. It
+  therefore passed with the guard deleted. It now asserts the guard's actual observable behaviour —
+  **the deriver is never asked** — which is false the moment the guard goes.
+
+Each is mutation-verified: deleting its operand fails that test and no other.
+
+Tests only — the production tree is byte-identical to `main`.
+
 ### Fixed — the tide fixtures could not express the predicate they were testing
 
 `SpringTideHotTopicStrategyTest.buildDay(date, LunarTideType)` derived the two measured-height flags
