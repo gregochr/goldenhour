@@ -28,6 +28,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -183,10 +184,49 @@ class CoastalTideFactsBuilderTest {
     @Test
     @DisplayName("spring tide: a king-tide slot is never selected — king owns its own day")
     void springSelectorSkipsKingTideSlots() {
+        // ⚠️ The null alone does NOT pin the guard, which is why the interaction check is here.
+        // `selectRepresentative` tests the matcher before it consults the deriver, so a king slot
+        // is dropped without one — but a null also arrives when the deriver simply returns empty,
+        // which is what an unstubbed mock does. Asserting only the null therefore passes with the
+        // king guard DELETED: the fixture's heightAboveSpringThreshold=true would satisfy the
+        // remaining `(SPRING || height)` arm, the deriver would be called, return empty, and the
+        // method would return null by a different route.
+        //
+        // "The deriver was never asked" is the guard's actual observable behaviour, and it is false
+        // the moment the guard goes.
         BriefingSlot.TideInfo kingTide = new BriefingSlot.TideInfo("HIGH", true, null, null,
                 true, true, LunarTideType.KING_TIDE, "New Moon", true);
 
         assertThat(builder().buildSpring(dayWith(kingTide), List.of(bamburgh()))).isNull();
+        verifyNoInteractions(tideFactDeriver);
+    }
+
+    @Test
+    @DisplayName("spring tide: syzygy with the water still under its threshold — the lunar arm "
+            + "alone carries the fact line")
+    void buildsSpringFactsFromTheLunarArmWhenTheWaterHasNotBuilt() {
+        // The mirror of buildsSpringFactsFromHeightAloneWhenTheMoonHasMovedOn, and the row that was
+        // missing: EVERY buildSpring fixture in this class set heightAboveSpringThreshold=true, so
+        // the lunar arm of `(SPRING || height)` was as unobservable here as the height arm was in
+        // SpringTideHotTopicStrategyTest. Deleting it left this class green.
+        //
+        // Physically this is a run's leading edge — the day of syzygy, before the age of the tide
+        // has carried the water up to this port's own threshold. It is also the state
+        // BriefingSlotBuilder's ±90-minute gate produces whenever the big water misses the light,
+        // which makes it common rather than contrived.
+        BriefingSlot.TideInfo syzygyBeforeTheWater = new BriefingSlot.TideInfo("HIGH", true, null,
+                null, false, false, LunarTideType.SPRING_TIDE, "New Moon", false);
+        stubDerive(new TideDerivation(TideState.HIGH,
+                LocalDateTime.of(2026, 6, 17, 18, 20), new BigDecimal("4.4"),
+                LocalDateTime.of(2026, 6, 17, 12, 10), new BigDecimal("0.9"),
+                true, true, null, null, LunarTideType.SPRING_TIDE, "New Moon", false, false, false,
+                new BigDecimal("5.1"), new BigDecimal("3.8")));
+
+        CoastalTideFactsBuilder.CoastalScience science =
+                builder().buildSpring(dayWith(syzygyBeforeTheWater), List.of(bamburgh()));
+
+        assertThat(science).isNotNull();
+        assertThat(factWithKey(science.facts(), "range").value()).isEqualTo("3.5 m");
     }
 
     @Test
