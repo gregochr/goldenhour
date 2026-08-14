@@ -93,8 +93,8 @@ function freezeClock(options = { shouldAdvanceTime: true }) {
 /** A real consumer rather than a bespoke harness: this is what the shell reads. */
 function Consumer() {
   const {
-    briefing, loading, railTiles, windowCards, evaluationScores, reachLens: lens, homePlace,
-    promotedStrip,
+    briefing, loading, railTiles, windowCards, evaluationScores, reachLens: lens, ratingLens,
+    homePlace, promotedStrip,
   } = useWindowFirstBriefing();
   return (
     <div>
@@ -124,7 +124,16 @@ function Consumer() {
       <span data-testid="home-place">{homePlace === undefined ? 'unknown' : String(homePlace)}</span>
       {/* The real pairing, not a bespoke control: the shell renders exactly this from exactly this
           value, and it is the only way to move the tier the way a user does. */}
-      {lens && <WindowFirstLensBar lens={lens} spotCount={0} windowCount={0} />}
+      <span data-testid="lens-floor">{ratingLens?.floorId ?? 'none'}</span>
+      <span data-testid="reached-total">{windowCards[0]?.reachedTotal ?? 'none'}</span>
+      {lens && ratingLens && (
+        <WindowFirstLensBar
+          lens={lens}
+          ratingLens={ratingLens}
+          spotCount={0}
+          windowCount={0}
+        />
+      )}
     </div>
   );
 }

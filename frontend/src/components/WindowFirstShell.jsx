@@ -17,6 +17,7 @@ import { windowCardDomId } from '../utils/windowFirstCards.js';
 import { ANY_TIER_ID } from '../utils/reachLens.js';
 import { sheetOffersMore } from '../utils/windowSpotBrowse.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
+import useLensReserve from '../hooks/useLensReserve.js';
 
 /** The design's frame: 1080px, against the v1 arm's 896px `max-w-4xl`. */
 const WRAP_MAX_WIDTH = '1080px';
@@ -202,7 +203,7 @@ export default function WindowFirstShell({
 }) {
   const {
     railTiles, windowCards, paneItems, promotedStrip, loading, briefing, evaluationScores,
-    scoreIndex, todayStr, reachLens, homePlace,
+    scoreIndex, todayStr, reachLens, ratingLens, homePlace,
   } = useWindowFirstBriefing();
   const [activeTab, setActiveTab] = useState(TABS[0].id);
   /**
@@ -292,6 +293,18 @@ export default function WindowFirstShell({
     // absence honest: there is nothing to scroll in a document with no layout.
     tabRefs.current[next]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   };
+  /**
+   * The arm's root, and the element that hosts `--wf-lens-reserve`.
+   *
+   * <p>The variable is written imperatively by {@code useLensReserve} rather than through the
+   * `style` prop below, and the two coexist because React updates a style object key by key: it
+   * never rewrites `cssText`, so a custom property it does not know about survives every re-render.
+   * The alternative — measuring into state and rendering it — puts a `setState` inside a
+   * `ResizeObserver` callback for a property that affects no layout, which is a loop waiting for
+   * someone to add a second use.
+   */
+  const shellRef = useRef(null);
+  useLensReserve(shellRef);
   const [openPick, setOpenPick] = useState(null);
   /**
    * The drill-down's window, held by KEY rather than by the card object.
@@ -498,8 +511,26 @@ export default function WindowFirstShell({
   const handleSpot = (card, spot) => (
     onShowOnMap?.(card.date, card.targetType, spot.locationName)
   );
+  /**
+   * A window's own way out of an empty strip — the bar's controls, reached from the card.
+   *
+   * <p>The action is a descriptor the card renders and hands back rather than a pair of callbacks
+   * per axis, so a third axis would not widen this component's prop surface. It moves the
+   * <b>page-wide</b> lens, which is exactly what the reader asked for: the alternative is a
+   * per-window override, and a filter that means something different on each of six cards is a
+   * filter nobody can read off a sticky bar.
+   *
+   * <p>Nothing here is gated. A reach action only exists when a wider tier would fill the card, and
+   * a LITE reader is pinned to "Any" — so {@code buildLensEmptyState} never offers them one, with no
+   * role anywhere in the path.
+   */
+  const handleLoosen = (action) => {
+    if (action?.kind === 'reach') reachLens?.selectTier(action.id);
+    else if (action?.kind === 'rating') ratingLens?.selectFloor(action.id);
+  };
   return (
     <div
+      ref={shellRef}
       data-testid="window-first-shell"
       // `wf-shell` hosts `--wf-gutter`, the arm's horizontal inset. Seven elements below shared the
       // literal 18px and each would have needed its own phone override; declaring it once here
@@ -643,10 +674,15 @@ export default function WindowFirstShell({
           "no control gates on data that does not exist", and its own footer would read "0 spots
           across 5 windows" over a pane containing neither. It is unmounted rather than hidden so
           the sticky bar cannot take a scroll position with it. */}
-      {effectiveTab === 'plan' && reachLens && (
+      {effectiveTab === 'plan' && reachLens && ratingLens && (
         <WindowFirstLensBar
           lens={reachLens}
+          ratingLens={ratingLens}
           spotCount={windowCards.reduce((total, card) => total + card.spots.length, 0)}
+          // The rating floor's own denominator — what reach left for it to choose from. Summed here
+          // rather than derived in the bar for the reason `spotCount` already is: the counts have to
+          // be the lengths of the arrays that were drawn, and only this component can see all six.
+          reachedCount={windowCards.reduce((total, card) => total + (card.reachedTotal ?? 0), 0)}
           windowCount={windowCards.length}
         />
       )}
@@ -718,7 +754,7 @@ export default function WindowFirstShell({
             key={item.key}
             card={item.card}
             todayStr={todayStr}
-            reachLabel={reachLens?.tier?.label}
+            onLoosenLens={handleLoosen}
             open={isCardOpen(item.card)}
             onToggle={() => toggleCard(item.card.key, isCardOpen(item.card))}
             onOpenPick={setOpenPick}
@@ -807,6 +843,9 @@ export default function WindowFirstShell({
           key={sheetCard.key}
           card={sheetCard}
           barTierId={reachLens.tierId}
+          // The bar's floor is the one the sheet opens on, exactly as its tier is. The sheet's own
+          // change to either is local and dies with the dialog — see its class comment.
+          barFloorId={ratingLens.floorId}
           // A window the lens emptied opens WIDENED — see the sheet's own note. `spots` is the
           // gated list and `reachTotal` the set it was gated from, so this is exactly the state
           // the card renders its "N spots are further out" line in.

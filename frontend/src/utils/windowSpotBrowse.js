@@ -1,32 +1,35 @@
 import { SKY_SUBJECT_TYPES, locationTypeLabel } from './locationTypes.js';
 import { gateSpotsByReach } from './reachLens.js';
+import { ANY_RATING_ID, RATING_FLOORS, gateSpotsByRating, ratingFloorById } from './ratingLens.js';
 import { compareSpots } from './windowFirstSpots.js';
 
 /**
  * The drill-down's browsing filters — the rating floor, the location type, and what they may say.
  *
- * <h2>Why these two live here and not on the lens bar</h2>
+ * <h2>⚠️ The rating floor is no longer owned here</h2>
  *
- * <p>Plan §5c`:908` assumed P11 would add both to the sticky bar and warned that
- * {@code scroll-margin-top} would have to be re-measured. The mock puts them in the sheet and argues
- * for it, and the mock is right for a reason neither says: <b>they have a different scope</b>. Reach
- * is a fact about today that applies to every window on the page, which is why one control governs
- * six cards. A rating floor and a type are about the list you are reading <em>now</em> — and a
- * page-wide rating floor would collide head-on with §5c's rule that a window header's
- * {@code best N★} is never re-derived from the gated set, leaving a card reading "best 5★" over a
- * strip its own control had emptied of everything under 4. Recorded in plan §5f.
+ * <p>Plan §5f put it in this sheet and argued the scope: reach governs six windows, a floor is
+ * "about the list you are reading now". The design handoff overrules that and the floor is now a
+ * page-wide lens beside reach — {@code utils/ratingLens.js} owns the vocabulary, the storage and the
+ * gate, and records why §5f's stated hazard does not fire. What is left here is the sheet's own
+ * <em>browsing</em> use of it: the floor it opens on is <b>inherited</b> from the bar and its own
+ * changes are local, exactly as the reach control has always worked in this component.
  *
- * <h2>A lens is not a gate when it has no data — extended to both new axes</h2>
+ * <p>So this module no longer reads or writes {@code localStorage}. A floor set inside the dialog
+ * dies with it; the one the reader keeps is the one on the bar.
+ *
+ * <h2>A lens is not a gate when it has no data — extended to both browsing axes</h2>
  *
  * <p>Plan §2.5 rule 1 states it for reach: a spot with no drive time is <em>unknown</em>, not out of
  * reach. The same rule, applied to a control rather than to a row, is what makes these two safe:
  *
  * <ul>
  *   <li><b>The rating control is offered only when something is rated</b>, and when it is not
- *       offered the floor does not run. Without that pairing the persisted floor is a trap: a floor
- *       of 4★ stored from a scored evening would silently empty an unevaluated window the next
- *       morning, with no control on screen to explain it or take it back. The two halves only work
- *       together — see {@link browseSpots}, where the same predicate gates both.</li>
+ *       offered the floor does not run. Without that pairing the inherited floor is a trap: a floor
+ *       of 4★ would silently empty an unevaluated window's drill-down with no control in the dialog
+ *       to explain it or take it back. The two halves only work together — see {@link browseSpots},
+ *       where the same predicate gates both. <b>The bar needs no such predicate</b>, because its
+ *       control is sticky and therefore always on screen.</li>
  *   <li><b>The type control is offered only when there is a choice to make</b> — two or more
  *       distinct types among the window's own spots. One type is not a filter, it is a label, and a
  *       segmented control with one real option is the demo control §6 bans. Deriving the options
@@ -35,92 +38,14 @@ import { compareSpots } from './windowFirstSpots.js';
  * </ul>
  *
  * <p>An unrated spot <em>fails</em> a floor, which is the opposite of the reach rule and
- * deliberately so: "4★ and up" is a claim about what was measured, and an unknown does not meet it.
- * {@code CloseToHome.keepCard} already resolves it the same way. It is written as an explicit null
- * test rather than {@code (rating ?? 0) < min}, because the coercion that reads harmlessly in a
- * filter is the one P10′'s review caught rendering {@code ☆☆☆☆☆} for an unrated spot.
+ * deliberately so — the reasoning now lives beside the gate, in {@code ratingLens.js}.
  */
 
-/** The tier that floors nothing. Its own id, so a stored value can name it. */
-export const ANY_RATING_ID = 'any';
+/** Re-exported so the sheet and its tests keep one import for the axis they filter on. */
+export { ANY_RATING_ID, RATING_FLOORS, ratingFloorById };
 
 /** The type option that filters nothing. */
 export const ANY_TYPE_ID = 'any';
-
-/** The projector's own ceiling. A floor at the ceiling is "exactly this", not "this and up". */
-const MAX_RATING = 5;
-
-/**
- * The rating floors, loosest first.
- *
- * <p>Whole stars, because {@code bestRating} and {@code claudeRating} are integers in 1–5 and a 3.5
- * floor could only ever behave as 4 — the reasoning {@code CloseToHome}'s {@code RATING_STEPS}
- * already records, and the same ladder (any → 3 → 4 → 5), so a reader who has used the local block
- * meets one vocabulary rather than two.
- *
- * <p>The top step reads {@code 5★} and not {@code 5★+}: there is no sixth star, and a {@code +} on
- * the ceiling asserts a range that does not exist.
- */
-export const RATING_FLOORS = [{ id: ANY_RATING_ID, min: null, label: 'Any rating' }].concat(
-  [3, 4, MAX_RATING].map((min) => ({
-    id: String(min),
-    min,
-    label: min === MAX_RATING ? `${min}★` : `${min}★+`,
-  })),
-);
-
-/** The floor for an id, or null when nothing matches. */
-export function ratingFloorById(id) {
-  return RATING_FLOORS.find((floor) => floor.id === id) || null;
-}
-
-/**
- * Storage key for the rating floor, and <b>for nothing else</b>.
- *
- * <p>Its own key rather than a field on {@code photocast.planReach}, which is the shape plan
- * §5c`:866-876` rejected when it split them: reach expires at the day roll and this does not, so one
- * object would make the expiry policy a naming convention where two keys make it structural. The
- * write is a whole value that never reads storage back — CodeQL models {@code localStorage} as one
- * store with no notion of keys, so a {@code getItem} feeding a {@code setItem} is a conduit from
- * every other write in the app.
- *
- * <p><b>No day stamp, and that is the difference from reach.</b> "How far will I drive tonight" is a
- * judgement about one evening; "I only care about 4★ and up" is taste, and re-asking it every
- * morning would be the same nagging a per-day reach avoids in the other direction.
- */
-export const PLAN_RATING_KEY = 'photocast.planRating';
-
-/**
- * The stored rating floor id, or null when there is none this build still has.
- *
- * <p>Null covers no key, unparseable JSON, a missing field and an id this build no longer offers.
- * All four mean the same thing to the caller: no floor.
- *
- * @returns {?string} a floor id, or null
- */
-export function readStoredRatingFloorId() {
-  try {
-    const raw = localStorage.getItem(PLAN_RATING_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return ratingFloorById(parsed?.rating) ? parsed.rating : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Records a rating floor. A whole-value write of the one field this module owns.
- *
- * @param {string} floorId the chosen floor, already validated by the caller
- */
-export function writeStoredRatingFloorId(floorId) {
-  try {
-    localStorage.setItem(PLAN_RATING_KEY, JSON.stringify({ rating: floorId }));
-  } catch {
-    // Quota exceeded or private-browsing restriction — the choice still applies for this session
-  }
-}
 
 /**
  * The types a spot's location carries that this sheet may name, in display order.
@@ -216,7 +141,7 @@ export function browseSpots({ spots, limitMinutes, ratingFloorId, typeId, typesB
   // Paired with the control's own render condition on purpose — a floor that runs while its chip is
   // absent is a filter the reader cannot see, cannot explain and cannot take back.
   const floor = hasRatings(spots) ? ratingFloorById(ratingFloorId)?.min ?? null : null;
-  if (floor != null) kept = kept.filter((spot) => spot.rating != null && spot.rating >= floor);
+  kept = gateSpotsByRating(kept, floor);
 
   // Same pairing: `typeOptionsFor` returns nothing when there is no choice, and then nothing gates.
   const typeOffered = typeId !== ANY_TYPE_ID

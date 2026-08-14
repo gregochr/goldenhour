@@ -7,6 +7,7 @@ import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getReach, getSettings } from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import useRatingLens from '../hooks/useRatingLens.js';
 import useReachLens from '../hooks/useReachLens.js';
 import { cacheGeneration, readSwrCache, writeSwrCache } from '../utils/swrCache.js';
 import { isTravelDate } from '../utils/conversions.js';
@@ -280,6 +281,11 @@ export function WindowFirstBriefingProvider({ children, homeSettingsVersion }) {
   // what the cards receive is a threshold, not a role.
   const reachLens = useReachLens(todayStr, role === 'LITE_USER');
   const defaultLimitMinutes = reachLens.defaultTier.limitMinutes;
+  // The bar's second axis, and it lives beside the first for the same reason: the cards are built
+  // here, so both gates have to run inside the memo that derives them or the shell would filter a
+  // list the provider had already counted. It takes no role — the floor is not a PRO control (see
+  // the hook), so nothing new crosses plan §5c's line.
+  const ratingLens = useRatingLens();
 
   // Keyed on the briefing OBJECT, not on generatedAt. Keying on the timestamp looks like the
   // cheaper choice — a poll returning a byte-identical payload still hands back a fresh object —
@@ -313,11 +319,18 @@ export function WindowFirstBriefingProvider({ children, homeSettingsVersion }) {
     () => (briefing
       ? buildWindowCards(
         upcomingEvents, briefing.days, todayStr, tomorrowStr, travelDayDates, reachById,
-        { limitMinutes: reachLens.tier.limitMinutes, defaultLimitMinutes },
+        {
+          limitMinutes: reachLens.tier.limitMinutes,
+          defaultLimitMinutes,
+          tierId: reachLens.tierId,
+          minRating: ratingLens.minRating,
+          floorId: ratingLens.floorId,
+        },
       )
       : []),
     [briefing, upcomingEvents, travelDayDates, todayStr, tomorrowStr, reachById,
-      reachLens.tier.limitMinutes, defaultLimitMinutes],
+      reachLens.tier.limitMinutes, reachLens.tierId, defaultLimitMinutes,
+      ratingLens.minRating, ratingLens.floorId],
   );
 
   // The pane's ordered contents — the cards with the away days folded back in where they fall. It
@@ -354,11 +367,11 @@ export function WindowFirstBriefingProvider({ children, homeSettingsVersion }) {
     () => ({
       briefing, loading, railTiles, windowCards, paneItems, promotedStrip, upcomingEvents,
       travelDayDates, evaluationScores, scoreIndex, reachById, todayStr, tomorrowStr, reachLens,
-      homePlace, isPro, isLiteUser,
+      ratingLens, homePlace, isPro, isLiteUser,
     }),
     [briefing, loading, railTiles, windowCards, paneItems, promotedStrip, upcomingEvents,
       travelDayDates, evaluationScores, scoreIndex, reachById, todayStr, tomorrowStr, reachLens,
-      homePlace, isPro, isLiteUser],
+      ratingLens, homePlace, isPro, isLiteUser],
   );
 
   return (
@@ -380,8 +393,8 @@ WindowFirstBriefingProvider.propTypes = {
  * @returns {{briefing: ?object, loading: boolean, railTiles: Array, windowCards: Array,
  *           paneItems: Array, promotedStrip: ?object, upcomingEvents: Array,
  *           travelDayDates: Set, reachById: Map,
- *           reachLens: object, homePlace: ?string, todayStr: string, tomorrowStr: string,
- *           isPro: boolean, isLiteUser: boolean}}
+ *           reachLens: object, ratingLens: object, homePlace: ?string, todayStr: string,
+ *           tomorrowStr: string, isPro: boolean, isLiteUser: boolean}}
  */
 export function useWindowFirstBriefing() {
   return useContext(WindowFirstBriefingContext);

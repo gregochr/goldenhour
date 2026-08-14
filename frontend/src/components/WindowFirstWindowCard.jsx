@@ -35,24 +35,6 @@ const CHANNEL = {
 };
 
 /**
- * What a window whose every spot the lens gated says instead of a strip.
- *
- * <p>The design's line is "Nothing matches the current lens in this window." Two changes. The word
- * <em>lens</em> is ours, not the product's — §6 bans inventing vocabulary — so the sentence names
- * the threshold the reader can actually see on the control above. And it states how many are beyond
- * it, because the useful fact is not that the window is empty but that widening would fill it; an
- * empty card that says only "nothing" reads as a bad forecast rather than a tight filter.
- *
- * @param {number} total      how many spots the lens chose from
- * @param {string} reachLabel the active tier's own label
- * @returns {string} the sentence
- */
-function emptyLensLine(total, reachLabel) {
-  const beyond = total === 1 ? '1 spot is further out.' : `${total} spots are further out.`;
-  return `Nothing within ${reachLabel} in this window. ${beyond}`;
-}
-
-/**
  * One shooting window, as a card.
  *
  * <h2>The verdict badge is the confidence channel's only render site</h2>
@@ -116,9 +98,11 @@ function emptyLensLine(total, reachLabel) {
  * @param {object}   props
  * @param {object}   props.card       a descriptor from {@code buildWindowCards}
  * @param {string}   props.todayStr   today in Europe/London, for the confidence horizon
- * @param {string}   [props.reachLabel] the active reach tier's own label, used only in the sentence
- *        a fully gated window shows in place of its strip. The label rather than the threshold, so
- *        the card names exactly what is written on the chip the reader would press.
+ * @param {Function} [props.onLoosenLens] moves the page-wide lens to the option an emptied window
+ *        names. The card receives the whole action descriptor from {@code card.lensEmpty} and hands
+ *        it straight back, so it learns nothing about which lenses exist — the shell owns both.
+ *        The former {@code reachLabel} prop is gone: the sentence it fed is now built where both
+ *        thresholds are known, because with two gates a card cannot say which one emptied it.
  * @param {boolean}  [props.open] whether the collapsible region is showing. The shell owns the
  *        state, not the card: the default is a judgement about the <em>list</em> ("the first card is
  *        open"), and a card cannot see its own position.
@@ -147,7 +131,7 @@ function emptyLensLine(total, reachLabel) {
  *        It carries no role and gates nothing, so P7's pin on this component's props still holds.
  */
 export default function WindowFirstWindowCard({
-  card, todayStr, reachLabel, open = true, onToggle, onOpenPick, onOpenSpot, onSeeAllSpots,
+  card, todayStr, open = true, onToggle, onOpenPick, onOpenSpot, onSeeAllSpots, onLoosenLens,
   peeksSuppressed, scoreIndex,
 }) {
   // The colon in `card.key` is a legal HTML5 id character and `aria-controls` is an IDREF, not a
@@ -427,25 +411,43 @@ export default function WindowFirstWindowCard({
               />
             )}
 
-            {/* Only when the LENS emptied it. A window with no spots at all still renders neither
-                strip nor message — there is nothing the control could bring back, so the line would
-                be a statement about the lens on a card the lens never touched. */}
-            {card.spots.length === 0 && card.reachTotal > 0 && (
-              <p data-testid="window-card-lens-empty" className="wf-strip-empty">
-                {emptyLensLine(card.reachTotal, reachLabel)}
-                {/* The trigger belongs here MORE than on a populated card, not less. "12 spots are
-                    further out" is otherwise a number with no route to the thing it counts, which
-                    is the exact defect CLAUDE.md records against Close-to-home's old per-window cap
-                    ("20 within reach above four cards, no route to the other sixteen"). The sticky
-                    bar can also reveal them, but it changes the whole page to answer a question
-                    about one window — where the sheet widens for browsing and forgets it on close,
-                    which is what charge c6 asks a drill-down to be. */}
+            {/* Only when the LENS emptied it. A window with no spots at all renders neither strip
+                nor message — there is nothing the control could bring back, so the line would be a
+                statement about the lens on a card the lens never touched. `buildLensEmptyState`
+                returns null in exactly that case, so the condition is the descriptor's existence
+                rather than a second reading of the same facts here. */}
+            {card.spots.length === 0 && card.lensEmpty && (
+              <div data-testid="window-card-lens-empty" className="wf-lens-empty">
+                <b data-testid="window-card-lens-empty-head">{card.lensEmpty.headline}</b>
+                <span data-testid="window-card-lens-empty-body">{card.lensEmpty.body}</span>
+                {/* The way out, and it is a real one: each action was tested by re-running both
+                    gates with that control loosened, so a button that appears always fills the card.
+                    One tap rather than "reason about which of two controls to change". */}
+                {card.lensEmpty.actions.map((action) => (
+                  <button
+                    key={`${action.kind}:${action.id}`}
+                    type="button"
+                    data-testid="window-card-lens-loosen"
+                    data-loosen={action.kind}
+                    className="wf-lens-empty-act"
+                    onClick={() => onLoosenLens?.(action)}
+                  >
+                    {action.label}
+                    <span aria-hidden="true"> →</span>
+                  </button>
+                ))}
+                {/* The trigger belongs here MORE than on a populated card, not less. A count of what
+                    is beyond the lens is otherwise a number with no route to the thing it counts,
+                    which is the exact defect CLAUDE.md records against Close-to-home's old
+                    per-window cap ("20 within reach above four cards, no route to the other
+                    sixteen"). The bar's own controls can also reveal them, but they change the whole
+                    page to answer a question about one window — where the sheet widens for browsing
+                    and forgets it on close, which is what charge c6 asks a drill-down to be. */}
                 {onSeeAllSpots && (
                   <button
                     type="button"
                     data-testid="window-card-lens-all"
-                    className="wf-film-all"
-                    style={{ marginLeft: '8px' }}
+                    className="wf-lens-empty-act"
                     aria-label={`See all spots in ${windowLabel}`}
                     onClick={() => onSeeAllSpots(card)}
                   >
@@ -453,7 +455,7 @@ export default function WindowFirstWindowCard({
                     <span aria-hidden="true"> →</span>
                   </button>
                 )}
-              </p>
+              </div>
             )}
           </>
         )}
@@ -488,19 +490,29 @@ WindowFirstWindowCard.propTypes = {
     }),
     spots: PropTypes.arrayOf(PropTypes.object).isRequired,
     reachTotal: PropTypes.number,
+    reachedTotal: PropTypes.number,
     withinReachCount: PropTypes.number,
+    lensEmpty: PropTypes.shape({
+      headline: PropTypes.string.isRequired,
+      body: PropTypes.string.isRequired,
+      actions: PropTypes.arrayOf(PropTypes.shape({
+        kind: PropTypes.oneOf(['reach', 'rating']).isRequired,
+        id: PropTypes.string.isRequired,
+        label: PropTypes.string.isRequired,
+      })).isRequired,
+    }),
     rows: PropTypes.arrayOf(PropTypes.shape({
       key: PropTypes.string.isRequired,
       channel: PropTypes.oneOf(['tide', 'snow']).isRequired,
     })).isRequired,
   }).isRequired,
   todayStr: PropTypes.string.isRequired,
-  reachLabel: PropTypes.string,
   open: PropTypes.bool,
   onToggle: PropTypes.func,
   onOpenPick: PropTypes.func,
   onOpenSpot: PropTypes.func,
   onSeeAllSpots: PropTypes.func,
+  onLoosenLens: PropTypes.func,
   peeksSuppressed: PropTypes.bool,
   scoreIndex: PropTypes.instanceOf(Map),
 };

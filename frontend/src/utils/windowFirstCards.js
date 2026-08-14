@@ -1,5 +1,7 @@
 import { formatTime, getEventTime } from './briefingDisplay.js';
-import { gateSpotsByReach } from './reachLens.js';
+import { ANY_TIER_ID, gateSpotsByReach } from './reachLens.js';
+import { ANY_RATING_ID, gateSpotsByRating } from './ratingLens.js';
+import { buildLensEmptyState } from './windowLensEmpty.js';
 import { buildWindowSpots } from './windowFirstSpots.js';
 import { badgeKey, buildWindowRows } from './windowFirstRows.js';
 
@@ -91,18 +93,27 @@ export const CONFIDENCE_VERDICTS = new Set(['WORTH_IT', 'MAYBE']);
 /**
  * How many of the drawn spots the header may call "within reach", or null when it may not.
  *
- * <p>Two conditions, and both are about honesty rather than presentation. The tier has to carry a
- * threshold — under "Any" nothing was gated, so the word describes no act. And every drawn spot has
- * to carry a drive time, because plan §2.5 rule 1 passes an unknown one through every tier: a set
- * that is part measured and part unknown is not a set that is within reach, and calling it one is
- * the same over-claim as counting a set nothing filtered.
+ * <p>Three conditions, and all are about honesty rather than presentation. The tier has to carry a
+ * threshold — under "Any" nothing was gated, so the word describes no act. Every drawn spot has to
+ * carry a drive time, because plan §2.5 rule 1 passes an unknown one through every tier: a set that
+ * is part measured and part unknown is not a set that is within reach, and calling it one is the
+ * same over-claim as counting a set nothing filtered.
+ *
+ * <p><b>And no rating floor may be active.</b> The drawn set is then gated on two axes, and this
+ * clause names one of them — "6 within reach" over a strip a 4★ floor had trimmed to two counts
+ * neither what the reader can drive to nor what is on screen. Withholding it is the same answer the
+ * other two conditions give, and the bar's own count line states the page-wide cost instead. The
+ * alternative — counting the reach-gated pool rather than the drawn set — was rejected: it would
+ * put a number in the header that no card below it accounts for, which is what §6's rule about a
+ * claimed count matching what is rendered exists to prevent.
  *
  * @param {Array}   spots       the spots as drawn
  * @param {?number} limitMinutes the active tier's threshold, or null for "Any"
+ * @param {?number} minRating    the active floor's threshold, or null for "Any rating"
  * @returns {?number} the count, or null when the sentence is unavailable
  */
-function withinReachCount(spots, limitMinutes) {
-  if (limitMinutes == null || spots.length === 0) return null;
+function withinReachCount(spots, limitMinutes, minRating) {
+  if (limitMinutes == null || minRating != null || spots.length === 0) return null;
   return spots.every((spot) => spot.driveMinutes != null) ? spots.length : null;
 }
 
@@ -135,17 +146,25 @@ function withinReachCount(spots, limitMinutes) {
  *                                for a user with no home postcode — in both cases every spot simply
  *                                renders without its reach line, because a lens with no data is not
  *                                a gate (plan §2.5).
- * @param {object} [lens]         the reach lens. {@code limitMinutes} is the active tier's
- *                                threshold, null for "Any"; {@code defaultLimitMinutes} is today's
- *                                derived default and is what marks a spot {@code far}. The default
- *                                gates nothing and marks nothing, which is what a caller with no
- *                                lens should get — never a silent gate at some assumed distance.
+ * @param {object} [lens]         the page-wide lens, both axes. {@code limitMinutes} is the active
+ *                                reach tier's threshold and {@code minRating} the active floor's,
+ *                                each null when that control gates nothing;
+ *                                {@code defaultLimitMinutes} is today's derived default and is what
+ *                                marks a spot {@code far}. The ids ride along because the empty
+ *                                state has to name the control it would move, and a threshold
+ *                                cannot name a chip. The default gates nothing and marks nothing,
+ *                                which is what a caller with no lens should get — never a silent
+ *                                gate at some assumed distance.
  * @returns {Array} card descriptors for {@code WindowFirstWindowCard}
  */
 export function buildWindowCards(
   upcomingEvents, briefingDays, todayStr, tomorrowStr, travelDayDates, reachById,
   lens = { limitMinutes: null, defaultLimitMinutes: null },
 ) {
+  const limitMinutes = lens?.limitMinutes ?? null;
+  const minRating = lens?.minRating ?? null;
+  const tierId = lens?.tierId ?? ANY_TIER_ID;
+  const floorId = lens?.floorId ?? ANY_RATING_ID;
   const live = (upcomingEvents || []).filter((e) => !travelDayDates?.has(e.date));
 
   return live.map(({ date, targetType }, index) => {
@@ -178,7 +197,10 @@ export function buildWindowCards(
     // that keep them in step. The gate runs after, so `reachTotal` is the set the lens chose from
     // and the card can say how many it left without either number describing a different thing.
     const allSpots = buildWindowSpots(es, reachById, lens?.defaultLimitMinutes ?? null);
-    const spots = gateSpotsByReach(allSpots, lens?.limitMinutes ?? null);
+    // Reach first, then rating — the order the two counts describe. `reached` is what the floor
+    // chose from, so the bar can say "42 of 138" without either number naming a different thing.
+    const reached = gateSpotsByReach(allSpots, limitMinutes);
+    const spots = gateSpotsByRating(reached, minRating);
 
     return {
       key: `${date}:${targetType}`,
@@ -211,8 +233,18 @@ export function buildWindowCards(
       // How many the lens chose from. Equal to `spots.length` whenever nothing was gated, which is
       // exactly when the strip footer keeps P6's plain count rather than the design's "N of M".
       reachTotal: allSpots.length,
+      // How many survived reach alone — the rating floor's own denominator, summed across the page
+      // into the bar's "42 of 138". Deliberately a scalar rather than a third array: nothing renders
+      // this set, only counts it.
+      reachedTotal: reached.length,
       // The header's claim, or null when the word "reach" would over-claim — see the module comment.
-      withinReachCount: withinReachCount(spots, lens?.limitMinutes ?? null),
+      withinReachCount: withinReachCount(spots, limitMinutes, minRating),
+      // What the card draws in place of its strip, or null when it draws a strip — or when the
+      // window had no spots at all, which is a card the lens never touched and must not carry a
+      // line about it.
+      lensEmpty: buildLensEmptyState({
+        allSpots, spots, tierId, limitMinutes, floorId, minRating,
+      }),
       rows,
       badges: (win?.badges || []).filter((b) => !promoted.has(badgeKey(b))),
       // The window's badges BEFORE the row promotion above removed any of them — the same

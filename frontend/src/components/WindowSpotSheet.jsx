@@ -6,7 +6,6 @@ import { locationTypeLabel } from '../utils/locationTypes.js';
 import { REACH_TIERS, tierById } from '../utils/reachLens.js';
 import { spotOrderStatement } from '../utils/windowFirstSpots.js';
 import {
-  ANY_RATING_ID,
   ANY_TYPE_ID,
   RATING_FLOORS,
   browseCountLine,
@@ -14,18 +13,21 @@ import {
   browseSpots,
   hasRatings,
   ratingFloorById,
-  readStoredRatingFloorId,
   spotTypes,
   typeOptionsFor,
-  writeStoredRatingFloorId,
 } from '../utils/windowSpotBrowse.js';
 
 /** One segmented control. The bar's own markup, so a chip reads the same wherever it sits. */
-function Segment({ id, label, options, value, disabled, onSelect }) {
+function Segment({ id, label, options, value, disabled, onSelect, segClassName = '' }) {
   return (
     <div className="wf-sheet-seg">
       <span className="wf-lens-k" id={`${id}-label`}>{label}</span>
-      <div className="wf-seg" role="group" aria-labelledby={`${id}-label`} data-testid={id}>
+      <div
+        className={`wf-seg${segClassName ? ` ${segClassName}` : ''}`}
+        role="group"
+        aria-labelledby={`${id}-label`}
+        data-testid={id}
+      >
         {options.map((option) => (
           <button
             key={option.id}
@@ -57,6 +59,8 @@ Segment.propTypes = {
   value: PropTypes.string.isRequired,
   disabled: PropTypes.bool,
   onSelect: PropTypes.func.isRequired,
+  /** Marks the axis. The rating floor is green on both surfaces, or it is two settings. */
+  segClassName: PropTypes.string,
 };
 
 /**
@@ -64,8 +68,15 @@ Segment.propTypes = {
  *
  * <p>Derived rather than written out, because the design's line — "Rating floor is remembered ·
  * reach and type reset each visit" — names three controls unconditionally and two of them are
- * conditional. Claiming a floor is remembered on a window that offers no floor describes a setting
- * the reader cannot see; claiming type resets when no type control was drawn does the same.
+ * conditional. Claiming a setting is remembered on a window that offers no such control describes
+ * something the reader cannot see; claiming type resets when no type control was drawn does the
+ * same.
+ *
+ * <p><b>All three now reset, and the rating floor's clause changed with the handoff.</b> The floor
+ * used to be stored from here, so the sentence read "Rating floor is remembered". It is now a
+ * page-wide lens the bar owns and the sheet only inherits — what the reader changes in the dialog
+ * is a browsing deviation that dies with it, exactly like reach — so saying it is remembered would
+ * describe the bar's floor while pointing at a control that no longer keeps one.
  *
  * @param {object}  offered
  * @param {boolean} offered.rating whether the rating floor is on screen
@@ -74,30 +85,34 @@ Segment.propTypes = {
  * @returns {?string} the sentence, or null when there is nothing true to say
  */
 function persistenceNote({ rating, type, reach }) {
-  const parts = [];
-  if (rating) parts.push('Rating floor is remembered');
-  const perVisit = [reach ? 'reach' : null, type ? 'type' : null].filter(Boolean);
-  if (perVisit.length === 1) parts.push(`${perVisit[0]} resets each visit`);
-  if (perVisit.length === 2) parts.push(`${perVisit.join(' and ')} reset each visit`);
-  if (parts.length === 0) return null;
-  // Sentence case on whichever clause leads. Without this a window that offers no rating floor
-  // opens its footer with a lowercase "reach resets each visit" beside the sentence-case count.
-  const [first, ...rest] = parts;
-  return [first.charAt(0).toUpperCase() + first.slice(1), ...rest].join(' · ');
+  const perVisit = [
+    reach ? 'reach' : null, rating ? 'rating' : null, type ? 'type' : null,
+  ].filter(Boolean);
+  if (perVisit.length === 0) return null;
+  const verb = perVisit.length === 1 ? 'resets' : 'reset';
+  const last = perVisit[perVisit.length - 1];
+  const named = perVisit.length === 1
+    ? last
+    : `${perVisit.slice(0, -1).join(', ')} and ${last}`;
+  // Sentence case on the leading clause, so the footer does not open lowercase beside the count.
+  return `${named.charAt(0).toUpperCase() + named.slice(1)} ${verb} each visit`;
 }
 
 /**
  * The drill-down — one window's whole spot list, with the filters that only matter while browsing.
  *
- * <h2>Browsing filters live here, not on the lens bar</h2>
+ * <h2>⚠️ The rating floor moved to the bar; this one inherits it</h2>
  *
- * <p>Plan §5c`:908` expected P11 to add a rating floor and a type control to the sticky bar and
- * warned that {@code scroll-margin-top: 60px} would then need re-measuring. It does not: the bar
- * keeps its one control and its measured 53.5px. The scope argument is in
- * {@code windowSpotBrowse.js} and the decision in plan §5f — briefly, reach is a fact about *today*
- * that governs every window on the page, while a rating floor and a type are about the list in
- * front of you, and a page-wide floor would leave a window header reading "best 5★" over a strip
- * its own control had emptied of everything below 4.
+ * <p>Plan §5f put the floor here and argued the scope. The design handoff overrules that and makes
+ * it a page-wide lens; {@code utils/ratingLens.js} records why §5f's stated hazard does not fire.
+ * What this sheet keeps is the <em>browsing</em> half: it opens on the bar's floor and its own
+ * changes are local, which is precisely how the reach control here has always worked. Nothing in
+ * this component reads or writes storage any more.
+ *
+ * <p>Its option list is one step longer than the bar's — the 5★ step lives here and nowhere else.
+ * A floor that usually empties six windows at once is no use on a sticky bar; over one window's
+ * whole list "show me only the best" is a real question, and it is a browsing choice that dies with
+ * the dialog rather than a stored preference the bar could not then draw a pressed chip for.
  *
  * <h2>The reach control inherits, and says so only when it has moved</h2>
  *
@@ -132,6 +147,8 @@ function persistenceNote({ rating, type, reach }) {
  * @param {object}   props.card         the window card descriptor, carrying {@code allSpots}
  * @param {string}   props.barTierId    the lens bar's active tier — the comparand for "widened for
  *        browsing", and the tier the sheet inherits unless {@code openTierId} overrides it
+ * @param {string}   props.barFloorId   the lens bar's active rating floor, on the same terms: the
+ *        value the sheet opens on and the comparand for "widened for browsing"
  * @param {string}   [props.openTierId] the tier to OPEN on, where that differs from the bar's. The
  *        shell passes "any" for a window the lens emptied, which is the one case where inheriting
  *        would open a dialog with nothing in it
@@ -141,15 +158,12 @@ function persistenceNote({ rating, type, reach }) {
  * @param {Function} [props.onOpenSpot] opens the map centred on a spot
  */
 export default function WindowSpotSheet({
-  card, barTierId, openTierId, reachLocked = false, typesByName, onClose, onOpenSpot,
+  card, barTierId, barFloorId, openTierId, reachLocked = false, typesByName, onClose, onOpenSpot,
 }) {
   const spots = card.allSpots || [];
-  // Read once, lazily. The floor is the only one of the three that outlives the sheet; reach is
-  // inherited from the bar and type deliberately starts loose, both of which cost nothing to
-  // re-derive because closing unmounts this component.
-  const [ratingFloorId, setRatingFloorId] = useState(
-    () => readStoredRatingFloorId() ?? ANY_RATING_ID,
-  );
+  // Inherited from the bar, exactly as the tier below is, and local from there on. Type is the one
+  // that starts loose rather than inheriting, because the bar has no type control to inherit from.
+  const [ratingFloorId, setRatingFloorId] = useState(barFloorId);
   // Usually the bar's tier — the sheet inherits, which is charge c6's own remedy. The exception is
   // a window the lens emptied: opening THAT one on the tier that emptied it puts the reader in a
   // dialog whose whole content is "nothing matches", which is a door onto a wall. It opens widened
@@ -166,15 +180,21 @@ export default function WindowSpotSheet({
   const chooseRating = (id) => {
     if (!ratingFloorById(id)) return;
     setRatingFloorId(id);
-    writeStoredRatingFloorId(id);
   };
 
   // Keyed on DIRECTION, not on difference. `tierId !== barTierId` fires just as readily when the
   // reader has tightened the sheet below the bar's tier — and "widened for browsing" over a list
   // that is shorter than the strip behind it is simply false. A null limit is the loosest of all,
   // so it compares as +∞ rather than as absent.
+  //
+  // Both axes, since P16: the floor is inherited too, and loosening it shows the reader spots the
+  // page behind the dialog is hiding. That is the same statement about the same dialog, and marking
+  // only one of the two ways to reach it would leave the other silent.
   const barLimit = tierById(barTierId)?.limitMinutes ?? null;
-  const widened = (limitMinutes ?? Infinity) > (barLimit ?? Infinity);
+  const barFloor = ratingFloorById(barFloorId)?.min ?? null;
+  const floorMin = ratingFloorById(ratingFloorId)?.min ?? null;
+  const widened = (limitMinutes ?? Infinity) > (barLimit ?? Infinity)
+    || (floorMin ?? 0) < (barFloor ?? 0);
   const note = persistenceNote({
     rating: ratingOffered,
     type: typeOptions.length > 0,
@@ -250,6 +270,7 @@ export default function WindowSpotSheet({
           {ratingOffered && (
             <Segment
               id="window-spot-sheet-rating"
+              segClassName="wf-seg-rating"
               label="At least"
               options={RATING_FLOORS}
               value={ratingFloorId}
@@ -326,6 +347,7 @@ WindowSpotSheet.propTypes = {
     allSpots: PropTypes.arrayOf(PropTypes.shape(SPOT_SHAPE)),
   }).isRequired,
   barTierId: PropTypes.string.isRequired,
+  barFloorId: PropTypes.string.isRequired,
   openTierId: PropTypes.string,
   reachLocked: PropTypes.bool,
   typesByName: PropTypes.instanceOf(Map),

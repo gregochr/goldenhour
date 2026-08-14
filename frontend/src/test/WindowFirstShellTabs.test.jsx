@@ -86,6 +86,14 @@ const ctx = (overrides = {}) => {
       selectTier: vi.fn(),
       resetToDefault: vi.fn(),
     },
+    // The second axis, as the provider hands it over. Frozen rather than the live hook, for the
+    // same reason the reach lens is: these files are about the shell's wiring.
+    ratingLens: {
+      floor: { id: 'any', min: null, label: 'Any rating' },
+      floorId: 'any',
+      minRating: null,
+      selectFloor: vi.fn(),
+    },
     ...overrides,
   };
 };
