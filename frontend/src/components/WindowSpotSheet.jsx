@@ -206,8 +206,10 @@ export default function WindowSpotSheet({
       label={`All spots — ${[card.kicker, card.when].filter(Boolean).join(' ')}`}
       onClose={onClose}
       bare
-      // Nothing here is lost by dismissing: three filters over data already in memory, and the
-      // rating floor is written the moment it is chosen rather than on close.
+      // Nothing here is lost by dismissing: three filters over data already in memory, none of
+      // which this dialog persists. (It said the floor was "written the moment it is chosen" — that
+      // write moved to the bar with P15c and is no longer made anywhere in this file, which is what
+      // the footer's "Reach, rating and type reset each visit" has told the reader all along.)
       closeOnEscape
       data-testid="window-spot-sheet"
     >

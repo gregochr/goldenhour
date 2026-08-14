@@ -1891,8 +1891,7 @@
    controls on screen and one label between them. Both groups carry it — `.wf-lens-controls` is the
    reach one and exists as a second class only so the LITE greying can stop at exactly the thing
    that is unavailable and leave the upsell beside it at full strength. */
-.wf-lens-group,
-.wf-lgrp {
+.wf-lens-group {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1921,7 +1920,7 @@
 /* CLAUDE.md's LITE treatment, verbatim: `opacity: 0.45` and `pointer-events: none`. The buttons
    carry a real `disabled` as well, because pointer-events does not stop a keyboard.
 
-   Scoped to `.wf-lens-controls` and NOT to the whole `.wf-lgrp`: opacity composites the entire
+   Scoped to `.wf-lens-controls` and NOT to the whole `.wf-lens-group`: opacity composites the entire
    subtree, and with the "Pro" pill inside it the upsell rendered at 3.68:1 against AA's 4.5:1
    (measured on the running app). WCAG 1.4.3 exempts an inactive component, which is what licenses
    the greyed tiers at 3.12:1 — it does not license the call to action that replaces them. */

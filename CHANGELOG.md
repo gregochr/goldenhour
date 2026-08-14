@@ -5,6 +5,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — a rating-emptied window widened the wrong axis
+
+`openTierId` decides whether the drill-down opens on the reader's chosen reach tier or throws it
+away and opens on **Any**. It keyed on `spots.length === 0` — written when `spots` was the
+reach-gated list. The rating floor composed a second gate in (`gateSpotsByRating(gateSpotsByReach(…))`),
+so the test silently widened to "emptied by *either* axis".
+
+A window the **rating** floor emptied therefore opened widened: it discarded the reader's tier,
+printed `widened for browsing` over a widening that had removed nothing, and — since the sheet
+inherits the floor that did the emptying — still opened onto an empty list. A door onto a wall,
+which is the one thing the prop exists to prevent. Reachable, because an emptied card renders its
+own **See all** trigger.
+
+Now keyed on `reachedTotal === 0`, the survivors of reach alone — added alongside the floor for
+exactly this denominator. Widening reach can only help when reach is what removed them.
+
+The existing fixture only covered the reach-emptied case (`reachedTotal: 0`); its rating-emptied
+twin differs in that single field and is what was missing. Mutation-checked: it is the only test
+that fails against the old predicate.
+
+### Fixed — three comments that described code that had moved
+
+- The sheet "reads the rating floor from storage" — it reads no storage at all; both imports were
+  deleted when the floor moved to the bar. Both axes are inherited and die with the dialog.
+- "the rating floor is written the moment it is chosen" — that write left this file with P15c.
+- `.wf-lgrp` was orphaned by the rename to `.wf-lens-group`, leaving a dead selector and a LITE
+  greying comment scoped against a class no element carries.
+
+### Fixed — a storage test that could pass without testing anything
+
+`ratingLens.test.js` spied on `Storage.prototype.setItem`. `setup.js` installs a plain-object
+`localStorage` only when jsdom does not supply one, so that spy is the owner in one environment and
+bypassed in the other — `WindowFirstShellTabs.test.jsx` records CI catching exactly this, where both
+spellings pass locally and one records nothing. A bypassed spy never throws, so the `.not.toThrow()`
+assertion passed **without entering the guard**. Now resolves the owner as `swrCache.test.js` does,
+and asserts the spy was called so a bypass fails loudly.
+
 ### Fixed — the Plan tab's spring tide asked the moon, and the moon had already left
 
 The tide pill disappeared from every window row and from Hot topics, while "Coming up" carried the

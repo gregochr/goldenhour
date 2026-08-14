@@ -136,7 +136,20 @@ describe('ratingLens — persistence', () => {
     // (`reachLens.test.js`), and the sheet used to pin it for this one before the floor moved to
     // the bar — so without this the move would have quietly dropped a guard rather than relocating
     // it. `afterEach` restores the stub even if the assertion throws first.
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota'); });
+    //
+    // ⚠️ The owner is RESOLVED rather than assumed. `setup.js` installs a plain-object localStorage
+    // only when jsdom does not supply one, so `Storage.prototype` is the owner in one environment
+    // and bypassed in the other — `WindowFirstShellTabs.test.jsx` records CI catching exactly this,
+    // where both spellings pass locally and one records nothing. A `Storage.prototype` spy that is
+    // bypassed never throws, so `.not.toThrow()` passes without entering the guard at all: the
+    // assertion would be vacuous in the environment that matters. Same resolution as
+    // `swrCache.test.js`, plus a call assertion so a bypassed spy fails loudly instead of silently.
+    const owner = Object.prototype.hasOwnProperty.call(localStorage, 'setItem')
+      ? localStorage
+      : (Object.getPrototypeOf(localStorage) ?? Storage.prototype);
+    const spy = vi.spyOn(owner, 'setItem').mockImplementation(() => { throw new Error('quota'); });
+
     expect(() => writeStoredRatingFloorId('4')).not.toThrow();
+    expect(spy).toHaveBeenCalled();
   });
 });
