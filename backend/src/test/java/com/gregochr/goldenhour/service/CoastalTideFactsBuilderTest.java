@@ -155,6 +155,41 @@ class CoastalTideFactsBuilderTest {
     }
 
     @Test
+    @DisplayName("spring tide: spring-sized water with a regular moon still gets its fact chips")
+    void buildsSpringFactsFromHeightAloneWhenTheMoonHasMovedOn() {
+        // This selector must match SpringTideHotTopicStrategy#isSpringNotKing exactly. It does not
+        // decide whether the card appears — it decides whether the card that IS appearing has any
+        // figures under it — so a narrower rule here strands the pill rather than suppressing it.
+        // It was narrowed to lunar-only alongside the strategy with no test edit at all, because
+        // every fixture in this class sets lunarTideType and the height booleans together.
+        //
+        // heightAboveSpringThreshold=true with lunarTideType=REGULAR_TIDE is the August 2026 peak:
+        // the water is at its biggest two days after the moon's alignment.
+        BriefingSlot.TideInfo tide = new BriefingSlot.TideInfo("HIGH", true, null, null, false, true,
+                LunarTideType.REGULAR_TIDE, "Waning Crescent", false);
+        stubDerive(new TideDerivation(TideState.HIGH,
+                LocalDateTime.of(2026, 8, 14, 4, 58), new BigDecimal("5.5"),
+                LocalDateTime.of(2026, 8, 14, 11, 12), new BigDecimal("0.6"),
+                true, true, null, null, LunarTideType.REGULAR_TIDE, "Waning Crescent", false,
+                false, true, new BigDecimal("5.1"), new BigDecimal("3.8")));
+
+        CoastalTideFactsBuilder.CoastalScience science =
+                builder().buildSpring(dayWith(tide), List.of(bamburgh()));
+
+        assertThat(science).isNotNull();
+        assertThat(factWithKey(science.facts(), "range").value()).isEqualTo("4.9 m");
+    }
+
+    @Test
+    @DisplayName("spring tide: a king-tide slot is never selected — king owns its own day")
+    void springSelectorSkipsKingTideSlots() {
+        BriefingSlot.TideInfo kingTide = new BriefingSlot.TideInfo("HIGH", true, null, null,
+                true, true, LunarTideType.KING_TIDE, "New Moon", true);
+
+        assertThat(builder().buildSpring(dayWith(kingTide), List.of(bamburgh()))).isNull();
+    }
+
+    @Test
     @DisplayName("spring tide: a slot missing its low-tide height is skipped (no fabricated range)")
     void springSkipsSlotWithNullLowTide() {
         BriefingSlot.TideInfo tide = new BriefingSlot.TideInfo("HIGH", true, null, null, false, true,

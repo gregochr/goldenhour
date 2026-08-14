@@ -5,6 +5,97 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the Plan tab's spring tide asked the moon, and the moon had already left
+
+The tide pill disappeared from every window row and from Hot topics, while "Coming up" carried the
+same run correctly — `On now · 12–17 Aug · Biggest 14 Aug`. Two surfaces, one week, opposite answers.
+
+`SpringTideHotTopicStrategy.isSpringNotKing` was reduced to the lunar axis alone in v2.18.4, and
+`classifyTide` qualifies a date only within **±1.0 day of syzygy**. The August 2026 new moon is
+12 Aug ~17:38 UTC — the lunation of that date's total solar eclipse, which the repo already seeds in
+`EclipseCatalog`. (The eclipse anchors the *date*, not the minute: greatest eclipse is ~17:46 UTC and
+London's maximum 19:13:13 BST = 18:13 UTC, per `EclipseCatalog`'s own reduced elements. Nothing here
+turns on the difference — the conclusion holds for any instant in that range.) So 12 Aug sits 0.23 d
+out and 13 Aug 0.77 d, both SPRING; **14 Aug sits 1.77 d out and is REGULAR**, as is every later day.
+The whole forecast window failed, on every day of it.
+
+The water had not left at all. A port's biggest tide lags syzygy by a day or two — the age of the
+tide, a property of the coastline no epoch arithmetic recovers — so the measured run ran 12–17 Aug
+and peaked on the 14th. **Detection now qualifies on either axis**: the moon at syzygy, or this
+port's own high water above its `springTideThreshold`.
+
+This is the defect `TideSizeIndex` was written to fix on the feed, arriving on the Plan tab hours
+later by the opposite route. On 12 Aug the feed was blind and the Plan tab was right; the fix moved
+the feed onto the water, and a later commit moved the Plan tab onto the moon. `TideSizeIndex`'s own
+class javadoc describes today's bug as its mirror, with the same dates.
+
+The removal was defended on the grounds that a port can clear its threshold "for reasons that are
+weather rather than astronomy". **It cannot**: `tide_extreme` is populated from WorldTides'
+`extremes` endpoint, which is a harmonic prediction with no surge in it. A height test on stored
+extremes is still an astronomical test — taken at the coastline instead of at the moon, which is
+the only place the age of the tide is visible.
+
+⚠️ **This does not reopen the height arm on the king label**, which stays lunar-only. King copy
+describes the moon's closest approach, so a merely-large tide named "king" is a false claim about a
+cause; "spring" claims only that the water is big, which the height test measures directly. The
+standing "never OR the height test into the king label" rule is unchanged and still enforced.
+
+`CoastalTideFactsBuilder.buildSpring` carried the identical narrowing and is fixed with it. That
+one suppresses no card — it builds the chips **under** a pill already shown — so on its own it
+would have stranded the restored pill without its figures.
+
+### Fixed — a king tide on Tuesday deleted Friday's spring tide
+
+The king-trumps-spring suppression was evaluated across the **whole window**: one king-tide day
+anywhere in it returned `List.of()` for every spring tide in the window, including days three
+dates away. Two different tidal events, one silenced by the other's date.
+
+Now **per day**, which is what the invariant was always for and what the code comment already
+claimed: at most one tide topic of either kind on any one date, and king wins that date. A king
+tide says nothing about the day after it.
+
+### Fixed — the test that answered this question had been inverted
+
+Not a coverage gap. `detect_statisticalSpringTide_emitsPill` asserted exactly the restored
+behaviour — height above threshold, moon regular, pill emitted — and v2.18.4 rewrote it into its
+own negation. The file went from 36 tests to 36, so no reviewer signal fired.
+
+It was invisible because of a structural property worth naming: every "spring tide present" fixture
+in that suite comes from a helper parameterised by `LunarTideType`, with the two height booleans
+hard-coded as positional constants inside it. The height arm was **dead input**, so `(lunar OR
+height)` and `(lunar)` were behaviourally identical to 35 of the 36 tests. The same property let the
+identical narrowing land in `CoastalTideFactsBuilder` with **no test edit at all**.
+
+### Added — `TideSurfaceAgreementTest`, a cross-surface contract
+
+Each surface had its own green suite while the two contradicted each other, twice in two days, once
+in each direction. Nothing anywhere asked them the same question.
+
+The new class asks it. Both surfaces are driven from **one height and one threshold**, with a single
+`aboveThreshold` helper applying the strictly-greater comparison to derive what each consumes — so
+neither fixture can pre-satisfy its own predicate, which is precisely how the last regression hid.
+It pins the 14 Aug peak day (both must speak), an ordinary neap day (both must stay silent), water
+exactly on the threshold (both silent — the comparison is strict on both sides), and syzygy before
+the water has built (the lunar arm alone still carries it, which is why the height arm is added
+rather than swapped in).
+
+Its scope is stated in its own javadoc rather than left to be assumed. It pins that the two
+**detectors** agree given the same water; it does not run `TideFactDeriver`, and it does not model
+`BriefingSlotBuilder`'s ±90-minute solar gate — which zeroes the height flags unless a high water
+lands near the solar event, while `TideSizeIndex` applies no solar gate at all. That asymmetry is
+intended (a pill on a sunrise row should not fire for a spring high water at midnight) and is
+covered by `BriefingSlotBuilderTest`, so the two surfaces can still legitimately differ on a run's
+**edge** days. What is pinned is the failure that actually shipped: one surface silent for a whole
+run while the other reports it.
+
+**Seven of the twelve** new and re-inverted tests were verified to **fail against the pre-fix code**
+and pass after: the three per-day suppression cases, the two height-arm cases in
+`SpringTideHotTopicStrategyTest`, the new `CoastalTideFactsBuilder` height-arm case, and
+`peakDayAfterSyzygy_bothSurfacesAgree`. The remaining five assert *silence* or the lunar arm and are
+green on both sides **by design** — they exist to pin that restoring the height arm did not turn the
+predicate into a pass. Stated precisely because the first draft of this entry claimed all of them
+discriminated, which is the same species of overclaim as the inverted test above.
+
 ## [v2.18.5] - 2026-08-13
 
 ### Fixed — the 226 km sample was documented as a cirrus probe; it is a mid-canvas one

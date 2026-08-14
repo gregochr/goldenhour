@@ -26,10 +26,15 @@ import java.util.Set;
 /**
  * Detects Spring Tide hot topics from the cached briefing triage data.
  *
- * <p>A spring tide occurs around new and full moons when gravitational
- * alignment produces larger-than-normal tidal ranges. Suppressed entirely
- * when any (non-expired) king tide exists in the detection window — they are
- * redundant (a king tide is a stronger spring tide).
+ * <p>A spring tide occurs around new and full moons when gravitational alignment produces
+ * larger-than-normal tidal ranges. A day qualifies on <b>either</b> axis — the moon at syzygy, or
+ * the water at this port above its own spring threshold — because a coastline's biggest water lags
+ * syzygy by a day or two and a lunar-only test goes silent on exactly the days worth shooting. See
+ * {@link #isSpringNotKing}.
+ *
+ * <p>A day that is itself a king tide emits nothing here, so <b>at most one tide topic of either
+ * kind exists for any one date</b> and king wins. That suppression is per day: it used to empty the
+ * entire window whenever one day in it was a king tide.
  *
  * <p>Surveys the whole forecast window and reports <em>every</em> spring-tide day that still has
  * a non-expired solar event, mirroring {@link KingTideHotTopicStrategy}: the pill communicates the
@@ -93,11 +98,15 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
     /**
      * {@inheritDoc}
      *
-     * <p>Returns empty if a non-expired king tide exists anywhere in the window (king tide trumps
-     * spring). Otherwise collects every spring-not-king day that still has a solar event ahead,
-     * dates the pill to the earliest, communicates the full day range, and highlights the best
-     * non-expired sunrise/sunset alignment. Returns empty when no briefing is cached or no
-     * spring-tide day has a non-expired event.
+     * <p>Drops any day that is itself a king tide — at most one tide topic of either kind is
+     * emitted for a given date, and king wins, being the stronger claim about the same water. The
+     * suppression is <b>per day, not per window</b>: a king tide on one date says nothing about a
+     * spring tide three days later, and silencing the whole window for it deleted genuine cards.
+     *
+     * <p>Otherwise collects every spring-not-king day that still has a solar event ahead, dates the
+     * pill to the earliest, communicates the full day range, and highlights the best non-expired
+     * sunrise/sunset alignment. Returns empty when no briefing is cached or no spring-tide day has
+     * a non-expired event.
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
@@ -111,14 +120,14 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
                 .sorted(Comparator.comparing(BriefingDay::date))
                 .toList();
 
-        // King tide trumps spring tide anywhere in the window (a king tide is a stronger spring).
-        boolean kingTideInWindow = sorted.stream()
-                .anyMatch(d -> KingTideHotTopicStrategy.findKingTide(d) != null);
-        if (kingTideInWindow) {
-            return List.of();
-        }
-
+        // A king tide trumps a spring tide ON ITS OWN DAY, and only there. This used to suppress
+        // the whole window on a single king-tide day anywhere in it, so a king tide on the Tuesday
+        // deleted the Friday's spring card — two different tidal events, one of them silenced by
+        // the other's date. The invariant the suppression exists to hold is per-day ("at most one
+        // tide topic on any one day"), so it is enforced per day; the comment here always claimed
+        // as much.
         List<BriefingDay> springCandidates = sorted.stream()
+                .filter(d -> KingTideHotTopicStrategy.findKingTide(d) == null)
                 .filter(d -> findSpringTide(d) != null)
                 .toList();
         if (springCandidates.isEmpty()) {
@@ -200,15 +209,52 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
     }
 
     /**
-     * Whether this slot's date is a spring tide but not a king one — the lunar axis alone.
+     * Whether this slot's day carries spring-sized water and is not a king tide.
      *
-     * <p>The height tests are deliberately gone. They asked whether the water at one port cleared a
-     * percentile, which is a different question from whether the moon is at syzygy, and mixing them
-     * meant a merely-big tide could be named "king" and an ordinary-sized spring tide could fail to
-     * be named "spring" at all. See {@code KingTideHotTopicStrategy#isPerigeanSpring}.
+     * <p><b>Either axis qualifies, and dropping the height one is what emptied this pill.</b> The
+     * lunar test asks whether the date is within a day of syzygy; the height test asks whether the
+     * water at this port actually cleared its own {@code springTideThreshold}. They are not two
+     * measurements of one thing. A port's biggest tide of the cycle lags syzygy by a day or two —
+     * the age of the tide, a property of the coastline no epoch arithmetic recovers — so the lunar
+     * window is 2–3 dates wide by construction and closes before the water arrives. Measured
+     * against the August 2026 new moon (12 Aug 17:38 UTC) it covered 12–13 Aug while the roster's
+     * biggest water ran 12–17 Aug and peaked on the 14th, so a lunar-only test showed nothing on
+     * any day of that week's forecast window.
+     *
+     * <p>This is the same defect {@code TideSizeIndex} was written to fix on the "Coming up" feed,
+     * arriving on the Plan tab hours later by the opposite route: the feed was moved off the moon
+     * and onto the water, and this predicate was moved off the water and onto the moon. The two
+     * surfaces then disagreed about the same week, which {@code TideSurfaceAgreementTest} now pins.
+     *
+     * <p><b>The height arm is not a weather signal, which is what made removing it look safe.</b>
+     * It was defended on the grounds that a port can exceed its threshold "for reasons that are
+     * weather rather than astronomy" — but {@code tide_extreme} is populated from WorldTides'
+     * {@code extremes} endpoint, which is a harmonic prediction (see {@code TideService}: "tide
+     * predictions are ... harmonic constants"). No surge, no weather. A height test on stored
+     * extremes is therefore still an astronomical test — simply one taken at the coastline instead
+     * of at the moon, which is the only place the age of the tide is visible.
+     *
+     * <p>⚠️ This does <em>not</em> reopen the height arm on the <b>king</b> label, which stays
+     * lunar-only in {@code KingTideHotTopicStrategy#isPerigeanSpring}. King tide copy describes the
+     * moon's closest approach, so naming a merely-large tide "king" is a false claim about a cause;
+     * "spring" claims only that the water is big, which the height test measures directly.
+     *
+     * <p><b>The height arm is narrower here than on the feed, deliberately and upstream of this
+     * method.</b> {@code BriefingSlotBuilder.calculateTideData} zeroes both height flags unless the
+     * slot's tide state is HIGH <em>and</em> its nearest high water falls within ±90 minutes of the
+     * solar event, whereas {@code TideSizeIndex} takes the day's maximum high water with no solar
+     * gate at all. That is the right asymmetry: the feed answers "which dates carry big water" for
+     * trip planning, while this pill sits on a sunrise or sunset row and should not fire for a
+     * spring high water that lands at midnight. The consequence to know is that the two surfaces
+     * can legitimately disagree on a run's <em>edge</em> days, where the big water has drifted out
+     * of the light — they agree about the run, not about every day of it.
      */
     private static boolean isSpringNotKing(BriefingSlot.TideInfo tide) {
-        return tide != null && tide.lunarTideType() == LunarTideType.SPRING_TIDE;
+        if (tide == null || tide.lunarTideType() == LunarTideType.KING_TIDE) {
+            return false;
+        }
+        return tide.lunarTideType() == LunarTideType.SPRING_TIDE
+                || tide.heightAboveSpringThreshold();
     }
 
     private List<String> extractRegionNames(List<LocationEntity> locations) {
