@@ -99,8 +99,14 @@ public class CoastalTideFactsBuilder {
      * @return the spring-tide science, or null
      */
     public CoastalScience buildSpring(BriefingDay day, List<LocationEntity> coastalLocations) {
+        // Either axis, matching SpringTideHotTopicStrategy#isSpringNotKing exactly — see there for
+        // why the height arm is astronomical rather than a weather signal. It has to match: this
+        // builds the fact chips UNDER a pill that predicate has already decided to show, so a
+        // narrower rule here does not suppress the card, it strands it without its figures.
         Candidate rep = selectRepresentative(day, coastalLocations,
-                t -> t.lunarTideType() == LunarTideType.SPRING_TIDE,
+                t -> t.lunarTideType() != LunarTideType.KING_TIDE
+                        && (t.lunarTideType() == LunarTideType.SPRING_TIDE
+                                || t.heightAboveSpringThreshold()),
                 CoastalTideFactsBuilder::rangeMetric);
         return rep == null ? null : buildSpringFacts(rep, day.date());
     }

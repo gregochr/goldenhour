@@ -104,19 +104,44 @@ class SpringTideHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("spring tide suppressed when king tide exists elsewhere in window")
-    void detect_springTideWithKingTideElsewhereInWindow_suppressed() {
+    @DisplayName("a king tide earlier in the window does not suppress a spring tide two days later")
+    void detect_springTideWithKingTideElsewhereInWindow_notSuppressed() {
+        // Asserted the opposite while the suppression was window-wide. A king tide on Monday and a
+        // spring tide on Wednesday are two different tidal events; silencing the second because the
+        // first shares a forecast window deleted a genuine card, and the rule the suppression
+        // exists to hold — at most one tide topic per DAY — never asked for it.
         when(briefingService.getCachedDays()).thenReturn(List.of(
                 buildDay(TODAY, LunarTideType.KING_TIDE),
                 buildDay(TODAY.plusDays(1), LunarTideType.REGULAR_TIDE),
                 buildDay(TODAY.plusDays(2), LunarTideType.SPRING_TIDE),
                 buildDay(TODAY.plusDays(3), LunarTideType.REGULAR_TIDE)));
+        stubCoastalLocations(TODAY.plusDays(2), "Northumberland");
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
-        assertThat(topics).isEmpty();
-        verifyNoInteractions(locationRepository);
-        verifyNoInteractions(tideRunBuilder);
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).type()).isEqualTo("SPRING_TIDE");
+        assertThat(topics.get(0).date()).isEqualTo(TODAY.plusDays(2));
+    }
+
+    @Test
+    @DisplayName("the king tide's own day still yields — at most one tide topic on any one date")
+    void detect_kingAndSpringOnSameDay_kingWinsThatDate() {
+        // The per-day invariant, stated where it is enforced. A day that is a king tide emits no
+        // spring topic no matter how big its water is, so the two strategies can never both
+        // produce a card for the same date.
+        BriefingSlot.TideInfo kingWithSpringSizedWater = new BriefingSlot.TideInfo(
+                "HIGH", true, null, null, true, true, LunarTideType.KING_TIDE,
+                "New Moon", true);
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                buildDayWithTide(TODAY, kingWithSpringSizedWater),
+                buildDay(TODAY.plusDays(1), LunarTideType.SPRING_TIDE)));
+        stubCoastalLocations(TODAY.plusDays(1), "Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).singleElement()
+                .satisfies(t -> assertThat(t.date()).isEqualTo(TODAY.plusDays(1)));
     }
 
     @Test
@@ -137,17 +162,19 @@ class SpringTideHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("king tide on last day of window suppresses spring tide on first")
-    void detect_kingTideOnLastDay_suppressesSpringOnFirstDay() {
+    @DisplayName("king tide on the last day of the window leaves the first day's spring tide alone")
+    void detect_kingTideOnLastDay_doesNotSuppressSpringOnFirstDay() {
+        // The same window-wide bug read backwards: a king tide three days AHEAD used to delete
+        // today's spring card, so the pill vanished for an event that had not happened yet.
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.KING_TIDE));
+        stubCoastalLocations(TODAY, "Northumberland");
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
-        assertThat(topics).isEmpty();
-        verifyNoInteractions(locationRepository);
-        verifyNoInteractions(tideRunBuilder);
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).date()).isEqualTo(TODAY);
     }
 
     @Test
@@ -534,35 +561,70 @@ class SpringTideHotTopicStrategyTest {
     // ── Statistical spring tide detection ─────────────────────────────────────
 
     @Test
-    @DisplayName("a merely-big tide is not a spring tide — height above the threshold with the "
-            + "moon at first quarter emits nothing")
-    void detect_heightAboveThresholdWithoutSyzygy_emitsNoPill() {
-        // Asserted the opposite until the two axes were separated. A spring tide is a lunar event
-        // — syzygy — and a port can have a high water above its 125%-of-mean threshold on a day the
-        // moon is nowhere near new or full, for reasons that are weather rather than astronomy.
-        // Naming that "spring tide" tells the reader the wrong thing about why it is happening and
-        // about whether tomorrow will be similar.
+    @DisplayName("spring-sized water outside the syzygy window still emits a pill — the age of "
+            + "the tide puts the biggest water a day or two after the new moon")
+    void detect_heightAboveThresholdWithoutSyzygy_emitsPill() {
+        // THIS IS THE REGRESSION TEST. It asserted the exact opposite between 2026-08-13 and
+        // 2026-08-14, and that inversion is what emptied the Plan tab's tide pill: the lunar window
+        // is 2–3 dates wide, a port's biggest water lags syzygy by a day or two, and against the
+        // August 2026 new moon (12 Aug 17:38 UTC) the run measured 12–17 Aug and peaked on the
+        // 14th — a date the lunar test puts 1.77 days from syzygy and therefore REGULAR_TIDE.
+        //
+        // The inversion was defended on the grounds that a port can clear its threshold "for
+        // reasons that are weather rather than astronomy". It cannot: tide_extreme is populated
+        // from WorldTides' extremes endpoint, which is a harmonic prediction with no surge in it.
+        // The height arm is an astronomical test taken at the coastline instead of at the moon.
         BriefingSlot.TideInfo bigButNotSyzygy = new BriefingSlot.TideInfo(
                 "HIGH", true, null, null, false, true, LunarTideType.REGULAR_TIDE,
                 "Waxing Crescent", false);
         when(briefingService.getCachedDays()).thenReturn(List.of(
                 buildDayWithTide(TODAY, bigButNotSyzygy)));
-
-        assertThat(strategy.detect(TODAY, TO_DATE)).isEmpty();
-    }
-
-    @Test
-    @DisplayName("statistical king tide does not emit spring tide pill")
-    void detect_statisticalKingTide_noSpringPill() {
-        BriefingSlot.TideInfo statisticalKing = new BriefingSlot.TideInfo(
-                "HIGH", true, null, null, true, true, LunarTideType.REGULAR_TIDE,
-                "Full Moon", false);
-        when(briefingService.getCachedDays()).thenReturn(List.of(
-                buildDayWithTide(TODAY, statisticalKing)));
+        stubCoastalLocations(TODAY, "Northumberland");
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
-        assertThat(topics).isEmpty();
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).type()).isEqualTo("SPRING_TIDE");
+        assertThat(topics.get(0).date()).isEqualTo(TODAY);
+    }
+
+    @Test
+    @DisplayName("water below the spring threshold with a regular moon emits nothing — the height "
+            + "arm is a threshold, not a pass")
+    void detect_heightBelowThresholdWithoutSyzygy_emitsNoPill() {
+        // The boundary the test above does not cover: restoring the height arm must not make every
+        // coastal day a spring tide. Same fixture, threshold flag off.
+        BriefingSlot.TideInfo ordinaryWater = new BriefingSlot.TideInfo(
+                "HIGH", true, null, null, false, false, LunarTideType.REGULAR_TIDE,
+                "Waxing Crescent", false);
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                buildDayWithTide(TODAY, ordinaryWater)));
+
+        assertThat(strategy.detect(TODAY, TO_DATE)).isEmpty();
+        verifyNoInteractions(locationRepository);
+    }
+
+    @Test
+    @DisplayName("water above P95 with a regular moon emits SPRING, not KING and not silence")
+    void detect_heightAboveP95WithoutSyzygy_emitsSpringNotKing() {
+        // The hole between the two strategies, and the one that actually bit. King is lunar-only
+        // and must stay so — its copy describes the moon's closest approach, so a merely-large
+        // tide labelled "king" is a false claim about a cause. But if spring is ALSO lunar-only,
+        // the biggest water of the cycle falls between the two rules and the reader is told
+        // nothing at all on the very day the foreshore is at its widest.
+        //
+        // "Spring" claims only that the water is big, which is precisely what P95 measures.
+        BriefingSlot.TideInfo p95WaterRegularMoon = new BriefingSlot.TideInfo(
+                "HIGH", true, null, null, true, true, LunarTideType.REGULAR_TIDE,
+                "Full Moon", false);
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                buildDayWithTide(TODAY, p95WaterRegularMoon)));
+        stubCoastalLocations(TODAY, "Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).singleElement()
+                .satisfies(t -> assertThat(t.type()).isEqualTo("SPRING_TIDE"));
     }
 
     // ── Unregioned slot detection ────────────────────────────────────────────
