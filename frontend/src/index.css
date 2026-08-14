@@ -132,7 +132,7 @@
      spaced evenly in LUMINANCE (0.164-0.165 apart), not in alpha; even alpha steps bunch at the
      top. Every step clears 3:1 on every backdrop.
 
-     Unused until P16 (run history), which is deferred post-pilot and conditional. Kept because the
+     Unused until P15c (run history), which is deferred post-pilot and conditional. Kept because the
      derivation above is the expensive part, and it is recorded here rather than re-run. */
   --color-runbar-1: #736B5F;
   --color-runbar-2: #A19789;
@@ -966,6 +966,11 @@
    the specific failure a property-by-property migration invites. */
 .wf-shell {
   --wf-gutter: 18px;
+  /* What every focusable thing on the Plan pane reserves against the sticky lens bar, declared
+     once so the two literals it replaced cannot drift from the bar they describe. 60 = the bar's
+     browser-measured 53.5px plus the focus ring's 2px outline and 2px offset. The phone value is
+     in the same media query that stacks the bar, below. */
+  --wf-lens-reserve: 60px;
 }
 .wf-mast {
   padding: 16px var(--wf-gutter) 14px;
@@ -1048,6 +1053,12 @@
   /* One declaration moves every horizontal inset in the arm's chrome. */
   .wf-shell {
     --wf-gutter: 14px;
+    /* The stacked bar is ~2.5× the height of the single-row one, so the reservation moves with it.
+       Browser-measured, and deliberately taken from the bar's TALLEST state — the one carrying the
+       "today only" row — because over-reserving costs a focused card a few extra pixels of scroll
+       while under-reserving parks it behind a sticky element, which is the whole defect the
+       reservation exists to prevent. */
+    --wf-lens-reserve: 158px;
   }
   .wf-mast { padding: 13px var(--wf-gutter) 12px; }
   .wf-rail-empty { padding: 11px var(--wf-gutter) 0; }
@@ -1801,7 +1812,7 @@
    on the panel that mounts them and reaches them by descent. Same 60px, same derivation, and it
    tracks the bar's height exactly as the block below does. */
 .wf-door-panel :is(a[href], button, [tabindex]:not([tabindex='-1'])) {
-  scroll-margin-top: 60px;
+  scroll-margin-top: var(--wf-lens-reserve, 60px);
 }
 /* `.heatmap-cell-hoverable:hover` is `z-index: 40` and `.wf-lens` is `z-index: 20` — values that
    never met until P9 put the grid underneath a sticky bar. A hovered cell painted OVER the bar and,
@@ -1826,8 +1837,8 @@
   .wf-doors { flex-direction: column; }
 }
 
-/* ── Window-first reach lens bar ──
-   One control, sticky above every window on the page. Geometry from the spec (`.lens` :60,
+/* ── Window-first lens bar ──
+   TWO controls since P15c — reach, and the rating floor beside it — sticky above every window. Geometry from the spec (`.lens` :60,
    `.lgrp` :61, `.lens .k` :62, `.seg` :63-66, `.seg.home button.on` :67, `.lens .res` :70,
    `.stick.tmp` :71-72, `.lens .rst` :73-74; phone at :250-253).
 
@@ -1837,44 +1848,75 @@
 .wf-lens {
   display: flex;
   align-items: center;
-  gap: 8px;
+  /* Row gap first: the bar wraps now, so a wrapped row needs air above it. */
+  gap: 7px 8px;
   padding: 11px 18px;
   background: var(--color-plex-surface);
   border-bottom: 1px solid var(--color-plex-border);
-  /* NEVER wraps, at any width — it used to be `wrap`, and the phone block below then had to undo
-     that. The reason the phone block gives is not a phone fact: "wrapping it would grow a sticky
-     element to two or three lines and eat the viewport it is there to keep clear." That is true
-     wherever the content does not fit, and P14 measured where that is. Between **640px and ~781px**
-     the bar wrapped to **77.3px** against a 53.5px single line — overrunning BOTH reservations
-     below (60px, and 76px on `.wf-exp`), so a card scrolled into view in that band parked partly
-     behind the bar. The band is the tablet one nobody had looked at; the failure was predicted in
-     the comment beneath this rule and never measured until now.
-     Scrolling instead of wrapping keeps the bar 53.5px everywhere and keeps those numbers true.
-     Overflow on the sticky element itself does not re-base its own stick — only an ANCESTOR's
-     overflow would, which is what the note above guards. The phone block has run exactly this
-     combination since P8. */
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  /* ⚠️ WRAPS, and never scrolls — P15c reversed P14's `nowrap` + `overflow-x: auto` here, so read
+     both arguments before reversing it again.
+
+     P14's reason was real and is still true: "wrapping grows a sticky element to two or three lines
+     and eats the viewport it is there to keep clear." It measured the bar at 77.3px in the
+     640–781px band against a 53.5px single line, overrunning both `scroll-margin-top` reservations,
+     and chose to scroll instead. That was sound while the bar held ONE control, because a
+     53.5px-tall scroller that never actually overflowed is free.
+
+     With two controls it is not free, and the cost is the defect this whole change exists to
+     remove. Measured on the running app: the single row stops fitting at about **689px** in the
+     bar's resting state, and at about **840px** once a non-default tier adds the "today only" pill
+     and the named reset — so the point at which chips disappear off the right edge of a
+     hidden-scrollbar scroller depends on what the reader has clicked. There is no breakpoint that
+     can be right in both states, and a control the reader cannot see or reach is worse than a bar
+     that is 92px tall for a while. The handoff says the same thing about the phone: "the fix is
+     layout, not an affordance".
+
+     What makes the trade affordable is that the reservation is no longer a literal that has to
+     track this by hand — `WindowFirstShell` measures the bar and writes `--wf-lens-reserve`, so a
+     wrapped bar reserves for its real height. The CSS values below remain as first-paint fallbacks.
+
+     `.wf-lens-res` carries `flex-basis: 0`, which is what keeps the READOUT out of the wrap
+     decision: a flex line is broken on hypothetical main sizes, so a zero-basis item never causes a
+     break and instead shrinks into whatever the controls leave. Without it the readout took a third
+     row of its own at 664px (measured: 115.8px against 92px). */
+  flex-wrap: wrap;
   position: sticky;
   top: 0;
   /* Above the spot strip's focused card (3) and its edge fades (2), which is the only thing on the
      Plan pane that raises itself at all. */
   z-index: 20;
 }
-.wf-lens::-webkit-scrollbar { display: none; }
+/* A caption and its chips, always together. The handoff's rule and the reason for it: a wrap that
+   puts "Rated" at the end of one row and its three chips at the start of the next leaves two
+   controls on screen and one label between them. Both groups carry it — `.wf-lens-controls` is the
+   reach one and exists as a second class only so the LITE greying can stop at exactly the thing
+   that is unavailable and leave the upsell beside it at full strength. */
+.wf-lens-group,
 .wf-lgrp {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-/* The control itself — kicker and tiers — as its own box, so the LITE greying can stop at exactly
-   the thing that is unavailable and leave the upsell beside it at full strength. */
 .wf-lens-controls {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+/* The seam between the two controls. Decorative and `aria-hidden`.
+   Dropped on a phone, where `flex: 1 1 100%` would give a 1px hairline a whole row of a sticky bar.
+   ⚠️ Residual, measured and deliberately left: between 640px and the width at which the bar wraps
+   (~689px resting, ~840px with the override's marks) this rule is small enough to stay on line 1
+   while the rating group moves to line 2, so it draws at the end of the drive row marking nothing.
+   It takes no height and no space the row was using, and at 1.28:1 against this surface, 3px from
+   the segment's own identically-coloured border, it is very nearly invisible — which is also why
+   the browser pass did not catch it. Hiding it exactly when the bar wraps needs a container query
+   this bar does not have. */
+.wf-lens-rule {
+  width: 1px;
+  height: 20px;
+  flex: none;
+  background: var(--color-plex-border);
+  margin: 0 3px;
 }
 /* CLAUDE.md's LITE treatment, verbatim: `opacity: 0.45` and `pointer-events: none`. The buttons
    carry a real `disabled` as well, because pointer-events does not stop a keyboard.
@@ -1938,6 +1980,26 @@
   color: var(--color-segment-active);
   font-weight: 600;
 }
+/* The rating axis takes the GO channel's green, and the reach axis keeps the amber above.
+   ⚠️ The comment on `.wf-seg-btn.on` says "one `on` state, everywhere", and P15c is the case it was
+   not written for. Its argument was about the drill-down's reach chip, which inherits the BAR's
+   reach value and must therefore look the same as it — that still holds and is untouched. Two
+   segmented controls sitting side by side in ONE bar is the other situation the mock's two alphas
+   exist for, and it is the one the handoff calls out: with a single `on` treatment the drive row
+   and the rating row read as one long control that has somehow been pressed twice.
+
+   So the rule is per AXIS, not per surface, and it is applied on the drill-down's rating control
+   too — the setting is the same setting, and a floor that is green on the bar and amber a click
+   away is precisely the contradiction the original comment was protecting against.
+
+   `--color-badge-go` (#A8C795) rather than the handoff's #B5CFA3: this arm already carries a green
+   for "this is good", it is what the spot cards print their own rating badges in, and a fifth
+   green 15% lighter would be a new token for a difference nobody can see. Measured on the running
+   app against this fill over `--panel`. */
+.wf-seg-rating .wf-seg-btn.on {
+  background: rgba(138, 174, 114, 0.16);
+  color: var(--color-badge-go);
+}
 .wf-seg-btn:focus-visible {
   outline: 2px solid var(--color-plex-gold);
   /* Inside, not offset: the group clips at `overflow: hidden`, so an offset ring on the first or
@@ -1998,27 +2060,51 @@
   outline-offset: 2px;
   border-radius: 4px;
 }
+/* A flex BOX rather than a text node, because two jobs that used to be done by one declaration
+   each now conflict. `flex: 1 1 0` is what keeps it off the wrap decision (see `.wf-lens`), and it
+   replaces the `margin-left: auto` that used to right-align it — an auto margin absorbs positive
+   free space BEFORE flex-grow does, so the two together render the item zero-wide. Alignment moves
+   to `justify-content` on this box and the ellipsis to the span inside it, because
+   `text-overflow` acts on the line's END edge: with `text-align: right` an overflowing string is
+   clipped at the LEFT and no ellipsis is drawn at all. */
 .wf-lens-res {
-  margin-left: auto;
+  flex: 1 1 0;
+  display: flex;
+  justify-content: flex-end;
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--color-plex-text-secondary);
-  white-space: nowrap;
-  /* Ellipsis rather than clip, and this pairing is the other half of the bar's no-wrap rule above.
-     Stopping the bar wrapping fixed its HEIGHT and left its WIDTH: between 640px and ~781px the
-     readout is wider than the room left after the controls, and a `nowrap` flex item does not
-     shrink because its automatic minimum size is its content. Measured on the running app at 640px
-     with a production-shaped readout ("45 min · weekday default · 12 spots across 6 windows",
-     327.6px natural): 116.6px of it painted outside the bar, mid-word, with no scrollbar and no
-     ellipsis to say so. `min-width: 0` and `overflow: hidden` each defeat that automatic minimum —
-     both are stated because `overflow` is what licenses `text-overflow` to draw the ellipsis, and
-     `min-width` is what makes the intent legible. Re-measured after: 0px of overflow at 640, 700
-     and 760, and a no-op at 800 and 1280, where the string already fits and the auto margin still
-     parks it on the right. A screen reader reads the full string either way — the ellipsis is for
-     sighted readers, telling them the line is truncated rather than mysteriously cut. */
+  /* A flex item's automatic minimum size is its content, so without this the readout refuses to
+     shrink and paints outside the bar. Measured at 640px before it existed, with a
+     production-shaped string: 116.6px of it outside the bar, mid-word, with nothing to say so. */
   min-width: 0;
+}
+/* Ellipsis rather than a mid-word cut, and it lives on the span rather than the box because
+   `overflow` is what licenses `text-overflow` to draw one. A screen reader reads the whole string
+   either way — the ellipsis is for sighted readers, telling them the line is truncated rather than
+   mysteriously ending. */
+.wf-lens-res > span {
+  min-width: 0;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* The phone's readout — the count alone, on its own row under the two controls. It is not the
+   summary with the chrome trimmed: the two pressed chips already say what the lens is set to, and
+   what they cannot say is what that cost. `<b>` carries the number, which is the one thing on this
+   line a reader scans for.
+
+   Never `margin-left: auto`. The summary is right-aligned because it shares a row with the
+   controls; this one owns its row, and an auto margin would park it against the right edge with a
+   full row of empty bar to its left. */
+.wf-lens-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-lens-count b {
+  color: var(--color-plex-text);
+  font-weight: 600;
 }
 /* A sticky bar overlaps whatever the browser scrolls into view, and the browser does not know it is
    there. Measured on the running app: tabbing to a spot card sitting just above the fold parked it
@@ -2037,30 +2123,48 @@
    P14 re-measured, and the warning had already come true where nobody was looking. Between 640px
    and ~781px the bar wrapped to **77.3px**, beating this 60px and also the 76px below — so in the
    whole tablet band a focused card parked behind the bar, which is the exact defect this rule was
-   written to fix. It is fixed at the source rather than here: `.wf-lens` no longer wraps at any
-   width (see its own comment), so the bar measures 53.5px from 640px up and 49.5px below, and both
-   numbers here are true again. Measured on the running app at 320, 375, 390, 639, 640, 768, 800,
-   1080, 1280 and 1440.
+   written to fix. P14 fixed it at the source by making the bar a single non-wrapping row, and
+   recorded here that "`.wf-lens` no longer wraps at any width, so the bar measures 53.5px from
+   640px up and 49.5px below, and both numbers here are true again".
+
+   ⚠️ **SUPERSEDED BY P15c, and its two literals with it.** The bar wraps again — deliberately, and
+   for a reason P14 could not have had, since the bar it measured held ONE control (see `.wf-lens`'s
+   own comment). It now measures 53.5 / 91 / 130 / 153.5px depending on width and on whether a
+   non-default tier is showing its two marks. No literal can be right at four heights, which is why
+   the number below is a variable the shell measures.
 
    P9 added three more focusable things to the same scrolling pane — the window card's expander and
    the two doors — and every one of them can sit above the fold. A collapsed card is ALL header, so
    an unreserved expander parks the whole card under the bar. The bar is untouched by P9 and still
    measures 53.5px, so 60 still holds — re-measured rather than assumed.
 
-   ⚠️ P11 was the phase this warning named, and the warning does NOT fire: the rating floor and the
-   type control went into the drill-down sheet rather than onto this bar (plan §5f), so the bar is
-   still one control on one line and still measures 53.5px — re-measured on the running app, not
-   assumed. P11 adds one focusable to the pane, `.wf-film-all`, which takes the same reservation.
-   The sheet's own controls need none: it is a modal, and nothing scrolls it under the bar. P14
-   still has to re-measure, because a phone bar is 50px and may yet wrap. */
+   P11 was the phase this warning named, and it did not fire then: the rating floor and the type
+   control went into the drill-down sheet rather than onto this bar (plan §5f), so the bar stayed
+   one control on one line. P11 adds one focusable to the pane, `.wf-film-all`, which takes the same
+   reservation; the sheet's own controls need none, since it is a modal and nothing scrolls it under
+   the bar.
+
+   ⚠️ **SUPERSEDED BY P15c**, which reversed §5f and put the rating floor on this bar after all. Two
+   controls do not fit on one line at every width, and the bar wraps rather than hiding one.
+
+   ⚠️ P15c made the number a variable, and the two paragraphs above are marked superseded rather
+   than deleted because this block IS the design record — P14's defect survived precisely because an
+   earlier version of it read as current. The bar has FOUR measured heights: 53.5px as one row, 91px
+   once it wraps, 130px stacked on a phone, 153.5px stacked with the override's two marks. No
+   literal is right at four, so `WindowFirstShell` observes the bar and writes
+   `--wf-lens-reserve`; the values below are first-paint fallbacks only, each deliberately taken
+   from the TALLEST state its media query can see — over-reserving costs a focused card a few pixels
+   of scroll, where under-reserving parks it behind a sticky element. Every number here is
+   browser-measured; none is derivable in jsdom, which loads no CSS at all. */
 .wf-spot,
 .window-card-pick,
 .wf-film-btn,
 .wf-film-all,
+.wf-lens-empty-act,
 .wf-exp,
 .wf-door,
 .wf-promo-go {
-  scroll-margin-top: 60px;
+  scroll-margin-top: var(--wf-lens-reserve, 60px);
 }
 /* P7b adds the first thing on this pane that is scrolled to PROGRAMMATICALLY rather than by focus:
    the promoted strip's "Go to …" calls `scrollIntoView({ block: 'start' })` on a window card. A card
@@ -2068,7 +2172,7 @@
    card it lands on parks its top edge under the 53.5px bar — the reader is taken to a window and
    shown it beheaded. Same 60 as the rest, for the same measurement. */
 .window-card {
-  scroll-margin-top: 60px;
+  scroll-margin-top: var(--wf-lens-reserve, 60px);
 }
 /* The expander needs MORE than the shared 60, and the reason is what it is attached to. Every other
    element in that list is the thing the reader is looking at, so reserving for the element reserves
@@ -2078,22 +2182,63 @@
    a little slack. The name and the focus ring cleared the bar either way; this is the card's border,
    which on a collapsed row is the thing that makes it read as a row at all. */
 .wf-exp {
-  scroll-margin-top: 76px;
+  scroll-margin-top: calc(var(--wf-lens-reserve, 60px) + 16px);
 }
 
-/* The app's own phone boundary, as `.wf-spots` states it. The single scrolling row is no longer
-   set here — P14 moved `flex-wrap: nowrap` and the overflow to the base rule, because the argument
-   for them ("wrapping grows a sticky element and eats the viewport it exists to keep clear") turned
-   out to hold in the 640–781px band too, measured. What remains phone-specific is the tighter
-   inset, and the readout going entirely rather than merely scrolling out of reach — it is a summary
-   of what is already visible below, and it is the widest thing on the bar. */
+/* The app's own phone boundary, as `.wf-spots` states it — 639px, not the handoff's 620px, because
+   a second breakpoint 19px away would be one more thing to keep in step with `.wf-spots`, the
+   sheet and `useIsMobile`, which the bar's own captions now switch on.
+
+   ⚠️ THE PHONE BAR NO LONGER SCROLLS, AND MUST NOT BE MADE TO AGAIN. P14 made `nowrap` +
+   `overflow-x: auto` the base rule, having measured that wrapping grew a sticky bar to 77.3px in
+   the 640–781px band. That was right about the tablet band and wrong about the phone: with the
+   caption `HOW FAR TONIGHT` inline, four tiers on a 390px screen simply did not fit, so the last
+   two lived off the right edge of a scroller with a hidden scrollbar — invisible, and unreachable
+   by anything but a horizontal drag on a sticky element. The handoff's answer is layout rather than
+   an affordance ("a fade would advertise a scroll that shouldn't need to exist"), and the room
+   comes from the caption: `Drive` instead of `HOW FAR TONIGHT` buys back about 120px, which is very
+   close to what the four chips were short by.
+
+   The base rule wraps at every width; what is phone-specific is that each group claims a WHOLE row
+   rather than its natural one, so the four chips divide the full width at a 40px touch height. The
+   height cost is real and is the trade — measured 130px, or 153.5px once a non-default tier adds
+   its two marks — and it is why `--wf-lens-reserve` is measured from the bar rather than written
+   down: a literal would have to be right at all four of the bar's heights. */
 @media (max-width: 639px) {
   .wf-lens {
     padding: 9px var(--wf-gutter);
-    gap: 7px;
+    gap: 6px 8px;
   }
-  .wf-lens-res { display: none; }
+  /* Each control owns a row; `flex: 1` inside it hands the chips everything the caption leaves. */
+  .wf-lens-group { flex: 1 1 100%; }
+  .wf-lens-group > .wf-seg { flex: 1; }
+  .wf-lens .wf-seg-btn {
+    flex: 1;
+    padding: 7px 4px;
+    /* The handoff's touch floor. The prototype draws 34px; 40 is what a thumb wants, and the
+       full-width row already gives roughly 80px of horizontal target per chip. Scoped to the bar
+       rather than to `.wf-seg-btn` at large, so the drill-down's own three controls — a modal, not
+       a sticky strip with a height budget — keep the geometry they were measured at. */
+    min-height: 40px;
+  }
+  .wf-lens-rule { display: none; }
+  /* The count owns its row, below both controls. */
+  .wf-lens-count { flex: 1 1 100%; }
   .wf-lens-k { font-size: 9px; }
+  /* The marks reach describes — they belong on the row under the control they mark, not squeezed
+     into a third of it. `flex-basis: auto` on both is enough: each group above already claims a
+     whole row, so whatever follows starts a new one. */
+  .wf-lens-stick,
+  .wf-lens-pro,
+  .wf-lens-reset { flex: 0 0 auto; }
+  /* Two stacked actions at 11px/1.7 put their centres 23.7px apart — 0.3px inside WCAG 2.2 SC
+     2.5.8's 24px circle, and a real regression rather than an inherited one: the state they replace
+     was an inline link inside a `<p>`, where that criterion's inline exception applied. Both loosen
+     buttons are exempt under the Equivalent clause (the bar's own 40px chips do the same thing),
+     but "See all" has no other route — so the floor goes on all three rather than on a subset
+     nobody could keep straight. 26 rather than 24, because `line-height` is inherited and a bare 24
+     leaves nothing for a font that renders taller. */
+  .wf-lens-empty-act { min-height: 26px; }
 }
 
 /* ── Window-first attribute rows: the tide the light falls on, the snow underneath it ──
@@ -2684,16 +2829,59 @@
   background: var(--color-plex-surface-light);
 }
 
-/* The window whose every spot the lens gated out. The design's own answer (:484) and a better one
-   than an empty card: it names the threshold that did it and how many are beyond it, so the reader
-   can see what widening the control above would buy. It sits where the strip would have, and takes
-   the strip wrapper's own horizontal inset so the text lines up with the cards on every other
-   window. */
-.wf-strip-empty {
-  padding: 2px 14px 12px;
+/* The window whose every spot the lens gated out — the handoff's dashed `.empty` card. It
+   replaces `.wf-strip-empty`'s bare line rather than dressing it, because the content grew from one
+   sentence to a headline, a population and up to three actions, and a run-on paragraph of those is
+   unreadable at 11px.
+
+   Dashed rather than solid, and this is the only dashed border on the Plan pane besides
+   `WindowAwayRow`'s. That is deliberate and the two mean the same thing: a slot that exists and has
+   nothing in it. A solid card here would read as content.
+
+   The margin is the bare line's own `2px 14px 12px` inset turned from padding into margin, so the
+   dashed box lands exactly where the sentence it replaces did and keeps the card's 14px left edge.
+   It is NOT `.wf-rows`' `0 14px 11px`: the 2px top is what holds the border clear of an attribute
+   row's bottom margin instead of collapsing against it. */
+.wf-lens-empty {
+  margin: 2px 14px 12px;
+  border: 1px dashed var(--color-plex-border-light);
+  border-radius: 9px;
+  padding: 12px;
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 11px;
+  line-height: 1.7;
   color: var(--color-plex-text-secondary);
+}
+/* `--text-secondary` on the body and `--text` on the headline, against the handoff's ink-3/ink-2.
+   The EIGHTH time this redesign has made that correction: measured on the running app, muted is
+   3.5:1 at these sizes on `--panel` and fails AA. */
+.wf-lens-empty b {
+  display: block;
+  color: var(--color-plex-text);
+  font-weight: 600;
+  font-size: 11.5px;
+  margin-bottom: 3px;
+}
+/* Each action on its own line, as the handoff draws them: they are alternatives, and two of them
+   run together on one line read as a sentence rather than as two choices. Teal is this arm's
+   actionable accent — `.wf-lens-reset` and `.wf-film-all` already carry it, measured at 9.68:1. */
+.wf-lens-empty-act {
+  display: block;
+  margin-top: 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-badge-tide);
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.wf-lens-empty-act:hover { text-decoration: underline; }
+.wf-lens-empty-act:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .wf-wfoot {
@@ -2849,8 +3037,11 @@
 /* It wraps rather than scrolls, because the card is wide enough for two rows of controls at every
    width the desktop pass covers. Below that it can still run out of room for a single group, and
    the card clips at `overflow: hidden` — so the narrow rule further down gives it the same
-   horizontal escape `.wf-lens` already takes on a phone. Without it a reader at 320px would have
-   the fourth reach tier cut off with no way to reach it. */
+   horizontal escape. ⚠️ `.wf-lens` used to take the same one and no longer does — P15c replaced it
+   with a wrap, because a hidden-scrollbar scroller put the bar's own chips out of reach. This sheet
+   keeps the scroller deliberately: it is a modal with three controls and no height budget, where
+   the bar is a sticky strip with two. Without it a reader at 320px would have the fourth reach tier
+   cut off with no way to get to it. */
 .wf-sheet-fbar {
   display: flex;
   align-items: center;
@@ -2922,9 +3113,11 @@
    single column in an 880px dialog is a list pretending to be a grid; P14 owns anything below. */
 @media (max-width: 639px) {
   .wf-sheet-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  /* Each control keeps its own row and scrolls within it, which is `.wf-lens`'s own phone answer to
-     the same problem. `flex-wrap: nowrap` on the group is what makes the scroll necessary rather
-     than letting four chips stack into a column. */
+  /* Each control keeps its own row and scrolls within it. ⚠️ This was `.wf-lens`'s phone answer
+     too, until P15c replaced it with a wrap — a hidden scrollbar hid the very chips it was meant to
+     reveal. The sheet keeps scrolling because it is a modal with three controls, where the bar has
+     two and a height budget. `flex-wrap: nowrap` on the group is what makes the scroll necessary
+     rather than letting four chips stack into a column. */
   .wf-sheet-fbar { gap: 8px; }
   .wf-sheet-seg {
     max-width: 100%;

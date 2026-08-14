@@ -20,7 +20,7 @@ import WindowFirstWindowCard from '../components/WindowFirstWindowCard.jsx';
  *     none — the exact shape of a test that cannot fail.
  *   - Resizing and expecting a re-render is impossible for the same reason.
  *
- * What IS honest, and what this file does, is `frontend-test-standards.md:120-122` verbatim:
+ * What IS honest, and what this file does, is `frontend-test-standards.md:189-191` verbatim:
  * "assert the class or attribute the component sets, and leave the pixel behaviour to the browser
  * check." Every phone rule P14 added hooks onto a class or a `data-`/`aria-` attribute, and this
  * file pins that hook for the components it renders — the shell, both panes and the window card —

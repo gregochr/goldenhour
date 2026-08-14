@@ -209,6 +209,14 @@ const LENS = {
   resetToDefault: () => {},
 };
 
+/** The bar's second axis, on the same terms — frozen where the hook's own file exercises it. */
+const RATING_LENS = {
+  floor: { id: 'any', min: null, label: 'Any rating' },
+  floorId: 'any',
+  minRating: null,
+  selectFloor: () => {},
+};
+
 describe('WindowFirstShell — the rail it hosts', () => {
   const CARD = {
     key: '2026-08-04:SUNSET',
@@ -288,6 +296,7 @@ describe('WindowFirstShell — the rail it hosts', () => {
     // tests are about the shell's wiring — where the bar sits, what it is fed and what it is not
     // dimmed by — and the hook's own behaviour has its own file.
     reachLens: LENS,
+    ratingLens: RATING_LENS,
     homePlace: undefined,
   });
 
@@ -730,15 +739,140 @@ describe('WindowFirstShell — the rail it hosts', () => {
       renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [first, second]));
 
       expect(screen.getByTestId('window-first-lens-readout'))
-        .toHaveTextContent('45 min · weekday default · 3 spots across 2 windows');
+        .toHaveTextContent('45 min · weekday default · any rating · 3 spots across 2 windows');
     });
 
-    it('hands each card the tier\'s own label, for the sentence a gated window shows', () => {
-      const gated = { ...CARD, spots: [], reachTotal: 4 };
+    it('states the rating floor as well, so the summary names both controls', () => {
+      // A summary that names one of two lenses reads as though the page had only one — which was
+      // true until the floor arrived, and is exactly the misreading worth the twelve characters.
+      renderWithBriefing({
+        ...briefingWith('2026-08-04T12:00:00'),
+        ratingLens: { ...RATING_LENS, floorId: '4', minRating: 4, floor: { id: '4', min: 4, label: '4★+' } },
+      });
+
+      expect(screen.getByTestId('window-first-lens-readout')).toHaveTextContent('4★+');
+    });
+
+    it('states what the floor cost, and only once it has cost something', () => {
+      // The handoff's rule — "whenever a filter is on, the strip must state what it cost" — with
+      // this project's own qualifier from `browseCountLine`: with nothing trimmed, `3 of 3` is a
+      // count dressed as a comparison. `reachedTotal` is the denominator, so the two cards below
+      // drew 3 of the 9 that reach left.
+      const first = { ...CARD, reachTotal: 12, reachedTotal: 5 };
+      const second = {
+        ...CARD, key: '2026-08-05:SUNRISE', spots: [CARD.spots[0], CARD.spots[0]],
+        reachTotal: 18, reachedTotal: 4,
+      };
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [first, second]));
+
+      expect(screen.getByTestId('window-first-lens-readout')).toHaveTextContent('3 of 9 spots across 2 windows');
+    });
+
+    it('renders the emptied window\'s own sentence, built where both thresholds are known', () => {
+      // The card no longer composes this line — with two gates it cannot say which one emptied it,
+      // so `buildWindowCards` hands over a descriptor and the card renders it. Pinned here because
+      // the shell is what wires the two together.
+      const gated = {
+        ...CARD,
+        spots: [],
+        reachTotal: 4,
+        reachedTotal: 0,
+        lensEmpty: {
+          headline: 'Nothing within 45 min in this window.',
+          body: '4 spots are further out.',
+          actions: [{ kind: 'reach', id: '90', label: 'Try 1h 30min' }],
+        },
+      };
       renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [gated]));
 
-      expect(screen.getByTestId('window-card-lens-empty'))
-        .toHaveTextContent('Nothing within 45 min in this window. 4 spots are further out.');
+      expect(screen.getByTestId('window-card-lens-empty-head'))
+        .toHaveTextContent('Nothing within 45 min in this window.');
+      expect(screen.getByTestId('window-card-lens-empty-body'))
+        .toHaveTextContent('4 spots are further out.');
+    });
+
+    it('moves the page-wide lens when an emptied window offers the way out', () => {
+      const selectTier = vi.fn();
+      const gated = {
+        ...CARD,
+        spots: [],
+        reachTotal: 4,
+        reachedTotal: 0,
+        lensEmpty: {
+          headline: 'Nothing within 45 min in this window.',
+          body: '4 spots are further out.',
+          actions: [{ kind: 'reach', id: '90', label: 'Try 1h 30min' }],
+        },
+      };
+      renderWithBriefing({
+        ...briefingWith('2026-08-04T12:00:00', new Map(), [gated]),
+        reachLens: { ...LENS, selectTier },
+      });
+      fireEvent.click(screen.getByTestId('window-card-lens-loosen'));
+
+      // The BAR's control, not a per-window override: a filter that means something different on
+      // each of six cards cannot be read off a sticky bar.
+      expect(selectTier).toHaveBeenCalledWith('90');
+    });
+
+    it('moves the RATING floor when that is the axis the window named', () => {
+      // The other arm of the same handler, and it needs its own test: with the `kind === 'rating'`
+      // branch deleted, "Or drop to 3★+" renders, takes focus, and does nothing when pressed — the
+      // inert control §6 bans, and the exact outcome `firstHelpfulStep` exists to make impossible.
+      // The reach test above cannot see it; its fixture offers a reach action only.
+      const selectFloor = vi.fn();
+      const gated = {
+        ...CARD,
+        spots: [],
+        reachTotal: 4,
+        reachedTotal: 4,
+        lensEmpty: {
+          headline: 'Nothing at 4★+ in this window.',
+          body: '4 spots here, none rated 4★+.',
+          actions: [{ kind: 'rating', id: '3', label: 'Drop to 3★+' }],
+        },
+      };
+      renderWithBriefing({
+        ...briefingWith('2026-08-04T12:00:00', new Map(), [gated]),
+        ratingLens: { ...RATING_LENS, floorId: '4', minRating: 4, selectFloor },
+      });
+      fireEvent.click(screen.getByTestId('window-card-lens-loosen'));
+
+      expect(selectFloor).toHaveBeenCalledWith('3');
+    });
+
+    it('does not leave a keyboard reader at the top of the page after loosening', () => {
+      // Every offered action is one that refills the card, so pressing it destroys the button that
+      // was pressed. Without somewhere to send focus, `document.activeElement` becomes `<body>` —
+      // the reader asked to be shown something and was dropped at the document root, which is the
+      // defect `WindowFirstComingUp` documents one component away. The expander is where the
+      // promoted strip's own reveal puts focus, and its name repeats the window.
+      const gated = {
+        ...CARD,
+        spots: [],
+        reachTotal: 4,
+        reachedTotal: 4,
+        lensEmpty: {
+          headline: 'Nothing at 4★+ in this window.',
+          body: '4 spots here, none rated 4★+.',
+          actions: [{ kind: 'rating', id: '3', label: 'Drop to 3★+' }],
+        },
+      };
+      renderWithBriefing({
+        ...briefingWith('2026-08-04T12:00:00', new Map(), [gated]),
+        ratingLens: { ...RATING_LENS, floorId: '4', minRating: 4, selectFloor: vi.fn() },
+      });
+
+      const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 0; });
+      try {
+        fireEvent.click(screen.getByTestId('window-card-lens-loosen'));
+        // The card is a frozen fixture here, so the empty state does not actually clear — which is
+        // exactly what lets the assertion be about WHERE focus was sent rather than about React's
+        // own re-render. Production replaces the card; the destination is the same either way.
+        expect(document.activeElement).toBe(screen.getByTestId('window-card-expander'));
+      } finally {
+        raf.mockRestore();
+      }
     });
   });
 

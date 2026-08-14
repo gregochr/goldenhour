@@ -475,6 +475,100 @@ describe('buildWindowCards', () => {
         expect(card.spots).toHaveLength(0);
         expect(card.withinReachCount).toBeNull();
       });
+
+      it('claims nothing while a rating floor is also gating', () => {
+        // The clause names ONE axis and the drawn set was gated on two: "2 within reach" over a
+        // strip a 4★ floor trimmed to one counts neither what the reader can drive to nor what is
+        // on screen. Withholding it is the answer the other three conditions already give.
+        const [card] = buildWithLens(THREE_SPOTS, REACH, {
+          limitMinutes: 45, defaultLimitMinutes: 45, tierId: '45', floorId: '4', minRating: 4,
+        });
+        expect(card.spots.map((s) => s.locationName)).toEqual(['Blyth Beach']);
+        expect(card.withinReachCount).toBeNull();
+      });
+    });
+
+    describe('the rating floor beside it', () => {
+      it('drops a spot below the floor and keeps the one exactly on it', () => {
+        const [card] = buildWithLens(THREE_SPOTS, REACH, {
+          limitMinutes: null, defaultLimitMinutes: 45, tierId: 'any', floorId: '4', minRating: 4,
+        });
+        expect(card.spots.map((s) => s.locationName)).toEqual(['Sycamore Gap', 'Blyth Beach']);
+      });
+
+      it('runs AFTER reach, and reports the pool it chose from', () => {
+        // The order is what makes the bar's "42 of 138" mean something: `reachedTotal` is what
+        // reach left, and `spots` is what the floor kept of it. Reversing them would give the bar a
+        // denominator no control on screen produced.
+        const [card] = buildWithLens(THREE_SPOTS, REACH, {
+          limitMinutes: 45, defaultLimitMinutes: 45, tierId: '45', floorId: '4', minRating: 4,
+        });
+
+        expect(card.reachTotal).toBe(3);
+        expect(card.reachedTotal).toBe(2);
+        expect(card.spots).toHaveLength(1);
+      });
+
+      it('gates nothing at all with no floor in the lens', () => {
+        // The same defensive default reach takes: a caller that supplies no floor must get an
+        // ungated page, never a silent one at some assumed rating.
+        const [card] = buildWithLens(THREE_SPOTS, REACH, {
+          limitMinutes: null, defaultLimitMinutes: 45,
+        });
+        expect(card.spots).toHaveLength(3);
+        expect(card.reachedTotal).toBe(3);
+      });
+
+      it('drops an unrated spot, which the reach gate would have passed', () => {
+        const unrated = [{ locationId: 1, locationName: 'Simonside', claudeRating: null, canopy: false }];
+        const [card] = buildWithLens(unrated, REACH, {
+          limitMinutes: null, defaultLimitMinutes: 45, tierId: 'any', floorId: '3', minRating: 3,
+        });
+        expect(card.spots).toHaveLength(0);
+      });
+
+      it('leaves the window\'s own best star untouched over a strip the floor emptied', () => {
+        // §5c`:913-918`, and the hazard plan §5f named when it kept the floor off the bar: a card
+        // reading "best N★" over a strip its own control had emptied. It is a real state — here the
+        // projection says 3★ and a 4★ floor leaves nothing — and it is the right one. The star is
+        // the WINDOW's best and is never re-derived from a gated set, exactly as it is not for
+        // reach. What §5f feared was a floor removing the best spot, and a floor cannot: it removes
+        // from below, so either the best survives it or the strip is empty and says so.
+        const poor = [{ locationId: 1, locationName: 'Simonside', claudeRating: 3, canopy: false }];
+        const [card] = buildWindowCards(
+          events([TODAY, 'SUNSET']),
+          [day(TODAY, [{
+            targetType: 'SUNSET',
+            regions: [{ regionName: 'Northumberland & Tyneside', slots: poor }],
+            unregioned: [],
+            window: { verdict: 'WORTH_IT', badges: [], bestRating: 3 },
+          }])],
+          TODAY, TOMORROW, new Set(), REACH,
+          { limitMinutes: null, defaultLimitMinutes: 45, tierId: 'any', floorId: '4', minRating: 4 },
+        );
+
+        expect(card.spots).toHaveLength(0);
+        expect(card.bestRating).toBe(3);
+      });
+
+      it('describes the emptied window rather than leaving the card silent', () => {
+        const [card] = buildWithLens(THREE_SPOTS, REACH, {
+          limitMinutes: null, defaultLimitMinutes: 45, tierId: 'any', floorId: '4', minRating: 4,
+        });
+        const empty = buildWithLens(
+          [{ locationId: 1, locationName: 'Simonside', claudeRating: 2, canopy: false }],
+          REACH,
+          { limitMinutes: null, defaultLimitMinutes: 45, tierId: 'any', floorId: '4', minRating: 4 },
+        )[0];
+
+        // A window with something left carries no empty state at all...
+        expect(card.lensEmpty).toBeNull();
+        // ...and one the floor emptied names the floor and offers the step down.
+        expect(empty.lensEmpty.headline).toBe('Nothing at 4★+ in this window.');
+        expect(empty.lensEmpty.actions).toEqual([
+          { kind: 'rating', id: 'any', label: 'Drop to any rating' },
+        ]);
+      });
     });
   });
 });

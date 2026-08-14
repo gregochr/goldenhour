@@ -2,7 +2,6 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import WindowSpotSheet from '../components/WindowSpotSheet.jsx';
-import { PLAN_RATING_KEY } from '../utils/windowSpotBrowse.js';
 
 function spot(overrides = {}) {
   return {
@@ -42,6 +41,7 @@ const renderSheet = (props = {}) => render(
   <WindowSpotSheet
     card={CARD}
     barTierId="45"
+    barFloorId="any"
     typesByName={TYPES}
     onClose={() => {}}
     {...props}
@@ -203,11 +203,11 @@ describe('WindowSpotSheet', () => {
       expect(seg('window-spot-sheet-rating')).toBeNull();
     });
 
-    it('does not gate when it is not offered, however it was stored', () => {
-      // The pairing that makes a persisted floor safe: with no control on screen there is nothing
-      // to explain an emptied list and nothing to undo it with.
-      localStorage.setItem(PLAN_RATING_KEY, JSON.stringify({ rating: '5' }));
-      renderSheet({ card: { ...CARD, allSpots: [UNRATED] } });
+    it('does not gate when it is not offered, however the bar is set', () => {
+      // The pairing that keeps an INHERITED floor safe, and the reason the bar itself needs no such
+      // predicate: there the control is sticky and always on screen, here it is conditional, and a
+      // floor running with no chip in the dialog is a filter the reader cannot see or undo.
+      renderSheet({ card: { ...CARD, allSpots: [UNRATED] }, barFloorId: '4' });
       expect(screen.getByText('Cresswell')).toBeInTheDocument();
     });
 
@@ -221,23 +221,57 @@ describe('WindowSpotSheet', () => {
       expect(names.some((n) => n.includes('Cresswell'))).toBe(false);
     });
 
-    it('is remembered — a floor chosen once is the floor the next sheet opens on', () => {
-      const { unmount } = renderSheet();
-      fireEvent.click(chip('window-spot-sheet-rating', '4★+'));
-      unmount();
+    it('takes the same axis colour the bar\'s floor does, because it is the same setting', () => {
+      // A floor that is green on the bar and amber a click away is two settings to a reader. The
+      // class is what jsdom can see; the colour is in the stylesheet beside its measurement.
       renderSheet();
+      expect(screen.getByTestId('window-spot-sheet-rating').className).toContain('wf-seg-rating');
+      expect(screen.getByTestId('window-spot-sheet-reach').className).not.toContain('wf-seg-rating');
+    });
+
+    it('opens on the bar\'s floor, exactly as the reach control opens on its tier', () => {
+      renderSheet({ barFloorId: '4' });
       expect(chip('window-spot-sheet-rating', '4★+')).toHaveAttribute('aria-pressed', 'true');
     });
 
-    it('keeps working when storage throws, because the choice still applies this session', () => {
-      // Private browsing and a full quota both throw here. The `afterEach` net restores the stub
-      // even if the assertion below throws first — an inline `mockRestore` would not.
-      vi.spyOn(Storage.prototype, 'setItem')
-        .mockImplementation(() => { throw new Error('quota'); });
+    it('keeps a 5★ step the bar does not offer, because one window is where it is a real question', () => {
+      // The bar's list is three long and this one is four. A page-wide 5★ floor usually empties six
+      // windows at once; over one window's whole list "only the best" is worth asking, and it is a
+      // browsing choice that dies with the dialog.
+      renderSheet({ barTierId: 'any' });
+      const chips = within(screen.getByTestId('window-spot-sheet-rating')).getAllByRole('button');
+      expect(chips.map((c) => c.textContent)).toEqual(['Any rating', '3★+', '4★+', '5★']);
+    });
+
+    it('forgets a floor chosen here, because the one the reader keeps is the bar\'s', () => {
+      // The change from P11, and the whole of it: this control no longer writes storage. What it
+      // holds is a deviation from the page, and a deviation that outlived its dialog would be a
+      // page-wide filter set from a surface that never said it was setting one.
+      const { unmount } = renderSheet();
+      fireEvent.click(chip('window-spot-sheet-rating', '4★+'));
+      expect(localStorage.length).toBe(0);
+      unmount();
+
       renderSheet();
-      fireEvent.click(chip('window-spot-sheet-rating', '3★+'));
-      expect(chip('window-spot-sheet-rating', '3★+')).toHaveAttribute('aria-pressed', 'true');
-      expect(chip('window-spot-sheet-rating', 'Any rating')).toHaveAttribute('aria-pressed', 'false');
+      expect(chip('window-spot-sheet-rating', 'Any rating')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('marks a loosened floor as widened for browsing, as a loosened tier already is', () => {
+      // Both axes are inherited, so both can show the reader spots the page behind the dialog is
+      // hiding. Marking one and not the other would leave the same statement half-made.
+      renderSheet({ barFloorId: '4' });
+      expect(screen.queryByTestId('window-spot-sheet-widened')).toBeNull();
+
+      fireEvent.click(chip('window-spot-sheet-rating', 'Any rating'));
+      expect(screen.getByTestId('window-spot-sheet-widened')).toBeInTheDocument();
+    });
+
+    it('does not call a TIGHTENED floor a widening', () => {
+      // The direction rule the reach control already holds: "widened for browsing" over a list
+      // shorter than the strip behind it is simply false.
+      renderSheet();
+      fireEvent.click(chip('window-spot-sheet-rating', '4★+'));
+      expect(screen.queryByTestId('window-spot-sheet-widened')).toBeNull();
     });
   });
 
@@ -379,16 +413,19 @@ describe('WindowSpotSheet', () => {
         .toHaveTextContent('Ranked by drive time.');
     });
 
-    it('states the three policies when all three controls are on screen', () => {
+    it('states the one policy that now covers all three controls', () => {
+      // It used to read "Rating floor is remembered · reach and type reset each visit". The floor
+      // is the bar's now and this control only borrows it, so claiming the DIALOG remembers one
+      // would describe a setting while pointing at a control that no longer keeps it.
       renderSheet();
       expect(screen.getByTestId('window-spot-sheet-note'))
-        .toHaveTextContent('Rating floor is remembered · reach and type reset each visit');
+        .toHaveTextContent('Reach, rating and type reset each visit');
     });
 
-    it('claims nothing about a floor on a window that offers none', () => {
+    it('names only the controls that are on screen', () => {
       renderSheet({ card: { ...CARD, allSpots: [UNRATED] } });
       const note = screen.getByTestId('window-spot-sheet-note');
-      expect(note).not.toHaveTextContent('Rating floor');
+      expect(note).not.toHaveTextContent('rating');
       // Sentence case on whichever clause leads — without it the footer opens lowercase beside a
       // sentence-case count.
       expect(note).toHaveTextContent('Reach resets each visit');

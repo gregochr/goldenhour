@@ -1367,6 +1367,18 @@ real drive times, and no screen reader, axe or Lighthouse pass. Chrome only.
 rating floor nearly so; the type control is specified against a taxonomy that does not exist in this
 product. Four decisions the plan did not make, then the one it made against itself.
 
+- **⚠️⚠️ REVERSED for the rating floor. It is now a page-wide control ON the bar**, by a later
+  design handoff; the type control stays in the sheet. `utils/ratingLens.js` carries the reasoning
+  and `CHANGELOG.md` the summary, but the short version belongs here because this is where the
+  opposite decision is written down: the hazard the paragraph below states — a card reading
+  `best 5★` over a strip the floor had emptied — **cannot happen**, because a floor removes from
+  *below* and so never removes a window's best-rated spot. Either the best survives the floor, or
+  the strip is empty and says which threshold emptied it. What the plan got right and is preserved:
+  the sheet still has a rating control, but it now *inherits* the bar's floor and its own change
+  dies with the dialog, exactly as its reach control always has. The `scroll-margin-top` consequence
+  the paragraph below settles is also reversed — the bar wraps, has four measured heights, and the
+  reservation is a variable the shell measures rather than a literal. **Everything from here to the
+  end of this bullet is the superseded P11 record, kept because it is the record.**
 - **⚠️ The rating floor and the type control went into the SHEET, not the lens bar — §5c`:908`
   assumed the opposite and that sentence is now wrong.** It reads "P11, which adds a rating floor and
   a type control to the same row", and it is the reason `scroll-margin-top: 60px` exists. The mock

@@ -272,38 +272,76 @@ describe('WindowFirstWindowCard', () => {
     });
   });
 
-  describe('the reach lens on the card', () => {
+  describe('the lens on the card', () => {
+    /**
+     * A window the page-wide lens emptied.
+     *
+     * <p>`lensEmpty` is a DESCRIPTOR now, not a sentence this component composes. With two gates a
+     * card cannot say which one emptied it — that judgement needs both thresholds and the whole
+     * ungated list, which is `buildWindowCards`' business and is tested against real spots in
+     * `windowLensEmpty.test.js`. What is pinned here is that the card renders what it is handed and
+     * draws nothing at all when it is handed nothing.
+     */
+    const emptied = (overrides = {}) => ({
+      headline: 'Nothing within 45 min in this window.',
+      body: '12 spots are further out.',
+      actions: [],
+      ...overrides,
+    });
+
     it('counts what is within reach beside the star, once the lens has earned the word', () => {
       renderCard({ spots: [spot()], reachTotal: 6, withinReachCount: 1 });
       expect(screen.getByTestId('window-card-within-reach')).toHaveTextContent('1 within reach');
     });
 
-    it('says what the lens hid, and how much widening would bring back', () => {
-      // The design's line is "Nothing matches the current lens in this window." Two changes: the
-      // word "lens" is ours rather than the product's, so the threshold on the chip above is named
-      // instead; and the count is stated, because the useful fact is that widening would fill it.
-      renderCard({ spots: [], reachTotal: 12 }, { reachLabel: '45 min' });
-      expect(screen.getByTestId('window-card-lens-empty'))
-        .toHaveTextContent('Nothing within 45 min in this window. 12 spots are further out.');
+    it('says what the lens hid, and how much loosening would bring back', () => {
+      renderCard({ spots: [], reachTotal: 12, lensEmpty: emptied() });
+
+      expect(screen.getByTestId('window-card-lens-empty-head'))
+        .toHaveTextContent('Nothing within 45 min in this window.');
+      expect(screen.getByTestId('window-card-lens-empty-body'))
+        .toHaveTextContent('12 spots are further out.');
     });
 
-    it('agrees with itself when one spot is beyond the tier', () => {
-      renderCard({ spots: [], reachTotal: 1 }, { reachLabel: '1h 30min' });
-      expect(screen.getByTestId('window-card-lens-empty'))
-        .toHaveTextContent('Nothing within 1h 30min in this window. 1 spot is further out.');
+    it('offers each way out as its own control, and hands the whole action back', () => {
+      // The card learns nothing about which lenses exist — it returns the descriptor it was given,
+      // so a third axis would not widen this component's prop surface.
+      const onLoosenLens = vi.fn();
+      const actions = [
+        { kind: 'reach', id: '90', label: 'Try 1h 30min' },
+        { kind: 'rating', id: '3', label: 'Or drop to 3★+' },
+      ];
+      renderCard({ spots: [], reachTotal: 12, lensEmpty: emptied({ actions }) }, { onLoosenLens });
+
+      const buttons = screen.getAllByTestId('window-card-lens-loosen');
+      expect(buttons.map((b) => b.textContent)).toEqual(['Try 1h 30min →', 'Or drop to 3★+ →']);
+      fireEvent.click(buttons[1]);
+      // The card's own key rides along, and it is not decoration: pressing this button removes it
+      // from the DOM, so the shell has to know which card replaced it in order to put focus
+      // somewhere. Asserted rather than matched loosely, because a card that handed back the wrong
+      // key would send a keyboard reader to a different window.
+      expect(onLoosenLens).toHaveBeenCalledWith(actions[1], `${TODAY}:SUNSET`);
+    });
+
+    it('draws no way out when the descriptor names none', () => {
+      // Reachable and not a bug: a LITE reader is pinned to "Any" reach, so there is no wider tier
+      // to offer and `buildLensEmptyState` withholds the action rather than drawing an inert one.
+      renderCard({ spots: [], reachTotal: 12, lensEmpty: emptied() });
+      expect(screen.queryByTestId('window-card-lens-loosen')).toBeNull();
     });
 
     it('says nothing about the lens on a window that had no spots to begin with', () => {
       // The line is a statement about the control. On a window the lens never touched there is
-      // nothing widening could bring back, so it would blame a filter for an empty forecast.
-      renderCard({ spots: [], reachTotal: 0 }, { reachLabel: '45 min' });
+      // nothing loosening could bring back, so it would blame a filter for an empty forecast —
+      // which is exactly the case `buildLensEmptyState` returns null for.
+      renderCard({ spots: [], reachTotal: 0, lensEmpty: null });
       expect(screen.queryByTestId('window-card-lens-empty')).toBeNull();
       expect(screen.queryByTestId('window-spot-strip')).toBeNull();
     });
 
-    it('draws no strip and no footer beside the gated-out line', () => {
+    it('draws no strip and no footer beside the gated-out card', () => {
       // The footer would read "Listed alphabetically. 0 spots" over nothing at all.
-      renderCard({ spots: [], reachTotal: 12 }, { reachLabel: '45 min' });
+      renderCard({ spots: [], reachTotal: 12, lensEmpty: emptied() });
       expect(screen.queryByTestId('window-spot-strip')).toBeNull();
       expect(screen.queryByTestId('window-spot-foot')).toBeNull();
     });
@@ -322,15 +360,12 @@ describe('WindowFirstWindowCard', () => {
       // "12 spots are further out" with no route to those twelve is the defect CLAUDE.md records
       // against Close-to-home's old four-card cap.
       const onSeeAllSpots = vi.fn();
-      const c = card({ spots: [], reachTotal: 12 });
-      render(
-        <WindowFirstWindowCard
-          card={c}
-          todayStr={TODAY}
-          reachLabel="45 min"
-          onSeeAllSpots={onSeeAllSpots}
-        />,
-      );
+      const c = card({
+        spots: [],
+        reachTotal: 12,
+        lensEmpty: { headline: 'Nothing within 45 min in this window.', body: '12 spots are further out.', actions: [] },
+      });
+      render(<WindowFirstWindowCard card={c} todayStr={TODAY} onSeeAllSpots={onSeeAllSpots} />);
       fireEvent.click(screen.getByTestId('window-card-lens-all'));
       expect(onSeeAllSpots).toHaveBeenCalledWith(c);
     });
@@ -338,16 +373,23 @@ describe('WindowFirstWindowCard', () => {
     it('draws neither trigger when the shell withheld the handler', () => {
       renderCard({ spots: [spot()] });
       expect(screen.queryByTestId('window-spot-all')).toBeNull();
-      renderCard({ spots: [], reachTotal: 12 }, { reachLabel: '45 min' });
+      renderCard({
+        spots: [],
+        reachTotal: 12,
+        lensEmpty: { headline: 'Nothing within 45 min in this window.', body: '12 spots are further out.', actions: [] },
+      });
       expect(screen.queryByTestId('window-card-lens-all')).toBeNull();
     });
 
     it('names the window in the gated line\'s trigger, as the strip\'s own does', () => {
       render(
         <WindowFirstWindowCard
-          card={card({ spots: [], reachTotal: 12 })}
+          card={card({
+            spots: [],
+            reachTotal: 12,
+            lensEmpty: { headline: 'Nothing within 45 min in this window.', body: '12 spots are further out.', actions: [] },
+          })}
           todayStr={TODAY}
-          reachLabel="45 min"
           onSeeAllSpots={vi.fn()}
         />,
       );

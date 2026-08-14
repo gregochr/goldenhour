@@ -1,9 +1,11 @@
 import React from 'react';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import WindowFirstLensBar from '../components/WindowFirstLensBar.jsx';
+import useRatingLens from '../hooks/useRatingLens.js';
 import useReachLens from '../hooks/useReachLens.js';
 import { PLAN_REACH_KEY } from '../utils/reachLens.js';
+import { PLAN_RATING_KEY } from '../utils/ratingLens.js';
 
 const TUESDAY = '2026-08-04';
 const SATURDAY = '2026-08-08';
@@ -11,18 +13,58 @@ const SATURDAY = '2026-08-08';
 /**
  * The production pairing, minus the briefing.
  *
- * <p>Not a harness invented for the test: the provider calls {@code useReachLens} and the shell
- * renders its value into this bar, and the hook's output is the bar's only prop. Rendering the two
- * together is therefore the real consumer relationship — what is left out is the briefing fetch,
- * which the bar reads nothing from.
+ * <p>Not a harness invented for the test: the provider calls both hooks and the shell renders their
+ * values into this bar, and the two are the bar's only state props. Rendering them together is
+ * therefore the real consumer relationship — what is left out is the briefing fetch, which the bar
+ * reads nothing from.
+ *
+ * <p><b>What no test in this file can see is the phone layout.</b> `vite.config.js` sets
+ * `css: false` and `setup.js`'s `matchMedia` stub answers a fixed `{ matches: false }` — so
+ * `useIsMobile` is always false here, the captions are always the desktop ones, and no `@media`
+ * rule is evaluated at all. The stacking, the 40px touch targets and the count line's own row are
+ * browser-measured. What IS asserted below is the hook the phone branch hangs off, by mocking that
+ * stub — the class or attribute, per `frontend-test-standards.md:189-191`.
  */
-function Lens({ todayStr = TUESDAY, locked = false, spotCount = 34, windowCount = 6 }) {
+function Lens({
+  todayStr = TUESDAY, locked = false, spotCount = 34, reachedCount, windowCount = 6,
+}) {
   const lens = useReachLens(todayStr, locked);
-  return <WindowFirstLensBar lens={lens} spotCount={spotCount} windowCount={windowCount} />;
+  const ratingLens = useRatingLens();
+  return (
+    <WindowFirstLensBar
+      lens={lens}
+      ratingLens={ratingLens}
+      spotCount={spotCount}
+      reachedCount={reachedCount}
+      windowCount={windowCount}
+    />
+  );
 }
 
 const tiers = () => within(screen.getByTestId('window-first-lens-tiers')).getAllByRole('button');
 const pressed = () => tiers().filter((b) => b.getAttribute('aria-pressed') === 'true')
+  .map((b) => b.textContent);
+/**
+ * The phone branch, reached the only way jsdom allows.
+ *
+ * <p>`setup.js:40` names this as the sanctioned route — "a test needing the mobile branch mocks the
+ * hook itself, as the MapView suites already do". It buys exactly the JS half: which caption string
+ * is rendered and which readout variant. The CSS half — the stacking, the 40px targets, the count
+ * line's own row — is evaluated by no test in this repository and is browser-measured instead.
+ */
+const asPhone = () => vi.stubGlobal('matchMedia', (query) => ({
+  matches: query === '(max-width: 639px)',
+  media: query,
+  onchange: null,
+  addEventListener() {},
+  removeEventListener() {},
+  addListener() {},
+  removeListener() {},
+  dispatchEvent() { return false; },
+}));
+
+const floors = () => within(screen.getByTestId('window-first-lens-floors')).getAllByRole('button');
+const flooredOn = () => floors().filter((b) => b.getAttribute('aria-pressed') === 'true')
   .map((b) => b.textContent);
 
 describe('WindowFirstLensBar — the control', () => {
@@ -72,7 +114,7 @@ describe('WindowFirstLensBar — the control', () => {
   it('states the tier, the day that derived it, and the count it left', () => {
     render(<Lens todayStr={TUESDAY} spotCount={34} windowCount={6} />);
     expect(screen.getByTestId('window-first-lens-readout'))
-      .toHaveTextContent('45 min · weekday default · 34 spots across 6 windows');
+      .toHaveTextContent('45 min · weekday default · any rating · 34 spots across 6 windows');
   });
 });
 
@@ -118,7 +160,7 @@ describe('WindowFirstLensBar — marking a temporary override', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Any' }));
 
     const readout = screen.getByTestId('window-first-lens-readout');
-    expect(readout).toHaveTextContent('Any · 34 spots across 6 windows');
+    expect(readout).toHaveTextContent('Any · any rating · 34 spots across 6 windows');
     expect(readout).not.toHaveTextContent('default');
   });
 
@@ -186,7 +228,7 @@ describe('WindowFirstLensBar — the LITE treatment', () => {
     // a Tuesday would be plainly false.
     render(<Lens locked todayStr={TUESDAY} />);
     const readout = screen.getByTestId('window-first-lens-readout');
-    expect(readout).toHaveTextContent('Any · 34 spots across 6 windows');
+    expect(readout).toHaveTextContent('Any · any rating · 34 spots across 6 windows');
     expect(readout).not.toHaveTextContent('default');
   });
 
@@ -203,5 +245,185 @@ describe('WindowFirstLensBar — the LITE treatment', () => {
     expect(screen.getByRole('button', { name: '45 min' })).toBeDisabled();
     expect(pressed()).toEqual(['Any']);
     expect(localStorage.getItem(PLAN_REACH_KEY)).toBeNull();
+  });
+});
+
+describe('WindowFirstLensBar — the rating floor', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('draws three floors and no fourth, because 5★ would usually empty the page', () => {
+    // The bar's list is deliberately one step shorter than the drill-down's. A page-wide floor that
+    // returns nothing on most nights is a control nobody presses twice; over one window's whole
+    // list "only the best" is a real question, which is why the sheet keeps 5★ and this does not.
+    render(<Lens />);
+    expect(floors().map((b) => b.textContent)).toEqual(['Any rating', '3★+', '4★+']);
+  });
+
+  it('starts at "Any rating", so an existing reader sees the page they saw before', () => {
+    render(<Lens />);
+    expect(flooredOn()).toEqual(['Any rating']);
+  });
+
+  it('names its own group, so three bare stars are not three loose buttons', () => {
+    render(<Lens />);
+    expect(screen.getByRole('group', { name: 'Rated' })).toBeInTheDocument();
+  });
+
+  it('moves the pressed state, in aria and in the class a sighted reader sees', () => {
+    render(<Lens />);
+    fireEvent.click(screen.getByRole('button', { name: '4★+' }));
+
+    expect(flooredOn()).toEqual(['4★+']);
+    expect(screen.getByRole('button', { name: '4★+' })).toHaveClass('on');
+    expect(screen.getByRole('button', { name: 'Any rating' })).not.toHaveClass('on');
+  });
+
+  it('persists the choice with NO day stamp — it is taste, not a today-only judgement', () => {
+    render(<Lens />);
+    fireEvent.click(screen.getByRole('button', { name: '3★+' }));
+
+    const stored = JSON.parse(localStorage.getItem(PLAN_RATING_KEY));
+    expect(stored).toEqual({ rating: '3' });
+    // The whole difference from reach, pinned rather than described: `photocast.planReach` carries
+    // `reachDay` and expires with it, and a floor that re-asked itself every morning would be the
+    // same nagging in the other direction.
+    expect(JSON.stringify(stored)).not.toContain('Day');
+  });
+
+  it('restores a stored floor on the next mount', () => {
+    localStorage.setItem(PLAN_RATING_KEY, JSON.stringify({ rating: '4' }));
+    render(<Lens />);
+    expect(flooredOn()).toEqual(['4★+']);
+  });
+
+  it('ignores a 5★ left by the sheet-owned floor this replaces', () => {
+    // The one migration the move needs, and it degrades in the safe direction: an unfiltered page
+    // rather than six empty windows above a bar with no chip pressed.
+    localStorage.setItem(PLAN_RATING_KEY, JSON.stringify({ rating: '5' }));
+    render(<Lens />);
+    expect(flooredOn()).toEqual(['Any rating']);
+  });
+
+  it('carries neither a "today only" pill nor a reset, because nothing here expires', () => {
+    // The `Any rating` chip IS the reset, and it is on screen whenever the floor is. A second way
+    // back would be §2.7's "marking the same fact twice" with no expiry to justify it.
+    render(<Lens />);
+    fireEvent.click(screen.getByRole('button', { name: '4★+' }));
+
+    expect(screen.queryByTestId('window-first-lens-temporary')).toBeNull();
+    expect(screen.queryByTestId('window-first-lens-reset')).toBeNull();
+  });
+
+  it('stays live for a LITE reader, while reach beside it is greyed', () => {
+    // Plan §7 gates reach and not this: the floor needs no per-user data and withholds nothing a
+    // role could not already see. Both halves asserted, because a rule greying everything would
+    // pass the first alone.
+    render(<Lens locked />);
+
+    expect(screen.getByTestId('window-first-lens-rating').className).not.toContain('wf-lens-locked');
+    for (const button of floors()) expect(button).not.toBeDisabled();
+    for (const button of tiers()) expect(button).toBeDisabled();
+  });
+
+  it('marks the axis, so the selected chip is not the drive row\'s amber', () => {
+    // `.wf-seg-rating .wf-seg-btn.on` is the ONLY rule that separates the two selected states, and
+    // with two segmented controls in one bar an identical treatment reads as one long control that
+    // has somehow been pressed twice. jsdom evaluates no CSS, so the class is what can be pinned —
+    // the green itself and its 7.25:1 contrast were measured in a browser.
+    render(<Lens />);
+    expect(screen.getByTestId('window-first-lens-floors').className).toContain('wf-seg-rating');
+    expect(screen.getByTestId('window-first-lens-tiers').className).not.toContain('wf-seg-rating');
+  });
+
+  it('states the floor in the readout, so the summary names both controls', () => {
+    render(<Lens />);
+    fireEvent.click(screen.getByRole('button', { name: '4★+' }));
+    expect(screen.getByTestId('window-first-lens-readout')).toHaveTextContent('45 min · weekday default · 4★+ · 34 spots across 6 windows');
+  });
+});
+
+describe('WindowFirstLensBar — what the count costs', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('says what a filter cost as soon as it has cost something', () => {
+    // The handoff's whole reason for the line: a short list has to read as "I asked for this"
+    // rather than "tonight is bad".
+    render(<Lens spotCount={42} reachedCount={138} windowCount={6} />);
+    expect(screen.getByTestId('window-first-lens-readout')).toHaveTextContent('42 of 138 spots across 6 windows');
+  });
+
+  it('does not compare a set with itself when nothing was trimmed', () => {
+    // `browseCountLine`'s rule one surface down: with nothing removed, "138 of 138" is a count
+    // dressed as a comparison.
+    render(<Lens spotCount={138} reachedCount={138} windowCount={6} />);
+
+    const readout = screen.getByTestId('window-first-lens-readout');
+    expect(readout).toHaveTextContent('138 spots across 6 windows');
+    expect(readout).not.toHaveTextContent('of 138');
+  });
+
+  it('says nothing about counts when there are no windows to count across', () => {
+    const { container } = render(<Lens spotCount={0} reachedCount={0} windowCount={0} />);
+    expect(container.textContent).not.toContain('spots across');
+  });
+});
+
+describe('WindowFirstLensBar — the phone branch', () => {
+  beforeEach(() => localStorage.clear());
+  // `stubGlobal` is restored globally rather than inline, so an assertion that throws first cannot
+  // leave every later file in this run believing it is on a phone.
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('shortens the caption, which is the whole of what buys the room', () => {
+    // `HOW FAR TONIGHT` inline costs about a third of a 390px viewport — very close to what the
+    // four chips were short by. Both halves are asserted: a rule that shortened every caption would
+    // pass the first alone.
+    asPhone();
+    render(<Lens />);
+
+    expect(screen.getByRole('group', { name: 'Drive' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'How far tonight' })).toBeNull();
+    // The rating caption does NOT change — it is already two syllables at either size.
+    expect(screen.getByRole('group', { name: 'Rated' })).toBeInTheDocument();
+  });
+
+  it('keeps the caption and the group name one string, so label-in-name holds at both sizes', () => {
+    // The reason the text switches in JS rather than by rendering both and hiding one:
+    // `aria-labelledby` resolves THROUGH `display: none`, so two captions would put both strings in
+    // one accessible name. WCAG 2.5.3 needs the visible words to be in the accessible name, and
+    // pointing at the visible caption makes them the same string by construction.
+    asPhone();
+    render(<Lens />);
+
+    const group = screen.getByTestId('window-first-lens-tiers');
+    const caption = document.getElementById(group.getAttribute('aria-labelledby'));
+    expect(caption).toHaveTextContent('Drive');
+    expect(group).toHaveAccessibleName('Drive');
+  });
+
+  it('drops the summary for the count alone, and marks which variant it drew', () => {
+    // The pressed chips already say what the lens is set to; what they cannot say is what it cost.
+    // `data-variant` is the hook the stylesheet keys its own row off, so it is pinned as well as
+    // the text — deleting either arm of the ternary must fail something.
+    asPhone();
+    render(<Lens spotCount={42} reachedCount={138} windowCount={6} />);
+
+    const readout = screen.getByTestId('window-first-lens-readout');
+    expect(readout).toHaveAttribute('data-variant', 'count');
+    expect(readout).toHaveClass('wf-lens-count');
+    expect(readout).toHaveTextContent('42 of 138 spots across 6 windows');
+    // The desktop summary's own clauses are absent — this is not the same string trimmed.
+    expect(readout).not.toHaveTextContent('weekday default');
+  });
+
+  it('draws the desktop summary when the viewport is not a phone', () => {
+    // The negative half. Without it every assertion above passes on a bar that renders the phone
+    // arm unconditionally, which is a strictly worse product than one that never does.
+    render(<Lens spotCount={42} reachedCount={138} windowCount={6} />);
+
+    const readout = screen.getByTestId('window-first-lens-readout');
+    expect(readout).toHaveAttribute('data-variant', 'summary');
+    expect(readout).toHaveClass('wf-lens-res');
+    expect(readout).toHaveTextContent('45 min · weekday default · any rating · 42 of 138 spots across 6 windows');
   });
 });

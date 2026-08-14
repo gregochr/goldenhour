@@ -95,6 +95,67 @@ and pass after: the three per-day suppression cases, the two height-arm cases in
 green on both sides **by design** — they exist to pin that restoring the height arm did not turn the
 predicate into a pass. Stated precisely because the first draft of this entry claimed all of them
 discriminated, which is the same species of overclaim as the inverted test above.
+### Added — a rating floor on the Plan lens, and a phone bar that no longer hides its own controls
+
+Two changes to the Plan screen's filter strip, from the `design_handoff_lens_rating` bundle.
+
+**The strip no longer scrolls sideways.** On a phone the label `HOW FAR TONIGHT` sat inline with the
+segmented control and ate roughly a third of a 390px viewport, so the drive-time chips past
+"1h 30min" lived off the right edge of a hidden-scrollbar scroller — invisible, and reachable only
+by dragging a sticky element sideways. The fix is layout rather than an affordance, as the handoff
+insists ("a fade would advertise a scroll that shouldn't need to exist"): below 640px the label
+becomes `Drive` on its own caption, each control takes a full row, and its chips divide that row at
+a 40px touch height. Measured at 320, 360, 390, 500 and 639px — no overflow and no clipped chip at
+any of them.
+
+**A rating floor is added beside reach** — `Any rating / 3★+ / 4★+` — applied to every window on the
+Plan tab exactly where reach applies. It is a floor, not a picker: "3 stars and above" answers the
+question someone actually has. It persists (`photocast.planRating`, no day stamp — taste, unlike
+reach's per-evening judgement), defaults to Any so nothing changes until it is used, is not role
+gated, and never reorders anything. Whenever it has cost something the bar says so — `6 of 16 spots
+across 4 windows` — so a short list reads as "I asked for this" rather than "tonight is bad".
+
+**A window the lens empties now carries its own way out.** A dashed card names what is gating and
+what lies beyond it — `Nothing at 4★+ within 45 min in this window. / 2 spots here, none rated 4★+.`
+— and offers the loosening in one tap. Each offered step is chosen by re-running both gates with
+that one control loosened, so a button that appears always fills the card; the handoff's literal
+"next reach step up" would have shipped a control that widens the lens and changes nothing. A window
+nothing has scored yet says so (`Nothing in this window has been rated yet.`) rather than reading as
+a poor forecast.
+
+⚠️ **This reverses plan §5f, which put the floor in the drill-down and argued the scope.** Its stated
+hazard — a card reading `best 5★` over a strip the floor had emptied — does not fire, because a
+floor removes from *below* and so can never remove the best-rated spot; the reasoning is recorded in
+`utils/ratingLens.js`. The drill-down keeps a rating control, now **inherited** from the bar and
+local to the dialog exactly as its reach control has always been, and it keeps the `5★` step the bar
+deliberately does not offer. The header's `N within reach` is withheld while a floor is active — that
+clause names one axis and the drawn set was gated on two.
+
+**The adversarial review round.** Thirty-six charges from six lenses, fifteen surviving refutation,
+none a live user-visible defect. What was fixed: the `scroll-margin-top` block still asserted the
+bar "no longer wraps at any width", holds one control and measures 53.5px — all three falsified by
+this change, in the very comment whose staleness let P14's defect survive a whole tablet band, so
+both superseded paragraphs are now marked as such rather than silently contradicted. Four gaps in
+the regression net are closed and each was mutation-checked: the phone caption and count-line
+variant (no test touched either — collapse both ternaries and the suite stayed green), the provider's
+one object key that is the floor's only production wiring, the shell's `rating` arm of the loosening
+handler, and the storage-write guard the move from the sheet had dropped. Pressing a loosening
+button destroyed the button and left focus on `<body>`; it now lands on the window's own expander.
+The stacked empty-card actions were 23.7px apart — 0.3px inside WCAG 2.2 SC 2.5.8 — and are now 31px.
+Two exported ladder helpers with no caller are deleted; the label "P16" is renamed to P15c, since
+P16 already names the deferred run-history phase in this same stylesheet.
+
+**Left, and said out loud:** in the 640–840px band the decorative 1px seam between the two controls
+stays on row 1 when the rating group wraps to row 2, so it marks nothing. It takes no space the row
+was using and renders at 1.28:1 three pixels from an identically-coloured border; hiding it exactly
+when the bar wraps needs a container query this bar does not have. The comment now says so.
+
+⚠️ **The bar wraps now, and must not be returned to a horizontal scroller.** P14 chose
+`nowrap` + `overflow-x: auto` when the bar held one control, and with two the single row stops
+fitting at about **689px** — or **840px** once a non-default tier adds the "today only" pill — so no
+breakpoint can be right in both states. `scroll-margin-top` no longer depends on someone
+re-measuring the bar by hand either: `WindowFirstShell` observes it and publishes
+`--wf-lens-reserve`, verified tracking 53.5 → 91 → 130 → 153.5px across the states above.
 
 ## [v2.18.5] - 2026-08-13
 

@@ -53,6 +53,12 @@ const ctx = () => ({
     selectTier: vi.fn(),
     resetToDefault: vi.fn(),
   },
+  ratingLens: {
+    floor: { id: 'any', min: null, label: 'Any rating' },
+    floorId: 'any',
+    minRating: null,
+    selectFloor: vi.fn(),
+  },
 });
 
 const renderShell = (extraProps = {}) => {

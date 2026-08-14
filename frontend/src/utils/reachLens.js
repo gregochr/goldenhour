@@ -212,34 +212,70 @@ export function gateSpotsByReach(spots, limitMinutes) {
 }
 
 /**
- * The bar's readout — what the lens is set to and how much is on screen because of it.
+ * How much is on screen, and what the rating floor cost to get there — split so the leading number
+ * can be emphasised on its own.
+ *
+ * <p>The second number appears <b>only when the floor actually removed something</b>, which is the
+ * rule {@code browseCountLine} already holds one surface down: with nothing trimmed, {@code 138 of
+ * 138} is a count dressed as a comparison. The handoff asks the strip to "state what it cost"
+ * whenever a filter is on, and a floor that cost nothing has nothing to state — the pressed chip is
+ * already on screen saying what is set.
+ *
+ * <p>The word is "spots across N windows", never "within reach": plan §2.5's rule 2 keeps
+ * <em>reach</em> for a set that was actually gated on distance, and this pair of numbers is gated on
+ * two axes at once. "across N windows" is also what makes the count honest when one location appears
+ * in several of them — it means cards, and there are exactly that many on the page.
+ *
+ * @param {object} args
+ * @param {number} args.spotCount    spots drawn across every window, after both gates
+ * @param {number} args.reachedCount spots the rating floor chose from — after reach, before rating
+ * @param {number} args.windowCount  windows drawn
+ * @returns {?{lead: string, rest: string}} the number to emphasise and the rest, or null when there
+ *          are no windows to count across
+ */
+export function formatLensCount({ spotCount, reachedCount, windowCount }) {
+  if (!(windowCount > 0)) return null;
+  const windows = `${windowCount} window${windowCount === 1 ? '' : 's'}`;
+  if (spotCount < reachedCount) {
+    const spots = `spot${reachedCount === 1 ? '' : 's'}`;
+    return { lead: `${spotCount}`, rest: `of ${reachedCount} ${spots} across ${windows}` };
+  }
+  return {
+    lead: `${spotCount}`,
+    rest: `spot${spotCount === 1 ? '' : 's'} across ${windows}`,
+  };
+}
+
+/**
+ * The bar's readout — what both lenses are set to and how much is on screen because of them.
  *
  * <p>Every clause is checked against §6. The tier label is the control's own word. The default
  * clause appears only when the active tier <em>is</em> the default, and names which of the two days
- * derived it, so the reader can tell a deliberate choice from an inherited one. The count says
- * "spots", never "within reach": plan §2.5's rule 2 keeps the word <em>reach</em> for a set that was
- * actually gated, and this number is drawn cards — which it always truthfully is, gate or no gate.
+ * derived it, so the reader can tell a deliberate choice from an inherited one.
  *
- * <p>"across N windows" is what makes the count honest when a location appears in several of them.
- * {@code CloseToHome}'s block header counts unique locations because its heading names a radius and
- * the number therefore has to mean "places you could drive to"; this one names the windows, so it
- * means cards, and there are exactly that many on the page.
+ * <p><b>The rating clause is stated even when it is "any rating".</b> This line is a summary of the
+ * two controls, and a summary that names one of them and silently drops the other reads as though
+ * the page had only one lens — which was true until this change and is the misreading worth
+ * spending twelve characters to prevent. It is the same reasoning that keeps the tier label on
+ * screen while it says "Any".
  *
  * @param {object}  args
- * @param {string}  args.tierLabel  the active tier's label
- * @param {boolean} args.isDefault  whether the active tier is today's derived default
- * @param {boolean} args.weekend    whether today derived the weekend default
- * @param {number}  args.spotCount  spots drawn across every window
+ * @param {string}  args.tierLabel   the active tier's label
+ * @param {boolean} args.isDefault   whether the active tier is today's derived default
+ * @param {boolean} args.weekend     whether today derived the weekend default
+ * @param {string}  [args.ratingLabel] the active floor's label, e.g. {@code 4★+}
+ * @param {number}  args.spotCount   spots drawn across every window
+ * @param {number}  args.reachedCount spots the rating floor chose from
  * @param {number}  args.windowCount windows drawn
  * @returns {string} the readout
  */
-export function formatLensReadout({ tierLabel, isDefault, weekend, spotCount, windowCount }) {
+export function formatLensReadout({
+  tierLabel, isDefault, weekend, ratingLabel, spotCount, reachedCount, windowCount,
+}) {
   const parts = [tierLabel];
   if (isDefault) parts.push(`${weekend ? 'weekend' : 'weekday'} default`);
-  if (windowCount > 0) {
-    const spots = `${spotCount} spot${spotCount === 1 ? '' : 's'}`;
-    const windows = `${windowCount} window${windowCount === 1 ? '' : 's'}`;
-    parts.push(`${spots} across ${windows}`);
-  }
+  if (ratingLabel) parts.push(ratingLabel.toLowerCase());
+  const count = formatLensCount({ spotCount, reachedCount, windowCount });
+  if (count) parts.push(`${count.lead} ${count.rest}`);
   return parts.join(' · ');
 }

@@ -1,20 +1,22 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   ANY_RATING_ID,
   ANY_TYPE_ID,
-  PLAN_RATING_KEY,
   RATING_FLOORS,
   browseCountLine,
   browseEmptyLine,
   browseSpots,
   hasRatings,
   ratingFloorById,
-  readStoredRatingFloorId,
   sheetOffersMore,
   spotTypes,
   typeOptionsFor,
-  writeStoredRatingFloorId,
 } from '../utils/windowSpotBrowse.js';
+
+// The floor's vocabulary and its storage moved to `utils/ratingLens.js` when it became a page-wide
+// lens; `ratingLens.test.js` covers them. What is re-exported here — and re-tested below — is the
+// part this module still owns a use for: the sheet's own list, and the pairing that stops an
+// inherited floor running with no chip on screen.
 
 function spot(overrides = {}) {
   return {
@@ -67,45 +69,6 @@ describe('windowSpotBrowse', () => {
     it('returns null for an id this build does not offer', () => {
       expect(ratingFloorById('2')).toBeNull();
       expect(ratingFloorById(undefined)).toBeNull();
-    });
-  });
-
-  describe('persistence', () => {
-    beforeEach(() => localStorage.clear());
-
-    it('round-trips a floor under its own key', () => {
-      writeStoredRatingFloorId('4');
-      expect(readStoredRatingFloorId()).toBe('4');
-    });
-
-    it('writes only the rating, so nothing else under any key can ride along', () => {
-      localStorage.setItem(PLAN_RATING_KEY, JSON.stringify({ rating: '3', smuggled: 'x' }));
-      writeStoredRatingFloorId('4');
-      expect(JSON.parse(localStorage.getItem(PLAN_RATING_KEY))).toEqual({ rating: '4' });
-    });
-
-    it('carries NO day stamp — a rating floor is taste, not a today-only choice like reach', () => {
-      writeStoredRatingFloorId('5');
-      expect(Object.keys(JSON.parse(localStorage.getItem(PLAN_RATING_KEY)))).toEqual(['rating']);
-    });
-
-    it('reads null when there is no key at all', () => {
-      expect(readStoredRatingFloorId()).toBeNull();
-    });
-
-    it('reads null rather than throwing on unparseable JSON', () => {
-      localStorage.setItem(PLAN_RATING_KEY, 'not json');
-      expect(readStoredRatingFloorId()).toBeNull();
-    });
-
-    it('reads null for a floor id this build no longer offers', () => {
-      localStorage.setItem(PLAN_RATING_KEY, JSON.stringify({ rating: '2' }));
-      expect(readStoredRatingFloorId()).toBeNull();
-    });
-
-    it('does not use the reach key — the two expire differently and must not share one object', () => {
-      writeStoredRatingFloorId('4');
-      expect(localStorage.getItem('photocast.planReach')).toBeNull();
     });
   });
 

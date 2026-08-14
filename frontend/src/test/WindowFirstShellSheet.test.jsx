@@ -97,6 +97,14 @@ const ctx = (overrides = {}) => {
       selectTier: vi.fn(),
       resetToDefault: vi.fn(),
     },
+    // The second axis, as the provider hands it over. Frozen rather than the live hook, for the
+    // same reason the reach lens is: these files are about the shell's wiring.
+    ratingLens: {
+      floor: { id: 'any', min: null, label: 'Any rating' },
+      floorId: 'any',
+      minRating: null,
+      selectFloor: vi.fn(),
+    },
     ...overrides,
   };
 };
@@ -231,7 +239,20 @@ describe('WindowFirstShell — the drill-down', () => {
   });
 
   describe('a window the lens emptied', () => {
-    const gated = () => card({ allSpots: [NEAR, FAR], spots: [], reachTotal: 2 });
+    // `lensEmpty` is what the card now keys its emptied state on — the descriptor
+    // `buildWindowCards` derives once, where both thresholds are known. A fixture without it draws
+    // no empty state at all, which is exactly the "window the lens never touched" case.
+    const gated = () => card({
+      allSpots: [NEAR, FAR],
+      spots: [],
+      reachTotal: 2,
+      reachedTotal: 0,
+      lensEmpty: {
+        headline: 'Nothing within 45 min in this window.',
+        body: '2 spots are further out.',
+        actions: [],
+      },
+    });
 
     it('offers the trigger on its own line, where the number is otherwise unactionable', () => {
       renderShell({ windowCards: [gated()] });
