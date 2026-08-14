@@ -2183,11 +2183,11 @@
    comes from the caption: `Drive` instead of `HOW FAR TONIGHT` buys back about 120px, which is very
    close to what the four chips were short by.
 
-   So here, and only here, the bar wraps: each group takes a full row and its chips divide it. The
-   height cost is real and is the trade — two 40px rows plus a count line — and it is why the two
-   `scroll-margin-top` reservations below carry a phone override of their own. Nothing overflows at
-   320px, so `overflow: visible` is safe and is what keeps a focus ring from being clipped by the
-   `overflow-y: auto` that `overflow-x: auto` implies. */
+   The base rule wraps at every width; what is phone-specific is that each group claims a WHOLE row
+   rather than its natural one, so the four chips divide the full width at a 40px touch height. The
+   height cost is real and is the trade — measured 130px, or 153.5px once a non-default tier adds
+   its two marks — and it is why `--wf-lens-reserve` is measured from the bar rather than written
+   down: a literal would have to be right at all four of the bar's heights. */
 @media (max-width: 639px) {
   .wf-lens {
     padding: 9px var(--wf-gutter);
