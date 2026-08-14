@@ -850,8 +850,8 @@ export default function WindowFirstShell({
       </div>
 
       {/* Keyed on the window, so opening a different card's sheet mounts a fresh one rather than
-          carrying the previous window's reach widening across. The rating floor survives anyway —
-          it is read from storage, which is the point of it being the one that persists. */}
+          carrying the previous window's reach widening across. Both axes are inherited from the bar
+          and local from there on, so neither carries across — the sheet reads no storage at all. */}
       {sheetCard && (
         <WindowSpotSheet
           key={sheetCard.key}
@@ -860,10 +860,19 @@ export default function WindowFirstShell({
           // The bar's floor is the one the sheet opens on, exactly as its tier is. The sheet's own
           // change to either is local and dies with the dialog — see its class comment.
           barFloorId={ratingLens.floorId}
-          // A window the lens emptied opens WIDENED — see the sheet's own note. `spots` is the
-          // gated list and `reachTotal` the set it was gated from, so this is exactly the state
-          // the card renders its "N spots are further out" line in.
-          openTierId={sheetCard.spots.length === 0 && sheetCard.reachTotal > 0
+          // Widen REACH only for a window REACH emptied, which is what `reachedTotal === 0` says.
+          //
+          // This keyed on `spots.length === 0` until the rating floor arrived, when `spots` became
+          // gateSpotsByRating(gateSpotsByReach(...)) and the test silently widened to "emptied by
+          // either axis". A rating-emptied window then opened on ANY_TIER_ID: it threw away the
+          // reader's chosen tier, printed "widened for browsing" over a widening that had gated
+          // nothing, and — since the sheet inherits the floor that did the emptying — still opened
+          // onto an empty list. A door onto a wall, which is the one thing this prop exists to
+          // prevent. Reachable because the emptied card renders its own "See all" trigger.
+          //
+          // `reachedTotal` is the survivors of reach alone, added alongside the floor for exactly
+          // this denominator. Widening reach can only help when reach is what removed them.
+          openTierId={sheetCard.reachedTotal === 0 && sheetCard.reachTotal > 0
             ? ANY_TIER_ID
             : undefined}
           // A boolean, never the role — plan §5c's rule that `role` enters this arm at the provider

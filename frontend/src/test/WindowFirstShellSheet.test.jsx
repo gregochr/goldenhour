@@ -277,6 +277,35 @@ describe('WindowFirstShell — the drill-down', () => {
         .toHaveAttribute('aria-pressed', 'true');
       expect(screen.queryByTestId('window-spot-sheet-widened')).toBeNull();
     });
+
+    // The RATING-emptied twin of the case above, and the one the widening must NOT fire for. The
+    // fixture differs in a single field — `reachedTotal` is 2 rather than 0 — because that is the
+    // whole distinction: both spots cleared the drive limit, and the floor is what removed them.
+    //
+    // Widening reach here gates nothing. It discards the reader's tier, claims a widening that
+    // removed nothing, and still opens onto an empty list, because the sheet inherits the floor
+    // that did the emptying. Guarding on `spots.length === 0` — which stopped meaning "reach
+    // emptied it" the moment the floor was composed in — did exactly that.
+    const ratingGated = () => card({
+      allSpots: [NEAR, FAR],
+      spots: [],
+      reachTotal: 2,
+      reachedTotal: 2,
+      lensEmpty: {
+        headline: 'Nothing rated 4★+ in this window.',
+        body: '2 spots are rated lower.',
+        actions: [],
+      },
+    });
+
+    it('opens a RATING-emptied window on the bar\'s own tier, and claims no widening', () => {
+      renderShell({ windowCards: [ratingGated()] });
+      fireEvent.click(screen.getByTestId('window-card-lens-all'));
+
+      expect(within(screen.getByTestId('window-spot-sheet-reach')).getByRole('button', { name: '45 min' }))
+        .toHaveAttribute('aria-pressed', 'true');
+      expect(screen.queryByTestId('window-spot-sheet-widened')).toBeNull();
+    });
   });
 
   it('names the day in the trigger, because a lead card\'s title is the bare event', () => {
