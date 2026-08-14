@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.18.6] - 2026-08-14
+
 ### Changed — the lens bar's count names which set it counts
 
 Two counts on the Plan screen wore the same `N of M` shape and counted different sets. The bar read
