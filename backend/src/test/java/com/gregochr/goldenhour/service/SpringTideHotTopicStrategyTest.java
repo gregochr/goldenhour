@@ -18,6 +18,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -756,8 +758,76 @@ class SpringTideHotTopicStrategyTest {
         assertThat(topics.get(0).type()).isEqualTo("SPRING_TIDE");
     }
 
+    // ── The two axes, varied independently ───────────────────────────────────
+
+    /**
+     * The full truth table of {@code isSpringNotKing}, one row per (lunar × height) combination.
+     *
+     * <p><b>This test exists because its absence shipped a regression.</b> Every other fixture in
+     * this file comes from {@link #buildDay}, which until now derived the height flags <em>from</em>
+     * the lunar type — so the two arms of {@code (lunar == SPRING || heightAboveSpringThreshold)}
+     * moved together and neither could be observed alone. Deleting the height arm was invisible to
+     * 35 of 38 tests, and when it was deleted the suite stayed green while the Plan tab's tide pill
+     * disappeared for a week (#514).
+     *
+     * <p>A truth table is the smallest thing that cannot have that blind spot: every operand is
+     * false in some row and true in another, so <b>deleting either arm must fail a row</b>. Rows 2
+     * and 3 are the two that a single-arm implementation gets wrong, in opposite directions.
+     *
+     * <p>King is deliberately absent from the table — it is a third state rather than a fourth
+     * combination, and {@code detect_kingAndSpringOnSameDay_kingWinsThatDate} pins it.
+     */
+    @ParameterizedTest(name = "lunar={0}, aboveSpringThreshold={1} → pill={2}")
+    @CsvSource({
+        // The moon says so and the water agrees — the ordinary spring tide.
+        "SPRING_TIDE,  true,  true",
+        // The moon says so but this port's water has not built yet: the run's leading edge, and the
+        // row that fails if the LUNAR arm is deleted.
+        "SPRING_TIDE,  false, true",
+        // The water says so but syzygy has passed: the age of the tide, the run's peak, and the row
+        // that fails if the HEIGHT arm is deleted. This is 14 Aug 2026 — the reported bug.
+        "REGULAR_TIDE, true,  true",
+        // Neither — an ordinary neap day, and the row that fails if the predicate becomes a pass.
+        "REGULAR_TIDE, false, false",
+    })
+    void isSpringNotKing_bothAxesAreObservableIndependently(
+            LunarTideType lunar, boolean aboveSpringThreshold, boolean expectPill) {
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                buildDayWithAxes(TODAY, lunar, "New Moon", aboveSpringThreshold, false)));
+        if (expectPill) {
+            stubCoastalLocations(TODAY, "Northumberland");
+        }
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(expectPill ? 1 : 0);
+        if (expectPill) {
+            assertThat(topics.get(0).type()).isEqualTo("SPRING_TIDE");
+        }
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
+    /**
+     * A day carrying the given lunar classification and <b>no</b> spring-sized water.
+     *
+     * <p><b>The height flags are deliberately false here, and that is the whole point of this
+     * helper.</b> It used to set them <em>from</em> the lunar type — KING got both, SPRING got
+     * {@code heightAboveSpringThreshold}, REGULAR got {@code TideInfo.NONE} — which made the two
+     * axes perfectly correlated across every fixture in this file. {@code isSpringNotKing} reads
+     * {@code (lunar == SPRING || heightAboveSpringThreshold)}, so under that correlation the two
+     * arms were indistinguishable: deleting the height arm was a no-op to 35 of 38 tests, and when
+     * someone did delete it the suite stayed green while the Plan tab's tide pill vanished for a
+     * week. The height arm was <em>dead input</em> — a parameter the caller could not reach.
+     *
+     * <p>With the flags pinned false, a day built here exercises the <b>lunar arm alone</b>, which
+     * is what every caller of this helper is actually testing. To vary the other axis use
+     * {@link #buildDayWithAxes}; the full truth table is pinned by {@code axesAreIndependent}.
+     *
+     * @param date     the briefing date
+     * @param tideType the lunar classification
+     * @return a briefing day whose only spring/king signal is lunar
+     */
     private BriefingDay buildDay(LocalDate date, LunarTideType tideType) {
         String moonPhase = (tideType == LunarTideType.KING_TIDE
                 || tideType == LunarTideType.SPRING_TIDE) ? "Full Moon" : null;
@@ -765,19 +835,33 @@ class SpringTideHotTopicStrategyTest {
     }
 
     private BriefingDay buildDay(LocalDate date, LunarTideType tideType, String moonPhase) {
-        BriefingSlot.TideInfo tideInfo;
-        if (tideType == LunarTideType.KING_TIDE) {
-            tideInfo = new BriefingSlot.TideInfo(
-                    "HIGH", true, null, null, true, true,
-                    LunarTideType.KING_TIDE, moonPhase, true);
-        } else if (tideType == LunarTideType.SPRING_TIDE) {
-            tideInfo = new BriefingSlot.TideInfo(
-                    "HIGH", true, null, null, false, true,
-                    LunarTideType.SPRING_TIDE, moonPhase, false);
-        } else {
-            tideInfo = BriefingSlot.TideInfo.NONE;
+        return buildDayWithAxes(date, tideType, moonPhase, false, false);
+    }
+
+    /**
+     * A day whose two tide axes are set <b>independently</b> — the lunar classification and the two
+     * measured-height flags.
+     *
+     * <p>This is the helper a test should reach for whenever the behaviour under test could depend
+     * on the height axis. Every argument is explicit precisely so that no caller inherits a hidden
+     * correlation; see {@link #buildDay} for the regression that made this necessary.
+     *
+     * @param date                the briefing date
+     * @param tideType            the lunar classification
+     * @param moonPhase           the moon phase name, or null
+     * @param aboveSpringThreshold whether the water cleared this port's spring threshold
+     * @param aboveP95            whether the water cleared this port's P95
+     * @return a briefing day carrying exactly those two axes
+     */
+    private BriefingDay buildDayWithAxes(LocalDate date, LunarTideType tideType, String moonPhase,
+            boolean aboveSpringThreshold, boolean aboveP95) {
+        if (tideType == LunarTideType.REGULAR_TIDE && !aboveSpringThreshold && !aboveP95) {
+            // The genuinely empty case: no lunar event and no notable water.
+            return buildDayWithTide(date, BriefingSlot.TideInfo.NONE);
         }
-        return buildDayWithTide(date, tideInfo);
+        return buildDayWithTide(date, new BriefingSlot.TideInfo(
+                "HIGH", true, null, null, aboveP95, aboveSpringThreshold,
+                tideType, moonPhase, tideType == LunarTideType.KING_TIDE));
     }
 
     private BriefingDay buildDayWithTide(LocalDate date, BriefingSlot.TideInfo tideInfo) {

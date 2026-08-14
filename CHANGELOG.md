@@ -5,6 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the tide fixtures could not express the predicate they were testing
+
+`SpringTideHotTopicStrategyTest.buildDay(date, LunarTideType)` derived the two measured-height flags
+*from* the lunar enum: KING got both, SPRING got `heightAboveSpringThreshold`, REGULAR got
+`TideInfo.NONE`. So across 26 call sites the two axes were perfectly **correlated**, and
+`isSpringNotKing`'s `(lunar == SPRING || heightAboveSpringThreshold)` had no observable structure.
+
+**Both operands were invisible, not one.** Measured against the pre-change file: deleting the
+*height* arm left the suite green (that is #514, which shipped), and deleting the *lunar* arm — so
+the predicate read `return tide.heightAboveSpringThreshold();` — **also** left all 38 tests green,
+including #514's own regression tests. Either operand alone reproduced the correlated fixtures'
+behaviour, so the predicate was not half-tested; it was untested.
+
+The helper now pins both height flags **false**, so a day built from it exercises the lunar arm
+alone — which is what all 26 callers are actually testing, and it makes those tests strictly
+sharper. A new `buildDayWithAxes` sets the axes independently, and
+`isSpringNotKing_bothAxesAreObservableIndependently` pins the full truth table, one row per
+(lunar × height) combination, so **deleting either arm must fail a row**.
+
+Mutation-verified after the change: deleting the height arm fails 3 tests, deleting the lunar arm
+fails 25. Before, each failed 0.
+
+Tests only — the production tree is byte-identical to `main`.
+
 ### Fixed — a rating-emptied window widened the wrong axis
 
 `openTierId` decides whether the drill-down opens on the reader's chosen reach tier or throws it
