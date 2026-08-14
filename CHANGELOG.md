@@ -5,6 +5,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — a tidal run now keeps one name for its whole length
+
+On a king tide the Plan tab showed `KING` on the run's first days and `SPRING` on its lagging peak —
+one physical tide under two names on adjacent cards, each locally accurate and together nonsense.
+
+The cause: king-ness was asked of the **date**. `classifyTide` returns `KING_TIDE` only within ±1 day
+of syzygy, which is two or three dates; a run is five or six, because a port's biggest water lags
+syzygy by a day or two. The run's tail — the days carrying its *largest* water — therefore fell out
+of the king strategy and into the spring one.
+
+`LunarPhaseService.nearestSyzygyIsPerigean(date)` now answers the question the surfaces actually
+have — *which event does this day belong to?* — without the ±1-day gate. The two strategies
+partition every tidal day on it, so no date lands on both cards and none falls between them. The
+shared `KingTideHotTopicStrategy.isTidal` answers the separate question of whether a day carries a
+tide at all: syzygy on the lunar axis, or water above this port's own spring threshold.
+
+⚠️ **This is not the forbidden height-into-king conflation.** Height still decides no part of the
+king label; a huge non-perigean tide stays SPRING, pinned by
+`detect_bigWaterOnANonPerigeanRun_emitsNothing`. What widened is only *which dates may ask the moon*
+— the same split the architecture already draws: what kind of event it is comes from the moon, which
+dates it covers comes from the water.
+
+Two consequences worth recording. Both strategies must fetch their representative slot through
+`findTidalSlot`, never the narrower `findKingTide`/`findSpringTide`: on a lagging day the date's own
+`lunarTideType` is REGULAR, so those return null and the next line dereferences it — a real NPE the
+new run-tail test caught. And `CoastalTideFactsBuilder`'s two selectors take the same `isTidal` test,
+because they build the chips *under* a card whose label the caller has already settled, so
+re-deriving it there could only disagree.
+
+`springSelectorSkipsKingTideSlots` is replaced rather than edited, and said so loudly in place: it
+pinned a guard this change deliberately removes, so it is a design change rather than a test bent to
+fit the code.
+
 ### Fixed — three more operands no fixture could vary
 
 An audit for the shape behind #514 — a predicate whose operands move together across every fixture,

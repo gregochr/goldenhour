@@ -152,6 +152,9 @@ class TideSurfaceAgreementTest {
     @Mock
     private TideRunBuilder tideRunBuilder;
 
+    @Mock
+    private LunarPhaseService lunarPhaseService;
+
     private TideSizeIndex feed;
     private SpringTideHotTopicStrategy planTab;
 
@@ -159,7 +162,11 @@ class TideSurfaceAgreementTest {
     void setUp() {
         feed = new TideSizeIndex(tideExtremeRepository, tideService);
         planTab = new SpringTideHotTopicStrategy(briefingService, locationRepository,
-                freshness, coastalTideFactsBuilder, tideRunBuilder);
+                freshness, coastalTideFactsBuilder, tideRunBuilder, lunarPhaseService);
+        // August 2026's new moon is not perigean, so every date here belongs to a SPRING run. The
+        // feed makes no lunar call at all, which is the asymmetry this class exists to hold: one
+        // surface asks the moon what to CALL the run, both ask the water WHICH DAYS it covers.
+        lenient().when(lunarPhaseService.nearestSyzygyIsPerigean(any())).thenReturn(false);
         lenient().when(freshness.isAhead(any(LocationEntity.class), any(), any())).thenReturn(true);
     }
 
