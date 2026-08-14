@@ -237,8 +237,23 @@ export function formatLensCount({ spotCount, reachedCount, windowCount }) {
   if (!(windowCount > 0)) return null;
   const windows = `${windowCount} window${windowCount === 1 ? '' : 's'}`;
   if (spotCount < reachedCount) {
+    // "within reach" is not decoration — it names WHICH SET the denominator counts, and without it
+    // this line and a window card's footer are two different claims wearing one shape.
+    //
+    // `reachedCount` is the spots that cleared the DRIVE limit; the numerator has cleared the drive
+    // limit AND the rating floor. So "42 of 138 spots" invited the reading "138 spots exist" and
+    // the arithmetic "96 were hidden by your rating" — when some of those 96 are simply further out
+    // than the tier allows. Meanwhile a card's footer reads "3 of 12", where 12 IS every spot at
+    // that window. Both were true; nothing on screen said they counted different things.
+    //
+    // Naming the gate here rather than qualifying the footer keeps the fix to the line whose
+    // denominator is the surprising one, and leaves the footer's unqualified count meaning what an
+    // unqualified count should mean: everything there is.
     const spots = `spot${reachedCount === 1 ? '' : 's'}`;
-    return { lead: `${spotCount}`, rest: `of ${reachedCount} ${spots} across ${windows}` };
+    return {
+      lead: `${spotCount}`,
+      rest: `of ${reachedCount} ${spots} within reach across ${windows}`,
+    };
   }
   return {
     lead: `${spotCount}`,

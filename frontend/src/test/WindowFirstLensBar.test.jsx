@@ -349,7 +349,22 @@ describe('WindowFirstLensBar — what the count costs', () => {
     // The handoff's whole reason for the line: a short list has to read as "I asked for this"
     // rather than "tonight is bad".
     render(<Lens spotCount={42} reachedCount={138} windowCount={6} />);
-    expect(screen.getByTestId('window-first-lens-readout')).toHaveTextContent('42 of 138 spots across 6 windows');
+    expect(screen.getByTestId('window-first-lens-readout')).toHaveTextContent('42 of 138 spots within reach across 6 windows');
+  });
+
+  it('names WHICH set the denominator counts, because a window card counts a different one', () => {
+    // The phrase "within reach" is load-bearing, not filler, so it is pinned by a test that says
+    // why rather than left to the assertion above.
+    //
+    // This line's denominator is the spots that cleared the DRIVE limit. A window card's footer
+    // says "3 of 12", where 12 is every spot at that window — no gate at all. Two counts, one
+    // shape, different sets: unqualified, this one invites "138 spots exist" and "96 were hidden by
+    // my rating floor", when some of the 96 are simply further out than the tier allows.
+    //
+    // If a future trim drops the phrase for length, this fails and says what it was for.
+    render(<Lens spotCount={42} reachedCount={138} windowCount={6} />);
+
+    expect(screen.getByTestId('window-first-lens-readout')).toHaveTextContent('within reach');
   });
 
   it('does not compare a set with itself when nothing was trimmed', () => {
@@ -411,7 +426,7 @@ describe('WindowFirstLensBar — the phone branch', () => {
     const readout = screen.getByTestId('window-first-lens-readout');
     expect(readout).toHaveAttribute('data-variant', 'count');
     expect(readout).toHaveClass('wf-lens-count');
-    expect(readout).toHaveTextContent('42 of 138 spots across 6 windows');
+    expect(readout).toHaveTextContent('42 of 138 spots within reach across 6 windows');
     // The desktop summary's own clauses are absent — this is not the same string trimmed.
     expect(readout).not.toHaveTextContent('weekday default');
   });
@@ -424,6 +439,6 @@ describe('WindowFirstLensBar — the phone branch', () => {
     const readout = screen.getByTestId('window-first-lens-readout');
     expect(readout).toHaveAttribute('data-variant', 'summary');
     expect(readout).toHaveClass('wf-lens-res');
-    expect(readout).toHaveTextContent('45 min · weekday default · any rating · 42 of 138 spots across 6 windows');
+    expect(readout).toHaveTextContent('45 min · weekday default · any rating · 42 of 138 spots within reach across 6 windows');
   });
 });
