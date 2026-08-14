@@ -131,6 +131,25 @@ local to the dialog exactly as its reach control has always been, and it keeps t
 deliberately does not offer. The header's `N within reach` is withheld while a floor is active — that
 clause names one axis and the drawn set was gated on two.
 
+**The adversarial review round.** Thirty-six charges from six lenses, fifteen surviving refutation,
+none a live user-visible defect. What was fixed: the `scroll-margin-top` block still asserted the
+bar "no longer wraps at any width", holds one control and measures 53.5px — all three falsified by
+this change, in the very comment whose staleness let P14's defect survive a whole tablet band, so
+both superseded paragraphs are now marked as such rather than silently contradicted. Four gaps in
+the regression net are closed and each was mutation-checked: the phone caption and count-line
+variant (no test touched either — collapse both ternaries and the suite stayed green), the provider's
+one object key that is the floor's only production wiring, the shell's `rating` arm of the loosening
+handler, and the storage-write guard the move from the sheet had dropped. Pressing a loosening
+button destroyed the button and left focus on `<body>`; it now lands on the window's own expander.
+The stacked empty-card actions were 23.7px apart — 0.3px inside WCAG 2.2 SC 2.5.8 — and are now 31px.
+Two exported ladder helpers with no caller are deleted; the label "P16" is renamed to P15c, since
+P16 already names the deferred run-history phase in this same stylesheet.
+
+**Left, and said out loud:** in the 640–840px band the decorative 1px seam between the two controls
+stays on row 1 when the rating group wraps to row 2, so it marks nothing. It takes no space the row
+was using and renders at 1.28:1 three pixels from an identically-coloured border; hiding it exactly
+when the bar wraps needs a container query this bar does not have. The comment now says so.
+
 ⚠️ **The bar wraps now, and must not be returned to a horizontal scroller.** P14 chose
 `nowrap` + `overflow-x: auto` when the bar held one control, and with two the single row stops
 fitting at about **689px** — or **840px** once a non-default tier adds the "today only" pill — so no

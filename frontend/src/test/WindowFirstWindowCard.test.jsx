@@ -316,7 +316,11 @@ describe('WindowFirstWindowCard', () => {
       const buttons = screen.getAllByTestId('window-card-lens-loosen');
       expect(buttons.map((b) => b.textContent)).toEqual(['Try 1h 30min →', 'Or drop to 3★+ →']);
       fireEvent.click(buttons[1]);
-      expect(onLoosenLens).toHaveBeenCalledWith(actions[1]);
+      // The card's own key rides along, and it is not decoration: pressing this button removes it
+      // from the DOM, so the shell has to know which card replaced it in order to put focus
+      // somewhere. Asserted rather than matched loosely, because a card that handed back the wrong
+      // key would send a keyboard reader to a different window.
+      expect(onLoosenLens).toHaveBeenCalledWith(actions[1], `${TODAY}:SUNSET`);
     });
 
     it('draws no way out when the descriptor names none', () => {

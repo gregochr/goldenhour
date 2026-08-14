@@ -524,9 +524,23 @@ export default function WindowFirstShell({
    * a LITE reader is pinned to "Any" — so {@code buildLensEmptyState} never offers them one, with no
    * role anywhere in the path.
    */
-  const handleLoosen = (action) => {
+  const handleLoosen = (action, cardKey) => {
     if (action?.kind === 'reach') reachLens?.selectTier(action.id);
     else if (action?.kind === 'rating') ratingLens?.selectFloor(action.id);
+    else return;
+    // The button that was just pressed no longer exists — every offered action is one that refills
+    // the card, so the empty state it sat in is replaced by a spot strip on this commit. Without
+    // this a keyboard reader is dropped at `<body>` having just asked to be shown something, which
+    // is the defect `WindowFirstComingUp` already documents one component away. The expander is
+    // where the strip's own reveal puts focus too, and its accessible name repeats the window.
+    // Deferred a frame because the strip is rendering for the first time on this very commit, and
+    // optional-CALLED because jsdom implements no layout and provides no `scrollIntoView`.
+    if (cardKey == null) return;
+    const domId = windowCardDomId(cardKey);
+    requestAnimationFrame(() => {
+      document.getElementById(domId)
+        ?.querySelector('[data-testid="window-card-expander"]')?.focus?.();
+    });
   };
   return (
     <div

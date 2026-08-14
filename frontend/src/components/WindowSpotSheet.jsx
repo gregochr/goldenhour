@@ -187,7 +187,7 @@ export default function WindowSpotSheet({
   // that is shorter than the strip behind it is simply false. A null limit is the loosest of all,
   // so it compares as +∞ rather than as absent.
   //
-  // Both axes, since P16: the floor is inherited too, and loosening it shows the reader spots the
+  // Both axes, since P15c: the floor is inherited too, and loosening it shows the reader spots the
   // page behind the dialog is hiding. That is the same statement about the same dialog, and marking
   // only one of the two ways to reach it would leave the other silent.
   const barLimit = tierById(barTierId)?.limitMinutes ?? null;

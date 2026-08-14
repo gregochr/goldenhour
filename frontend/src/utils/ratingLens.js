@@ -162,17 +162,11 @@ export function gateSpotsByRating(spots, minRating) {
   return spots.filter((spot) => spot.rating != null && spot.rating >= minRating);
 }
 
-/**
- * The next floor down from an id — the loosening an empty window can offer in one tap.
- *
- * <p>Over {@link LENS_RATING_FLOORS} rather than the whole vocabulary, because the destination has
- * to be a floor the bar can then show as pressed. Null when there is nothing looser, which is the
- * "Any rating" case and is why the caller must treat null as "offer nothing" rather than as an error.
- *
- * @param {string} floorId the active floor
- * @returns {?string} the next looser floor's id, or null
+/*
+ * ⚠️ There is deliberately no `nextLooserFloorId` here, and no `nextWiderTierId` in `reachLens.js`.
+ * Both were written for the empty card's way out and both were wrong for it: the NEXT step down is
+ * not necessarily a step that puts anything on screen, and a button that loosens the lens and
+ * leaves the card empty is the demo control §6 bans, arriving by a slightly longer route.
+ * `windowLensEmpty.js` walks each ladder until a step actually passes, which is why it needs
+ * `LENS_RATING_FLOORS` and `REACH_TIERS` rather than a next-step helper.
  */
-export function nextLooserFloorId(floorId) {
-  const index = LENS_RATING_FLOORS.findIndex((floor) => floor.id === floorId);
-  return index > 0 ? LENS_RATING_FLOORS[index - 1].id : null;
-}

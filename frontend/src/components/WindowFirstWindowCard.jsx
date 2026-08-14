@@ -430,7 +430,11 @@ export default function WindowFirstWindowCard({
                     data-testid="window-card-lens-loosen"
                     data-loosen={action.kind}
                     className="wf-lens-empty-act"
-                    onClick={() => onLoosenLens?.(action)}
+                    // The card's KEY rides along, because pressing this button destroys it: the
+                    // action is guaranteed to refill the window, so the whole empty card — this
+                    // button included — is gone on the next commit and focus falls to `<body>`.
+                    // Only the shell can put it somewhere, and only it knows what replaced this.
+                    onClick={() => onLoosenLens?.(action, card.key)}
                   >
                     {action.label}
                     <span aria-hidden="true"> →</span>

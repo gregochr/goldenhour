@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import WindowFirstLensBar from '../components/WindowFirstLensBar.jsx';
 import useRatingLens from '../hooks/useRatingLens.js';
@@ -23,7 +23,7 @@ const SATURDAY = '2026-08-08';
  * `useIsMobile` is always false here, the captions are always the desktop ones, and no `@media`
  * rule is evaluated at all. The stacking, the 40px touch targets and the count line's own row are
  * browser-measured. What IS asserted below is the hook the phone branch hangs off, by mocking that
- * stub — the class or attribute, per `frontend-test-standards.md:120-122`.
+ * stub — the class or attribute, per `frontend-test-standards.md:189-191`.
  */
 function Lens({
   todayStr = TUESDAY, locked = false, spotCount = 34, reachedCount, windowCount = 6,
@@ -44,6 +44,25 @@ function Lens({
 const tiers = () => within(screen.getByTestId('window-first-lens-tiers')).getAllByRole('button');
 const pressed = () => tiers().filter((b) => b.getAttribute('aria-pressed') === 'true')
   .map((b) => b.textContent);
+/**
+ * The phone branch, reached the only way jsdom allows.
+ *
+ * <p>`setup.js:40` names this as the sanctioned route — "a test needing the mobile branch mocks the
+ * hook itself, as the MapView suites already do". It buys exactly the JS half: which caption string
+ * is rendered and which readout variant. The CSS half — the stacking, the 40px targets, the count
+ * line's own row — is evaluated by no test in this repository and is browser-measured instead.
+ */
+const asPhone = () => vi.stubGlobal('matchMedia', (query) => ({
+  matches: query === '(max-width: 639px)',
+  media: query,
+  onchange: null,
+  addEventListener() {},
+  removeEventListener() {},
+  addListener() {},
+  removeListener() {},
+  dispatchEvent() { return false; },
+}));
+
 const floors = () => within(screen.getByTestId('window-first-lens-floors')).getAllByRole('button');
 const flooredOn = () => floors().filter((b) => b.getAttribute('aria-pressed') === 'true')
   .map((b) => b.textContent);
@@ -346,5 +365,65 @@ describe('WindowFirstLensBar — what the count costs', () => {
   it('says nothing about counts when there are no windows to count across', () => {
     const { container } = render(<Lens spotCount={0} reachedCount={0} windowCount={0} />);
     expect(container.textContent).not.toContain('spots across');
+  });
+});
+
+describe('WindowFirstLensBar — the phone branch', () => {
+  beforeEach(() => localStorage.clear());
+  // `stubGlobal` is restored globally rather than inline, so an assertion that throws first cannot
+  // leave every later file in this run believing it is on a phone.
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('shortens the caption, which is the whole of what buys the room', () => {
+    // `HOW FAR TONIGHT` inline costs about a third of a 390px viewport — very close to what the
+    // four chips were short by. Both halves are asserted: a rule that shortened every caption would
+    // pass the first alone.
+    asPhone();
+    render(<Lens />);
+
+    expect(screen.getByRole('group', { name: 'Drive' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'How far tonight' })).toBeNull();
+    // The rating caption does NOT change — it is already two syllables at either size.
+    expect(screen.getByRole('group', { name: 'Rated' })).toBeInTheDocument();
+  });
+
+  it('keeps the caption and the group name one string, so label-in-name holds at both sizes', () => {
+    // The reason the text switches in JS rather than by rendering both and hiding one:
+    // `aria-labelledby` resolves THROUGH `display: none`, so two captions would put both strings in
+    // one accessible name. WCAG 2.5.3 needs the visible words to be in the accessible name, and
+    // pointing at the visible caption makes them the same string by construction.
+    asPhone();
+    render(<Lens />);
+
+    const group = screen.getByTestId('window-first-lens-tiers');
+    const caption = document.getElementById(group.getAttribute('aria-labelledby'));
+    expect(caption).toHaveTextContent('Drive');
+    expect(group).toHaveAccessibleName('Drive');
+  });
+
+  it('drops the summary for the count alone, and marks which variant it drew', () => {
+    // The pressed chips already say what the lens is set to; what they cannot say is what it cost.
+    // `data-variant` is the hook the stylesheet keys its own row off, so it is pinned as well as
+    // the text — deleting either arm of the ternary must fail something.
+    asPhone();
+    render(<Lens spotCount={42} reachedCount={138} windowCount={6} />);
+
+    const readout = screen.getByTestId('window-first-lens-readout');
+    expect(readout).toHaveAttribute('data-variant', 'count');
+    expect(readout).toHaveClass('wf-lens-count');
+    expect(readout).toHaveTextContent('42 of 138 spots across 6 windows');
+    // The desktop summary's own clauses are absent — this is not the same string trimmed.
+    expect(readout).not.toHaveTextContent('weekday default');
+  });
+
+  it('draws the desktop summary when the viewport is not a phone', () => {
+    // The negative half. Without it every assertion above passes on a bar that renders the phone
+    // arm unconditionally, which is a strictly worse product than one that never does.
+    render(<Lens spotCount={42} reachedCount={138} windowCount={6} />);
+
+    const readout = screen.getByTestId('window-first-lens-readout');
+    expect(readout).toHaveAttribute('data-variant', 'summary');
+    expect(readout).toHaveClass('wf-lens-res');
+    expect(readout).toHaveTextContent('45 min · weekday default · any rating · 42 of 138 spots across 6 windows');
   });
 });

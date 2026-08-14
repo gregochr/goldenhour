@@ -10,6 +10,7 @@ import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getReach, getSettings } from '../api/settingsApi.js';
 import { storageKey, writeSwrCache } from '../utils/swrCache.js';
+import { PLAN_RATING_KEY } from '../utils/ratingLens.js';
 
 vi.mock('../api/briefingApi.js', () => ({ getDailyBriefing: vi.fn() }));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn() }));
@@ -125,6 +126,7 @@ function Consumer() {
       {/* The real pairing, not a bespoke control: the shell renders exactly this from exactly this
           value, and it is the only way to move the tier the way a user does. */}
       <span data-testid="lens-floor">{ratingLens?.floorId ?? 'none'}</span>
+      <span data-testid="lens-min">{String(ratingLens?.minRating)}</span>
       <span data-testid="reached-total">{windowCards[0]?.reachedTotal ?? 'none'}</span>
       {lens && ratingLens && (
         <WindowFirstLensBar
@@ -652,6 +654,62 @@ describe('WindowFirstBriefingProvider', () => {
       await act(async () => {});
 
       expect(getReach).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('the rating floor, the lens\'s second axis', () => {
+    /** {@link payloadFor}'s one slot, plus a second the floor can act on. */
+    const twoRatedSpots = (dateStr) => {
+      const payload = payloadFor(dateStr);
+      payload.days[0].eventSummaries[0].regions[0].slots.push({
+        locationId: 8, locationName: 'Cresswell', solarEventTime: `${dateStr}T20:11:00`, claudeRating: 2,
+      });
+      return payload;
+    };
+
+    it('gates the cards from a STORED floor, which is the only path production has', async () => {
+      // This provider is the sole site handing `minRating` to `buildWindowCards`, and that builder
+      // derives no fallback from `floorId` — so dropping the one object key makes the floor filter
+      // nothing while every chip on the bar still moves. The gate itself is pinned in
+      // `windowFirstCards.test.js` and the control in `WindowFirstLensBar.test.jsx`; this is the
+      // wire between them, and neither of those files can see it.
+      localStorage.setItem(PLAN_RATING_KEY, JSON.stringify({ rating: '4' }));
+      getDailyBriefing.mockResolvedValue(twoRatedSpots(TODAY));
+      renderProvider();
+
+      await act(async () => {});
+      expect(screen.getByTestId('lens-floor')).toHaveTextContent('4');
+      expect(screen.getByTestId('lens-min')).toHaveTextContent('4');
+      // Reach gated nothing (no drive times), so the pool is both spots and the floor took one.
+      expect(screen.getByTestId('reached-total')).toHaveTextContent('2');
+      expect(screen.getByTestId('spots')).toHaveTextContent('Bamburgh');
+      expect(screen.getByTestId('spots')).not.toHaveTextContent('Cresswell');
+    });
+
+    it('gates nothing while the control sits on Any, so an untouched lens is a no-op', async () => {
+      // The negative half. Without it the assertion above passes on a provider that floors
+      // everything at 4 regardless of what is stored.
+      getDailyBriefing.mockResolvedValue(twoRatedSpots(TODAY));
+      renderProvider();
+
+      await act(async () => {});
+      expect(screen.getByTestId('lens-floor')).toHaveTextContent('any');
+      expect(screen.getByTestId('lens-min')).toHaveTextContent('null');
+      expect(screen.getByTestId('spots')).toHaveTextContent('Cresswell');
+    });
+
+    it('drops an unrated spot, which the reach gate would have passed', async () => {
+      // The two gates are deliberately not symmetrical, and this is the end-to-end proof: an
+      // unknown drive time passes every tier, an unknown rating meets no floor.
+      localStorage.setItem(PLAN_RATING_KEY, JSON.stringify({ rating: '3' }));
+      const payload = payloadFor(TODAY);
+      payload.days[0].eventSummaries[0].regions[0].slots[0].claudeRating = null;
+      getDailyBriefing.mockResolvedValue(payload);
+      renderProvider();
+
+      await act(async () => {});
+      expect(screen.getByTestId('spots')).toHaveTextContent('none');
+      expect(screen.getByTestId('reached-total')).toHaveTextContent('1');
     });
   });
 

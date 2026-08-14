@@ -95,21 +95,6 @@ export function tierById(id) {
 }
 
 /**
- * The next tier out from an id — the widening an emptied window can offer in one tap.
- *
- * <p>Null at the top of the ladder, which is "Any" and has nothing beyond it. The caller must read
- * null as "offer nothing" rather than as an error: a window emptied while the bar already says Any
- * was not emptied by reach, so there is no reach action to name.
- *
- * @param {string} tierId the active tier
- * @returns {?string} the next wider tier's id, or null
- */
-export function nextWiderTierId(tierId) {
-  const index = REACH_TIERS.findIndex((tier) => tier.id === tierId);
-  return index >= 0 && index < REACH_TIERS.length - 1 ? REACH_TIERS[index + 1].id : null;
-}
-
-/**
  * Whether an ISO date falls at the weekend.
  *
  * <p>Read at noon UTC so no timezone can move the day; the caller's date string is already

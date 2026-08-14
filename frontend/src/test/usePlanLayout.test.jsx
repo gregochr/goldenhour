@@ -814,6 +814,66 @@ describe('WindowFirstShell — the rail it hosts', () => {
       // each of six cards cannot be read off a sticky bar.
       expect(selectTier).toHaveBeenCalledWith('90');
     });
+
+    it('moves the RATING floor when that is the axis the window named', () => {
+      // The other arm of the same handler, and it needs its own test: with the `kind === 'rating'`
+      // branch deleted, "Or drop to 3★+" renders, takes focus, and does nothing when pressed — the
+      // inert control §6 bans, and the exact outcome `firstHelpfulStep` exists to make impossible.
+      // The reach test above cannot see it; its fixture offers a reach action only.
+      const selectFloor = vi.fn();
+      const gated = {
+        ...CARD,
+        spots: [],
+        reachTotal: 4,
+        reachedTotal: 4,
+        lensEmpty: {
+          headline: 'Nothing at 4★+ in this window.',
+          body: '4 spots here, none rated 4★+.',
+          actions: [{ kind: 'rating', id: '3', label: 'Drop to 3★+' }],
+        },
+      };
+      renderWithBriefing({
+        ...briefingWith('2026-08-04T12:00:00', new Map(), [gated]),
+        ratingLens: { ...RATING_LENS, floorId: '4', minRating: 4, selectFloor },
+      });
+      fireEvent.click(screen.getByTestId('window-card-lens-loosen'));
+
+      expect(selectFloor).toHaveBeenCalledWith('3');
+    });
+
+    it('does not leave a keyboard reader at the top of the page after loosening', () => {
+      // Every offered action is one that refills the card, so pressing it destroys the button that
+      // was pressed. Without somewhere to send focus, `document.activeElement` becomes `<body>` —
+      // the reader asked to be shown something and was dropped at the document root, which is the
+      // defect `WindowFirstComingUp` documents one component away. The expander is where the
+      // promoted strip's own reveal puts focus, and its name repeats the window.
+      const gated = {
+        ...CARD,
+        spots: [],
+        reachTotal: 4,
+        reachedTotal: 4,
+        lensEmpty: {
+          headline: 'Nothing at 4★+ in this window.',
+          body: '4 spots here, none rated 4★+.',
+          actions: [{ kind: 'rating', id: '3', label: 'Drop to 3★+' }],
+        },
+      };
+      renderWithBriefing({
+        ...briefingWith('2026-08-04T12:00:00', new Map(), [gated]),
+        ratingLens: { ...RATING_LENS, floorId: '4', minRating: 4, selectFloor: vi.fn() },
+      });
+
+      const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 0; });
+      try {
+        fireEvent.click(screen.getByTestId('window-card-lens-loosen'));
+        // The card is a frozen fixture here, so the empty state does not actually clear — which is
+        // exactly what lets the assertion be about WHERE focus was sent rather than about React's
+        // own re-render. Production replaces the card; the destination is the same either way.
+        expect(document.activeElement).toBe(screen.getByTestId('window-card-expander'));
+      } finally {
+        raf.mockRestore();
+      }
+    });
   });
 
   describe('the rail footer\'s home prompt', () => {

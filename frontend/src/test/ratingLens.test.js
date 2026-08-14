@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   ANY_RATING_ID,
   LENS_RATING_FLOORS,
@@ -6,7 +6,6 @@ import {
   RATING_FLOORS,
   gateSpotsByRating,
   lensRatingFloorById,
-  nextLooserFloorId,
   ratingFloorById,
   readStoredRatingFloorId,
   writeStoredRatingFloorId,
@@ -84,26 +83,9 @@ describe('ratingLens — the gate', () => {
   });
 });
 
-describe('ratingLens — the loosening ladder', () => {
-  it('steps down one floor at a time', () => {
-    expect(nextLooserFloorId('4')).toBe('3');
-    expect(nextLooserFloorId('3')).toBe(ANY_RATING_ID);
-  });
-
-  it('has nothing below "Any rating"', () => {
-    expect(nextLooserFloorId(ANY_RATING_ID)).toBeNull();
-  });
-
-  it('answers null for a floor the bar does not offer, rather than stepping off the end', () => {
-    // '5' is a legitimate floor in the drill-down and is not on this ladder. Returning null is what
-    // stops a caller offering a destination the bar could not then show as pressed.
-    expect(nextLooserFloorId('5')).toBeNull();
-    expect(nextLooserFloorId('nonsense')).toBeNull();
-  });
-});
-
 describe('ratingLens — persistence', () => {
   beforeEach(() => localStorage.clear());
+  afterEach(() => vi.restoreAllMocks());
 
   it('round-trips a floor under its own key', () => {
     writeStoredRatingFloorId('4');
@@ -147,5 +129,14 @@ describe('ratingLens — persistence', () => {
   it('does not use the reach key — the two expire differently and must not share one object', () => {
     writeStoredRatingFloorId('4');
     expect(localStorage.getItem('photocast.planReach')).toBeNull();
+  });
+
+  it('swallows a write that throws, because the choice still applies for this session', () => {
+    // Private browsing and a full quota both throw here. The sibling module pins this guard
+    // (`reachLens.test.js`), and the sheet used to pin it for this one before the floor moved to
+    // the bar — so without this the move would have quietly dropped a guard rather than relocating
+    // it. `afterEach` restores the stub even if the assertion throws first.
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota'); });
+    expect(() => writeStoredRatingFloorId('4')).not.toThrow();
   });
 });
