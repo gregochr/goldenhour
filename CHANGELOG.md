@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the lens bar's count names which set it counts
+
+Two counts on the Plan screen wore the same `N of M` shape and counted different sets. The bar read
+`42 of 138 spots across 6 windows`, where 138 is the spots that cleared the **drive limit**; a window
+card's footer read `3 of 12`, where 12 is **every** spot at that window. Both were arithmetically
+correct — neither said so.
+
+Unqualified, the bar invited the reading "138 spots exist" and the arithmetic "96 were hidden by my
+rating floor", when some of those 96 are simply further out than the tier allows. It now reads
+`42 of 138 spots **within reach** across 6 windows`.
+
+The fix is on the bar rather than the footer because the bar's is the surprising denominator: an
+unqualified count should mean everything there is, which is exactly what the footer's does. "Within
+reach" is also this app's existing vocabulary for the same gate, from the "Close to home" block.
+
+A test pins the phrase *and why it is there*, so a future trim for length fails with an explanation
+rather than silently restoring the ambiguity.
+
+Copy only — no count, threshold or filter changed.
+
 ### Changed — a tidal run now keeps one name for its whole length
 
 On a king tide the Plan tab showed `KING` on the run's first days and `SPRING` on its lagging peak —

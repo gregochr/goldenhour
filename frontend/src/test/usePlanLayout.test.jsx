@@ -765,7 +765,8 @@ describe('WindowFirstShell — the rail it hosts', () => {
       };
       renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [first, second]));
 
-      expect(screen.getByTestId('window-first-lens-readout')).toHaveTextContent('3 of 9 spots across 2 windows');
+      expect(screen.getByTestId('window-first-lens-readout'))
+        .toHaveTextContent('3 of 9 spots within reach across 2 windows');
     });
 
     it('renders the emptied window\'s own sentence, built where both thresholds are known', () => {
