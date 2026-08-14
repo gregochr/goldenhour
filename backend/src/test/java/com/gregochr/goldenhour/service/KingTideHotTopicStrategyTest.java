@@ -29,6 +29,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -57,6 +58,9 @@ class KingTideHotTopicStrategyTest {
     @Mock
     private TideRunBuilder tideRunBuilder;
 
+    @Mock
+    private LunarPhaseService lunarPhaseService;
+
     private KingTideHotTopicStrategy strategy;
 
     @BeforeEach
@@ -64,8 +68,87 @@ class KingTideHotTopicStrategyTest {
         // Default: every solar event is still ahead. Expiry tests override per date.
         lenient().when(freshness.isAhead(any(LocationEntity.class), any(), any()))
                 .thenReturn(true);
+        lenient().when(lunarPhaseService.nearestSyzygyIsPerigean(any()))
+                .thenAnswer(inv -> fixtureSaysPerigean(inv.getArgument(0)));
         strategy = new KingTideHotTopicStrategy(briefingService, locationRepository,
-                freshness, coastalTideFactsBuilder, tideRunBuilder);
+                freshness, coastalTideFactsBuilder, tideRunBuilder, lunarPhaseService);
+    }
+
+    // ── A run keeps one name for its whole length ────────────────────────────
+
+    @Test
+    @DisplayName("a king run's lagging days are KING too — the label follows the run's syzygy, not "
+            + "each date's own classification")
+    void detect_kingRunTail_staysKing() {
+        // THE FEATURE. A king run is five or six days long; `lunarTideType == KING_TIDE` is true for
+        // only the two or three within a day of syzygy. Keyed on the date's own classification, the
+        // run's lagging days — the ones carrying its BIGGEST water, because a port's peak lags
+        // syzygy by a day or two — fell out of this strategy and were published as spring tides.
+        // One physical tide, two names on adjacent cards.
+        //
+        // Days 3 and 4 here are exactly that tail: REGULAR on the lunar axis, still above this
+        // port's spring threshold, and part of a perigean run. They must read KING.
+        BriefingSlot.TideInfo laggingWater = new BriefingSlot.TideInfo(
+                "HIGH", true, null, null, true, true, LunarTideType.REGULAR_TIDE,
+                "Waning Crescent", false);
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                buildDay(TODAY, LunarTideType.KING_TIDE),
+                buildDay(TODAY.plusDays(1), LunarTideType.KING_TIDE),
+                buildDayWithTide(TODAY.plusDays(2), laggingWater),
+                buildDayWithTide(TODAY.plusDays(3), laggingWater)));
+        stubCoastalLocations(TODAY, "Northumberland");
+        // The run is perigean on every one of its days, which is the whole point: the question is
+        // asked of the run, so the answer cannot change partway through it. This is the one case
+        // the fixture-derived default cannot express — it answers from each date's own
+        // lunarTideType, and the tail's is REGULAR precisely because the lunar window has closed.
+        //
+        // `doReturn` rather than `when(...)`: re-stubbing through `when` CALLS the mock to build the
+        // matcher, which runs the existing answer with a null date and throws inside the stub.
+        doReturn(true).when(lunarPhaseService).nearestSyzygyIsPerigean(any());
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(4);
+        assertThat(topics).allSatisfy(t -> assertThat(t.type()).isEqualTo("KING_TIDE"));
+        assertThat(topics).extracting(HotTopic::date)
+                .containsExactly(TODAY, TODAY.plusDays(1), TODAY.plusDays(2), TODAY.plusDays(3));
+    }
+
+    @Test
+    @DisplayName("a non-perigean run's days are never KING, however big the water gets")
+    void detect_bigWaterOnANonPerigeanRun_emitsNothing() {
+        // The converse, and the guard on CLAUDE.md's standing rule. Widening WHICH DATES may ask the
+        // perigee question must not widen WHAT ANSWERS IT: height still decides no part of the king
+        // label. Water above P95 on a run whose syzygy is not perigean is a big spring tide, and
+        // this strategy must stay silent about it.
+        BriefingSlot.TideInfo hugeButNotPerigean = new BriefingSlot.TideInfo(
+                "HIGH", true, null, null, true, true, LunarTideType.SPRING_TIDE,
+                "New Moon", false);
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                buildDayWithTide(TODAY, hugeButNotPerigean),
+                buildDayWithTide(TODAY.plusDays(1), hugeButNotPerigean)));
+
+        assertThat(strategy.detect(TODAY, TO_DATE)).isEmpty();
+        verifyNoInteractions(locationRepository);
+    }
+
+    /**
+     * The lunar stub answers from the FIXTURE the test stubbed, rather than from a hand-kept list.
+     *
+     * <p>{@code classifyTide} returns KING_TIDE only when it judged that date's syzygy perigean, so
+     * a fixture carrying a KING_TIDE slot has already said what {@code nearestSyzygyIsPerigean} must
+     * say for the same date. Deriving it keeps the fixture the single source of that astronomy, and
+     * means every existing test's intent survives the move from a per-date question to a per-run one.
+     *
+     * <p>Reading the stubbed days back at call time rather than hooking the day-builders is
+     * deliberate: several tests construct a {@code BriefingDay} inline — an unregioned slot, a
+     * second event summary — and never touch a builder, so a builder-side hook drifts.
+     */
+    private boolean fixtureSaysPerigean(LocalDate date) {
+        List<BriefingDay> days = briefingService.getCachedDays();
+        return days != null && days.stream()
+                .filter(d -> date.equals(d.date()))
+                .anyMatch(d -> KingTideHotTopicStrategy.findKingTide(d) != null);
     }
 
     @Test

@@ -72,6 +72,7 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
     private final SolarEventFreshness freshness;
     private final CoastalTideFactsBuilder coastalTideFactsBuilder;
     private final TideRunBuilder tideRunBuilder;
+    private final LunarPhaseService lunarPhaseService;
 
     /**
      * Constructs a {@code SpringTideHotTopicStrategy}.
@@ -82,17 +83,20 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
      * @param freshness                    shared filter dropping solar events already past
      * @param coastalTideFactsBuilder      builds the enriched tide + sea-state fact line
      * @param tideRunBuilder               builds each day's row of the multi-day run
+     * @param lunarPhaseService            decides which run a date belongs to (perigean or not)
      */
     public SpringTideHotTopicStrategy(@Lazy BriefingService briefingService,
             LocationRepository locationRepository,
             SolarEventFreshness freshness,
             CoastalTideFactsBuilder coastalTideFactsBuilder,
-            TideRunBuilder tideRunBuilder) {
+            TideRunBuilder tideRunBuilder,
+            LunarPhaseService lunarPhaseService) {
         this.briefingService = briefingService;
         this.locationRepository = locationRepository;
         this.freshness = freshness;
         this.coastalTideFactsBuilder = coastalTideFactsBuilder;
         this.tideRunBuilder = tideRunBuilder;
+        this.lunarPhaseService = lunarPhaseService;
     }
 
     /**
@@ -120,15 +124,18 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
                 .sorted(Comparator.comparing(BriefingDay::date))
                 .toList();
 
-        // A king tide trumps a spring tide ON ITS OWN DAY, and only there. This used to suppress
-        // the whole window on a single king-tide day anywhere in it, so a king tide on the Tuesday
-        // deleted the Friday's spring card — two different tidal events, one of them silenced by
-        // the other's date. The invariant the suppression exists to hold is per-day ("at most one
-        // tide topic on any one day"), so it is enforced per day; the comment here always claimed
-        // as much.
+        // The exact complement of the king strategy's filter, so every tidal day lands on exactly
+        // one card and no day lands on both. The two together are a partition, which is what makes
+        // "at most one tide topic on any one date" true by construction rather than by a rule each
+        // side has to remember.
+        //
+        // The perigee question is asked of the DATE's run, not of the date, so a run keeps one name
+        // for its whole length. Previously this excluded only days whose own lunarTideType was
+        // KING_TIDE — true within a day of syzygy and false for the rest of a five-day run — so a
+        // king run's lagging peak arrived here and was published as a spring tide.
         List<BriefingDay> springCandidates = sorted.stream()
-                .filter(d -> KingTideHotTopicStrategy.findKingTide(d) == null)
-                .filter(d -> findSpringTide(d) != null)
+                .filter(d -> KingTideHotTopicStrategy.findTidalSlot(d) != null)
+                .filter(d -> !lunarPhaseService.nearestSyzygyIsPerigean(d.date()))
                 .toList();
         if (springCandidates.isEmpty()) {
             return List.of();
@@ -158,7 +165,12 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
             KingTideHotTopicStrategy.Alignment alignmentInfo =
                     KingTideHotTopicStrategy.alignmentInfo(run.get(date), nonExpired,
                             SPRING_UNALIGNED, SPRING_ALIGNMENT_PASSED, coastalLocations.size());
-            BriefingSlot.TideInfo springTide = findSpringTide(day);
+            // The same accessor the candidate filter used, so this cannot be null for a day that
+            // reached here. Reading it back through a NARROWER predicate would reintroduce the
+            // possibility of a null on a cache/live disagreement — the cached lunarTideType is
+            // written at briefing-build time while the perigee question is answered live, and this
+            // project has been bitten before by exactly that split.
+            BriefingSlot.TideInfo springTide = KingTideHotTopicStrategy.findTidalSlot(day);
             ExpandedHotTopicDetail expandedDetail =
                     KingTideHotTopicStrategy.buildExpandedDetail(
                             coastalLocations, "Spring tide", springTide.lunarPhase(),

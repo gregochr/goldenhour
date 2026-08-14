@@ -59,6 +59,9 @@ class SpringTideHotTopicStrategyTest {
     @Mock
     private TideRunBuilder tideRunBuilder;
 
+    @Mock
+    private LunarPhaseService lunarPhaseService;
+
     private SpringTideHotTopicStrategy strategy;
 
     @BeforeEach
@@ -66,8 +69,29 @@ class SpringTideHotTopicStrategyTest {
         // Default: every solar event is still ahead. Expiry tests override per date.
         lenient().when(freshness.isAhead(any(LocationEntity.class), any(), any()))
                 .thenReturn(true);
+        lenient().when(lunarPhaseService.nearestSyzygyIsPerigean(any()))
+                .thenAnswer(inv -> fixtureSaysPerigean(inv.getArgument(0)));
         strategy = new SpringTideHotTopicStrategy(briefingService, locationRepository,
-                freshness, coastalTideFactsBuilder, tideRunBuilder);
+                freshness, coastalTideFactsBuilder, tideRunBuilder, lunarPhaseService);
+    }
+
+    /**
+     * The lunar stub answers from the FIXTURE the test stubbed, rather than from a hand-kept list.
+     *
+     * <p>{@code classifyTide} returns KING_TIDE only when it judged that date's syzygy perigean, so
+     * a fixture carrying a KING_TIDE slot has already said what {@code nearestSyzygyIsPerigean} must
+     * say for the same date. Deriving it keeps the fixture the single source of that astronomy, and
+     * means every existing test's intent survives the move from a per-date question to a per-run one.
+     *
+     * <p>Reading the stubbed days back at call time rather than hooking the day-builders is
+     * deliberate: several tests construct a {@code BriefingDay} inline — an unregioned slot, a
+     * second event summary — and never touch a builder, so a builder-side hook drifts.
+     */
+    private boolean fixtureSaysPerigean(LocalDate date) {
+        List<BriefingDay> days = briefingService.getCachedDays();
+        return days != null && days.stream()
+                .filter(d -> date.equals(d.date()))
+                .anyMatch(d -> KingTideHotTopicStrategy.findKingTide(d) != null);
     }
 
     @Test

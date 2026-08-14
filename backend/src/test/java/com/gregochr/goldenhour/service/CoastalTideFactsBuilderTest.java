@@ -182,22 +182,51 @@ class CoastalTideFactsBuilderTest {
     }
 
     @Test
-    @DisplayName("spring tide: a king-tide slot is never selected — king owns its own day")
-    void springSelectorSkipsKingTideSlots() {
-        // ⚠️ The null alone does NOT pin the guard, which is why the interaction check is here.
-        // `selectRepresentative` tests the matcher before it consults the deriver, so a king slot
-        // is dropped without one — but a null also arrives when the deriver simply returns empty,
-        // which is what an unstubbed mock does. Asserting only the null therefore passes with the
-        // king guard DELETED: the fixture's heightAboveSpringThreshold=true would satisfy the
-        // remaining `(SPRING || height)` arm, the deriver would be called, return empty, and the
-        // method would return null by a different route.
+    @DisplayName("both builders select the same slots — the LABEL is the caller's, the slots are "
+            + "the day's")
+    void bothBuildersSelectFromTheSameTidalSet() {
+        // ⚠️ REPLACES `springSelectorSkipsKingTideSlots`, which asserted that buildSpring refused a
+        // king slot. That guard is deliberately gone, and this is a design change rather than a
+        // test bent to fit the code — so it is recorded here rather than quietly edited.
         //
-        // "The deriver was never asked" is the guard's actual observable behaviour, and it is false
-        // the moment the guard goes.
-        BriefingSlot.TideInfo kingTide = new BriefingSlot.TideInfo("HIGH", true, null, null,
-                true, true, LunarTideType.KING_TIDE, "New Moon", true);
+        // Whether a day is king or spring is a property of its RUN's syzygy, which a slot cannot
+        // see: a king run is five or six days long while `lunarTideType == KING_TIDE` is true for
+        // two or three of them. A builder re-deriving the label from slot data could therefore only
+        // disagree with the card it sits under, and did — a king run's lagging days rendered with
+        // no figures beneath them. The strategies decide the label; the builders find the biggest
+        // tidal slot and format it.
+        //
+        // So the invariant worth pinning is that the two builders no longer partition anything: on
+        // one tidal day, both find the same slot.
+        BriefingSlot.TideInfo tide = new BriefingSlot.TideInfo("HIGH", true, null, null,
+                false, true, LunarTideType.REGULAR_TIDE, "Waning Gibbous", false);
+        stubDerive(new TideDerivation(TideState.HIGH,
+                LocalDateTime.of(2026, 6, 17, 18, 20), new BigDecimal("5.5"),
+                LocalDateTime.of(2026, 6, 17, 12, 10), new BigDecimal("0.6"),
+                true, true, null, null, LunarTideType.REGULAR_TIDE, "Waning Gibbous", false,
+                false, true, new BigDecimal("5.1"), new BigDecimal("3.8")));
 
-        assertThat(builder().buildSpring(dayWith(kingTide), List.of(bamburgh()))).isNull();
+        assertThat(builder().buildSpring(dayWith(tide), List.of(bamburgh()))).isNotNull();
+        assertThat(builder().buildKing(dayWith(tide), List.of(bamburgh()))).isNotNull();
+    }
+
+    @Test
+    @DisplayName("neither builder selects a slot with no tide at all")
+    void neitherBuilderSelectsAnUntidalSlot() {
+        // ⚠️ The null alone does NOT pin this, which is why the interaction check is here.
+        // `selectRepresentative` tests the matcher before it consults the deriver, so an untidal
+        // slot is dropped without one — but a null also arrives when the deriver simply returns
+        // empty, which is what an unstubbed mock does. Asserting only the null would therefore pass
+        // with the tidal test DELETED: the deriver would be called, return empty, and the method
+        // would return null by a different route.
+        //
+        // "The deriver was never asked" is the matcher's actual observable behaviour, and it is
+        // false the moment the matcher stops rejecting anything.
+        BriefingSlot.TideInfo noTide = new BriefingSlot.TideInfo("MID", false, null, null,
+                false, false, LunarTideType.REGULAR_TIDE, "Waning Gibbous", false);
+
+        assertThat(builder().buildSpring(dayWith(noTide), List.of(bamburgh()))).isNull();
+        assertThat(builder().buildKing(dayWith(noTide), List.of(bamburgh()))).isNull();
         verifyNoInteractions(tideFactDeriver);
     }
 

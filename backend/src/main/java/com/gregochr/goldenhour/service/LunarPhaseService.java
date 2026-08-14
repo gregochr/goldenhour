@@ -285,20 +285,58 @@ public class LunarPhaseService {
      *         {@link LunarTideType#REGULAR_TIDE} otherwise
      */
     public LunarTideType classifyTide(LocalDate date) {
+        ZonedDateTime syzygy = nearestSyzygy(date);
+        if (daysBetween(noon(date), syzygy) > NEW_FULL_MOON_WINDOW_DAYS) {
+            return LunarTideType.REGULAR_TIDE;
+        }
+        return isPerigean(syzygy) ? LunarTideType.KING_TIDE : LunarTideType.SPRING_TIDE;
+    }
+
+    /**
+     * Whether the syzygy nearest this date is a perigean one — <b>the run's label, asked without the
+     * "is this date itself near syzygy" gate</b> that {@link #classifyTide} applies first.
+     *
+     * <p>This exists because the two questions come apart, and the surfaces need the second one.
+     * {@code classifyTide} answers "is this date a king tide", which is only ever true for the two
+     * or three dates within a day of syzygy. But a tidal <em>run</em> is five or six days long: a
+     * port's biggest water lags syzygy by a day or two — the age of the tide — so the run continues
+     * well past the window {@code classifyTide} recognises. Asking it about those later days returns
+     * {@code REGULAR_TIDE}, which is true about the date and useless about the event.
+     *
+     * <p>The result: a perigean run's first days were labelled KING and its lagging peak SPRING —
+     * one physical tide, two names on adjacent cards, each locally correct. This method lets a
+     * caller ask the question it actually has: <em>which event does this day belong to?</em>
+     *
+     * <p>⚠️ <b>This is not the forbidden height-into-king conflation.</b> That rule bans deciding
+     * king-ness from how big the water is; this decides it from the moon, exactly as before, and
+     * only widens <em>which dates may ask</em>. It is the same split CLAUDE.md already draws: what
+     * kind of event it is comes from the moon, which dates it covers comes from the water. A caller
+     * must still establish that the day carries tidal-sized water before consulting this — a day in
+     * the middle of a neap week has a nearest syzygy too.
+     *
+     * @param date the calendar date
+     * @return true when the nearest syzygy falls within {@value #PERIGEE_WINDOW_DAYS} days of
+     *         perigee, making the whole run around it a king tide
+     */
+    public boolean nearestSyzygyIsPerigean(LocalDate date) {
+        return isPerigean(nearestSyzygy(date));
+    }
+
+    /** The nearer of this date's neighbouring new and full moons. */
+    private ZonedDateTime nearestSyzygy(LocalDate date) {
         ZonedDateTime midday = noon(date);
         ZonedDateTime newMoon = nearestNewMoon(date);
         ZonedDateTime fullMoon = nearestFullMoon(date);
-        ZonedDateTime syzygy = daysBetween(midday, newMoon) <= daysBetween(midday, fullMoon)
-                ? newMoon : fullMoon;
+        return daysBetween(midday, newMoon) <= daysBetween(midday, fullMoon) ? newMoon : fullMoon;
+    }
 
-        if (daysBetween(midday, syzygy) > NEW_FULL_MOON_WINDOW_DAYS) {
-            return LunarTideType.REGULAR_TIDE;
-        }
-        // Perigee measured from the syzygy, and searched around the syzygy's own date so a run's
-        // first and last day cannot resolve different perigees.
-        double syzygyToPerigee = daysBetween(syzygy, nearestPerigee(syzygy.toLocalDate()));
-        return syzygyToPerigee <= PERIGEE_WINDOW_DAYS
-                ? LunarTideType.KING_TIDE : LunarTideType.SPRING_TIDE;
+    /**
+     * Whether a syzygy is perigean. Measured from the <b>syzygy instant</b> and searched around the
+     * syzygy's own date, so every date of one run resolves the same perigee and gets the same
+     * answer — see {@link #classifyTide}'s note on why per-date testing splits a run in two.
+     */
+    private boolean isPerigean(ZonedDateTime syzygy) {
+        return daysBetween(syzygy, nearestPerigee(syzygy.toLocalDate())) <= PERIGEE_WINDOW_DAYS;
     }
 
     private ZonedDateTime nearestNewMoon(LocalDate date) {

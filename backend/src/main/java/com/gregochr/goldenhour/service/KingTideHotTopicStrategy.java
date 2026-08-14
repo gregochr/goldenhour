@@ -73,6 +73,7 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
     private final SolarEventFreshness freshness;
     private final CoastalTideFactsBuilder coastalTideFactsBuilder;
     private final TideRunBuilder tideRunBuilder;
+    private final LunarPhaseService lunarPhaseService;
 
     /**
      * Constructs a {@code KingTideHotTopicStrategy}.
@@ -83,17 +84,20 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
      * @param freshness                    shared filter dropping solar events already past
      * @param coastalTideFactsBuilder      builds the enriched tide + sea-state fact line
      * @param tideRunBuilder               builds each day's row of the multi-day run
+     * @param lunarPhaseService            decides which run a date belongs to (perigean or not)
      */
     public KingTideHotTopicStrategy(@Lazy BriefingService briefingService,
             LocationRepository locationRepository,
             SolarEventFreshness freshness,
             CoastalTideFactsBuilder coastalTideFactsBuilder,
-            TideRunBuilder tideRunBuilder) {
+            TideRunBuilder tideRunBuilder,
+            LunarPhaseService lunarPhaseService) {
         this.briefingService = briefingService;
         this.locationRepository = locationRepository;
         this.freshness = freshness;
         this.coastalTideFactsBuilder = coastalTideFactsBuilder;
         this.tideRunBuilder = tideRunBuilder;
+        this.lunarPhaseService = lunarPhaseService;
     }
 
     /**
@@ -111,11 +115,20 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
             return List.of();
         }
 
+        // A day belongs to this card when it carries a tide AND the run it belongs to is perigean.
+        // Both halves matter: the first is the day's own data, the second is a property of the
+        // event, asked once per date so a run cannot change its name partway through.
+        //
+        // It used to be `findKingTide(d) != null`, i.e. lunarTideType == KING_TIDE, which is only
+        // ever true within a day of syzygy. A run is five or six days long, so the tail of a king
+        // run fell out of this filter and into the spring one — one physical tide under two names
+        // on adjacent cards.
         List<BriefingDay> kingCandidates = days.stream()
                 .filter(d -> !d.date().isBefore(fromDate)
                         && !d.date().isAfter(toDate))
                 .sorted(Comparator.comparing(BriefingDay::date))
-                .filter(d -> findKingTide(d) != null)
+                .filter(d -> findTidalSlot(d) != null)
+                .filter(d -> lunarPhaseService.nearestSyzygyIsPerigean(d.date()))
                 .toList();
 
         if (kingCandidates.isEmpty()) {
@@ -149,7 +162,10 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
             }
             Alignment alignmentInfo = alignmentInfo(run.get(date), nonExpired,
                     KING_UNALIGNED, KING_ALIGNMENT_PASSED, coastalLocations.size());
-            BriefingSlot.TideInfo kingTide = findKingTide(candidate);
+            // The same accessor the candidate filter used. Reading it back through findKingTide
+            // returns NULL on a run's lagging days — their own lunarTideType is REGULAR, which is
+            // exactly why the run-level question exists — and the next line dereferences it.
+            BriefingSlot.TideInfo kingTide = findTidalSlot(candidate);
             ExpandedHotTopicDetail expandedDetail = buildExpandedDetail(
                     coastalLocations, "King tide", kingTide.lunarPhase(),
                     rosterCounts(run.get(date), nonExpired));
@@ -311,6 +327,51 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
             }
         }
         return null;
+    }
+
+    /**
+     * The first slot on this day carrying a tide worth a card, on <b>either</b> axis.
+     *
+     * <p>Shared by both strategies, because "is there a tide here" and "what is it called" are now
+     * separate questions. This answers the first from the day's own data; the second is answered
+     * once per date by {@link LunarPhaseService#nearestSyzygyIsPerigean}, so that a run cannot
+     * change its name partway through.
+     *
+     * <p>A slot qualifies on the moon (syzygy, whether or not perigean) or on the water (this port's
+     * own spring threshold). The second is what carries a run past the two or three dates the lunar
+     * window recognises — the age of the tide — and is the arm whose absence emptied the Plan tab.
+     *
+     * @param day the briefing day to scan
+     * @return the first tidal slot, or null when the day carries none
+     */
+    static BriefingSlot.TideInfo findTidalSlot(BriefingDay day) {
+        for (BriefingEventSummary event : day.eventSummaries()) {
+            for (BriefingRegion region : event.regions()) {
+                for (BriefingSlot slot : region.slots()) {
+                    if (isTidal(slot.tide())) {
+                        return slot.tide();
+                    }
+                }
+            }
+            for (BriefingSlot slot : event.unregioned()) {
+                if (isTidal(slot.tide())) {
+                    return slot.tide();
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Whether this slot carries a tide worth a card — syzygy on the lunar axis, or water above this
+     * port's own spring threshold on the measured one. Deliberately says nothing about king versus
+     * spring: that is the run's property, not the slot's.
+     */
+    static boolean isTidal(BriefingSlot.TideInfo tide) {
+        return tide != null
+                && (tide.lunarTideType() == LunarTideType.SPRING_TIDE
+                        || tide.lunarTideType() == LunarTideType.KING_TIDE
+                        || tide.heightAboveSpringThreshold());
     }
 
     /**

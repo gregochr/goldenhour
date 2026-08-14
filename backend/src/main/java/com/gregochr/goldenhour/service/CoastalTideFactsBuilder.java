@@ -1,7 +1,6 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.MarineWaveEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingDay;
@@ -83,10 +82,13 @@ public class CoastalTideFactsBuilder {
      * @return the king-tide science, or null
      */
     public CoastalScience buildKing(BriefingDay day, List<LocationEntity> coastalLocations) {
-        // Lunar only — a king tide is a perigean spring, not a height percentile. See
-        // KingTideHotTopicStrategy#heightAboveP95 for why the height arm was removed.
+        // "Is there a tide here", not "what is it called". The caller has ALREADY decided this day
+        // belongs to a king run — that is a property of the run's syzygy, which a slot cannot see —
+        // so re-deriving the label from slot data could only disagree with the card it sits under.
+        // It did: a lunar-only test here found nothing on a king run's lagging days, so those cards
+        // rendered with no figures beneath them.
         Candidate rep = selectRepresentative(day, coastalLocations,
-                t -> t.lunarTideType() == LunarTideType.KING_TIDE,
+                KingTideHotTopicStrategy::isTidal,
                 CoastalTideFactsBuilder::highWaterMetric);
         return rep == null ? null : buildKingFacts(rep, day.date());
     }
@@ -99,14 +101,11 @@ public class CoastalTideFactsBuilder {
      * @return the spring-tide science, or null
      */
     public CoastalScience buildSpring(BriefingDay day, List<LocationEntity> coastalLocations) {
-        // Either axis, matching SpringTideHotTopicStrategy#isSpringNotKing exactly — see there for
-        // why the height arm is astronomical rather than a weather signal. It has to match: this
-        // builds the fact chips UNDER a pill that predicate has already decided to show, so a
-        // narrower rule here does not suppress the card, it strands it without its figures.
+        // The same tidal test buildKing uses, and for the same reason: this builds the chips UNDER
+        // a pill whose label the caller has already settled, so a narrower rule here cannot suppress
+        // the card — only strand it without its figures.
         Candidate rep = selectRepresentative(day, coastalLocations,
-                t -> t.lunarTideType() != LunarTideType.KING_TIDE
-                        && (t.lunarTideType() == LunarTideType.SPRING_TIDE
-                                || t.heightAboveSpringThreshold()),
+                KingTideHotTopicStrategy::isTidal,
                 CoastalTideFactsBuilder::rangeMetric);
         return rep == null ? null : buildSpringFacts(rep, day.date());
     }
