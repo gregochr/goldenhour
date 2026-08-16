@@ -1,6 +1,10 @@
 # Plan-tab verdict consolidation — one source, one vocabulary
 
 **Status:** proposed (2026-08-16). Decision taken: **region-led verdicts** (owner's call, 2026-08-16).
+**Phase 0 + Phase 1 shipped 2026-08-16** on branch `fix/plan-verdict-consolidation` (4 commits,
+unmerged, unpushed). Phase 0's prod diagnostic found BEST on an unrendered window (2026-08-19
+sunset, the 7th non-past event), confirming D3 for the observed instance. Phases 2–4 not started;
+wait for the v2 flag flip and a fresh go-ahead per §6.
 **Goal:** every surface on the Plan tab renders the same backend-computed answer, so the class of
 disagreement observed on 2026-08-16 becomes structurally impossible rather than individually patched.
 This is a stability investment: the app should be usable for years without these surfaces drifting
