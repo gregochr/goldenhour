@@ -2,12 +2,14 @@
 
 **Status:** F1 and F4 implemented 2026-07-25 (#294). **F2 attempted and REJECTED** — refuted by the
 Copt Hill ground-truth fixture. **F3 REJECTED** — adversarially reviewed, would introduce two new
-degeneracies. **D6 (silent half-veto) found and FIXED.** D7, D8 and F5 outstanding. See §4.
+degeneracies. **D6 (silent half-veto) found and FIXED.** **D7 MEASURED and ANSWERED** — the cap is
+not the broken half; the ceiling is (§9). D8 and F5 outstanding. See §4.
 
-⚠️ **`actual_outcome` is empty — zero rows, ever.** Every rule in this document is therefore
-unvalidated, including a veto that forces rating 1–2 on ~15% of evaluations. Until outcomes exist
-or reanalysis verification lands, the correct move on any scoring rule is to change **nothing** and
-improve **observability**.
+⚠️ **`actual_outcome` is empty — zero rows, ever.** Aesthetic validation therefore still does not
+exist. But the reanalysis verification this paragraph used to wait on **has now landed and
+completed** (§9: 29,016 evaluations over Feb–Aug 2026, backlog fully verified 2026-08-16), so the
+*cloud* claims the rules turn on are measured. The "change nothing" rule is retired for changes §9
+justifies; it stands for anything §9 does not reach.
 **Raised:** 2026-07-25, from a production observation on the Map tab
 **Area:** `service/CloudPointCacheReader`, `service/DirectionalSamplingGeometry`, `service/evaluation/PromptBuilder`
 
@@ -208,7 +210,7 @@ bug to patch.
 | # | Defect | Status |
 |---|---|---|
 | **D6** | **Silent half-veto.** The prefetchers placed the upwind point using wind at `findNearestIndex` while the reader re-derives it from wind at `findBestIndex` (via `extractAtmosphericData`). The two disagree for ~half of all events (a 21:37 sunset → 21:00 vs 22:00), and at the 200 km cap a ~3° bearing difference crosses a 0.1° cache cell — so the lookup missed, the upwind sample came back null, and the veto lost a trigger with no error and no log. | **FIXED** — `OpenMeteoResponseParser.resolveEventWind` is now the single decider; both prefetchers call it. |
-| **D7** | **The 200 km cap voids the trajectory identity.** `MAX_UPWIND_DISTANCE_M` binds beyond ~6.9 h at 8 m/s. The nightly batch runs ~20 h ahead of a summer sunset and every T+1…T+7 slot is far past it, so for most evaluations `dist ≠ windSpeed × timeToEvent` and the sample is just "cloud 200 km upwind now" — while `PromptBuilder:204-206` asserts otherwise and the veto forces 1–2★ on it. Anchor-independent; F3 would not have helped. | Open — measure before changing. |
+| **D7** | **The 200 km cap voids the trajectory identity.** `MAX_UPWIND_DISTANCE_M` binds beyond ~6.9 h at 8 m/s. The nightly batch runs ~20 h ahead of a summer sunset and every T+1…T+7 slot is far past it, so for most evaluations `dist ≠ windSpeed × timeToEvent` and the sample is just "cloud 200 km upwind now" — while `PromptBuilder:204-206` asserts otherwise and the veto forces 1–2★ on it. Anchor-independent; F3 would not have helped. | **MEASURED 2026-08-16 — answered, see §9.** The cap is not the broken half: capped +36.2 vs uncapped +34.9 gap error, separation −0.9pp. The ceiling itself is the defect. |
 | **D8** | **Grep-invisible sixth call site.** `OpenMeteoService:672-681` re-implements the upwind geometry inline via `GeoUtils.offsetPoint` and never calls `computeUpwindPoint`. It is the *live* path whenever `cloudCache` is null. Any future geometry change must include it or the cached and live paths will diverge. | Open — documented. |
 
 ### ~~F3 (original proposal)~~
@@ -358,3 +360,65 @@ If `farCloudier&highCanvas` is non-trivial, the "ideal scenario" rule needs a fa
 which, unlike relaxing the veto, *cannot* be gated on `missedOpportunities` (it would create
 wasted trips instead), so it should be sized here first. Neither change should land before this
 report has a re-verified window behind it.
+
+## 9. Measured results — the veto anti-selects (2026-08-16, window complete)
+
+Window 2026-02-01 → 2026-08-06, **29,016 evaluations, backlog fully verified** (`remaining: 0`,
+no `lastError`). Three pulls were read along the way — 7,165 rows (2026-08-13), 17,146
+(2026-08-14), 29,016 (2026-08-16) — and the third was the first that did not overturn the second,
+which is the convergence test these numbers had to pass before anything below counts as evidence.
+
+⚠️ **Partial windows reversed two conclusions.** At 7k rows the uncapped veto looked *healthy*
+(+15.4 gap error, better than population) and cone-gap error looked concentrated in gapped skies;
+both readings were dead by 17k. Anyone tempted to act on a partially re-verified window should
+read those two sentences again.
+
+Mean gap errors below include the known ~25pp forecast-vs-ERA5 baseline offset; every conclusion
+therefore rests on **within-report contrasts** (fired vs not-fired, capped vs uncapped, bucket vs
+bucket), where the offset cancels.
+
+### The veto (D2) — fires on skies that were *clearer* than average
+
+- Fired on 3,658 of 29,016 (12.6%), forcing rating 1–2 on each.
+- Observed horizon low cloud: **49.1% where it fired vs 56.8% where it did not**
+  (`vetoSeparation` −7.7pp). It does not merely fail to discriminate — it anti-selects.
+- Gap error +35.6 fired vs +24.6 not fired: it fires precisely where the forecast overpredicted
+  horizon cloud the most.
+- **D7 answered:** capped +36.2 vs uncapped +34.9, `capSeparation` −0.9pp. The 200 km cap is not
+  the broken half — the trajectory-identity critique was real but immaterial. The ceiling is the
+  defect. By wind–sun angle the veto errs at every bearing (aligned +29.8 / oblique +37.3 /
+  opposed +35.9), so no angle carve-out rescues it.
+- **Justified change:** demote the absolute ceiling (`PromptBuilder:209-220`) to a bounded
+  penalty. Not removal — Copt Hill 2026-03-11 remains a real wasted trip the signals caught — and
+  **not** F2's exemption-on-clear-horizon, which stays rejected: the demotion is unconditional,
+  not keyed to the reading Copt Hill proved misleading. Prompt-regression assertions will move
+  (user-owned); the sky-rating eval harness must be re-baselined.
+
+### Cone structure — SHELVED
+
+Gapped skies are common (34%) but error does not concentrate there (abs 32.3 vs uniform 29.2;
+mixed is worst at 38.6). By §8's own rule, surfacing min/centre/max is not warranted.
+
+### The corridor — over-pessimism measured directly; the guard still unsized
+
+- **`farClearer&midCanvas`: 3,201 skies (11%) — the rule-physics failure, measured.** Near gate
+  genuinely blocked (observed 72.8, forecast 87.1 — the forecast was roughly *right*), corridor
+  centre clear (drop 57.6), mid canvas overhead. The ">60% = blocked" rule kills a sky whose
+  canvas is underlit through the clear corridor centre. Same story via proxy for high canvases
+  (3,043 skies, gap error just +5.3).
+- **Second mechanism in the same bucket:** `meanFarError` +37 there — the forecast's own 226 km
+  reading misses the drop ERA5 sees, so the *existing* strip-vs-blanket softener under-fires
+  because its input is biased, not because the rule is absent.
+- **`farCloudier&midCanvas` (2,903) does NOT size the ideal-scenario guard.** Its mean member has
+  `forecastGapLow` 87 — the forecast called the gate blocked, so "ideal scenario" never fired.
+  The guard's target population (forecast-clear gate over a blanketed corridor) needs a
+  forecast-conditioned cut (`forecastGapLow < 20` within `farCloudier`) before it can be sized.
+  Free, read-side, not yet built.
+
+### Standing caveats
+
+ERA5 is reanalysis, not observation: a disagreement means "the forecast differs from a
+better-informed model". Nothing here says a sunset was beautiful — `actual_outcome` is still
+empty, and the rating-scale consequences of any prompt change still need the eval harness plus
+user-owned regression review. The ~319 km cirrus probe remains an open, costed option; the
+`&highCanvas` buckets behave directionally like `&midCanvas`, which weakens the urgency.
