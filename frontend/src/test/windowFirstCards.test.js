@@ -184,10 +184,18 @@ describe('buildWindowCards', () => {
     });
 
     it('maps ALSO to also', () => {
-      const [card] = build(oneWindow({
-        pick: { kind: 'ALSO', regionName: 'R', headline: 'H', averageRating: 3.5 },
-      }));
-      expect(card.pick.kind).toBe('also');
+      // Paired with a Best sibling: an Also with no surviving Best is suppressed by the orphaned-
+      // Also invariant below, which is a different concern from the kind-mapping this test covers.
+      const days = [
+        day(TODAY, [summary('SUNSET', {
+          pick: { kind: 'BEST', regionName: 'B', headline: 'Best headline', averageRating: 4.0 },
+        })]),
+        day(TOMORROW, [summary('SUNSET', {
+          pick: { kind: 'ALSO', regionName: 'R', headline: 'H', averageRating: 3.5 },
+        })]),
+      ];
+      const cards = build({ events: events([TODAY, 'SUNSET'], [TOMORROW, 'SUNSET']), days });
+      expect(cards[1].pick.kind).toBe('also');
     });
 
     it('nulls a detail and a location the payload omitted, rather than leaving them undefined', () => {
@@ -216,6 +224,59 @@ describe('buildWindowCards', () => {
 
       expect(card.pick.averageRating).toBeUndefined();
       expect(card.bestRating).toBe(5);
+    });
+  });
+
+  describe('the orphaned Also invariant', () => {
+    // D3 (plan-verdict-consolidation-plan.md §1): the backend's pick pool can rank a BEST onto a
+    // window this client never receives — a stale SWR-cached payload, a serve-time race, or (pre
+    // Phase 1) the projector ranking picks over more dates than the rail renders — while an Also
+    // on a rendered window comes through untouched. An Also with no surviving Best badges a
+    // runner-up to a plan nobody on screen can see. Belt-and-braces, mirroring the rail's own
+    // suppression in windowFirstRail.js — kept even after the backend fix, since it is the
+    // stale-cache defence, not a workaround for the backend bug.
+
+    it('drops an Also pick when no Best pick survives into the built cards', () => {
+      const [card] = build(oneWindow({
+        pick: { kind: 'ALSO', regionName: 'R', headline: 'H', averageRating: 3.5 },
+      }));
+
+      expect(card.pick).toBeNull();
+    });
+
+    it('drops the Also even when other rendered cards carry no pick at all', () => {
+      const days = [
+        day(TODAY, [summary('SUNSET')]),
+        day(TOMORROW, [summary('SUNSET', {
+          pick: { kind: 'ALSO', regionName: 'R', headline: 'H', averageRating: 3.5 },
+        })]),
+      ];
+      const cards = build({ events: events([TODAY, 'SUNSET'], [TOMORROW, 'SUNSET']), days });
+
+      expect(cards[1].pick).toBeNull();
+    });
+
+    it('keeps the Also when its Best sibling is among the built cards', () => {
+      const days = [
+        day(TODAY, [summary('SUNSET', {
+          pick: { kind: 'BEST', regionName: 'A', headline: 'Best headline', averageRating: 4.5 },
+        })]),
+        day(TOMORROW, [summary('SUNSET', {
+          pick: { kind: 'ALSO', regionName: 'B', headline: 'Also headline', averageRating: 4.0 },
+        })]),
+      ];
+      const cards = build({ events: events([TODAY, 'SUNSET'], [TOMORROW, 'SUNSET']), days });
+
+      expect(cards[0].pick.kind).toBe('best');
+      expect(cards[1].pick.kind).toBe('also');
+    });
+
+    it('never drops a Best pick, even alone', () => {
+      const [card] = build(oneWindow({
+        pick: { kind: 'BEST', regionName: 'R', headline: 'H', averageRating: 4.0 },
+      }));
+
+      expect(card.pick.kind).toBe('best');
     });
   });
 
