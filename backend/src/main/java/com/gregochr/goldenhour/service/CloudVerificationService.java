@@ -124,6 +124,19 @@ public class CloudVerificationService {
      */
     private static final int PROMPT_IDEAL_HIGH_MIN_PCT = 20;
 
+    /**
+     * Forecast near-minus-far drop (percentage points) at or above which the prompt's THIN STRIP
+     * override applies, lifting the BLOCKED ceiling.
+     *
+     * <p>Mirrors {@code PromptBuilder.THIN_STRIP_DROP_POINTS} / {@code isThinStrip} and must track
+     * them if either moves. Deliberately mirrors the <em>label logic</em> (drop-only) rather than
+     * the prompt prose's additional "far low cloud &le;30%" clause: the label is what this bucket's
+     * conditioning quantity — the forecast data block — actually carries. The text/label
+     * discrepancy is a known, separately-tracked issue in {@code PromptBuilder} itself; observed
+     * here, not fixed.
+     */
+    private static final int PROMPT_STRIP_DROP_PP = 30;
+
     /** Wind-to-sun separation (degrees) below which cloud approaches from the sun's direction. */
     private static final int ALIGNED_MAX_DEG = 45;
 
@@ -618,6 +631,13 @@ public class CloudVerificationService {
      * separate the two; this one deliberately does not, because the band entry is what the key
      * names.
      *
+     * <p>The two THIN STRIP sub-buckets resolve that caveat: {@code stripSeen} means the
+     * override's <em>preconditions</em> held in the forecast data the prompt was given — the
+     * prompt's actual softening behaviour is not persisted anywhere, so this is plausibility, not
+     * proof the override fired. {@code stripMissed} is the unmitigated firing population: the hard
+     * ceiling applied with no mitigating signal present in the forecast data, which is the number
+     * the blocked-rule's over-pessimism design decision keys on.
+     *
      * @param pairs every verified pair in the window
      * @return corridor buckets over the pairs that carry both near and far readings
      */
@@ -628,6 +648,8 @@ public class CloudVerificationService {
                 .filter(p -> p.farDrop() >= FAR_DIVERGENCE_PP).toList();
         List<CloudVerificationPair> cloudier = withFar.stream()
                 .filter(p -> p.farDrop() <= -FAR_DIVERGENCE_PP).toList();
+        List<CloudVerificationPair> fcstBlocked = clearer.stream()
+                .filter(CloudVerificationService::forecastWasBlocked).toList();
         return List.of(
                 CloudVerificationBucket.of("farSimilar(|drop|<30)", withFar.stream()
                         .filter(p -> Math.abs(p.farDrop()) < FAR_DIVERGENCE_PP).toList()),
@@ -644,11 +666,50 @@ public class CloudVerificationService {
                 CloudVerificationBucket.of("farCloudier&fcstClear(<20)", cloudier.stream()
                         .filter(p -> p.forecastGapLow() != null
                                 && p.forecastGapLow() < PROMPT_CLEAR_BAND_MAX_PCT).toList()),
-                CloudVerificationBucket.of("farClearer&fcstBlocked(>60)", clearer.stream()
-                        .filter(p -> p.forecastGapLow() != null
-                                && p.forecastGapLow() > PROMPT_BLOCKED_BAND_MIN_PCT).toList()),
+                CloudVerificationBucket.of("farClearer&fcstBlocked(>60)", fcstBlocked),
                 CloudVerificationBucket.of("farCloudier&fcstIdeal", cloudier.stream()
-                        .filter(CloudVerificationService::forecastWasIdeal).toList()));
+                        .filter(CloudVerificationService::forecastWasIdeal).toList()),
+                CloudVerificationBucket.of("farClearer&fcstBlocked&stripSeen", fcstBlocked.stream()
+                        .filter(CloudVerificationService::thinStripPreconditionsHeld).toList()),
+                CloudVerificationBucket.of("farClearer&fcstBlocked&stripMissed", fcstBlocked.stream()
+                        .filter(p -> !thinStripPreconditionsHeld(p)).toList()));
+    }
+
+    /**
+     * Returns whether the forecast's solar-horizon low cloud sat inside the prompt's BLOCKED band.
+     *
+     * <p>Extracted so the parent bucket and both of its THIN STRIP sub-buckets apply the identical
+     * test — three inline copies of a threshold comparison is how such a predicate drifts.
+     *
+     * @param pair one verified pair
+     * @return true when the forecast gap reading exceeded {@link #PROMPT_BLOCKED_BAND_MIN_PCT}
+     */
+    private static boolean forecastWasBlocked(CloudVerificationPair pair) {
+        return pair.forecastGapLow() != null
+                && pair.forecastGapLow() > PROMPT_BLOCKED_BAND_MIN_PCT;
+    }
+
+    /**
+     * Returns whether the forecast's own near-vs-far pair meets the THIN STRIP override's
+     * preconditions.
+     *
+     * <p>Mirrors {@code PromptBuilder.isThinStrip}'s <em>label logic</em> — a non-null far reading
+     * and a near-minus-far drop of at least {@link #PROMPT_STRIP_DROP_PP} — not the prompt prose's
+     * additional "far low cloud &le;30%" clause, because the label is what the forecast data block
+     * this report reads actually carries.
+     *
+     * <p>The override's other precondition, near low cloud &ge;50%
+     * ({@code SOLAR_LOW_CLOUD_SIGNIFICANT_PERCENT}), is implied rather than re-checked here: every
+     * caller passes pairs already filtered to the BLOCKED band (&gt;60%), which sits strictly
+     * inside the &ge;50% arm.
+     *
+     * @param pair one verified pair, already known to carry a non-null {@code forecastGapLow}
+     * @return true when a non-null far reading dropped at least {@link #PROMPT_STRIP_DROP_PP} below
+     *         the forecast gap reading
+     */
+    private static boolean thinStripPreconditionsHeld(CloudVerificationPair pair) {
+        return pair.forecastFarLow() != null
+                && pair.forecastGapLow() - pair.forecastFarLow() >= PROMPT_STRIP_DROP_PP;
     }
 
     /**
