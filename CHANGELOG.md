@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — split `farClearer&fcstBlocked` by whether the THIN STRIP override's preconditions held
+
+The 2026-08-17 report pull sized `farClearer&fcstBlocked(>60)` at 6,281 of 29,016 evaluations
+(21.7%): the forecast put the solar gate deep in the blocked band (mean 92%) while the observed
+226 km corridor beyond was clear (mean far drop +60pp). But the prompt's own BLOCKED ceiling is
+conditional — it applies "and no THIN STRIP override applies" — so before that population's
+over-pessimism can be addressed it needs splitting by whether the override's preconditions were
+even present in the forecast data.
+
+Two new buckets, `farClearer&fcstBlocked&stripSeen` and `&stripMissed`, cut `fcstBlocked` on the
+forecast's own near-vs-far drop (`forecastGapLow − forecastFarLow ≥ 30pp`, mirroring
+`PromptBuilder.isThinStrip`'s label logic — the drop-only check, not the prompt prose's additional
+"far ≤30%" clause, a known text/code discrepancy left untouched). `stripSeen` means the override
+plausibly softened the rating; `stripMissed` is the unmitigated firing population — the hard
+ceiling applied over an open corridor with nothing in the forecast to mitigate it — and is the true
+over-pessimism count the blocked-rule design decision keys on. A null forecast far reading lands in
+`stripMissed` by design: no far figure means the override could not have fired.
+
+Read-side only — no new observation, no re-verification, no scoring or prompt change, and the ten
+existing bucket keys are untouched so pulls stay comparable across dates.
+
 ## [v2.18.7] - 2026-08-16
 
 ### Added — the cloud-verification report sizes each prompt rule's firing population
