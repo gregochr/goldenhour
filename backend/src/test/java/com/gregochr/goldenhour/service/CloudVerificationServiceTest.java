@@ -26,6 +26,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -44,6 +45,10 @@ class CloudVerificationServiceTest {
     private static final LocalDate DATE = LocalDate.of(2026, 5, 10);
     private static final Clock CLOCK =
             Clock.fixed(Instant.parse("2026-05-31T09:00:00Z"), ZoneOffset.UTC);
+    /** Forecast overhead mid cloud a corridor fixture carries unless it states its own. */
+    private static final int DEFAULT_FORECAST_CANVAS_MID = 60;
+    /** Forecast overhead high cloud a corridor fixture carries unless it states its own. */
+    private static final int DEFAULT_FORECAST_CANVAS_HIGH = 40;
 
     @Mock
     private OpenMeteoArchiveClient archiveClient;
@@ -257,19 +262,22 @@ class CloudVerificationServiceTest {
     @DisplayName("report buckets corridor divergence and cuts it by both canvas heights")
     void report_bucketsCorridor() {
         // Near and far agree; the corridor is one deck.
-        CloudVerificationPair similar = corridorPair(50, 40, 55, 40);
+        CloudVerificationPair similar = corridorPair(50, 40, 55, 40, 30);
         // Near strip over a clear far corridor, under a high-dominant canvas — the over-pessimism
         // candidate: the 113 km gate reads blocked while the cirrus corridor is open. Being
         // high-dominant it is proxy evidence only, and must stay out of the &midCanvas cut.
-        CloudVerificationPair clearerHigh = corridorPair(80, 20, 10, 90);
+        CloudVerificationPair clearerHigh = corridorPair(80, 20, 10, 90, 30);
         // Clear near point, blanketed far corridor, mid-dominant canvas — the false-optimism case
         // measured directly, since 226 km centres a 4 km canvas's corridor. It belongs in
         // &midCanvas and must not reach &highCanvas.
-        CloudVerificationPair cloudierMid = corridorPair(20, 70, 60, 40);
+        CloudVerificationPair cloudierMid = corridorPair(20, 70, 60, 40, 30);
         // Same divergence as clearerHigh but under a mid-dominant canvas, so the two clearer
         // sub-buckets split one parent between them. Without this the &midCanvas cut would only
         // ever be asserted as zero — a bucket wired to return nothing would pass.
-        CloudVerificationPair clearerMid = corridorPair(80, 20, 70, 30);
+        CloudVerificationPair clearerMid = corridorPair(80, 20, 70, 30, 30);
+        // Every fixture here forecasts a mid-band gap (30), which is neither the prompt's clear
+        // band nor its blocked one — so the three forecast-conditioned cuts are correctly empty,
+        // and their members are asserted next door in report_bucketsCorridorByForecastBand.
         when(repository.findVerifiedPairs(FROM, TO))
                 .thenReturn(List.of(similar, clearerHigh, cloudierMid, clearerMid));
         when(repository.countVerifiedInWindow(FROM, TO)).thenReturn(4L);
@@ -280,11 +288,67 @@ class CloudVerificationServiceTest {
                 .containsExactly("farSimilar(|drop|<30)", "farClearer(drop>=30)",
                         "farClearer&highCanvas", "farClearer&midCanvas",
                         "farCloudier(drop<=-30)", "farCloudier&highCanvas",
-                        "farCloudier&midCanvas");
+                        "farCloudier&midCanvas", "farCloudier&fcstClear(<20)",
+                        "farClearer&fcstBlocked(>60)", "farCloudier&fcstIdeal");
         // Each canvas cut both holds a sample and excludes the other's: the two clearer pairs
         // split 1/1 by dominance, and the sole cloudier pair is mid-dominant so &highCanvas is 0.
         assertThat(report.byCorridor()).extracting(CloudVerificationBucket::sampleCount)
-                .containsExactly(1, 2, 1, 1, 1, 0, 1);
+                .containsExactly(1, 2, 1, 1, 1, 0, 1, 0, 0, 0);
+    }
+
+    @Test
+    @DisplayName("report cuts a divergent corridor by the forecast band each prompt rule fires on")
+    void report_bucketsCorridorByForecastBand() {
+        // Observed structure is held constant within each half — every cloudier pair diverges
+        // 20 -> 70 and every clearer pair 80 -> 20 — so the ONLY thing separating members from
+        // non-members below is the forecast, which is what these three buckets claim to cut on.
+        // Cloudier, forecast gate clear, canvas overhead: the IDEAL rule's firing population.
+        CloudVerificationPair ideal = corridorPair(20, 70, 60, 40, 10, 30, 40);
+        // The same, with the forecast high canvas exactly at the threshold — a member, so the
+        // clause stays >= and cannot silently become >.
+        CloudVerificationPair idealAtCanvasEdge = corridorPair(20, 70, 60, 40, 10, 30, 20);
+        // One point below that threshold: clear gate, no canvas. In fcstClear, out of fcstIdeal.
+        CloudVerificationPair clearGateNoCanvas = corridorPair(20, 70, 60, 40, 10, 30, 19);
+        // Clear gate under a forecast mid deck exactly at the threshold — out of fcstIdeal, so
+        // the mid clause is load-bearing and its < cannot become <=.
+        CloudVerificationPair clearGateThickMid = corridorPair(20, 70, 60, 40, 10, 50, 40);
+        // Forecast gap exactly at the clear band's edge, under an otherwise ideal canvas: out of
+        // BOTH forecast cuts. Pins the < in fcstClear and proves fcstIdeal's gap clause discards
+        // a pair its canvas clauses would have admitted.
+        CloudVerificationPair gapAtClearEdge = corridorPair(20, 70, 60, 40, 20, 30, 40);
+        // Blocked gate over an ideal canvas, high-dominant observed sky: out of both cloudier
+        // forecast cuts, and the second >60 gap on the cloudier side — so cutting fcstBlocked
+        // from the wrong parent list reads 2 where the clearer side reads 1.
+        CloudVerificationPair gapBlockedIdealCanvas = corridorPair(20, 70, 10, 90, 85, 30, 40);
+        // Clearer half. Two members of the blocked band, one of them just above the edge.
+        CloudVerificationPair blocked = corridorPair(80, 20, 70, 30, 85, 60, 40);
+        CloudVerificationPair blockedJustOverEdge = corridorPair(80, 20, 70, 30, 61, 60, 40);
+        // Exactly at the blocked band's edge: a non-member, pinning > against >=.
+        CloudVerificationPair gapAtBlockedEdge = corridorPair(80, 20, 10, 90, 60, 60, 40);
+        // A clearer pair carrying the IDEAL forecast: out of fcstBlocked, and the reason the
+        // cloudier-only parent lists of fcstClear and fcstIdeal cannot be swapped unnoticed.
+        CloudVerificationPair clearerIdealForecast = corridorPair(80, 20, 10, 90, 10, 30, 40);
+        when(repository.findVerifiedPairs(FROM, TO))
+                .thenReturn(List.of(ideal, idealAtCanvasEdge, clearGateNoCanvas, clearGateThickMid,
+                        gapAtClearEdge, gapBlockedIdealCanvas, blocked, blockedJustOverEdge,
+                        gapAtBlockedEdge, clearerIdealForecast));
+        when(repository.countVerifiedInWindow(FROM, TO)).thenReturn(10L);
+
+        CloudVerificationReport report = service.report(FROM, TO);
+
+        // Named rather than positional, so a failure says which rule's population moved.
+        assertThat(report.byCorridor())
+                .extracting(CloudVerificationBucket::key, CloudVerificationBucket::sampleCount)
+                .contains(tuple("farCloudier&fcstClear(<20)", 4),
+                        tuple("farClearer&fcstBlocked(>60)", 2),
+                        tuple("farCloudier&fcstIdeal", 2));
+        // The whole vector, counted by hand. Observed: no similar pair; four clearer (2
+        // high-dominant, 2 mid-); six cloudier (gapBlockedIdealCanvas high-dominant, the other
+        // five mid-). Forecast: fcstClear takes the four gap-10 cloudier pairs and neither the
+        // gap-20 nor the gap-85 one; fcstBlocked the two clearer pairs above 60 and not the one
+        // at 60; fcstIdeal only the two clear-gate pairs whose canvas clears both thresholds.
+        assertThat(report.byCorridor()).extracting(CloudVerificationBucket::sampleCount)
+                .containsExactly(0, 4, 2, 2, 6, 1, 5, 4, 2, 2);
     }
 
     @Test
@@ -332,9 +396,16 @@ class CloudVerificationServiceTest {
     }
 
     private CloudVerificationPair corridorPair(int nearLow, int farLow, int canvasMid,
-            int canvasHigh) {
+            int canvasHigh, int forecastGapLow) {
+        return corridorPair(nearLow, farLow, canvasMid, canvasHigh, forecastGapLow,
+                DEFAULT_FORECAST_CANVAS_MID, DEFAULT_FORECAST_CANVAS_HIGH);
+    }
+
+    private CloudVerificationPair corridorPair(int nearLow, int farLow, int canvasMid,
+            int canvasHigh, int forecastGapLow, int forecastCanvasMid, int forecastCanvasHigh) {
         return new CloudVerificationPair("Durham UK", DATE, TargetType.SUNSET, 0, 2,
-                30, nearLow, 60, 40, canvasMid, canvasHigh, false, 20, 120, 240, 250,
+                forecastGapLow, nearLow, forecastCanvasMid, forecastCanvasHigh,
+                canvasMid, canvasHigh, false, 20, 120, 240, 250,
                 25, null, null, farLow);
     }
 }

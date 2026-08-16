@@ -50,7 +50,8 @@ import java.util.List;
  * @param byWindSunAngle  veto-fired pairs bucketed by wind-to-sun separation
  * @param byConeStructure all pairs bucketed by analysed cone spread (uniform / mixed / gapped)
  * @param byCorridor      all pairs bucketed by near-vs-far corridor divergence, with high- and
- *                        mid-canvas-dominant sub-buckets
+ *                        mid-canvas-dominant sub-buckets and, cut on the forecast band each prompt
+ *                        rule branches on rather than on observed structure, {@code fcst*} ones
  * @param vetoSeparation  mean observed horizon cloud in {@code vetoFired} minus
  *                        {@code vetoNotFired}. Positive means vetoed slots really were cloudier,
  *                        i.e. the veto discriminates. Near zero means it fires on nothing real.

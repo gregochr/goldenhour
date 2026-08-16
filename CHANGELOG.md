@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the cloud-verification report sizes each prompt rule's firing population
+
+The corridor section could measure how often the sky diverges between the 113 km gate and the 226 km
+corridor, but not how often a prompt rule *fired* over such a sky — and those are different
+populations. Measured over 29,016 evaluations, the mean member of `farCloudier&midCanvas` carried a
+forecast gap near 87%: the forecast had called the horizon blocked, so the IDEAL-scenario rule the
+bucket was built to size had never fired for it.
+
+Three forecast-conditioned buckets now cut the same pairs by the band the prompt actually branches
+on: `farCloudier&fcstClear(<20)` (the forecast called the gate clear over a blanketed corridor — the
+ideal-scenario guard's target population), `farClearer&fcstBlocked(>60)` (the hard ceiling tripped
+while the corridor beyond the gate was open — the over-pessimism population), and
+`farCloudier&fcstIdeal`, which adds the rule's canvas preconditions. The last is an approximation
+and says so in place: the prompt's canvas clauses are horizon-scoped, while the verification pair
+carries only the observer-overhead forecast layers. The horizon layers *are* stored (`solar_mid_cloud`,
+`solar_high_cloud`, `antisolar_high_cloud`, since V48) — they are simply not projected into the pair,
+so tightening this later is a query widening rather than a migration or a re-verification.
+
+Read-side only — no new observation, no re-verification, no scoring or prompt change, and the seven
+existing bucket keys are untouched so pulls stay comparable across dates.
+
 ## [v2.18.6] - 2026-08-14
 
 ### Changed — the lens bar's count names which set it counts
