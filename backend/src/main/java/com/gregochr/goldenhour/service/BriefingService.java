@@ -43,6 +43,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -331,9 +332,16 @@ public class BriefingService {
         // pure function of the response: it needs three repositories, and the projector has none.
         // It is fed the FILTERED days for one reason only — the same day list the windows are
         // projected from, so a rollup can never be keyed to a window that no longer exists.
+        //
+        // UTC, deliberately not LONDON: BriefingSlot.solarEventTime (and every other stored clock
+        // time this "now" is compared against inside the projector's isPast/afterglow check) is
+        // UTC. Reading "now" through Europe/London put it an hour ahead of that axis during BST,
+        // which declared a window past up to an hour early — see plan-verdict-consolidation-plan.md
+        // §1 D4. This is the "one clock, two calendars" rule from the daysAhead work: DATES are
+        // London, INSTANT comparisons are UTC, and this is an instant comparison.
         return PlanWindowProjector.apply(
                 filtered,
-                LocalDateTime.now(clock.withZone(LONDON)),
+                LocalDateTime.now(clock.withZone(ZoneOffset.UTC)),
                 filtered == null ? java.util.Map.of()
                         : windowTideRollupBuilder.build(filtered.days()));
     }
