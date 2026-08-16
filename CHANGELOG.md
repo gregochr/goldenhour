@@ -26,6 +26,28 @@ over-pessimism count the blocked-rule design decision keys on. A null forecast f
 Read-side only — no new observation, no re-verification, no scoring or prompt change, and the ten
 existing bucket keys are untouched so pulls stay comparable across dates.
 
+### Fixed — weekly tide refresh could permanently delete the frontier extreme
+
+The tail fetch's `resolveFetchWindow` used the stored frontier's exact instant as both the
+WorldTides `start` parameter and the inclusive lower bound of the pre-insert delete, on the
+documented assumption that WorldTides always returns an extreme at exactly `start` — restoring the
+row it had just deleted. Production falsified that assumption on 2026-08-10: the frontier row was
+deleted and never came back, leaving a permanent hole in `tide_extreme` (a HIGH-to-HIGH gap with no
+LOW between, visible on the Plan tab as a dead-flat tide sparkline). The tail now starts one minute
+(`TAIL_OVERLAP_MINUTES`) before the frontier, so it sits strictly inside the requested span and
+comes back in the response regardless of WorldTides' boundary semantics; the delete's lower bound
+moves with it, so nothing extra is deleted.
+
+Added a post-merge integrity check: after every weekly tail/seed/re-seed write, `TideService` reads
+back the merged span (including the one-day seam with pre-existing rows) and logs a WARN for any
+same-type-adjacent extremes (HIGH,HIGH or LOW,LOW) — the physically impossible sequence a lost
+extreme leaves behind. No auto-repair and no time-gap heuristic; this exists so a future hole is
+caught the week it happens instead of sitting silent for months.
+
+See `docs/engineering/tide-frontier-extreme-loss-plan.md` for the full diagnosis and evidence. The
+chart-side defence (synthesising the implied missing extreme when a same-kind gap is drawn) is
+deliberately out of scope here and deferred to its own session.
+
 ## [v2.18.7] - 2026-08-16
 
 ### Added — the cloud-verification report sizes each prompt rule's firing population

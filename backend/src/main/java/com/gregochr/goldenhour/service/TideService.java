@@ -26,6 +26,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -96,6 +97,19 @@ public class TideService {
      * the horizon. Set this above the horizon and the re-seed can never fire.
      */
     private static final int RESEED_INTERVAL_DAYS = 90;
+
+    /**
+     * Margin the tail fetch starts before the frontier extreme, so the frontier sits strictly
+     * inside the requested span instead of exactly on its boundary.
+     *
+     * <p>On 2026-08-10 WorldTides did not return the extreme at exactly {@code start}, and the
+     * inclusive delete had already removed it — see
+     * {@code docs/engineering/tide-frontier-extreme-loss-plan.md}. A one-minute margin costs
+     * nothing (the frontier is {@code MAX(event_time)}, so no other stored row can exist inside
+     * it) and removes the reliance on WorldTides' boundary-inclusive behaviour, which production
+     * has now shown false.
+     */
+    private static final long TAIL_OVERLAP_MINUTES = 1;
 
     /**
      * The span to ask WorldTides for, and why.
@@ -275,6 +289,8 @@ public class TideService {
                     location.getId(), window.from(), window.to());
             tideExtremeRepository.saveAll(entities);
 
+            checkTideIntegrity(location, window);
+
             if (jobRun != null) {
                 // Priced from the credits WorldTides itself reports, not a flat per-call figure:
                 // this endpoint bills one credit per seven days of data, so the cost moves with
@@ -308,11 +324,14 @@ public class TideService {
      * <p>Package-private so the decision can be tested without an HTTP call — it is the half of
      * the refresh that determines both the credit cost and what gets deleted.
      *
-     * <p><strong>The tail deliberately re-requests the frontier extreme.</strong> Its {@code from}
-     * is an existing row's exact {@code event_time}, used both as the WorldTides {@code start} and
-     * as the delete's lower bound — and that bound is inclusive, so the frontier row is removed and
-     * only restored if the API returns an extreme at exactly {@code start}. Inclusivity is
-     * therefore required for correctness rather than merely convenient; it is also what prevents a
+     * <p><strong>The tail starts {@value #TAIL_OVERLAP_MINUTES} minute(s) before the frontier
+     * extreme.</strong> Production showed WorldTides does not reliably return an extreme at
+     * exactly {@code start} — an extremum at the window's first instant has no left-hand sample
+     * to be detected against, and/or recomputation can shift it a second earlier. The delete's
+     * lower bound is still {@code window.from()} and still inclusive, so the frontier row is
+     * still deleted; the margin only moves that bound to sit strictly below the frontier instead
+     * of on top of it, so the frontier is now genuinely inside the requested span and comes back
+     * in the response regardless of WorldTides' boundary semantics. It also still prevents a
      * {@code uq_tide_extreme} violation on re-insert. Note the frontier is a tide instant while the
      * horizon is midnight, so a weekly tail spans seven days plus up to one inter-extreme gap —
      * which is why it bills two credits rather than one.
@@ -353,7 +372,68 @@ public class TideService {
             // window.
             return null;
         }
-        return new FetchWindow(frontier, windowEnd, "tail — extending stored coverage");
+        LocalDateTime from = frontier.minusMinutes(TAIL_OVERLAP_MINUTES);
+        if (from.isBefore(startOfDay)) {
+            from = startOfDay;          // preserves the "never reaches backwards" invariant
+        }
+        return new FetchWindow(from, windowEnd, "tail — extending stored coverage");
+    }
+
+    /**
+     * A same-type pair of consecutive tide extremes — the physically impossible sequence a lost
+     * extreme leaves behind, since tides alternate HIGH and LOW.
+     *
+     * @param first  the earlier extreme
+     * @param second the later extreme of the same {@link TideExtremeType}
+     */
+    record Adjacency(TideExtremeEntity first, TideExtremeEntity second) {
+    }
+
+    /**
+     * Reads back the just-merged span, including the seam with pre-existing rows, and logs a
+     * WARN for every same-type adjacency found.
+     *
+     * <p>Called immediately after the delete+save so a hole left by the merge — such as the
+     * frontier extreme {@link #TAIL_OVERLAP_MINUTES} was added to stop losing — is caught the
+     * week it happens rather than sitting silent for months. Deliberately no auto-repair: this is
+     * a smoke detector, not a sprinkler system.
+     *
+     * @param location the coastal location just fetched
+     * @param window   the span just fetched and merged
+     */
+    private void checkTideIntegrity(LocationEntity location, FetchWindow window) {
+        List<TideExtremeEntity> merged = tideExtremeRepository
+                .findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                        location.getId(), window.from().minusDays(1), window.to());
+        for (Adjacency adjacency : sameKindAdjacencies(merged)) {
+            LOG.warn("Tide integrity: consecutive {} extremes at {} and {} for {} — an extreme "
+                    + "is missing between them (window {} to {}, {})",
+                    adjacency.first().getType(),
+                    adjacency.first().getEventTime(), adjacency.second().getEventTime(),
+                    location.getName(), window.from(), window.to(), window.reason());
+        }
+    }
+
+    /**
+     * Finds adjacent same-type extremes in a chronologically ordered list.
+     *
+     * <p>Package-private, static and pure so the scan can be unit-tested without a database.
+     * Same-type adjacency only — no time-gap heuristic, since a long gap between alternating
+     * kinds is legal (neap tides, or a location far from the equator).
+     *
+     * @param ordered tide extremes in ascending event-time order
+     * @return one {@link Adjacency} per same-type consecutive pair, in the order found
+     */
+    static List<Adjacency> sameKindAdjacencies(List<TideExtremeEntity> ordered) {
+        List<Adjacency> found = new ArrayList<>();
+        for (int i = 0; i < ordered.size() - 1; i++) {
+            TideExtremeEntity current = ordered.get(i);
+            TideExtremeEntity next = ordered.get(i + 1);
+            if (current.getType() == next.getType()) {
+                found.add(new Adjacency(current, next));
+            }
+        }
+        return found;
     }
 
     /**

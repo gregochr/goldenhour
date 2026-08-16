@@ -1,5 +1,8 @@
 package com.gregochr.goldenhour.service;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.gregochr.goldenhour.config.WorldTidesProperties;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TideExtremeEntity;
@@ -11,12 +14,14 @@ import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.model.WorldTidesResponse;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import com.gregochr.goldenhour.util.RestClientMocks;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
@@ -72,9 +77,29 @@ class TideServiceTest {
 
     private TideService tideService;
 
+    private ListAppender<ILoggingEvent> logAppender;
+    private ch.qos.logback.classic.Logger tideServiceLogger;
+
     @BeforeEach
     void setUp() {
         tideService = new TideService(restClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+
+        tideServiceLogger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(TideService.class);
+        logAppender = new ListAppender<>();
+        logAppender.start();
+        tideServiceLogger.addAppender(logAppender);
+    }
+
+    @AfterEach
+    void tearDown() {
+        tideServiceLogger.detachAppender(logAppender);
+    }
+
+    private List<String> warnLogMessages() {
+        return logAppender.list.stream()
+                .filter(e -> e.getLevel() == Level.WARN)
+                .map(ILoggingEvent::getFormattedMessage)
+                .toList();
     }
 
     // -------------------------------------------------------------------------
@@ -438,6 +463,181 @@ class TideServiceTest {
 
         verify(tideExtremeRepository, never()).deleteByLocationIdAndEventTimeBetween(
                 anyLong(), any(LocalDateTime.class), any(LocalDateTime.class));
+    }
+
+    // -------------------------------------------------------------------------
+    // sameKindAdjacencies — pure function, no database. The scan behind the post-merge
+    // integrity check: two consecutive extremes of the same type is the physically impossible
+    // sequence a lost extreme (like the frontier row fix 1 addresses) leaves behind.
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("sameKindAdjacencies() returns empty for an empty list")
+    void sameKindAdjacencies_emptyList_returnsEmpty() {
+        assertThat(TideService.sameKindAdjacencies(List.of())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("sameKindAdjacencies() returns empty for a single row")
+    void sameKindAdjacencies_singleRow_returnsEmpty() {
+        List<TideExtremeEntity> ordered = List.of(
+                extreme(LocalDateTime.of(2026, 8, 16, 6, 0), TideExtremeType.HIGH, 1.8));
+
+        assertThat(TideService.sameKindAdjacencies(ordered)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("sameKindAdjacencies() returns empty for a clean alternating series")
+    void sameKindAdjacencies_alternatingSeries_returnsEmpty() {
+        List<TideExtremeEntity> ordered = List.of(
+                extreme(LocalDateTime.of(2026, 8, 16, 0, 0), TideExtremeType.HIGH, 1.8),
+                extreme(LocalDateTime.of(2026, 8, 16, 6, 0), TideExtremeType.LOW, 0.2),
+                extreme(LocalDateTime.of(2026, 8, 16, 12, 0), TideExtremeType.HIGH, 1.9),
+                extreme(LocalDateTime.of(2026, 8, 16, 18, 0), TideExtremeType.LOW, 0.1));
+
+        assertThat(TideService.sameKindAdjacencies(ordered)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("sameKindAdjacencies() finds a HIGH,HIGH pair — the missing-LOW shape that cost "
+            + "the frontier extreme in production")
+    void sameKindAdjacencies_oneHighHighPair_findsIt() {
+        LocalDateTime firstHigh = LocalDateTime.of(2026, 8, 16, 17, 48);
+        LocalDateTime secondHigh = LocalDateTime.of(2026, 8, 17, 5, 56);
+        List<TideExtremeEntity> ordered = List.of(
+                extreme(LocalDateTime.of(2026, 8, 16, 11, 30), TideExtremeType.LOW, 0.2),
+                extreme(firstHigh, TideExtremeType.HIGH, 1.8),
+                extreme(secondHigh, TideExtremeType.HIGH, 1.9));
+
+        List<TideService.Adjacency> found = TideService.sameKindAdjacencies(ordered);
+
+        assertThat(found).hasSize(1);
+        assertThat(found.get(0).first().getEventTime()).isEqualTo(firstHigh);
+        assertThat(found.get(0).second().getEventTime()).isEqualTo(secondHigh);
+    }
+
+    @Test
+    @DisplayName("sameKindAdjacencies() finds a pair spanning the seam between pre-existing and "
+            + "freshly-fetched rows")
+    void sameKindAdjacencies_pairSpansTheSeam_findsIt() {
+        LocalDateTime oldFetch = LocalDateTime.of(2026, 8, 3, 2, 0);
+        LocalDateTime newFetch = LocalDateTime.of(2026, 8, 10, 2, 0);
+        TideExtremeEntity staleHigh = TideExtremeEntity.builder()
+                .locationId(1L)
+                .eventTime(LocalDateTime.of(2026, 8, 16, 17, 48))
+                .type(TideExtremeType.HIGH)
+                .heightMetres(BigDecimal.valueOf(1.800))
+                .fetchedAt(oldFetch)
+                .build();
+        TideExtremeEntity freshHigh = TideExtremeEntity.builder()
+                .locationId(1L)
+                .eventTime(LocalDateTime.of(2026, 8, 17, 5, 56))
+                .type(TideExtremeType.HIGH)
+                .heightMetres(BigDecimal.valueOf(1.900))
+                .fetchedAt(newFetch)
+                .build();
+
+        List<TideService.Adjacency> found =
+                TideService.sameKindAdjacencies(List.of(staleHigh, freshHigh));
+
+        assertThat(found).hasSize(1);
+        assertThat(found.get(0).first().getFetchedAt()).isEqualTo(oldFetch);
+        assertThat(found.get(0).second().getFetchedAt()).isEqualTo(newFetch);
+    }
+
+    @Test
+    @DisplayName("sameKindAdjacencies() finds every anomaly in one scan, not just the first")
+    void sameKindAdjacencies_multipleAnomalies_findsAll() {
+        List<TideExtremeEntity> ordered = List.of(
+                extreme(LocalDateTime.of(2026, 8, 16, 0, 0), TideExtremeType.HIGH, 1.8),
+                extreme(LocalDateTime.of(2026, 8, 16, 6, 0), TideExtremeType.HIGH, 1.7),
+                extreme(LocalDateTime.of(2026, 8, 16, 12, 0), TideExtremeType.LOW, 0.2),
+                extreme(LocalDateTime.of(2026, 8, 16, 18, 0), TideExtremeType.LOW, 0.3),
+                extreme(LocalDateTime.of(2026, 8, 17, 0, 0), TideExtremeType.HIGH, 1.9));
+
+        assertThat(TideService.sameKindAdjacencies(ordered)).hasSize(2);
+    }
+
+    // -------------------------------------------------------------------------
+    // checkTideIntegrity — wiring: a merge that leaves a same-type adjacency emits the WARN.
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("fetchAndStoreTideExtremes() warns when the merged span leaves two same-type "
+            + "extremes adjacent")
+    void fetchAndStoreTideExtremes_mergeLeavesSameTypeAdjacency_warns() {
+        when(worldTidesProperties.getApiKey()).thenReturn("test-key");
+
+        RestClient mockClient = mock(RestClient.class);
+        RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, buildWorldTidesResponse());
+
+        // The merged read-back reports two HIGHs in a row, as if the LOW between them had been
+        // deleted and never restored — the exact production failure this check exists to catch.
+        List<TideExtremeEntity> mergedWithHole = List.of(
+                extreme(LocalDateTime.of(2026, 8, 16, 17, 48), TideExtremeType.HIGH, 1.8),
+                extreme(LocalDateTime.of(2026, 8, 17, 5, 56), TideExtremeType.HIGH, 1.9));
+        when(tideExtremeRepository.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                eq(1L), any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenReturn(mergedWithHole);
+
+        TideService service = new TideService(
+                mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+
+        service.fetchAndStoreTideExtremes(locationEntity());
+
+        List<String> warnings = warnLogMessages();
+        assertThat(warnings).hasSize(1);
+        assertThat(warnings.get(0)).contains("Tide integrity")
+                .contains("consecutive HIGH extremes")
+                .contains("Berwick-Upon-Tweed");
+    }
+
+    @Test
+    @DisplayName("fetchAndStoreTideExtremes() does not warn when the merged span alternates "
+            + "cleanly")
+    void fetchAndStoreTideExtremes_cleanMerge_doesNotWarn() {
+        when(worldTidesProperties.getApiKey()).thenReturn("test-key");
+
+        RestClient mockClient = mock(RestClient.class);
+        RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, buildWorldTidesResponse());
+
+        List<TideExtremeEntity> cleanMerge = List.of(
+                extreme(LocalDateTime.of(2026, 8, 16, 6, 0), TideExtremeType.HIGH, 1.8),
+                extreme(LocalDateTime.of(2026, 8, 16, 12, 0), TideExtremeType.LOW, 0.2));
+        when(tideExtremeRepository.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                eq(1L), any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenReturn(cleanMerge);
+
+        TideService service = new TideService(
+                mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+
+        service.fetchAndStoreTideExtremes(locationEntity());
+
+        assertThat(warnLogMessages()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("fetchAndStoreTideExtremes() reads back the merged span including the seam with "
+            + "pre-existing rows — window.from() minus a day, through window.to()")
+    void fetchAndStoreTideExtremes_integrityCheckReadsSeamAndMergedSpan() {
+        when(worldTidesProperties.getApiKey()).thenReturn("test-key");
+
+        RestClient mockClient = mock(RestClient.class);
+        RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, buildWorldTidesResponse());
+
+        TideService service = new TideService(
+                mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+
+        service.fetchAndStoreTideExtremes(locationEntity());
+
+        ArgumentCaptor<LocalDateTime> deleteBounds = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(tideExtremeRepository).deleteByLocationIdAndEventTimeBetween(
+                eq(1L), deleteBounds.capture(), deleteBounds.capture());
+        LocalDateTime windowFrom = deleteBounds.getAllValues().get(0);
+        LocalDateTime windowTo = deleteBounds.getAllValues().get(1);
+
+        verify(tideExtremeRepository).findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                eq(1L), eq(windowFrom.minusDays(1)), eq(windowTo));
     }
 
     // -------------------------------------------------------------------------
