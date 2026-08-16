@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.18.7] - 2026-08-16
+
 ### Added — the cloud-verification report sizes each prompt rule's firing population
 
 The corridor section could measure how often the sky diverges between the 113 km gate and the 226 km
