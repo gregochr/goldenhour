@@ -488,15 +488,19 @@ class PlanWindowProjectorTest {
         @DisplayName("a window beyond the rail's horizon can never be picked")
         void picksNeverLandOnAnUnrenderedWindow() {
             // The briefing carries more days than the rail renders. A pick bound to a window with
-            // no tile is a recommendation nobody can reach.
+            // no tile is a recommendation nobody can reach. One event per day, so the horizon here
+            // reads as 6 dates — horizonCountsSixEventsNotFourDates above is the fixture that
+            // exercises the events-vs-dates distinction itself with two events per day.
             DailyBriefingResponse out = projectDays(
                     dayOf(TODAY, region("Modest", 3, 3)),
                     dayOf(TODAY.plusDays(1), region("Modest2", 3, 3)),
                     dayOf(TODAY.plusDays(2), region("Modest3", 3, 3)),
                     dayOf(TODAY.plusDays(3), region("Modest4", 3, 3)),
-                    dayOf(TODAY.plusDays(4), region("Brilliant", 5, 5)));
+                    dayOf(TODAY.plusDays(4), region("Modest5", 3, 3)),
+                    dayOf(TODAY.plusDays(5), region("Modest6", 3, 3)),
+                    dayOf(TODAY.plusDays(6), region("Brilliant", 5, 5)));
 
-            assertThat(firstWindow(out, 4).pick()).isNull();
+            assertThat(firstWindow(out, 6).pick()).isNull();
             assertThat(firstWindow(out, 0).pick().kind()).isEqualTo(BriefingWindow.PickKind.BEST);
             assertThat(picksOf(out)).hasSize(2);
         }
@@ -568,6 +572,34 @@ class PlanWindowProjectorTest {
                     LocalDateTime.of(TODAY, LocalTime.of(23, 59)));
 
             assertThat(firstWindow(out, 0).pick()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("the horizon counts events, not dates — two events per day diverge from one")
+        void horizonCountsSixEventsNotFourDates() {
+            // horizonCountsSurvivingDates below uses dayOf(), which builds exactly one event per
+            // day — so "first 4 dates" and "first 4 events" are numerically identical there, and
+            // an 8-vs-6 (dates-vs-events) horizon bug is invisible. With two events per day the
+            // two horizons diverge: 4 dates is 8 events, the shared 6-event constant is 3 dates
+            // plus one. D3am below is the 7th event overall — inside the old 4-DATE cap, outside
+            // the shared 6-EVENT cap — which is exactly how a BEST landed on an unrendered window
+            // in prod on 2026-08-16.
+            DailyBriefingResponse out = projectDays(
+                    twoEventDayOf(TODAY, region("D0am", 3, 3), region("D0pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(1), region("D1am", 3, 3), region("D1pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(2), region("D2am", 3, 3), region("D2pm", 4, 4)),
+                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 5, 5), region("D3pm", 3, 3)));
+
+            BriefingWindow d2pm = out.days().get(2).eventSummaries().get(1).window();
+            BriefingWindow d3am = out.days().get(3).eventSummaries().get(0).window();
+
+            // D3am rates highest of everyone (5.0) but sits at event index 6 — the 7th event,
+            // beyond the first 6. It must never win a pick despite the highest rating in the
+            // payload. D2pm (4.0), the highest-rated window inside the first 6 events, must win
+            // instead.
+            assertThat(d3am.pick()).isNull();
+            assertThat(d2pm.pick()).isNotNull();
+            assertThat(d2pm.pick().kind()).isEqualTo(BriefingWindow.PickKind.BEST);
         }
 
         @Test
@@ -988,7 +1020,24 @@ class PlanWindowProjectorTest {
      * while pick eligibility was positional, and wrong the moment it became temporal.
      */
     private static BriefingDay dayOf(LocalDate date, BriefingRegion... regions) {
-        List<BriefingRegion> onDate = java.util.Arrays.stream(regions)
+        return new BriefingDay(date, List.of(
+                new BriefingEventSummary(TargetType.SUNSET, shiftRegions(date, regions), List.of())));
+    }
+
+    /**
+     * One day holding both a sunrise and a sunset window, each built from its own regions and
+     * re-stamped onto the given date — for fixtures where a two-events-per-day shape matters (the
+     * events-vs-dates horizon; see {@code horizonCountsSixEventsNotFourDates}).
+     */
+    private static BriefingDay twoEventDayOf(LocalDate date, BriefingRegion sunrise, BriefingRegion sunset) {
+        return new BriefingDay(date, List.of(
+                new BriefingEventSummary(TargetType.SUNRISE, shiftRegions(date, sunrise), List.of()),
+                new BriefingEventSummary(TargetType.SUNSET, shiftRegions(date, sunset), List.of())));
+    }
+
+    /** Re-stamps every slot in the given regions onto the given date, keeping clock times. */
+    private static List<BriefingRegion> shiftRegions(LocalDate date, BriefingRegion... regions) {
+        return java.util.Arrays.stream(regions)
                 .map(r -> new BriefingRegion(r.regionName(), r.verdict(), r.summary(),
                         r.tideHighlights(),
                         r.slots().stream().map(sl -> shiftTo(sl, date)).toList(),
@@ -997,8 +1046,6 @@ class PlanWindowProjectorTest {
                         r.glossDetail(), r.displayVerdict(), r.scoredLocationCount(),
                         r.verdictLabel(), r.lightlyEvaluated(), r.confidence()))
                 .toList();
-        return new BriefingDay(date, List.of(
-                new BriefingEventSummary(TargetType.SUNSET, onDate, List.of())));
     }
 
     /** Re-stamps a slot's solar time onto the given date, keeping its clock time. */
