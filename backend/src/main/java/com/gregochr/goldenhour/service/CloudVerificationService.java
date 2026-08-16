@@ -86,6 +86,44 @@ public class CloudVerificationService {
      */
     private static final int FAR_DIVERGENCE_PP = 30;
 
+    /**
+     * Forecast solar-horizon low cloud (%) below which the prompt's IDEAL-scenario band applies.
+     *
+     * <p>Mirrors {@code PromptBuilder}'s "Solar horizon low cloud &lt;20% = strong light
+     * penetration likely" / "IDEAL scenario: solar horizon low cloud &lt;20%" rules. If that
+     * prompt band ever moves, this must move with it — otherwise the report sizes a population
+     * the rule no longer fires over.
+     */
+    private static final int PROMPT_CLEAR_BAND_MAX_PCT = 20;
+
+    /**
+     * Forecast solar-horizon low cloud (%) above which the prompt's BLOCKED hard ceiling applies.
+     *
+     * <p>Mirrors {@code PromptBuilder}'s "Solar horizon low cloud &gt;60% = light is BLOCKED …
+     * rating 1-2" rule, and must track it if the prompt band ever changes.
+     */
+    private static final int PROMPT_BLOCKED_BAND_MIN_PCT = 60;
+
+    /**
+     * Forecast mid cloud (%) below which the prompt's IDEAL scenario's canvas precondition holds.
+     *
+     * <p>Takes its figure from the "AND mid cloud &lt;50%" clause of {@code PromptBuilder}'s IDEAL
+     * rule, and must track it if the prompt band ever changes. The <em>figure</em> is the prompt's;
+     * the <em>reading</em> it is applied to is not — see {@link #forecastWasIdeal}.
+     */
+    private static final int PROMPT_IDEAL_MID_MAX_PCT = 50;
+
+    /**
+     * Forecast high cloud (%) at or above which a canvas is treated as present for the IDEAL rule.
+     *
+     * <p>Stands in for the "with high cloud present on either horizon as canvas" clause of
+     * {@code PromptBuilder}'s IDEAL rule, which states no percentage of its own. 20 is the bottom
+     * of the prompt's adjacent canvas band ("mid/high cloud 20-60% = ideal canvas") — the thinnest
+     * canvas the prompt is willing to call ideal — so track that band rather than the IDEAL clause
+     * if either moves.
+     */
+    private static final int PROMPT_IDEAL_HIGH_MIN_PCT = 20;
+
     /** Wind-to-sun separation (degrees) below which cloud approaches from the sun's direction. */
     private static final int ALIGNED_MAX_DEG = 45;
 
@@ -562,6 +600,24 @@ public class CloudVerificationService {
      * their corridor rather than at its edge (exactly so at 4 km geometric, ~16–21 km short once
      * refraction is allowed for) — and sit beside the high-canvas proxy rather than replacing it.
      *
+     * <p>Those observed-structure buckets answer <em>how often does the sky diverge</em>. The
+     * {@code fcst*} buckets answer a different question — <em>how often does each prompt rule
+     * actually fire over a divergent sky</em> — and the two are different populations: a bucket
+     * cut on observed structure can be dominated by evaluations whose forecast never tripped the
+     * rule it was built to size. Measured 2026-08-16, {@code farCloudier&midCanvas}'s mean member
+     * carried a forecast gap near 87%, so the IDEAL rule had not fired for it and the bucket could
+     * not size that rule's false optimism. Conditioning on the forecast band is what makes each
+     * bucket the firing population of the rule it names.
+     *
+     * <p>One caveat on {@code farClearer&fcstBlocked(>60)}: the prompt's hard ceiling is itself
+     * conditional — it applies "when solar horizon low cloud &gt;60% <em>and no THIN STRIP
+     * override applies</em>", and that override fires on the forecast's own near-vs-far pair
+     * (horizon ≥50% dropping to ≤30% at 226 km), which is precisely the shape this bucket selects
+     * for. So it counts skies that <em>entered</em> the blocked band, some of which the strip rule
+     * then exempted. {@code forecastFarLow} is projected onto the pair, so a later cut can
+     * separate the two; this one deliberately does not, because the band entry is what the key
+     * names.
+     *
      * @param pairs every verified pair in the window
      * @return corridor buckets over the pairs that carry both near and far readings
      */
@@ -584,6 +640,48 @@ public class CloudVerificationService {
                 CloudVerificationBucket.of("farCloudier&highCanvas", cloudier.stream()
                         .filter(p -> Boolean.TRUE.equals(p.highCanvasDominant())).toList()),
                 CloudVerificationBucket.of("farCloudier&midCanvas", cloudier.stream()
-                        .filter(p -> Boolean.TRUE.equals(p.midCanvasDominant())).toList()));
+                        .filter(p -> Boolean.TRUE.equals(p.midCanvasDominant())).toList()),
+                CloudVerificationBucket.of("farCloudier&fcstClear(<20)", cloudier.stream()
+                        .filter(p -> p.forecastGapLow() != null
+                                && p.forecastGapLow() < PROMPT_CLEAR_BAND_MAX_PCT).toList()),
+                CloudVerificationBucket.of("farClearer&fcstBlocked(>60)", clearer.stream()
+                        .filter(p -> p.forecastGapLow() != null
+                                && p.forecastGapLow() > PROMPT_BLOCKED_BAND_MIN_PCT).toList()),
+                CloudVerificationBucket.of("farCloudier&fcstIdeal", cloudier.stream()
+                        .filter(CloudVerificationService::forecastWasIdeal).toList()));
+    }
+
+    /**
+     * Returns whether the forecast handed Claude the IDEAL scenario's preconditions.
+     *
+     * <p>The gap term is exact — {@code forecastGapLow} is the coned solar-horizon low cloud the
+     * rule branches on. The two canvas terms are an <strong>approximation</strong>, and the
+     * substitution is worth stating precisely, because getting a bucket's conditioning quantity
+     * wrong is the defect this whole section exists to correct. The prompt's IDEAL rule is
+     * horizon-scoped ("mid cloud &lt;50% at solar horizon", "high cloud present on either
+     * horizon"); these clauses read the <em>observer-overhead</em> forecast layers instead.
+     *
+     * <p>Not because the horizon layers are missing: {@code solar_mid_cloud},
+     * {@code solar_high_cloud} and {@code antisolar_high_cloud} have been persisted on
+     * {@code forecast_evaluation} since V48, and are non-null whenever the gap reading is. They
+     * are simply not <em>projected</em> — {@code CloudVerificationRepository.findVerifiedPairs}
+     * binds the canvas components to {@code e.midCloud}/{@code e.highCloud}. Narrowing this to the
+     * rule's real preconditions is therefore a projection widening (three columns onto
+     * {@link CloudVerificationPair}), not a migration or a re-verification.
+     *
+     * <p>So read this bucket as the population that entered the IDEAL band with a canvas overhead,
+     * which overlaps the rule's true firing set without equalling it in either direction: a sky
+     * with thick solar-horizon mid cloud and a thin overhead deck is counted here though the
+     * prompt routes it elsewhere, and the converse is missed.
+     *
+     * @param pair one verified pair
+     * @return true when the forecast's gap and overhead canvas both sat inside the IDEAL bands
+     */
+    private static boolean forecastWasIdeal(CloudVerificationPair pair) {
+        return pair.forecastGapLow() != null && pair.forecastGapLow() < PROMPT_CLEAR_BAND_MAX_PCT
+                && pair.forecastCanvasMid() != null
+                && pair.forecastCanvasMid() < PROMPT_IDEAL_MID_MAX_PCT
+                && pair.forecastCanvasHigh() != null
+                && pair.forecastCanvasHigh() >= PROMPT_IDEAL_HIGH_MIN_PCT;
     }
 }
