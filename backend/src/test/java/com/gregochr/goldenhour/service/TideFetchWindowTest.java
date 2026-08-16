@@ -92,7 +92,10 @@ class TideFetchWindowTest {
         var window = service().resolveFetchWindow(LOCATION, START_OF_DAY, HORIZON);
 
         assertThat(window).isNotNull();
-        assertThat(window.from()).isEqualTo(frontier);
+        // frontier minus the 1-minute overlap margin — see TAIL_OVERLAP_MINUTES. Production
+        // proved WorldTides does not reliably return an extreme sitting exactly on `start`, so
+        // the tail now starts just before the frontier instead of on it.
+        assertThat(window.from()).isEqualTo(frontier.minusMinutes(1));
         assertThat(window.to()).isEqualTo(HORIZON);
         assertThat(window.lengthSeconds())
                 .isGreaterThan(6L * 24 * 3600)
@@ -113,8 +116,8 @@ class TideFetchWindowTest {
         var window = service().resolveFetchWindow(LOCATION, START_OF_DAY, HORIZON);
 
         assertThat(window).isNotNull();
-        assertThat(window.from()).isEqualTo(frontier);
-        assertThat(window.lengthSeconds()).isEqualTo(14L * 24 * 3600);
+        assertThat(window.from()).isEqualTo(frontier.minusMinutes(1));
+        assertThat(window.lengthSeconds()).isEqualTo(14L * 24 * 3600 + 60);
     }
 
     @Test
@@ -160,7 +163,47 @@ class TideFetchWindowTest {
         var window = service().resolveFetchWindow(LOCATION, START_OF_DAY, HORIZON);
 
         assertThat(window.reason()).contains("tail");
-        assertThat(window.from()).isEqualTo(frontier);
+        assertThat(window.from()).isEqualTo(frontier.minusMinutes(1));
+    }
+
+    @Test
+    @DisplayName("the tail margin sits strictly before the frontier, so a boundary-exclusive API "
+            + "still returns it")
+    void tailMarginSitsStrictlyBeforeTheFrontier() {
+        // The whole point of fix 1: production proved WorldTides does not reliably return an
+        // extreme sitting exactly on `start`. Starting the tail a minute earlier means the
+        // frontier is no longer on the boundary, so a response whose first extreme is the
+        // frontier's own dt (now strictly greater than `start`) genuinely comes back and is
+        // re-inserted after the delete.
+        LocalDateTime frontier = START_OF_DAY.plusDays(90).plusHours(17).plusMinutes(52);
+        when(tideExtremeRepository.findLatestEventTimeFrom(eq(LOCATION), any()))
+                .thenReturn(frontier);
+        when(tideExtremeRepository.findOldestFetchedAtFrom(eq(LOCATION), any()))
+                .thenReturn(START_OF_DAY.minusDays(7));
+
+        var window = service().resolveFetchWindow(LOCATION, START_OF_DAY, HORIZON);
+
+        assertThat(window).isNotNull();
+        assertThat(window.from()).isBefore(frontier);
+        assertThat(window.from()).isEqualTo(frontier.minusMinutes(1));
+    }
+
+    @Test
+    @DisplayName("a frontier within the margin of the start of today clamps to the start of "
+            + "today — the margin never reaches into yesterday")
+    void frontierWithinMarginOfStartOfDayClampsToStartOfDay() {
+        // 30 seconds after midnight — less than the 1-minute margin, so a naive subtraction
+        // would land before startOfDay and reach into the previous day's backfilled history.
+        LocalDateTime frontier = START_OF_DAY.plusSeconds(30);
+        when(tideExtremeRepository.findLatestEventTimeFrom(eq(LOCATION), any()))
+                .thenReturn(frontier);
+        when(tideExtremeRepository.findOldestFetchedAtFrom(eq(LOCATION), any()))
+                .thenReturn(START_OF_DAY.minusDays(1));
+
+        var window = service().resolveFetchWindow(LOCATION, START_OF_DAY, HORIZON);
+
+        assertThat(window).isNotNull();
+        assertThat(window.from()).isEqualTo(START_OF_DAY);
     }
 
     @Test
@@ -175,6 +218,8 @@ class TideFetchWindowTest {
             new Case("tail", START_OF_DAY.plusDays(90), START_OF_DAY.minusDays(1)),
             new Case("re-seed", START_OF_DAY.plusDays(90), START_OF_DAY.minusDays(400)),
             new Case("frontier in the past somehow", START_OF_DAY, START_OF_DAY.minusDays(1)),
+            new Case("tail frontier just after start of day (clamp)",
+                    START_OF_DAY.plusSeconds(30), START_OF_DAY.minusDays(1)),
         };
 
         for (Case c : cases) {
@@ -223,9 +268,11 @@ class TideFetchWindowTest {
         verify(tideExtremeRepository).deleteByLocationIdAndEventTimeBetween(
                 eq(LOCATION), bounds.capture(), bounds.capture());
 
-        // The lower bound is the frontier, NOT the start of today — which is the whole point.
-        // Deleting from today would destroy the 90 stored days this fetch did not re-buy.
-        assertThat(bounds.getAllValues().get(0)).isEqualTo(frontier);
+        // The lower bound is one minute before the frontier, NOT the start of today — which is
+        // the whole point. Deleting from today would destroy the 90 stored days this fetch did
+        // not re-buy; the 1-minute margin removes nothing extra, since the frontier is
+        // MAX(event_time) and no other row can exist inside that minute.
+        assertThat(bounds.getAllValues().get(0)).isEqualTo(frontier.minusMinutes(1));
         assertThat(bounds.getAllValues().get(1))
                 .isAfterOrEqualTo(frontier)
                 .isEqualTo(LocalDate.now(ZoneOffset.UTC).atStartOfDay().plusDays(97));
