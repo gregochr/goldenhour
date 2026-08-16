@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.18.8] - 2026-08-16
+
 ### Added — split `farClearer&fcstBlocked` by whether the THIN STRIP override's preconditions held
 
 The 2026-08-17 report pull sized `farClearer&fcstBlocked(>60)` at 6,281 of 29,016 evaluations
