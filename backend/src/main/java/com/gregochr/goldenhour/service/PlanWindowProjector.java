@@ -82,16 +82,6 @@ public final class PlanWindowProjector {
                             Comparator.nullsLast(Comparator.naturalOrder()));
 
     /**
-     * How many <em>dates</em> of windows the picks may be chosen from.
-     *
-     * <p>Mirrors the rail's own window (`STRIP_MAX_DAYS` in `DailyBriefing.jsx`). Counted over the
-     * dates that still have a live window, never over list positions: the briefing's day list is
-     * built from the <em>build</em> day, so on a next-day serve `days[0]` is yesterday. Indexing
-     * would then admit an elapsed day and exclude a rendered one at the far end.
-     */
-    private static final int RENDERED_DAY_COUNT = 4;
-
-    /**
      * How long a window stays pickable after its solar event.
      *
      * <p>Same value and same reason as {@code CloseToHomeService} — the colour does not stop at the
@@ -195,9 +185,11 @@ public final class PlanWindowProjector {
      * forecast is worth planning for", so a Best Bet on Tuesday's sunrise and an Also good on
      * Thursday's sunset is the normal shape, not an anomaly.
      *
-     * <p><b>Scoped to the windows the rail actually renders.</b> The briefing carries more days than
-     * the rail shows, and a pick bound to a window with no tile is a recommendation the reader
-     * cannot reach — the one failure this scoping exists to prevent.
+     * <p><b>Scoped to the windows the rail actually renders</b> — the same
+     * {@link PlanRenderLimits#MAX_VISIBLE_EVENTS} events the window-first cards show, not a
+     * date-counted approximation of them. The briefing carries more days than the rail shows, and a
+     * pick bound to a window with no tile is a recommendation the reader cannot reach — the one
+     * failure this scoping exists to prevent.
      *
      * <p>The runner-up must still clear {@link AlsoGoodFloor}, exactly as it did when the two picks
      * were regions within one window: the comparands changed, the rule did not. An honest silence is
@@ -205,21 +197,25 @@ public final class PlanWindowProjector {
      */
     private static Map<WindowKey, BriefingWindow.Pick> selectPicks(List<Draft> drafts,
             LocalDateTime now) {
-        // Order matters here. The horizon is a fact about DATES, so it is resolved chronologically
-        // BEFORE anything is ranked — resolving it after the rank sort let the highest-rated window
-        // claim a date slot whatever its date, which is the opposite of a horizon.
-        List<Draft> live = drafts.stream()
-                .filter(d -> d.candidate() != null)
+        // Order matters here. The horizon is a fact about the RENDERED EVENT SET, so it is resolved
+        // chronologically BEFORE anything is ranked — resolving it after the rank sort let the
+        // highest-rated window claim a slot whatever its position, which is the opposite of a
+        // horizon.
+        //
+        // Scoped over every non-past draft, not only candidate-bearing ones: a window with no usable
+        // gloss still occupies a slot in the client's rendered list, and excluding it here would let
+        // the horizon stretch further than what the rail actually shows. `drafts` is already in
+        // chronological (date, then payload) order — built by walking `response.days()` then each
+        // day's `eventSummaries()` — so taking the leading MAX_VISIBLE_EVENTS non-past entries is
+        // exactly "the first N events", with no re-sort needed.
+        Set<WindowKey> rendered = drafts.stream()
                 .filter(d -> !isPast(d, now))
-                .toList();
-        Set<LocalDate> rendered = live.stream()
-                .map(d -> d.key().date())
-                .distinct()
-                .sorted()
-                .limit(RENDERED_DAY_COUNT)
+                .limit(PlanRenderLimits.MAX_VISIBLE_EVENTS)
+                .map(Draft::key)
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
-        List<Draft> eligible = live.stream()
-                .filter(d -> rendered.contains(d.key().date()))
+        List<Draft> eligible = drafts.stream()
+                .filter(d -> d.candidate() != null)
+                .filter(d -> rendered.contains(d.key()))
                 .sorted(BY_PICK_RANK)
                 .toList();
         if (eligible.isEmpty()) {

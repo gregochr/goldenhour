@@ -167,7 +167,7 @@ export function buildWindowCards(
   const floorId = lens?.floorId ?? ANY_RATING_ID;
   const live = (upcomingEvents || []).filter((e) => !travelDayDates?.has(e.date));
 
-  return live.map(({ date, targetType }, index) => {
+  const cards = live.map(({ date, targetType }, index) => {
     const day = (briefingDays || []).find((d) => d.date === date);
     const es = (day?.eventSummaries || []).find((e) => e.targetType === targetType);
     const win = es?.window;
@@ -272,6 +272,22 @@ export function buildWindowCards(
         : null,
     };
   });
+
+  // Belt-and-braces: an Also with no surviving Best badges a runner-up to a plan nobody on screen
+  // can see. windowFirstRail.js gets the same protection structurally rather than through an
+  // explicit check — its RAIL_MAX_DAYS=4 date window is narrow enough that both picks' dates
+  // almost always fall inside it — but that protection is emergent, not a rule this file can lean
+  // on, so the invariant is enforced explicitly here. The backend's own pick pool is scoped to the
+  // rendered event set (plan-verdict-consolidation-plan.md Phase 1), so this should be a no-op
+  // against a fresh payload — it exists for the payload that is not fresh: an SWR-cached response
+  // can sit for up to 12h, during which the window the BEST pick named can fall out of
+  // `upcomingEvents` (passed, or pushed beyond the horizon by newer events) while the Also's window
+  // survives. Kept even after the backend fix, since staleness is a client-side fact no backend fix
+  // can reach.
+  if (!cards.some((c) => c.pick?.kind === 'best')) {
+    return cards.map((c) => (c.pick?.kind === 'also' ? { ...c, pick: null } : c));
+  }
+  return cards;
 }
 
 /**

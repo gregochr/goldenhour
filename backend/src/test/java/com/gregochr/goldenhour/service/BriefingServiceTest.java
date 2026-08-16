@@ -18,11 +18,13 @@ import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRefreshedEvent;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.SeasonalWindow;
+import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
@@ -41,6 +43,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.MonthDay;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -385,6 +388,78 @@ class BriefingServiceTest {
         // The load-bearing assertion: drop the date that will have gone stale by the time the
         // next cycle reads this, and T+3 relative to THAT cycle must still be present.
         assertThat(dates.subList(1, dates.size())).hasSize(4).endsWith(builtOn.plusDays(4));
+    }
+
+    /**
+     * D4 pinning test: {@code BriefingWindow.solarEventTime} and every other stored clock time in
+     * this project are UTC, but {@code getCachedBriefingForApi} was reading the projector's "now"
+     * through {@code Europe/London} — during BST that reads an hour later than the UTC axis the
+     * event times live on, so a window is declared past up to an hour early. See
+     * {@code docs/engineering/plan-verdict-consolidation-plan.md} §1 D4.
+     */
+    @Nested
+    @DisplayName("Serve-time window pastness (BST clock, D4)")
+    class WindowPastnessBstClock {
+
+        /** 2026-06-15T19:10:00Z — well inside BST (Europe/London = UTC+1). */
+        private static final java.time.Clock BST_CLOCK = java.time.Clock.fixed(
+                java.time.Instant.parse("2026-06-15T19:10:00Z"), ZoneOffset.UTC);
+        private static final LocalDate BST_DAY = LocalDate.of(2026, 6, 15);
+
+        @Test
+        @DisplayName("a window 20 minutes from happening is not past, even when served in BST")
+        void windowNotYetPastSurvivesIntoBst() throws Exception {
+            // Sunset at 19:30 UTC; the 30-minute afterglow keeps the window pickable until 20:00
+            // UTC. The fixed clock's real instant is 19:10 UTC — 20 minutes before sunset, nowhere
+            // near that cutoff. Read through Europe/London (BST, UTC+1) that same instant is
+            // 20:10 local — an hour later than the UTC axis solarEventTime lives on — which pushes
+            // the wall-clock reading 10 minutes PAST the 20:00 cutoff. A window that has not even
+            // happened yet must not be excluded from the pick pool.
+            BriefingRegion region = new BriefingRegion(
+                    "North East", Verdict.GO, "summary", List.of(),
+                    List.of(new BriefingSlot("Bamburgh", LocalDateTime.of(BST_DAY, LocalTime.of(19, 30)),
+                                    Verdict.GO, null, BriefingSlot.TideInfo.NONE, List.of(), null)
+                            .withClaudeScores(4, 60, 55, "summary")),
+                    14.0, 13.0, 4.5, 3, "Breaking clear at dusk", "Low cloud clears from the west.",
+                    DisplayVerdict.WORTH_IT, 1, null, false, Confidence.HIGH);
+            DailyBriefingResponse persisted = new DailyBriefingResponse(
+                    LocalDateTime.of(BST_DAY, LocalTime.NOON), "headline",
+                    List.of(new BriefingDay(BST_DAY, List.of(
+                            new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())))),
+                    List.of(), null, null, false, false, 0, null, List.of(), List.of());
+            ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+            DailyBriefingCacheEntity entity = new DailyBriefingCacheEntity();
+            entity.setId(1);
+            entity.setGeneratedAt(persisted.generatedAt());
+            entity.setPayload(mapper.writeValueAsString(persisted));
+            when(briefingCacheRepository.findById(1)).thenReturn(Optional.of(entity));
+
+            BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
+            LunarPhaseService lunarPhaseService = new LunarPhaseService(new LunarCalculator());
+            BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
+                    solarService, locationService,
+                    new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
+                            new WoodlandVerdictEvaluator());
+            BriefingService freshService = new BriefingService(
+                    locationService, openMeteoClient,
+                    jobRunService, briefingCacheRepository, locationRepository, mapper,
+                    new BriefingHeadlineGenerator(BST_CLOCK), bestBetAdvisor, glossService,
+                    bluebellGlossService, auroraSummaryBuilder,
+                    new BriefingHierarchyBuilder(verdictEvaluator),
+                    slotBuilder, eventPublisher, hotTopicAggregator,
+                    briefingEvaluationService, evaluationViewService, bestBetFallbackService,
+                    BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), BST_CLOCK, marineWaveRefreshService,
+                    windowTideRollupBuilder);
+            freshService.loadPersistedBriefing();
+
+            DailyBriefingResponse api = freshService.getCachedBriefingForApi();
+
+            BriefingWindow window = api.days().get(0).eventSummaries().get(0).window();
+            assertThat(window.pick())
+                    .as("window at 19:30 UTC must still be pickable when the real instant is 19:10 UTC")
+                    .isNotNull();
+            assertThat(window.pick().kind()).isEqualTo(BriefingWindow.PickKind.BEST);
+        }
     }
 
     @Nested

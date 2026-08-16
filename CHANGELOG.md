@@ -26,6 +26,36 @@ so tightening this later is a query widening rather than a migration or a re-ver
 Read-side only — no new observation, no re-verification, no scoring or prompt change, and the seven
 existing bucket keys are untouched so pulls stay comparable across dates.
 
+### Fixed — a Plan-tab pick could land on a window nobody could see
+
+Two independent bugs let the forecast-wide Best Bet or Also Good badge point at a window the Plan
+tab never rendered.
+
+`PlanWindowProjector` capped its pick-eligible set at the first **4 distinct dates**
+(`RENDERED_DAY_COUNT`), while the window-first cards render the first **6 events**
+(`MAX_VISIBLE_EVENTS`, already shared with the best-bet advisor's own rollup). The two horizons
+agree only when every day carries exactly two events — the moment one day contributes fewer, they
+diverge by up to two events, silently. On 2026-08-16 in prod, BEST landed on the 7th non-past
+event: a window with no card and no badge, that also orphaned an Also two windows earlier, inside
+the rendered six, with no surviving Best to pair it with. The fix caps the projector's own pick
+pool at the same `MAX_VISIBLE_EVENTS`, now owned by a single shared constant (`PlanRenderLimits`)
+rather than two independently-set numbers.
+
+Separately, `BriefingService` read the projector's "now" through `Europe/London`, while every
+stored event time is UTC. During BST that inflated "now" by an hour, declaring a window past up to
+an hour early — a sunset could leave the pick pool while the sun was still up. Fixed by reading the
+instant through UTC instead; the other `Europe/London` reads in the same class are untouched, since
+they derive civil "today" dates, a different concern from an instant comparison.
+
+A client-side belt-and-braces guard in `windowFirstCards.js` now also drops an Also pick when no
+Best pick survives into the rendered card set. Kept even after the backend fix: an SWR-cached
+payload can sit for up to 12h, during which the window a pick named can age out from under it,
+client-side, with no backend round-trip to notice.
+
+Phase 1 of a 4-phase plan (`docs/engineering/plan-verdict-consolidation-plan.md`); the region-led
+verdict vocabulary, the backend becoming sole owner of the rendered event list, and retiring the
+v1 best-bet system remain open, gated on the v2 flag flip.
+
 ## [v2.18.6] - 2026-08-14
 
 ### Changed — the lens bar's count names which set it counts

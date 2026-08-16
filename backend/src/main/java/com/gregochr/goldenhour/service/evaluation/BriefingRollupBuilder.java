@@ -18,6 +18,7 @@ import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingRatingStats;
+import com.gregochr.goldenhour.service.PlanRenderLimits;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -54,9 +55,6 @@ import java.util.Set;
 public final class BriefingRollupBuilder {
 
     private static final Logger LOG = LoggerFactory.getLogger(BriefingBestBetAdvisor.class);
-
-    /** Maximum number of solar events to include in the rollup (matches frontend grid). */
-    private static final int MAX_VISIBLE_EVENTS = 6;
 
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -131,7 +129,7 @@ public final class BriefingRollupBuilder {
                 if (day.date().equals(today) && isEventPast(es, now)) {
                     continue;
                 }
-                if (eventCount >= MAX_VISIBLE_EVENTS) {
+                if (eventCount >= PlanRenderLimits.MAX_VISIBLE_EVENTS) {
                     break;
                 }
                 eventCount++;
@@ -163,7 +161,7 @@ public final class BriefingRollupBuilder {
                     coverageByKey.put(BestBetRanker.coverageKey(eventId, region.regionName()), coverage);
                 }
             }
-            if (eventCount >= MAX_VISIBLE_EVENTS) {
+            if (eventCount >= PlanRenderLimits.MAX_VISIBLE_EVENTS) {
                 break;
             }
         }
