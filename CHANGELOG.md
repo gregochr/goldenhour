@@ -5,6 +5,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — a v2 rail tile states one verdict, not two
+
+`.summary-region-chip[data-pick="best"]` is keyed to `data-pick` alone, so a Best-bet region chip
+was painted `--color-verdict-go` at rest wherever it rendered — including on a `maybe` tile of the
+window-first day rail, four pixels under an amber verdict line reading `Maybe · sunset`. One tile
+asserted two verdicts, in the channel `index.css` calls "the only colour in the UI that carries
+meaning". An Also pick did the same in periwinkle, a third hue again.
+
+The v1 pill escapes this because it is a standing card read one at a time. The rail does not: six
+tiles sit in a row and the eye runs *across* them, so a hue inside a tile is read as that tile's
+verdict rather than as a chip's own identity.
+
+So the two channels are split by how they are read. The verdict takes the **scan** channel — the
+10.5px text colour, `go` green, `maybe` amber, `poor`/`away` un-tinted — and the pick keeps the
+**detail** channel, the 1px dotted underline at 60% alpha that only registers once you are looking
+at one chip. That split is not decoration: taking the underline too (the first cut) left a Best bet
+and an Also good *pixel-identical*, because the ◎ mark is one unbranched glyph and `font-weight:
+600` is set by both pick rules, so colour was the only channel separating the two kinds — and
+`buildRailTiles` stamps `pickKind` on every peak-tier chip on every tile while the tile's pick flag
+shows one pick per day and names an event, not a region. Caught in adversarial review.
+
+Scoped behind a caller opt-in, because the rules are shared with the frozen v1 arm: the rail adds
+`rail-region-chip`, `BriefingSummaryStrip` does not, and the new selectors are `(0,3,0)` so they
+displace the pick rules on specificity rather than on source order. v1 is untouched and still shows
+green and periwinkle picks at rest — verified by measurement in both arms, at 1400px and 390px.
+Every v2 chip now brightens on hover, not just a picked one: the previous hover *was* the colour
+change that is now the resting state, so without it a plain chip would have had no affordance at all.
+
+`poor` and `away` are named rather than left to fall through, so an unhandled verdict cannot revert
+a chip to a pick hue — but they are a **guard, not a live case**, and the code says so: a poor tile
+is *defined* by having no rated entries and so carries no chips at all.
+
+New `regionChipVerdictColour.test.jsx` pins both arms against the real `index.css`: the suite runs
+with `css: false`, so it slices the chip rules out of the file and injects them, with a guard that
+fails loudly if the extraction stops matching. Both channels are asserted, not just the text; a
+dedicated case pins that a Best and an Also chip on one tile stay distinguishable. jsdom resolves
+specificity but not `var()`, so those tests prove which rule won and the hex resolution was proven
+in the browser.
+
 ### Added — `underTriageCut` variants for the veto and blocked families
 
 `WeatherTriageEvaluator` stands a slot down above 80% solar-horizon low cloud and `ForecastService`
