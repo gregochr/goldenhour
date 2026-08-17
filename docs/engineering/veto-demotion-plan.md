@@ -99,6 +99,11 @@ eval harness and regression diffs are the only pre-deploy instruments, and §5 t
 
 ## 6. Sequencing
 
-After `corridor-forecast-cut-plan.md` lands (independent, but its buckets ride the same report
-pulls used for §5.4, and one deploy beats two). Execute in a supervised session; the two
-stop-points make it a poor fit for unattended handover.
+**Updated 2026-08-17:** the corridor cuts have all landed and reported; the measurement program is
+complete. This change now executes in a **single supervised session together with
+`blanket-confirmation-plan.md`** — both are `PromptBuilder` changes sharing one eval-harness
+re-baseline, one prompt-regression diff review, and one release, so two passes would double the
+most expensive steps (the user-owned assertion reviews) for no benefit. The blanket change is
+gated on its precision cut (see its plan); if that number is still outstanding when the session
+runs, this demotion proceeds alone rather than waiting — its evidence is complete and
+independent.

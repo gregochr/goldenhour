@@ -415,6 +415,29 @@ mixed is worst at 38.6). By §8's own rule, surfacing min/centre/max is not warr
   forecast-conditioned cut (`forecastGapLow < 20` within `farCloudier`) before it can be sized.
   Free, read-side, not yet built.
 
+### The strip split (2026-08-17) — the blanket label is the mechanism
+
+The forecast-conditioned cuts (#522 follow-up) and the thin-strip split landed and were pulled the
+same day; together they close the measurement program.
+
+- **The ideal-scenario guard is dead**: `farCloudier&fcstClear(<20)` = 428 evenings (1.5% of all),
+  `farCloudier&fcstIdeal` = 109 (0.4%). The false-"go" case barely exists — the guard is not
+  built, by its own pre-registered decision rule.
+- **The over-pessimism population is 6,281 (21.7% of all evaluations)** — forecast gate deep in
+  the blocked band (mean 92%), observed corridor beyond genuinely clear.
+- **The split is decisive and bimodal.** `stripSeen` 2,915 (46%): the forecast far reading showed
+  the drop, `meanFarError` **+2.9** — when it sees the clearing it is nearly exact, and the THIN
+  STRIP override plausibly softened. `stripMissed` **3,366 (54%, 11.6% of ALL evaluations)**:
+  `meanFarError` **+67.7** — the forecast claimed ~89% over a ~21% corridor, a forecast-visible
+  drop of ~3pp against a real ~58pp, so the data block printed
+  `[EXTENSIVE BLANKET — full penalty applies]` and *confirmed* a blanket that was not there.
+- **Both cheap fixes are dead**: no threshold retune reaches a 3pp forecast drop, and no constant
+  bias correction fits a bimodal error (+2.9 / +67.7 is a mode split, not an offset).
+- **The design conclusion**: the far-solar forecast reading may *soften* (as strip corroboration
+  it is accurate) but must not *confirm* a blanket. Sizing the change needs one more number — the
+  blanket label's precision (how often a forecast blanket call is right at all) — measured by the
+  blanket-precision cut before `blanket-confirmation-plan.md` is executed.
+
 ### Standing caveats
 
 ERA5 is reanalysis, not observation: a disagreement means "the forecast differs from a
