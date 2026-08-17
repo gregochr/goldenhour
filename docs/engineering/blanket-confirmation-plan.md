@@ -27,14 +27,34 @@ corridor that was really blanketed vs really open? The strip split conditioned o
 farClearer skies, so it counts the label's failures without its successes.
 
 `blanket-precision-cut-plan.md` (fourth recut, handover-shaped) measures it: `fcstBlanket` bucket
-split by observed corridor state. Decision rule, pre-registered before the number is seen:
+split by observed corridor state.
+
+**Amended 2026-08-17, after the cut's own adversarial review** (implemented in the precision
+commit): the raw ratio's denominator is not the label's printing population.
+`WeatherTriageEvaluator` stands a slot down above 80% solar-horizon low cloud *before any prompt
+is built*, and most blanket-band members sit above that cut — so the label never printed for
+them, and the prompt rule below cannot be what stood them down. The cut therefore also ships
+`fcstBlanket&underTriageCut(<=80)` and its `corridorOpen` sub-bucket. Two consequences:
+
+1. **The decision rule below keys on the `underTriageCut` ratio** — the false-blanket rate over
+   members the prompt could actually have seen — not the raw one, which is biased down by triage
+   depletion and up by the ~25pp reanalysis baseline offset, with no established net sign.
+2. **A second, larger design question enters the supervised session**: for members *above* the
+   cut, the stand-down mechanism is triage itself, blind to the corridor. Whether
+   `WeatherTriageEvaluator` should consult the far-corridor reading before standing down a
+   high-gap slot is a separate change with a separate risk profile (it alters which slots get
+   evaluated at all, and so carries API-cost and eval-volume implications, not just rating ones).
+   It is *scoped into the session's discussion* but NOT into this plan's change; if adopted it
+   gets its own plan and its own gate.
+
+Decision rule, pre-registered before the number is seen (over `underTriageCut`):
 
 - **False-blanket rate ≥ ~25%** → the change below ships as drafted: the blanket label loses its
   escalatory force entirely.
 - **False-blanket rate well under ~10%** → the label is mostly right; the change narrows to
   softening its *language* (from "full penalty applies" to corroboration) without touching the
-  rating bands, and the 11.6% is accepted as the price of the 90% until `actual_outcome` data
-  exists to referee the trade properly.
+  rating bands, and the residual is accepted until `actual_outcome` data exists to referee the
+  trade properly.
 - **Between** → user's call at the stop-point, with the number on the table.
 
 ## 3. The change (as drafted, subject to §2)
