@@ -5,6 +5,54 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — measure the EXTENSIVE BLANKET label's precision
+
+The strip split (#525) sized the **blocked** rule's unmitigated firing population, which sits
+beside the blanket label's rather than inside it: it gates on one reading at `>60`, admits members
+carrying no forecast far reading at all (for which no label prints), and excludes the 50–60 gap
+band where the blanket label does fire. So it could not answer the question the blanket rewording
+turns on: of all forecast blanket calls, what fraction sat over a corridor that was really
+blanketed, and what fraction over one that was really open?
+
+Three new buckets hang off the `withFar` parent (every pair carrying both analysed readings, not
+one of the divergence classes — the point is the label's full firing population): `fcstBlanket`,
+`fcstBlanket&corridorOpen(obs<=30)` and `fcstBlanket&corridorBlanketed(obs>=50)`. The parent mirrors
+`PromptBuilder` ~:489 — forecast gap **and** forecast far reading both ≥50, both arms inclusive,
+deliberately *not* the `>60` the `fcstBlocked` family uses, since those are different rules at
+different figures. The false-blanket rate is `corridorOpen / fcstBlanket`. The observed 31–49 band
+is in neither sub-bucket: a corridor that was neither open nor blanketed must not inflate either
+figure, so `corridorOpen + corridorBlanketed ≤ fcstBlanket` and is strictly less whenever an
+ambiguous sky is in the window.
+
+Three caveats are documented on the code, and the first two move the ratio in **opposite**
+directions, so it is not an upper bound on anything.
+
+1. **Much of that parent was never prompted at all.** `WeatherTriageEvaluator` stands a slot down
+   above 80% solar-horizon low cloud — the same reading projected here as `forecastGapLow` — and
+   `ForecastService` persists the row and returns before `PromptBuilder` runs, while verification
+   candidate selection filters on none of that. A member above 80 was therefore never prompted on
+   the nightly path, and those are the heaviest-cloud members, likeliest to have been genuinely
+   blanketed, which *depletes* `corridorOpen`. Two further buckets,
+   `fcstBlanket&underTriageCut(<=80)` and its `corridorOpen` sub-bucket, give the same ratio over
+   the members that could have been prompted; read them beside the pre-registered pair. The cut is
+   neither necessary nor sufficient, which is why it is named for itself rather than for
+   "prompted": below it a member can still have been stood down by precipitation, visibility or
+   tide-alignment triage, or routed to a canopy lane whose builder never emits this label
+   (`WoodlandPromptBuilder` / `BluebellPromptBuilder` — `CoastalPromptBuilder` extends
+   `PromptBuilder` and does emit it); above it a JFDI run submits the triaged candidate anyway.
+2. **The sub-buckets cut analysed readings at absolute figures** — the one thing
+   `CloudVerificationBucket` warns against, since the reanalysis baseline sits ~25pp below the
+   forecast model at the horizon (the 226 km point's own offset has never been measured
+   separately). That *inflates* `corridorOpen`, the opposite direction to caveat 1. Read the parent
+   bucket's own `meanFarError` beside the ratio.
+3. **`fcstBlanket` mirrors the label's arms, not its printing.** The label sits in an `else` after
+   `isThinStrip`, so a forecast of near ≥ far + 30 with far ≥ 50 satisfies both arms yet prints
+   THIN STRIP. That needs near ≥ 80, so it lies almost entirely in the triaged band of caveat 1;
+   inside `underTriageCut` it collapses to the single point near = 80 with far = 50.
+
+Read-side only — no new observation, no re-verification, no scoring or prompt change, and the
+twelve existing bucket keys are untouched so pulls stay comparable across dates.
+
 ## [v2.18.8] - 2026-08-16
 
 ### Added — split `farClearer&fcstBlocked` by whether the THIN STRIP override's preconditions held
