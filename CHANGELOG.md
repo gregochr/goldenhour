@@ -5,6 +5,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — `underTriageCut` variants for the veto and blocked families
+
+`WeatherTriageEvaluator` stands a slot down above 80% solar-horizon low cloud and `ForecastService`
+persists the row and returns before `PromptBuilder` runs, while verification candidate selection
+filters on none of that. So a report bucket cut on the persisted forecast columns is a mix of slots
+Claude saw and slots it never did. #528 gave the EXTENSIVE BLANKET family its `underTriageCut(<=80)`
+variants; the same contamination sits under two headlines that have not been treated, and both are
+about to be argued from:
+
+- **The veto family.** `vetoFired` (3,658 pairs, mean forecast gap 84.67) selects on the persisted
+  trigger columns, so much of it was triaged before the veto rule could fire at all. The
+  anti-selection finding — `vetoSeparation` at −7.7pp — is currently a statement about the
+  *signals*, and the demotion plan needs it to hold over the *promptable* population.
+- **The strip family.** The 21.7% headline for `farClearer&fcstBlocked(>60)` (6,281 pairs, mean gap
+  92.44), recorded under v2.18.8 below, **mixed triaged and prompted slots**, and `stripMissed`
+  (3,366) inherits that mix. A mean gap of 92 sits well above the cut, so most of that population
+  was never prompted at all.
+
+One new component, `byTriageCut`, carries four buckets: `vetoFired&underTriageCut(<=80)`,
+`vetoNotFired&underTriageCut(<=80)`, `farClearer&fcstBlocked&underTriageCut(<=80)` and
+`farClearer&fcstBlocked&stripMissed&underTriageCut(<=80)`. Each reuses the predicate its parent
+already applies — the pair's own two-trigger `vetoFired`, the shared `forecastWasBlocked`,
+`thinStripPreconditionsHeld` and `forecastGapUnderTriageCut` — since the whole value of a variant is
+that it applies identical tests to a narrower parent.
+
+**No new scalar.** The under-cut veto separation is the reader's own subtraction:
+`vetoFired&underTriageCut.meanObservedGapLow − vetoNotFired&underTriageCut.meanObservedGapLow`, read
+beside the served `vetoSeparation`, which is that same quantity over the whole window. The caveats
+recorded on `corridorBuckets` apply unchanged — the cut is neither necessary nor sufficient for
+"prompted" (precipitation, visibility and tide-alignment triage can stand a slot down under it; a
+JFDI run submits a triaged candidate over it), and its biases run in opposite directions, so no
+ratio taken from these buckets is an upper bound on anything. A pair carrying no forecast gap
+reading is in none of the four: it cannot be shown to sit under a cut on a reading it does not have.
+
+Read-side only — additive JSON, no migration, no new observation, no re-verification, and no
+scoring or prompt change. Every existing bucket key and both existing scalars are untouched, so
+pulls stay comparable across dates.
+
 ### Added — measure the EXTENSIVE BLANKET label's precision
 
 The strip split (#525) sized the **blocked** rule's unmitigated firing population, which sits

@@ -37,6 +37,10 @@ import java.util.List;
  *       a 4 km mid canvas's corridor, so the {@code &midCanvas} variants measure that geometry
  *       directly, while the {@code &highCanvas} ones sit at the near edge of the cirrus corridor
  *       (centred ~319 km) and are proxy evidence.</li>
+ *   <li>{@code byTriageCut} — the contamination question. Triage stands a slot down on the same
+ *       solar-horizon reading before any prompt is built, so the veto and blocked buckets above
+ *       are read partly over slots Claude never saw. These re-read both families over the members
+ *       that could have been prompted.</li>
  * </ul>
  *
  * @param from            start of the verified window (inclusive)
@@ -52,6 +56,10 @@ import java.util.List;
  * @param byCorridor      all pairs bucketed by near-vs-far corridor divergence, with high- and
  *                        mid-canvas-dominant sub-buckets and, cut on the forecast band each prompt
  *                        rule branches on rather than on observed structure, {@code fcst*} ones
+ * @param byTriageCut     the veto and blocked families re-read over the pairs whose forecast gap
+ *                        sat at or below the triage cut — the population a prompt could have been
+ *                        built for. Carries no scalar of its own: the under-cut veto separation is
+ *                        the difference between its first two buckets' {@code meanObservedGapLow}
  * @param vetoSeparation  mean observed horizon cloud in {@code vetoFired} minus
  *                        {@code vetoNotFired}. Positive means vetoed slots really were cloudier,
  *                        i.e. the veto discriminates. Near zero means it fires on nothing real.
@@ -71,6 +79,7 @@ public record CloudVerificationReport(
         List<CloudVerificationBucket> byWindSunAngle,
         List<CloudVerificationBucket> byConeStructure,
         List<CloudVerificationBucket> byCorridor,
+        List<CloudVerificationBucket> byTriageCut,
         Double vetoSeparation,
         Double capSeparation) {
 
@@ -88,6 +97,7 @@ public record CloudVerificationReport(
      * @param byWindSunAngle  per-alignment metrics
      * @param byConeStructure per-cone-spread metrics
      * @param byCorridor      per-corridor-divergence metrics
+     * @param byTriageCut     under-the-triage-cut veto and blocked metrics
      * @param vetoSeparation  fired-minus-not-fired observed cloud
      * @param capSeparation   uncapped-minus-capped observed cloud
      */
@@ -95,5 +105,6 @@ public record CloudVerificationReport(
         byWindSunAngle = byWindSunAngle == null ? List.of() : List.copyOf(byWindSunAngle);
         byConeStructure = byConeStructure == null ? List.of() : List.copyOf(byConeStructure);
         byCorridor = byCorridor == null ? List.of() : List.copyOf(byCorridor);
+        byTriageCut = byTriageCut == null ? List.of() : List.copyOf(byTriageCut);
     }
 }
