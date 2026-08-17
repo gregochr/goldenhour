@@ -173,9 +173,17 @@ export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick, 
           // `peakColour` and `MapOverlay`'s tone map all pair verdict-with-verdict. The badge
           // family is scoped by its declaring comment in `index.css` to "~10px type on a 12–14%
           // tint of its own hue"; this line is 10.5px on the untinted panel, the case that family
-          // is not for, so nothing forced the lift. The visible cost was a RESTING mismatch, not a
-          // hover one: the `.summary-region-chip[data-pick="best"]` rule paints a chip
-          // `--color-verdict-go` permanently, 4px below this line.
+          // is not for, so nothing forced the lift.
+          //
+          // The region chips below now resolve through this same family too, and no longer through
+          // `data-pick`. That closes the RESTING mismatch this comment used to end by describing as
+          // live: `.summary-region-chip[data-pick="best"]` painted a chip `--color-verdict-go`
+          // permanently, so on a `maybe` tile a Best-bet chip sat green 4px under an amber verdict
+          // line. The displacing rules are the `.rail-region-chip` block in `index.css`, unlocked
+          // by the class on the chip's `className` below; v1 is untouched and still shows its pick
+          // hues at rest. `verdictColour` itself is unchanged and still feeds the gloss head — the
+          // chip colour is applied in CSS rather than from this variable, because the chip needs a
+          // hover state and an inline colour cannot be overridden by `:hover`.
           //
           // Cited by SYMBOL, not by line: the first cut of this comment named `HeatmapGrid:594` and
           // `index.css:104-107`, and the very commit that wrote it moved the first target to :618
@@ -339,7 +347,15 @@ export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick, 
                         data-testid="rail-region-chip"
                         data-peak={tile.peak}
                         data-pick={region.pickKind || undefined}
-                        className="summary-region-chip"
+                        // `rail-region-chip` is the caller opt-in that hands the tile's verdict
+                        // control of this chip's TEXT colour — see the block it unlocks in
+                        // `index.css`, under `.summary-region-chip[data-pick]:hover`. The dotted
+                        // underline deliberately stays with the pick, and is the only channel left
+                        // separating a Best bet from an Also good here: the `rn-mark` below is one
+                        // unbranched ◎ and both pick rules set the same `font-weight: 600`. v1's
+                        // `BriefingSummaryStrip` does not add the class, so the frozen arm keeps
+                        // its pick hues and no shared selector moves the control.
+                        className="summary-region-chip rail-region-chip"
                         role="button"
                         tabIndex={0}
                         onClick={(e) => {

@@ -1226,6 +1226,67 @@
 .summary-region-chip[data-pick]:hover { filter: brightness(1.14); }
 .summary-region-chip .rn-mark { margin-right: 2px; opacity: 0.9; }
 
+/* ── v2 rail only: the tile's verdict owns every chip's colour ──────────────────────────────────
+   Opt-in by class. `WindowFirstDayRail` adds `rail-region-chip`; `BriefingSummaryStrip` does not,
+   so the frozen v1 arm keeps the pick hues above at rest and this file reaches it nowhere. That
+   gating is the point rather than a formality — the two arms are a live side-by-side comparison,
+   and a shared-selector edit moves the control (see the phone-heatmap regression, where the
+   headline edit provably could not reach v1 and a one-token change in the same commit did).
+
+   Why v2 diverges: the rail is a SCANNING surface. Six tiles sit in a row and the eye runs across
+   them, so a hue inside a tile is read as that tile's verdict, not as a chip's own identity. The
+   pick rules above are keyed to `data-pick` ALONE, so a Best-bet chip painted `--color-verdict-go`
+   at rest landed on a `maybe` tile 4px under an amber verdict line reading "Maybe · sunset" — one
+   tile stating two verdicts, in the one channel `index.css:41` calls "the only colour in the UI
+   that carries meaning". The v1 pill escapes this because it is a standing card read one at a
+   time, not a row scanned at a glance.
+
+   So the verdict takes the SCAN channel — the 10.5px text colour, which is what the eye reads
+   running across six tiles — and the pick keeps the DETAIL channel, the 1px dotted underline at 60%
+   alpha that you only register once you are looking at one chip. Hence `color` here and no
+   `border-bottom-color`: the underline still resolves through `[data-pick="best"]`/`["also"]`
+   above, and a plain chip still takes the base muted hairline at `.summary-region-chip`.
+
+   ⚠️ That split is load-bearing and was an adversarial-review finding, not the first cut. These
+   rules originally set `border-bottom-color` too, which displaced BOTH pick declarations — and
+   since the ◎ mark is one unbranched glyph (`WindowFirstDayRail.jsx`, `rn-mark`) and
+   `font-weight: 600` is identical in both rules above, colour was the ONLY channel separating a
+   Best bet from an Also good. Taking it left the two kinds pixel-identical wherever both landed on
+   one tile, which `buildRailTiles` produces routinely: it stamps `pickKind` on every peak-tier
+   chip on every tile, while the tile's own pick flag shows only ONE pick per day and names an
+   event rather than a region. So "the ◎ and the weight still carry the pick" is true of
+   pick-vs-plain and was false of best-vs-also. Do not fold the underline back in.
+
+   All four `peak` values are named, deliberately and exhaustively (the PropTypes enum is
+   go/maybe/poor/away), because a fall-through would leave exactly the pick hues these rules exist
+   to displace. ⚠️ `poor` and `away` are a GUARD, not a live case: `windowFirstRail.js` defines
+   `peak` as `entries.length === 0 ? 'poor' : …` and derives `regions` from those same entries, and
+   the away branch hard-codes `regions: []`, so neither tile renders a chip at all today and no
+   chip can currently carry either value. They are here so that a future builder which starts
+   emitting chips on such a tile fails safe rather than silently reverting to a pick hue. (An
+   earlier version of this comment claimed a Best pick "can land on a poor day" as a live case.
+   It cannot — a poor day has no chips to land on.)
+
+   Specificity is doing real work here: these are (0,3,0) against the pick rules' (0,2,0), so they
+   win on the cascade rather than on source order. Written as two classes for that reason; do not
+   "simplify" `.summary-region-chip.rail-region-chip` down to `.rail-region-chip`, which ties
+   (0,2,0) and then depends on staying below the pick block in this file. */
+.summary-region-chip.rail-region-chip[data-peak="go"] {
+  color: var(--color-verdict-go);
+}
+.summary-region-chip.rail-region-chip[data-peak="maybe"] {
+  color: var(--color-verdict-marginal);
+}
+.summary-region-chip.rail-region-chip[data-peak="poor"],
+.summary-region-chip.rail-region-chip[data-peak="away"] {
+  color: inherit;
+}
+/* Every v2 chip brightens on hover, not just a picked one. The rules above make the resting colour
+   the verdict colour, which is exactly what `[data-peak=…]:not([data-pick]):hover` was changing a
+   plain chip TO — so without this line a plain v2 chip hovers to the colour it already is and the
+   only interactive affordance on a control the user is invited to click disappears. */
+.summary-region-chip.rail-region-chip:hover { filter: brightness(1.14); }
+
 /* Portalled to <body> and positioned via JS (position: fixed), so no clipping/transform ancestor
    can eat its edge. Generous right padding keeps the widest gloss line off the border. */
 .summary-region-tip {
