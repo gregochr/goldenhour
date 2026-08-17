@@ -176,6 +176,42 @@ describe('BriefingSummaryStrip', () => {
     expect(chips[2].querySelector('.rn-mark')).toBeNull();
   });
 
+  it('names the pick kind in the accessible name, restating the region so it is not lost', () => {
+    // Same rule as the v2 rail's chip: `aria-label` replaces name-from-contents, so it must
+    // restate the region name (the chip's only content besides the aria-hidden ◎ mark) before
+    // naming the kind, or a screen reader would announce "Best bet" with no region attached.
+    render(<BriefingSummaryStrip
+      pills={[pill({
+        countLabel: null,
+        regions: [
+          { regionName: 'Tyne and Wear', shortName: 'Tyne & Wear', targetType: 'SUNSET', verdictLabel: 'Worth it sunset', wx: '', summary: '', pickKind: 'best' },
+          { regionName: 'The North Yorkshire Coast', shortName: 'N. Yorks Coast', targetType: 'SUNSET', verdictLabel: 'Worth it sunset', wx: '', summary: '', pickKind: 'also' },
+        ],
+      })]}
+      onPillClick={vi.fn()}
+      onRegionClick={vi.fn()}
+    />);
+
+    expect(screen.getByRole('button', { name: 'Tyne & Wear — Best bet' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'N. Yorks Coast — Also good' })).toBeInTheDocument();
+  });
+
+  it('leaves a plain chip named by its content alone, with no redundant label', () => {
+    render(<BriefingSummaryStrip
+      pills={[pill({
+        countLabel: null,
+        regions: [
+          { regionName: 'Teesdale', shortName: 'Teesdale', targetType: 'SUNSET', verdictLabel: 'Worth it sunset', wx: '', summary: '' },
+        ],
+      })]}
+      onPillClick={vi.fn()}
+      onRegionClick={vi.fn()}
+    />);
+    const chip = screen.getByTestId('summary-region-chip');
+    expect(chip).not.toHaveAttribute('aria-label');
+    expect(chip).toHaveAccessibleName('Teesdale');
+  });
+
   it('falls back to the terse summary when no gloss is available', () => {
     render(<BriefingSummaryStrip
       pills={[pill({

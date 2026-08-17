@@ -196,6 +196,16 @@ export default function BriefingSummaryStrip({ pills, onPillClick, onRegionClick
                           className="summary-region-chip"
                           role="button"
                           tabIndex={0}
+                          // Non-visual only: no visible rendering changes, so this holds even though
+                          // the component is otherwise a frozen copy of the v2 rail's chip (see
+                          // WindowFirstDayRail.jsx for the full rationale). The ◎ mark is
+                          // `aria-hidden`, so a pick chip's accessible name was just `shortName` —
+                          // identical to a plain chip's, with no way to tell a Best bet apart by ear.
+                          // `aria-label` replaces name-from-contents rather than adding to it, so the
+                          // label restates the region name before naming the kind.
+                          aria-label={region.pickKind
+                            ? `${region.shortName} — ${region.pickKind === 'best' ? 'Best bet' : 'Also good'}`
+                            : undefined}
                           onClick={(e) => { e.stopPropagation(); onRegionClick?.(region.regionName, pill.date, region.targetType); }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {

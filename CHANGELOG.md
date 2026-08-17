@@ -5,6 +5,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the Plan tab's Best bet / Also good chips were invisible to screen readers
+
+The ◎ mark that flags a region chip as the forecast-wide "Best bet" or "Also good" pick has always
+been `aria-hidden`, in both Plan-tab layout arms (`WindowFirstDayRail`'s rail and
+`BriefingSummaryStrip`'s v1 pill grid). A screen reader announced a picked chip identically to a
+plain one — just the region name — with no way to tell a Best bet apart from any other rated
+region. Found during an adversarial review of a v2 rail commit and deliberately deferred there as
+pre-existing and out of scope.
+
+Both chips now carry a conditional `aria-label` that restates the visible `shortName` before naming
+the kind ("‹Region› — Best bet" / "‹Region› — Also good"), rather than an unqualified
+`aria-label="Best bet"` — `aria-label` REPLACES name-from-contents rather than extending it, so a
+label that didn't restate the region would silently delete it from what a screen reader announces.
+Plain chips are untouched: their accessible name still comes from their content alone. Since the v2
+rail's own visual distinction between the two kinds is dotted-underline colour only, the accessible
+name is now the only non-colour channel that tells them apart.
+
+Fixed in both arms, including the v1 strip that is the frozen control of a layout feature flag,
+because the ◎ mechanism originated there and v1 remains the live default today — an `aria-label`
+has no visual footprint, so it does not touch the "no visual rendering change" rule that arm is
+held to. Two related, pre-existing gaps surfaced by the same review — the pick label carries no
+day/event qualifier when the same picked region reappears on more than one rendered day, and the
+two pick kinds are still distinguished only by colour (WCAG 1.4.1) with no non-colour visual cue on
+the region chip itself — are tracked separately rather than folded into this fix.
+
 ### Added — `underTriageCut` variants for the veto and blocked families
 
 `WeatherTriageEvaluator` stands a slot down above 80% solar-horizon low cloud and `ForecastService`

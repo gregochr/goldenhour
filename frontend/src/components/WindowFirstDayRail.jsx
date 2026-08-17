@@ -342,6 +342,16 @@ export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick, 
                         className="summary-region-chip"
                         role="button"
                         tabIndex={0}
+                        // The ◎ mark is `aria-hidden` (below), so with no pick a chip's accessible
+                        // name is already just `shortName` from its content — fine as is. A pick
+                        // chip needs more, but `aria-label` REPLACES name-from-contents rather than
+                        // adding to it (see WindowFirstDayRail.jsx:262's own pick flag for the same
+                        // rule), so the label has to restate the region name, not just add "Best
+                        // bet"/"Also good" on top of it, or a screen reader loses which region this
+                        // is. The visible text (`shortName`) leads, contiguously, for WCAG 2.5.3.
+                        aria-label={region.pickKind
+                          ? `${region.shortName} — ${region.pickKind === 'best' ? 'Best bet' : 'Also good'}`
+                          : undefined}
                         onClick={(e) => {
                           e.stopPropagation();
                           onRegionClick?.(region.regionName, tile.date, region.targetType);
