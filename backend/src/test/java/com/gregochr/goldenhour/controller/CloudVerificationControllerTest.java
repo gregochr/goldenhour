@@ -122,7 +122,12 @@ class CloudVerificationControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.byConeStructure[0].key").value("gapped(>=40)"))
                 .andExpect(jsonPath("$.byConeStructure[0].meanConeSpread").value(55.0))
                 .andExpect(jsonPath("$.byCorridor[0].key").value("farClearer&highCanvas"))
-                .andExpect(jsonPath("$.byCorridor[0].meanFarDrop").value(48.0));
+                .andExpect(jsonPath("$.byCorridor[0].meanFarDrop").value(48.0))
+                // Additive: the under-the-cut variants ride the same payload, and both means are
+                // served, since the under-cut veto separation is the reader's own subtraction.
+                .andExpect(jsonPath("$.byTriageCut[0].key").value("vetoFired&underTriageCut(<=80)"))
+                .andExpect(jsonPath("$.byTriageCut[0].meanObservedGapLow").value(68.0))
+                .andExpect(jsonPath("$.byTriageCut[1].meanObservedGapLow").value(51.0));
     }
 
     @Test
@@ -165,8 +170,17 @@ class CloudVerificationControllerTest extends AbstractControllerTest {
         CloudVerificationBucket clearerHigh =
                 new CloudVerificationBucket("farClearer&highCanvas", 7, -18.0, 28.0, 1.9,
                         66.0, 71.0, null, 48.0, -6.0);
+        // The veto split re-read over the slots a prompt could have been built for. Carried as a
+        // pair because the under-cut separation is derived from their two meanObservedGapLow
+        // values — 68.0 - 51.0 — rather than served as a scalar of its own.
+        CloudVerificationBucket firedUnderCut =
+                new CloudVerificationBucket("vetoFired&underTriageCut(<=80)", 11, -9.0, 21.0, 1.7,
+                        70.0, 68.0, null, null, null);
+        CloudVerificationBucket notFiredUnderCut =
+                new CloudVerificationBucket("vetoNotFired&underTriageCut(<=80)", 62, -1.0, 15.0,
+                        3.4, 48.0, 51.0, null, null, null);
         return new CloudVerificationReport(FROM, TO, 120L, overall, fired, notFired,
                 uncapped, capped, List.of(aligned), List.of(gapped), List.of(clearerHigh),
-                23.6, 8.0);
+                List.of(firedUnderCut, notFiredUnderCut), 23.6, 8.0);
     }
 }

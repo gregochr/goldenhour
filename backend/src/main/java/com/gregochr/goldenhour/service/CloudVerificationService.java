@@ -552,13 +552,14 @@ public class CloudVerificationService {
                 windSunBuckets(fired),
                 coneStructureBuckets(pairs),
                 corridorBuckets(pairs),
+                triageCutBuckets(pairs),
                 null,
                 null);
         report = new CloudVerificationReport(
                 report.from(), report.to(), report.verifiedCount(), report.overall(),
                 report.vetoFired(), report.vetoNotFired(), report.vetoUncapped(),
                 report.vetoCapped(), report.byWindSunAngle(),
-                report.byConeStructure(), report.byCorridor(),
+                report.byConeStructure(), report.byCorridor(), report.byTriageCut(),
                 separation(report.vetoFired(), report.vetoNotFired()),
                 separation(report.vetoUncapped(), report.vetoCapped()));
 
@@ -742,7 +743,7 @@ public class CloudVerificationService {
         List<CloudVerificationPair> withFar = pairs.stream()
                 .filter(p -> p.farDrop() != null).toList();
         List<CloudVerificationPair> clearer = withFar.stream()
-                .filter(p -> p.farDrop() >= FAR_DIVERGENCE_PP).toList();
+                .filter(CloudVerificationService::farCorridorCleared).toList();
         List<CloudVerificationPair> cloudier = withFar.stream()
                 .filter(p -> p.farDrop() <= -FAR_DIVERGENCE_PP).toList();
         List<CloudVerificationPair> fcstBlocked = clearer.stream()
@@ -786,6 +787,76 @@ public class CloudVerificationService {
                 CloudVerificationBucket.of("fcstBlanket&underTriageCut&corridorOpen(obs<=30)",
                         underTriageCut.stream()
                                 .filter(CloudVerificationService::corridorWasOpen).toList()));
+    }
+
+    /**
+     * Re-reads the veto and blocked families over the pairs a prompt could have been built for.
+     *
+     * <p>Both families select on persisted forecast columns rather than on whether a prompt ever
+     * ran, and {@code WeatherTriageEvaluator} stands a slot down above
+     * {@link #TRIAGE_SOLAR_LOW_CLOUD_MAX_PCT}% solar-horizon low cloud before
+     * {@code PromptBuilder} is reached. So both of the headlines the prompt-change session is about
+     * to be argued from are read partly over slots Claude never saw: the veto's anti-selection
+     * finding (the {@code vetoSeparation} scalar, computed over every pair) and the blocked
+     * family's share of the window ({@code farClearer&fcstBlocked(>60)} and its {@code stripMissed}
+     * subset). These four buckets state the same two things over the promptable population, and
+     * neither headline should be cited in that session without them.
+     *
+     * <p>The caveats on {@link #corridorBuckets}' first bullet apply verbatim and are deliberately
+     * not restated: the cut is neither necessary nor sufficient for "prompted", and its two biases
+     * run in opposite directions, so nothing read here is an upper bound on anything. One addition
+     * specific to this list — a pair carrying no forecast gap reading is in none of the four
+     * buckets, because it cannot be shown to sit under a cut on a reading it does not have. That
+     * makes {@code vetoNotFired&underTriageCut} narrower than its parent for two separable reasons,
+     * the cut and the missing reading.
+     *
+     * <p><strong>The under-cut veto separation is derived by the reader</strong>, as
+     * {@code vetoFired&underTriageCut}'s {@code meanObservedGapLow} minus
+     * {@code vetoNotFired&underTriageCut}'s, and read beside {@link CloudVerificationReport}'s
+     * {@code vetoSeparation}, which is that same quantity over the whole window. Deliberately no
+     * new scalar: the record grows by one list and nothing else. The first two buckets partition
+     * the under-cut population between them, so their sample counts sum to its size — which is the
+     * denominator to read the two blocked variants against, the window's own
+     * {@code verifiedCount} being the contaminated total this list exists to get away from.
+     *
+     * @param pairs every verified pair in the window
+     * @return the two veto variants then the two blocked-family variants
+     */
+    private List<CloudVerificationBucket> triageCutBuckets(List<CloudVerificationPair> pairs) {
+        List<CloudVerificationPair> underCut = pairs.stream()
+                .filter(CloudVerificationService::forecastGapUnderTriageCut).toList();
+        // Same parent chain the corridor list's blocked family hangs off — a divergent corridor
+        // first, the forecast's own BLOCKED band second — with the cut applied last.
+        List<CloudVerificationPair> blockedUnderCut = underCut.stream()
+                .filter(CloudVerificationService::farCorridorCleared)
+                .filter(CloudVerificationService::forecastWasBlocked)
+                .toList();
+        return List.of(
+                CloudVerificationBucket.of("vetoFired&underTriageCut(<=80)", underCut.stream()
+                        .filter(CloudVerificationPair::vetoFired).toList()),
+                CloudVerificationBucket.of("vetoNotFired&underTriageCut(<=80)", underCut.stream()
+                        .filter(p -> !p.vetoFired()).toList()),
+                CloudVerificationBucket.of("farClearer&fcstBlocked&underTriageCut(<=80)",
+                        blockedUnderCut),
+                CloudVerificationBucket.of(
+                        "farClearer&fcstBlocked&stripMissed&underTriageCut(<=80)",
+                        blockedUnderCut.stream()
+                                .filter(p -> !thinStripPreconditionsHeld(p)).toList()));
+    }
+
+    /**
+     * Returns whether the analysed corridor cleared with distance — the {@code farClearer} class.
+     *
+     * <p>Extracted so the corridor list's parent and the under-the-triage-cut variant of its
+     * blocked family select the identical population. The whole value of a variant is that it
+     * applies the same tests to a narrower parent, which a second inline copy of this comparison
+     * would let drift.
+     *
+     * @param pair one verified pair
+     * @return true when the analysed near-minus-far drop reached {@link #FAR_DIVERGENCE_PP}
+     */
+    private static boolean farCorridorCleared(CloudVerificationPair pair) {
+        return pair.farDrop() != null && pair.farDrop() >= FAR_DIVERGENCE_PP;
     }
 
     /**
@@ -851,8 +922,10 @@ public class CloudVerificationService {
      * Returns whether the forecast gap sat at or below the triage cut, so the slot could have
      * reached Claude.
      *
-     * <p>Extracted so the sub-bucket and its own corridor cut apply the identical test, and shared
-     * with nothing else — this is a gate in front of the prompt, not one of the prompt's bands.
+     * <p>Extracted so every bucket cut on the cut applies the identical test — the blanket
+     * sub-bucket and its own corridor cut in {@link #corridorBuckets}, and all four variants in
+     * {@link #triageCutBuckets}. This is a gate in front of the prompt, not one of the prompt's
+     * bands, which is why it sits apart from the {@code PROMPT_*} predicates.
      *
      * <p>States only what it measures. Passing the cut does not establish that a prompt was built
      * (precipitation and visibility triage can still have fired, and the canopy lanes prompt
@@ -860,7 +933,8 @@ public class CloudVerificationService {
      * candidates). It is the one triage rule reading the same column this report projects, which
      * is what makes it checkable here at all.
      *
-     * @param pair one verified pair, already known to carry a non-null {@code forecastGapLow}
+     * @param pair one verified pair; a pair carrying no forecast gap reading is a non-member,
+     *            since it cannot be shown to sit under a cut on a reading it does not have
      * @return true when the forecast gap was at or below {@link #TRIAGE_SOLAR_LOW_CLOUD_MAX_PCT}
      */
     private static boolean forecastGapUnderTriageCut(CloudVerificationPair pair) {

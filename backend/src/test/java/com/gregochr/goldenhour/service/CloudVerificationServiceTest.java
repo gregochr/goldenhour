@@ -527,12 +527,138 @@ class CloudVerificationServiceTest {
                 .isLessThan(bucketCount(report, "fcstBlanket&underTriageCut(<=80)"));
     }
 
+    @Test
+    @DisplayName("report re-reads the veto and blocked families over the promptable population")
+    void report_bucketsTriageCutVariants() {
+        // Veto half. None of these carries an analysed far reading, so the corridor families
+        // cannot see them and the two blocked variants below are decided purely by the other half.
+        // Fired, well under the cut: a slot the veto suppressed that a prompt could have been
+        // built for.
+        CloudVerificationPair firedUnderCut = vetoCutPair(true, 70, 50, 90);
+        // Fired at exactly the cut — a member, pinning <= against <. Triage stands a slot down
+        // ABOVE 80%, so 80 itself could still have reached Claude.
+        CloudVerificationPair firedAtCutEdge = vetoCutPair(true, 70, 80, 70);
+        // One point over: fired, but never prompted on the nightly path. In the parent, out here.
+        CloudVerificationPair firedOverCut = vetoCutPair(true, 70, 81, 90);
+        CloudVerificationPair notFiredUnderCut = vetoCutPair(false, 70, 50, 20);
+        CloudVerificationPair notFiredOverCut = vetoCutPair(false, 70, 90, 20);
+        // Only ONE trigger: the trend is building but the upwind reading is a point below the 60%
+        // the second trigger needs. The veto did not fire, so this belongs in the notFired variant
+        // — which is what pins the variant to the pair's own two-trigger predicate rather than to
+        // a re-derivation that reads the building flag alone.
+        CloudVerificationPair singleTriggerUnderCut = vetoCutPair(true, 59, 50, 0);
+        // The other side of that trigger, at exactly 60: a member. Without it the second trigger's
+        // >= could be tightened to > and every count here would be unchanged — the suite has no
+        // other fixture at 60, so this variant's own member is what pins it.
+        CloudVerificationPair firedAtUpwindTrigger = vetoCutPair(true, 60, 50, 80);
+        // Fired, but carrying no forecast gap reading at all: it cannot be shown to sit under a
+        // cut on a reading it does not have, so it is a non-member of the fired variant while
+        // still counting in the fired parent.
+        CloudVerificationPair nullGapFired = vetoCutPair(true, 70, null, 50);
+        // Blocked half. Every fixture holds its observed canvas constant and observes 80 near; all
+        // but the last two also observe 20 far, a 60pp drop that puts them in farClearer. So what
+        // moves is the forecast gap (the BLOCKED band and the cut), the forecast far reading (the
+        // strip precondition) and — in the last two only — the analysed drop itself.
+        // Forecast drop 70-30=40: the THIN STRIP preconditions held.
+        CloudVerificationPair blockedStripSeenUnderCut =
+                corridorPair(80, 20, 70, 30, 70, 60, 40, 30);
+        // Forecast drop 70-61=9: unmitigated, so this one is in BOTH blocked variants.
+        CloudVerificationPair blockedStripMissedUnderCut =
+                corridorPair(80, 20, 70, 30, 70, 60, 40, 61);
+        // Blocked at exactly the cut, strip missed (drop 10) — a member of both, pinning the <=
+        // on the blocked side too rather than only on the veto side.
+        CloudVerificationPair blockedAtCutEdge = corridorPair(80, 20, 70, 30, 80, 60, 40, 70);
+        // Blocked, strip missed (drop 1), but over the cut: in both parents, in neither variant.
+        CloudVerificationPair blockedOverCut = corridorPair(80, 20, 70, 30, 90, 60, 40, 89);
+        // Forecast gap exactly 60: under the cut and in farClearer, but not in the BLOCKED band,
+        // which is > 60. Out of both blocked variants — so the blocked predicate is load-bearing
+        // here and not merely inherited.
+        CloudVerificationPair notBlockedAtBandEdge = corridorPair(80, 20, 70, 30, 60, 60, 40, 25);
+        // Blocked and under the cut, but the analysed corridor only drops 80 -> 60: not farClearer,
+        // so it must stay out of both variants. The wrong-parent detector — cut this family from
+        // every under-cut pair rather than from the clearer ones and this pair appears.
+        CloudVerificationPair blockedNotClearerUnderCut =
+                corridorPair(80, 60, 70, 30, 70, 60, 40, 30);
+        // The other side of that boundary: an analysed drop of exactly 30, so a farClearer member,
+        // blocked (70), under the cut, strip missed (drop 9). In both variants. It is the whole
+        // suite's only fixture at the divergence edge, so without it the shared farClearer
+        // comparison could be tightened to > 30 with every count here unchanged.
+        CloudVerificationPair blockedAtDivergenceEdge =
+                corridorPair(80, 50, 70, 30, 70, 60, 40, 61);
+        when(repository.findVerifiedPairs(FROM, TO)).thenReturn(List.of(firedUnderCut,
+                firedAtCutEdge, firedOverCut, notFiredUnderCut, notFiredOverCut,
+                singleTriggerUnderCut, firedAtUpwindTrigger, nullGapFired, blockedStripSeenUnderCut,
+                blockedStripMissedUnderCut, blockedAtCutEdge, blockedOverCut, notBlockedAtBandEdge,
+                blockedNotClearerUnderCut, blockedAtDivergenceEdge));
+        when(repository.countVerifiedInWindow(FROM, TO)).thenReturn(15L);
+
+        CloudVerificationReport report = service.report(FROM, TO);
+
+        assertThat(report.byTriageCut()).extracting(CloudVerificationBucket::key)
+                .containsExactly("vetoFired&underTriageCut(<=80)",
+                        "vetoNotFired&underTriageCut(<=80)",
+                        "farClearer&fcstBlocked&underTriageCut(<=80)",
+                        "farClearer&fcstBlocked&stripMissed&underTriageCut(<=80)");
+        // The whole vector, counted by hand. Eleven of the fifteen pairs carry a forecast gap at
+        // or under 80 (50, 80, 50, 50, 50, 70, 70, 80, 60, 70 and 70); the other four are
+        // firedOverCut (81), notFiredOverCut (90), blockedOverCut (90) and nullGapFired (no
+        // reading at all). Of those eleven, three fired the veto — singleTriggerUnderCut does not,
+        // at upwind 59, while firedAtUpwindTrigger does, at exactly 60 — leaving eight in the
+        // notFired variant. Four of the eleven are both farClearer and in the BLOCKED band: the
+        // two strip fixtures, blockedAtCutEdge and blockedAtDivergenceEdge (notBlockedAtBandEdge
+        // stops at gap 60, blockedNotClearerUnderCut at a 20pp drop). Three of those four had no
+        // strip signal in the forecast (drops of 9, 10 and 9; blockedStripSeenUnderCut's 40
+        // mitigates it).
+        assertThat(report.byTriageCut()).extracting(CloudVerificationBucket::sampleCount)
+                .containsExactly(3, 8, 4, 3);
+        // The veto pair partitions the under-cut population exactly: every pair under the cut is
+        // in one variant or the other, so a member cannot be lost between them — which is also
+        // what makes their sum the denominator for reading the two blocked variants' share.
+        assertThat(triageCutCount(report, "vetoFired&underTriageCut(<=80)")
+                + triageCutCount(report, "vetoNotFired&underTriageCut(<=80)"))
+                .isEqualTo(11);
+
+        // Every variant is a STRICT subset of its parent, read from the report's own values — so
+        // none can be an alias of what it hangs off, and the cut is doing work in all four.
+        assertThat(triageCutCount(report, "vetoFired&underTriageCut(<=80)"))
+                .isLessThan(report.vetoFired().sampleCount());
+        assertThat(triageCutCount(report, "vetoNotFired&underTriageCut(<=80)"))
+                .isLessThan(report.vetoNotFired().sampleCount());
+        assertThat(triageCutCount(report, "farClearer&fcstBlocked&underTriageCut(<=80)"))
+                .isLessThan(bucketCount(report, "farClearer&fcstBlocked(>60)"));
+        assertThat(triageCutCount(report, "farClearer&fcstBlocked&stripMissed&underTriageCut(<=80)"))
+                .isLessThan(bucketCount(report, "farClearer&fcstBlocked&stripMissed"))
+                .isLessThan(triageCutCount(report, "farClearer&fcstBlocked&underTriageCut(<=80)"));
+
+        // The under-cut veto separation is the reader's own subtraction — no scalar is served for
+        // it — so both means must be present and populated: (90+70+80)/3 against (20+0+80x6)/8,
+        // a separation of 17.5.
+        assertThat(triageCutBucket(report, "vetoFired&underTriageCut(<=80)").meanObservedGapLow())
+                .isEqualTo(80.0);
+        assertThat(triageCutBucket(report, "vetoNotFired&underTriageCut(<=80)").meanObservedGapLow())
+                .isEqualTo(62.5);
+        // And it is not the same number as the served whole-window scalar (76.0 - 60.0), which is
+        // the entire reason for cutting: the window's figure is diluted by slots never prompted.
+        assertThat(report.vetoSeparation()).isEqualTo(16.0);
+    }
+
     private int bucketCount(CloudVerificationReport report, String key) {
         return report.byCorridor().stream()
                 .filter(bucket -> bucket.key().equals(key))
                 .findFirst()
                 .orElseThrow()
                 .sampleCount();
+    }
+
+    private CloudVerificationBucket triageCutBucket(CloudVerificationReport report, String key) {
+        return report.byTriageCut().stream()
+                .filter(bucket -> bucket.key().equals(key))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private int triageCutCount(CloudVerificationReport report, String key) {
+        return triageCutBucket(report, key).sampleCount();
     }
 
     @Test
@@ -570,6 +696,27 @@ class CloudVerificationServiceTest {
         return new CloudVerificationPair("Durham UK", DATE, TargetType.SUNSET, 0, 2,
                 30, observedGapLow, 60, 40, 55, 40,
                 building, upwindCurrent, upwindDistanceKm, windDirection, 250,
+                null, null, null, null);
+    }
+
+    /**
+     * A pair carrying both veto triggers and a settable forecast gap, and no analysed far reading.
+     *
+     * <p>The missing far reading is deliberate: it keeps every veto fixture out of the corridor
+     * families, so the two blocked variants of {@code byTriageCut} are decided only by the
+     * fixtures built for them.
+     *
+     * @param building        whether the [BUILDING] trend trigger fired
+     * @param upwindLow       current low cloud at the upwind point (%), the second trigger
+     * @param forecastGapLow  forecast solar-horizon low cloud (%), or {@code null} for none
+     * @param observedGapLow  analysed solar-horizon low cloud (%)
+     * @return the pair
+     */
+    private CloudVerificationPair vetoCutPair(boolean building, int upwindLow,
+            Integer forecastGapLow, int observedGapLow) {
+        return new CloudVerificationPair("Durham UK", DATE, TargetType.SUNSET, 0, 2,
+                forecastGapLow, observedGapLow, 60, 40, 55, 40,
+                building, upwindLow, 120, 240, 250,
                 null, null, null, null);
     }
 
