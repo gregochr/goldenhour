@@ -366,6 +366,39 @@ describe('WindowFirstDayRail', () => {
       expect(within(chips[2]).queryByText('◎')).toBeNull();
     });
 
+    it('names the pick kind in the accessible name, restating the SHORT name so it is not lost', () => {
+      // `aria-label` REPLACES name-from-contents rather than extending it, so a naive
+      // `aria-label="Best bet"` would delete the region name a screen reader announces for every
+      // other chip. The visible text (shortName) must lead, contiguously, for WCAG 2.5.3.
+      //
+      // regionName and shortName are deliberately DIFFERENT here (unlike a same-valued fixture),
+      // so this test can actually catch a `region.regionName` vs `region.shortName` mix-up rather
+      // than passing either way — the chip renders shortName, so the label must restate shortName.
+      render(<WindowFirstDayRail tiles={[tile({
+        regions: [
+          { ...tile().regions[0], regionName: 'Best Region Full Name', shortName: 'Best Rgn', pickKind: 'best' },
+          { ...tile().regions[0], regionName: 'Also Region Full Name', shortName: 'Also Rgn', pickKind: 'also' },
+        ],
+        ratedCount: 2,
+      })]} />);
+
+      const chips = screen.getAllByTestId('rail-region-chip');
+      expect(screen.getByRole('button', { name: 'Best Rgn — Best bet' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Also Rgn — Also good' })).toBeInTheDocument();
+      // The label's own text stands in for the mark, so a screen reader must never double-announce
+      // it — pinned here, not just visually, to catch a dropped `aria-hidden` on a copy-edit
+      // between this file and its BriefingSummaryStrip sibling (whose own test pins this already).
+      expect(chips[0].querySelector('.rn-mark')).toHaveAttribute('aria-hidden', 'true');
+      expect(chips[1].querySelector('.rn-mark')).toHaveAttribute('aria-hidden', 'true');
+    });
+
+    it('leaves a plain chip named by its content alone, with no redundant label', () => {
+      render(<WindowFirstDayRail tiles={[tile()]} />);
+      const chip = screen.getByTestId('rail-region-chip');
+      expect(chip).not.toHaveAttribute('aria-label');
+      expect(chip).toHaveAccessibleName('Northumberland & Tyneside');
+    });
+
     it('renders no chips and no count when no region is rated', () => {
       // The verdict line above already says "All poor". A count here would describe the roster,
       // not tonight — §6 bans it, and `buildRailTiles` no longer emits one.
