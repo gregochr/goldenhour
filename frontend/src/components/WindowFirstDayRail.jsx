@@ -35,7 +35,7 @@ export const DATE_ROW_MIN_HEIGHT_PX = FLAG_LINES * FLAG_FONT_PX * FLAG_LINE_HEIG
  * <h2>A copy of the v1 summary tile, restyled; not a rewiring of it</h2>
  *
  * <p>The medallion, the sun times, the verdict line, the identity-ordered region chips with their
- * {@code ◎} mark, the show-on-map action and the away variant all exist in
+ * pick mark, the show-on-map action and the away variant all exist in
  * {@code BriefingSummaryStrip} and are copied here. Plan §5: rewiring that component would break
  * the v1 arm of the flag comparison, which §4 rests on. Genuinely new: the pick flag chip, today's
  * border tint, and the spec's px geometry.
@@ -350,11 +350,15 @@ export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick, 
                         // `rail-region-chip` is the caller opt-in that hands the tile's verdict
                         // control of this chip's TEXT colour — see the block it unlocks in
                         // `index.css`, under `.summary-region-chip[data-pick]:hover`. The dotted
-                        // underline deliberately stays with the pick, and is the only channel left
-                        // separating a Best bet from an Also good here: the `rn-mark` below is one
-                        // unbranched ◎ and both pick rules set the same `font-weight: 600`. v1's
-                        // `BriefingSummaryStrip` does not add the class, so the frozen arm keeps
-                        // its pick hues and no shared selector moves the control.
+                        // underline stays with the pick (a secondary, colour-only cue), but is no
+                        // longer the only thing separating a Best bet from an Also good here: the
+                        // `rn-mark` below now branches shape (◎ vs ●), a WCAG 1.4.1 fix — v1's
+                        // unbranched ◎ was audit-flagged as the sole differentiator wherever both
+                        // land on one tile, which `buildRailTiles` produces routinely (see below).
+                        // v1's `BriefingSummaryStrip` does not add this class, so the frozen arm
+                        // keeps its pick hues and no shared selector moves the control — it also
+                        // keeps rendering the unbranched ◎ untouched; that gap is not fixed there,
+                        // deliberately, per the shared-component blast-radius rule (index.css).
                         className="summary-region-chip rail-region-chip"
                         role="button"
                         tabIndex={0}
@@ -391,7 +395,11 @@ export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick, 
                         onFocus={(e) => showGloss(e, region, verdictColour, tile.date)}
                         onBlur={() => hide(`${tile.date}:${region.regionName}`)}
                       >
-                        {region.pickKind && <span className="rn-mark" aria-hidden="true">◎</span>}
+                        {region.pickKind && (
+                          <span className="rn-mark" aria-hidden="true">
+                            {region.pickKind === 'best' ? '◎' : '●'}
+                          </span>
+                        )}
                         {region.shortName}
                       </span>
                     </span>

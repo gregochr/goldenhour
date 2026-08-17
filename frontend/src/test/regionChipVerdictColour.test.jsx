@@ -183,16 +183,19 @@ describe('region chip resting colour — v2 rail', () => {
 
   it('still tells a Best pick from an Also pick on the SAME tile', () => {
     // The defect this guards was introduced by the first cut of these rules and caught in review:
-    // they set `border-bottom-color` as well as `color`, displacing BOTH pick declarations. Since
-    // the ◎ is one unbranched glyph and `font-weight: 600` is identical in both pick rules, colour
-    // was the ONLY channel separating the two kinds — so the two chips rendered pixel-identical
-    // apart from the region name.
+    // they set `border-bottom-color` as well as `color`, displacing BOTH pick declarations. At the
+    // time, the ◎ was one unbranched glyph and `font-weight: 600` was identical in both pick rules,
+    // so colour was the ONLY channel separating the two kinds — the two chips rendered
+    // pixel-identical apart from the region name. A later pass branched the glyph itself (◎ vs ●,
+    // asserted below), closing that WCAG 1.4.1 gap; the underline colour asserted here is now a
+    // redundant secondary cue, not the sole one — kept because it still matches the Best bet / Also
+    // good card accents, not because removing it would make the two chips indistinguishable.
     //
     // Reachable in ordinary operation, which is why it is a defect and not a nit: `buildRailTiles`
     // stamps `pickKind` on every peak-tier chip on every tile, while the tile's own pick flag shows
     // just ONE pick per day and names an event rather than a region — so nothing else on the tile
-    // disambiguates them. Asserted as a DIFFERENCE rather than against two literals, so it keeps
-    // holding if the palette moves.
+    // disambiguates them. Colour asserted as a DIFFERENCE rather than against two literals, so it
+    // keeps holding if the palette moves.
     render(<WindowFirstDayRail tiles={[{
       ...railTile('maybe', 'best'),
       regions: [
@@ -205,7 +208,11 @@ describe('region chip resting colour — v2 rail', () => {
     // Same verdict — that half of the change must survive.
     expect(getComputedStyle(best).color).toBe(MARGINAL);
     expect(getComputedStyle(also).color).toBe(MARGINAL);
-    // …and still distinguishable.
+    // …and still distinguishable without colour: a shape difference, not just the underline hue.
+    expect(best).toHaveTextContent('◎');
+    expect(best).not.toHaveTextContent('●');
+    expect(also).toHaveTextContent('●');
+    expect(also).not.toHaveTextContent('◎');
     expect(getComputedStyle(best).borderBottomColor)
       .not.toBe(getComputedStyle(also).borderBottomColor);
   });
@@ -289,6 +296,21 @@ describe('region chip resting colour — v1 strip is the frozen control', () => 
       });
       unmount();
     });
+  });
+
+  it('still renders the unbranched ◎ for both Best and Also — the shape fix is v2-only', () => {
+    // Pins the deliberate scope boundary: v1 is the frozen comparison control (see
+    // shared-component-blast-radius), so the WCAG 1.4.1 colour-only gap between a Best and an Also
+    // chip is NOT fixed here. This is documented, accepted debt, not an oversight — the fix lives
+    // entirely in `WindowFirstDayRail.jsx`'s own `rn-mark`, a separate render path v1 never shares.
+    const { unmount: unmountBest } = render(<BriefingSummaryStrip pills={[v1Pill('maybe', 'best')]} />);
+    expect(screen.getAllByTestId('summary-region-chip')[0]).toHaveTextContent('◎');
+    unmountBest();
+
+    render(<BriefingSummaryStrip pills={[v1Pill('maybe', 'also')]} />);
+    const alsoChip = screen.getAllByTestId('summary-region-chip')[0];
+    expect(alsoChip).toHaveTextContent('◎');
+    expect(alsoChip).not.toHaveTextContent('●');
   });
 });
 

@@ -349,7 +349,7 @@ describe('WindowFirstDayRail', () => {
       expect(onTileClick).not.toHaveBeenCalled();
     });
 
-    it('marks a picked chip with ◎ and its own accent, and leaves a plain one unmarked', () => {
+    it('marks a picked chip with a shape mark and its own accent, and leaves a plain one unmarked', () => {
       render(<WindowFirstDayRail tiles={[tile({
         regions: [
           { ...tile().regions[0], regionName: 'Best', shortName: 'Best', pickKind: 'best' },
@@ -361,9 +361,14 @@ describe('WindowFirstDayRail', () => {
 
       const chips = screen.getAllByTestId('rail-region-chip');
       expect(chips.map((c) => c.dataset.pick)).toEqual(['best', 'also', undefined]);
-      // The mark keeps a pick identifiable without relying on colour alone.
+      // The mark keeps a pick identifiable without relying on colour alone — and Best is
+      // distinguishable from Also by SHAPE (◎ vs ●), not just the underline colour, per WCAG 1.4.1.
       expect(within(chips[0]).getByText('◎')).toBeInTheDocument();
+      expect(within(chips[0]).queryByText('●')).toBeNull();
+      expect(within(chips[1]).getByText('●')).toBeInTheDocument();
+      expect(within(chips[1]).queryByText('◎')).toBeNull();
       expect(within(chips[2]).queryByText('◎')).toBeNull();
+      expect(within(chips[2]).queryByText('●')).toBeNull();
     });
 
     it('names the pick kind in the accessible name, restating the SHORT name so it is not lost', () => {
