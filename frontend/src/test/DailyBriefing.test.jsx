@@ -2617,6 +2617,33 @@ describe('DailyBriefing — summary strip', () => {
     expect(chips[2].querySelector('.rn-mark')).toBeNull();
   });
 
+  it('names the day in a picked chip\'s accessible name only when that region repeats across rendered days', async () => {
+    // `pickKindOf` matches by region NAME across the whole window, so a region picked as Best bet
+    // that is independently rated GO on more than one rendered day gets the mark on every one of
+    // those days' chips \u2014 settled weather is the ordinary case for this, not the edge case.
+    // Without a day-qualified label a screen reader would announce "Best bet" identically on each.
+    const d1 = futureDateStr(1);
+    const d2 = futureDateStr(2);
+    const d2Label = new Date(`${d2}T12:00:00Z`)
+      .toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
+    getDailyBriefing.mockResolvedValue({
+      generatedAt: new Date().toISOString().slice(0, 19),
+      headline: '',
+      days: [
+        { date: d1, eventSummaries: [{ targetType: 'SUNSET', regions: [region('Tyne and Wear', 'GO', { date: d1 })], unregioned: [] }] },
+        { date: d2, eventSummaries: [{ targetType: 'SUNSET', regions: [region('Tyne and Wear', 'GO', { date: d2 })], unregioned: [] }] },
+      ],
+      bestBets: [
+        { rank: 1, headline: 'Best', detail: '', event: 'tomorrow_sunset', region: 'Tyne and Wear', confidence: 'high' },
+      ],
+    });
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-summary-strip'));
+
+    expect(screen.getByRole('button', { name: 'Tyne & Wear \u2014 Best bet, Tomorrow' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: `Tyne & Wear \u2014 Best bet, ${d2Label}` })).toBeInTheDocument();
+  });
+
   it('does not colour-match strip chips for LITE users \u2014 they see a redacted banner, not the cards', async () => {
     useAuth.mockReturnValue({ role: 'LITE_USER' });
     const d = futureDateStr(1);

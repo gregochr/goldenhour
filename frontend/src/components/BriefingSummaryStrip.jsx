@@ -203,8 +203,13 @@ export default function BriefingSummaryStrip({ pills, onPillClick, onRegionClick
                           // identical to a plain chip's, with no way to tell a Best bet apart by ear.
                           // `aria-label` replaces name-from-contents rather than adding to it, so the
                           // label restates the region name before naming the kind.
+                          //
+                          // `pickDayLabel` (from `buildSummaryPills`) is set only when this same
+                          // region is picked on more than one rendered day, again mirroring the v2
+                          // rail: without it, every one of those days' chips would announce "Best
+                          // bet" identically, with nothing to say which day it actually is.
                           aria-label={region.pickKind
-                            ? `${region.shortName} — ${region.pickKind === 'best' ? 'Best bet' : 'Also good'}`
+                            ? `${region.shortName} — ${region.pickKind === 'best' ? 'Best bet' : 'Also good'}${region.pickDayLabel ? `, ${region.pickDayLabel}` : ''}`
                             : undefined}
                           onClick={(e) => { e.stopPropagation(); onRegionClick?.(region.regionName, pill.date, region.targetType); }}
                           onKeyDown={(e) => {
@@ -285,6 +290,7 @@ BriefingSummaryStrip.propTypes = {
           glossHeadline: PropTypes.string,
           glossDetail: PropTypes.string,
           pickKind: PropTypes.oneOf(['best', 'also']),
+          pickDayLabel: PropTypes.string,
         }),
       ),
       ratedCount: PropTypes.number.isRequired,

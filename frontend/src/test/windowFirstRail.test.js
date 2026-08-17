@@ -326,6 +326,49 @@ describe('buildRailTiles', () => {
     });
   });
 
+  describe('the pick chip\'s day label (screen-reader disambiguation for a repeated pick)', () => {
+    it('labels the chip with its own day when the same picked region repeats across rendered days', () => {
+      // Settled weather is the ordinary case, not the edge case: the same region is often rated
+      // WORTH_IT on more than one of the rendered days, and `pickKind` is assigned by region NAME
+      // for the whole window (`indexPicks`), so both tiles' chips carry it. Without a day label
+      // both would announce "Best bet" identically.
+      const days = [
+        day(TODAY, [summary('SUNSET', [region('Dales', 'WORTH_IT')], { pickOn: pick('BEST', 'Dales') })]),
+        day(TOMORROW, [summary('SUNSET', [region('Dales', 'WORTH_IT')])]),
+      ];
+      const tiles = buildRailTiles(
+        events([TODAY, 'SUNSET'], [TOMORROW, 'SUNSET']), days, TODAY, TOMORROW, new Set(),
+      );
+
+      expect(tiles[0].regions[0].pickDayLabel).toBe('Today');
+      expect(tiles[1].regions[0].pickDayLabel).toBe('Tomorrow');
+    });
+
+    it('leaves it null when the picked region is rated on only one rendered day', () => {
+      // The ordinary single-day case needs no disambiguation — appending a day label
+      // unconditionally would claim one is needed when it is not.
+      const days = [day(TODAY, [summary('SUNSET', [region('Dales', 'WORTH_IT')], { pickOn: pick('BEST', 'Dales') })])];
+      const [tile] = buildRailTiles(events([TODAY, 'SUNSET']), days, TODAY, TOMORROW, new Set());
+
+      expect(tile.regions[0].pickKind).toBe('best');
+      expect(tile.regions[0].pickDayLabel).toBeNull();
+    });
+
+    it('leaves a plain chip\'s day label null even when that region repeats across days', () => {
+      const days = [
+        day(TODAY, [summary('SUNSET', [region('Plain', 'WORTH_IT')])]),
+        day(TOMORROW, [summary('SUNSET', [region('Plain', 'WORTH_IT')])]),
+      ];
+      const tiles = buildRailTiles(
+        events([TODAY, 'SUNSET'], [TOMORROW, 'SUNSET']), days, TODAY, TOMORROW, new Set(),
+      );
+
+      expect(tiles[0].regions[0].pickKind).toBeNull();
+      expect(tiles[0].regions[0].pickDayLabel).toBeNull();
+      expect(tiles[1].regions[0].pickDayLabel).toBeNull();
+    });
+  });
+
   describe('sun times', () => {
     it('prefers the window\'s own event time', () => {
       const days = [day(TODAY, [

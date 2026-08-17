@@ -233,7 +233,7 @@ function buildSummaryPills(upcomingEvents, briefingDays, todayStr, tomorrowStr, 
   }
   const dates = [...targetsByDate.keys()].slice(0, STRIP_MAX_DAYS);
 
-  return dates.map((date) => {
+  const pills = dates.map((date) => {
     const day = briefingDays.find((d) => d.date === date);
     const esFor = (tt) => (day?.eventSummaries || []).find((e) => e.targetType === tt);
     const sunriseEs = esFor('SUNRISE');
@@ -317,6 +317,30 @@ function buildSummaryPills(upcomingEvents, briefingDays, todayStr, tomorrowStr, 
       targetType: rated[0]?.targetType ?? sunsetEs?.targetType ?? sunriseEs?.targetType ?? null,
     };
   });
+
+  // A pick's colour repeats on every rendered day the region is independently rated on, since
+  // `pickKindOf` matches by region NAME across the whole window — the ordinary case for settled
+  // weather. Its chip's accessible name repeated identically too, so a screen reader announced
+  // "Best bet" on Today's pill and again on Wednesday's with no way to tell them apart. Fold the
+  // day into the name, but only when that ambiguity is real: a region picked on just one rendered
+  // day needs no day appended.
+  const pickDayCounts = new Map();
+  for (const p of pills) {
+    for (const region of p.regions || []) {
+      if (region.pickKind) {
+        pickDayCounts.set(region.regionName, (pickDayCounts.get(region.regionName) || 0) + 1);
+      }
+    }
+  }
+  for (const p of pills) {
+    for (const region of p.regions || []) {
+      region.pickDayLabel = region.pickKind && pickDayCounts.get(region.regionName) > 1
+        ? p.dayLabel
+        : null;
+    }
+  }
+
+  return pills;
 }
 
 /**
