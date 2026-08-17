@@ -43,24 +43,34 @@ Semantics of the demotion, precisely:
   them as defective (the blocked rule's over-pessimism is a separate finding with a separate,
   unbuilt sizing cut — see `corridor-forecast-cut-plan.md`).
 
-## 2. The evidence (veto doc §9, window complete 2026-08-16, n = 29,016)
+## 2. The evidence (veto doc §9; REVISED 2026-08-17 — the triage cut superseded the whole-window figures)
 
-- The rule fires on **12.6%** of evaluations and forces rating 1–2 on each.
-- Fired skies were observed **7.7pp clearer** at the horizon than non-fired skies (49.1% vs
-  56.8%) — the veto anti-selects.
-- Gap error where it fires: **+35.6** vs +24.6 where it does not; the rule concentrates on the
-  forecast's most pessimistic misses, at every wind–sun angle.
-- D7 is closed: capped (+36.2) and uncapped (+34.9) halves are indistinguishable. No geometry
-  fix rescues the rule; the ceiling is the defect.
+- The rule's **promptable** firing population is **545 slots over six months** (~2% of
+  evaluations; the other 85% of trigger-positive slots were stood down by triage before any
+  prompt was built, so the rule never fired for them).
+- Over those 545, the combined signal **barely discriminates**: observed horizon cloud 36.3%
+  fired vs 32.9% not-fired — a **+3.4pp** separation. (The earlier "anti-selects by −7.7pp"
+  finding was a triage artifact and is withdrawn; see §9's closing subsection.)
+- The skies it condemns average **36% observed horizon cloud** — predominantly open — while fired
+  forecasts overpredict the gap by +12.4pp against −0.2pp (essentially unbiased) for promptable
+  non-fired slots.
+- D7 is closed: capped and uncapped halves are indistinguishable. No geometry fix rescues the
+  rule.
+
+The case, restated at its honest size: an **absolute** 1–2★ ceiling resting on a 3-point signal,
+applied ~90 times a month to skies that are mostly open, remains indefensible *as an absolute* —
+but this is a measured cleanup, not the headline defect it briefly appeared to be. The demotion's
+shape is unchanged; its rhetoric is corrected.
 
 ## 3. The trade, stated honestly
 
 Copt Hill 2026-03-11 is a real recorded wasted trip (predicted 4★, actual ~2★) that these exact
 signals caught, and the ceiling turned into a correct 1–2★. Under the demotion that sky rates at
-most 3★ — one band above the recorded outcome. That is the price. What it buys: the ~12.6% of
-all evaluations currently forced to 1–2★ on a signal that measurably selects *clearer-than-
-average* skies get scored on their evidence with a one-band safety margin. An absolute ceiling
-can only ever create missed opportunities; §9 shows it creates them against skies that were fine.
+most 3★ — one band above the recorded outcome. That is the price. What it buys: the ~545
+promptable slots per six months currently forced to 1–2★ on a signal with a +3.4pp separation —
+skies averaging 36% observed horizon cloud — get scored on their evidence with a one-band safety
+margin. An absolute ceiling can only ever create missed opportunities; the under-cut figures show
+it creates them against skies that were mostly open.
 `actual_outcome` is still empty, so this trade cannot be scored against real outcomes yet — the
 eval harness and regression diffs are the only pre-deploy instruments, and §5 treats them as such.
 

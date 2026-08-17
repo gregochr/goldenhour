@@ -361,7 +361,12 @@ which, unlike relaxing the veto, *cannot* be gated on `missedOpportunities` (it 
 wasted trips instead), so it should be sized here first. Neither change should land before this
 report has a re-verified window behind it.
 
-## 9. Measured results — the veto anti-selects (2026-08-16, window complete)
+## 9. Measured results (2026-08-16 → 2026-08-17, window complete)
+
+⚠️ **Read the closing subsection ("The triage cut") first.** The veto and blocked figures in the
+earlier subsections are whole-window, and the final recut re-attributed the headlines: most of
+those populations were stood down by triage before any prompt was built, and the dramatic
+anti-selection finding did not survive the correction.
 
 Window 2026-02-01 → 2026-08-06, **29,016 evaluations, backlog fully verified** (`remaining: 0`,
 no `lastError`). Three pulls were read along the way — 7,165 rows (2026-08-13), 17,146
@@ -437,6 +442,35 @@ same day; together they close the measurement program.
   it is accurate) but must not *confirm* a blanket. Sizing the change needs one more number — the
   blanket label's precision (how often a forecast blanket call is right at all) — measured by the
   blanket-precision cut before `blanket-confirmation-plan.md` is executed.
+
+### The triage cut (final, 2026-08-17) — the headline figures re-attributed
+
+The fifth recut (#529, `byTriageCut`) re-read the veto and blocked families over slots at or
+under `WeatherTriageEvaluator`'s 80% stand-down threshold — the only slots a prompt could have
+been built for. It ends the measurement program, and it overturns this section's own headline:
+
+- **The veto's anti-selection was a triage artifact.** Only **545 of 3,658 fired slots (15%)**
+  were promptable; over those, the separation is **+3.4pp** (observed 36.3 fired vs 32.9
+  not-fired) — vetoed skies marginally *cloudier*, not clearer. The −7.7pp whole-window figure
+  lived entirely in the >80% population, where neither fired nor not-fired slots were ever
+  prompted. What survives for the demotion: the signal barely discriminates, and it forces 1–2★
+  on skies averaging **36% observed horizon cloud** — 545 times in six months (~2% of
+  evaluations). An absolute ceiling on that signal remains indefensible *as absolute*; the
+  dramatic framing does not.
+- **The blocked headlines collapse the same way**: `fcstBlocked&underTriageCut` = **326** of
+  6,281 (5%); `stripMissed&underTriageCut` = **192** (0.66% of all evaluations). The blanket
+  *prompt* change is a small-footprint fix.
+- **The blanket label's under-cut precision fires the pre-registered rule**: 285 of 532
+  promptable blanket calls — **53.6%** — sat over an observed-open corridor. Double the 25%
+  threshold, so `blanket-confirmation-plan.md` ships as drafted, subject to its stop-points. The
+  baseline-offset caveat is weakened here: promptable non-vetoed slots show gap error −0.2 —
+  essentially unbiased — so the ~26pp whole-window offset concentrates in heavy-cloud forecasts
+  rather than applying uniformly.
+- **The centre of gravity moves to triage.** 97% of blanket calls sit above the cut, and there
+  **4,228 of 16,210 (26%)** had an observed-open corridor — thousands of slots stood down as "—"
+  with no look at the corridor, where a scoreable sky existed. The triage-corridor question is
+  now the largest user-visible opportunity in the program, and it is a `WeatherTriageEvaluator`
+  design question, not a prompt one.
 
 ### Standing caveats
 

@@ -57,6 +57,17 @@ Decision rule, pre-registered before the number is seen (over `underTriageCut`):
   trade properly.
 - **Between** → user's call at the stop-point, with the number on the table.
 
+**MEASURED 2026-08-17 (v2.18.9 pull): 285 of 532 = 53.6%.** Double the first arm's threshold —
+**the change ships as drafted**, subject to §4's stop-points. Two notes recorded with the number:
+the baseline-offset caveat is weakened, since promptable non-vetoed slots show a gap error of
+−0.2pp (the whole-window ~26pp offset concentrates in heavy-cloud forecasts, so treating observed
+far divergence as mostly forecast error is better supported than when the caveat was written);
+and the direct footprint is small (`stripMissed&underTriageCut` = 192 slots, 0.66% of
+evaluations), so this change is justified by the label's measured unreliability, not by volume.
+The volume sits above the cut: **4,228 of 16,210 above-cut blanket calls (26%) had an
+observed-open corridor** — that is the triage-corridor question's sizing, and it dwarfs both
+prompt changes combined.
+
 ## 3. The change (as drafted, subject to §2)
 
 `PromptBuilder`, two sites:
