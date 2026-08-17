@@ -4,7 +4,9 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.gregochr.goldenhour.config.WorldTidesProperties;
+import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TideExtremeEntity;
 import com.gregochr.goldenhour.entity.TideExtremeType;
 import com.gregochr.goldenhour.entity.TideState;
@@ -40,11 +42,14 @@ import org.mockito.ArgumentCaptor;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -638,6 +643,41 @@ class TideServiceTest {
 
         verify(tideExtremeRepository).findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
                 eq(1L), eq(windowFrom.minusDays(1)), eq(windowTo));
+    }
+
+    @Test
+    @DisplayName("fetchAndStoreTideExtremes() still records a billed call as successful when the "
+            + "integrity read-back fails")
+    void fetchAndStoreTideExtremes_integrityReadBackFails_callStillRecordedAsSuccessful() {
+        when(worldTidesProperties.getApiKey()).thenReturn("test-key");
+
+        RestClient mockClient = mock(RestClient.class);
+        RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, buildWorldTidesResponse());
+
+        // The read-back is a diagnostic, and it runs after the call has been made, billed and
+        // merged. Left inside the enclosing catch, a failure here would log a FAILED WorldTides
+        // call and skip the successful one, losing the credit count with it — a smoke detector
+        // that reports a fire in the room it is watching.
+        when(tideExtremeRepository.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                eq(1L), any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenThrow(new IllegalStateException("connection reset"));
+
+        TideService service = new TideService(
+                mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+
+        service.fetchAndStoreTideExtremes(locationEntity(), JobRunEntity.builder().id(7L).build());
+
+        verify(jobRunService).logMeteredApiCall(eq(7L), eq(ServiceName.WORLD_TIDES), eq("GET"),
+                anyString(), anyLong(), eq(200), eq(true), isNull(), isNull());
+        // Nothing else at all: any logApiCall overload here would be the failure record.
+        verifyNoMoreInteractions(jobRunService);
+        // And the merge is reported as what it was — succeeded, with the check itself named as the
+        // thing that did not run.
+        assertThat(warnLogMessages()).anySatisfy(message ->
+                assertThat(message).contains("Tide integrity check failed")
+                        .contains("Berwick-Upon-Tweed"));
+        assertThat(warnLogMessages())
+                .noneSatisfy(message -> assertThat(message).contains("Failed to fetch tide"));
     }
 
     // -------------------------------------------------------------------------

@@ -1,8 +1,27 @@
 # Tide refresh: frontier extreme loss — implementation brief
 
-**Status: fixes 1 + 2 SHIPPED** (commit `b4b068ab`, branch `fix/tide-frontier-extreme-loss`,
-reviewed and CI-equivalent-verified 2026-08-16). **Fix 3 (§8) is the open scope**, plus the
-carry-over item in §7. Sections 1–6 are kept as the diagnosis record and the fix-1/2 spec.
+**Status: all three fixes SHIPPED.** Fixes 1 + 2 landed as #526 (reviewed and
+CI-equivalent-verified 2026-08-16). **Fix 3 (§8) and the §7 integrity-check isolation landed
+2026-08-17** on `fix/tide-chart-interior-gap`, adversarially reviewed (25 agents, 18 charges, none
+survived refutation) before commit. Sections 1–6 are kept as the diagnosis record and the fix-1/2
+spec; §8 is kept as the fix-3 spec.
+
+Two things learned while implementing §8, recorded because they change what the next reader should
+believe:
+
+- **The frontend chart was never the surface that drew the production symptom.** That hole
+  straddled midnight and `TideRunRow` receives one London day, so neither day's list held a
+  same-kind adjacency — and its bookend happened to place the lost low within a minute of where it
+  belonged. The seven flat hours were the Plan tab's sparkline (`WindowTideRollupBuilder`, whose
+  series spans the day either side). `TideRunRow`'s exposure is an extreme lost *inside* a day; the
+  fill belongs on both surfaces so the two charts cannot disagree about the same water, which is
+  what §8b asked for, but do not repeat the claim that this chart drew the reported symptom.
+- **The §7 isolation fixes the misreport, not durability.** `fetchAndStoreTideExtremes` is
+  `@Transactional` and `JobRunService` has no boundary of its own, so a read-back failure that also
+  poisons the transaction still rolls the merge and its success row back together. What is
+  unconditionally fixed is that a billed, merged call is no longer *recorded as failed*. Making the
+  metrics row survive that case needs `REQUIRES_NEW`, which is a credit-handling change and out of
+  scope here.
 
 Diagnosed 2026-08-16 against production. Do not re-derive the diagnosis; the evidence is below
 and it is complete.
@@ -175,7 +194,8 @@ Exit `0` is the gate. No frontend changes in this scope, so the frontend CI quar
 
 ## 7. Out of scope (recorded so nothing gets refiled as a bug)
 
-- **Fix 3 — chart-side interior-gap defence.** `WindowTideRollupBuilder.seriesAround` (backend)
+- **Fix 3 — chart-side interior-gap defence.** ✅ SHIPPED 2026-08-17; spec in §8.
+  `WindowTideRollupBuilder.seriesAround` (backend)
   and `TideRunRow.curvePath` (frontend) both cosine-interpolate straight across a same-kind gap,
   rendering a missing extreme as hours of confident slack water. The agreed direction: detect two
   consecutive same-kind points and synthesise the implied opposite extreme at their midpoint —

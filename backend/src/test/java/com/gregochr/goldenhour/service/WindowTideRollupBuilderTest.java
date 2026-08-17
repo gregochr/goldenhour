@@ -599,6 +599,174 @@ class WindowTideRollupBuilderTest {
         }
     }
 
+    // ── a lost extreme ────────────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("a day with an extreme missing from the store")
+    class InteriorGap {
+
+        @Test
+        @DisplayName("the hours between two consecutive highs draw the missing trough, not slack water")
+        void aGapBetweenTwoHighsDescends() {
+            // The production defect, and the reason this fill exists: the weekly refresh destroyed a
+            // frontier extreme, and the sparkline cosine-interpolated HIGH -> HIGH straight across
+            // the hole — seven hours of dead-flat trace pinned at high-water level, which a reader
+            // cannot tell from a real stand of tide. Sampled at the gap's midpoint the trace must
+            // sit at the bottom of the day's span, not within a couple of percent of both highs.
+            stubSunset();
+            stubState(TideState.MID);
+            stubCoastal(whitby());
+            stubExtremes(gappedByAMissingLow());
+
+            List<Double> curve = rollup(DAY, TargetType.SUNSET).curve();
+
+            assertThat(sampleAt(curve, "14:30")).isLessThan(0.2);
+            assertThat(sampleAt(curve, "08:30")).isGreaterThan(0.9);
+            assertThat(sampleAt(curve, "20:30")).isGreaterThan(0.9);
+        }
+
+        @Test
+        @DisplayName("a gap straddling midnight opens the day at the bottom of its own span")
+        void aGapAcrossMidnightIsFilledToo() {
+            // The exact production geometry: the last extreme of one day and the first of the next
+            // are both HIGH, with the low between them destroyed by the weekly merge. It is the
+            // only shape that puts the implied extreme at a NEGATIVE minute offset — this series
+            // spans the day either side — so it is the only fixture that exercises the midpoint
+            // arithmetic below zero. The symptom was the first seven hours of the day drawn flat
+            // at high-water level; the trace must instead open near the floor and climb.
+            stubSunset();
+            stubState(TideState.MID);
+            stubCoastal(whitby());
+            List<TideExtremeEntity> extremes =
+                    new ArrayList<>(day(ID_WHITBY, DAY.minusDays(1), high("17:48", 5.3)));
+            extremes.addAll(day(ID_WHITBY, DAY,
+                    high("05:56", 5.4), low("12:10", 0.7), high("18:20", 5.2)));
+            stubExtremes(extremes);
+
+            List<Double> curve = rollup(DAY, TargetType.SUNSET).curve();
+
+            assertThat(sampleAt(curve, "00:00")).isLessThan(0.1);
+            assertThat(sampleAt(curve, "06:00")).isGreaterThan(0.9);
+        }
+
+        @Test
+        @DisplayName("two consecutive lows draw the missing crest the same way")
+        void aGapBetweenTwoLowsRises() {
+            // The mirror case is not symmetric by construction — the fill has to pick the opposite
+            // kind of the pair it found, and a rule hard-coded to insert a low would pass the test
+            // above and fail here.
+            stubSunset();
+            stubState(TideState.MID);
+            stubCoastal(whitby());
+            stubExtremes(day(ID_WHITBY, DAY,
+                    high("02:20", 5.4), low("08:30", 0.6), low("20:30", 0.9)));
+
+            List<Double> curve = rollup(DAY, TargetType.SUNSET).curve();
+
+            assertThat(sampleAt(curve, "14:30")).isGreaterThan(0.8);
+            assertThat(sampleAt(curve, "08:30")).isLessThan(0.1);
+            assertThat(sampleAt(curve, "20:30")).isLessThan(0.2);
+        }
+
+        @Test
+        @DisplayName("water inside the gap reads as falling, not as rising toward the next stored high")
+        void directionInsideTheGapFollowsTheImpliedWater() {
+            // The one claim outside the trace that reads the series, and the fill makes it MORE
+            // correct rather than less: production's hole reported RISING mid-ebb, because the next
+            // extreme the series could see was the high water on the far side of the missing low.
+            stubState(TideState.MID);
+            stubCoastal(whitby());
+            stubExtremes(gappedByAMissingLow());
+            when(solarService.sunsetUtc(anyDouble(), anyDouble(), eq(DAY)))
+                    .thenReturn(DAY.atTime(11, 0));
+
+            assertThat(rollup(DAY, TargetType.SUNSET).direction())
+                    .isEqualTo(BriefingWindowTide.Direction.FALLING);
+        }
+
+        @Test
+        @DisplayName("no worded figure names water that was never stored")
+        void theWordedFiguresReadOnlyRealExtremes() {
+            // Shape only is the whole licence for this fill. The synthetic low sits at 14:30, half
+            // an hour before this fixture's sunset — nearer than any real extreme — so if the
+            // nearest-extreme search or the range could see it, this row would state a low water
+            // that nobody measured, to the minute.
+            stubState(TideState.MID);
+            stubCoastal(whitby());
+            stubExtremes(gappedByAMissingLow());
+            when(solarService.sunsetUtc(anyDouble(), anyDouble(), eq(DAY)))
+                    .thenReturn(DAY.atTime(15, 0));
+
+            BriefingWindowTide tide = rollup(DAY, TargetType.SUNSET);
+
+            assertThat(tide.nearestType()).isEqualTo("HW");
+            assertThat(tide.nearestTime()).isEqualTo("20:30");
+            assertThat(tide.nearestOffset()).isEqualTo("5h30 after sunset");
+            // Still max(highs) - min(lows) over the day's real rows: 5.4 m against 0.6 m.
+            assertThat(tide.range()).isEqualTo("4.8 m");
+        }
+
+        @Test
+        @DisplayName("the window's mark follows the corrected trace rather than floating above it")
+        void theMarkSitsOnTheFilledCurve() {
+            // The mark is normalised against the same span the curve is, so a fill that reached the
+            // curve and not the mark would leave the mark pinned near high water over a trace that
+            // now descends past it.
+            stubState(TideState.MID);
+            stubCoastal(whitby());
+            stubExtremes(gappedByAMissingLow());
+            when(solarService.sunsetUtc(anyDouble(), anyDouble(), eq(DAY)))
+                    .thenReturn(DAY.atTime(11, 0));
+
+            BriefingWindowTide tide = rollup(DAY, TargetType.SUNSET);
+
+            int segment = (int) Math.floor(tide.windowPosition() * (CURVE_POINTS - 1));
+            double before = tide.curve().get(segment);
+            double after = tide.curve().get(segment + 1);
+            assertThat(tide.windowLevel())
+                    .isBetween(Math.min(before, after) - 0.02, Math.max(before, after) + 0.02);
+            // Mid-ebb, two and a half hours past the 08:30 high water — not still up at the top.
+            assertThat(tide.windowLevel()).isLessThan(0.8);
+        }
+
+        @Test
+        @DisplayName("a long gap between alternating extremes is a neap tide, and stays untouched")
+        void aLongGapBetweenAlternatingKindsIsNotFilled() {
+            // The trigger is same-kind adjacency, never elapsed time. Eighteen hours from low water
+            // to high water is legal on a shallow coast, and inserting anything into it would draw
+            // a tide that does not exist — so the limb has to climb the whole way without a dip.
+            stubSunset();
+            stubState(TideState.MID);
+            stubCoastal(whitby());
+            stubExtremes(day(ID_WHITBY, DAY, low("02:20", 0.6), high("20:30", 5.4)));
+
+            List<Double> curve = rollup(DAY, TargetType.SUNSET).curve();
+
+            // 02:30 through 20:30, the whole rising limb.
+            assertThat(curve.subList(5, 42)).isSorted();
+        }
+
+        @Test
+        @DisplayName("two same-kind extremes stamped at the same minute still draw as high water")
+        void sameMinuteSameKindPairDrawsCleanly() {
+            // The fill creates zero-length spans that the stored data never had, so this input has
+            // two ways to go wrong and both are checked. NaN is not valid JSON, so one degenerate
+            // coastal row would fail the whole briefing to serialise; and a zero-width trough
+            // rendered rather than skipped would punch a spike to the floor of the sparkline at
+            // the exact minute the water is highest.
+            stubSunset();
+            stubState(TideState.MID);
+            stubCoastal(whitby());
+            stubExtremes(day(ID_WHITBY, DAY,
+                    low("02:20", 0.6), high("08:35", 5.4), high("08:35", 5.2), low("14:45", 0.9)));
+
+            List<Double> curve = rollup(DAY, TargetType.SUNSET).curve();
+
+            assertThat(curve).allSatisfy(v -> assertThat(Double.isFinite(v)).isTrue());
+            assertThat(sampleAt(curve, "08:30")).isGreaterThan(0.9);
+        }
+    }
+
     // ── never synthesise ──────────────────────────────────────────────────────
 
     @Nested
@@ -773,6 +941,32 @@ class WindowTideRollupBuilderTest {
     private void stubExtremes(List<TideExtremeEntity> extremes) {
         when(tideExtremeRepository.findByLocationIdInAndEventTimeBetweenOrderByEventTimeAsc(
                 any(), any(), any())).thenReturn(extremes);
+    }
+
+    /**
+     * The shape a lost extreme leaves: high water, high water again, and no low between them.
+     *
+     * <p>Times chosen so the implied trough falls at 14:30, exactly on a 30-minute sample, and so
+     * the surviving highs sit on samples too — an assertion that has to hunt for the nearest sample
+     * cannot say where the trace went. The missing low is the one this coast would have had around
+     * 14:30; the day still holds a high and a low, so it is drawable and the row renders.
+     */
+    private static List<TideExtremeEntity> gappedByAMissingLow() {
+        return day(ID_WHITBY, DAY, low("02:20", 0.6), high("08:30", 5.4), high("20:30", 5.2));
+    }
+
+    /**
+     * The normalised sample at a local clock time, which must land on a 30-minute boundary.
+     *
+     * @param curve the day's 49 samples
+     * @param clock the local time to read, HH:mm
+     * @return the sampled value at that minute
+     */
+    private static double sampleAt(List<Double> curve, String clock) {
+        String[] parts = clock.split(":");
+        int minutes = Integer.parseInt(parts[0]) * 60 + Integer.parseInt(parts[1]);
+        assertThat(minutes % 30).as("%s must sit on a sample", clock).isZero();
+        return curve.get(minutes / 30);
     }
 
     /** The fixture coast's day: low 0.6, high 5.4, low 0.9, high 5.2 — a 4.8 m range. */

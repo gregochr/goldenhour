@@ -398,19 +398,38 @@ public class TideService {
      * week it happens rather than sitting silent for months. Deliberately no auto-repair: this is
      * a smoke detector, not a sprinkler system.
      *
+     * <p><strong>It catches its own failures rather than leaning on the caller's catch.</strong>
+     * The enclosing block does more than swallow: it logs a <em>failed</em> WorldTides API call to
+     * {@code job_run} metrics and skips the successful one, so a read-back that threw would report
+     * a call that was made, billed and merged as an API failure, with no credit count. A
+     * diagnostic must never be able to misreport the operation it is diagnosing.
+     *
+     * <p>What this fixes is the <em>misreport</em>, not durability. This method runs inside the
+     * caller's transaction, so a read-back failure that also poisons that transaction still rolls
+     * the merge and its success row back together — restoring the log row in that case needs a
+     * {@code REQUIRES_NEW} boundary on the metrics write, which is a credit-handling change and a
+     * separate piece of work.
+     *
      * @param location the coastal location just fetched
      * @param window   the span just fetched and merged
      */
     private void checkTideIntegrity(LocationEntity location, FetchWindow window) {
-        List<TideExtremeEntity> merged = tideExtremeRepository
-                .findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
-                        location.getId(), window.from().minusDays(1), window.to());
-        for (Adjacency adjacency : sameKindAdjacencies(merged)) {
-            LOG.warn("Tide integrity: consecutive {} extremes at {} and {} for {} — an extreme "
-                    + "is missing between them (window {} to {}, {})",
-                    adjacency.first().getType(),
-                    adjacency.first().getEventTime(), adjacency.second().getEventTime(),
-                    location.getName(), window.from(), window.to(), window.reason());
+        try {
+            List<TideExtremeEntity> merged = tideExtremeRepository
+                    .findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                            location.getId(), window.from().minusDays(1), window.to());
+            for (Adjacency adjacency : sameKindAdjacencies(merged)) {
+                LOG.warn("Tide integrity: consecutive {} extremes at {} and {} for {} — an extreme "
+                        + "is missing between them (window {} to {}, {})",
+                        adjacency.first().getType(),
+                        adjacency.first().getEventTime(), adjacency.second().getEventTime(),
+                        location.getName(), window.from(), window.to(), window.reason());
+            }
+        } catch (RuntimeException e) {
+            // Logged with the throwable: the merge itself has already succeeded and is unaffected,
+            // so this line is the only trace that the check did not run.
+            LOG.warn("Tide integrity check failed for {} — the merge itself succeeded",
+                    location.getName(), e);
         }
     }
 
