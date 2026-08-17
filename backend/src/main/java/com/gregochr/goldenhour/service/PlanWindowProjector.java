@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.BriefingDayPeak;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
@@ -11,6 +12,7 @@ import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.PlanRenderedEvent;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -144,9 +146,16 @@ public final class PlanWindowProjector {
             }
         }
 
+        // The render horizon, resolved ONCE and then used for three things that must not disagree:
+        // the events the client draws, the windows a pick may land on, and the events each day's
+        // peak rolls up. Two of those used to be derived independently — the client kept its own
+        // copy of the cap and its own pastness rule — which is how a BEST pick came to name a window
+        // with no card. See docs/engineering/plan-verdict-consolidation-plan.md §1 D3 and §4 Phase 3.
+        Set<WindowKey> rendered = renderHorizon(drafts, now);
+
         // Pass 2: one fold across the whole forecast chooses the two picks, then each window is
         // emitted carrying its own or nothing.
-        Map<WindowKey, BriefingWindow.Pick> picks = selectPicks(drafts, now);
+        Map<WindowKey, BriefingWindow.Pick> picks = selectPicks(drafts, rendered);
         int cursor = 0;
         List<BriefingDay> projected = new ArrayList<>(response.days().size());
         for (BriefingDay day : response.days()) {
@@ -156,9 +165,99 @@ public final class PlanWindowProjector {
                 summaries.add(summary.withWindow(
                         dr.toWindow(picks.get(dr.key()), tides.get(dr.key()))));
             }
-            projected.add(new BriefingDay(day.date(), summaries));
+            projected.add(new BriefingDay(day.date(), summaries)
+                    .withPeak(dayPeak(day.date(), summaries, rendered)));
         }
-        return response.withDays(projected);
+        return response.withPlan(projected, rendered.stream()
+                .map(k -> new PlanRenderedEvent(k.date(), k.targetType()))
+                .toList());
+    }
+
+    /**
+     * The events the Plan tab draws: the leading {@link PlanRenderLimits#MAX_VISIBLE_EVENTS}
+     * non-past drafts, in payload order.
+     *
+     * <p>Order matters. The horizon is a fact about the <b>rendered event set</b>, so it is resolved
+     * chronologically <em>before</em> anything is ranked — resolving it after a rank sort let the
+     * highest-rated window claim a slot whatever its position, which is the opposite of a horizon.
+     * {@code drafts} is already in chronological (date, then payload) order, built by walking
+     * {@code response.days()} then each day's {@code eventSummaries()}, so taking the leading N
+     * non-past entries is exactly "the first N events" with no re-sort.
+     *
+     * <p>Scoped over every non-past draft, not only candidate-bearing ones: a window with no usable
+     * gloss still occupies a slot in the rendered list, and excluding it here would let the horizon
+     * stretch further than what is actually shown.
+     */
+    private static Set<WindowKey> renderHorizon(List<Draft> drafts, LocalDateTime now) {
+        return drafts.stream()
+                .filter(d -> !isPast(d, now))
+                .limit(PlanRenderLimits.MAX_VISIBLE_EVENTS)
+                .map(Draft::key)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    /**
+     * One day's peak band across the events of that day the client renders — the day card's answer.
+     *
+     * <p><b>Scoped to the rendered events, never to the day.</b> A day whose sunrise has passed is
+     * drawn with its sunset alone, and a tile that rolled up the elapsed sunrise would describe a
+     * window with no card. That scoping is why this is computed here rather than anywhere earlier:
+     * the horizon is not known until the drafts are.
+     *
+     * <p>A region reaching WORTH_IT on one of the day's events and MAYBE on the other appears once,
+     * at its better band — the tile names a region's best showing that day, not one per event. The
+     * region order is the payload's own, which is what the peak-tier chips render in.
+     *
+     * @return the roll-up, or null when the day has no rendered event at all
+     */
+    private static BriefingDayPeak dayPeak(LocalDate date, List<BriefingEventSummary> summaries,
+            Set<WindowKey> rendered) {
+        Map<String, BriefingDayPeak.PeakRegion> best = new java.util.LinkedHashMap<>();
+        boolean anyRendered = false;
+        for (BriefingEventSummary summary : summaries) {
+            if (!rendered.contains(new WindowKey(date, summary.targetType()))) {
+                continue;
+            }
+            anyRendered = true;
+            for (BriefingRegion region : summary.regions()) {
+                // The region's OWN verdict and nothing else — the same field, read the same way,
+                // that decides the window badge and the grid cell. A null one is skipped rather
+                // than mapped through the region's triage: the window calls that AWAITING, and a
+                // day peak mapping it to a band would put two answers for one region on one screen.
+                // Unreachable on the serve path (enrichment always derives a verdict, and the
+                // honesty filter writes STAND_DOWN), which is why matching the window matters more
+                // than choosing between them.
+                DisplayVerdict dv = region.displayVerdict();
+                if (dv != DisplayVerdict.WORTH_IT && dv != DisplayVerdict.MAYBE) {
+                    continue;
+                }
+                BriefingDayPeak.PeakRegion held = best.get(region.regionName());
+                if (held == null || bandRank(dv) < bandRank(held.displayVerdict())) {
+                    best.put(region.regionName(), new BriefingDayPeak.PeakRegion(
+                            region.regionName(), summary.targetType(), dv));
+                }
+            }
+        }
+        if (!anyRendered) {
+            return null;
+        }
+        DisplayVerdict peak = best.values().stream()
+                .anyMatch(r -> r.displayVerdict() == DisplayVerdict.WORTH_IT)
+                ? DisplayVerdict.WORTH_IT
+                : best.isEmpty() ? DisplayVerdict.STAND_DOWN : DisplayVerdict.MAYBE;
+        List<BriefingDayPeak.PeakRegion> atPeak = best.values().stream()
+                .filter(r -> r.displayVerdict() == peak)
+                .toList();
+        List<TargetType> events = atPeak.stream()
+                .map(BriefingDayPeak.PeakRegion::targetType)
+                .distinct()
+                .toList();
+        return new BriefingDayPeak(peak, events, atPeak);
+    }
+
+    /** WORTH_IT outranks MAYBE; nothing else reaches this comparison. */
+    private static int bandRank(DisplayVerdict verdict) {
+        return verdict == DisplayVerdict.WORTH_IT ? 0 : 1;
     }
 
     private static Draft draft(LocalDate date, BriefingEventSummary summary,
@@ -202,23 +301,7 @@ public final class PlanWindowProjector {
      * better than a padded second recommendation.
      */
     private static Map<WindowKey, BriefingWindow.Pick> selectPicks(List<Draft> drafts,
-            LocalDateTime now) {
-        // Order matters here. The horizon is a fact about the RENDERED EVENT SET, so it is resolved
-        // chronologically BEFORE anything is ranked — resolving it after the rank sort let the
-        // highest-rated window claim a slot whatever its position, which is the opposite of a
-        // horizon.
-        //
-        // Scoped over every non-past draft, not only candidate-bearing ones: a window with no usable
-        // gloss still occupies a slot in the client's rendered list, and excluding it here would let
-        // the horizon stretch further than what the rail actually shows. `drafts` is already in
-        // chronological (date, then payload) order — built by walking `response.days()` then each
-        // day's `eventSummaries()` — so taking the leading MAX_VISIBLE_EVENTS non-past entries is
-        // exactly "the first N events", with no re-sort needed.
-        Set<WindowKey> rendered = drafts.stream()
-                .filter(d -> !isPast(d, now))
-                .limit(PlanRenderLimits.MAX_VISIBLE_EVENTS)
-                .map(Draft::key)
-                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+            Set<WindowKey> rendered) {
         List<Draft> eligible = drafts.stream()
                 .filter(d -> d.candidate() != null)
                 .filter(d -> rendered.contains(d.key()))
@@ -241,12 +324,19 @@ public final class PlanWindowProjector {
 
     /**
      * The window's header time — the earliest slot time across every region and the unregioned
-     * slots.
+     * slots, falling back to the summary's own {@code solarEventTime} when no slot carries one.
      *
      * <p>Earliest rather than first-in-list: list order traces to whichever grid cell Open-Meteo
      * answered first, which is not a fact about the event. The same argument already decides
      * "is this event past" in {@code CloseToHomeService} — an event belongs to all of its
      * locations.
+     *
+     * <p><b>The fallback is load-bearing since this instant began deciding what is RENDERED.</b>
+     * The honesty filter empties a zero-coverage region's slot list while leaving the summary's own
+     * time intact, so a slot-only scan reads that window as timeless — and a timeless window counts
+     * as current, spending one of the six rendered slots on an event that may be hours past. The
+     * client's {@code getEventTime} has always had this fallback; before Phase 3 the two could
+     * disagree without either being authoritative.
      */
     private static LocalDateTime earliestEventTime(BriefingEventSummary summary) {
         LocalDateTime earliest = null;
@@ -256,7 +346,14 @@ public final class PlanWindowProjector {
                 earliest = time;
             }
         }
-        return earliest;
+        // The summary's own time is the fallback, and it is load-bearing now that this instant
+        // decides which events are RENDERED and not merely which may hold a pick. The honesty
+        // filter empties a zero-coverage region's slot list while leaving the summary's
+        // solarEventTime intact, so a scan of slots alone reads that window as timeless — and a
+        // timeless window counts as current, spending one of the six rendered slots on an event
+        // that may be hours past. The client's getEventTime has always had this fallback; before
+        // Phase 3 the two could disagree without either being authoritative.
+        return earliest != null ? earliest : summary.solarEventTime();
     }
 
     /**

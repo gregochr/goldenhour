@@ -147,6 +147,26 @@ describe('WindowFirstRegionalPanel', () => {
     expect(HeatmapGrid.lastProps.scrollable).toBe(true);
   });
 
+  it('opts the grid into the backend-derived cell star, which the frozen v1 arm does not', () => {
+    // The same shape and the same invisibility as `scrollable` above: it defaults to false, so
+    // dropping this line silently returns every cell to the client-side join over
+    // `/api/briefing/evaluate/scores` — a star and a verdict word from two computations with two
+    // cache lifetimes — with `HeatmapGrid.test.jsx` still green, because that suite passes the prop
+    // itself and cannot see this call site.
+    //
+    // `toBe(true)`, not truthy: the grid branches on it, and the branch it must NOT take is the one
+    // `DailyBriefing` is frozen on.
+    renderPanel();
+    expect(HeatmapGrid.lastProps.serverCellRating).toBe(true);
+  });
+
+  it('still passes the evaluation scores, which the drill-down reads', () => {
+    // The star moved to the payload; the per-location detail did not. Dropping the fetch or the
+    // prop with it would empty the drill-down, which is the surface `/evaluate/scores` exists for.
+    renderPanel();
+    expect(HeatmapGrid.lastProps.evaluationScores).toBeInstanceOf(Map);
+  });
+
   it('passes a boolean for the paid tier, never a role', () => {
     // Plan §5c: `role` enters this arm at the provider and stops there.
     renderPanel({ isPro: false });

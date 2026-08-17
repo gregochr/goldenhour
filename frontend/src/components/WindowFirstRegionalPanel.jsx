@@ -142,6 +142,13 @@ export default function WindowFirstRegionalPanel({ locations, onShowOnMap }) {
       // This arm asks for the phone layout; the frozen v1 arm does not, and that asymmetry is the
       // whole of the change's blast radius. See docs/engineering/phone-heatmap-blast-radius.md.
       scrollable
+      // Same shape, same reason. Each cell's star comes from `BriefingRegion.meanRating` — the same
+      // statistics the backend derived that cell's verdict word from — instead of a client-side mean
+      // over `/api/briefing/evaluate/scores` joined on a region-name prefix. Two fetches with two
+      // cache lifetimes could put a word and a number in one cell that disagree; one payload cannot.
+      // The v1 arm passes nothing and keeps its own derivation while it is the frozen control.
+      // `evaluationScores` still travels: the drill-down reads it for per-location detail.
+      serverCellRating
     />
   );
 }

@@ -39,6 +39,18 @@ import java.util.List;
  *                           are orthogonal — a withdrawal can accompany a successful advisor, and
  *                           equally a {@code FAILED} one whose stale fallback list is what got
  *                           withdrawn.
+ * @param renderedEvents     the solar events the Plan tab draws, ordered and capped at
+ *                           {@code PlanRenderLimits.MAX_VISIBLE_EVENTS}, with elapsed events
+ *                           already dropped against a UTC instant. Serve-path only, published by
+ *                           {@code PlanWindowProjector} as the outermost step — {@code null} on
+ *                           every internal path, on every stored payload, and on any payload cached
+ *                           before this field existed.
+ *
+ *                           <p><b>Null and empty mean different things.</b> Null is "nothing
+ *                           projected this response", and the client falls back to walking
+ *                           {@code days} itself; empty is "the projector ran and found no live
+ *                           window", and the client draws nothing. Collapsing the two would make a
+ *                           deploy-window degrade indistinguishable from a genuinely empty forecast.
  */
 public record DailyBriefingResponse(
         LocalDateTime generatedAt,
@@ -54,14 +66,67 @@ public record DailyBriefingResponse(
         List<HotTopic> hotTopics,
         List<String> seasonalFeatures,
         BestBetStatus bestBetStatus,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean bestBetsWithdrawn) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean bestBetsWithdrawn,
+        @JsonInclude(JsonInclude.Include.NON_NULL) List<PlanRenderedEvent> renderedEvents) {
 
-    /** Null-safe compact constructor — defensive copies for list fields only. */
+    /**
+     * Null-safe compact constructor — defensive copies for list fields only.
+     *
+     * <p>{@code renderedEvents} is the one list that stays nullable rather than being normalised to
+     * empty. Absent and empty are different answers: absent means nothing projected this response
+     * (every internal path, and every payload cached before the field existed), while empty means
+     * the projector ran and found no live window. The client distinguishes them — it degrades to
+     * its own walk of {@code days} on absent, and draws nothing on empty.
+     */
     public DailyBriefingResponse {
         days = List.copyOf(days);
         bestBets = bestBets == null ? List.of() : List.copyOf(bestBets);
         hotTopics = hotTopics == null ? List.of() : List.copyOf(hotTopics);
         seasonalFeatures = seasonalFeatures == null ? List.of() : List.copyOf(seasonalFeatures);
+        renderedEvents = renderedEvents == null ? null : List.copyOf(renderedEvents);
+    }
+
+    /**
+     * Fourteen-component form, defaulting {@code renderedEvents} to null.
+     *
+     * <p>Retained because every <em>producer</em> of a response legitimately has nothing to say
+     * about which events are rendered — only {@code PlanWindowProjector}, the outermost serve step,
+     * does, and it publishes through {@link #withPlan}. Same caveat as the shorter forms above: a
+     * copy that omits the field silently unpublishes the rendered list.
+     *
+     * @param generatedAt         UTC generation timestamp
+     * @param headline            one-line summary
+     * @param days                per-day briefing data
+     * @param bestBets            best-bet picks
+     * @param auroraTonight       tonight's aurora summary or null
+     * @param auroraTomorrow      tomorrow's aurora summary or null
+     * @param stale               last-known-good flag
+     * @param partialFailure      partial-failure flag
+     * @param failedLocationCount failed location count
+     * @param bestBetModel        best-bet model display name
+     * @param hotTopics           hot topics
+     * @param seasonalFeatures    active seasonal feature keys
+     * @param bestBetStatus       whether the advisor produced picks, found none, or failed
+     * @param bestBetsWithdrawn   whether the honesty filter withdrew a pick at serve time
+     */
+    public DailyBriefingResponse(
+            LocalDateTime generatedAt,
+            String headline,
+            List<BriefingDay> days,
+            List<BestBet> bestBets,
+            AuroraTonightSummary auroraTonight,
+            AuroraTomorrowSummary auroraTomorrow,
+            boolean stale,
+            boolean partialFailure,
+            int failedLocationCount,
+            String bestBetModel,
+            List<HotTopic> hotTopics,
+            List<String> seasonalFeatures,
+            BestBetStatus bestBetStatus,
+            Boolean bestBetsWithdrawn) {
+        this(generatedAt, headline, days, bestBets, auroraTonight, auroraTomorrow,
+                stale, partialFailure, failedLocationCount, bestBetModel, hotTopics,
+                seasonalFeatures, bestBetStatus, bestBetsWithdrawn, null);
     }
 
     /**
@@ -156,6 +221,27 @@ public record DailyBriefingResponse(
     public DailyBriefingResponse withDays(List<BriefingDay> newDays) {
         return new DailyBriefingResponse(generatedAt, headline, newDays, bestBets,
                 auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
-                bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn);
+                bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
+                renderedEvents);
+    }
+
+    /**
+     * Returns a copy carrying the projected day hierarchy and the events the Plan tab renders.
+     *
+     * <p>One method rather than two withers because the two are one answer: the days carry each
+     * window's projection and each day's peak, and {@code renderedEvents} says which of those
+     * windows are drawn. Publishing them separately would let a caller emit a horizon that does not
+     * match the projection it came from — the class of divergence this whole phase removes.
+     *
+     * @param newDays           the projected day hierarchy
+     * @param newRenderedEvents the ordered, capped list of events the Plan tab draws
+     * @return a copy carrying both
+     */
+    public DailyBriefingResponse withPlan(List<BriefingDay> newDays,
+            List<PlanRenderedEvent> newRenderedEvents) {
+        return new DailyBriefingResponse(generatedAt, headline, newDays, bestBets,
+                auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
+                bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
+                newRenderedEvents);
     }
 }

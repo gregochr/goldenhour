@@ -19,9 +19,14 @@ import java.util.List;
  *
  * <p><b>What the nullable components mean.</b> Each absence is a deliberate statement, not a gap:
  * <ul>
- *   <li>{@code eventTime} — no slot in the window carries a time. It is the <em>earliest</em> slot
- *       time across every region, never the first in list order: an event belongs to all of its
- *       locations, and list order traces to whichever grid cell answered first.</li>
+ *   <li>{@code eventTime} — the window has no time from any source. It is the <em>earliest</em>
+ *       slot time across every region, never the first in list order: an event belongs to all of
+ *       its locations, and list order traces to whichever grid cell answered first. With no timed
+ *       slot at all it falls back to the enclosing summary's own {@code solarEventTime}, which is
+ *       the only clock a window whose slots the honesty filter withdrew still has — and since that
+ *       instant now decides which events are <em>rendered</em>, not merely which may hold a pick, a
+ *       window reading as timeless would spend one of the six rendered slots on an event that may
+ *       be hours past.</li>
  *   <li>{@code bestRating} — nothing in the window is rated. A max over non-canopy slots whenever
  *       the window has one, so a woodland score never supplies the {@code best spot N★} number.
  *       <b>It is a labelled spot signal and never a verdict.</b> Since 2026-08-17 the

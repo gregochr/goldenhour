@@ -834,7 +834,15 @@ public class BriefingService {
                             region.regionApparentTemperatureCelsius(),
                             region.regionWindSpeedMs(), region.regionWeatherCode(),
                             glossHeadline, glossDetail,
-                            freshVerdict, stats.count()).withConfidence(confidence));
+                            freshVerdict, stats.count())
+                            .withConfidence(confidence)
+                            // The grid cell's star, from the SAME statistics as freshVerdict above,
+                            // so the word and the number in one cell can no longer come from two
+                            // computations. The grid used to derive this in the browser off a second
+                            // endpoint joined on a region-name prefix — see plan §1 D2. Null rather
+                            // than 0.0 when nothing is scored: "not rated" and "rated badly" are
+                            // different statements and the cell renders them differently.
+                            .withMeanRating(stats.isEmpty() ? null : stats.averageRating()));
                 }
                 enrichedEvents.add(es.withRegions(enrichedRegions));
             }

@@ -12,10 +12,17 @@ package com.gregochr.goldenhour.service;
  * moment a day carried two events instead of one. See
  * {@code docs/engineering/plan-verdict-consolidation-plan.md} §1 D3.
  *
- * <p>The frontend's own copy ({@code WindowFirstBriefingContext.jsx MAX_VISIBLE_EVENTS}) is not
- * yet wired to this value — Phase 3 of the same plan retires it in favour of a backend-authoritative
- * rendered list. Until then, this constant is the backend's single source and must be kept equal to
- * the frontend's by hand.
+ * <p><b>The v2 arm no longer keeps a copy of this.</b> Phase 3 of the same plan retired
+ * {@code WindowFirstBriefingContext.jsx MAX_VISIBLE_EVENTS} and the ordering beside it: the
+ * projector now publishes {@code DailyBriefingResponse.renderedEvents} and the client renders that
+ * list, so this constant is the only place the horizon is decided for every surface that reads the
+ * projection.
+ *
+ * <p><b>One hand-kept copy survives, in the frozen arm.</b> {@code DailyBriefing.jsx} — the v1 Plan
+ * tab, held byte-identical as the pilot's comparison control — still has its own
+ * {@code MAX_VISIBLE_EVENTS = 6} and its own selector, deliberately: rewiring it would move the
+ * control. Keep the two equal by hand until the v1 arm is removed, at which point this note goes
+ * with it.
  */
 public final class PlanRenderLimits {
 

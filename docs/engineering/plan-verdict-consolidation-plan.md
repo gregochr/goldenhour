@@ -5,10 +5,18 @@
 `main` as #523 (squash — the branch's original hashes are not ancestors of main). Phase 0's prod
 diagnostic found BEST on an unrendered window (2026-08-19 sunset, the 7th non-past event),
 confirming D3 for the observed instance.
-**Phase 2 shipped 2026-08-17** on branch `fix/plan-verdict-phases-2-3`, on the owner's explicit
-instruction to proceed — so it lands **before** the v2 flag flip, not after it, and §6's
-"gate behind a caller opt-in" clause is what carries the Phase 3 work that touches `HeatmapGrid`.
+**Phases 2 and 3 shipped 2026-08-17/18** on branch `fix/plan-verdict-phases-2-3`, on the owner's
+explicit instruction to proceed — so they land **before** the v2 flag flip, not after it, and §6's
+"gate behind a caller opt-in" clause is what carries the Phase 3 work that touches `HeatmapGrid`
+(`serverCellRating`, defaulting off, so the frozen v1 arm is untouched).
 `usePlanLayout.js` still defaults to `PLAN_V1`. Phase 4 not started.
+
+**Phase 3's one deliberate behavioural cost.** The six-event cap is now the backend's alone, so when
+the client's stale-cache guard withdraws an event the payload still lists, the rail shows one day
+fewer rather than reaching further down `days` to refill. Refilling means re-implementing the cap
+this phase deleted. It is reachable only from an SWR payload that has aged past one of its own
+events, under-reports rather than over-reports, and self-heals at the next poll. Pinned by
+`WindowFirstBriefingContext.test.jsx` "shows one day fewer, rather than refilling".
 
 **§5's one open question is resolved:** `DisplayVerdict.resolve(Integer, Verdict)` **stays**. The
 window verdict was not its last single-rating caller — `BriefingSlot` (3 sites) and

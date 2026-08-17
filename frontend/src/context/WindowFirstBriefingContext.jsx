@@ -25,9 +25,6 @@ const POLL_INTERVAL_MS = 10 * 60 * 1000;
 /** How stale a cached briefing may be and still paint instantly on mount. Matched to v1's. */
 const BRIEFING_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
-/** The grid's cap on solar events, and therefore the outer bound on the rail's days. */
-const MAX_VISIBLE_EVENTS = 6;
-
 /** Shared empty map, so the context default and the pre-fetch state are identity-stable. */
 const EMPTY_SCORES = new Map();
 
@@ -51,21 +48,50 @@ const WindowFirstBriefingContext = createContext({
   isLiteUser: false,
 });
 
-/** Up to 6 upcoming (non-past) solar events [{date, targetType}], in payload order. */
-function selectUpcomingEvents(briefingDays) {
-  const events = [];
-  for (const day of briefingDays || []) {
-    for (const es of day.eventSummaries || []) {
-      // day.date is passed for the same reason as v1's copy in DailyBriefing.jsx: a day whose
-      // slots the coverage filter withdrew carries no time inside its regions, and an elapsed
-      // event read as upcoming spends one of the six slots this cap allows.
-      if (!isEventPast(es, day.date)) {
-        events.push({ date: day.date, targetType: es.targetType });
-        if (events.length === MAX_VISIBLE_EVENTS) return events;
-      }
-    }
-  }
-  return events;
+/**
+ * The events this arm renders: the backend's own ordered, capped list, minus any that have
+ * elapsed since the payload was built.
+ *
+ * <p><b>The list is the backend's answer and this function does not second-guess it.</b> Ordering
+ * and the six-event cap left the client at Phase 3 (`PlanRenderLimits.MAX_VISIBLE_EVENTS`), because
+ * the backend scopes the BEST/ALSO picks to exactly this set — and while the two were derived
+ * independently a pick could name a window with no card. Re-applying a cap here would be a second
+ * opinion about the same question, which is the defect, not the fix.
+ *
+ * <p><b>What remains is a data-freshness defence, not an aggregation.</b> An SWR-cached payload
+ * paints from up to 12h old, over which an event named in it will have passed; the filter drops
+ * those. It is deliberately the same `isEventPast` the rest of the app uses, so a stale-cache
+ * decision cannot diverge from the rest of the client's idea of "past". Against a fresh payload it
+ * is a no-op — the backend applied its own pastness, against a UTC instant, moments earlier.
+ *
+ * <p><b>The degrade is a walk of the days, uncapped.</b> `renderedEvents` is absent from a payload
+ * cached before the field existed and from one served by an older backend mid-deploy; returning
+ * nothing there would blank the pane. Uncapped on purpose — the cap is the backend's to own, and
+ * restoring a client-side copy for the degrade would reintroduce exactly the constant this phase
+ * deleted. The next fetch fixes it within seconds. Absent and empty are different answers, and the
+ * payload contract keeps them apart: empty means the projector ran and found no live window.
+ *
+ * @param {?object} briefing the briefing payload
+ * @returns {Array} [{date, targetType}], in render order
+ */
+function selectUpcomingEvents(briefing) {
+  const days = briefing?.days || [];
+  const summaryFor = (date, targetType) => days
+    .find((d) => d.date === date)?.eventSummaries
+    ?.find((es) => es.targetType === targetType);
+  const listed = briefing?.renderedEvents
+    ?? days.flatMap((d) => (d.eventSummaries || [])
+      .map((es) => ({ date: d.date, targetType: es.targetType })));
+
+  return listed.filter(({ date, targetType }) => {
+    const es = summaryFor(date, targetType);
+    // A named event with no summary is a payload that contradicts itself. Drop it rather than let
+    // a card, a tile or a pick be built from `undefined` further down.
+    // `date` is passed for the same reason as v1's copy in DailyBriefing.jsx: a day whose slots the
+    // coverage filter withdrew carries no time inside its regions, and the date is then the only
+    // evidence the event has happened.
+    return es != null && !isEventPast(es, date);
+  });
 }
 
 /**
@@ -294,13 +320,14 @@ export function WindowFirstBriefingProvider({ children, homeSettingsVersion }) {
   // responses can carry the same generatedAt and different content, and the memo would hold the
   // stale one. What it bought was not re-running a fold over four days and a handful of regions,
   // which is nothing; it gates no fetch. Correctness at no measurable cost.
-  // One evaluation of the event window, shared by the rail and the cards. The past-event rule and
-  // the six-event cap have to be applied ONCE: if the rail and the pane each ran their own, a
-  // change to either could leave a card describing a day the rail does not draw, or the reverse —
-  // and the pick badge and the rail's pick flag would then point at different sets.
+  // One evaluation of the event window, shared by the rail and the cards. The stale-cache pastness
+  // guard has to be applied ONCE: if the rail and the pane each ran their own, a change to either
+  // could leave a card describing a day the rail does not draw, or the reverse — and the pick badge
+  // and the rail's pick flag would then point at different sets. The ordering and the cap are no
+  // longer applied here at all; they arrive on `briefing.renderedEvents`.
   const { upcomingEvents, travelDayDates } = useMemo(() => {
     if (!briefing) return { upcomingEvents: [], travelDayDates: new Set() };
-    const upcoming = selectUpcomingEvents(briefing.days);
+    const upcoming = selectUpcomingEvents(briefing);
     const dates = [...new Set(upcoming.map((e) => e.date))];
     return {
       upcomingEvents: upcoming,

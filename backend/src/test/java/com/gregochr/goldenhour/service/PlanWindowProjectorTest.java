@@ -1,10 +1,12 @@
 package com.gregochr.goldenhour.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.BriefingDayPeak;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
@@ -15,6 +17,7 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
+import com.gregochr.goldenhour.model.PlanRenderedEvent;
 import com.gregochr.goldenhour.model.Verdict;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -981,6 +984,259 @@ class PlanWindowProjectorTest {
         }
     }
 
+    // ── The rendered list and the day peak (Phase 3: one owner per derivation) ──
+
+    /**
+     * The two derivations Phase 3 moved off the client, and the invariant that binds them.
+     *
+     * <p>The client used to keep its own six-event cap, its own pastness rule and its own day-card
+     * roll-up, while the backend scoped the picks to a set derived separately. Two answers to
+     * "which events exist" is how a BEST pick came to name a window with no card, so these tests
+     * assert the three consumers of the horizon — the published list, the pick scope and the day
+     * peak — against <em>one</em> fixture rather than each against its own.
+     */
+    @Nested
+    @DisplayName("the rendered event list and the day peak")
+    class RenderedListAndDayPeak {
+
+        @Test
+        @DisplayName("it publishes the leading six events, in payload order")
+        void publishesTheLeadingSixEventsInOrder() {
+            // Four two-event days is eight events. The 7th and 8th must not appear, and the six
+            // that do must be in the order the payload carries them, not any ranking order — the
+            // highest-rated window here is deliberately the last one published.
+            DailyBriefingResponse out = projectDays(
+                    twoEventDayOf(TODAY, region("D0am", 3, 3), region("D0pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(1), region("D1am", 3, 3), region("D1pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(2), region("D2am", 3, 3), region("D2pm", 5, 5)),
+                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 5, 5), region("D3pm", 3, 3)));
+
+            assertThat(out.renderedEvents()).containsExactly(
+                    new PlanRenderedEvent(TODAY, TargetType.SUNRISE),
+                    new PlanRenderedEvent(TODAY, TargetType.SUNSET),
+                    new PlanRenderedEvent(TODAY.plusDays(1), TargetType.SUNRISE),
+                    new PlanRenderedEvent(TODAY.plusDays(1), TargetType.SUNSET),
+                    new PlanRenderedEvent(TODAY.plusDays(2), TargetType.SUNRISE),
+                    new PlanRenderedEvent(TODAY.plusDays(2), TargetType.SUNSET));
+        }
+
+        @Test
+        @DisplayName("one elapsed event spends no slot, so the horizon reaches one event further")
+        void anElapsedEventDoesNotSpendASlot() {
+            // Eight events, served at 12:00 — after the 05:00 sunrise plus its 30-minute afterglow
+            // and well before the 21:11 sunset. EXACTLY ONE event is past, which is what makes the
+            // far end move by exactly one: without the pastness filter the list would end at D2pm.
+            // The mixed-time fixture is load-bearing here; twoEventDayOf puts both events at 21:11,
+            // so any clock past one is past both and the assertion would hold for the wrong reason.
+            DailyBriefingResponse out = projectAt(List.of(
+                    dawnAndDuskDayOf(TODAY, region("D0am", 3, 3), region("D0pm", 3, 3)),
+                    dawnAndDuskDayOf(TODAY.plusDays(1), region("D1am", 3, 3), region("D1pm", 3, 3)),
+                    dawnAndDuskDayOf(TODAY.plusDays(2), region("D2am", 3, 3), region("D2pm", 3, 3)),
+                    dawnAndDuskDayOf(TODAY.plusDays(3), region("D3am", 3, 3), region("D3pm", 3, 3))),
+                    List.of(), LocalDateTime.of(TODAY, LocalTime.NOON));
+
+            assertThat(out.renderedEvents())
+                    .doesNotContain(new PlanRenderedEvent(TODAY, TargetType.SUNRISE))
+                    .startsWith(new PlanRenderedEvent(TODAY, TargetType.SUNSET))
+                    .endsWith(new PlanRenderedEvent(TODAY.plusDays(3), TargetType.SUNRISE))
+                    .hasSize(6);
+        }
+
+        @Test
+        @DisplayName("§7.3 — no pick names a window outside the published list")
+        void everyPickLandsOnAPublishedEvent() {
+            // One fixture, both consumers. The projector could satisfy either alone by deriving the
+            // horizon twice; asserting them against each other is what makes that impossible.
+            DailyBriefingResponse out = projectDays(
+                    twoEventDayOf(TODAY, region("D0am", 3, 3), region("D0pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(1), region("D1am", 4, 4), region("D1pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(2), region("D2am", 3, 3), region("D2pm", 4, 3)),
+                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 5, 5), region("D3pm", 5, 5)));
+
+            List<PlanRenderedEvent> pickedAt = out.days().stream()
+                    .flatMap(d -> d.eventSummaries().stream()
+                            .filter(es -> es.window().pick() != null)
+                            .map(es -> new PlanRenderedEvent(d.date(), es.targetType())))
+                    .toList();
+
+            assertThat(pickedAt).isNotEmpty();
+            assertThat(out.renderedEvents()).containsAll(pickedAt);
+        }
+
+        @Test
+        @DisplayName("a window whose slots were withdrawn is still timed, from the summary's own clock")
+        void aSlotlessWindowUsesTheSummarysOwnEventTime() {
+            // The honesty filter empties a zero-coverage region's slot list while leaving the
+            // summary's solarEventTime intact. A scan of slots alone then reads that window as
+            // timeless — and a timeless window counts as CURRENT, so it spends one of the six
+            // rendered slots on an event that may be hours past, and the far end of the horizon
+            // loses a day. Delete the fallback and this event is rendered.
+            BriefingEventSummary blanked = new BriefingEventSummary(
+                    TargetType.SUNRISE, List.of(regionWithSlots("Blanked", List.of())), List.of(),
+                    LocalDateTime.of(TODAY, LocalTime.of(5, 0)), null);
+            BriefingDay day = new BriefingDay(TODAY, List.of(
+                    blanked,
+                    new BriefingEventSummary(TargetType.SUNSET,
+                            shiftRegions(TODAY, region("Dusk", 4, 4)), List.of())));
+
+            DailyBriefingResponse out = projectAt(List.of(day), List.of(),
+                    LocalDateTime.of(TODAY, LocalTime.NOON));
+
+            assertThat(out.renderedEvents())
+                    .containsExactly(new PlanRenderedEvent(TODAY, TargetType.SUNSET));
+        }
+
+        @Test
+        @DisplayName("with every event elapsed the list is empty, never absent")
+        void anAllPastForecastPublishesAnEmptyList() {
+            // Empty and absent mean different things to the client — absent is "nothing projected"
+            // and degrades to its own walk of the days, empty is "no live window" and draws
+            // nothing. A forecast that has entirely passed must say the second.
+            DailyBriefingResponse out = projectAt(
+                    List.of(dayOf(TODAY, region("Gone", 4, 4))), List.of(),
+                    LocalDateTime.of(TODAY, LocalTime.of(23, 59)));
+
+            assertThat(out.renderedEvents()).isNotNull().isEmpty();
+        }
+
+        @Test
+        @DisplayName("the day peak is Worth it when any rendered region reaches it")
+        void dayPeakTakesTheBestBandAnyRegionReaches() {
+            BriefingDay day = new BriefingDay(TODAY, List.of(new BriefingEventSummary(
+                    TargetType.SUNSET,
+                    List.of(region("Poor coast", 1, 1), region("Good dales", 4, 4)),
+                    List.of())));
+
+            BriefingDayPeak peak = projectDays(day).days().get(0).peak();
+
+            assertThat(peak.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(peak.regions()).extracting(BriefingDayPeak.PeakRegion::regionName)
+                    .containsExactly("Good dales");
+            assertThat(peak.events()).containsExactly(TargetType.SUNSET);
+        }
+
+        @Test
+        @DisplayName("a day whose best region is only Maybe reads Maybe, not Worth it")
+        void dayPeakFallsToMaybe() {
+            BriefingDayPeak peak = projectDays(dayOf(TODAY, region("Middling", 3, 3)))
+                    .days().get(0).peak();
+
+            assertThat(peak.verdict()).isEqualTo(DisplayVerdict.MAYBE);
+            assertThat(peak.regions()).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("a day with nothing at either band is Poor and names no region")
+        void dayPeakWithNothingRatedIsStandDown() {
+            // The tile's "All poor". Empty regions rather than a STAND_DOWN entry: the chips render
+            // what reached the peak, and on a poor day nothing did.
+            BriefingDayPeak peak = projectDays(dayOf(TODAY, region("Dismal", 1, 1)))
+                    .days().get(0).peak();
+
+            assertThat(peak.verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+            assertThat(peak.regions()).isEmpty();
+            assertThat(peak.events()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("it names both events only when the peak was reached on both")
+        void dayPeakNamesTheEventsItsRegionsReachedItOn() {
+            // Same band on both halves of the day → "both". The sunrise region is deliberately a
+            // DIFFERENT region, so this cannot pass by one region being counted twice.
+            BriefingDay bothWorthIt = twoEventDayOf(TODAY,
+                    region("Dawn dales", 4, 4), region("Dusk coast", 4, 4));
+            // And one half only → that event alone. The other half is present and Poor, so the
+            // event set is doing the discriminating rather than the day simply having one event.
+            BriefingDay sunsetOnly = twoEventDayOf(TODAY.plusDays(1),
+                    region("Dawn dales", 1, 1), region("Dusk coast", 4, 4));
+
+            DailyBriefingResponse out = projectDays(bothWorthIt, sunsetOnly);
+
+            assertThat(out.days().get(0).peak().events())
+                    .containsExactlyInAnyOrder(TargetType.SUNRISE, TargetType.SUNSET);
+            assertThat(out.days().get(1).peak().events()).containsExactly(TargetType.SUNSET);
+        }
+
+        @Test
+        @DisplayName("a region at both bands appears once, at its better one — either way round")
+        void aRegionAtBothBandsAppearsOnceAtItsBetter() {
+            // The tile names a region's best showing that day; listing it twice would put two chips
+            // for one place on one tile, and taking whichever event came second would decide it on
+            // payload order.
+            //
+            // BOTH orders, and the second is the one that does the work. A served payload always
+            // carries sunrise first (BriefingHierarchyBuilder iterates SUNRISE then SUNSET), so a
+            // "keep the first one seen" simplification passes the better-at-sunrise case for the
+            // wrong reason — the outranking clause is only visible when the better band arrives
+            // second. Everything else is held constant across the pair: same region name, same two
+            // bands, same day shape.
+            BriefingDayPeak betterFirst = projectDays(twoEventDayOf(TODAY,
+                    region("Coast", 4, 4), region("Coast", 3, 3))).days().get(0).peak();
+            BriefingDayPeak betterSecond = projectDays(twoEventDayOf(TODAY,
+                    region("Coast", 3, 3), region("Coast", 4, 4))).days().get(0).peak();
+
+            assertThat(betterFirst.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(betterFirst.regions()).extracting(
+                            BriefingDayPeak.PeakRegion::regionName,
+                            BriefingDayPeak.PeakRegion::targetType)
+                    .containsExactly(tuple("Coast", TargetType.SUNRISE));
+
+            assertThat(betterSecond.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(betterSecond.regions()).extracting(
+                            BriefingDayPeak.PeakRegion::regionName,
+                            BriefingDayPeak.PeakRegion::targetType)
+                    .containsExactly(tuple("Coast", TargetType.SUNSET));
+        }
+
+        @Test
+        @DisplayName("one region at the peak on both events names ONE of them — the known "
+                + "under-report, pinned so it is not silently 'fixed'")
+        void aSingleRegionAtBothEventsNamesOnlyTheFirst() {
+            // A documented deliberate cost with no test is a cost the next reader corrects. The
+            // day's only peak-band region is Worth it at BOTH events, so "· both" is arguably the
+            // truer word — but a region appears once (the tile names its best showing, not one chip
+            // per event), and the client roll-up this replaced behaved identically. The day card is
+            // specified as an ownership move with no semantic change, so moving it here would move
+            // v2 away from the v1 control mid-pilot. See BriefingDayPeak's Javadoc.
+            BriefingDayPeak peak = projectDays(twoEventDayOf(TODAY,
+                    region("Coast", 4, 4), region("Coast", 4, 4))).days().get(0).peak();
+
+            assertThat(peak.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(peak.regions()).hasSize(1);
+            assertThat(peak.events()).containsExactly(TargetType.SUNRISE);
+        }
+
+        @Test
+        @DisplayName("it rolls up only the events the same response says are rendered")
+        void dayPeakIgnoresAnEventTheHorizonDropped() {
+            // The elapsed sunrise is the day's only good window. A roll-up over the DAY reads
+            // "Worth it" for a window that has no card; over the RENDERED events it reads Poor,
+            // which is what the reader can still act on. Same clock as the horizon test above.
+            DailyBriefingResponse out = projectAt(List.of(dawnAndDuskDayOf(TODAY,
+                    region("Brilliant dawn", 5, 5), region("Dismal dusk", 1, 1))),
+                    List.of(), LocalDateTime.of(TODAY, LocalTime.NOON));
+
+            assertThat(out.renderedEvents())
+                    .containsExactly(new PlanRenderedEvent(TODAY, TargetType.SUNSET));
+            assertThat(out.days().get(0).peak().verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        }
+
+        @Test
+        @DisplayName("a day outside the horizon carries no peak at all")
+        void anUnrenderedDayHasNoPeak() {
+            // Null, not STAND_DOWN. The tile is not drawn for this day, and a Poor roll-up for a
+            // day nothing renders is a claim about weather where the honest answer is "not shown".
+            DailyBriefingResponse out = projectDays(
+                    twoEventDayOf(TODAY, region("D0am", 4, 4), region("D0pm", 4, 4)),
+                    twoEventDayOf(TODAY.plusDays(1), region("D1am", 4, 4), region("D1pm", 4, 4)),
+                    twoEventDayOf(TODAY.plusDays(2), region("D2am", 4, 4), region("D2pm", 4, 4)),
+                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 4, 4), region("D3pm", 4, 4)));
+
+            assertThat(out.days().get(2).peak()).isNotNull();
+            assertThat(out.days().get(3).peak()).isNull();
+        }
+    }
+
     // ── Carriage ─────────────────────────────────────────────────────────────
 
     @Test
@@ -1173,6 +1429,44 @@ class PlanWindowProjectorTest {
                 new BriefingEventSummary(TargetType.SUNSET, shiftRegions(date, sunset), List.of())));
     }
 
+    /**
+     * One day carrying a <b>05:00 sunrise and a 21:11 sunset</b>, each built from its own regions.
+     *
+     * <p>{@link #twoEventDayOf} stamps every slot at 21:11 — its fixtures only ever needed the two
+     * events ordered, never separable in time — so no clock can put one of them in the past and
+     * leave the other live. Anything asserting that exactly ONE event elapsed needs this instead,
+     * or it passes while dropping both and says nothing about the rule under test.
+     */
+    private static BriefingDay dawnAndDuskDayOf(LocalDate date, BriefingRegion sunrise,
+            BriefingRegion sunset) {
+        return new BriefingDay(date, List.of(
+                new BriefingEventSummary(TargetType.SUNRISE,
+                        retimed(shiftRegions(date, sunrise), LocalDateTime.of(date, LocalTime.of(5, 0))),
+                        List.of()),
+                new BriefingEventSummary(TargetType.SUNSET, shiftRegions(date, sunset), List.of())));
+    }
+
+    /** Puts every slot in the given regions at one instant, so an event has a single clock time. */
+    private static List<BriefingRegion> retimed(List<BriefingRegion> regions, LocalDateTime when) {
+        return regions.stream()
+                .map(r -> new BriefingRegion(r.regionName(), r.verdict(), r.summary(),
+                        r.tideHighlights(),
+                        r.slots().stream().map(sl -> {
+                            BriefingSlot moved = new BriefingSlot(sl.locationId(), sl.locationName(),
+                                    when, sl.verdict(), sl.weather(), sl.tide(), sl.flags(),
+                                    sl.standdownReason());
+                            return sl.claudeRating() == null ? moved
+                                    : moved.withClaudeScores(sl.claudeRating(),
+                                            sl.fierySkyPotential(), sl.goldenHourPotential(),
+                                            sl.claudeSummary());
+                        }).toList(),
+                        r.regionTemperatureCelsius(), r.regionApparentTemperatureCelsius(),
+                        r.regionWindSpeedMs(), r.regionWeatherCode(), r.glossHeadline(),
+                        r.glossDetail(), r.displayVerdict(), r.scoredLocationCount(),
+                        r.verdictLabel(), r.lightlyEvaluated(), r.confidence(), r.meanRating()))
+                .toList();
+    }
+
     /** Re-stamps every slot in the given regions onto the given date, keeping clock times. */
     private static List<BriefingRegion> shiftRegions(LocalDate date, BriefingRegion... regions) {
         return java.util.Arrays.stream(regions)
@@ -1182,7 +1476,7 @@ class PlanWindowProjectorTest {
                         r.regionTemperatureCelsius(), r.regionApparentTemperatureCelsius(),
                         r.regionWindSpeedMs(), r.regionWeatherCode(), r.glossHeadline(),
                         r.glossDetail(), r.displayVerdict(), r.scoredLocationCount(),
-                        r.verdictLabel(), r.lightlyEvaluated(), r.confidence()))
+                        r.verdictLabel(), r.lightlyEvaluated(), r.confidence(), r.meanRating()))
                 .toList();
     }
 

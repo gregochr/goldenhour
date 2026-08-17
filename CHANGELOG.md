@@ -5,6 +5,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the Plan tab's three derivations now have one owner each, on the backend
+
+Three surfaces reduced one `/api/briefing` payload three different ways, and nothing kept them in
+step: the window row took a max, the grid cell a region mean, the day card an any-of over region
+verdicts — with the client also keeping its own copy of the six-event render cap while the backend
+scoped the Best/Also picks to a set it derived separately.
+
+`PlanWindowProjector` now resolves the render horizon **once** and publishes it, and three things
+read that one answer instead of deriving their own:
+
+- **`renderedEvents`** — the ordered, capped list of solar events the Plan tab draws, elapsed events
+  already dropped against a UTC instant. `WindowFirstBriefingContext` renders it; its own
+  `MAX_VISIBLE_EVENTS` and the capping and ordering in `selectUpcomingEvents` are gone. What remains
+  there is a stale-cache guard — an SWR payload paints from up to 12h old — plus a walk of `days`
+  for a payload served before the field existed.
+- **`BriefingDay.peak`** — the day card's band, the events it was reached on and the regions that
+  reached it, rolled up over the same rendered events. The `windowFirstRail.js` roll-up is deleted.
+- **`BriefingRegion.meanRating`** — each grid cell's star, from the same statistics as that cell's
+  verdict word, so the two can no longer come from two fetches with two cache lifetimes.
+
+`HeatmapGrid` is shared with the frozen v1 arm, so the cell star is behind a caller opt-in
+(`serverCellRating`, default off): the v2 regional panel passes it, `DailyBriefing` does not and
+keeps its own derivation exactly as it shipped. The `/api/briefing/evaluate/scores` fetch stays —
+the drill-down reads it for per-location detail.
+
+No migration: all three are payload fields on a JSON column. The two projector-derived ones
+(`renderedEvents`, `BriefingDay.peak`) are serve-time only and omitted when absent, so they never
+reach the stored briefing. `meanRating` is derived on the enrichment path, which also runs at build
+time, so it **is** written into `daily_briefing_cache` — an additive field a stored payload gains,
+and one a payload stored before this change simply lacks (it deserialises to null, and the serve
+path re-derives it on every request).
+
+Two smaller behaviour changes ride with it. A window whose slots the honesty filter withdrew now
+takes its time from the enclosing summary's own `solarEventTime` instead of reading as timeless —
+a timeless window counts as current, so it used to spend one of the six rendered slots on an event
+that could be hours past. And a day carrying no peak at all — an SWR payload cached before this
+change — reads "Awaiting" on the rail rather than "All poor", because such a payload still carries
+its windows, and a rail saying "All poor" over cards saying "Worth it" is the very contradiction
+this work removes.
+
+One deliberate cost: with the cap now the backend's alone, a stale payload whose listed event has
+since elapsed shows one day fewer on the rail rather than reaching further down `days` to refill —
+refilling means re-implementing the cap this change deletes. It under-reports rather than
+over-reports and self-heals at the next poll.
+
+Phase 3 of `docs/engineering/plan-verdict-consolidation-plan.md`.
+
 ### Changed — the Plan tab's window verdict is now region-led, and the best spot says it is a spot
 
 The window-first Plan tab's window rows took their verdict word from the **highest-rated single

@@ -504,7 +504,7 @@ function computeCellTipPlacement(rect) {
   return { style, alignRight };
 }
 
-function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map(), showAllLocations = false, todayStr = null, noHoverTip = false }) {  const cellData = getSubCellData(date, regionName, targetType, briefingDays);
+function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map(), showAllLocations = false, todayStr = null, noHoverTip = false, serverCellRating = false }) {  const cellData = getSubCellData(date, regionName, targetType, briefingDays);
 
   // Hover tooltip placement, portalled to <body> so the plan card's overflow:hidden can't clip
   // the rightmost column's tip. Declared before any early return to satisfy the rules of hooks.
@@ -628,19 +628,39 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
   const glossSentence = region.glossDetail || region.glossHeadline || region.summary || null;
 
   // Mean Claude rating across the cell's scored locations.
-  const ratings = [];
-  const prefix = `${regionName}|${date}|${targetType}|`;
-  for (const [key, result] of evaluationScores) {
-    if (key.startsWith(prefix) && result.rating != null) ratings.push(result.rating);
-  }
-  if (ratings.length === 0 && region?.slots) {
-    for (const s of region.slots) {
-      if (s.claudeRating != null) ratings.push(s.claudeRating);
+  //
+  // Two derivations, and which one runs is the CALLER's choice, not this component's. `HeatmapGrid`
+  // has two call sites in two flag arms and one of them — `DailyBriefing`, the v1 arm — is the
+  // frozen control for the side-by-side comparison the redesign is judged by. So the backend field
+  // is opt-in: v2's `WindowFirstRegionalPanel` passes `serverCellRating`, v1 passes nothing and
+  // keeps the client-side join byte for byte.
+  //
+  // The opted-in path reads `region.meanRating`, which the backend derives from the SAME statistics
+  // as the cell's verdict word — so the star and the word can no longer come from two computations
+  // with two cache lifetimes. The legacy path below is what that replaced: a mean taken from
+  // `/api/briefing/evaluate/scores` through a region-NAME prefix join, silently falling back to the
+  // slot tree when the join found nothing. See plan-verdict-consolidation-plan.md §1 D2.
+  //
+  // Null is preserved rather than coerced: it means nothing here is rated, which the badge below
+  // renders as no badge at all rather than as a 0.
+  let meanRating;
+  if (serverCellRating) {
+    meanRating = region?.meanRating ?? null;
+  } else {
+    const ratings = [];
+    const prefix = `${regionName}|${date}|${targetType}|`;
+    for (const [key, result] of evaluationScores) {
+      if (key.startsWith(prefix) && result.rating != null) ratings.push(result.rating);
     }
+    if (ratings.length === 0 && region?.slots) {
+      for (const s of region.slots) {
+        if (s.claudeRating != null) ratings.push(s.claudeRating);
+      }
+    }
+    meanRating = ratings.length > 0
+      ? parseFloat((ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1))
+      : null;
   }
-  const meanRating = ratings.length > 0
-    ? parseFloat((ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1))
-    : null;
 
   // Built HERE, not beside the collapsed one, because `aria-label` REPLACES name-from-contents —
   // so this string has to carry back everything the label would otherwise silence. A rated cell
@@ -779,6 +799,7 @@ export default function HeatmapGrid({
   onShowAllLocationsChange = null,
   travelDayDates = new Set(),
   scrollable = false,
+  serverCellRating = false,
 }) {
   // A tap is not a hover. Asks what is POINTING at the grid rather than how wide the viewport is,
   // because the two disagree on exactly the devices this breaks — a touchscreen laptop is far wider
@@ -1037,6 +1058,7 @@ export default function HeatmapGrid({
               showAllLocations={showAllLocations}
               todayStr={todayStr}
               noHoverTip={noHoverTip}
+              serverCellRating={serverCellRating}
             />
           );
         })}
@@ -1284,4 +1306,14 @@ HeatmapGrid.propTypes = {
    * while v2 gets the layout, and it says at the call site which arm asked for what.
    */
   scrollable: PropTypes.bool,
+  /**
+   * Opt in to the backend-derived per-cell mean rating ({@code BriefingRegion.meanRating}) instead
+   * of the client-side join over {@code /api/briefing/evaluate/scores}.
+   *
+   * <p>A prop for the same reason as {@code scrollable}: the v1 call site is the frozen pilot
+   * control, and this changes which number a cell prints. Defaulting to off keeps that arm on the
+   * derivation it shipped with while v2 takes the payload's own. The {@code /evaluate/scores} fetch
+   * stays either way — the drill-down reads it for per-location detail.
+   */
+  serverCellRating: PropTypes.bool,
 };

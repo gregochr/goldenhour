@@ -49,8 +49,8 @@ The question has force because `CLAUDE.md` states an explicit principle —
 | 1 | Best Bet / Also Good | `GET /api/briefing` (`bestBets`) | Backend `BriefingBestBetAdvisor` + serve-time fallback | Almost entirely backend |
 | 2 | **Close to home** | `/api/briefing` + `/api/user/settings*` | **Frontend** `utils/closeToHome.js` | **Business logic — geospatial gate + ranking** |
 | 3 | Hot topics | `GET /api/briefing` (`hotTopics`) | Backend strategies | Backend |
-| 4 | Briefing summary strip | `GET /api/briefing` | **Frontend** `buildSummaryPills` (`DailyBriefing.jsx`) | **Business logic — day roll-up + confidence aggregation** |
-| 5 | Full briefing grid | `GET /api/briefing` | **Frontend** `getDayCellData` / `tierUtils` | Mixed; recomputes a mean rating the backend already has |
+| 4 | Briefing summary strip / day rail | `GET /api/briefing` | Backend `PlanWindowProjector` (`BriefingDay.peak`) | Backend, in the v2 arm. Frontend `buildSummaryPills` remains in the frozen v1 arm |
+| 5 | Full briefing grid | `GET /api/briefing` | Backend `BriefingRegion.meanRating` + `displayVerdict` | Backend, behind the `serverCellRating` caller opt-in; v1 keeps its own derivation |
 
 The Plan tab is **already multi-request** — it is not a monolith being defended. `DailyBriefing`
 alone calls five endpoints (`/api/briefing`, `/api/briefing/evaluate/scores`,
@@ -101,10 +101,18 @@ so that option is off the table — not on taste, on a rule already written down
 - **Panels 1, 3, 4, 5 — the shared forecast snapshot.** These are four *views of one answer*.
   They should keep deriving from one payload. Splitting them multiplies requests against a
   payload that is already ETag-revalidated to a **304**, and it reintroduces cross-panel
-  divergence that this codebase deliberately engineered out. From `DailyBriefing.jsx:189-190`:
-  *"Driving both from one day-indexed source makes strip/grid disagreement structurally
-  impossible."* Two panels fetching independently can show 4★ and 3★ for the same location.
-  Consistency beats modularity here.
+  divergence that this codebase deliberately engineered out. Two panels fetching independently
+  can show 4★ and 3★ for the same location. Consistency beats modularity here.
+
+  ⚠️ **`DailyBriefing.jsx`'s claim that one source makes "strip/grid disagreement structurally
+  impossible" was too strong, and this document repeated it.** One source removed disagreement
+  about the *data*; it said nothing about the *aggregators*. Three surfaces went on reducing that
+  one payload three different ways — the window row by the max rating, the grid cell by the region
+  mean, the day card by an any-of over region verdicts — and on 2026-08-16 production showed a row
+  reading "Worth it · best 4★" above a grid of "Poor" cells. Verified and fixed in
+  `plan-verdict-consolidation-plan.md`: since Phase 3 the backend computes each of the three and
+  the client renders them, so the claim now holds for the aggregators as well. The lesson worth
+  keeping is that "one payload" is a necessary condition and was mistaken for a sufficient one.
 
 - **Panel 2 — Close to home.** Per-user by construction. This one earns its own endpoint, and
   it earns it because of who owns the data, not because it is a panel.
@@ -214,11 +222,12 @@ What *is* verified about the shape of the waste, and still stands:
 - The **only** panel that needs the whole slot tree is the full briefing grid — and it is
   **collapsed by default** and does not render on a fresh session
   (`DailyBriefing.jsx:936-938`, render gate at `:1509`).
-- The grid recomputes each cell's mean Claude rating in the browser
-  (`HeatmapGrid.jsx:602-615`), a number the backend already computes and discards.
-- `BriefingEventSummary` carries no event time (`BriefingEventSummary.java:14-17`), so every
-  panel wanting a clock time must walk into the slot tree to find one
-  (`briefingDisplay.js:159`).
+*(Two bullets that stood here — the grid recomputing each cell's mean rating in the browser, and
+`BriefingEventSummary` carrying no event time — are **deleted rather than struck through**, because
+both are fixed and a list of fixed debt is a list nobody can act on. `BriefingRegion.meanRating` now
+publishes the cell's mean from the same statistics as its verdict word, read behind the
+`serverCellRating` caller opt-in; the summary has carried `solarEventTime` since well before this
+section was last revised, and each window carries its own `eventTime`.)
 
 So the Plan tab does ship a large slot tree on every cold load, mostly to satisfy a panel that is
 usually not rendered — and a summary-shaped payload with the slot tree fetched on grid expansion

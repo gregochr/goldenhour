@@ -2615,6 +2615,59 @@ class BriefingServiceTest {
         }
 
         @Test
+        @DisplayName("The cell's star and its verdict word come from ONE computation")
+        void meanRatingAndDisplayVerdictAreDerivedTogether() {
+            // Plan §1 D2, invariant §7.4. The grid used to print the word from this payload and the
+            // star from a second endpoint, joined on a region-name prefix with a silent fallback —
+            // two fetches, two cache lifetimes, one cell. Both now ride the region.
+            //
+            // 5 and 2 average to exactly 3.5, which is the WORTH_IT band edge: the pair is chosen so
+            // the published number is the one the band test was applied to. A mean derived from any
+            // other population — the max, the first slot, a re-read of the cache — lands elsewhere.
+            stubFullRefresh(List.of(bamburgh(), seahouses()));
+            when(evaluationViewService.getScoresForEnrichment(
+                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of("Bamburgh", scored("Bamburgh", 5),
+                            "Seahouses", scored("Seahouses", 2)));
+            stubServeIndex(Map.of("Bamburgh", scored("Bamburgh", 5),
+                    "Seahouses", scored("Seahouses", 2)));
+
+            briefingService.refreshBriefing();
+            BriefingRegion served = findRegion(briefingService.getCachedBriefingForApi(),
+                    "North East");
+
+            assertThat(served.meanRating()).isEqualTo(3.5);
+            assertThat(served.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+        }
+
+        @Test
+        @DisplayName("An unscored region publishes no mean at all, rather than a zero")
+        void meanRatingIsNullWhenNothingIsScored() {
+            // 0.0 would render as a 0★ cell — a claim that everything here was looked at and found
+            // worthless. Null is "not rated", which the cell draws differently. The empty Stats
+            // record reports 0.0 for exactly this reason, so the null has to be applied here.
+            //
+            // Asserted on the INTERNAL briefing, which is what makes it a test of that null rather
+            // than of something else: on the API path BriefingHonestyFilter rewrites a
+            // zero-coverage region wholesale, and its replacement carries no mean either — so
+            // deleting the guard in enrichWithCachedScores would leave an API-path assertion green
+            // and only an all-canopy region, which the filter passes through untouched, would ever
+            // notice. The API path is asserted too, because both must hold.
+            stubFullRefresh(List.of(bamburgh(), seahouses()));
+            when(evaluationViewService.getScoresForEnrichment(
+                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of());
+            stubServeIndex(Map.of());
+
+            briefingService.refreshBriefing();
+
+            assertThat(findRegion(briefingService.getCachedBriefing(), "North East")
+                    .meanRating()).isNull();
+            assertThat(findRegion(briefingService.getCachedBriefingForApi(), "North East")
+                    .meanRating()).isNull();
+        }
+
+        @Test
         @DisplayName("A resolved triage RETRACTS a rating the build had already scored")
         void serveTimeTriageRetractsBuiltRating() {
             // Enrichment could previously raise a rating but never retract one, so a slot scored

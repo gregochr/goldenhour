@@ -40,8 +40,54 @@ function summary(targetType, regions, { pickOn = null, eventTime = null } = {}) 
   };
 }
 
-function day(date, eventSummaries) {
-  return { date, eventSummaries };
+/**
+ * A day as the SERVED payload carries one — its summaries plus the backend's `peak` roll-up.
+ *
+ * <p>The peak is derived here so every fixture in this file is a payload production could actually
+ * produce, exactly as a real `GET /api/briefing` response would be. **This mirror is not what these
+ * tests exercise** — the rail no longer decides a day's band, it renders one, and the derivation
+ * rule itself is pinned in `PlanWindowProjectorTest.RenderedListAndDayPeak`. Anything asserting how
+ * the rail behaves for a GIVEN peak passes one explicitly through `peak` rather than relying on
+ * this, so a rail bug can never be masked by a fixture that reproduces it.
+ */
+function day(date, eventSummaries, peak = derivePeak(eventSummaries)) {
+  return { date, eventSummaries, peak };
+}
+
+/**
+ * The backend's day roll-up, mirrored for fixture construction only. See `day` above.
+ *
+ * <p>It walks EVERY summary on the day. The real one is scoped to the rendered events, so any
+ * fixture whose rendered set is narrower than its payload must state its peak explicitly.
+ */
+function derivePeak(eventSummaries) {
+  const best = new Map();
+  for (const es of eventSummaries || []) {
+    for (const r of es.regions || []) {
+      const dv = r.displayVerdict;
+      if (dv !== 'WORTH_IT' && dv !== 'MAYBE') continue;
+      const held = best.get(r.regionName);
+      if (!held || (dv === 'WORTH_IT' && held.displayVerdict === 'MAYBE')) {
+        best.set(r.regionName, {
+          regionName: r.regionName, targetType: es.targetType, displayVerdict: dv,
+        });
+      }
+    }
+  }
+  const all = [...best.values()];
+  const verdict = all.some((r) => r.displayVerdict === 'WORTH_IT') ? 'WORTH_IT'
+    : all.length > 0 ? 'MAYBE' : 'STAND_DOWN';
+  const regions = all.filter((r) => r.displayVerdict === verdict);
+  return { verdict, events: [...new Set(regions.map((r) => r.targetType))], regions };
+}
+
+/** A peak stated outright, for tests about what the rail RENDERS rather than what it is given. */
+function peakOf(verdict, ...regions) {
+  return {
+    verdict,
+    events: [...new Set(regions.map((r) => r.targetType))],
+    regions,
+  };
 }
 
 /** The (date, targetType) columns the rail is asked to roll up. */
@@ -85,14 +131,21 @@ describe('buildRailTiles', () => {
     expect(tiles.map((t) => t.dayLabel)).toEqual(['Today', 'Tomorrow']);
   });
 
-  describe('the day roll-up', () => {
-    it('lets a region\'s WORTH_IT event outrank its MAYBE one on the same day', () => {
-      // A region appearing on both of a day's events must contribute its BEST cell, or a good
-      // sunset is hidden by a mediocre sunrise for the same place.
+  // The rail RENDERS the backend's `BriefingDay.peak`; it no longer derives one. The derivation
+  // rule — which band a day reaches, which events it reached it on, a region counted once at its
+  // better band — is pinned in PlanWindowProjectorTest.RenderedListAndDayPeak. What these assert is
+  // the translation into what a tile shows.
+  describe('the day peak, as rendered', () => {
+    it('renders the region and event the peak names, not one it finds in the payload', () => {
+      // The payload deliberately contradicts its own peak: "Dales" appears on BOTH events, and the
+      // sunrise entry is the one a client-side roll-up would have to reject. The peak says sunset.
+      // Re-derive here instead of reading it and the chip reads "Worth it sunrise", or two chips
+      // appear for one region.
       const days = [day(TODAY, [
-        summary('SUNRISE', [region('Dales', 'MAYBE')]),
+        summary('SUNRISE', [region('Dales', 'WORTH_IT')]),
         summary('SUNSET', [region('Dales', 'WORTH_IT')]),
-      ])];
+      ], peakOf('WORTH_IT',
+        { regionName: 'Dales', targetType: 'SUNSET', displayVerdict: 'WORTH_IT' }))];
       const [tile] = buildRailTiles(
         events([TODAY, 'SUNRISE'], [TODAY, 'SUNSET']), days, TODAY, TOMORROW, new Set(),
       );
@@ -100,6 +153,94 @@ describe('buildRailTiles', () => {
       expect(tile.peak).toBe('go');
       expect(tile.regions).toHaveLength(1);
       expect(tile.regions[0].verdictLabel).toBe('Worth it sunset');
+    });
+
+    it('drops a named region the payload does not actually carry', () => {
+      // The peak names identity only; the chip needs the region object for its weather and gloss.
+      // A name that resolves to nothing must vanish rather than render a chip of blanks — this is
+      // the shape a region RENAME between build and serve would produce.
+      const days = [day(TODAY, [summary('SUNSET', [region('Coast', 'WORTH_IT')])],
+        peakOf('WORTH_IT',
+          { regionName: 'Coast', targetType: 'SUNSET', displayVerdict: 'WORTH_IT' },
+          { regionName: 'Renamed away', targetType: 'SUNSET', displayVerdict: 'WORTH_IT' }))];
+
+      const [tile] = buildRailTiles(events([TODAY, 'SUNSET']), days, TODAY, TOMORROW, new Set());
+
+      expect(tile.regions.map((r) => r.regionName)).toEqual(['Coast']);
+      expect(tile.peak).toBe('go');
+    });
+
+    it('reads Awaiting, NOT All poor, when the payload carries no peak at all', () => {
+      // A payload cached before the backend published the peak — the same one the provider's
+      // degrade walk exists for. It still carries windows, so the CARDS read "Worth it" from
+      // `window.verdict`; a tile reading "All poor" beside them is the contradiction this whole
+      // plan removes, and it was reproduced in the browser before this guard existed.
+      //
+      // The summary's WORTH_IT region is deliberately present: this must not be answered by there
+      // being nothing to roll up. It must be answered by there being no peak to render.
+      const days = [{ date: TODAY, eventSummaries: [summary('SUNSET', [region('A', 'WORTH_IT')])] }];
+      const [tile] = buildRailTiles(events([TODAY, 'SUNSET']), days, TODAY, TOMORROW, new Set());
+
+      expect(tile.peak).toBe('awaiting');
+      expect(tile.peakLabel).toBe('Awaiting');
+      expect(tile.peakLabel).not.toMatch(/poor/i);
+      expect(tile.regions).toEqual([]);
+    });
+
+    it('drops a peak region on an event the tile no longer draws, and says so in the label', () => {
+      // The stale-payload filter, on the PARTIAL case. The peak names two Worth-it regions, one on
+      // each event; the tile draws only the sunset. The band is unchanged — a survivor still holds
+      // it — but the chip list and the event suffix must both narrow, or the tile reads
+      // "Worth it · both" while drawing one event and offering one chip.
+      const days = [day(TODAY, [
+        summary('SUNRISE', [region('Dawn', 'WORTH_IT')]),
+        summary('SUNSET', [region('Dusk', 'WORTH_IT')]),
+      ], peakOf('WORTH_IT',
+        { regionName: 'Dawn', targetType: 'SUNRISE', displayVerdict: 'WORTH_IT' },
+        { regionName: 'Dusk', targetType: 'SUNSET', displayVerdict: 'WORTH_IT' }))];
+
+      const [tile] = buildRailTiles(events([TODAY, 'SUNSET']), days, TODAY, TOMORROW, new Set());
+
+      expect(tile.peak).toBe('go');
+      expect(tile.peakLabel).toBe('Worth it · sunset');
+      expect(tile.regions.map((r) => r.regionName)).toEqual(['Dusk']);
+    });
+
+    it('reads Awaiting, not All poor, when every region the peak named was withdrawn', () => {
+      // The case the band recompute alone gets WRONG, and the reason the third state exists. The
+      // backend publishes only the regions at the TOP band — `dayPeak`'s own `atPeak` filter — so
+      // when the withdrawn event carried all of them there is nothing left to fall back to. The
+      // drawn sunset's card still reads "Maybe" from its own window verdict, so a tile saying "All
+      // poor" beside it is a contradiction on one screen; "Awaiting" is a gap, which is what this
+      // payload actually is.
+      //
+      // Note the fixture is producible, and deliberately so: `peak.verdict` is WORTH_IT and every
+      // region it names is WORTH_IT. A peak carrying a MAYBE region under a WORTH_IT verdict is a
+      // shape the projector cannot emit, and asserting against one would certify the very thing
+      // that is not covered.
+      const days = [day(TODAY, [
+        summary('SUNRISE', [region('Dawn', 'WORTH_IT')]),
+        summary('SUNSET', [region('Dusk', 'MAYBE')]),
+      ], peakOf('WORTH_IT',
+        { regionName: 'Dawn', targetType: 'SUNRISE', displayVerdict: 'WORTH_IT' }))];
+
+      const [tile] = buildRailTiles(events([TODAY, 'SUNSET']), days, TODAY, TOMORROW, new Set());
+
+      expect(tile.peak).toBe('awaiting');
+      expect(tile.peakLabel).toBe('Awaiting');
+      expect(tile.peakLabel).not.toMatch(/poor/i);
+      expect(tile.regions).toEqual([]);
+    });
+
+    it('still reads All poor when the peak is present and reached nothing', () => {
+      // The other side of the boundary, and the reason the guard keys on the FIELD rather than on
+      // the region list being empty: a peak that looked and found nothing is a forecast, and it
+      // must keep saying so.
+      const days = [day(TODAY, [summary('SUNSET', [region('A', 'STAND_DOWN')])])];
+      const [tile] = buildRailTiles(events([TODAY, 'SUNSET']), days, TODAY, TOMORROW, new Set());
+
+      expect(tile.peak).toBe('poor');
+      expect(tile.peakLabel).toBe('All poor');
     });
 
     it('names the one good event, and says "both" when the day has two', () => {
@@ -279,16 +420,20 @@ describe('buildRailTiles', () => {
     });
 
     it('does not flag a pick on an event the tile never rolled up', () => {
-      // The two engines rank over different sets. The backend's pool is both events of the first
-      // four dates carrying a live draft; the rail's is the first six non-past events. Between a
-      // sunset and the next sunrise those six span only three dates, and either side can drop a
-      // past event the other kept — so a day can carry a BEST for a sunrise the tile is not
-      // describing. Flagging it would put "◎ BEST sunrise" above a verdict line rolled up from
+      // Since Phase 3 both sides rank over the SAME published list, so against a fresh payload this
+      // cannot happen. It is still reachable from a stale one: an SWR-cached response can sit for
+      // up to 12h, and the provider's pastness guard then withdraws an event whose pick the cached
+      // payload still names. Flagging it would put "◎ BEST sunrise" above a verdict line describing
       // the sunset alone.
+      //
+      // The peak is stated rather than derived for exactly that reason — this fixture models a
+      // payload whose peak was computed when the sunrise WAS rendered and the tile no longer draws
+      // it, which is a shape `derivePeak` (which walks every summary) cannot express.
       const days = [day(TODAY, [
         summary('SUNRISE', [region('A', 'WORTH_IT')], { pickOn: pick('BEST', 'A') }),
         summary('SUNSET', [region('B', 'WORTH_IT')]),
-      ])];
+      ], peakOf('WORTH_IT',
+        { regionName: 'B', targetType: 'SUNSET', displayVerdict: 'WORTH_IT' }))];
       // Only the SUNSET column is rendered — the sunrise has already passed.
       const [tile] = buildRailTiles(events([TODAY, 'SUNSET']), days, TODAY, TOMORROW, new Set());
 
@@ -409,9 +554,13 @@ describe('buildRailTiles', () => {
   describe('degrade paths', () => {
     it('survives a day the briefing has no entry for, and claims nothing about it', () => {
       // This used to assert "0 regions" — the worst instance of the banned count, because it
-      // reported an empty roster as a measurement rather than admitting the day is unknown.
+      // reported an empty roster as a measurement rather than admitting the day is unknown. It then
+      // asserted "All poor", which is the same mistake one word quieter: a day the payload does not
+      // contain has not been found poor, it has not been looked at. "Awaiting" is what this test's
+      // own title has always asked for.
       const [tile] = buildRailTiles(events([TODAY, 'SUNSET']), [], TODAY, TOMORROW, new Set());
-      expect(tile.peakLabel).toBe('All poor');
+      expect(tile.peakLabel).toBe('Awaiting');
+      expect(tile.peakLabel).not.toMatch(/poor/i);
       expect(tile.countLabel).toBeNull();
     });
 

@@ -50,7 +50,9 @@ function buildBriefingDays(dates, regionName, locationNames) {
   }));
 }
 
-function renderGrid({ events, briefingDays, showAllLocations, travelDayDates, scrollable } = {}) {
+function renderGrid({
+  events, briefingDays, showAllLocations, travelDayDates, scrollable, serverCellRating,
+} = {}) {
   const regionName = 'North East';
   const locNames = ['Bamburgh', 'Kielder'];
   const days = briefingDays || buildBriefingDays([DATE_1, DATE_2], regionName, locNames);
@@ -75,6 +77,7 @@ function renderGrid({ events, briefingDays, showAllLocations, travelDayDates, sc
       showAllLocations={showAllLocations || false}
       travelDayDates={travelDayDates || new Set()}
       scrollable={scrollable || false}
+      serverCellRating={serverCellRating || false}
     />,
   );
 }
@@ -1250,6 +1253,69 @@ describe('HeatmapGrid — day header solar times', () => {
 });
 
 // ── Backend-cached Claude scores on slots ────────────────────────────────────
+
+/**
+ * The per-cell star has two derivations and the CALLER chooses, because `HeatmapGrid` has two call
+ * sites in two flag arms and one of them is the frozen pilot control. These pin both sides of that
+ * prop, and that the same payload gives different numbers under each — which is what makes the
+ * default load-bearing rather than cosmetic.
+ */
+describe('HeatmapGrid — where a cell\'s star comes from (serverCellRating)', () => {
+  /**
+   * One region carrying BOTH sources, deliberately disagreeing: the backend's own mean says 2, the
+   * slot tree averages 5. Neither path can be mistaken for the other, and a fallback that silently
+   * fired would print the wrong one rather than nothing.
+   */
+  function days(meanRating) {
+    return [{
+      date: DATE_1,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          displayVerdict: 'WORTH_IT',
+          summary: 'Clear skies',
+          meanRating,
+          slots: [{
+            locationName: 'Bamburgh', verdict: 'GO',
+            solarEventTime: `${DATE_1}T19:30:00`, claudeRating: 5,
+          }],
+        }],
+      }],
+    }];
+  }
+
+  const render1 = (props) => renderGrid({
+    events: [{ date: DATE_1, targetType: 'SUNSET' }],
+    briefingDays: days(2),
+    ...props,
+  });
+
+  it('reads the backend mean when the caller opts in', () => {
+    render1({ serverCellRating: true });
+    expect(screen.getByTestId('mean-score-badge').textContent).toContain('2');
+  });
+
+  it('keeps the client-side derivation when the caller does not — the frozen v1 arm', () => {
+    // `DailyBriefing` passes nothing. Both numbers are on this payload, so if the default ever
+    // flipped, this cell would silently start printing 2 in the arm the pilot is comparing against.
+    render1({});
+    expect(screen.getByTestId('mean-score-badge').textContent).toContain('5');
+  });
+
+  it('prints no star at all when the backend reports no mean', () => {
+    // Null is "nothing here is rated", which is a different statement from a low mean. The opted-in
+    // path must NOT fall through to the slot tree — that fallback is what let a cell's star and its
+    // verdict word come from two computations, and its silence is the point of the opt-in.
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days(null),
+      serverCellRating: true,
+    });
+    expect(screen.queryByTestId('mean-score-badge')).toBeNull();
+  });
+});
 
 describe('HeatmapGrid — backend-cached Claude scores', () => {
   function buildDaysWithCachedScores(claudeRating, fierySky, goldenHour, summary) {
