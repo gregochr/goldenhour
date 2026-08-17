@@ -369,8 +369,15 @@ export default function WindowFirstDayRail({ tiles, onTileClick, onRegionClick, 
                         // rule), so the label has to restate the region name, not just add "Best
                         // bet"/"Also good" on top of it, or a screen reader loses which region this
                         // is. The visible text (`shortName`) leads, contiguously, for WCAG 2.5.3.
+                        //
+                        // `pickDayLabel` (from `buildRailTiles`) is set only when this same region
+                        // is picked on more than one rendered day — the ordinary case for settled
+                        // weather — because otherwise every one of those tiles would announce "Best
+                        // bet" identically, with no way to tell which day the flag above actually
+                        // belongs to. A region picked on only one day carries no `pickDayLabel`, so
+                        // its label is unchanged from before.
                         aria-label={region.pickKind
-                          ? `${region.shortName} — ${region.pickKind === 'best' ? 'Best bet' : 'Also good'}`
+                          ? `${region.shortName} — ${region.pickKind === 'best' ? 'Best bet' : 'Also good'}${region.pickDayLabel ? `, ${region.pickDayLabel}` : ''}`
                           : undefined}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -461,6 +468,7 @@ WindowFirstDayRail.propTypes = {
           glossHeadline: PropTypes.string,
           glossDetail: PropTypes.string,
           pickKind: PropTypes.oneOf(['best', 'also']),
+          pickDayLabel: PropTypes.string,
         }),
       ),
       ratedCount: PropTypes.number.isRequired,

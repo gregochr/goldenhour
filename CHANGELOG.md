@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — a picked region chip named the same day identically on every day it repeated
+
+`pickKind` is assigned by region NAME across the whole forecast window (`indexPicks` for the v2
+rail, `pickKindOf` for the v1 strip), not per day — so when a Best bet or Also good region is
+independently rated WORTH_IT/MAYBE on more than one rendered day, every one of those days' chips
+carried the byte-identical accessible name "‹Region› — Best bet", with nothing distinguishing which
+day the flag (`rail-pick-flag`, the actual single-day pick) belonged to. Settled weather makes this
+the ordinary case, not the edge case. Surfaced by an adversarial review of the prior aria-label fix
+below, which deliberately left it out of scope.
+
+`buildRailTiles` and `buildSummaryPills` now tag a region entry with `pickDayLabel` — that day's own
+label ("Today" / "Tomorrow" / a weekday) — only when the same picked region repeats across more than
+one rendered day; a single-day pick's label is unchanged. Both renderers append it to the
+aria-label (", ‹Day›"), mirroring the existing `rail-pick-flag` button's own day-append pattern.
+This closes the first of the two gaps the prior fix tracked separately; the second (the two pick
+kinds distinguished only by colour, WCAG 1.4.1) has since been closed for the v2 rail below, and
+remains open for the v1 strip.
+
 ## [v2.18.9] - 2026-08-17
 
 ### Fixed — the Plan tab's Best bet / Also good chips were invisible to screen readers

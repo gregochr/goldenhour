@@ -404,6 +404,28 @@ describe('WindowFirstDayRail', () => {
       expect(chip).toHaveAccessibleName('Northumberland & Tyneside');
     });
 
+    it('appends the day to a picked chip\'s name when the builder flags it ambiguous', () => {
+      // `buildRailTiles` sets `pickDayLabel` only when the same picked region repeats across
+      // rendered days — the case where "Best bet" alone would sound identical on every one of
+      // them. The component just renders what the builder decided; this pins that it does.
+      render(<WindowFirstDayRail tiles={[tile({
+        dayLabel: 'Tomorrow',
+        regions: [{ ...tile().regions[0], pickKind: 'best', pickDayLabel: 'Tomorrow' }],
+      })]} />);
+
+      expect(screen.getByRole('button', { name: 'Northumberland & Tyneside — Best bet, Tomorrow' }))
+        .toBeInTheDocument();
+    });
+
+    it('leaves the day out of a picked chip\'s name when the builder found no ambiguity', () => {
+      render(<WindowFirstDayRail tiles={[tile({
+        regions: [{ ...tile().regions[0], pickKind: 'also', pickDayLabel: null }],
+      })]} />);
+
+      expect(screen.getByRole('button', { name: 'Northumberland & Tyneside — Also good' }))
+        .toBeInTheDocument();
+    });
+
     it('renders no chips and no count when no region is rated', () => {
       // The verdict line above already says "All poor". A count here would describe the roster,
       // not tonight — §6 bans it, and `buildRailTiles` no longer emits one.

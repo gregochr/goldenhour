@@ -196,6 +196,40 @@ describe('BriefingSummaryStrip', () => {
     expect(screen.getByRole('button', { name: 'N. Yorks Coast — Also good' })).toBeInTheDocument();
   });
 
+  it('appends the day to a picked chip\'s name when the builder flags it ambiguous', () => {
+    // `buildSummaryPills` sets `pickDayLabel` only when the same picked region repeats across
+    // rendered days, mirroring the v2 rail's chip — without it, every one of those days' chips
+    // would announce "Best bet" identically.
+    render(<BriefingSummaryStrip
+      pills={[pill({
+        dayLabel: 'Tomorrow',
+        countLabel: null,
+        regions: [
+          { regionName: 'Tyne and Wear', shortName: 'Tyne & Wear', targetType: 'SUNSET', verdictLabel: 'Worth it sunset', wx: '', summary: '', pickKind: 'best', pickDayLabel: 'Tomorrow' },
+        ],
+      })]}
+      onPillClick={vi.fn()}
+      onRegionClick={vi.fn()}
+    />);
+
+    expect(screen.getByRole('button', { name: 'Tyne & Wear — Best bet, Tomorrow' })).toBeInTheDocument();
+  });
+
+  it('leaves the day out of a picked chip\'s name when the builder found no ambiguity', () => {
+    render(<BriefingSummaryStrip
+      pills={[pill({
+        countLabel: null,
+        regions: [
+          { regionName: 'Tyne and Wear', shortName: 'Tyne & Wear', targetType: 'SUNSET', verdictLabel: 'Worth it sunset', wx: '', summary: '', pickKind: 'best', pickDayLabel: null },
+        ],
+      })]}
+      onPillClick={vi.fn()}
+      onRegionClick={vi.fn()}
+    />);
+
+    expect(screen.getByRole('button', { name: 'Tyne & Wear — Best bet' })).toBeInTheDocument();
+  });
+
   it('leaves a plain chip named by its content alone, with no redundant label', () => {
     render(<BriefingSummaryStrip
       pills={[pill({

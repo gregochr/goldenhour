@@ -163,7 +163,7 @@ export function buildRailTiles(upcomingEvents, briefingDays, todayStr, tomorrowS
   }
   const dates = [...targetsByDate.keys()].slice(0, RAIL_MAX_DAYS);
 
-  return dates.map((date) => {
+  const tiles = dates.map((date) => {
     const day = (briefingDays || []).find((d) => d.date === date);
     const esFor = (tt) => (day?.eventSummaries || []).find((e) => e.targetType === tt);
     const sunriseEs = esFor('SUNRISE');
@@ -285,4 +285,29 @@ export function buildRailTiles(upcomingEvents, briefingDays, todayStr, tomorrowS
       targetType: rated[0]?.targetType ?? sunsetEs?.targetType ?? sunriseEs?.targetType ?? null,
     };
   });
+
+  // A pick's ◎ colour repeats on every rendered day the region is independently rated on (see this
+  // function's own doc: "a pick shows its colour on every day it appears rated"), so a screen
+  // reader's chip name would repeat identically too — "Best bet" on Today's tile and again on
+  // Wednesday's, with nothing to say the flag (above) belongs to only one of them. Fold the day
+  // into the name, but only when that ambiguity is real: a region rated on just one rendered day
+  // needs no day appended, and appending one unconditionally would claim a disambiguation nothing
+  // requires.
+  const pickDayCounts = new Map();
+  for (const tile of tiles) {
+    for (const region of tile.regions) {
+      if (region.pickKind) {
+        pickDayCounts.set(region.regionName, (pickDayCounts.get(region.regionName) || 0) + 1);
+      }
+    }
+  }
+  for (const tile of tiles) {
+    for (const region of tile.regions) {
+      region.pickDayLabel = region.pickKind && pickDayCounts.get(region.regionName) > 1
+        ? tile.dayLabel
+        : null;
+    }
+  }
+
+  return tiles;
 }
