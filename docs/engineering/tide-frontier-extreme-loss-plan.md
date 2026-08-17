@@ -1,9 +1,8 @@
-# Tide refresh: frontier extreme loss — implementation brief (fixes 1 + 2)
+# Tide refresh: frontier extreme loss — implementation brief
 
-**Status: ready to implement. Scope: backend only.** This brief covers the two `TideService`
-fixes. The chart-side defence (fix 3, interior-gap synthesis in `WindowTideRollupBuilder` and
-`TideRunRow`) is **deliberately out of scope** — it gets its own session with an adversarial
-review, per the UI review cadence in `CLAUDE.md`. Do not touch the chart builders here.
+**Status: fixes 1 + 2 SHIPPED** (commit `b4b068ab`, branch `fix/tide-frontier-extreme-loss`,
+reviewed and CI-equivalent-verified 2026-08-16). **Fix 3 (§8) is the open scope**, plus the
+carry-over item in §7. Sections 1–6 are kept as the diagnosis record and the fix-1/2 spec.
 
 Diagnosed 2026-08-16 against production. Do not re-derive the diagnosis; the evidence is below
 and it is complete.
@@ -185,3 +184,67 @@ Exit `0` is the gate. No frontend changes in this scope, so the frontend CI quar
 - **Repairing the Aug 16 23:44 hole** — ages out; negligible.
 - **Auto-repair on integrity WARN** — deliberate non-goal for fix 2.
 - **Any change to seed/re-seed windows, credits accounting, or the backfill.**
+
+## 8. Fix 3 — chart-side interior-gap defence (this session's scope)
+
+**Goal**: a missing tide extreme must never again render as hours of confident slack water. Two
+drawing surfaces cosine-interpolate straight across a same-kind gap today; both get the same
+defence: detect two consecutive same-kind extremes and synthesise the implied opposite extreme at
+their midpoint. **Shape only** — the synthetic point may influence nothing but the drawn trace.
+This is the licence `WindowTideRollupBuilder.bracket()`'s javadoc already documents for its
+bookends ("affects the trace's shape, never a stated number"), extended to interior gaps.
+Also in scope: the §7 carry-over (isolate `checkTideIntegrity` in its own try/catch).
+
+### 8a. Backend — `WindowTideRollupBuilder`
+
+In `seriesAround`, after sorting and **before** `bracket()` (bracket reads the first/last points,
+so the fill must run first), insert for every consecutive same-kind pair a
+`Point(!a.high(), midpointMinutes, counterpartHeight(points, a))` — reusing the existing
+`counterpartHeight` rule (nearest opposite-kind height, mirror fallback), same as the bookends.
+Trigger on **same-kind adjacency only**, exactly like `TideService.sameKindAdjacencies` — no
+time-gap heuristic (a long gap between alternating kinds is legal).
+
+Blast-radius analysis, to verify rather than re-derive (all reads of the series were traced at
+diagnosis time):
+
+- `shape()` / the curve, and `Shape.levelOf` for the window mark — the synthetic trough joins the
+  normalisation span. That is the fix working as intended: the mark must sit on the drawn line.
+- `directionAt` reads the kind of the next series point — inside a gap the synthetic point makes
+  the answer *more* correct (production's hole reported RISING at 05:40 only because the next
+  real extreme happened to be a HIGH).
+- `heightAt` at the event minute feeds only `levelOf` — shape again.
+- **Untouched by construction**: `rangeOn`, `meanRangeOn` (both read `pointsOn`, the day-only
+  real rows), `nearestExtreme` (reads raw extremes), the state classification, and every worded
+  fact. Assert this in review: no stated number may move.
+
+Tests (`WindowTideRollupBuilderTest`): a fixture reproducing the production shape — previous-day
+HIGH, then the day's first extreme also HIGH (the ~00:44 LOW absent), full alternation after —
+must produce a curve that visibly descends between the two highs (e.g. the sampled value at the
+gap midpoint sits materially below both endpoints, not within a few percent of them). A clean
+alternating fixture must produce a byte-identical curve to before the change — the existing tests
+passing **unedited** is the proof the fill is inert on healthy data, the same idiom the
+`solarDayGeometry` extraction used. Cover the direction claim: an instant inside the gap reports
+the direction the synthetic point implies.
+
+### 8b. Frontend — `TideRunRow.curvePath`
+
+Same defence, simpler data: `extrema` there is `{high, m}` with no heights (the curve maps
+high/low to two fixed Y baselines). For every consecutive same-`high` pair insert
+`{ high: !a.high, m: Math.round((a.m + b.m) / 2) }` before the bookend extension. The chart is
+`aria-hidden` and decorative; the verdict string is the accessible answer and must not change.
+Vitest per `docs/engineering/frontend-test-standards.md`; `TideRunRow.test.jsx` exists — existing
+tests must pass unedited, plus a same-kind-gap fixture asserting the path dips between two highs
+(and the mirror case for two lows).
+
+### 8c. Process for this session
+
+- Read `CLAUDE.md` §"UI Work — Review Cadence" and follow it: build → tests → **adversarial
+  review of the diff before commit** → fix survivors → re-verify → commit. Review agents are
+  read-only; paste this section into their prompts (they cannot see untracked context and should
+  not hunt for it).
+- Base the branch on wherever `b4b068ab` now lives: if the fix-1/2 commit is already on `main`,
+  branch fresh from `main`; if not, stop and ask whether to stack on
+  `fix/tide-frontier-extreme-loss`.
+- Backend gate: the §5 ladder (exit codes, never grepped output). Frontend gate, all four:
+  `npm run lint && npm test && npm audit --audit-level=high && npm run build`.
+- `CHANGELOG.md` under `[Unreleased]`. Never push.
