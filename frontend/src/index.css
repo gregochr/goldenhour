@@ -1257,6 +1257,16 @@
    event rather than a region. So "the ◎ and the weight still carry the pick" is true of
    pick-vs-plain and was false of best-vs-also. Do not fold the underline back in.
 
+   ⚠️ The best-vs-also half of that gap (colour as the ONLY differentiator) was a live WCAG 1.4.1
+   violation, not just a risk the comment above was hedging against, and stood unfixed from #537
+   until a later pass branched `rn-mark` itself: `WindowFirstDayRail.jsx` now renders ◎ for `best`
+   and ● for `also`, a shape difference that reads without colour. This underline split remains —
+   it is a legitimate secondary, redundant cue, and removing it would still lose the accent-colour
+   match to the Best bet / Also good cards — but it is no longer load-bearing for compliance the
+   way the paragraph above describes. Scoped to v2 only, same as everything else in this block: v1's
+   `BriefingSummaryStrip` renders the unbranched ◎ untouched, per the frozen-control rule this file
+   already follows for `rail-region-chip`. See `regionChipVerdictColour.test.jsx` for both halves.
+
    All four `peak` values are named, deliberately and exhaustively (the PropTypes enum is
    go/maybe/poor/away), because a fall-through would leave exactly the pick hues these rules exist
    to displace. ⚠️ `poor` and `away` are a GUARD, not a live case: `windowFirstRail.js` defines

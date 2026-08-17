@@ -30,6 +30,26 @@ day/event qualifier when the same picked region reappears on more than one rende
 two pick kinds are still distinguished only by colour (WCAG 1.4.1) with no non-colour visual cue on
 the region chip itself — are tracked separately rather than folded into this fix.
 
+### Fixed — a v2 rail chip tells Best from Also without colour
+
+The other pre-existing gap the review above surfaced and deliberately left out of scope: on the
+window-first rail, a Best-bet pick and an Also-good pick were distinguishable from each other
+*only* by colour — the resting text colour when the two land on different tiles (closed by the
+change below), or the underline colour alone when both land on the same tile, which
+`buildRailTiles` produces routinely. Font-weight is identical for both (`600`) and the `◎` mark was
+one unbranched glyph, so a colour-blind or low-vision sighted user had no non-colour way to tell
+them apart — a WCAG 1.4.1 (Use of Color) violation, distinct from the screen-reader gap above (an
+`aria-label` says nothing to a sighted user).
+
+`rn-mark` now branches by `pickKind`: `◎` for Best (unchanged), `●` for Also (new) — a shape
+difference verified to survive a desaturated render. The underline colour split stays as a
+redundant secondary cue, since it still matches the Best bet / Also good card accents, but it is no
+longer the sole differentiator.
+
+Scoped to the v2 rail only, same as the change below: `BriefingSummaryStrip` (v1, the frozen
+comparison control the flag flip is being decided from) is untouched and still renders the
+unbranched `◎` for both kinds — a new test pins that as deliberate, not an oversight.
+
 ### Fixed — a v2 rail tile states one verdict, not two
 
 `.summary-region-chip[data-pick="best"]` is keyed to `data-pick` alone, so a Best-bet region chip
