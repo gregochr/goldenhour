@@ -123,26 +123,46 @@ class PlanWindowProjectorTest {
     class RatingAndVerdict {
 
         @Test
+        @DisplayName("the best rating is still a max across every region — and no longer decides "
+                + "the badge")
         void bestRatingIsTheMaximumAcrossEveryRegion() {
             BriefingWindow w = projectOne(region("Dales", 2, 4), region("Coast", 3));
 
             assertThat(w.bestRating()).isEqualTo(4);
-            assertThat(w.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            // The top region is Dales (mean 3.0, two scored locations beating Coast's one on the
+            // coverage tie-break), and Dales reads MAYBE. The 4★ inside it no longer promotes the
+            // window. Restore the max rule and this reads WORTH_IT above a grid of MAYBE cells —
+            // exactly the disagreement this phase removes.
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.MAYBE);
+        }
+
+        // Each of the three below takes at least two slots, so the region's mean and the window's
+        // best rating land in DIFFERENT bands. A single-slot fixture makes mean == max, at which
+        // point the deleted rating-led rule and the region-led one agree at every integer — the
+        // test would pass under either and advertise a protection it does not have.
+
+        @Test
+        @DisplayName("a region averaging four is Worth it")
+        void regionMeanOfFourIsWorthIt() {
+            // 5 and 3 → mean 4.0. Both rules say WORTH_IT here, and no fixture can separate them
+            // in this band: mean ≥ 3.5 forces some slot ≥ 4, so a max-led rule reaches WORTH_IT
+            // too. Stated rather than papered over — the discrimination lives in the two below and
+            // in the band-edge quartet.
+            assertThat(projectOne(region("R", 5, 3)).verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
         }
 
         @Test
-        void ratingOfFourIsWorthIt() {
-            assertThat(projectOne(region("R", 4)).verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+        @DisplayName("a region averaging three is Maybe")
+        void regionMeanOfThreeIsMaybe() {
+            // 4 and 2 → mean 3.0, max 4. The deleted rule reads the 4 and says WORTH_IT.
+            assertThat(projectOne(region("R", 4, 2)).verdict()).isEqualTo(DisplayVerdict.MAYBE);
         }
 
         @Test
-        void ratingOfThreeIsMaybe() {
-            assertThat(projectOne(region("R", 3)).verdict()).isEqualTo(DisplayVerdict.MAYBE);
-        }
-
-        @Test
-        void ratingOfTwoIsStandDown() {
-            assertThat(projectOne(region("R", 2)).verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        @DisplayName("a region averaging two is Poor")
+        void regionMeanOfTwoIsStandDown() {
+            // 3 and 1 → mean 2.0, max 3. The deleted rule reads the 3 and says MAYBE.
+            assertThat(projectOne(region("R", 3, 1)).verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
         }
 
         @Test
@@ -157,7 +177,20 @@ class PlanWindowProjectorTest {
             BriefingWindow w = projectOne(mixed);
 
             assertThat(w.bestRating()).isEqualTo(3);
-            assertThat(w.verdict()).isEqualTo(DisplayVerdict.MAYBE);
+            // The badge is a different question and takes a different population: the region's own
+            // average is canopy-INCLUSIVE (mean 4.0 here), so the wood still moves the badge while
+            // never supplying the star. That asymmetry is BriefingWindow's recorded contract — the
+            // alternative diverges the window's verdict from the cell's, which is the disagreement
+            // this whole phase exists to remove.
+            //
+            // Note WHICH DIRECTION this now goes, because the region-led rule widened it and an
+            // adversarial review is what named it: the badge is a band ABOVE every rating the card
+            // can render. The 5★ wood is excluded from the star here and from the spot strip by
+            // `windowFirstSpots.js`, so a reader sees "Worth it" over a strip topping out at 3★.
+            // Pinned as an assertion rather than left as prose so the day the upstream rating
+            // rollup gains its non-canopy filter, this test is what says so.
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(w.bestRating()).isLessThan(4);
         }
 
         @Test
@@ -175,9 +208,8 @@ class PlanWindowProjectorTest {
             BriefingWindow w = projectOne(mixed);
 
             // Unfixed, the wood's 5 became the header star and resolved the badge to WORTH_IT.
-            // The badge now follows the region card instead — which is canopy-INCLUSIVE upstream,
-            // so a wood can still influence it. That is deliberate and out of P1's scope: see
-            // BriefingWindow's contract. What P1 guarantees is the star.
+            // The star refuses it, and the badge is now the region card's own verdict in every
+            // case — rated or not — so this fixture's explicit MAYBE is what the window reads.
             assertThat(w.bestRating()).isNull();
             assertThat(w.verdict()).isEqualTo(DisplayVerdict.MAYBE);
         }
@@ -236,6 +268,112 @@ class PlanWindowProjectorTest {
             assertThat(w.pick()).isNull();
             assertThat(w.badges()).isEmpty();
             assertThat(w.topRarityRank()).isNull();
+        }
+    }
+
+    // ── Region-led verdict (plan §2, invariants §7.1 and §7.5) ───────────────
+
+    /**
+     * The decided semantics: a window's verdict word IS its top region's, and the best-spot rating
+     * is a separate, labelled channel that moves it not at all.
+     *
+     * <p>The <b>four band-edge fixtures hold the best rating constant at 5</b> and move only the
+     * region mean, so within that quartet nothing but the mean can explain a change of band. The
+     * other three vary a different thing on purpose — the identity test moves which region is top
+     * (its window-wide max is 4), the five-star test reproduces the observed screenshot, and the
+     * legacy test nulls the {@code displayVerdict} component rather than any rating.
+     *
+     * <p><b>Measured, not asserted:</b> restoring the deleted
+     * {@code DisplayVerdict.resolve(bestRating, null)} branch turns <b>six of these seven</b> red.
+     * The survivor is {@code meanOnTheWorthItEdgeIsWorthIt}, and it cannot be otherwise: a mean
+     * ≥ 3.5 forces some slot ≥ 4, so the rating-led rule reaches WORTH_IT there too. That fixture
+     * pins the band constant (loosening {@code >= 3.5} to {@code > 3.5} kills it), not the rule.
+     */
+    @Nested
+    @DisplayName("the verdict is the top region's own")
+    class RegionLedVerdict {
+
+        @Test
+        @DisplayName("§7.1 — the window verdict equals the top region's displayVerdict")
+        void windowVerdictEqualsTopRegionDisplayVerdict() {
+            // Two things this fixture has to do at once. The top region is deliberately NOT first
+            // in payload order — nothing upstream orders regions, so a projection reading
+            // regions[0] would pass a single-region fixture. And the top region's own band
+            // (mean 3.0 → MAYBE) is one the window's best rating cannot produce (max 4 → WORTH_IT),
+            // so the equality below is broken by the deleted max rule rather than satisfied by it.
+            BriefingRegion weaker = region("A poor coast", 1, 1);
+            BriefingRegion top = region("B better dales", 2, 4);
+
+            BriefingWindow w = projectOne(weaker, top);
+
+            assertThat(w.verdict()).isEqualTo(top.displayVerdict());
+            assertThat(w.verdict()).isNotEqualTo(weaker.displayVerdict());
+        }
+
+        @Test
+        @DisplayName("a mean of exactly 3.5 is Worth it, with a 5★ spot in the window")
+        void meanOnTheWorthItEdgeIsWorthIt() {
+            BriefingWindow w = projectOne(region("R", 5, 5, 5, 4, 4, 3, 3, 2, 2, 2));
+
+            assertThat(w.bestRating()).isEqualTo(5);
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+        }
+
+        @Test
+        @DisplayName("one tenth below that edge is Maybe — same 5★ spot, same spread")
+        void meanOneStepBelowTheWorthItEdgeIsMaybe() {
+            // 3.4. Identical max (5), identical min (2), identical roster size — only the mean
+            // moves, so a failure here can only be the band or the rule that reads it.
+            BriefingWindow w = projectOne(region("R", 5, 5, 5, 4, 4, 3, 2, 2, 2, 2));
+
+            assertThat(w.bestRating()).isEqualTo(5);
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.MAYBE);
+        }
+
+        @Test
+        @DisplayName("a mean of exactly 2.5 is Maybe, with a 5★ spot in the window")
+        void meanOnTheMaybeEdgeIsMaybe() {
+            BriefingWindow w = projectOne(region("R", 5, 4, 3, 3, 2, 2, 2, 2, 1, 1));
+
+            assertThat(w.bestRating()).isEqualTo(5);
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.MAYBE);
+        }
+
+        @Test
+        @DisplayName("one tenth below that edge is Poor — same 5★ spot, same spread")
+        void meanOneStepBelowTheMaybeEdgeIsStandDown() {
+            // 2.4, with the same max (5) and min (1) as the 2.5 fixture above it.
+            BriefingWindow w = projectOne(region("R", 5, 4, 3, 2, 2, 2, 2, 2, 1, 1));
+
+            assertThat(w.bestRating()).isEqualTo(5);
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        }
+
+        @Test
+        @DisplayName("§7.5 — the best spot is published, and says nothing about the verdict")
+        void aFiveStarSpotIsPublishedWithoutPromotingAPoorRegion() {
+            // The 2026-08-16 screenshot in one fixture: the row read "Worth it · best 4★" over a
+            // grid of Poor cells. It now reads Poor, and the 5 is still on the payload for the
+            // card's labelled `best spot 5★` chip to render.
+            BriefingWindow w = projectOne(region("R", 5, 1, 1, 1));
+
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+            assertThat(w.bestRating()).isEqualTo(5);
+        }
+
+        @Test
+        @DisplayName("a region carrying no verdict at all is AWAITING, not its ratings' verdict")
+        void aRegionWithNoDisplayVerdictIsAwaiting() {
+            // Only a payload cached before the field existed can produce this. AWAITING is the
+            // honest answer; falling back to the ratings would resurrect the rating-led rule for
+            // exactly the payloads least able to justify it.
+            BriefingRegion legacy = regionWithSlots("R", ratedSlots(5, 5),
+                    null, Confidence.HIGH, HEADLINE);
+
+            BriefingWindow w = projectOne(legacy);
+
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.AWAITING);
+            assertThat(w.bestRating()).isEqualTo(5);
         }
     }
 
@@ -1084,8 +1222,26 @@ class PlanWindowProjectorTest {
         return regionWithSlots(name, ratedSlots(ratings));
     }
 
+    /**
+     * A region whose {@code displayVerdict} is derived from its own slots by the production rule,
+     * exactly as {@code BriefingService.enrichWithCachedScores} derives it.
+     *
+     * <p>It used to default to a flat {@code WORTH_IT}. That was harmless while the window verdict
+     * came from the best rating and ignored this field; since the verdict became the top region's
+     * own, a fixture pairing a 2★ slot with a WORTH_IT region is a payload production cannot
+     * produce, and every window built from one would carry an incoherent badge. Derived here so a
+     * fixture cannot state a verdict its own ratings contradict — canopy-<em>inclusive</em>, which
+     * is the population the enrichment path averages.
+     */
     private static BriefingRegion regionWithSlots(String name, List<BriefingSlot> slots) {
-        return regionWithSlots(name, slots, DisplayVerdict.WORTH_IT, Confidence.HIGH, HEADLINE);
+        BriefingRatingStats.Stats stats = BriefingRatingStats.compute(
+                slots.stream()
+                        .map(s -> new BriefingRatingStats.Entry(s.locationName(), s.claudeRating()))
+                        .toList(),
+                name, TODAY, TargetType.SUNSET);
+        return regionWithSlots(name, slots,
+                BriefingRatingStats.resolveRegionDisplayVerdict(stats, Verdict.GO),
+                Confidence.HIGH, HEADLINE);
     }
 
     private static BriefingRegion regionWithSlots(String name, List<BriefingSlot> slots,

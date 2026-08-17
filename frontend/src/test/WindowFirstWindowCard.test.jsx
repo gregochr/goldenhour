@@ -72,7 +72,24 @@ describe('WindowFirstWindowCard', () => {
     renderCard();
     expect(screen.getByTestId('window-card-when')).toHaveTextContent('Tomorrow sunset');
     expect(screen.getByTestId('window-card-time')).toHaveTextContent('21:11');
-    expect(screen.getByTestId('window-card-best')).toHaveTextContent('best 4★');
+    expect(screen.getByTestId('window-card-best')).toHaveTextContent('best spot 4★');
+  });
+
+  it('labels the best spot as a spot, and keeps it out of the verdict channel', () => {
+    // Plan §7.5. The badge is the top region's AVERAGE and this star is one location's score, so
+    // the two answer different questions and `Poor · best spot 4★` is the shape that proves it —
+    // the exact header the 2026-08-16 screenshot got wrong by printing "Worth it · best 4★" over a
+    // grid of Poor cells. Three things have to hold at once for that to read as two facts rather
+    // than a contradiction, so all three are asserted here: the star says which thing it measures,
+    // it borrows none of the four verdict words, and it is not inside the badge row where the
+    // verdict lives.
+    renderCard({ verdict: 'STAND_DOWN', verdictLabel: 'Poor', bestRating: 4 });
+
+    const best = screen.getByTestId('window-card-best');
+    expect(best).toHaveTextContent('best spot 4★');
+    expect(best.textContent).not.toMatch(/worth it|maybe|poor|awaiting/i);
+    expect(screen.getByTestId('window-card-badges').contains(best)).toBe(false);
+    expect(screen.getByTestId('window-card-verdict')).toHaveTextContent('Poor');
   });
 
   it('omits the star entirely when nothing in the window is rated', () => {
@@ -86,8 +103,13 @@ describe('WindowFirstWindowCard', () => {
     // The design's meta reads "best 4.0★ · 23 within reach". Reach is P8 and the spots it counts
     // are P6, so any count here would describe a set that was never filtered and is not rendered —
     // which §6 bans twice over. The count arrives when the thing it counts does.
+    //
+    // The pattern asks for a COUNT of spots, not for the word: `best spot 4★` (plan §2) names one
+    // location and counts nothing, so a bare /spots?/ here would convict the labelled star this
+    // card is required to carry. A leading number is what makes it a count.
     renderCard({ badges: [{ type: 'NLC', label: '✦ NLC' }] });
-    expect(screen.getByTestId('window-card-head').textContent).not.toMatch(/within reach|spots?\b/i);
+    expect(screen.getByTestId('window-card-head').textContent)
+      .not.toMatch(/within reach|\d+\s+spots?\b/i);
   });
 
   describe('the expander', () => {
@@ -154,7 +176,7 @@ describe('WindowFirstWindowCard', () => {
       expect(screen.getByTestId('window-card-verdict')).toHaveTextContent('Worth it');
       expect(screen.getByTestId('window-card-pick')).toBeInTheDocument();
       expect(screen.getByTestId('window-card-badge')).toHaveTextContent('✦ NLC');
-      expect(screen.getByTestId('window-card-best')).toHaveTextContent('best 4★');
+      expect(screen.getByTestId('window-card-best')).toHaveTextContent('best spot 4★');
       expect(screen.getByTestId('window-card-within-reach')).toHaveTextContent('3 within reach');
     });
 

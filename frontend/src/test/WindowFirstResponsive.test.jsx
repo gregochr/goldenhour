@@ -205,7 +205,7 @@ describe('P14 responsive hooks — window card header', () => {
     renderCard({ bestRating: 4, withinReachCount: 3 });
     const meta = screen.getByTestId('window-card-meta');
     expect(meta).toHaveClass('wf-wh-meta');
-    expect(within(meta).getByTestId('window-card-best')).toHaveTextContent('best 4★');
+    expect(within(meta).getByTestId('window-card-best')).toHaveTextContent('best spot 4★');
     expect(within(meta).getByTestId('window-card-within-reach')).toHaveTextContent('3 within reach');
   });
 

@@ -5,6 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the Plan tab's window verdict is now region-led, and the best spot says it is a spot
+
+The window-first Plan tab's window rows took their verdict word from the **highest-rated single
+location** anywhere in the roster, while the regional grid beneath them took theirs from each
+region's **average**. One 4★ spot promoted a whole window's badge to "Worth it" over a grid of
+"Poor" cells — observed in production on 2026-08-16 — and nothing on screen said the two surfaces
+were answering different questions.
+
+`PlanWindowProjector` now publishes each window's verdict as its **top region's own
+`displayVerdict`** (`BriefingRatingStats`: mean ≥ 3.5 Worth it, ≥ 2.5 Maybe, else Poor, with that
+region's triage fallback when nothing is rated), so the row and the cells beneath it can no longer
+disagree. The single-best-spot signal is not lost: `bestRating` stays on the payload and
+`WindowFirstWindowCard` renders it as an explicitly labelled `best spot 4★` — quiet mono type in
+the header's meta clause, deliberately not a pill, so it never enters the badge row where the
+verdict vocabulary lives. A header now reads `Tomorrow sunrise · 05:35 · best spot 4★ ——— Poor`:
+one location's score on the left, one region's average in the badge on the right, two labelled
+facts rather than a contradiction.
+
+One consequence is known and left open: a region's average counts woodland slots while the
+best-spot star and the spot strip do not, so a rated wood can lift a badge a band above every
+rating that card shows. That is a widening of a pre-existing asymmetry rather than a new one — it
+is recorded in `BriefingWindow`'s contract and pinned by a test, and the fix belongs upstream in
+the rating rollup, where it would move the grid cell and the day card too.
+
+v2-only. The v1 arm reads neither field and is untouched.
+Phase 2 of `docs/engineering/plan-verdict-consolidation-plan.md`.
+
 ### Fixed — a picked region chip named the same day identically on every day it repeated
 
 `pickKind` is assigned by region NAME across the whole forecast window (`indexPicks` for the v2

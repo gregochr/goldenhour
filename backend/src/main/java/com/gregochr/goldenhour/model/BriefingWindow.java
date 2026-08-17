@@ -23,11 +23,30 @@ import java.util.List;
  *       time across every region, never the first in list order: an event belongs to all of its
  *       locations, and list order traces to whichever grid cell answered first.</li>
  *   <li>{@code bestRating} — nothing in the window is rated. A max over non-canopy slots whenever
- *       the window has one, so a woodland score never supplies the {@code best N★} number. Note the
- *       limit of that guarantee: with no rating at all the {@code verdict} falls back to the top
- *       region's, which is computed upstream over canopy-<em>inclusive</em> statistics, so a wood
- *       can still influence the badge. Diverging the two would break the rule that a verdict colour
- *       means the same thing everywhere, so it is recorded rather than fixed here.</li>
+ *       the window has one, so a woodland score never supplies the {@code best spot N★} number.
+ *       <b>It is a labelled spot signal and never a verdict.</b> Since 2026-08-17 the
+ *       {@code verdict} is its top region's own (an average), so the two can disagree by design:
+ *       {@code Poor · best spot 4★} states one region's average and one location's score, both
+ *       true, and the client is required to render this number with its own label rather than in
+ *       verdict vocabulary.
+ *
+ *       <p><b>A known gap, widened by that change and left open deliberately.</b> The region average
+ *       is canopy-<em>inclusive</em> upstream ({@code BriefingService.enrichWithCachedScores} builds
+ *       its rating entries over every slot), while this field and the card's spot strip both
+ *       <em>exclude</em> canopy slots whenever the window has a sky slot. So a rated wood can lift
+ *       the badge <em>above every rating the card renders</em> — {@code ◎ Worth it} over
+ *       {@code best spot 3★} and a strip whose best card is 3★, with the 5★ wood shown nowhere.
+ *       Canopy is the only route to it: with no canopy slot, a mean ≥ 3.5 forces some slot ≥ 4 and
+ *       a mean ≥ 2.5 forces some slot ≥ 3, and those slots reach both this field and the strip.
+ *       Before the verdict became region-led the state needed <em>no</em> sky slot in the window to
+ *       be rated; now it needs only a mixed top region whose wood crosses a band. It is recorded
+ *       rather than fixed here because the fix belongs upstream — giving those rating entries the
+ *       same non-canopy filter (with the all-canopy fallback) that
+ *       {@code BriefingHierarchyBuilder.buildRegion}'s {@code votingSlots} and
+ *       {@code BriefingService.rosterOf}'s voting roster already apply — and that one edit moves the
+ *       grid cell and the day card with it. Diverging <em>this</em> verdict from the region's would
+ *       break the rule that a verdict colour means the same thing everywhere, so it is not the
+ *       answer.</li>
  *   <li>{@code confidence} — unknown. Deliberately nullable: an unknown signal must read
  *       provisional rather than falsely confident.</li>
  *   <li>{@code pick} — this window is neither of the forecast's two picks, which is the normal

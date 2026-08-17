@@ -1,10 +1,18 @@
 # Plan-tab verdict consolidation — one source, one vocabulary
 
-**Status:** proposed (2026-08-16). Decision taken: **region-led verdicts** (owner's call, 2026-08-16).
-**Phase 0 + Phase 1 shipped 2026-08-16** on branch `fix/plan-verdict-consolidation` (4 commits,
-unmerged, unpushed). Phase 0's prod diagnostic found BEST on an unrendered window (2026-08-19
-sunset, the 7th non-past event), confirming D3 for the observed instance. Phases 2–4 not started;
-wait for the v2 flag flip and a fresh go-ahead per §6.
+**Status:** in progress. Decision taken: **region-led verdicts** (owner's call, 2026-08-16).
+**Phase 0 + Phase 1 shipped 2026-08-16** on branch `fix/plan-verdict-consolidation`, merged to
+`main` as #523 (squash — the branch's original hashes are not ancestors of main). Phase 0's prod
+diagnostic found BEST on an unrendered window (2026-08-19 sunset, the 7th non-past event),
+confirming D3 for the observed instance.
+**Phase 2 shipped 2026-08-17** on branch `fix/plan-verdict-phases-2-3`, on the owner's explicit
+instruction to proceed — so it lands **before** the v2 flag flip, not after it, and §6's
+"gate behind a caller opt-in" clause is what carries the Phase 3 work that touches `HeatmapGrid`.
+`usePlanLayout.js` still defaults to `PLAN_V1`. Phase 4 not started.
+
+**§5's one open question is resolved:** `DisplayVerdict.resolve(Integer, Verdict)` **stays**. The
+window verdict was not its last single-rating caller — `BriefingSlot` (3 sites) and
+`EvaluationViewService` (2 sites) still pass a rating. Only the projector's call was deleted.
 **Goal:** every surface on the Plan tab renders the same backend-computed answer, so the class of
 disagreement observed on 2026-08-16 becomes structurally impossible rather than individually patched.
 This is a stability investment: the app should be usable for years without these surfaces drifting
@@ -81,8 +89,22 @@ screenshot's rows would have read `Poor · best spot 4★` — provisional-looki
 
 This retires the `PlanWindowProjector.java:52-57` rationale ("a MAYBE badge above a strip whose
 lead card reads Worth it"): with the spot channel explicitly labelled, a `Maybe · best spot 4★`
-header above a 4★ lead card is two labelled facts, not a contradiction. Update that comment when
-the rule changes — it currently documents the rejected alternative as rejected.
+header above a 4★ lead card is two labelled facts, not a contradiction. **Done in Phase 2** — that
+comment now records this decision and its date, and cites this section back. (Grep for the symbol;
+the `:52-57` anchors above are from 2026-08-16 and the block has since been rewritten.)
+
+**One consequence the decision did not foresee, found by the Phase 2 adversarial review and left
+open on purpose.** A region's average is canopy-**inclusive** (`enrichWithCachedScores` builds its
+rating entries over every slot), while `bestRating` and the card's spot strip both **exclude**
+canopy slots in a mixed window. Region-led verdicts therefore let a rated wood lift a badge a band
+*above every rating the card renders* — `◎ Worth it` over `best spot 3★`. It is a widening, not a
+new class: the pre-existing unrated-window fallback already read that average. The fix is to give
+those rating entries the non-canopy filter (with the all-canopy fallback) that
+`BriefingHierarchyBuilder.buildRegion`'s `votingSlots` and `BriefingService.rosterOf`'s voting
+roster already apply — the one place the project's own exclusion rule is missing. It is **not**
+Phase 2's to make: that single edit moves the grid cell and the day card too, which §4.3 says this
+phase does not touch. Recorded in `BriefingWindow`'s Javadoc and pinned by
+`canopySlotsAreExcludedFromBestRating`; do it before the v2 flag flip.
 
 ---
 

@@ -49,12 +49,18 @@ import java.util.Set;
  *
  * <p><b>Two rules the design did not state, decided here and recorded so they can be argued with.</b>
  * <ul>
- *   <li><b>The window verdict is the best rating's own verdict</b>, falling back to the top region's
- *       when nothing is rated. Every fixture in the design of record satisfies it, and it makes the
- *       window badge equal the badge on its own best spot card by construction — which is what
- *       "verdict colours consistent in every location" requires. The rejected alternative, the top
- *       region's {@code displayVerdict} (an average), puts a MAYBE badge above a strip whose lead
- *       card reads Worth it.</li>
+ *   <li><b>The window verdict is the top region's own {@code displayVerdict}</b> — the region-average
+ *       rule ({@link BriefingRatingStats}: mean ≥ 3.5 WORTH_IT, ≥ 2.5 MAYBE, else STAND_DOWN),
+ *       already carrying that region's triage fallback for the case where nothing is rated.
+ *       <b>Decided 2026-08-17</b>, replacing the best-rating rule this class shipped with: one 4★
+ *       location anywhere in the roster promoted a whole window's badge while every cell beneath it
+ *       read Poor, and nothing on screen said the row and the grid were answering different
+ *       questions. The superseded rationale — that the average "puts a MAYBE badge above a strip
+ *       whose lead card reads Worth it" — is answered rather than ignored: the single-best-spot
+ *       signal is still published, on {@code bestRating}, and the card renders it as an explicitly
+ *       labelled {@code best spot N★} chip that never borrows verdict vocabulary. A
+ *       {@code Maybe · best spot 4★} header above a 4★ lead card is then two labelled facts, not a
+ *       contradiction. See {@code docs/engineering/plan-verdict-consolidation-plan.md} §2.</li>
  *   <li><b>A NIGHT topic lands on two windows</b> — that evening's sunset and the following
  *       morning's sunrise — because a night runs across the date boundary and the topic carries an
  *       evening and a morning half. The design's own mock does not settle this; the twilight-window
@@ -169,7 +175,7 @@ public final class PlanWindowProjector {
         return new Draft(
                 new WindowKey(date, summary.targetType()),
                 earliestEventTime(summary),
-                verdict(bestRating, top),
+                verdict(top),
                 bestRating,
                 top == null ? null : top.region().confidence(),
                 candidate(top, canopyCounts),
@@ -315,13 +321,18 @@ public final class PlanWindowProjector {
     }
 
     /**
-     * The window's verdict: the best rating's own verdict, or the top region's when nothing is
-     * rated, or AWAITING when there is nothing at all.
+     * The window's verdict: its top region's own {@code displayVerdict}, or AWAITING when the
+     * window has no region at all — or one whose verdict component is missing, which only a payload
+     * cached before that field existed can produce.
+     *
+     * <p><b>Region-led, never rating-led.</b> The region's verdict already carries both the
+     * mean-rating bands and the triage fallback for a region nothing has scored, so reading it here
+     * is what makes the plan's invariant — "any two Plan surfaces showing a verdict for the same
+     * (region, window) show the same verdict" — hold by construction rather than by two derivations
+     * happening to agree. {@code bestRating} is deliberately not consulted; see the class Javadoc
+     * for what replaced it and why.
      */
-    private static DisplayVerdict verdict(Integer bestRating, RankedRegion top) {
-        if (bestRating != null) {
-            return DisplayVerdict.resolve(bestRating, null);
-        }
+    private static DisplayVerdict verdict(RankedRegion top) {
         if (top != null && top.region().displayVerdict() != null) {
             return top.region().displayVerdict();
         }
