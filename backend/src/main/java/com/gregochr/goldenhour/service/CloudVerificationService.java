@@ -137,6 +137,55 @@ public class CloudVerificationService {
      */
     private static final int PROMPT_STRIP_DROP_PP = 30;
 
+    /**
+     * Forecast low cloud (%) at or above which both arms of the prompt's EXTENSIVE BLANKET label
+     * are satisfied.
+     *
+     * <p>Mirrors {@code PromptBuilder.SOLAR_LOW_CLOUD_SIGNIFICANT_PERCENT} and the label's own
+     * condition at {@code PromptBuilder} ~:489 — near &ge; 50 <em>and</em> far &ge; 50, both arms
+     * inclusive — and must track it if that band ever moves.
+     *
+     * <p>Deliberately <em>not</em> {@link #PROMPT_BLOCKED_BAND_MIN_PCT}. The blocked ceiling
+     * (&gt; 60, one reading) and the blanket label (&ge; 50, two readings) are different rules at
+     * different figures, and a bucket that reused 60 here would size a population the label never
+     * fired over — which is the exact defect the {@code fcst*} family exists to avoid.
+     */
+    private static final int PROMPT_BLANKET_MIN_PCT = 50;
+
+    /**
+     * Observed far low cloud (%) at or below which the 226 km corridor really was open.
+     *
+     * <p>Takes its figure from the prompt prose's own strip level ("beyond-horizon low cloud
+     * &le;30%") — the reading at which the prompt itself stops calling a corridor blocked. Applied
+     * here to the <em>analysed</em> reading, where the prompt applies it to the forecast one.
+     */
+    private static final int OBS_CORRIDOR_OPEN_MAX_PCT = 30;
+
+    /**
+     * Observed far low cloud (%) at or above which the 226 km corridor really was blanketed.
+     *
+     * <p>The blanket label's own arm, applied to the analysed reading. The 31–49 band between this
+     * and {@link #OBS_CORRIDOR_OPEN_MAX_PCT} is deliberately in neither sub-bucket: a corridor that
+     * was neither open nor blanketed must not inflate either precision figure.
+     */
+    private static final int OBS_CORRIDOR_BLANKET_MIN_PCT = 50;
+
+    /**
+     * Forecast solar-horizon low cloud (%) above which triage stands the slot down before any
+     * prompt is built.
+     *
+     * <p>Mirrors {@code WeatherTriageEvaluator.CLOUD_THRESHOLD}, whose rule 1 reads
+     * {@code directionalCloud().solarLowCloudPercent()} — the same reading projected here as
+     * {@code forecastGapLow} — and must track it if that rule ever moves. Unlike the
+     * {@code PROMPT_*} constants this mirrors a <em>gate in front of</em> the prompt rather than a
+     * band inside it, which is why it is named for triage and not for a label.
+     *
+     * <p>At or below it a slot <em>may</em> have reached Claude; above it, it did not. Neither
+     * direction is exact — see {@link #corridorBuckets} — so the bucket keyed on it names the cut
+     * rather than claiming a prompt was or was not built.
+     */
+    private static final int TRIAGE_SOLAR_LOW_CLOUD_MAX_PCT = 80;
+
     /** Wind-to-sun separation (degrees) below which cloud approaches from the sun's direction. */
     private static final int ALIGNED_MAX_DEG = 45;
 
@@ -638,6 +687,54 @@ public class CloudVerificationService {
      * ceiling applied with no mitigating signal present in the forecast data, which is the number
      * the blocked-rule's over-pessimism design decision keys on.
      *
+     * <p>The three {@code fcstBlanket} buckets exist to read the EXTENSIVE BLANKET label's
+     * <strong>precision</strong> straight off the counts: false-blanket rate = {@code
+     * corridorOpen / fcstBlanket}, which is the number {@code blanket-confirmation-plan.md}'s
+     * pre-registered decision rule keys on (&ge; ~25% ships the reworded rule; well under ~10%
+     * narrows to language only; between the two is the user's call). They hang off {@code withFar}
+     * rather than {@code clearer} or {@code cloudier} on purpose — the question is the label's full
+     * firing population, whatever the observed divergence class turned out to be. The strip split
+     * above cannot supply that denominator: it sizes the BLOCKED rule's unmitigated firing
+     * population, a neighbouring set rather than a subset — gated on one reading at &gt;60, and
+     * admitting members that carry no forecast far reading at all, for which no label prints.
+     *
+     * <p>Three caveats belong beside that ratio. The first two move it in <em>opposite</em>
+     * directions and their net sign is unestablished, so it is not an upper bound on anything.
+     * <ul>
+     *   <li><strong>Much of the parent was never prompted at all.</strong>
+     *       {@code WeatherTriageEvaluator} stands a slot down at solar-horizon low cloud
+     *       &gt; {@link #TRIAGE_SOLAR_LOW_CLOUD_MAX_PCT}% — the same reading projected here as
+     *       {@code forecastGapLow} — and {@code ForecastService} persists the row and returns
+     *       before {@code PromptBuilder} runs, while candidate selection filters on none of that.
+     *       So a member above the cut was never prompted on the nightly path, and those are the
+     *       heaviest-cloud members, likeliest to have been genuinely blanketed — which
+     *       <em>depletes</em> {@code corridorOpen}. {@code fcstBlanket&underTriageCut(<=80)} and
+     *       its {@code corridorOpen} sub-bucket are the same ratio over the members that could
+     *       have been prompted; read them beside the pre-registered pair. The cut is neither
+     *       necessary nor sufficient, which is why it is named for itself rather than for
+     *       "prompted": below it a member can still have been stood down by the other two triage
+     *       rules (precipitation, visibility) or by tide alignment, or routed to a canopy lane
+     *       whose builder never emits this label; above it a JFDI run submits the triaged
+     *       candidate anyway. Those are examples, not a closed list — this is the one gate reading
+     *       the same column the report projects, which is what makes it checkable at all.</li>
+     *   <li><strong>The sub-buckets cut analysed readings at absolute figures</strong>, which is
+     *       the one thing {@link CloudVerificationBucket} warns against: the reanalysis baseline
+     *       sits ~25pp below the forecast model at the horizon (the 226 km point's own offset has
+     *       never been measured separately), so a corridor the forecast model would call 50% can
+     *       read nearer 25% here — under the open cut. That <em>inflates</em> {@code corridorOpen}
+     *       and depletes {@code corridorBlanketed}. There is no offset-immune form of "was it
+     *       really open" — the question is absolute by construction — so read the parent bucket's
+     *       own {@code meanFarError} beside the ratio, which carries the same offset and so shows
+     *       how much of the gap is baseline rather than forecast. (The sub-buckets' own
+     *       {@code meanFarError} is floored by their definitions and says nothing.)</li>
+     *   <li><strong>{@code fcstBlanket} mirrors the label's arms, not its printing.</strong> In
+     *       {@code PromptBuilder} the blanket label sits in an {@code else} after
+     *       {@code isThinStrip}, so a forecast of near &ge; far + 30 with far &ge; 50 satisfies
+     *       both arms yet prints THIN STRIP instead. That needs near &ge; 80, so it lies almost
+     *       entirely in the triaged band the first caveat describes; inside
+     *       {@code underTriageCut} it collapses to the single point near = 80 with far = 50.</li>
+     * </ul>
+     *
      * @param pairs every verified pair in the window
      * @return corridor buckets over the pairs that carry both near and far readings
      */
@@ -650,6 +747,10 @@ public class CloudVerificationService {
                 .filter(p -> p.farDrop() <= -FAR_DIVERGENCE_PP).toList();
         List<CloudVerificationPair> fcstBlocked = clearer.stream()
                 .filter(CloudVerificationService::forecastWasBlocked).toList();
+        List<CloudVerificationPair> fcstBlanket = withFar.stream()
+                .filter(CloudVerificationService::forecastWasBlanket).toList();
+        List<CloudVerificationPair> underTriageCut = fcstBlanket.stream()
+                .filter(CloudVerificationService::forecastGapUnderTriageCut).toList();
         return List.of(
                 CloudVerificationBucket.of("farSimilar(|drop|<30)", withFar.stream()
                         .filter(p -> Math.abs(p.farDrop()) < FAR_DIVERGENCE_PP).toList()),
@@ -672,7 +773,19 @@ public class CloudVerificationService {
                 CloudVerificationBucket.of("farClearer&fcstBlocked&stripSeen", fcstBlocked.stream()
                         .filter(CloudVerificationService::thinStripPreconditionsHeld).toList()),
                 CloudVerificationBucket.of("farClearer&fcstBlocked&stripMissed", fcstBlocked.stream()
-                        .filter(p -> !thinStripPreconditionsHeld(p)).toList()));
+                        .filter(p -> !thinStripPreconditionsHeld(p)).toList()),
+                CloudVerificationBucket.of("fcstBlanket", fcstBlanket),
+                CloudVerificationBucket.of("fcstBlanket&corridorOpen(obs<=30)", fcstBlanket.stream()
+                        .filter(CloudVerificationService::corridorWasOpen).toList()),
+                CloudVerificationBucket.of("fcstBlanket&corridorBlanketed(obs>=50)",
+                        fcstBlanket.stream()
+                                .filter(p -> p.observedFarLow() != null
+                                        && p.observedFarLow() >= OBS_CORRIDOR_BLANKET_MIN_PCT)
+                                .toList()),
+                CloudVerificationBucket.of("fcstBlanket&underTriageCut(<=80)", underTriageCut),
+                CloudVerificationBucket.of("fcstBlanket&underTriageCut&corridorOpen(obs<=30)",
+                        underTriageCut.stream()
+                                .filter(CloudVerificationService::corridorWasOpen).toList()));
     }
 
     /**
@@ -687,6 +800,72 @@ public class CloudVerificationService {
     private static boolean forecastWasBlocked(CloudVerificationPair pair) {
         return pair.forecastGapLow() != null
                 && pair.forecastGapLow() > PROMPT_BLOCKED_BAND_MIN_PCT;
+    }
+
+    /**
+     * Returns whether both arms of the prompt's EXTENSIVE BLANKET label were satisfied.
+     *
+     * <p>Extracted so the parent bucket and both of its corridor sub-buckets apply the identical
+     * test — three inline copies of a threshold comparison is how such a predicate drifts.
+     *
+     * <p>Both arms are inclusive and both sit at {@link #PROMPT_BLANKET_MIN_PCT}, mirroring
+     * {@code PromptBuilder} ~:489. A missing forecast far reading is a non-member rather than an
+     * unknown: the label is only ever appended to a far-field line, so with no far figure it
+     * cannot have fired.
+     *
+     * <p>This mirrors the label's <em>arms</em>, not its printing — the label sits in an
+     * {@code else} after {@code PromptBuilder.isThinStrip}, so a forecast satisfying both arms
+     * with a near-minus-far drop of at least {@link #PROMPT_STRIP_DROP_PP} (which takes near
+     * &ge; 80) prints THIN STRIP and is counted here regardless. See {@link #corridorBuckets} for
+     * why that is left in and how to size it.
+     *
+     * @param pair one verified pair
+     * @return true when the forecast gap and the forecast far reading both reached
+     *         {@link #PROMPT_BLANKET_MIN_PCT}
+     */
+    private static boolean forecastWasBlanket(CloudVerificationPair pair) {
+        return pair.forecastGapLow() != null
+                && pair.forecastGapLow() >= PROMPT_BLANKET_MIN_PCT
+                && pair.forecastFarLow() != null
+                && pair.forecastFarLow() >= PROMPT_BLANKET_MIN_PCT;
+    }
+
+    /**
+     * Returns whether the analysed 226 km corridor read as open.
+     *
+     * <p>Extracted because two buckets score the same observed band — the pre-registered
+     * {@code corridorOpen} and its under-the-triage-cut counterpart — and the whole value of the
+     * second is that it applies the identical test to a narrower parent. Two inline copies of the
+     * comparison would let exactly that assumption drift.
+     *
+     * @param pair one verified pair
+     * @return true when the analysed far reading was at or below
+     *         {@link #OBS_CORRIDOR_OPEN_MAX_PCT}
+     */
+    private static boolean corridorWasOpen(CloudVerificationPair pair) {
+        return pair.observedFarLow() != null
+                && pair.observedFarLow() <= OBS_CORRIDOR_OPEN_MAX_PCT;
+    }
+
+    /**
+     * Returns whether the forecast gap sat at or below the triage cut, so the slot could have
+     * reached Claude.
+     *
+     * <p>Extracted so the sub-bucket and its own corridor cut apply the identical test, and shared
+     * with nothing else — this is a gate in front of the prompt, not one of the prompt's bands.
+     *
+     * <p>States only what it measures. Passing the cut does not establish that a prompt was built
+     * (precipitation and visibility triage can still have fired, and the canopy lanes prompt
+     * elsewhere), and failing it does not establish that none was (a JFDI run submits triaged
+     * candidates). It is the one triage rule reading the same column this report projects, which
+     * is what makes it checkable here at all.
+     *
+     * @param pair one verified pair, already known to carry a non-null {@code forecastGapLow}
+     * @return true when the forecast gap was at or below {@link #TRIAGE_SOLAR_LOW_CLOUD_MAX_PCT}
+     */
+    private static boolean forecastGapUnderTriageCut(CloudVerificationPair pair) {
+        return pair.forecastGapLow() != null
+                && pair.forecastGapLow() <= TRIAGE_SOLAR_LOW_CLOUD_MAX_PCT;
     }
 
     /**

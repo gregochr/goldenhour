@@ -292,14 +292,22 @@ class CloudVerificationServiceTest {
                         "farCloudier(drop<=-30)", "farCloudier&highCanvas",
                         "farCloudier&midCanvas", "farCloudier&fcstClear(<20)",
                         "farClearer&fcstBlocked(>60)", "farCloudier&fcstIdeal",
-                        "farClearer&fcstBlocked&stripSeen", "farClearer&fcstBlocked&stripMissed");
+                        "farClearer&fcstBlocked&stripSeen", "farClearer&fcstBlocked&stripMissed",
+                        "fcstBlanket", "fcstBlanket&corridorOpen(obs<=30)",
+                        "fcstBlanket&corridorBlanketed(obs>=50)",
+                        "fcstBlanket&underTriageCut(<=80)",
+                        "fcstBlanket&underTriageCut&corridorOpen(obs<=30)");
         // Each canvas cut both holds a sample and excludes the other's: the two clearer pairs
         // split 1/1 by dominance, and the sole cloudier pair is mid-dominant so &highCanvas is 0.
         // None of these fixtures forecast a >60 gap, so fcstBlocked and both its THIN STRIP
         // sub-buckets are correctly empty — that split is exercised in
-        // report_bucketsCorridorByForecastBand instead.
+        // report_bucketsCorridorByForecastBand instead. The blanket family is empty for a
+        // different reason: every fixture here forecasts a gap of 30 and a far reading of 25, so
+        // neither of the label's two >=50 arms is reached — see report_bucketsBlanketPrecision.
+        // Both underTriageCut buckets follow their parent to zero: a gap of 30 is under the triage
+        // cut, but the cut is applied to blanket members only.
         assertThat(report.byCorridor()).extracting(CloudVerificationBucket::sampleCount)
-                .containsExactly(1, 2, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0);
+                .containsExactly(1, 2, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
     @Test
@@ -370,7 +378,10 @@ class CloudVerificationServiceTest {
                         tuple("farClearer&fcstBlocked(>60)", 6),
                         tuple("farCloudier&fcstIdeal", 2),
                         tuple("farClearer&fcstBlocked&stripSeen", 4),
-                        tuple("farClearer&fcstBlocked&stripMissed", 2));
+                        tuple("farClearer&fcstBlocked&stripMissed", 2),
+                        tuple("fcstBlanket", 4),
+                        tuple("fcstBlanket&corridorOpen(obs<=30)", 3),
+                        tuple("fcstBlanket&corridorBlanketed(obs>=50)", 1));
         // The whole vector, counted by hand. Observed: no similar pair; nine clearer (2
         // high-dominant from the original pairs, 7 mid- — the two originals plus the five new
         // strip-split fixtures, all mid-dominant); seven cloudier (gapBlockedIdealCanvas
@@ -382,13 +393,138 @@ class CloudVerificationServiceTest {
         // (90) never enters the IDEAL band. Of the six fcstBlocked members, stripSeen holds the
         // original two (drops 60 and 36) plus stripSeen and stripSeenAtEdge (drops 35 and 30);
         // stripMissed holds stripMissedJustUnder (drop 29) and stripMissedNullFar (no far reading).
+        // The blanket family cuts across all of that from the withFar parent: its four members are
+        // the only fixtures whose forecast far reading reaches 50 (stripSeen 55, stripMissedJustUnder
+        // 61, stripSeenAtEdge 60, cloudierWrongParent 55), all four forecasting a 90 gap. Three
+        // observed an open corridor (far 20), cloudierWrongParent a blanketed one (far 70) — and
+        // that pair, which must stay out of both strip sub-buckets for being cloudier, is a
+        // legitimate blanket member, which is what makes the different parent visible. Three of the
+        // four (stripSeen, stripSeenAtEdge and cloudierWrongParent — drops 35, 30 and 35) are pairs
+        // the prompt would have labelled THIN STRIP rather than EXTENSIVE BLANKET: the deliberate
+        // over-inclusion documented on forecastWasBlanket, pinned here so it cannot change
+        // unnoticed. All four forecast a 90 gap, above the triage cut, so both underTriageCut
+        // buckets are zero — which is the shape the caveat predicts, since a gap that high stands
+        // the slot down before a prompt is ever built. The under-cut band is exercised in
+        // report_bucketsBlanketPrecision.
         assertThat(report.byCorridor()).extracting(CloudVerificationBucket::sampleCount)
-                .containsExactly(0, 9, 2, 7, 7, 1, 6, 4, 6, 2, 4, 2);
+                .containsExactly(0, 9, 2, 7, 7, 1, 6, 4, 6, 2, 4, 2, 4, 3, 1, 0, 0);
 
         // By construction every fcstBlocked member falls into exactly one THIN STRIP sub-bucket.
         assertThat(bucketCount(report, "farClearer&fcstBlocked&stripSeen")
                 + bucketCount(report, "farClearer&fcstBlocked&stripMissed"))
                 .isEqualTo(bucketCount(report, "farClearer&fcstBlocked(>60)"));
+        // The blanket sub-buckets never exceed their parent. No fixture here observed the 31-49
+        // middle band, so the invariant holds with equality; report_bucketsBlanketPrecision covers
+        // the strict case.
+        assertThat(bucketCount(report, "fcstBlanket&corridorOpen(obs<=30)")
+                + bucketCount(report, "fcstBlanket&corridorBlanketed(obs>=50)"))
+                .isLessThanOrEqualTo(bucketCount(report, "fcstBlanket"));
+    }
+
+    @Test
+    @DisplayName("report sizes the EXTENSIVE BLANKET label's firing population and scores it")
+    void report_bucketsBlanketPrecision() {
+        // Observed near is 45 and the observed canvas mid-dominant (70/30) throughout, so the only
+        // observed thing that moves is the far reading — the axis these sub-buckets cut on — and
+        // every &highCanvas bucket is empty by construction rather than by accident.
+        // The forecast near arm, at the edge and one under it. Forecast far 55 clears the other
+        // arm and observed far 20 is an open corridor, so the edge fixture is a member of the
+        // parent and of the false-blanket sub-bucket at once.
+        CloudVerificationPair nearArmAtEdge = corridorPair(45, 20, 70, 30, 50, 60, 40, 55);
+        CloudVerificationPair nearArmOneUnder = corridorPair(45, 20, 70, 30, 49, 60, 40, 55);
+        // The forecast far arm, likewise. The prompt would in fact print THIN STRIP over this pair
+        // rather than EXTENSIVE BLANKET — a 90-to-50 drop satisfies isThinStrip, which wins the
+        // else-if — so this pins the deliberate arms-not-printing over-inclusion documented on
+        // forecastWasBlanket as much as it pins the >= at the far arm.
+        CloudVerificationPair farArmAtEdge = corridorPair(45, 20, 70, 30, 90, 60, 40, 50);
+        CloudVerificationPair farArmOneUnder = corridorPair(45, 20, 70, 30, 90, 60, 40, 49);
+        // Forecast gap 55: inside the blanket's >=50 arm, outside the BLOCKED band's >60. Its
+        // observed 45-over-10 also puts it in farClearer, so farClearer&fcstBlocked(>60) is a zero
+        // with a live parent — wire this family to the blocked threshold and the pair moves
+        // between those two counts, failing both.
+        CloudVerificationPair blanketUnderBlockedBand = corridorPair(45, 10, 70, 30, 55, 60, 40, 55);
+        // The observed corridor bands, all forecasting 90/90 — a blanket call with no strip drop —
+        // so nothing but the observed far reading decides which sub-bucket each lands in.
+        CloudVerificationPair corridorOpenAtEdge = corridorPair(45, 30, 70, 30, 90, 60, 40, 90);
+        CloudVerificationPair corridorMiddleLow = corridorPair(45, 31, 70, 30, 90, 60, 40, 90);
+        CloudVerificationPair corridorMiddleHigh = corridorPair(45, 49, 70, 30, 90, 60, 40, 90);
+        CloudVerificationPair corridorBlanketedAtEdge =
+                corridorPair(45, 50, 70, 30, 90, 60, 40, 90);
+        // The triage cut, at the edge and one over it. WeatherTriageEvaluator stands a slot down
+        // above 80% solar low cloud before any prompt is built, so the pair at exactly 80 could
+        // have reached Claude and the one at 81 could not — while both satisfy the label's arms
+        // and both sit in the pre-registered parent, which is the whole point of the sub-cut.
+        CloudVerificationPair triageCutAtEdge = corridorPair(45, 20, 70, 30, 80, 60, 40, 55);
+        CloudVerificationPair triageCutOneOver = corridorPair(45, 20, 70, 30, 81, 60, 40, 55);
+        // Under the cut but over a blanketed corridor: keeps underTriageCut&corridorOpen strictly
+        // smaller than underTriageCut, so a sub-bucket that simply echoed its parent would fail.
+        CloudVerificationPair underCutBlanketedCorridor =
+                corridorPair(45, 50, 70, 30, 80, 60, 40, 90);
+        // Under the cut, observed far exactly at the open edge. The corridorOpen edge is pinned
+        // for the pre-registered bucket by corridorOpenAtEdge/corridorMiddleLow above; without
+        // this fixture the under-cut bucket carries no member at 30, so tightening its own <= to
+        // < would leave every count unchanged and the suite green. Both now read the same shared
+        // predicate, and both have a member sitting on it.
+        CloudVerificationPair underCutCorridorOpenAtEdge =
+                corridorPair(45, 30, 70, 30, 80, 60, 40, 90);
+        // No forecast far reading at all: the label is only ever appended to a far-field line, so
+        // it could not have fired. A non-member, not an unknown.
+        CloudVerificationPair nullForecastFar = corridorPair(45, 20, 70, 30, 90, 60, 40, null);
+        // Both forecast arms satisfied but nothing analysed at 226 km. Excluded by the withFar
+        // parent, so it can neither pad the denominator nor be scored open or blanketed — which is
+        // what keeps the ratio a precision figure rather than a coverage one.
+        CloudVerificationPair noObservedFar = blanketPairWithoutObservedFar();
+        when(repository.findVerifiedPairs(FROM, TO))
+                .thenReturn(List.of(nearArmAtEdge, nearArmOneUnder, farArmAtEdge, farArmOneUnder,
+                        blanketUnderBlockedBand, corridorOpenAtEdge, corridorMiddleLow,
+                        corridorMiddleHigh, corridorBlanketedAtEdge, triageCutAtEdge,
+                        triageCutOneOver, underCutBlanketedCorridor, underCutCorridorOpenAtEdge,
+                        nullForecastFar, noObservedFar));
+        when(repository.countVerifiedInWindow(FROM, TO)).thenReturn(15L);
+
+        CloudVerificationReport report = service.report(FROM, TO);
+
+        // Named rather than positional, so a failure says which claim moved. The blocked bucket is
+        // asserted here too: its parent holds blanketUnderBlockedBand, so the zero is the >60
+        // threshold refusing a pair the >=50 family counted, not an empty parent.
+        assertThat(report.byCorridor())
+                .extracting(CloudVerificationBucket::key, CloudVerificationBucket::sampleCount)
+                .contains(tuple("fcstBlanket", 11),
+                        tuple("fcstBlanket&corridorOpen(obs<=30)", 7),
+                        tuple("fcstBlanket&corridorBlanketed(obs>=50)", 2),
+                        tuple("fcstBlanket&underTriageCut(<=80)", 5),
+                        tuple("fcstBlanket&underTriageCut&corridorOpen(obs<=30)", 4),
+                        tuple("farClearer&fcstBlocked(>60)", 0));
+        // The whole vector, counted by hand. Thirteen pairs sit in farSimilar (|drop| of 25, 25,
+        // 25, 25, 15, 14, 4, 5, 25, 25, 5, 15 and 25) and blanketUnderBlockedBand alone in
+        // farClearer (drop 35), mid-dominant; nothing is cloudier. Of the fourteen, eleven satisfy
+        // both blanket arms — everything except nearArmOneUnder (gap 49), farArmOneUnder (far 49)
+        // and nullForecastFar. Seven of those eleven observed an open corridor (far 20, 20, 10,
+        // 30, 20, 20 and 30) and two a blanketed one (far 50 twice); the two middle-band pairs (31
+        // and 49) are in neither. Five of the eleven are at or under the triage cut (gaps 50, 55,
+        // 80, 80 and 80) and four of those five observed an open corridor —
+        // underCutBlanketedCorridor is the fifth.
+        assertThat(report.byCorridor()).extracting(CloudVerificationBucket::sampleCount)
+                .containsExactly(13, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 11, 7, 2, 5, 4);
+        // Fifteen pairs verified, fourteen in the corridor parent: noObservedFar reached the
+        // report and was dropped by the parent filter, not by one of the new predicates.
+        assertThat(report.overall().sampleCount()).isEqualTo(15);
+
+        // The invariant, from the report's own values. Strict here, because the 31-49 band is
+        // deliberately unbucketed: those two members are counted in the denominator and scored as
+        // neither open nor blanketed rather than being forced into whichever side is nearer.
+        assertThat(bucketCount(report, "fcstBlanket&corridorOpen(obs<=30)")
+                + bucketCount(report, "fcstBlanket&corridorBlanketed(obs>=50)"))
+                .isEqualTo(9)
+                .isLessThan(bucketCount(report, "fcstBlanket"));
+        // The decontaminated cut is a strict subset of the pre-registered parent, and its own
+        // corridorOpen a strict subset of it — so neither can be an alias of what it hangs off.
+        // Both ratios are readable: 7/11 over the whole parent, 4/5 over the members that could
+        // have been prompted, and they differ, which is the reason the sub-cut exists.
+        assertThat(bucketCount(report, "fcstBlanket&underTriageCut(<=80)"))
+                .isLessThan(bucketCount(report, "fcstBlanket"));
+        assertThat(bucketCount(report, "fcstBlanket&underTriageCut&corridorOpen(obs<=30)"))
+                .isLessThan(bucketCount(report, "fcstBlanket&underTriageCut(<=80)"));
     }
 
     private int bucketCount(CloudVerificationReport report, String key) {
@@ -441,6 +577,18 @@ class CloudVerificationServiceTest {
         return new CloudVerificationPair("Durham UK", DATE, TargetType.SUNSET, 0, 2,
                 30, 80, 60, 40, 55, 40, false, 20, 120, 240, 250,
                 null, coneMin, coneMax, null);
+    }
+
+    /**
+     * A pair whose forecast satisfies both EXTENSIVE BLANKET arms but which carries no analysed
+     * far reading — the one shape the corridor parent filter exists to exclude.
+     *
+     * @return the pair
+     */
+    private CloudVerificationPair blanketPairWithoutObservedFar() {
+        return new CloudVerificationPair("Durham UK", DATE, TargetType.SUNSET, 0, 2,
+                90, 45, 60, 40, 70, 30, false, 20, 120, 240, 250,
+                55, null, null, null);
     }
 
     private CloudVerificationPair corridorPair(int nearLow, int farLow, int canvasMid,
