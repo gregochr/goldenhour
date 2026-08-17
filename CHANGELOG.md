@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.18.9] - 2026-08-17
+
 ### Fixed — the Plan tab's Best bet / Also good chips were invisible to screen readers
 
 The ◎ mark that flags a region chip as the forecast-wide "Best bet" or "Also good" pick has always
