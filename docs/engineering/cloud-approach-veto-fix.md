@@ -116,7 +116,7 @@ but the upwind leg is not shared at all — its bearing is a local variable.
 | # | Defect | Site |
 |---|---|---|
 | **D1** | Trend `[BUILDING]` read from one un-coned cell while the identical bearing/distance is coned for the solar reading. Inconsistent, and the smoothing is free. | `CloudPointCacheReader:126-128` |
-| **D2** | The veto can fire on two single-cell readings and override a clear coned horizon, a full canvas and favourable aerosol. No corroboration required. | `PromptBuilder:209-220` |
+| **D2** | The veto can fire on two single-cell readings and override a clear coned horizon, a full canvas and favourable aerosol. No corroboration required. | `PromptBuilder:209-220` — **DEMOTED (shipped, `[Unreleased]`)**: the absolute 1–2★ ceiling is now a bounded penalty (`fiery_sky` −20..−30, rating cap 3) and the evidence-nullification clauses and summary gag are gone. Unconditional — see the F2 note below. |
 | **D3** | Not diagnosable after the fact: batch calls persist neither prompt nor response (`request_body`/`response_body` NULL for every batch row in `api_call_log`). | `ForecastResultHandler.persistBatchLog` |
 | **D4** | Geometry/prompt mismatch. `PromptBuilder:204-206` tells Claude the upwind point is *"the distance current cloud would physically travel **to the solar horizon** by event time"*. `computeUpwindPoint` anchors at the **observer**, not at `computeSolarHorizonPoint`. The sampled parcel is not the one that arrives where the prompt claims. | `DirectionalSamplingGeometry:102-113` |
 | **D5** | No spatial-consistency check exists anywhere. Physically implausible neighbour splits are invisible until a user screenshots one. | (absent) |
@@ -163,6 +163,37 @@ no longer single-cell. The one remaining unreliable trigger is the upwind sample
 The ceiling was never the defect; input noise was. Do **F3**, not F2.
 
 Kept below for the record only — do not implement without new outcome evidence.
+
+⚠️ **The demotion's price is two recorded washouts at 3★, and it is measured, not estimated.**
+Under the sky-rating eval harness (paired against a pristine control, 2026-08-18, Sonnet, 8 runs
+per fixture), `copt-hill-11mar-false-positive` and `copt-hill-15mar-overcast` both move from
+{1,2} to a steady **3** — the cap, exactly. Their bands are **ground truth and stay unchanged**:
+Chris was physically present on 15 March 2026 and it was a washout. Their harness rows are
+therefore **red-but-explained**, not a re-baselining opportunity, and they must not be parked on
+`gated = false` to quieten them.
+
+15 Mar is worth understanding before anyone proposes a fix. Its *observer point* was overcast
+(100% low / 99% mid) but its **solar horizon reads 39% low cloud**, and the prompt orders Claude
+to score from the directional data — so the >60% blocked ceiling never applied to it, and the
+veto was the only rule holding it down. Cap the veto at 3 and 3 is what a directionally-clearing
+sky with a 65% mid canvas earns. Claude's own summary: *"The solar horizon clears to just 20% low
+cloud at event time with a solid mid-cloud canvas above, but the [BUILDING] trend and current
+upwind cover of 84% make that snapshot uncertain."*
+
+⚠️ **The obvious next move — cap at 2 when the trend PEAK was high — cannot be sized, because the
+peak is not persisted.** `CloudApproachDetails.from` writes `slots.getFirst()` (earliest),
+`slots.getLast()` (event) and the `isBuilding()` boolean; `isBuilding()` computes the peak and
+throws it away, and V51 is the only migration that touches these columns. The pair does not
+recover it whenever the peak sits at an interior slot — 15 Mar is exactly that shape (52 → 100 →
+100 → 20, persisted as 52 and 20, true peak 100). `persistBatchLog` stores `responseBody` only,
+so the prompt's own trend series is not a fallback either. The verified Feb–Aug window therefore
+cannot answer whether a high peak selects genuinely cloudier skies; only new sampling could, and
+a new column would start accumulating from deploy rather than retro-filling. Adding one is cheap
+and worth doing before this question is asked again — but it is a *future* enabler, not evidence,
+and the pre-registered rule that gated the cap-2 proposal fired its no-data arm on exactly this
+finding.
+
+⚠️ **The demotion that shipped is not F2.** F2 keyed its exemption on the coned solar-horizon reading — the exact reading Copt Hill proved misleading — and that rejection stands untouched. What shipped applies *whenever both approach signals stand*, conditioned on nothing, and it caps rather than exempts: rating ≤3 with a −20..−30 `fiery_sky` penalty, where F2 would have lifted a clear-horizon case out of the rule altogether. Copt Hill still lands one band above its recorded outcome under the demotion, which is the price the change states rather than hides.
 
 ### ~~F2 (original proposal)~~
 
@@ -246,6 +277,124 @@ Not a correctness mechanism — a detector. Turns "user spots it on the map" int
 
 *Cost: trivial. Risk: none.*
 
+### F6 — Persist the solar-trend PEAK, so cap-2-on-high-peak can eventually be sized
+
+**Raised 2026-08-18, by the demotion's own stop-point.** The demotion's accepted price is two
+recorded washouts rating 3★ (§4 D2). The obvious refinement — cap at **2** when the combined
+signal fires *and* the trend peaked high — was proposed, gated behind a pre-registered sizing cut,
+and the cut could not run: **the peak is not persisted anywhere.**
+
+`CloudApproachDetails.from` writes `slots.getFirst()` (earliest), `slots.getLast()` (event) and the
+`isBuilding()` boolean. `isBuilding()` computes `peak - earliest >= 20` and then **discards the
+peak**. V51 is the only migration that touches these columns, and `persistBatchLog` stores
+`responseBody` only — so the prompt's own trend series is not a fallback either. The persisted pair
+does not recover the peak whenever it sits at an interior slot, which is the shape that matters:
+Copt Hill 15 Mar 2026 ran 52 → 100 → 100 → 20 and persisted as `(52, 20)`, true peak **100**.
+
+Two routes back, both recorded so neither is re-derived from scratch:
+
+- **(a) Persist it forward** — one nullable `solar_trend_peak_low_cloud INT` beside V51's fields,
+  one line in `CloudApproachDetails.from`. Cheap and obvious. It cannot retro-fill, so the sizing
+  cut would wait for a fresh window to accumulate.
+- **(b) Reconstruct it historically** from Open-Meteo's historical-forecast / previous-runs archive
+  for the fired-promptable population, which would size cap-2 in days rather than months. Raised by
+  Chris 2026-08-18. **Separate task, separate plan — not part of the demotion.**
+
+Until one of them lands, the pre-registered rule's no-data arm stands: **cap-3 as specified**, and
+the two March fixtures carry `{1,3}` bands whose upper edge is the guard.
+
+*Cost: (a) trivial; (b) a costed read-side task of its own. Risk: none — neither changes scoring.*
+
+### F7 — Retry a parse-failed evaluation, and stop counting API noise as a prompt regression
+
+**Raised 2026-08-18, from the demotion's eval arms. Confirmed as its own task — not built here.**
+
+On the two eval fixtures where the combined signal fires, Claude sometimes emits the opening of a
+chain of thought as the `summary` field (`...`, `test`, `thinking...`, `placeholder`, `Block ed`,
+`Let me think through this carefully.`), and once ran away into unparseable JSON:
+`{"golden_hour": 68, "summary": "...Let me work this out properly.}let me analyze:_}{}{}{}...`.
+
+⚠️ **This is PRE-EXISTING, and the first report of it was wrong.** It was initially measured as
+"0 in 120 control runs" and attributed to the demotion. That zero was **a too-narrow grep**
+(`summary=\.\.\.$` and `summary=test$`, anchored — a control run reading `summary=... ` with a
+trailing space and one reading `Block ed` both slipped through). Re-detected across every arm:
+**control 5/184 runs (2.7%), post-change 14/265 (5.3%)**; restricted to the veto-firing fixtures,
+**~10% control vs ~18% post-change**. Almost every occurrence in *both* arms is on those two
+fixtures, so it is a property of **conflicted approach inputs**, not of the rewording. Whether the
+elevation is real is **open and unfunded** — post-deploy tallies answer it for free.
+
+Two halves, both wanted:
+
+- **(a) Production.** A parse failure is a *failed evaluation*, not a cosmetic defect: it happens
+  **after** a successful API call, so `AnthropicApiClient`'s `@Retryable` predicates (529 /
+  content filter) do not cover it. Retry once on a parse failure, on the sync path and the batch
+  path as far as each allows.
+- **(b) Harness.** Retry or discard degenerate runs so `MIN_PASSES` measures the *prompt* rather
+  than API noise. This is what turns `copt-hill-15mar`'s 7/8 green **honestly** — its one
+  out-of-band 4★ came from a run whose summary was `Let me think through this step by step..`.
+
+**The degenerate tally stays a primary reported metric in both**, so a real rate change cannot hide
+behind the retries. This protects the pristine prompt too: the ~10% was always there.
+
+⚠️ **Use the corrected detector, never the narrow one**: flag any summary under ~45 characters, plus
+openers `Let me|Let us|I need|First,|Okay|Looking at|Step |Analyzing`, and count
+`Failed to parse evaluation response` separately. Eyeball the matches — legitimate short summaries
+exist.
+
+*Cost: small. Risk: low — (a) touches retry policy only; (b) touches test infrastructure only.*
+
+**Documented beside it: the Haiku cap flake.** The demotion's rating cap does not bind equally on
+both tiers, and the eval harness cannot see it — that harness runs **Sonnet only**, deliberately
+("the model PhotoCast actually scores near-term with"), while `PromptRegressionTest` defaults to
+**HAIKU**, which is `BATCH_FAR_TERM` for T+2/T+3. Measured 2026-08-18, one fixture
+(`copt-hill-11mar`), 8 runs per arm, same session:
+
+| Haiku, `copt-hill-11mar` | ratings | above the cap |
+|---|---|---|
+| pristine prompt (old absolute veto) | 3,2,1,2,2,2,2,2 | 0/8 |
+| demotion, cap stated in rules prose | 4,4,3,4,4,4,4,4 | **7/8** |
+| demotion, cap also on the output FIELD | 3,3,3,3,3,3,3,4 | **1/8** |
+
+Sonnet held the cap at 7/7 well-formed runs from the prose alone; Haiku ignored it almost entirely
+until the constraint was restated where the `rating` field is declared — in the prose field list and
+in the structured-output schema's `rating` description. ⚠️ **Keep both restatements.** The residual
+~1-in-8 Haiku breach is accepted and tracked here rather than chased with further wording.
+
+Two observations worth keeping, because they cost real calls to find:
+
+- **Smaller models follow the example, not the rule.** On the pristine prompt Haiku echoed the old
+  veto's own `Example:` sentence nearly verbatim in 5 of 8 runs ("Cloud bank building toward the
+  solar horizon makes this unreliable — approach risk outweighs the clear horizon..."). The rule's
+  numbers were not what it was reading. A prompt example is a much stronger lever on this tier than
+  its adjacent prose, and it should be treated as load-bearing when either is edited.
+- **The schema already forbids the degenerate summaries and is ignored anyway.** The `summary`
+  field's description says "never a placeholder such as 'test', 'placeholder', or an ellipsis" —
+  and those are the *exact* strings the degenerate runs produce. Field-adjacent constraints help
+  (they fixed the cap on Haiku) but they are not sufficient, which is part of why F7's retry half
+  is wanted.
+
+### The demotion's acceptance bar, and its one amendment
+
+Recorded because the amendment must read as a conscious re-rule on corrected data rather than as a
+quiet reinterpretation of a bar that was missed.
+
+The demotion's second wording iteration was gated on a bar pre-registered **before** its results
+were seen, in two clauses:
+
+1. Degenerate output on the veto-firing fixtures back to **~0**.
+2. `copt-hill-11mar` at **8/8 inside {1,3} on well-formed output**.
+
+**Clause 2 was MET** and stands as written: the declarative cap wording ("rating is the LOWER of
+what the sky earns and 3") produced seven well-formed runs at exactly 3 and no 4★ at all, against
+1-in-8 breaches under the earlier procedural phrasing.
+
+**Clause 1 was VOIDED FOR MEASUREMENT ERROR — not missed.** Its "~0" target was pre-registered
+against a control the same session had measured as zero, and that zero was the too-narrow grep
+described in F7. The real control rate on those fixtures is ~10%, so "~0" was never reachable by any
+wording. Chris re-ruled the clause explicitly, on the corrected data, as: *the post-change degenerate
+rate on veto-firing fixtures must not be materially above the paired control in the same session.*
+Round 5 meets that — **4 post-change against 3 control**, same session, same fixture set.
+
 ---
 
 ## 5. What must NOT be changed unilaterally
@@ -263,7 +412,14 @@ Not a correctness mechanism — a detector. Turns "user spots it on the map" int
 ## 6. Verification
 
 1. `./mvnw compile -q` then targeted classes:
-   `-Dtest="CloudPointCacheReader*,DirectionalSamplingGeometry*,PromptBuilder*"`.
+   `-Dtest="CloudPointCacheReader*,DirectionalSamplingGeometry*,PromptBuilder*,PromptGoldenMasterTest"`.
+   ⚠️ **`PromptBuilder*` does not glob-match `PromptGoldenMasterTest`** — it is the only
+   test that asserts the assembled system prompt byte-for-byte, and the demotion
+   (2026-08-18) turned all five archetypes red while every targeted `PromptBuilder*` run
+   stayed green. Any edit to `SYSTEM_PROMPT` needs its five `prompt-golden/*.txt` fixtures
+   regenerated (`-Dprompt.golden.regenerate=true`) as a standalone commit — see
+   `integration-test-strategy.md` §3, which names regenerating that golden as the exact
+   move that keeps every gate green while the scoring changes underneath it.
 2. `./mvnw checkstyle:check -q` before any full verify.
 3. **Sky-rating eval harness** — the gated pass^k band+bucketing eval. Re-baseline and compare
    against the existing all-green Sonnet baseline; a prompt or geometry change that moves band

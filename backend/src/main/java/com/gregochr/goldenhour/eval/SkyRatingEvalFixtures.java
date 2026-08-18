@@ -80,18 +80,43 @@ public final class SkyRatingEvalFixtures {
             new SkyRatingEvalFixture(
                     "copt-hill-11mar-false-positive",
                     "Real day, ported from PromptRegressionTest#coptHill_11Mar2026_sunset_cloud"
-                            + "ApproachFalsePositive (input + observed band verbatim). Clear event-time "
-                            + "snapshot but a cloud bank approaching upwind — must not be fooled into a "
-                            + "high score. Fully augmented (directional + cloud-approach).",
-                    RatingBand.atMost(2),
+                            + "ApproachFalsePositive. Clear event-time snapshot but a cloud bank "
+                            + "approaching upwind — must not be fooled into a high score. Fully "
+                            + "augmented (directional + cloud-approach). ⚠️ GROUND TRUTH IS 2★: "
+                            + "production predicted 4★, the bank arrived, and the sunset was a "
+                            + "~2★ disappointment. The band was {1,2} to match that until the "
+                            + "2026-08-18 veto demotion, and it reads {1,3} now BY DESIGN, not by "
+                            + "absorption — the combined approach signal became a bounded penalty "
+                            + "capped at 3, so this day rates at most 3 and the band pins that "
+                            + "specified behaviour. The accepted price is recorded in "
+                            + "cloud-approach-veto-fix.md §4 (D2) and §9 and in "
+                            + "veto-demotion-plan.md §3. The UPPER EDGE is the live guard: a 4 "
+                            + "here means the cap stopped binding, which is exactly what the "
+                            + "first cut of the demotion did (4★ on 8/8 runs) before the "
+                            + "precedence clause was added. The route back to {1,2} is a "
+                            + "measured cap-2-on-high-peak rule — see the veto doc's F6.",
+                    new RatingBand(1, 3),
                     "copt-hill-11mar-false-positive.json"),
             new SkyRatingEvalFixture(
                     "copt-hill-15mar-overcast",
                     "Real day, ported from PromptRegressionTest#coptHill_15Mar2026_sunset_total"
-                            + "OvercastWithApproach (input + observed band verbatim). Total overcast with "
-                            + "a building trend and an upwind bank the model under-called — observed a "
-                            + "non-event. Fully augmented.",
-                    RatingBand.atMost(2),
+                            + "OvercastWithApproach. Building trend and an upwind bank the model "
+                            + "under-called. Fully augmented. ⚠️ GROUND TRUTH IS 1-2★, AND CHRIS "
+                            + "WAS THERE: he was physically present on 15 March 2026 and it was a "
+                            + "real washout. That observation is not superseded by anything below. "
+                            + "The band reads {1,3} since the 2026-08-18 veto demotion BY DESIGN — "
+                            + "and the mechanism is worth knowing before anyone calls it a bug. "
+                            + "The OBSERVER point was overcast (100% low / 99% mid) but the SOLAR "
+                            + "HORIZON reads 39% low with a 65% mid canvas, and the prompt orders "
+                            + "scoring from the directional data — so the >60% blocked ceiling "
+                            + "never applied here and the veto was the ONLY rule holding this day "
+                            + "down. Cap the veto at 3 and 3 is what a directionally-clearing sky "
+                            + "with a canvas earns. Accepted price, recorded in "
+                            + "cloud-approach-veto-fix.md §4 (D2) and §9 and in "
+                            + "veto-demotion-plan.md §3; the upper edge is the live guard (a 4 "
+                            + "means the cap stopped binding). Route back to {1,2}: a measured "
+                            + "cap-2-on-high-peak rule — see the veto doc's F6.",
+                    new RatingBand(1, 3),
                     "copt-hill-15mar-overcast.json"),
             new SkyRatingEvalFixture(
                     "copt-hill-16mar-horizon-strip",
@@ -116,7 +141,26 @@ public final class SkyRatingEvalFixtures {
                             + "slightly hazy air. Proves a graded (non-bimodal) response — the scorer "
                             + "can return the middle of the range.",
                     new RatingBand(2, 3),
-                    "middling-hazy-mixed.json"));
+                    "middling-hazy-mixed.json"),
+            new SkyRatingEvalFixture(
+                    "far-corridor-blanket-canvas",
+                    "Hand-authored, and the ONLY fixture that fires the FAR CORRIDOR ALSO CLOUDY "
+                            + "label: solar horizon low 70% with the far reading still 62% (both "
+                            + "arms over 50, drop 8pp, so not a THIN STRIP), under a 65%/60% "
+                            + "mid-high canvas. This is the shape the blanket-precision cut "
+                            + "measured at 53.6% false, and until it existed the suite had zero "
+                            + "coverage of the case the 2026-08-18 blanket rewording exists to "
+                            + "change. Band {1,2} assigned by Chris from the paired pre/post "
+                            + "measurement of 2026-08-18, not from a prior expectation: the old "
+                            + "prompt's EXTENSIVE BLANKET label pinned it to 1 on 8/8 runs, and "
+                            + "the reworded label produced 1-2 (five 1s, three 2s) — the whole "
+                            + "post-change distribution sits inside the band. The near gate is "
+                            + "70%, above the 60% blocked line, so the label may neither escalate "
+                            + "nor relieve here: a lift to 3 would be the same leak "
+                            + "copt-hill-5mar-washout caught, which is what this fixture watches "
+                            + "for.",
+                    RatingBand.atMost(2),
+                    "far-corridor-blanket-canvas.json"));
 
     private SkyRatingEvalFixtures() {
     }

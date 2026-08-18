@@ -132,16 +132,30 @@ public class PromptBuilder {
             + "light' is not a valid scoring concept — ignore it entirely.\n"
             + "- HORIZON CLOUD STRUCTURE: when a 'Beyond horizon (226km)' low cloud figure is "
             + "provided, compare it to the horizon value to determine spatial extent:\n"
-            + "  * THIN STRIP: solar horizon low cloud ≥50% but beyond-horizon low cloud ≤30% "
-            + "(drops by ≥30pp). A strip filters and diffuses rather than blocking — warm light "
+            + "  * THIN STRIP: solar horizon low cloud ≥50% and the beyond-horizon reading drops "
+            + "by ≥30pp. A strip filters and diffuses rather than blocking — warm light "
             + "angles up onto mid/high cloud above. Treat as equivalent to 40-60% low cloud. "
             + "When mid/high cloud canvas is present (solar or antisolar), RATE 3-4 (not 1-2). "
             + "The blocked-sky ceilings do NOT apply to THIN STRIP scenarios. "
             + "If a [BUILDING] trend is also present, this means the strip is well-established "
             + "at event time — it does NOT mean a blanket will form when far-field data confirms "
-            + "a strip structure. Still rate 3-4 when canvas is present.\n"
-            + "  * EXTENSIVE BLANKET: solar horizon low cloud ≥50% AND beyond-horizon low cloud "
-            + "also ≥50%. Full blocking penalty applies — rating 1-2, fiery_sky 5-20.\n"
+            + "a strip structure. Still rate 3-4 when canvas is present. When a pair satisfies "
+            + "both THIN STRIP and FAR CORRIDOR ALSO CLOUDY below, THIN STRIP wins — the measured "
+            + "drop is the stronger evidence.\n"
+            + "  * FAR CORRIDOR ALSO CLOUDY: solar horizon low cloud ≥50% AND beyond-horizon low "
+            + "cloud also ≥50%. The far sample corroborates the horizon reading; it does NOT "
+            + "confirm a blanket. It is reliable when it shows a drop and unreliable when it "
+            + "claims cover, so read it as a likelihood that the corridor beyond offers no "
+            + "relief, never as certainty. This label carries no penalty of its own AND grants no "
+            + "relief of its own: the solar-horizon rules above set the ceiling from the near "
+            + "reading alone. Where those rules leave room — solar horizon low cloud 50-60% — "
+            + "and substantial mid/high canvas is present, this label alone must not pin the "
+            + "rating to 1-2; 3 is available. Above 60% the blocked ceiling stands unchanged, "
+            + "canvas or no canvas.\n"
+            + "  When no 'Beyond horizon (226km)' figure is provided at all, NEITHER of these two "
+            + "structure rules applies: score from the solar-horizon rules above exactly as "
+            + "written. A missing far reading is not evidence of a strip, of a blanket, or of "
+            + "anything else.\n"
             + "- When directional data is provided, ALWAYS use it instead of the observer-point "
             + "Cloud line for scoring. A clear observer point is irrelevant if the solar horizon "
             + "is blocked; equally, a clear observer point with directional cloud canvas is NOT "
@@ -227,7 +241,9 @@ public class PromptBuilder {
             + "Summaries must be exactly one sentence. Do not write two sentences even if "
             + "separated by a semicolon, dash, or conjunction.\n\n"
             + "Output your evaluation as JSON with these fields: "
-            + "rating (1-5), fiery_sky (0-100), golden_hour (0-100), summary (1 sentence).\n\n"
+            + "rating (1-5; MAXIMUM 3 when the CLOUD APPROACH RISK block shows BOTH a [BUILDING] "
+            + "trend AND upwind current ≥60%), fiery_sky (0-100), golden_hour (0-100), "
+            + "summary (1 sentence).\n\n"
             + "fiery_sky: dramatic colour potential. Requires clouds (mid/high) to catch light. "
             + "Clear sky = 20-40. Ideal cloud canvas with clear horizon = 70-90. Total overcast = 5-15.\n"
             + "golden_hour: overall light quality. Clear sky with good visibility scores well. "
@@ -246,17 +262,21 @@ public class PromptBuilder {
             + "- Solar trend [BUILDING]: low cloud rising toward the 113km solar horizon. "
             + "Event-time snapshot is likely understated. Penalise fiery_sky by 15-30 points.\n"
             + "- Combined signal: when BOTH [BUILDING] trend AND upwind current ≥60% are present, "
-            + "the forecast is UNRELIABLE — cloud was physically moving toward the solar horizon "
-            + "at the time this data was captured. In this specific case: output rating 1 or 2, "
-            + "fiery_sky ≤20, golden_hour ≤20. These ceilings apply even if the solar horizon "
-            + "appears clear, canvas is present, or aerosol is favourable — those readings are "
-            + "unreliable when a building approach is confirmed. "
-            + "When applying these ceilings: the at-event upwind sample value is also unreliable "
-            + "and must be ignored. A low at-event value (e.g. 15%) does NOT mean the cloud will "
-            + "dissipate — it means the model has not captured the approaching cloud bank. Only the "
-            + "upwind CURRENT value matters. Do not reference the favourable conditions in the "
-            + "summary — write only about the approach risk. Example: 'Cloud bank building toward "
-            + "the solar horizon makes this unreliable — approach risk outweighs the clear horizon.'"
+            + "cloud was moving toward the solar horizon at the time this data was captured, so "
+            + "the event-time snapshot may be understated. This is a significant reliability "
+            + "risk, not a veto. While both signals stand, two constraints hold on the output: "
+            + "fiery_sky is 20-30 points lower than the conditions alone would give, and rating "
+            + "is the LOWER of what the sky earns and 3. The rating constraint binds against "
+            + "every rule that authorises 4 or 5, including the IDEAL scenario and the "
+            + "thick-mid-cloud rate-4 floor: those state what the sky is worth if the event-time "
+            + "snapshot can be trusted, and both approach signals say it may not be. It "
+            + "constrains the output only; it discards no evidence. The coned solar-horizon "
+            + "reading is weighed normally — it is a three-point average and remains the best "
+            + "available estimate of the gap — and the horizon, canvas and aerosol readings "
+            + "still set fiery_sky, golden_hour and the summary. Name the approach risk in the "
+            + "summary alongside the other factors rather than instead of them. Example: 'Clear "
+            + "horizon under a high canvas, but a cloud bank is tracking in from the SW — the "
+            + "timing is the risk.'"
             + "\n"
             + "- Upwind sample alone (no [BUILDING] trend): use at-event value to judge dissipation:\n"
             + "  - current ≥60%, at-event ≥50%: model agrees cloud persists → "
@@ -264,7 +284,11 @@ public class PromptBuilder {
             + "  - current ≥60%, at-event <25%: model predicts dissipation in transit → "
             + "apply moderate scepticism — reduce fiery_sky by 15-25 points, do not assume blockage.\n"
             + "  - current ≥60%, at-event 25-50%: uncertain → penalise fiery_sky by 10-20 points.\n"
-            + "  - current 30-60%: softer signal — penalise fiery_sky by 5-15 points.\n\n"
+            + "  - current 30-60%: softer signal — penalise fiery_sky by 5-15 points.\n"
+            + "These approach rules ask you to weigh signals that disagree. Do that weighing "
+            + "before you write, never inside the output: no reasoning, deliberation or working "
+            + "belongs in any JSON value. The summary is a finished one-sentence verdict, not a "
+            + "train of thought.\n\n"
             + "CLOUD CLEARING (the opportunity, mirror of [BUILDING]): a [CLEARING] label means the "
             + "low cloud blocker is dropping into the event WHILE the mid/high canvas survives — the "
             + "sky is opening exactly as the light arrives, leaving structured cloud to catch colour. "
@@ -488,7 +512,7 @@ public class PromptBuilder {
                     sb.append(" [THIN STRIP — soften low-cloud penalty]");
                 } else if (near >= SOLAR_LOW_CLOUD_SIGNIFICANT_PERCENT
                         && far >= SOLAR_LOW_CLOUD_SIGNIFICANT_PERCENT) {
-                    sb.append(" [EXTENSIVE BLANKET — full penalty applies]");
+                    sb.append(" [FAR CORRIDOR ALSO CLOUDY — corroboration, not confirmation]");
                 }
             }
         }
@@ -647,7 +671,11 @@ public class PromptBuilder {
                                 .putAdditionalProperty("properties", JsonValue.from(Map.ofEntries(
                                         Map.entry("rating", Map.of(
                                                 "type", "integer",
-                                                "enum", List.of(1, 2, 3, 4, 5))),
+                                                "enum", List.of(1, 2, 3, 4, 5),
+                                                "description",
+                                                "1-5. MAXIMUM 3 when the CLOUD APPROACH RISK "
+                                                        + "block shows BOTH a [BUILDING] trend "
+                                                        + "AND upwind current >= 60%.")),
                                         Map.entry("fiery_sky", Map.of(
                                                 "type", "integer",
                                                 "description", "0-100 inclusive.")),

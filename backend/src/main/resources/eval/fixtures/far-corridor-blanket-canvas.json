@@ -1,0 +1,64 @@
+{
+  "locationName": "Eval — Far Corridor Blanket With Canvas (hand-authored)",
+  "solarEventTime": "2026-11-04T16:20:00",
+  "targetType": "SUNSET",
+  "cloud": {
+    "lowCloudPercent": 72,
+    "midCloudPercent": 25,
+    "highCloudPercent": 60
+  },
+  "weather": {
+    "visibilityMetres": 21000,
+    "windSpeedMs": 5.2,
+    "windDirectionDegrees": 250,
+    "precipitationMm": 0,
+    "humidityPercent": 78,
+    "weatherCode": 3,
+    "shortwaveRadiationWm2": 28.0,
+    "dewPointCelsius": 6.4,
+    "pressureHpa": 1011.0,
+    "snowfallCm": null,
+    "snowDepthMetres": null,
+    "freezingLevelMetres": null
+  },
+  "aerosol": {
+    "pm25": 8.5,
+    "dustUgm3": 2.0,
+    "aerosolOpticalDepth": 0.12,
+    "boundaryLayerHeightMetres": 820
+  },
+  "comfort": {
+    "temperatureCelsius": 9.8,
+    "apparentTemperatureCelsius": 6.9,
+    "precipitationProbability": 15
+  },
+  "directionalCloud": {
+    "solarLowCloudPercent": 70,
+    "solarMidCloudPercent": 20,
+    "solarHighCloudPercent": 65,
+    "antisolarLowCloudPercent": 30,
+    "antisolarMidCloudPercent": 25,
+    "antisolarHighCloudPercent": 60,
+    "farSolarLowCloudPercent": 62
+  },
+  "tide": null,
+  "cloudApproach": {
+    "solarTrend": {
+      "slots": [
+        { "hoursBeforeEvent": 3, "lowCloudPercent": 68, "midCloudPercent": null, "highCloudPercent": null },
+        { "hoursBeforeEvent": 2, "lowCloudPercent": 70, "midCloudPercent": null, "highCloudPercent": null },
+        { "hoursBeforeEvent": 1, "lowCloudPercent": 69, "midCloudPercent": null, "highCloudPercent": null },
+        { "hoursBeforeEvent": 0, "lowCloudPercent": 70, "midCloudPercent": null, "highCloudPercent": null }
+      ]
+    },
+    "upwindSample": {
+      "distanceKm": 95,
+      "windFromBearing": 250,
+      "currentLowCloudPercent": 20,
+      "eventLowCloudPercent": 22
+    }
+  },
+  "mistTrend": null,
+  "inversionScore": null,
+  "inversionPotential": null
+}

@@ -57,6 +57,13 @@ class SkyRatingEvalFixturesTest {
         assertEquals(List.of("copt-hill-5mar-washout"), monitored,
                 "only the known coin-flip washout may be monitored — do not let it become a "
                         + "dumping ground for inconvenient fixtures");
+
+        // far-corridor-blanket-canvas was briefly monitored while its band was unassigned, then
+        // gated at {1,2} once the paired 2026-08-18 measurement supplied one. That is the only
+        // route back out of this list: a band comes from measurement, and having one means being
+        // gated on it. Two fixtures currently sit red against ground-truth bands
+        // (copt-hill-11mar, copt-hill-15mar) and are deliberately NOT parked here — see the
+        // demotion's known-price note in docs/engineering/cloud-approach-veto-fix.md.
     }
 
     @ParameterizedTest(name = "{0}")
