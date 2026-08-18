@@ -311,8 +311,8 @@ class PromptRegressionTest {
         SunsetEvaluation result = strategy.evaluate(data);
         System.out.println("[coptHill_11Mar_approach] " + result.summary());
         assertScoresNotNull(result);
-        assertTrue(result.rating() <= 2,
-                "Rating should be <= 2 (cloud approach risk = don't go) but was "
+        assertTrue(result.rating() <= 3,
+                "Rating should be <= 3 (approach risk caps the rating; demotion 2026-08-18) but was "
                         + result.rating());
         assertTrue(result.fierySkyPotential() <= 45,
                 "Fiery Sky should be <= 45 (approaching cloud blocks display) but was "
