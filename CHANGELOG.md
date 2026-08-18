@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed — a woodland score could set the band for the sky locations it shares a region with
 
+*(Both arms. The backend rollup and the v1 arm's own client-side cell star moved together — see the
+v1 paragraph below.)*
+
 A woodland verdict runs on inverted polarity: a canopy GO means heavy cloud and mist, the opposite
 of what it means for a sky window. Every surface that rolls up a region already knew that — the
 triage verdict, the region summary and the confidence roster all exclude canopy slots — except the
@@ -28,13 +31,16 @@ canopy-inclusive, or a region whose only scored location is a wood would be blan
 Affects the grid cell, the day card and the v2 window badge together, which is the point: they read
 one number.
 
-**This is not v2-only, and the v1 arm is worth being precise about.** The verdict is a payload field
-both arms render, so the v1 grid cell's word moves too. Its **star** does not: v1 derives that
-client-side from `/api/briefing/evaluate/scores`, which carries no canopy flag, and that arm is
-frozen as the pilot's comparison control. So for a wood-bearing region a v1 cell can now show a
-voting-derived word beside a canopy-inclusive star. Accepted deliberately — the alternatives are
-leaving a wood to set sky bands on every surface, or unfreezing the control mid-comparison. The v2
-cell reads both from one payload and has no split.
+**This is not v2-only, and the v1 arm moved with it.** The verdict is a payload field both arms
+render, so the v1 grid cell's word changed too — and its star is derived client-side, so it had to
+be changed to match. `HeatmapCell`'s non-opted-in path now applies the same rule by hand, in both
+its lookups: the name-keyed join over `/api/briefing/evaluate/scores` and the slot fallback beneath
+it, with the same all-canopy fallback so a woodland-only region keeps its star. Briefly, between
+this change and that one, a v1 cell could read "Maybe sunrise" over a 3.7★ pill.
+
+That **moves the frozen pilot control**, which is a real cost and a deliberate one: a control that
+contradicts itself inside a single cell is not measuring the thing the comparison is for. The v2
+cell reads both figures from one payload and needs no hand-applied rule.
 
 **Two averages are knowingly left canopy-inclusive**, and for different reasons.
 `PipelineRunPickService.lookupAverageRating` reads a name-keyed score cache with no canopy flag, so

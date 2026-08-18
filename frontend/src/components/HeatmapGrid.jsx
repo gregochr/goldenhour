@@ -631,9 +631,11 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
   //
   // Two derivations, and which one runs is the CALLER's choice, not this component's. `HeatmapGrid`
   // has two call sites in two flag arms and one of them — `DailyBriefing`, the v1 arm — is the
-  // frozen control for the side-by-side comparison the redesign is judged by. So the backend field
-  // is opt-in: v2's `WindowFirstRegionalPanel` passes `serverCellRating`, v1 passes nothing and
-  // keeps the client-side join byte for byte.
+  // control for the side-by-side comparison the redesign is judged by. So the backend field is
+  // opt-in: v2's `WindowFirstRegionalPanel` passes `serverCellRating`, v1 passes nothing and keeps
+  // the client-side join. It is no longer BYTE-IDENTICAL, and the paragraph below is why: the
+  // canopy rule had to be applied to it by hand. The opt-in still decides where the number comes
+  // from; it no longer decides what the number means.
   //
   // The opted-in path reads `region.meanRating`, which the backend derives from the SAME statistics
   // as the cell's verdict word — so the star and the word can no longer come from two computations
@@ -641,15 +643,27 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
   // `/api/briefing/evaluate/scores` through a region-NAME prefix join, silently falling back to the
   // slot tree when the join found nothing. See plan-verdict-consolidation-plan.md §1 D2.
   //
-  // ⚠️ The two paths now differ by MORE than where the number comes from, and the v1 arm carries
-  // the cost knowingly. The canopy fix moved the region's verdict — a payload field both arms
-  // render, with no prop to gate it — onto the region's VOTING slots, excluding woodland locations
-  // whose GO means the opposite of a sky GO. The star only followed on the opted-in path. So for a
-  // wood-bearing region at SUNRISE (the only event a wood is briefed at) a v1 cell can show a word
-  // derived from the sky beside a star derived from the sky plus the wood — e.g. "Maybe sunrise"
-  // over a 3.7★ pill. Accepted rather than fixed: closing it means filtering canopy names out of
-  // the join below, which moves the frozen pilot control mid-comparison. Delete this arm with the
-  // v1 arm and the split goes with it.
+  // ⚠️ BOTH paths exclude canopy slots, and the legacy one does it by hand. The canopy fix moved
+  // the region's verdict — a payload field both arms render, with no prop to gate it — onto the
+  // region's VOTING slots, because a woodland GO means heavy cloud and mist, the opposite of what
+  // GO means for a sky window. The star had to follow or this cell would print a word derived from
+  // the sky above a number derived from the sky plus the wood. Seen in the browser before the fix,
+  // on two 4★ sky slots and a 1★ wood: "Worth it sunrise" — green, banded on the sky's 4.0 — over
+  // an amber 3★ pill, and "3 stars" in the cell's accessible name. That was briefly the state of
+  // the v1 arm and it is deliberately not left there, even though closing it moves the frozen
+  // control: a control that contradicts itself inside one cell is not measuring anything.
+  //
+  // The filter mirrors `BriefingSlot.votingSlots` on the backend, INCLUDING its fallback: a region
+  // with nothing but woods votes with them, because it genuinely has a forecast and silence would
+  // be the worse answer. Drop the fallback and an all-canopy region loses its star while keeping
+  // its word.
+  //
+  // One consequence of filtering the FIRST lookup: the slot fallback's trigger has quietly gained a
+  // second meaning. It used to mean "the score map had no row for this cell"; it now also fires
+  // when every row it matched was a wood. Falling through is still the right answer there — the
+  // slots are enriched from the same store, so the sky's rating is not stale — but it means a
+  // region whose only freshly-scored location is a wood is answered by its slot tree rather than by
+  // that wood. Both branches are pinned in `HeatmapGrid.test.jsx`.
   //
   // Null is preserved rather than coerced: it means nothing here is rated, which the badge below
   // renders as no badge at all rather than as a 0.
@@ -657,13 +671,27 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
   if (serverCellRating) {
     meanRating = region?.meanRating ?? null;
   } else {
+    const slots = region?.slots || [];
+    const hasSkySlot = slots.some((slot) => !slot.canopy);
+    const votingSlots = hasSkySlot ? slots.filter((slot) => !slot.canopy) : slots;
+    // The score map is keyed by NAME, not by slot, so the exclusion has to be a name set. A scored
+    // location the region's slot list does not mention is left in: this can only skip what the
+    // payload says is a wood, and inventing a canopy guess for an unknown name would be worse than
+    // the mismatch it is trying to avoid.
+    const canopyNames = new Set(
+      hasSkySlot ? slots.filter((slot) => slot.canopy).map((slot) => slot.locationName) : [],
+    );
+
     const ratings = [];
     const prefix = `${regionName}|${date}|${targetType}|`;
     for (const [key, result] of evaluationScores) {
-      if (key.startsWith(prefix) && result.rating != null) ratings.push(result.rating);
+      if (key.startsWith(prefix) && result.rating != null
+        && !canopyNames.has(result.locationName)) {
+        ratings.push(result.rating);
+      }
     }
-    if (ratings.length === 0 && region?.slots) {
-      for (const s of region.slots) {
+    if (ratings.length === 0) {
+      for (const s of votingSlots) {
         if (s.claudeRating != null) ratings.push(s.claudeRating);
       }
     }
@@ -1320,10 +1348,15 @@ HeatmapGrid.propTypes = {
    * Opt in to the backend-derived per-cell mean rating ({@code BriefingRegion.meanRating}) instead
    * of the client-side join over {@code /api/briefing/evaluate/scores}.
    *
-   * <p>A prop for the same reason as {@code scrollable}: the v1 call site is the frozen pilot
-   * control, and this changes which number a cell prints. Defaulting to off keeps that arm on the
-   * derivation it shipped with while v2 takes the payload's own. The {@code /evaluate/scores} fetch
-   * stays either way — the drill-down reads it for per-location detail.
+   * <p>A prop for the same reason as {@code scrollable}: the v1 call site is the pilot's comparison
+   * control, and this changes where a cell's number comes from. Defaulting to off keeps that arm on
+   * its own client-side join while v2 takes the payload's own figure.
+   *
+   * <p><b>It does not keep that arm unchanged, and has not since the canopy fix.</b> The join was
+   * edited to exclude woodland slots, because the verdict WORD beside the star is a payload field
+   * with no prop to gate it and had already moved. What this flag selects is the source, not the
+   * rule. The {@code /evaluate/scores} fetch stays either way — the drill-down reads it for
+   * per-location detail, canopy rows included.
    */
   serverCellRating: PropTypes.bool,
 };

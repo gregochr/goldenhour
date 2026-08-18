@@ -8,9 +8,10 @@ confirming D3 for the observed instance.
 **Phases 2 and 3 shipped 2026-08-17/18** on branch `fix/plan-verdict-phases-2-3`, on the owner's
 explicit instruction to proceed — so they land **before** the v2 flag flip, not after it, and §6's
 "gate behind a caller opt-in" clause is what carries the Phase 3 work that touches `HeatmapGrid`
-(`serverCellRating`, defaulting off, so v1 keeps its own cell star). ⚠️ **That opt-in does not
-make v1 untouched, and the canopy fix below is where it stops being true**: `displayVerdict` is a
-payload field, not a prop, so v1's grid cell word moves with v2's while its star does not.
+(`serverCellRating`, defaulting off, so v1 keeps its own cell star). ⚠️ **That opt-in does not make
+v1 untouched, and the canopy fix below is where it stops being true**: `displayVerdict` is a payload
+field, not a prop, so v1's grid cell word moved with v2's — and v1's own star derivation was then
+moved by hand to match it, which is the one deliberate change to the frozen control.
 `usePlanLayout.js` still defaults to `PLAN_V1`. Phase 4 not started.
 
 **Phase 3's one deliberate behavioural cost.** The six-event cap is now the backend's alone, so when
@@ -118,12 +119,13 @@ region's `displayVerdict` and `meanRating`) and `PlanWindowProjector.rank` (regi
 published `Pick.averageRating`). The projector had to move with the rest or its ranking would order
 regions by a mean no surface displays.
 
-**It reaches the frozen v1 arm, and that was the price.** `displayVerdict` is a payload field both
-arms render, so v1's grid cell word moves with v2's. Its star does not — v1 derives that from
-`/api/briefing/evaluate/scores`, which has no canopy flag — so a v1 cell for a wood-bearing region
-can show a voting-derived word beside a canopy-inclusive star. The alternatives were leaving a wood
-to set sky bands everywhere, or unfreezing the control mid-comparison; this was judged the lesser.
-v2's cell reads both from one payload and has no split.
+**It reaches the frozen v1 arm, and the arm was moved to match.** `displayVerdict` is a payload
+field both arms render — there is no prop to gate it — so v1's grid cell word moved with v2's. Its
+star is derived client-side, so it was moved too: `HeatmapCell`'s non-opted-in path applies the same
+rule by hand across both of its lookups (the name-keyed `/evaluate/scores` join and the slot
+fallback), with the all-canopy fallback preserved. **This is the one place the pilot control was
+deliberately unfrozen**, on the owner's instruction, because a control whose cell contradicts itself
+measures nothing. v2's cell reads both figures from one payload.
 
 **Two averages stay canopy-inclusive, for different reasons.**
 `PipelineRunPickService.lookupAverageRating` reads a name-keyed score cache with no canopy flag and
@@ -138,8 +140,15 @@ honesty filter tests it against its own canopy-inclusive `scoreable` count, and 
 wood and could blank a region whose only evaluated location is one. And `ConfidenceDeriver`'s
 coverage denominator stays `scoreable` while its numerator is now the voting count, which for a
 wood-bearing region is marginally pessimistic — it can only make the channel *more* provisional,
-the safe direction. The channel now also reads `null` for a region whose only rated slot is a wood,
-which is the honest answer for a band that came from the triage fallback.
+the safe direction.
+
+⚠️ **A region whose only rated slot is a wood is floored at `LOW` explicitly, not left null.** The
+first cut of this returned null there and called it honest. It is not: `confidenceUtils
+.resolveConfidence` is fail-soft and turns an absent field into a horizon tier capped at *medium*,
+so the channel would have read **less** provisional at exactly the point it knows least — nothing
+that votes is scored and the band came from the triage fallback. Null still means nothing scored at
+all, which is the documented zero-coverage case. Found by the adversarial review, pinned by two
+tests on either side of that boundary.
 
 ---
 
