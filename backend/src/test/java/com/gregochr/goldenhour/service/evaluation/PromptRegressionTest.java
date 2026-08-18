@@ -404,15 +404,47 @@ class PromptRegressionTest {
         System.out.println("[coptHill_15Mar_overcast] " + result.summary());
 
         assertScoresNotNull(result);
-        assertTrue(result.rating() <= 2,
-                "Rating should be <= 2 (total overcast, no clearing) but was "
+        // ⚠️ GROUND TRUTH IS 1-2★, AND CHRIS WAS THERE: he was physically present on 15 March 2026
+        // and it was a real washout. Nothing below supersedes that observation.
+        //
+        // The assertion allows 3 BY DESIGN since the veto demotion — the accepted price, decided at
+        // the 2026-08-18 baseline ruling and applied here to the twin assertion that ruling never
+        // reached (the eval fixture's band moved to {1,3} then; this one was still passing by luck).
+        // See cloud-approach-veto-fix.md §4 (D2) and veto-demotion-plan.md §3.
+        //
+        // The mechanism is worth knowing before anyone files this as a bug: the OBSERVER point was
+        // overcast (100% low / 99% mid) but the SOLAR HORIZON reads 39% low under a 65% mid canvas,
+        // and the prompt scores from the directional data — so the >60% blocked ceiling never
+        // applied here and the veto was the ONLY rule holding this day down. Cap the veto at 3 and
+        // 3 is what a directionally-clearing sky with a canvas earns.
+        //
+        // NOT A FLAKE, measured before it was moved: 12 Haiku runs on this exact input gave
+        // 2,3,3,3,3,3,2,2,2,4,3,2 — <= 2 passed 5 of 12 (~42%). Two earlier green runs were luck at
+        // p~0.18, not stability. Route back to <= 2: a future measured cap-2-on-high-peak rule, F6.
+        assertTrue(result.rating() <= 3,
+                "Rating should be <= 3 (approach risk caps the rating; demotion 2026-08-18) but was "
                         + result.rating());
-        assertTrue(result.fierySkyPotential() <= 25,
-                "Fiery Sky should be <= 25 (no light penetration) but was "
-                        + result.fierySkyPotential());
-        assertTrue(result.goldenHourPotential() <= 30,
-                "Golden Hour should be <= 30 (completely blocked) but was "
-                        + result.goldenHourPotential());
+        // ⚠️ These two bounds are MEASURED WITH MARGIN, not derived — a weaker basis than the
+        // 11 Mar case's, and the difference is worth understanding before either is moved again.
+        // 11 Mar sits squarely in the prompt's IDEAL scenario (fiery_sky 70-90), so its bound is
+        // arithmetic: 90 minus the smallest 20-point penalty = 70. This sky has no such band. Its
+        // solar horizon reads 39% low under a 65% mid canvas, where the prompt says only "light
+        // partially blocked, penalise but consider that mid/high cloud above may still catch colour
+        // if gaps exist" — no numbers attached. So there is nothing to subtract a penalty from, and
+        // these are observation plus headroom. Re-measure rather than reason if they need to move.
+        //
+        // Both were masked by the rating assertion above (JUnit short-circuits), the same way :314
+        // masked :317 masked :320 on the 11 Mar case — the old <= 2 rating bound meant neither had
+        // been reached since the demotion. Measured on this exact input, 12 Haiku runs:
+        //   fiery_sky   25,25,25,28,35,35,35,35,35,35,35,35  (max 35) — the old <= 25 failed 9 of 12
+        //   golden_hour 20,20,25,25,25,28,28,28,38,40,45,48  (max 48) — the old <= 30 failed 4 of 12
+        // The old numbers encoded the vetoed world where both scores were pinned near 20.
+        assertTrue(result.fierySkyPotential() <= 40,
+                "Fiery Sky should be <= 40 (partially blocked horizon under the approach penalty) "
+                        + "but was " + result.fierySkyPotential());
+        assertTrue(result.goldenHourPotential() <= 55,
+                "Golden Hour should be <= 55 (blocked observer point, penalised for approach) "
+                        + "but was " + result.goldenHourPotential());
     }
 
     /**
