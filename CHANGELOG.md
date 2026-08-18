@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.18.10] - 2026-08-18
+
 ### Fixed — a woodland score could set the band for the sky locations it shares a region with
 
 *(Both arms. The backend rollup and the v1 arm's own client-side cell star moved together — see the
