@@ -158,6 +158,10 @@ public record BriefingSlot(
      * {@code votingSlots}, the confidence roster's {@code voting} count, the enrichment pass's
      * rating rollup and the Plan projector's region ranking — and one of them was missing, which is
      * how a rated wood came to lift a window's badge a band above every rating its card rendered.
+     * Two prompt builders joined them afterwards ({@code BriefingGlossService} and
+     * {@code BriefingRollupBuilder}), each averaging over this list while counting over the full
+     * one. Call it; do not re-derive it — an inline copy is how the gap opened last time, and the
+     * all-canopy fallback below is the clause a copy tends to drop.
      * Woods are not lost by any of them: they keep their own slot, verdict and flags in the
      * drill-down. They simply do not vote on a question they are not answering.
      *

@@ -127,12 +127,49 @@ fallback), with the all-canopy fallback preserved. **This is the one place the p
 deliberately unfrozen**, on the owner's instruction, because a control whose cell contradicts itself
 measures nothing. v2's cell reads both figures from one payload.
 
-**Two averages stay canopy-inclusive, for different reasons.**
+**One average stays canopy-inclusive; the other was the one worth doing, and is now done.**
 `PipelineRunPickService.lookupAverageRating` reads a name-keyed score cache with no canopy flag and
-has nothing to filter on. `BriefingRollupBuilder.computeRegionStats` reads the same cache, but its
-caller holds the enriched region already — a canopy-name set is one line away — so it is undone
-rather than blocked, and it is the one worth doing: it feeds the best-bet advisor's prompt, a
-decision input. Neither renders as a verdict and neither is a regression.
+has nothing to filter on — it stays, and it feeds only a pipeline audit (verified: its sole readers
+are `PipelineRunComparisonService` and the admin `PipelineRunsView`). Its javadoc claimed to mirror
+the rollup's computation exactly; that is now false, and the javadoc says so, including the one-off
+step across this date for wood-bearing regions.
+
+`BriefingRollupBuilder.computeRegionStats` is **fixed 2026-08-18**, and it took the same shape
+`BriefingGlossService` had already chosen — deliberately identical, so the two prompts built in one
+briefing cycle cannot describe the same region differently. The node asks two questions of one slot
+list: the **counts** are coverage and keep counting a rated wood (it *was* evaluated;
+`BestBetPromptText` defines the field that way and reasons "prefer a nearer, better-evaluated
+region" from it), while the **average** is the sky's, over voting slots, and is *omitted* rather
+than zeroed when nothing votes. The ratings stay on the score cache; only the canopy
+flag comes from the slots, via `votingSlots` itself (whatever it did not return is canopy), so the
+fallback cannot diverge between the two. ⚠️ That join is **fail-open** — the cache outlives the
+enabled roster, so a location since disabled or renamed answers under a name no slot claims and
+counts as sky. `BriefingGlossService` avoids it entirely by reading `slot.claudeRating()`, and the
+first cut of this fix did the same; it was reverted because `BriefingBestBetAdvisorTest` pins the
+cache lookup as a contract and not every `advise` caller hands over enriched days. Left open on
+purpose, with a test pinning the current behaviour so it cannot drift unnoticed.
+
+⚠️ **Three things a later reader will otherwise re-derive wrongly.**
+1. **There is no Java gate behind the 3.0 Also-Good floor.** `BestBetPromptText` states it and
+   *Claude* applies it; `AlsoGoodFloor.MIN_ABSOLUTE` is a diagnostic mirror whose own javadoc says
+   it "never gates selection or ranking". An earlier draft of this paragraph claimed the gate, and
+   the argument survives without it — the inflated average still reaches the model that applies the
+   rule — but do not go looking for the predicate.
+2. **The counts are load-bearing in Java, which is why they did not move.**
+   `BestBetRanker.MIN_HEADLINE_CLAUDE_COVERAGE = 3` gates rank 1 on `claudeRatedCount`, and it was
+   calibrated against observed canopy-inclusive counts. Making the counts sky-only would have
+   silently re-tuned it — and, because the gate is *comparative* (a thin headline is demoted only
+   if a replacement clears the floor), the direction is not uniformly conservative.
+3. **`reconstructRollup` rebuilds `CandidateCoverage` by parsing the stored JSON's own
+   `claudeRatedCount` and `claudeAverageRating`.** So the live record must be built from exactly
+   those two numbers, or a replayed run gates differently from the run it reproduces. A test pins
+   the two channels equal field for field.
+
+**Residual, stated rather than closed.** A region whose only rated location is a wood keeps its
+coverage count, so `dropUnevaluatedPicks` (which reads the count) does not withhold the pick — it
+asks a coverage question and that region genuinely was covered. What it no longer carries is a sky
+average that could clear a floor. Closing it properly means giving the coverage record a sky count,
+which desyncs the replay path above; that is a separate decision, not this fix.
 
 **Two things deliberately did NOT move.** `scoredLocationCount` stays canopy-inclusive — the
 honesty filter tests it against its own canopy-inclusive `scoreable` count, and both arms render

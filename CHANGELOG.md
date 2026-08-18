@@ -24,6 +24,35 @@ hits, neither about this rule (an SSE latency of `~10–25 s` in `evaluation-ser
 the date `2026-10-25` in `aurora-night-selection.md`); widening past the literal number —
 `penalise fiery_sky`, then every `[BUILDING]` mention across `docs/engineering/` — finds the four
 investigation docs referring to "the `[BUILDING]` penalty" abstractly, with no magnitude attached.
+### Fixed — the last place a woodland score still spoke for a region's sky
+
+v2.18.10 made `BriefingSlot.votingSlots` the single owner of "which slots vote", and moved the
+surfaces that render a verdict onto it. One decision input was left behind: the region rollup that
+**Claude itself is prompted with** when it picks the day's best bets. A 5★ bluebell wood sat in that
+average alongside two 2★ coastal spots, so the advisor was shown 3.0 for a region whose sky was 2.0.
+
+That number is the one the second pick turns on. `BestBetPromptText` tells Claude an "Also Good"
+pick must reach 3.0 absolute, so a rated wood could put a region over that floor for a sky that
+never reached it. (The floor is prompt prose applied by Claude, not a Java predicate — the constant
+of the same name in the advisor is a diagnostic mirror and gates nothing.)
+
+The average now reads the region's voting slots. The **counts** beside it deliberately do not
+change: a wood genuinely was evaluated, just by the woodland prompt, and the briefing's other
+prompt, the field's own description and the sibling `totalLocations` all define those counts as
+coverage. Keeping them there also leaves `BestBetRanker`'s headline-coverage floor on the basis it
+was calibrated against. Where nothing votes — a region whose only rated location is a wood — the
+average is **omitted** rather than zeroed, because a 0.0 is a claim about the sky that nothing
+measured, and it would sink the region below every floor as though it had been assessed and failed.
+
+The ratings still come from the score cache, which has no canopy flag, so the flag is taken from
+the region's slots — via `BriefingSlot.votingSlots` itself, treating whatever it did not return as
+canopy, so the all-canopy fallback cannot be dropped in one place and not the other. That join is
+fail-open: the cache outlives the enabled roster, so a location since disabled or renamed answers
+under a name no slot claims and is counted as sky. Reading the enriched slots' own ratings would
+close it, but the cache read here is a contract an existing test pins, so it stays — documented,
+and pinned by a test of its own, as the older roster-hygiene bug it is.
+
+`BriefingRollupBuilder` had no tests of its own; it has nine now, each clause mutation-proved.
 
 ## [v2.18.10] - 2026-08-18
 
