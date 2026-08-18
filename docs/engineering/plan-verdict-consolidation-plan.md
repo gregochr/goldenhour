@@ -8,7 +8,9 @@ confirming D3 for the observed instance.
 **Phases 2 and 3 shipped 2026-08-17/18** on branch `fix/plan-verdict-phases-2-3`, on the owner's
 explicit instruction to proceed — so they land **before** the v2 flag flip, not after it, and §6's
 "gate behind a caller opt-in" clause is what carries the Phase 3 work that touches `HeatmapGrid`
-(`serverCellRating`, defaulting off, so the frozen v1 arm is untouched).
+(`serverCellRating`, defaulting off, so v1 keeps its own cell star). ⚠️ **That opt-in does not
+make v1 untouched, and the canopy fix below is where it stops being true**: `displayVerdict` is a
+payload field, not a prop, so v1's grid cell word moves with v2's while its star does not.
 `usePlanLayout.js` still defaults to `PLAN_V1`. Phase 4 not started.
 
 **Phase 3's one deliberate behavioural cost.** The six-event cap is now the backend's alone, so when
@@ -101,18 +103,43 @@ header above a 4★ lead card is two labelled facts, not a contradiction. **Done
 comment now records this decision and its date, and cites this section back. (Grep for the symbol;
 the `:52-57` anchors above are from 2026-08-16 and the block has since been rewritten.)
 
-**One consequence the decision did not foresee, found by the Phase 2 adversarial review and left
-open on purpose.** A region's average is canopy-**inclusive** (`enrichWithCachedScores` builds its
-rating entries over every slot), while `bestRating` and the card's spot strip both **exclude**
-canopy slots in a mixed window. Region-led verdicts therefore let a rated wood lift a badge a band
-*above every rating the card renders* — `◎ Worth it` over `best spot 3★`. It is a widening, not a
-new class: the pre-existing unrated-window fallback already read that average. The fix is to give
-those rating entries the non-canopy filter (with the all-canopy fallback) that
-`BriefingHierarchyBuilder.buildRegion`'s `votingSlots` and `BriefingService.rosterOf`'s voting
-roster already apply — the one place the project's own exclusion rule is missing. It is **not**
-Phase 2's to make: that single edit moves the grid cell and the day card too, which §4.3 says this
-phase does not touch. Recorded in `BriefingWindow`'s Javadoc and pinned by
-`canopySlotsAreExcludedFromBestRating`; do it before the v2 flag flip.
+**One consequence the decision did not foresee, found by the Phase 2 adversarial review — now
+FIXED (2026-08-18, before the flip, on the owner's instruction).** A region's average was
+canopy-**inclusive** while `bestRating` and the card's spot strip both **exclude** canopy slots, so
+region-led verdicts let a rated wood lift a badge a band *above every rating the card renders* —
+`◎ Worth it` over `best spot 3★`, with the wood shown nowhere. A widening rather than a new class:
+the pre-existing unrated-window fallback already read that average.
+
+The rule now has **one owner**: `BriefingSlot.votingSlots` — non-canopy slots, falling back to all
+of them for an all-canopy region — replacing four independent copies, one of which was simply
+missing. Its callers are `BriefingHierarchyBuilder.buildRegion` (the triage verdict),
+`BriefingService.rosterOf` (the confidence roster), `BriefingService.enrichWithCachedScores` (the
+region's `displayVerdict` and `meanRating`) and `PlanWindowProjector.rank` (region ranking and the
+published `Pick.averageRating`). The projector had to move with the rest or its ranking would order
+regions by a mean no surface displays.
+
+**It reaches the frozen v1 arm, and that was the price.** `displayVerdict` is a payload field both
+arms render, so v1's grid cell word moves with v2's. Its star does not — v1 derives that from
+`/api/briefing/evaluate/scores`, which has no canopy flag — so a v1 cell for a wood-bearing region
+can show a voting-derived word beside a canopy-inclusive star. The alternatives were leaving a wood
+to set sky bands everywhere, or unfreezing the control mid-comparison; this was judged the lesser.
+v2's cell reads both from one payload and has no split.
+
+**Two averages stay canopy-inclusive, for different reasons.**
+`PipelineRunPickService.lookupAverageRating` reads a name-keyed score cache with no canopy flag and
+has nothing to filter on. `BriefingRollupBuilder.computeRegionStats` reads the same cache, but its
+caller holds the enriched region already — a canopy-name set is one line away — so it is undone
+rather than blocked, and it is the one worth doing: it feeds the best-bet advisor's prompt, a
+decision input. Neither renders as a verdict and neither is a regression.
+
+**Two things deliberately did NOT move.** `scoredLocationCount` stays canopy-inclusive — the
+honesty filter tests it against its own canopy-inclusive `scoreable` count, and both arms render
+"N of M evaluated" against the whole slot list, so a voting count there would under-report a scored
+wood and could blank a region whose only evaluated location is one. And `ConfidenceDeriver`'s
+coverage denominator stays `scoreable` while its numerator is now the voting count, which for a
+wood-bearing region is marginally pessimistic — it can only make the channel *more* provisional,
+the safe direction. The channel now also reads `null` for a region whose only rated slot is a wood,
+which is the honest answer for a band that came from the triage fallback.
 
 ---
 

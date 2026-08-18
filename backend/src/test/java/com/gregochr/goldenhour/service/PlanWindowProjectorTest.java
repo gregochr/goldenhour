@@ -180,20 +180,86 @@ class PlanWindowProjectorTest {
             BriefingWindow w = projectOne(mixed);
 
             assertThat(w.bestRating()).isEqualTo(3);
-            // The badge is a different question and takes a different population: the region's own
-            // average is canopy-INCLUSIVE (mean 4.0 here), so the wood still moves the badge while
-            // never supplying the star. That asymmetry is BriefingWindow's recorded contract — the
-            // alternative diverges the window's verdict from the cell's, which is the disagreement
-            // this whole phase exists to remove.
+            // And the BADGE agrees with it, which it did not until the canopy fix. The region's
+            // rating rollup is now taken over its voting slots (BriefingSlot.votingSlots), so this
+            // window reads Maybe from the 3★ beach alone — not Worth it from a canopy-inclusive
+            // mean of 4.0 that no surface on the card could account for. The 5★ wood is excluded
+            // from the star here and from the spot strip by `windowFirstSpots.js`, so a badge
+            // reading Worth it was a band above every rating the card could render.
             //
-            // Note WHICH DIRECTION this now goes, because the region-led rule widened it and an
-            // adversarial review is what named it: the badge is a band ABOVE every rating the card
-            // can render. The 5★ wood is excluded from the star here and from the spot strip by
-            // `windowFirstSpots.js`, so a reader sees "Worth it" over a strip topping out at 3★.
-            // Pinned as an assertion rather than left as prose so the day the upstream rating
-            // rollup gains its non-canopy filter, this test is what says so.
-            assertThat(w.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
-            assertThat(w.bestRating()).isLessThan(4);
+            // The two assertions are one claim: whatever the badge says, the card can show a slot
+            // that justifies it.
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.MAYBE);
+        }
+
+        @Test
+        @DisplayName("a wood cannot lift a window's badge past the sky it shares a region with")
+        void aCanopySlotCannotLiftTheBadgeAboveTheSky() {
+            // The defect this closes, at its widest. Under the canopy-inclusive rollup the mean of
+            // {5 wood, 2, 2} is 3.0 → MAYBE, while the sky alone is 2.0 → Poor: a whole band, on
+            // the badge, the grid cell and the day card, from a slot whose GO means heavy cloud and
+            // mist. bestRating is held at 2 to show the badge is not merely tracking the star —
+            // both now describe the sky, and the wood keeps its slot in the drill-down regardless.
+            BriefingRegion mixed = regionWithSlots("Mixed", List.of(
+                    ratedSlot("Wood", 5, true),
+                    ratedSlot("Beach", 2, false),
+                    ratedSlot("Bay", 2, false)));
+
+            BriefingWindow w = projectOne(mixed);
+
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+            assertThat(w.bestRating()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("the ranking and the published average read the same voting slots as the "
+                + "region's own band")
+        void rankingAndPickAverageReadTheVotingSlots() {
+            // The projector recomputes a region's statistics to rank regions and to publish
+            // Pick.averageRating. If that recompute counts canopy slots while the region's own
+            // displayVerdict does not, two things break at once, and this fixture is built so a
+            // single revert shows both.
+            //
+            // "A woods and sky" is one 5★ wood and one 2★ sky slot: voting mean 2.0, but 3.5 if the
+            // wood is counted. "B sky only" is a flat 3.0 either way. So the wood decides WHICH
+            // REGION IS TOP — and therefore which verdict the window shows and which region the
+            // Best Bet names — and it decides what number the pick publishes, which is the same
+            // number the grid cell prints as its star.
+            BriefingRegion woodsAndSky = regionWithSlots("A woods and sky", List.of(
+                    ratedSlot("Wood", 5, true),
+                    ratedSlot("Beach", 2, false)));
+            BriefingRegion skyOnly = regionWithSlots("B sky only", List.of(
+                    ratedSlot("Fell", 3, false),
+                    ratedSlot("Tarn", 3, false)));
+
+            BriefingWindow w = projectOne(woodsAndSky, skyOnly);
+
+            assertThat(w.pick().regionName()).isEqualTo("B sky only");
+            assertThat(w.pick().averageRating()).isEqualTo(3.0);
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.MAYBE);
+        }
+
+        @Test
+        @DisplayName("an all-canopy region still votes, rather than losing its verdict")
+        void anAllCanopyRegionFallsBackToItsWoods() {
+            // The fallback half of the rule, and the reason it is not a plain filter. A region with
+            // nothing but woods genuinely has a forecast; silence there would be a worse answer
+            // than an inverted-polarity one, so the woods vote for want of anyone else.
+            //
+            // The woods are rated 2, and that is the whole test. At 5 this passed with the fallback
+            // DELETED: empty voting stats fall through to the fixture's triage Verdict.GO, which
+            // resolves to the same WORTH_IT the woods give, and bestRating is carried by the
+            // projector's own canopyCounts fallback pinned elsewhere. Two mechanisms agreeing by
+            // accident is not a test. At 2 they disagree — fallback present STAND_DOWN, absent
+            // WORTH_IT from the triage — so only the rule under test can produce this answer.
+            BriefingRegion woods = regionWithSlots("Woods", List.of(
+                    ratedSlot("Wood", 2, true),
+                    ratedSlot("Copse", 2, true)));
+
+            BriefingWindow w = projectOne(woods);
+
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+            assertThat(w.bestRating()).isEqualTo(2);
         }
 
         @Test
@@ -1524,12 +1590,16 @@ class PlanWindowProjectorTest {
      * came from the best rating and ignored this field; since the verdict became the top region's
      * own, a fixture pairing a 2★ slot with a WORTH_IT region is a payload production cannot
      * produce, and every window built from one would carry an incoherent badge. Derived here so a
-     * fixture cannot state a verdict its own ratings contradict — canopy-<em>inclusive</em>, which
-     * is the population the enrichment path averages.
+     * fixture cannot state a verdict its own ratings contradict.
+     *
+     * <p>Over the region's <b>voting</b> slots, which is the population the enrichment path
+     * averages. It was canopy-inclusive until the canopy fix; leaving it there would have kept
+     * every mixed-region fixture asserting the old band while production produced the new one —
+     * a fixture staying green being precisely how the defect survived in the first place.
      */
     private static BriefingRegion regionWithSlots(String name, List<BriefingSlot> slots) {
         BriefingRatingStats.Stats stats = BriefingRatingStats.compute(
-                slots.stream()
+                BriefingSlot.votingSlots(slots).stream()
                         .map(s -> new BriefingRatingStats.Entry(s.locationName(), s.claudeRating()))
                         .toList(),
                 name, TODAY, TargetType.SUNSET);

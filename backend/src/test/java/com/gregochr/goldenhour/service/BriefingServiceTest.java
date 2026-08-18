@@ -2368,6 +2368,151 @@ class BriefingServiceTest {
 
         // ── Helpers ──────────────────────────────────────────────────────────
 
+        /**
+         * A woodland-only location — the slot builder routes these through
+         * {@code buildWoodlandSlot}, which marks the slot canopy.
+         */
+        private LocationEntity woodlandIn(long id, String name, String regionName) {
+            return LocationEntity.builder()
+                    .id(id).name(name).lat(55.0).lon(-1.5)
+                    .locationType(Set.of(LocationType.WOODLAND))
+                    .tideType(Set.of())
+                    .solarEventType(Set.of())
+                    .region(RegionEntity.builder().name(regionName).build())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+        }
+
+        private LocationEntity skyIn(long id, String name, String regionName) {
+            return LocationEntity.builder()
+                    .id(id).name(name).lat(55.0).lon(-1.5)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of())
+                    .solarEventType(Set.of())
+                    .region(RegionEntity.builder().name(regionName).build())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+        }
+
+        /** The named region on the first day carrying it, at the given event. */
+        private BriefingRegion regionAt(DailyBriefingResponse response, String regionName,
+                TargetType targetType) {
+            return response.days().stream()
+                    .flatMap(d -> d.eventSummaries().stream())
+                    .filter(es -> es.targetType() == targetType)
+                    .flatMap(es -> es.regions().stream())
+                    .filter(r -> r.regionName().equals(regionName))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("No " + regionName + " at " + targetType));
+        }
+
+        @Test
+        @DisplayName("A rated wood does not vote on its region's band, and still counts as covered")
+        void aCanopySlotIsExcludedFromTheVerdictButNotFromCoverage() {
+            // The canopy fix, end to end and in both directions at once — which is the point, since
+            // the two halves pull opposite ways and one number used to answer both.
+            //
+            // A woodland GO means heavy cloud and mist, the opposite of what it means for a sky
+            // window. Averaged in, this wood's 5 lifts {5, 2, 2} to a mean of 3.0 — MAYBE — while
+            // the sky it shares a region with is 2.0, Poor. That band reaches the grid cell, the
+            // day card and (since the verdict became region-led) the window badge, none of which
+            // can show the slot responsible: the spot strip drops canopy slots too.
+            //
+            // But the wood IS evaluated, by the woodland prompt, so it must keep counting toward
+            // coverage: the honesty filter tests scoredLocationCount against its own
+            // canopy-inclusive scoreable count, and both flag arms render "N of M evaluated" with
+            // M as the whole slot list. Move that number with the verdict and a region whose only
+            // scored location is a wood gets blanked outright.
+            String rn = "North East";
+            stubFullRefresh(List.of(
+                    woodlandIn(1L, "Bluebell Wood", rn),
+                    skyIn(2L, "Bamburgh", rn),
+                    skyIn(3L, "Alnmouth", rn)));
+            when(evaluationViewService.getScoresForEnrichment(
+                    eq(rn), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of(
+                            "Bluebell Wood", new BriefingEvaluationResult(
+                                    "Bluebell Wood", 5, 50, 50, "Carpet in full colour.", null, null),
+                            "Bamburgh", new BriefingEvaluationResult(
+                                    "Bamburgh", 2, 50, 50, "Flat.", null, null),
+                            "Alnmouth", new BriefingEvaluationResult(
+                                    "Alnmouth", 2, 50, 50, "Flat.", null, null)));
+
+            briefingService.refreshBriefing();
+            BriefingRegion region = regionAt(
+                    briefingService.getCachedBriefing(), rn, TargetType.SUNRISE);
+
+            // The wood is really there, and so is a sky slot — without both of these the rest
+            // passes on a region that never had the shape under test, which is the fixture failure
+            // this whole test exists to prevent.
+            assertThat(region.slots()).anyMatch(BriefingSlot::canopy);
+            assertThat(region.slots()).anyMatch(slot -> !slot.canopy());
+
+            // The sky's own answer, not the canopy-inclusive one. Restore the old rollup and both
+            // of these read MAYBE / 3.0.
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+            assertThat(region.meanRating()).isEqualTo(2.0);
+
+            // Coverage did NOT move with the verdict: every slot, wood included, is counted.
+            // Compared against the slot list rather than a literal because this nested class's
+            // solar stub returns one instant for every date, so all five dates collapse onto the
+            // first day's summary and each location appears once per date — a quirk of the fixture
+            // with nothing to do with the rule under test, and a literal would encode it.
+            assertThat(region.scoredLocationCount()).isEqualTo(region.slots().size());
+
+            // And the confidence channel reads the same voting slots. This fixture already had the
+            // shape: the wood at 5 against two sky slots at 2 gives a canopy-inclusive ratingRange
+            // of 3 — which fires ConfidenceDeriver's wideSpread downgrade — while the voting range
+            // is 0. The spread arm is the more reachable of the two ways the numerator matters, and
+            // it costs one line here rather than a fixture of its own.
+            assertThat(region.confidence()).isEqualTo(Confidence.HIGH);
+        }
+
+        @Test
+        @DisplayName("A region whose ONLY rated slot is a wood reads LOW confidence, not medium")
+        void aRegionWithOnlyARatedWoodIsFlooredAtLowConfidence() {
+            // The inversion this floor exists to prevent, and it is not obvious from the backend
+            // alone. With no voting slot rated, the region's band comes from the triage fallback —
+            // the point at which the channel knows least. Handing ConfidenceDeriver empty voting
+            // stats returns null, and null does not render as "no confidence": the client's
+            // resolveConfidence is fail-soft and falls back to a horizon-only tier capped at
+            // MEDIUM. So the region would read MORE confident precisely where it has no sky score
+            // at all. LOW is asserted rather than "not null" because null is the failure.
+            String rn = "North East";
+            stubFullRefresh(List.of(
+                    woodlandIn(1L, "Bluebell Wood", rn),
+                    skyIn(2L, "Bamburgh", rn),
+                    skyIn(3L, "Alnmouth", rn)));
+            when(evaluationViewService.getScoresForEnrichment(
+                    eq(rn), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of("Bluebell Wood", new BriefingEvaluationResult(
+                            "Bluebell Wood", 5, 50, 50, "Carpet in full colour.", null, null)));
+
+            briefingService.refreshBriefing();
+            BriefingRegion region = regionAt(
+                    briefingService.getCachedBriefing(), rn, TargetType.SUNRISE);
+
+            assertThat(region.meanRating()).isNull();
+            assertThat(region.confidence()).isEqualTo(Confidence.LOW);
+        }
+
+        @Test
+        @DisplayName("A region with nothing rated at all still reads unknown, not LOW")
+        void aRegionWithNothingRatedKeepsItsNullConfidence() {
+            // The other side of the floor's boundary, and the reason it keys on coverageStats
+            // rather than simply on votingStats being empty. Zero coverage is the documented
+            // null case — an unknown signal, which the client renders as provisional — and
+            // collapsing it onto LOW would state a confidence about a region nothing has looked at.
+            String rn = "North East";
+            stubFullRefresh(List.of(skyIn(2L, "Bamburgh", rn), skyIn(3L, "Alnmouth", rn)));
+            when(evaluationViewService.getScoresForEnrichment(
+                    eq(rn), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of());
+
+            briefingService.refreshBriefing();
+
+            assertThat(regionAt(briefingService.getCachedBriefing(), rn, TargetType.SUNRISE)
+                    .confidence()).isNull();
+        }
+
         private LocationEntity locationWithRegion(String name, String regionName) {
             return LocationEntity.builder()
                     .id(1L).name(name).lat(55.0).lon(-1.5)

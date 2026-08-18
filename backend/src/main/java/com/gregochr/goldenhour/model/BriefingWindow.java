@@ -35,23 +35,18 @@ import java.util.List;
  *       true, and the client is required to render this number with its own label rather than in
  *       verdict vocabulary.
  *
- *       <p><b>A known gap, widened by that change and left open deliberately.</b> The region average
- *       is canopy-<em>inclusive</em> upstream ({@code BriefingService.enrichWithCachedScores} builds
- *       its rating entries over every slot), while this field and the card's spot strip both
- *       <em>exclude</em> canopy slots whenever the window has a sky slot. So a rated wood can lift
- *       the badge <em>above every rating the card renders</em> — {@code ◎ Worth it} over
- *       {@code best spot 3★} and a strip whose best card is 3★, with the 5★ wood shown nowhere.
- *       Canopy is the only route to it: with no canopy slot, a mean ≥ 3.5 forces some slot ≥ 4 and
- *       a mean ≥ 2.5 forces some slot ≥ 3, and those slots reach both this field and the strip.
- *       Before the verdict became region-led the state needed <em>no</em> sky slot in the window to
- *       be rated; now it needs only a mixed top region whose wood crosses a band. It is recorded
- *       rather than fixed here because the fix belongs upstream — giving those rating entries the
- *       same non-canopy filter (with the all-canopy fallback) that
- *       {@code BriefingHierarchyBuilder.buildRegion}'s {@code votingSlots} and
- *       {@code BriefingService.rosterOf}'s voting roster already apply — and that one edit moves the
- *       grid cell and the day card with it. Diverging <em>this</em> verdict from the region's would
- *       break the rule that a verdict colour means the same thing everywhere, so it is not the
- *       answer.</li>
+ *       <p><b>The badge can no longer outrank it — that gap is closed.</b> The region average was
+ *       canopy-<em>inclusive</em> while this field and the card's spot strip both exclude canopy
+ *       slots, so a rated wood could lift the badge <em>above every rating the card renders</em>:
+ *       {@code ◎ Worth it} over {@code best spot 3★}, with the 5★ wood shown nowhere. Fixed at the
+ *       source rather than here — {@code BriefingService.enrichWithCachedScores} now derives the
+ *       region's verdict and mean from {@link BriefingSlot#votingSlots}, the same non-canopy rule
+ *       (with its all-canopy fallback) that the hierarchy builder's own verdict and the confidence
+ *       roster already applied. Diverging <em>this</em> verdict from the region's would have broken
+ *       the rule that a verdict colour means the same thing everywhere, which is why the fix had to
+ *       move the grid cell and the day card with it. Canopy was the only route to the state: with
+ *       no canopy slot a mean ≥ 3.5 forces some slot ≥ 4 and a mean ≥ 2.5 forces some slot ≥ 3, and
+ *       those slots reach both this field and the strip.</li>
  *   <li>{@code confidence} — unknown. Deliberately nullable: an unknown signal must read
  *       provisional rather than falsely confident.</li>
  *   <li>{@code pick} — this window is neither of the forecast's two picks, which is the normal
@@ -115,11 +110,15 @@ public record BriefingWindow(
      * published so the selection is auditable from the payload rather than only from the logs.
      *
      * <p><b>Two of these read different slot populations, deliberately.</b> {@code averageRating}
-     * is canopy-<em>inclusive</em>, because it must match the statistics behind the region's own
-     * displayed verdict or the window would contradict the drill-down beneath it.
-     * {@code locationName} is canopy-<em>exclusive</em>, because it must match the slot the header
-     * star came from or the card would send someone to a place chosen by the opposite measure of a
-     * good morning. Ranking parity and destination parity pull opposite ways; both are honoured.
+     * is over the region's <em>voting</em> slots ({@link BriefingSlot#votingSlots}), because it must
+     * match the statistics behind the region's own displayed verdict — and behind the number the
+     * grid cell prints as its star — or the window would contradict the drill-down beneath it. It
+     * was canopy-inclusive until the canopy fix, along with the verdict it has to match; a rated
+     * wood moved both. {@code locationName} is canopy-<em>exclusive</em> for a different reason:
+     * it must match the slot the header star came from, or the card would send someone to a place
+     * chosen by the opposite measure of a good morning. The two rules now coincide for a mixed
+     * region and still differ for an all-canopy one, where the average falls back to the woods and
+     * the destination is one of them.
      *
      * <p><b>The id travels with the name, from the same slot.</b> The client joins per-user reach
      * data by {@code locationId} — that contract carries no name at all — so publishing only a

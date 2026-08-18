@@ -37,10 +37,11 @@ import Modal from './shared/Modal.jsx';
  *       {@code Bothal · 45 min · 23 mi}; the last two are per-user reach data, which must never
  *       ride the ETag-revalidated briefing payload and arrives at P8 through its own endpoint. The
  *       name alone is honest now.</li>
- *   <li><b>No rating.</b> {@code Pick.averageRating} is the region average, canopy-inclusive;
- *       the card header's star is {@code bestRating}, a max over non-canopy slots. Printing both
- *       puts two different statistics one row apart under the same glyph. The average is published
- *       so the selection is auditable from the payload, not to be shown as a headline figure.</li>
+ *   <li><b>No rating.</b> {@code Pick.averageRating} is the region's mean over its voting slots;
+ *       the card header's star is {@code bestRating}, a max over the non-canopy ones. Printing both
+ *       puts two different statistics one row apart under the same glyph — a mean and a max, which
+ *       differ for any region that is not uniform. The average is published so the selection is
+ *       auditable from the payload, not to be shown as a headline figure.</li>
  * </ul>
  *
  * @param {object}   props

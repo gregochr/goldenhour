@@ -444,8 +444,12 @@ public final class PlanWindowProjector {
      * load-bearing rather than decorative: averages are rounded to one decimal place before any
      * comparison and there are only a handful of enabled regions, so ties are routine.
      *
-     * <p>Stats are recomputed from the region's own slots — the same entry set the serve-time
-     * enrichment used — so this ranking cannot disagree with the region's own displayed verdict.
+     * <p>Stats are recomputed from the region's own <b>voting</b> slots — the same entry set the
+     * serve-time enrichment derives {@code displayVerdict} and {@code meanRating} from — so this
+     * ranking cannot disagree with the region's own displayed verdict, and the {@code Pick}'s
+     * published {@code averageRating} is the number the grid cell prints. Both halves of that
+     * matter: the entry set has to be the voting one, or a rated wood ranks a region above its
+     * own displayed band and the pick names an average no surface shows.
      */
     private static List<RankedRegion> rank(LocalDate date, BriefingEventSummary summary,
             boolean canopyCounts) {
@@ -456,9 +460,11 @@ public final class PlanWindowProjector {
                         .toList();
         List<RankedRegion> ranked = new ArrayList<>(eligible.size());
         for (BriefingRegion region : eligible) {
-            List<BriefingRatingStats.Entry> entries = region.slots().stream()
-                    .map(s -> new BriefingRatingStats.Entry(s.locationName(), s.claudeRating()))
-                    .toList();
+            List<BriefingRatingStats.Entry> entries =
+                    BriefingSlot.votingSlots(region.slots()).stream()
+                            .map(s -> new BriefingRatingStats.Entry(
+                                    s.locationName(), s.claudeRating()))
+                            .toList();
             ranked.add(new RankedRegion(region, BriefingRatingStats.compute(
                     entries, region.regionName(), date, summary.targetType())));
         }

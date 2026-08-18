@@ -910,6 +910,50 @@ class BriefingGlossServiceTest {
                     10.0, 8.0, 3.5, 0, null, null);
         }
 
+        /** The same region, with a rated CANOPY slot appended — a wood briefed at dawn. */
+        private BriefingRegion withRatedWood(BriefingRegion region, int rating) {
+            List<BriefingSlot> slots = new java.util.ArrayList<>(region.slots());
+            slots.add(BriefingSlot.canopySlot("Bluebell Wood",
+                            LocalDateTime.of(2026, 4, 10, 18, 30), Verdict.GO,
+                            new BriefingSlot.WeatherConditions(15, BigDecimal.ZERO, 20000, 65,
+                                    10.0, 8.0, 0, BigDecimal.valueOf(3.5), 25, 40),
+                            List.of(), null)
+                    .withClaudeScores(rating, 80, 70, "Carpet in full colour"));
+            return new BriefingRegion(region.regionName(), region.verdict(), region.summary(),
+                    region.tideHighlights(), slots, region.regionTemperatureCelsius(),
+                    region.regionApparentTemperatureCelsius(), region.regionWindSpeedMs(),
+                    region.regionWeatherCode(), region.glossHeadline(), region.glossDetail());
+        }
+
+        @Test
+        @DisplayName("The average the prose reasons from is the sky's; the counts still count the wood")
+        void aRatedWoodCountsForCoverageButNotForTheAverage() {
+            // The prompt's own calibration cuts at 3.5 and 2.5 — the SAME two numbers
+            // resolveRegionDisplayVerdict bands the cell on. So an average that counts a wood puts
+            // Claude's prose a band away from the cell printed beneath it: here the sky averages
+            // 2.0 (cautious) while sky-plus-wood averages 3.0 (neither).
+            //
+            // The counts are a different question and must not follow: the wood WAS evaluated, by
+            // the woodland prompt, and claudeCoverageRatio is measured against the whole slot list.
+            String json = userMessageFor(withRatedWood(regionRated("Northumberland", 2, 2), 5));
+
+            assertThat(json).contains("\"claudeAverageRating\":2.0");
+            assertThat(json).contains("\"claudeRatedCount\":3");
+            assertThat(json).contains("\"claudeCoverageRatio\":1.0");
+        }
+
+        @Test
+        @DisplayName("A region whose only rated slot is a wood publishes no average at all")
+        void anAverageIsOmittedWhenNothingThatVotesIsRated() {
+            // Omitted rather than zero or wood-derived: there is no sky average to state, and the
+            // counts still say a location here was evaluated. A prompt shape that did not exist
+            // before the split, so it is pinned rather than left to be discovered.
+            String json = userMessageFor(withRatedWood(regionRated("Northumberland", (Integer) null), 5));
+
+            assertThat(json).doesNotContain("claudeAverageRating");
+            assertThat(json).contains("\"claudeRatedCount\":1");
+        }
+
         private String userMessageFor(BriefingRegion region) {
             BriefingDay day = dayWith(region);
             BriefingEventSummary es = day.eventSummaries().getFirst();

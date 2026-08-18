@@ -5,6 +5,52 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — a woodland score could set the band for the sky locations it shares a region with
+
+A woodland verdict runs on inverted polarity: a canopy GO means heavy cloud and mist, the opposite
+of what it means for a sky window. Every surface that rolls up a region already knew that — the
+triage verdict, the region summary and the confidence roster all exclude canopy slots — except the
+one that computes the region's **Claude rating average**. So a 5★ wood averaged in with a 2★ coast
+produced a mean of 3.5 and a "Worth it" cell for a region whose sky was Poor.
+
+Region-led verdicts (below) made that reach further: the same average now sets the window badge, so
+a card could read `◎ Worth it` above `best spot 3★` and a spot strip topping out at 3★ — with the
+slot responsible rendered nowhere, because the strip drops canopy slots too.
+
+`BriefingSlot.votingSlots` is now the single owner of the rule — non-canopy slots, falling back to
+all of them for an all-canopy region, which keeps a woodland-only region's own forecast. Its four
+callers are the hierarchy builder, the confidence roster, the enrichment pass's rating rollup and
+the Plan projector's region ranking (which also publishes the pick's average, the number the grid
+cell prints). Woods are not lost anywhere: they keep their slot, verdict and flags in the
+drill-down, and they still count as evaluated — `scoredLocationCount` deliberately stays
+canopy-inclusive, or a region whose only scored location is a wood would be blanked outright.
+
+Affects the grid cell, the day card and the v2 window badge together, which is the point: they read
+one number.
+
+**This is not v2-only, and the v1 arm is worth being precise about.** The verdict is a payload field
+both arms render, so the v1 grid cell's word moves too. Its **star** does not: v1 derives that
+client-side from `/api/briefing/evaluate/scores`, which carries no canopy flag, and that arm is
+frozen as the pilot's comparison control. So for a wood-bearing region a v1 cell can now show a
+voting-derived word beside a canopy-inclusive star. Accepted deliberately — the alternatives are
+leaving a wood to set sky bands on every surface, or unfreezing the control mid-comparison. The v2
+cell reads both from one payload and has no split.
+
+**Two averages are knowingly left canopy-inclusive**, and for different reasons.
+`PipelineRunPickService.lookupAverageRating` reads a name-keyed score cache with no canopy flag, so
+it has nothing to filter on. `BriefingRollupBuilder.computeRegionStats` reads the same cache but its
+caller *does* hold the enriched region — a canopy-name set is one line away — so that one is simply
+not done yet, and it is the more worthwhile of the two: it feeds the best-bet advisor's prompt,
+which is a decision input rather than a display. Neither is a regression; both are bit-identical
+before and after.
+
+One transient: the enrichment pass drops a region's gloss whenever the fresh verdict differs from
+the stored one, so on the first serves after deploy every wood-bearing region loses its Claude prose
+— and with it its candidacy for the window pick — until the next scheduled build regenerates it.
+That is the gloss rule working as designed rather than a new fault, and it clears within one build
+cycle.
+
+
 ### Changed — the Plan tab's three derivations now have one owner each, on the backend
 
 Three surfaces reduced one `/api/briefing` payload three different ways, and nothing kept them in

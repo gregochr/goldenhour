@@ -18,11 +18,24 @@ import java.util.List;
  * @param glossHeadline               Claude-generated short headline (~7 words, nullable, GO/MARGINAL only)
  * @param glossDetail                 Claude-generated 2-3 sentence explanation (nullable, GO/MARGINAL only)
  * @param displayVerdict              unified colour/label signal for the region, derived from the
- *                                    Claude rating average when scored locations exist, or from
- *                                    the triage {@code verdict} as fallback; never null
- * @param scoredLocationCount         number of locations in this region whose Claude rating was
- *                                    used to derive {@code displayVerdict} (0 means no Claude
- *                                    scores yet — the triage fallback produced the verdict)
+ *                                    mean Claude rating across its <em>voting</em> slots
+ *                                    ({@link BriefingSlot#votingSlots} — non-canopy, falling back
+ *                                    to all of them for an all-canopy region), or from the triage
+ *                                    {@code verdict} when none of those is scored; never null. A
+ *                                    woodland verdict runs on inverted polarity, so a rated wood
+ *                                    does not set a sky band
+ * @param scoredLocationCount         how many locations in this region carry a valid Claude
+ *                                    rating — a <b>coverage</b> figure over every slot, canopy
+ *                                    included, and deliberately NOT the population
+ *                                    {@code displayVerdict} was derived from. The two differ for a
+ *                                    wood-bearing region: a scored wood counts as evaluated (it is)
+ *                                    and still does not vote. {@code BriefingHonestyFilter} tests
+ *                                    this against its own canopy-inclusive scoreable count, and
+ *                                    both flag arms render "N of M evaluated" against the whole
+ *                                    slot list, so narrowing it would under-report a scored wood
+ *                                    and could blank a region whose only evaluated location is one.
+ *                                    0 means no Claude scores at all — the triage fallback produced
+ *                                    the verdict
  * @param verdictLabel                 optional override for the pill label shown next to
  *                                     {@code displayVerdict}. {@code null} means "use the
  *                                     frontend's default label for the enum value". Currently

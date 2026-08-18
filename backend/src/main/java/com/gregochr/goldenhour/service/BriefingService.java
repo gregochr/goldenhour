@@ -779,12 +779,34 @@ public class BriefingService {
                     List<BriefingSlot> enrichedSlots = region.slots().stream()
                             .map(slot -> enrichSlot(slot, cached))
                             .toList();
-                    List<BriefingRatingStats.Entry> ratingEntries = enrichedSlots.stream()
+                    // TWO rollups over one slot list, because two different questions are asked
+                    // of it and answering both with one number is what let a wood set a sky
+                    // region's band.
+                    //
+                    //   coverageStats — every slot, because "how many locations here were
+                    //   evaluated" counts the wood: it IS evaluated, by the bluebell or woodland
+                    //   prompt, and both arms render "N of M evaluated" against the full slot list.
+                    //
+                    //   votingStats — the voting slots only (BriefingSlot.votingSlots), because the
+                    //   VERDICT and the star are a claim about the sky. A canopy GO means heavy
+                    //   cloud and mist, the opposite of what it means for a sky window, so a rated
+                    //   wood used to lift the region's band — and with it the grid cell, the day
+                    //   card and (since the verdict became region-led) the window badge — above
+                    //   every rating those surfaces could show. Every other consumer of a region
+                    //   verdict already excluded canopy; this was the one place that did not.
+                    List<BriefingRatingStats.Entry> coverageEntries = enrichedSlots.stream()
                             .map(s -> new BriefingRatingStats.Entry(
                                     s.locationName(), s.claudeRating()))
                             .toList();
-                    BriefingRatingStats.Stats stats = BriefingRatingStats.compute(
-                            ratingEntries, region.regionName(), day.date(), es.targetType());
+                    BriefingRatingStats.Stats coverageStats = BriefingRatingStats.compute(
+                            coverageEntries, region.regionName(), day.date(), es.targetType());
+                    List<BriefingRatingStats.Entry> votingEntries =
+                            BriefingSlot.votingSlots(enrichedSlots).stream()
+                                    .map(s -> new BriefingRatingStats.Entry(
+                                            s.locationName(), s.claudeRating()))
+                                    .toList();
+                    BriefingRatingStats.Stats votingStats = BriefingRatingStats.compute(
+                            votingEntries, region.regionName(), day.date(), es.targetType());
                     // Only warn about zero coverage where coverage was actually expected. An
                     // all-canopy region has none by construction and the honesty filter now
                     // passes it through untouched, so logging it here would fire per region per
@@ -792,7 +814,7 @@ public class BriefingService {
                     // overnight batch failure, and asserting a rewrite that no longer happens.
                     boolean anyScoreable = enrichedSlots.stream()
                             .anyMatch(slot -> !(slot.canopy() && slot.claudeRating() == null));
-                    if (stats.isEmpty() && anyScoreable) {
+                    if (coverageStats.isEmpty() && anyScoreable) {
                         LOG.info("[ZERO COVERAGE] region={} date={} target={} "
                                         + "briefingVerdict={} scoredCount=0 "
                                         + "(honesty filter will rewrite at API read time — "
@@ -802,7 +824,7 @@ public class BriefingService {
                                 region.verdict());
                     }
                     DisplayVerdict freshVerdict = BriefingRatingStats
-                            .resolveRegionDisplayVerdict(stats, region.verdict());
+                            .resolveRegionDisplayVerdict(votingStats, region.verdict());
                     // A gloss is Claude prose written against the verdict that held when the
                     // briefing was built. When read-time re-enrichment moves the verdict —
                     // a batch re-scored the region after build — that prose can now contradict
@@ -814,19 +836,38 @@ public class BriefingService {
                     String glossHeadline = verdictChanged ? null : region.glossHeadline();
                     String glossDetail = verdictChanged ? null : region.glossDetail();
                     // Derive the quiet confidence channel from horizon + rating spread/coverage.
-                    // Zero-coverage regions yield null (unknown), which reads as provisional.
+                    // A region with NOTHING scored yields null, the documented unknown case.
                     int daysAhead = (int) (day.date().toEpochDay() - today.toEpochDay());
                     // Coverage denominator counts only slots that COULD carry a rating. A
                     // canopy slot is excluded from the sky batch, so counting it would report a
                     // permanent, unfixable shortfall and downgrade a wood-bearing region's
                     // confidence a band every day — including for the sky locations in it.
+                    // Keyed on what the slot actually carries, NOT on "is it canopy": an in-season
+                    // bluebell site IS scored, by the bluebell prompt. See rosterOf for why it is
+                    // now a denominator alone.
+                    // The VOTING stats, so the channel qualifies the verdict it is attached to:
+                    // the spread term stops counting a wood as sky locations disagreeing, which it
+                    // is not. The coverage term's denominator stays `scoreable` (canopy-inclusive
+                    // where rated), so for a wood-bearing region the ratio is marginally
+                    // pessimistic — it can only make the channel more provisional, the safe
+                    // direction.
                     //
-                    // Keyed on what the slot actually carries, NOT on "is it canopy": an
-                    // in-season canopy bluebell site IS scored, by the bluebell prompt, so it
-                    // belongs in both numerator and denominator. Testing the rating rather than
-                    // the season means the two never disagree, and needs no roster or clock.
-                    Confidence confidence = ConfidenceDeriver.derive(
-                            daysAhead, stats, rosterOf(enrichedSlots));
+                    // The FLOOR is not decoration. Handing `derive` empty voting stats returns
+                    // null, and null does NOT read as "no confidence" on the client:
+                    // `confidenceUtils.resolveConfidence` is fail-soft and falls back to a
+                    // horizon-only tier capped at medium. So a region whose only rated slot is a
+                    // wood — verdict from the triage fallback, no sky score behind it at all —
+                    // would render MEDIUM where the canopy-inclusive stats could have yielded LOW.
+                    // That is the channel reading LESS provisional at the moment it knows least,
+                    // the exact inversion it exists to prevent. Something here was scored and none
+                    // of it votes: LOW, explicitly.
+                    //
+                    // Null is still right where NOTHING is scored — the documented zero-coverage
+                    // case — and `coverageStats` is what tells the two apart.
+                    Confidence confidence = votingStats.isEmpty() && !coverageStats.isEmpty()
+                            ? Confidence.LOW
+                            : ConfidenceDeriver.derive(
+                                    daysAhead, votingStats, rosterOf(enrichedSlots));
                     enrichedRegions.add(new BriefingRegion(
                             region.regionName(), region.verdict(), region.summary(),
                             region.tideHighlights(), enrichedSlots,
@@ -834,7 +875,12 @@ public class BriefingService {
                             region.regionApparentTemperatureCelsius(),
                             region.regionWindSpeedMs(), region.regionWeatherCode(),
                             glossHeadline, glossDetail,
-                            freshVerdict, stats.count())
+                            // Coverage, NOT the voting count: the honesty filter tests this
+                            // against its own canopy-inclusive scoreable count, and both arms
+                            // render "N of M evaluated" with M as the whole slot list. A voting
+                            // count here would under-report a scored wood in the drill-down and
+                            // could blank a region whose only evaluated location is one.
+                            freshVerdict, coverageStats.count())
                             .withConfidence(confidence)
                             // The grid cell's star, from the SAME statistics as freshVerdict above,
                             // so the word and the number in one cell can no longer come from two
@@ -842,7 +888,8 @@ public class BriefingService {
                             // endpoint joined on a region-name prefix — see plan §1 D2. Null rather
                             // than 0.0 when nothing is scored: "not rated" and "rated badly" are
                             // different statements and the cell renders them differently.
-                            .withMeanRating(stats.isEmpty() ? null : stats.averageRating()));
+                            .withMeanRating(
+                                    votingStats.isEmpty() ? null : votingStats.averageRating()));
                 }
                 enrichedEvents.add(es.withRegions(enrichedRegions));
             }
@@ -856,13 +903,18 @@ public class BriefingService {
      * different filters over the same list, and getting either wrong is silent — hence one named,
      * tested method rather than two inline stream counts at the call site.
      *
-     * <p><b>scoreable</b> — slots that COULD carry a rating, the coverage denominator. A canopy
-     * slot is excluded only while it holds no rating: it is out of the sky batch, so counting it
+     * <p><b>scoreable</b> — slots that COULD carry a rating, the coverage DENOMINATOR. A canopy
+     * slot is excluded while it holds no rating: it is out of the sky batch, so counting it
      * unconditionally would report a permanent, unfixable shortfall and downgrade a wood-bearing
      * region every day, including for the sky locations in it. Keyed on what the slot actually
-     * carries rather than on the season, so the two can never disagree and no clock is needed —
-     * an in-season bluebell wood IS scored, by the bluebell prompt, and belongs in both numerator
-     * and denominator.
+     * carries rather than on the season, so no clock is needed — an in-season bluebell wood IS
+     * scored, by the bluebell prompt.
+     *
+     * <p>Since the canopy fix it is a denominator alone: the numerator handed to
+     * {@link ConfidenceDeriver} is now over VOTING slots, so a rated wood is counted here and not
+     * there. The ratio is therefore slightly pessimistic for a wood-bearing region, which can only
+     * downgrade — the safe direction, and preferred to measuring coverage of a population the
+     * verdict does not use.
      *
      * <p><b>voting</b> — slots that vote on the region VERDICT. Mirrors
      * {@code BriefingHierarchyBuilder.buildRegion} exactly, non-canopy slots with a fallback to
@@ -882,13 +934,8 @@ public class BriefingService {
         long scoreable = slots.stream()
                 .filter(slot -> !(slot.canopy() && slot.claudeRating() == null))
                 .count();
-        long voting = slots.stream()
-                .filter(slot -> !slot.canopy())
-                .count();
-        if (voting == 0) {
-            voting = slots.size();
-        }
-        return new ConfidenceDeriver.RegionRoster((int) scoreable, (int) voting);
+        return new ConfidenceDeriver.RegionRoster(
+                (int) scoreable, BriefingSlot.votingSlots(slots).size());
     }
 
     /**

@@ -641,6 +641,16 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
   // `/api/briefing/evaluate/scores` through a region-NAME prefix join, silently falling back to the
   // slot tree when the join found nothing. See plan-verdict-consolidation-plan.md §1 D2.
   //
+  // ⚠️ The two paths now differ by MORE than where the number comes from, and the v1 arm carries
+  // the cost knowingly. The canopy fix moved the region's verdict — a payload field both arms
+  // render, with no prop to gate it — onto the region's VOTING slots, excluding woodland locations
+  // whose GO means the opposite of a sky GO. The star only followed on the opted-in path. So for a
+  // wood-bearing region at SUNRISE (the only event a wood is briefed at) a v1 cell can show a word
+  // derived from the sky beside a star derived from the sky plus the wood — e.g. "Maybe sunrise"
+  // over a 3.7★ pill. Accepted rather than fixed: closing it means filtering canopy names out of
+  // the join below, which moves the frozen pilot control mid-comparison. Delete this arm with the
+  // v1 arm and the split goes with it.
+  //
   // Null is preserved rather than coerced: it means nothing here is rated, which the badge below
   // renders as no badge at all rather than as a 0.
   let meanRating;
