@@ -14,8 +14,10 @@ default view, all behind the v2 Plan-layout flag. The design handoff is vendored
 `docs/design/heat-map/` (spec HTML ×2, the load-bearing `heat-field.js` kernel, mock data,
 reference screenshots). The plan was adversarially reviewed before landing (4 lenses, ~25
 upheld findings applied); its §2 records where the bundle's README is stale against this repo
-and wins over it, and §1.1 details the one owner decision that blocks P2 — the strip replacing
-the day rail. Documentation only; no behaviour change.
+and wins over it, and §1.1 details the strip-replaces-the-day-rail decision — **confirmed by the
+owner 2026-08-18**, so P2 is unblocked. Paste-ready per-phase kickoff prompts for the
+implementing sessions (the `docs/design/window-first/PROMPTS.md` idiom) are
+`docs/engineering/heat-field-prompts.md`. Documentation only; no behaviour change.
 
 ## [v2.18.11] - 2026-08-18
 

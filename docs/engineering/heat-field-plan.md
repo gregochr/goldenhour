@@ -5,9 +5,12 @@ fidelity); adversarially reviewed the same day (4 lenses, ~25 findings upheld an
 notable ones: the day-rail replacement is a recorded decision **reversal** with a pinned test to
 retire (D1), the strip header carries no database count (§2.6), per-region `bestRating` is served
 rather than client-derived (P1), marker treatment in heat view is specified (D8), and the dev-seed
-recipe needs a backend restart (§7.3)). Build not started. **Owner decisions required before
-P2** — see §1 and §9. Every phase is bound by CLAUDE.md § *UI Work — Review Cadence* (build →
-tests → adversarial review of the diff → fix → re-verify → commit) and updates `CHANGELOG.md`.
+recipe needs a backend restart (§7.3)). Build not started. **D1 is CONFIRMED (owner,
+2026-08-18): the strip replaces the day rail — P2 is unblocked.** The remaining §9 questions are
+open but none blocks a phase before its own row says so. Per-phase kickoff prompts for the
+implementing sessions: `docs/engineering/heat-field-prompts.md`. Every phase is bound by
+CLAUDE.md § *UI Work — Review Cadence* (build → tests → adversarial review of the diff → fix →
+re-verify → commit) and updates `CHANGELOG.md`.
 
 **Scope guard:** v2 / window-first Plan UI **only**, behind the existing `usePlanLayout` flag
 (default still `v1`). v1 is the pilot's frozen comparison control and will be deleted after the
@@ -34,7 +37,7 @@ space-first; same kernel, same catalogue, same colour ramp.
 
 | # | Question | Decision |
 |---|---|---|
-| D1 | Does the strip replace `WindowFirstDayRail`? | **Recommend replace** (owner to confirm — this blocks P2). Full comparison, job-by-job relocation, what is genuinely lost, and the two rejected alternatives: **§1.1**. |
+| D1 | Does the strip replace `WindowFirstDayRail`? | **CONFIRMED — replace (owner, 2026-08-18).** Full comparison, job-by-job relocation, what is genuinely lost, and the two rejected alternatives: **§1.1**. |
 | D2 | Colour ramp conflict | **One ramp inside v2.** New `frontend/src/utils/scoreRamp.js` owns the design's five stops (1 `#B03A2A`, 2 `#C8452F` = `--color-verdict-standdown`, 3 `#E0A542` = `--color-verdict-marginal`, 4 `#B0BE74`, 5 `#8AAE72` = `--color-verdict-go`; linear interpolation, clamp 1–5). The kernel, the strip, the row maps and the six-dot swatches read it from P0; the v2 map markers/clusters swap onto it **in P4, riding the same `heat` opt-in** (see D8 — geometry, clustering and popups unchanged, only the colour source moves); the v2 spot-card badges swap **in P5** (`windowFirstSpots.spotBadgeStyle` is v2-only, safe). Each swap is named in its phase's contents and exit criteria — a ramp consumer listed here but absent from a phase is a plan bug. v1 keeps `markerUtils.RATING_COLOURS` untouched everywhere. **Do not port the design's `vCls`/`vWord` thresholds** — see D3. |
 | D3 | Verdict words and confidence display | **Server-owned, existing vocabulary — never recompute.** The strip/rail/band verdict words come from `displayVerdict`/`BriefingWindow.verdict` through `VERDICT_LABEL` (`windowFirstCards.js`: Worth it / Maybe / Poor / Awaiting). The design's client thresholds (≥3.7 / ≥2.8) and its `◐ 88%` percentage are **not ported**: this project's confidence channel is deliberately three-tier (`Confidence` high/medium/low + `CONFIDENCE_TREATMENT` + `ProvisionalMark`), and a percentage would invent precision the backend never claimed. The kernel's `conf` scalar is fed from the tier via `fillScale` (high 1.0, medium 0.72, low 0.5) so the haze and the badge decay speak one language. The strip footer keeps the design's honest caption ("later days render hazier — lower confidence"). |
 | D4 | Movement chips / change line data | **New append-only `briefing_region_snapshot` sink** (P6) — CLAUDE.md's own doctrine: no store retains per-run history the live pipeline writes; `cached_evaluation` and `forecast_score` are latest-wins, `evaluation_delta_log` records only the intersection population with absolute deltas, and `forecast_evaluation` belongs to the retiring sync engine. Until P6 lands the strip renders **no movement chips and no change line** — never a fabricated `—`. |
@@ -578,8 +581,8 @@ anything mutating gets its own worktree; commit or stash before any review that 
 
 Carried from the bundle, plus new ones this plan surfaced. None block P0/P1.
 
-1. **D1 confirm**: strip replaces the day rail? (Recommended yes; blocks P2. The full
-   comparison, job relocation table and rejected alternatives are §1.1.)
+1. ~~**D1 confirm**~~ **RESOLVED — confirmed by the owner 2026-08-18**: the strip replaces the
+   day rail. (Comparison, job relocation table and rejected alternatives: §1.1.)
 2. **Plan/Map division of labour** (bundle Q1): time-first/space-first as built, or Map as the
    forecast-agnostic catalogue? Decide before building more onto either tab; does not change P0–P6.
 3. **Density on a Plan row** (bundle Q2): quality is stated four times before the rail (thumbnail
