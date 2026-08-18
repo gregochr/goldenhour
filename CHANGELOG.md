@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.18.11] - 2026-08-18
+
 ### Fixed — CLAUDE.md understated the `[BUILDING]` penalty the prompt actually asks for
 
 The "Cloud approach risk" bullet said a `[BUILDING]` solar trend "tells Claude to penalise
