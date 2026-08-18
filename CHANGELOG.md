@@ -23,6 +23,29 @@ This closes the first of the two gaps the prior fix tracked separately; the seco
 kinds distinguished only by colour, WCAG 1.4.1) has since been closed for the v2 rail below, and
 remains open for the v1 strip.
 
+### Fixed — `MapViewViewline` went red for an hour every night
+
+Three tests in `MapViewViewline.test.jsx` failed between 00:00 and 01:00 BST, on main, on a clean
+checkout — reproduced at 00:18 BST on 2026-08-18 while they were blocking unrelated work.
+
+Two of the file's fixture dates were read from the wall clock (`new Date().toLocaleDateString('en-CA')`),
+which under the suite's pinned `TZ=UTC` is a **UTC** date. `MapView` gates the aurora viewline on
+`date === resolveAuroraNight(auroraStatus)`, and the mocked status carries no `currentNightDate`, so
+that resolves to the **Europe/London** date. Under BST the two calendars name different days for the
+hour after UK midnight, so the fixture's "today" stopped being the component's "current night" and
+the viewline vanished from the two tests expecting it while appearing in the one expecting it absent.
+
+The clock is now frozen (`vi.useFakeTimers({ toFake: ['Date'] })` + `vi.setSystemTime`, the pattern
+already used in `HotTopicStrip.test.jsx`) at a 2027 instant, with the fixture dates as literals
+against it. A date that can never equal the real one is the point: the previous shape was
+self-consistent and still wrong, because consistency between two *different* calendars is not
+something a fixture can arrange. Confirmed by re-pinning the frozen instant into the divergence
+window, which reproduces exactly those three failures and no others.
+
+Second instance of the same defect — `HotTopicStrip.test.jsx` was bitten from the opposite direction
+on 2026-08-13, when a fixture date that had been "today" when written stopped being so the next
+morning. Test file only; no production code touched.
+
 ## [v2.18.9] - 2026-08-17
 
 ### Fixed — the Plan tab's Best bet / Also good chips were invisible to screen readers

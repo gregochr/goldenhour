@@ -130,7 +130,19 @@ import MapView from '../components/MapView.jsx';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const TODAY = new Date().toLocaleDateString('en-CA');
+// The clock is frozen for every test in this file (see the file-scope `beforeEach` below) and the
+// fixture dates are literals against that instant, so nothing here reads the wall clock.
+//
+// It has to be frozen rather than merely self-consistent. MapView gates the viewline on
+// `date === resolveAuroraNight(auroraStatus)`, and the mocked status carries no `currentNightDate`,
+// so that falls back to the *UK* calendar date — while a fixture built from the runner's own zone
+// (setup.js pins TZ=UTC) is a *UTC* one. Under BST those two name different days between 23:00 and
+// 00:00 UTC, the hour after UK midnight, and three of these tests went red for an hour every night.
+// Reproduced on a clean origin/main at 00:18 BST on 2026-08-18. A 2027 instant can never collide
+// with the real date, so this file's correctness no longer depends on when it runs.
+const FROZEN_NOW = new Date('2027-05-12T12:00:00Z'); // 13:00 BST — one date on both calendars
+const TODAY = '2027-05-12';
+const TOMORROW = '2027-05-13';
 
 function makeLocations() {
   const forecasts = new Map([
@@ -150,6 +162,17 @@ async function renderMap(overrides = {}) {
   await act(async () => { result = render(<MapView {...props} />); });
   return result;
 }
+
+// Applies to every test in the file: MapView asks "is this the current night?" on each render, and
+// that question needs a fixed answer whatever time the suite runs at. Only `Date` is faked — real
+// timers and microtasks still drive `act`.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(FROZEN_NOW);
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
@@ -184,17 +207,14 @@ describe('MapView aurora viewline event-type gating', () => {
   });
 
   it('viewline hidden on a future date even when Aurora selected', async () => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = tomorrow.toLocaleDateString('en-CA');
     const forecasts = new Map([
-      [tomorrowStr, {
-        sunset: { rating: 4, solarEventTime: `${tomorrowStr}T18:00:00`, fierySkyPotential: 70, goldenHourPotential: 60 },
-        sunrise: { rating: 3, solarEventTime: `${tomorrowStr}T06:00:00`, fierySkyPotential: 60, goldenHourPotential: 50 },
+      [TOMORROW, {
+        sunset: { rating: 4, solarEventTime: `${TOMORROW}T18:00:00`, fierySkyPotential: 70, goldenHourPotential: 60 },
+        sunrise: { rating: 3, solarEventTime: `${TOMORROW}T06:00:00`, fierySkyPotential: 60, goldenHourPotential: 50 },
       }],
     ]);
     const locs = [{ name: 'TestLoc', lat: 55.0, lon: -1.7, forecastsByDate: forecasts, locationType: ['LANDSCAPE'] }];
-    await renderMap({ locations: locs, date: tomorrowStr });
+    await renderMap({ locations: locs, date: TOMORROW });
     await act(async () => { fireEvent.click(screen.getByTestId('type-aurora')); });
     expect(screen.queryByTestId('aurora-viewline-overlay')).not.toBeInTheDocument();
   });
