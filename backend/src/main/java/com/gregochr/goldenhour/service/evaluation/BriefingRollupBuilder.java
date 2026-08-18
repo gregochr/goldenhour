@@ -202,24 +202,112 @@ public final class BriefingRollupBuilder {
     }
 
     /**
-     * Looks up cached Claude scores for a region/event and reduces them to
-     * {@link BriefingRatingStats.Stats}, or {@code null} when none are cached or
-     * none are valid. Shared by the rollup JSON builder and the coverage extractor
-     * so both read identical figures.
+     * Reduces a region's enriched slot ratings to the two {@link BriefingRatingStats.Stats} the
+     * prompt node needs, or {@code null} for either when nothing valid is rated.
+     *
+     * <p><b>Two rollups over one slot list, because the node asks two different questions</b> —
+     * the same split {@code BriefingGlossService} makes, deliberately identical so the two prompts
+     * built in one briefing cycle cannot describe the same region differently.
+     *
+     * <p>The COUNTS are <em>coverage</em>: how many of this region's locations were evaluated. A
+     * rated wood counts, because it genuinely was evaluated — by the woodland prompt — and
+     * {@code BestBetPromptText} defines the field that way and reasons from it that way ("prefer a
+     * nearer, better-evaluated region"). They stay in step with the sibling {@code totalLocations}
+     * and with {@code BriefingRegion.scoredLocationCount}, so every ratio Claude can form from the
+     * node is over one population.
+     *
+     * <p>The AVERAGE is the <em>sky's</em>, over the region's voting slots
+     * ({@link BriefingSlot#votingSlots} — non-canopy, falling back to all of them for an all-canopy
+     * region). A woodland verdict runs on inverted polarity: a canopy GO means heavy cloud and
+     * mist. This is the figure the Also-Good decision is taken on: {@code BestBetPromptText} states
+     * the 3.0 absolute floor for Pick 2 and <em>Claude</em> applies it to this number — there is no
+     * Java predicate behind it ({@code AlsoGoodFloor.MIN_ABSOLUTE} is a diagnostic mirror that, by
+     * its own javadoc, "never gates selection or ranking"). A 5★ bluebell wood averaged in here
+     * would therefore put a region over that floor for a sky that never reached it. It is
+     * omitted rather than zeroed when no slot votes: a fabricated 0.0 is a claim about the sky that
+     * nothing measured.
+     *
+     * <p><b>The canopy flag comes from the slots; the ratings stay on the cache.</b> The cache is
+     * keyed by location NAME and carries no canopy flag, so the region's own slots are the only
+     * place it lives. {@link BriefingSlot#votingSlots} is still the owner of the rule — this method
+     * calls it and treats whatever it did <em>not</em> return as canopy, so the all-canopy fallback
+     * cannot be dropped here independently.
+     *
+     * <p>⚠️ <b>Pre-existing residual: the join is fail-open.</b> The cache is retained across
+     * refreshes and outlives the enabled roster, so a location since disabled, renamed or moved to
+     * another region still answers under a name no slot claims — and an unmatched name counts as
+     * sky. For a wood that is the very defect above, surviving in one narrow case. Reading
+     * {@code slot.claudeRating()} instead would close it, and {@code BriefingGlossService} does
+     * exactly that one class away, but the cache read here is a pinned contract
+     * ({@code BriefingBestBetAdvisorTest.cacheLookupUsesExactParameters}) and not every caller of
+     * {@code advise} hands over enriched days. Left as-is deliberately; it is a roster-hygiene bug
+     * older than this filter, and it inflates the counts today with or without it.
+     *
+     * @param region     the enriched region
+     * @param date       the target date, for stats logging
+     * @param targetType the solar event, for stats logging
+     * @return the coverage and sky-average stats, each null when it has nothing valid
      */
-    private BriefingRatingStats.Stats computeRegionStats(String regionName, LocalDate date,
+    private RegionStats computeRegionStats(BriefingRegion region, LocalDate date,
             TargetType targetType) {
         Map<String, BriefingEvaluationResult> cached =
-                briefingEvaluationService.getCachedScores(regionName, date, targetType);
+                briefingEvaluationService.getCachedScores(region.regionName(), date, targetType);
         if (cached.isEmpty()) {
-            return null;
+            return new RegionStats(null, null);
         }
-        List<BriefingRatingStats.Entry> entries = cached.values().stream()
+        List<BriefingRatingStats.Entry> all = cached.values().stream()
                 .map(r -> new BriefingRatingStats.Entry(r.locationName(), r.rating()))
                 .toList();
+        Set<String> canopyNames = canopyNames(region.slots());
+        List<BriefingRatingStats.Entry> voting = all.stream()
+                .filter(e -> !canopyNames.contains(e.locationName()))
+                .toList();
+        return new RegionStats(
+                statsOver(all, region, date, targetType),
+                statsOver(voting, region, date, targetType));
+    }
+
+    /**
+     * The names of the slots that do NOT vote, derived from {@link BriefingSlot#votingSlots} so
+     * the all-canopy fallback cannot be dropped here independently of the rule's owner.
+     *
+     * @param slots the region's slots
+     * @return the non-voting (canopy) location names; empty for an all-canopy region
+     */
+    private static Set<String> canopyNames(List<BriefingSlot> slots) {
+        Set<String> voting = BriefingSlot.votingSlots(slots).stream()
+                .map(BriefingSlot::locationName)
+                .collect(java.util.stream.Collectors.toSet());
+        return slots.stream()
+                .map(BriefingSlot::locationName)
+                .filter(name -> !voting.contains(name))
+                .collect(java.util.stream.Collectors.toSet());
+    }
+
+    /**
+     * Reduces the given rating entries to stats, or {@code null} when none are valid.
+     *
+     * @param entries    the entries to reduce
+     * @param region     the owning region, for stats logging
+     * @param date       the target date, for stats logging
+     * @param targetType the solar event, for stats logging
+     * @return the stats, or null when empty
+     */
+    private BriefingRatingStats.Stats statsOver(List<BriefingRatingStats.Entry> entries,
+            BriefingRegion region, LocalDate date, TargetType targetType) {
         BriefingRatingStats.Stats stats =
-                BriefingRatingStats.compute(entries, regionName, date, targetType);
+                BriefingRatingStats.compute(entries, region.regionName(), date, targetType);
         return stats.isEmpty() ? null : stats;
+    }
+
+    /**
+     * A region's two rating rollups: coverage over every slot, and the sky average over the
+     * voting slots. Either may be null when it has nothing valid to report.
+     *
+     * @param coverage the count rollup over all slots, or null
+     * @param sky      the average rollup over voting slots, or null
+     */
+    private record RegionStats(BriefingRatingStats.Stats coverage, BriefingRatingStats.Stats sky) {
     }
 
     /**
@@ -345,35 +433,46 @@ public final class BriefingRollupBuilder {
             regionNode.put("scarcity", tideScarcity);
         }
 
-        // Claude evaluation score distribution (from cached drill-down scores).
-        // Computed once and reused for the coverage gate so the cache is hit a
-        // single time per region (matching the pre-coverage call count).
-        BriefingRatingStats.Stats stats =
-                computeRegionStats(region.regionName(), date, targetType);
+        // Claude evaluation score distribution, off the already-enriched slots. Computed once
+        // and reused for the coverage gate so the two can never disagree. Note this no longer
+        // shares a source with logCacheCoverage below, which still counts raw cache entries: the
+        // two can differ for a cached score whose location has left the enabled roster, and the
+        // log line is the one that over-reports there.
+        RegionStats stats = computeRegionStats(region, date, targetType);
         appendClaudeScores(regionNode, stats);
 
         // Stability rollup: worst-case across grid cells containing this region's locations
         appendStabilityToRegion(regionNode, region);
 
-        return stats == null
-                ? new CandidateCoverage(0, daysAhead, 0.0)
-                : new CandidateCoverage(stats.count(), daysAhead, stats.averageRating());
+        // Built from the same two numbers the JSON node carries, in the same order, so
+        // reconstructRollup's replay of a stored rollup reproduces this exactly.
+        return new CandidateCoverage(
+                stats.coverage() == null ? 0 : stats.coverage().count(),
+                daysAhead,
+                stats.sky() == null ? 0.0 : stats.sky().averageRating());
     }
 
     /**
      * Appends the Claude evaluation score distribution to the region JSON node.
      *
-     * <p>When {@code stats} is {@code null} (no cached scores) the fields are
-     * omitted and the prompt falls back to verdict-only data.
+     * <p>When nothing is rated the whole block is omitted and the prompt falls back to
+     * verdict-only data. When something is rated but nothing that votes is — a region whose only
+     * scored location is a wood — the counts appear without an average, which says exactly what
+     * happened: evaluated, but not for sky colour.
+     *
+     * @param regionNode the region node to append to
+     * @param stats      the region's coverage and sky rollups
      */
-    private void appendClaudeScores(ObjectNode regionNode, BriefingRatingStats.Stats stats) {
-        if (stats == null) {
+    private void appendClaudeScores(ObjectNode regionNode, RegionStats stats) {
+        if (stats.coverage() == null) {
             return;
         }
-        regionNode.put("claudeRatedCount", stats.count());
-        regionNode.put("claudeHighRatedCount", stats.highRated());
-        regionNode.put("claudeMediumRatedCount", stats.mediumRated());
-        regionNode.put("claudeAverageRating", stats.averageRating());
+        regionNode.put("claudeRatedCount", stats.coverage().count());
+        regionNode.put("claudeHighRatedCount", stats.coverage().highRated());
+        regionNode.put("claudeMediumRatedCount", stats.coverage().mediumRated());
+        if (stats.sky() != null) {
+            regionNode.put("claudeAverageRating", stats.sky().averageRating());
+        }
     }
 
     /**

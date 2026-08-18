@@ -175,10 +175,22 @@ public class PipelineRunPickService {
     }
 
     /**
-     * Snapshots the region's {@code claudeAverageRating} for this pick's slot
-     * by mirroring the exact computation
-     * {@code BriefingBestBetAdvisor.appendClaudeScores} performs when building
-     * the rollup the advisor scored from. Returns null when:
+     * Snapshots the region's {@code claudeAverageRating} for this pick's slot from the same
+     * cached scores the rollup was built from.
+     *
+     * <p>⚠️ <b>It is no longer identical to the figure the advisor scored from, and cannot be
+     * made so from here.</b> Since 2026-08-18 {@code BriefingRollupBuilder} averages a region's
+     * <em>voting</em> slots only — a woodland rating runs on inverted polarity and must not set a
+     * sky average — but that filter needs the canopy flag, which lives on the slots. This method
+     * holds a region name and a name-keyed cache, so it has nothing to filter on. For a
+     * wood-bearing region the value recorded here is therefore canopy-inclusive and can sit a band
+     * above what Claude was shown. Two consequences for anyone reading
+     * {@code pipeline_run_pick.claude_average_rating} as "the cross-run comparison primitive":
+     * treat it as a coverage-weighted average rather than the advisor's input, and expect a
+     * one-off step across the 2026-08-18 boundary for wood-bearing regions that is a definition
+     * change, not a pipeline change.
+     *
+     * <p>Returns null when:
      *
      * <ul>
      *   <li>The pick has no region (stay-home recommendation).</li>

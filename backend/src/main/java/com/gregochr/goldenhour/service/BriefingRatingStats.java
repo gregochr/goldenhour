@@ -21,11 +21,12 @@ import java.util.List;
  * here were evaluated") counts every slot, while the verdict, the mean and the ranking count only
  * {@link com.gregochr.goldenhour.model.BriefingSlot#votingSlots} — a woodland verdict runs on
  * inverted polarity, so a rated wood must not set a sky band. Callers that hold slots pass the
- * right population in. Two callers still average everything, for different reasons:
+ * right population in, and two of them — {@code BriefingGlossService} and
+ * {@code BriefingRollupBuilder} — pass BOTH, because their prompt node carries a coverage count
+ * and a sky average side by side. One caller still averages everything:
  * {@code PipelineRunPickService} reads a name-keyed score cache with no canopy flag and has nothing
- * to filter on, while {@code BriefingRollupBuilder}'s caller does hold the enriched region and
- * simply has not been moved yet. Neither figure is rendered as a verdict; the second feeds the
- * best-bet advisor's prompt, which makes it the one worth moving.
+ * to filter on. Its figure is never rendered as a verdict, but note it no longer equals the
+ * rollup average it was written to snapshot — see that method's javadoc.
  *
  * <p>Defensively skips null or out-of-range ratings by delegating to
  * {@link RatingValidator} — which is the single source of truth for the
