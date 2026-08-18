@@ -317,26 +317,32 @@ class PromptRegressionTest {
         // Bound derived, not fitted. The demotion (2026-08-18) replaced this rule's fiery_sky <= 20
         // cap with a -20..-30 penalty on what the conditions earn, and these conditions are a clear
         // 7% solar horizon under an 88% high canvas — the prompt's own IDEAL scenario, which
-        // authorises 70-90 unpenalised. So the penalised ceiling is ~70 and anything at or above it
-        // means no penalty was applied. Measured on this exact input, 13 Haiku runs: 28-62.
-        // 65 sits above every observation and below the unpenalised floor, so the assertion still
-        // fails if the penalty stops being applied. That guard band is genuinely narrow (62 vs 70)
-        // — widen it past 70 and this assertion stops testing anything.
-        assertTrue(result.fierySkyPotential() <= 65,
-                "Fiery Sky should be <= 65 (approach penalty applied to an otherwise ideal sky) "
+        // authorises 70-90 unpenalised. 70 is that arithmetic exactly — the band tops out at 90 and
+        // the smallest penalty is 20 — so it is the highest value a penalised ideal sky can produce,
+        // and anything above it means no penalty was applied. Measured on this exact input across
+        // 25 Haiku runs: 28-68. A first cut at 65 was FITTED to an under-sampled max of 62 and a
+        // later run returned 68, which the derivation covers and the fitted number did not. Prefer
+        // the rule's arithmetic to the sample; the guard band is narrow either way.
+        assertTrue(result.fierySkyPotential() <= 70,
+                "Fiery Sky should be <= 70 (approach penalty applied to an otherwise ideal sky) "
                         + "but was " + result.fierySkyPotential());
-        // ⚠️ This bound is a WEAK guard now, and saying so is the point. The demotion dropped the
-        // combined signal's golden_hour <= 20 ceiling rather than demoting it — the plan specified a
-        // replacement for fiery_sky only — so no approach penalty reaches golden_hour at all, and
-        // there is no penalised/unpenalised gap to exploit the way there is at line 317. Light
-        // quality here is genuinely good (clear 7% solar horizon, 28 km visibility, AOD 0.08), which
-        // the prompt scores 65-85; the old <= 55 encoded the vetoed world where it was pinned to 20.
-        // Measured on this exact input, 12 Haiku runs: 62-75. 80 clears every observation and still
-        // trips a claim of spectacular light, but it cannot distinguish "approach risk" from "fine
-        // light" — the rating cap at line 314 is the assertion doing the real work on this fixture.
-        assertTrue(result.goldenHourPotential() <= 80,
-                "Golden Hour should be <= 80 (good light, but not spectacular) but was "
-                        + result.goldenHourPotential());
+        // Same derivation as line 317, on golden_hour's own band. The demotion originally dropped
+        // this rule's golden_hour <= 20 ceiling rather than demoting it — the plan specified a
+        // replacement for fiery_sky only, a silent omission closed 2026-08-18. The prompt scores
+        // clear air with good visibility at 65-85, the penalty is 20-30, so 65 is the highest value
+        // a penalised sky of this kind can produce.
+        //
+        // ⚠️ Both placements of that penalty are load-bearing and neither is decoration. Stated in
+        // rules prose ALONE it moved golden_hour by 4.4 points against the 20-30 it asks for (mean
+        // 71.4 -> 67.0); restated on the output field and in the schema description it moved it by
+        // 19.5 (-> 51.9, max exactly 65). Same lesson as the rating cap at line 314. Delete either
+        // half and this assertion starts failing rather than the prompt quietly under-penalising.
+        //
+        // Zero headroom is deliberate: 65 IS the derived ceiling, so a run at 65 passes and 66
+        // fails. That is what a spec-derived bound looks like — do not pad it to buy quiet.
+        assertTrue(result.goldenHourPotential() <= 65,
+                "Golden Hour should be <= 65 (approach penalty applied to clear, good-visibility "
+                        + "air) but was " + result.goldenHourPotential());
     }
 
     /**
