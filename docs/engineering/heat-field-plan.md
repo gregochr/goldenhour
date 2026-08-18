@@ -1,0 +1,628 @@
+# Heat field — Plan strip + Map tab, v2 only — implementation plan
+
+**Status:** drafted 2026-08-18 from the `PhotoCast.zip` design handoff (2026-08-18, high
+fidelity); adversarially reviewed the same day (4 lenses, ~25 findings upheld and applied — the
+notable ones: the day-rail replacement is a recorded decision **reversal** with a pinned test to
+retire (D1), the strip header carries no database count (§2.6), per-region `bestRating` is served
+rather than client-derived (P1), marker treatment in heat view is specified (D8), and the dev-seed
+recipe needs a backend restart (§7.3)). Build not started. **Owner decisions required before
+P2** — see §1 and §9. Every phase is bound by CLAUDE.md § *UI Work — Review Cadence* (build →
+tests → adversarial review of the diff → fix → re-verify → commit) and updates `CHANGELOG.md`.
+
+**Scope guard:** v2 / window-first Plan UI **only**, behind the existing `usePlanLayout` flag
+(default still `v1`). v1 is the pilot's frozen comparison control and will be deleted after the
+flag flip — nothing here ports into v1, and every shared component change uses the established
+caller opt-in shape (`scrollable`, `serverCellRating`, `resizeNonce` precedents) so v1's behaviour
+is byte-identical without the opt-in.
+
+**Spec:** `docs/design/heat-map/` (vendored verbatim from the bundle — P0). Read the bundle's
+`README.md` and both HTML files before writing code, **then read §2 of this plan**: several of the
+README's claims about this repo are stale, and §2 wins where they disagree. `heat-field.js` is the
+one file ported close to as-is; everything else in the bundle is reference, not code to copy.
+
+The design in one paragraph: every rated location paints its own score for one solar window into a
+blended **heat field**. On the Plan tab, six small static-canvas thumbnails (d3-geo projection,
+real UK coastline) sit under the lens bar as a visual index of the six window rows; opening a row
+adds a full-width field map, a ranked region rail and a region drill-down band above the existing
+tide row and spot strip. On the Map tab, the same field paints over the Leaflet tiles as the
+default view, with the existing medallion clustering one tap away. Plan is time-first, Map is
+space-first; same kernel, same catalogue, same colour ramp.
+
+---
+
+## 1. Decisions taken up front (and the ones the owner must take)
+
+| # | Question | Decision |
+|---|---|---|
+| D1 | Does the strip replace `WindowFirstDayRail`? | **Recommend replace** (owner to confirm — this blocks P2). Full comparison, job-by-job relocation, what is genuinely lost, and the two rejected alternatives: **§1.1**. |
+| D2 | Colour ramp conflict | **One ramp inside v2.** New `frontend/src/utils/scoreRamp.js` owns the design's five stops (1 `#B03A2A`, 2 `#C8452F` = `--color-verdict-standdown`, 3 `#E0A542` = `--color-verdict-marginal`, 4 `#B0BE74`, 5 `#8AAE72` = `--color-verdict-go`; linear interpolation, clamp 1–5). The kernel, the strip, the row maps and the six-dot swatches read it from P0; the v2 map markers/clusters swap onto it **in P4, riding the same `heat` opt-in** (see D8 — geometry, clustering and popups unchanged, only the colour source moves); the v2 spot-card badges swap **in P5** (`windowFirstSpots.spotBadgeStyle` is v2-only, safe). Each swap is named in its phase's contents and exit criteria — a ramp consumer listed here but absent from a phase is a plan bug. v1 keeps `markerUtils.RATING_COLOURS` untouched everywhere. **Do not port the design's `vCls`/`vWord` thresholds** — see D3. |
+| D3 | Verdict words and confidence display | **Server-owned, existing vocabulary — never recompute.** The strip/rail/band verdict words come from `displayVerdict`/`BriefingWindow.verdict` through `VERDICT_LABEL` (`windowFirstCards.js`: Worth it / Maybe / Poor / Awaiting). The design's client thresholds (≥3.7 / ≥2.8) and its `◐ 88%` percentage are **not ported**: this project's confidence channel is deliberately three-tier (`Confidence` high/medium/low + `CONFIDENCE_TREATMENT` + `ProvisionalMark`), and a percentage would invent precision the backend never claimed. The kernel's `conf` scalar is fed from the tier via `fillScale` (high 1.0, medium 0.72, low 0.5) so the haze and the badge decay speak one language. The strip footer keeps the design's honest caption ("later days render hazier — lower confidence"). |
+| D4 | Movement chips / change line data | **New append-only `briefing_region_snapshot` sink** (P6) — CLAUDE.md's own doctrine: no store retains per-run history the live pipeline writes; `cached_evaluation` and `forecast_score` are latest-wins, `evaluation_delta_log` records only the intersection population with absolute deltas, and `forecast_evaluation` belongs to the retiring sync engine. Until P6 lands the strip renders **no movement chips and no change line** — never a fabricated `—`. |
+| D5 | Origin move + search | **Built, but last (P7), and severable.** Regions today have no base town, no coordinates, no aliases, and no region-local drive times — `user_drive_time` is per-user-from-home only. P7 adds shared (user-independent) region-base data + an ORS region matrix. Everything in P0–P6 is written origin-agnostic (scope = "home planning area") so P7 is additive. Owner may defer P7 without stranding anything. |
+| D6 | Planning area (GLANCE) | **Client-side module**, `frontend/src/utils/planningArea.js`, `GLANCE_MINUTES = 180`. A region is in the planning area iff the minimum `driveMinutes` over its locations (from `GET /api/user/settings/reach`) ≤ 180. Per-user data, so it must stay client-side (§3, privacy split). No home / no drive times → planning area = whole roster (degrade honestly; never synthesise a smaller area). Both the strip framing and the Map tab's opening bounds read this one module. `GLANCE` as a user setting: deferred, listed in §9. |
+| D7 | Dark-sky filter scale | **The mock's darkness scale is inverted — use the app's real Bortle.** Real data: `bortleClass` 1–9, lower = darker; the existing Map filter is `bortleClass <= 4` (`DARK_SKY_THRESHOLD`, `MapView.jsx`). The bundle's `dark = bortle >= 3.8` is mock-scale and must not be ported. |
+| D8 | Map-tab zoom handover | **Simplified first cut, but the marker half is specified — it is not "markers stay as today".** In **heat view**, the existing marker/cluster layer keeps its geometry, clustering and popups but (a) its colours come from `scoreRamp` (D2) and (b) it **fades with zoom**: the marker panes' opacity is 0 below z10.6, ramps to 1 across z10.6→z12.2, with `pointer-events: none` while opacity < 0.2 so there are no invisible click targets — one style write on `map.getPane('markerPane')` (plus the cluster container) in `MapHeatLayer`'s zoom handler. Without this, today's fully-opaque cluster medallions paint over the field at every zoom and recreate exactly the overload the feature removes. Heat itself fades the opposite way, full → 17% wash across the same band. **Medallion view is byte-identical to today.** The prototype's own pin-drawing and name labels are **not** ported (our markers are richer and carry the popups). The bottom-left Field/Handing over/Locations status panel is P4-optional polish — note the corner is already occupied by the LITE viewline upsell chip and the legend chip (`MapView.jsx` ~:1739-1770), so if built it must not collide with them. |
+| D9 | Thumbnail host | **d3-geo static canvas, not six Leaflet maps** (the bundle's own recommendation). UK land geometry is **vendored, never fetched from a CDN** — prod CSP (`nginx.conf`) allows no jsdelivr on any directive (§2.7). A committed script generates a UK-only topojson once; the output is committed and imported lazily. |
+| D10 | Four-day location sheet | **P8, last, owner-optional.** Until then a spot-card click keeps today's behaviour (open on map). The sheet's per-window "why" prose already exists per (location, date, event) — the scores payload's field is **`summary`** (`LocationEvaluationView`); `claudeSummary` is the *briefing* payload's name for the same prose on `BriefingSlot`. |
+
+---
+
+### 1.1 D1 in detail — the strip vs the day rail
+
+**What each one is.** `WindowFirstDayRail` (489 lines) is four **day** tiles rendered as screen
+chrome **above the tab bar** — visible on every tab (Plan, Coming up, Map, Operations). Each tile:
+DOW + day-of-month + label, the pick flag chip (a button opening `WindowPickDialog`), sunrise and
+sunset times (`↑ ↓`), a day-verdict line rendered from `BriefingDay.peak`, peak-region chips with
+gloss popovers (`PopoverHost`), a "◍ Show on map →" button, and an away-day variant. On the phone
+it is a horizontal scroller (`flex: 1 0 150px` tiles). The heat strip is six **solar-window**
+thumbnail buttons rendered **inside the Plan tabpanel**, directly under the sticky lens bar: DOW
+kicker, sunrise/sunset arrow, the heat canvas (the actual forecast, drawn over real geography),
+event time, verdict word, a passive `BEST BET` flag, and (P6) a movement chip. On the phone it is
+a 3×2 grid — all six windows visible, no scrolling.
+
+**Why they cannot both stay.** Stacked, they are two summaries of the same forecast at two grains
+— four day tiles saying "Wednesday: Worth it (sunrise), regions A, B" above six thumbnails saying
+the same thing split by window — costing roughly two screens of chrome before the first window
+row, and re-creating the exact "quality stated four times" overload the bundle's own open
+question 2 warns about. The design frames the strip as *"a visual index of the window list"*: it
+is the rail's job done at the list's own grain, with space shown inside each window instead of
+named beside it.
+
+**Job-by-job relocation:**
+
+| Rail job today | Where it lives after P2 |
+|---|---|
+| Day verdict line (`BriefingDay.peak`) | Per-window verdict words on the thumbnails — finer grain; a day's shape is its two adjacent thumbnails |
+| Pick flag chip (button → pick dialog) | `BEST BET` flag on the thumbnail (**passive** — a nested interactive control is invalid HTML); the dialog stays reachable via the window card's existing pick badge |
+| Sunrise + sunset times per day | Each thumbnail carries its own window's time + `↑`/`↓` arrow — same information, one window per surface |
+| Peak-region chips + gloss popovers | The open row's region rail (every region, ranked, not just peaks) + region band (narrative). **Trade:** region *names* were one glance on the rail, now one click into a row — but the heat canvas answers the underlying question ("where is it good?") with zero clicks, spatially, which names never could |
+| "◍ Show on map →" per day | The Map tab (which has its own `DateStrip`) — one extra tap |
+| Away-day tile variant | `✈` marker in the thumbnail top row (§9.7); away rows keep their place in the window list |
+| Whole-screen date context above the tabs | **Genuinely removed — this is the recorded reversal.** See below |
+
+**The reversal, named.** The rail's above-tabs position was a deliberate decision, pinned by
+`WindowFirstShellTabs.test.jsx` (~:514 — *"keeps the day rail, which is the whole screen's date
+context and not one pane's… It sits ABOVE the tab bar for exactly this reason: Coming up asks
+about the same days"*). Replacing it makes the summary a Plan-pane element, so the other tabs
+lose the rail from their chrome. That is acceptable **now** because each tab has since grown its
+own date context — the Map pane renders its own `DateStrip` over the full forecast horizon, and
+every Coming-up row carries its dates — but it is a reversal of a recorded decision, and the
+window-first plan's own preamble requires reversals to be recorded with their reason, not
+silently overwritten. P2 must retire that pinned test *with this rationale in the commit*, and
+retire the rail's own test files with the component (`WindowFirstDayRail.test.jsx` ~581 lines,
+`windowFirstRail.test.js` ~655 lines) rather than leaving ~1,200 lines guarding unmounted code.
+
+**What else falls out.** `BriefingDay.peak` and `buildRailTiles` lose their only v2 consumer —
+they become cleanup-after-flip items (recorded, not acted on; the backend field stays because
+cached payloads and the frozen v1 arm's era are not this plan's business). The rail *footer*
+(`window-first-railfoot`: Home · place / Edit reach / forecast age) is a separate element and
+**stays** — only the tile row goes.
+
+**Alternatives rejected:**
+1. *Keep both* — the double-summary cost above, for one unique surviving job (cross-tab chrome)
+   that the other tabs no longer need.
+2. *Move the strip above the tab bar into the rail's slot* — keeps cross-tab context but breaks
+   the design's anatomy (the strip belongs under the lens, whose label and counts it sits
+   against), forces Plan-row-opening click semantics onto tabs that have no window rows, and
+   detaches the thumbnails from the lens bar that explains what they do and don't filter.
+   Complexity without design backing.
+
+If the owner rejects D1, the fallback is alternative 1 with the rail collapsed to a single-line
+variant — but that is a new design exercise, not this plan, and P2 blocks on the call either way.
+
+---
+
+## 2. Where the design README is stale against this repo — corrections that win
+
+The bundle was written against an older snapshot. Chasing these costs real time; each was verified
+against the worktree on 2026-08-18.
+
+1. **`RATING_COLOURS` is not "a monochrome grey→gold ramp".** `markerUtils.js:23-29` is already a
+   five-stop red→green ramp (`#A32D2D`…`#3B6D11`). The real conflict is *two different* red→green
+   ramps. D2 resolves it: v2 unifies on the verdict-anchored stops; v1 keeps `RATING_COLOURS`.
+2. **`--mastH` does not exist.** The sticky-lens mechanism is `--wf-lens-reserve`, measured live by
+   `hooks/useLensReserve.js` and consumed as `scroll-margin-top`. The strip must integrate with
+   that, not introduce a second reserve variable.
+3. **The reach tiers already exist and already match.** `utils/reachLens.js` tiers are 45/90/150/Any
+   — the design's 45 min / 1h 30 / 2h 30 / Any. Reuse `useReachLens`; do not build a second lens.
+4. **The tiles are already CARTO `dark_all`** (`MapView.jsx:1568-1572`). No tile work.
+5. **The tokens already exist** — `--color-verdict-*`, `--color-plex-panel` `#1E1712` (in
+   `@theme static`), `--color-close-to-home` `#C9A24B` (the design's "Home/selected"), `--color-tide`.
+   IBM Plex Mono 600 is bundled (`fonts.js`). Any genuinely new token goes in **`@theme static`**
+   (Tailwind v4 prunes unreferenced plain-`@theme` tokens — the `--color-plex-panel` empty-string
+   incident, `index.css:85-93`).
+6. **"204 rated locations · 51 named" is mock copy — and its replacement is NOT "N rated
+   locations".** Real locations are all named (the mock's unnamed scatter only makes the field
+   legible at mock scale) — but the window-first plan's pre-pilot sweep **bans counts of our own
+   data** ("11 aligned is a fact about the database, not about tonight", §6 clause 4;
+   `WindowAttributeRow`, `WindowFirstDoors` and the day rail were each stripped of exactly this
+   copy). The strip header is therefore the kicker + rule **with no count** — a recorded
+   deviation from the bundle. Per-window in-reach counts (`withinReachCount`) are lens output,
+   not database counts, and stay.
+7. **`cdn.jsdelivr.net` is blocked in prod.** `nginx.conf:78` CSP has no jsdelivr in `script-src`,
+   `connect-src` or `img-src`. Hence D9's vendored geometry. No nginx change needed if nothing
+   external is fetched.
+8. **Regions have no geography.** `RegionEntity` = `{id, name, enabled, createdAt}` — no base, no
+   lat/lng, no aliases (`plan-data.js`'s `al`/`base`/`lead` fields have no backing). P7 creates the
+   backing; earlier phases must not assume it.
+9. **There is no search anywhere in the v2 arm** (`WindowPickDialog` is a prose modal, not a
+   picker) and no `Order` control. Both are new (P7 / P2 respectively).
+10. **`GET /api/briefing/evaluate/scores` is already fetched eagerly** — a mount-time
+    `useEffect(…, [])` in `WindowFirstBriefingContext.jsx` (~:274-294); only its *consumer* is the
+    map-handoff path. The real P1 gap is that the provider's index **discards `locationId`**
+    (keyed `regionName|date|targetType|locationName`, storing a name-keyed subset) while
+    `LocationEvaluationView` carries the id — P1 retains the raw rows (or an id-keyed index) so
+    the heat join can be locationId-first, name-fallback. Payload is ETag'd and shared; measure
+    it once at P1.
+11. **Local dev has zero locations.** `application-local.yml`'s `forecast.locations` block is dead
+    config (nothing reads `ForecastProperties`); Flyway is off locally. Browser verification needs
+    seeding — §7.3.
+12. **The design's per-window verdict/`bestWin` math must not be ported** (D3). `BEST BET` =
+    the window whose `BriefingWindow.pick.kind === 'BEST'` — already served, exactly two picks per
+    forecast. `topAvg` for Order·Best ranking = max `BriefingRegion.meanRating` over the event's
+    regions (server-computed field), AWAITING/never-scored windows rank last.
+13. **Mock `localStorage` keys are demo furniture.** `photocast.heat.viewport` is not ported;
+    the order preference becomes `photocast.planOrder` via `useLocalStorageState`, following the
+    documented whole-value-write rule (`reachLens.js:63-86`).
+
+---
+
+## 3. Data contract — what exists, what is joined, what is new
+
+**The privacy seam (binding, from `docs/engineering/plan-panel-data-contracts.md`):** shared
+forecast data rides the ETag'd shared payloads; per-user data (home, drive times, reach, planning
+area, leave-by) stays client-side or on never-cached `/api/user/settings*` endpoints, and must
+never ride `GET /api/briefing`. The design already agrees: *"The lens does not filter the field"*
+— the field is shared, the reach lens is personal.
+
+Per-location heat spot — every field's source:
+
+| Design field | Source | Status |
+|---|---|---|
+| `id, name, lat, lng, regionId` | `GET /api/locations` (already in App as `visibleLocations`; the shell already receives a `locations` prop) — join key `regionName` via `location.region?.name` | exists |
+| `scores[6]` | `GET /api/briefing/evaluate/scores` → flat `LocationEvaluationView` rows (`locationId, locationName, regionName, date, targetType, rating, fierySkyPotential, goldenHourPotential, summary, displayVerdict, evaluatedAt`) joined by **locationId first, name fallback** (the `BriefingSlot` doctrine) against the six `renderedEvents` (date, targetType) pairs | exists (join is new) |
+| `darkness` | `bortleClass` on `/api/locations`, dark = `<= 4` (D7) | exists |
+| `driveMinutesFromBase, miles` | `GET /api/user/settings/reach` → `ReachEntry(locationId, driveMinutes, distanceMiles)`, whole roster, already fetched by the provider | exists, per-user, client-only |
+| `localDriveMinutes` (away origin) | **new** — P7 `region_drive_time` (shared, user-independent) | new |
+| Window `id/dow/time/eventType` | `renderedEvents` + `eventSummaries[].solarEventTime` / `window.eventTime` (already formatted for display by existing card utils) | exists |
+| Window `confidence` | `BriefingWindow.confidence` tier → `fillScale` scalar (D3) | exists |
+| Window `tide`, `lead` | `BriefingWindow.tide` (unchanged row), `window.pick` | exists |
+| Region narrative per window | `BriefingRegion.summary` (+ `glossHeadline`/`glossDetail`) | exists |
+| Region rail figures | verdict word ← `region.displayVerdict`; star ← `region.meanRating`; `best N★` ← **new served field `BriefingRegion.bestRating`** (P1 backend — the non-canopy max, the same rule as `BriefingWindow.bestRating`; a client-side max over `region.slots` would re-create exactly the aggregation class Phase 3 of the verdict consolidation moved server-side, minus its canopy rule); `N in reach` / `Xh away` ← client reach join (per-user, correctly client-side) | mostly exists; one small backend field new |
+| Delta vs previous run | **new** — P6 snapshot sink | new |
+| `SETUP = 20` min | client constant in the leave-by util (user setting later, §9) | new |
+| Region `aliases`, `base`, `lead` prose | **new/absent** — P7; lead prose has no content source yet (§9) | new |
+
+**Payloads carrying none of this:** the briefing and scores payloads contain **no lat/lng**
+(verified) — coordinates only ever come from `/api/locations`. Keep it that way.
+
+---
+
+## 4. Architecture
+
+### 4.1 The kernel port (P0)
+
+`docs/design/heat-map/heat-field.js` → `frontend/src/utils/heatField.js`, ported close to as-is
+(the algorithm is load-bearing; both optimisation rounds — cull and 3×3 spatial bucketing — are
+required). Permitted deviations, each small and stated:
+
+- ES module exports instead of `window.HeatField`; no IIFE.
+- Inline tiny `mean/min/max` helpers instead of importing `d3-array` (recharts already carries it
+  transitively, but the kernel should not depend on it for three one-liners).
+- `d3-geo` (`geoMercator`, `geoPath`) and `topojson-client` become real dependencies, imported only
+  by the geo host so the kernel stays framework-free. Chunking reality check: `vite.config.js`'s
+  `manualChunks` already routes every `id.includes('d3-')` module into the **recharts** chunk, so
+  `d3-geo` lands there whatever you do — which is fine (that chunk is not in the PWA precache
+  globs), but do not chase a separate `d3-geo` chunk (a rule appended after the `d3-` catch never
+  fires) and do not expect `import('d3-geo')` to split it out. Only the **topojson asset** needs
+  the dynamic-import treatment to stay out of the entry chunk.
+- `load()` imports the **vendored** UK topojson (D9) instead of `d3.json(cdn…)`:
+  `scripts/generate-uk-land.mjs` (committed) filters `world-atlas@2.0.2` `countries-50m` to id
+  `826` at dev time; output committed as `frontend/src/assets/uk-land-50m.json`; loaded via
+  dynamic `import()` so it code-splits. Record provenance + licence (world-atlas ISC / Natural
+  Earth public domain) in the script header. **Never hand-draw a coastline.**
+- `field()` additionally returns the `ImageData` it built (`img`) so tests can assert cell values
+  through a stub context (§7.1). No math changes.
+- The ramp moves to `utils/scoreRamp.js` (D2); `heatField.js` imports it so kernel and UI cannot
+  drift.
+
+Everything else verbatim: cull at `2.45R + grid`, bucket size = cutoff, `d2 > 6R²` cutoff,
+coverage clamp `1 − exp(−Σw/1.15)` with `Σw < 0.02` fully transparent, focus fade `×1e-4`,
+confidence desaturation (60% at conf 0) + alpha −34% + up to 2.6px extra blur, DPR cap 2,
+`bbox`/`latLngBounds`/`aspect`/`centroid`/`radiusFor` helpers, corner-MultiPoint-never-ring
+projection fitting.
+
+### 4.2 Heat spots + planning area (P1)
+
+- `utils/heatSpots.js` — pure join: `(locations, scoreRows, renderedEvents) → [{id, name, lat,
+  lng, regionName, scores: (Integer|null)[6], bortleClass}]`. Null score for a window = that spot
+  contributes nothing to that window's field (filter before handing points to the kernel) — this
+  is the coverage-clamp honesty, not a bug.
+- `utils/planningArea.js` — D6. Exports `areaRegions(spots, reachById)`, `beyondRegions(...)`,
+  `areaSpots(...)`; one module, both surfaces.
+- Provider change: the scores fetch is already eager (§2.10) — P1's provider work is to **retain
+  the raw rows (with `locationId`)** alongside the existing name-keyed map, receive the
+  `locations` roster (App currently hands it only to the shell — `App.jsx` joins P1's touched
+  files to pass it into `WindowFirstBriefingProvider` too), and memoise `heatSpots` (+ per-window
+  point arrays) — `useMemo` on `[locations, scores, renderedEvents]`, mirroring the bundle's
+  "memoise derived scope" lesson. Nothing is recomputed inside a render loop.
+- Backend (small): `BriefingRegion.bestRating` — nullable, `@JsonInclude(NON_NULL)`, the
+  non-canopy max over the region's slots, attached in `enrichWithCachedScores` beside
+  `meanRating` with the same voting/canopy discipline as `BriefingWindow.bestRating`. No
+  migration (JSON-column field, the `confidence` precedent). The rail and band read it; the
+  client never re-derives a per-region max.
+
+### 4.3 The strip (P2) — `components/WindowFirstHeatStrip.jsx`
+
+Replaces the day rail (D1 — including its above-the-tabs position: the strip is a **Plan-pane**
+element, rendered directly under the lens bar and **above `WindowFirstPromotedStrip`**; the two
+are different things and both exist — "the strip" unqualified means the heat strip in this doc,
+and the promoted strip keeps its name and its position at the head of the pane items). Six
+`<button>` thumbnails in the payload's chronological `renderedEvents` order — **the strip is
+never reordered**, whatever the Order control says. Per card: DOW kicker (mono 600, gold when its
+row is open), sunrise/sunset arrow, canvas (`drawGeo`, `grid: 4`, radius `max(10, cell*0.155)`,
+blur 2.4, aspect from `clamp(aspect(fitOf()), 0.85, 1.22)`), time, verdict word (D3 vocabulary,
+verdict colour), `BEST BET` flag as a **passive** `<span>` (below the top row so it cannot cover
+the movement chip; the pick dialog stays reachable via the window card's pick badge — D1).
+Header line (kicker + rule, **no count** — §2.6), footer (ramp bar from `scoreRamp`,
+`poor → worth it`, haze caption, "The field shows the forecast, not your reach — the cards below
+apply it"), beyond line (from `planningArea`, 34% opacity, no search link until P7 — render the
+region names only). Click → `revealWindow(key)` (the shell's existing open+scroll+focus path).
+Phone (≤639px, the arm's one breakpoint): `grid-template-columns: repeat(3, 1fr)` — 3×2, never a
+horizontal scroll. Canvases are `aria-hidden`; each button's accessible name states window +
+time + verdict (+ "best bet").
+
+Order control: `When | Best` joins the lens bar as a third segmented group (reusing `LensSegment`),
+persisted as `photocast.planOrder`. `Best` re-sorts `paneItems`' window cards by max
+`region.meanRating` for the event (AWAITING last, date as tiebreak) and numbers the cards
+(`1`…`6`); away rows stay in date order beside them (chronological interleave only applies under
+`When` — under `Best` away rows sink below the ranked cards; state this in the row footer). The
+strip never re-orders.
+
+### 4.4 The open row (P3) — inside `WindowFirstWindowCard`
+
+New body order: **field map → region rail → region band → existing attribute rows (tide first) →
+existing spot strip → footer**. All new pieces render only when the card is open (canvas drawing
+is lazy by construction).
+
+- **Field map**: `drawGeo` at `grid: 6`, radius `max(20, bw*0.072)`, blur 3.6, height
+  `bw × clamp(aspect, 0.36, 0.62)` desktop / `(0.5, 0.95)` phone. Region labels are DOM (not
+  canvas) at `centroid()` positions; the `.mapbox` `line-height: 0` trap and the label plate's
+  explicit `line-height: 1.35` come straight from the bundle README. Click within 26% of frame
+  width of a centroid selects that region; same-region click or empty space clears. Canvas
+  `aria-hidden`; the rail is the accessible equivalent.
+- **Region rail**: `All N regions` as a peer cell first, then regions ranked by `meanRating` desc.
+  Cell: name, verdict word (`displayVerdict`), `best N★ · M in reach` or `best N★ · 2h 38min away`
+  when nothing is in reach (min `driveMinutes` over the region's locations). Grid
+  `repeat(auto-fit, minmax(118px, 1fr))`; phone `1fr 1fr` with the All cell spanning. The rail
+  disappears when the scope is a single region (P7 origin case; unreachable before then).
+- **Region band** (when a region is selected): name, active-filter list (reach tier + rating floor
+  + region — the lens states it already; the band names it), `Show all regions ×`,
+  `region.summary` narrative (serif) — **with the design's explicit null path**: when `summary` is
+  absent (AWAITING regions can lack one), render "No narrative generated for this window." plus,
+  when a different window is that region's best, "This region's own best is *<window> <time>*" —
+  never silent blankness. Three figures (`best in field` ← the served `bestRating` / `at N★+` /
+  `within <tier>` — the latter two are lens output, client-side), six-dot window strip coloured
+  by that region's `meanRating` per event through `scoreRamp`, `◎` on its best window, dots jump
+  windows via `revealWindow`. Delta chip arrives with P6.
+- **Focus**: selected region feeds the kernel's `focus` option (repaint with `alpha: 238`); card
+  spot pool gains the region filter (compose with the existing `gateSpotsByReach`/`ByRating`);
+  the footer names all three filters in force.
+- Per-card `reg` state lives with the card's other open-state in the shell (`cardOverrides`
+  pattern), cleared on collapse and on window change.
+
+### 4.5 Map tab heat (P4) — inside the shared `MapView`, opt-in
+
+`MapView` gains `heat` (default `undefined` → v1 untouched): `{spots, windows, enabled}` handed
+only by `WindowFirstMapPane`. New internal `MapHeatLayer` component (react-leaflet child using
+`useMap`):
+
+- On mount: `map.createPane('wf-heat')` with `zIndex: 350` — between the tile pane (200) and the
+  overlay/marker panes (400/600) so heat sits under azimuth lines, viewline and markers; a single
+  `<canvas>` in that pane, `pointer-events: none`, `aria-hidden`.
+- On every `move`/`zoom`/`viewreset`/`resize`: reposition the canvas to
+  `map.containerPointToLayerPoint([0, 0])` (`L.DomUtil.setPosition`) and repaint via
+  `drawTiles(canvas, map, points, …)` — **rAF-throttled `render()`**, plus an un-throttled
+  `renderNow()` on `moveend`/`zoomend`. Throttle, never debounce (the bundle's stale-overlay
+  lesson is codified in `map-tab.js:96-100`).
+- Radius in real distance: `radiusFor(map, 8500, 34, 240)`; `grid: 6`, blur 4, `conf` from the
+  selected window's tier, opacity `0.9 × heatAlpha(zoom)` with the z10.6→12.2 fade to a 0.17
+  floor; the marker panes fade the opposite way with the pointer-events gate (D8 — both fades
+  live in the same zoom handler).
+- Toolbar (top-left, `left: 60px`, `z-index: 1100` — Leaflet's zoom control paints over anything
+  lower, and `CentreOnHomeControl` stacks under it in the same corner): `◎ My area | Whole
+  catalogue` (fitBounds from `planningArea`, **`{animate: false}`** — the bundle's
+  fitBounds-mid-paint trap; **absent entirely when no home is set**, since the two states are then
+  identical and a control with no effect is banned by the §6 coherence rule), `Heat | ◍
+  Medallions` (heat default in v2; medallions = today's cluster view untouched), window selector
+  over the six `renderedEvents`. The existing dark-sky toggle stays and repaints the field (D7).
+  Opening bounds: `latLngBounds(areaSpots, 0.12)` with `padding: [28,28]` — **not** all locations.
+- The window selector is Map-tab state (`WindowFirstMapPane`), independent of the Plan tab's open
+  row — the design keeps the two tabs' questions separate (time vs space).
+- v1's Map tab and the overlay `MapView` instances pass no `heat` prop and render byte-identically.
+  Pin this with the opt-in's own test, the `serverCellRating` shape.
+
+### 4.6 Leave-by (P5)
+
+`utils/leaveBy.js`: `leaveBy(eventTimeUtc, driveMinutes, SETUP_MINUTES = 20)` → London-formatted
+`HH:mm`, null when `driveMinutes` unknown (never guess). Rendered on `WindowSpotCard` as
+`↰ leave 03:50` (and in the sheet + peek). Uses the existing instant-formatting utils — the
+codebase's instants-vs-London-dates rules apply; boundary tests around midnight wrap (a fixture
+that actually wraps: an 04:40 BST sunrise = 03:40 UTC with a 3h45 drive leaves at 23:35 the
+previous day — a 2h30 drive off an 05:42 sunrise does *not* wrap and pins nothing). P5 also
+swaps the v2 spot-card rating badge onto `scoreRamp` (D2).
+
+### 4.7 Movement (P6) — the one backend phase before origin
+
+- Migration (⚠️ read the next number from `ls backend/src/main/resources/db/migration/ | sort -V`
+  **on main**, never from a doc): `briefing_region_snapshot(id, region_name, evaluation_date,
+  target_type, mean_rating NUMERIC(3,1) NULL, voting_count INT, display_verdict VARCHAR(20),
+  generated_at TIMESTAMPTZ, briefing_generated_at TIMESTAMPTZ)`, index
+  `(region_name, evaluation_date, target_type, briefing_generated_at DESC)`, pruned by age (90
+  days) in the writer.
+- Writer: end of `BriefingService.refreshBriefing`, after enrichment — one row per
+  region × date × event with the same `votingSlots`-based mean the display uses (the
+  `evaluation_delta_log` alternative was rejected: intersection-only population, absolute deltas,
+  canopy merges invisible — its mean cannot reconcile with the displayed `meanRating`).
+- Serve: `enrichWithCachedScores` (or a sibling step beside it) attaches nullable
+  `BriefingRegion.meanRatingDelta` = current serve-time mean − latest snapshot with
+  `briefing_generated_at <` the current build's stamp, and the response gains nullable
+  `previousGeneratedAt`. Nullable + `@JsonInclude(NON_NULL)` — the `confidence` precedent: no
+  migration for the payload, legacy caches deserialize null, **degrade is silence, never `—` for
+  "unknown"** (the design's `—` chip means a real measured zero). One semantic to state in the
+  field's javadoc: the current side is the serve-time re-enriched mean, so the delta includes
+  post-build batch drift, not only run-to-run change — that is the honest quantity (it is what
+  the reader's screen moved by), just not literally "since the last build".
+- Frontend: strip movement chips (`▲0.6` `--color-badge-go` / `▼0.3` `--color-badge-poor`, `—`
+  muted only when a delta of 0.0 was measured), chip per window = the delta of the window's top
+  region; change line under the strip ("Since the last forecast run 52m ago · <window> ▲0.6 in
+  <region> · …", top two movers by |delta|) — the run age is `generatedAt`, already rendered by
+  the shell; "your last look" per-user tracking is deliberately not built.
+
+### 4.8 Origin + search (P7)
+
+Backend (all shared, user-independent — this is what lets it ride shared payloads):
+- Region base: `regions` gains `base_name VARCHAR`, `base_lat`, `base_lon DOUBLE PRECISION`
+  (nullable; admin UI edit in `RegionManagementView`). A region without a base cannot be an
+  origin (search still finds it; "Plan from here" disabled with a title saying why).
+- `region_drive_time(region_id, location_id, drive_duration_seconds)` — ORS matrix from each base
+  to the whole roster (`OpenRouteServiceClient.fetchDurations` already takes an arbitrary origin),
+  refreshed beside `DriveTimeRefreshJob`. The rate-limit `Semaphore(2)` is currently a
+  `private static` inside `DriveDurationService` — hoist it somewhere both jobs share it
+  deliberately; do not duplicate it and double the effective concurrency. Re-run when a base
+  changes or locations are added. Served by a small bearer endpoint (shape:
+  `GET /api/regions/drive-times` → `{regionId: {locationId: minutes}}`), ETag-whitelisted — it is
+  shared data.
+- Optional: `aliases` column (comma-separated) for search; start name-matching only.
+
+Frontend:
+- Origin chip in the shell masthead (home glyph + place; blue away variant + `⌂` return), replacing
+  the rail-footer `Home · <place>` line. `origin` joins the shell state: `HOME` or one region.
+- Search (`/` and chip click): one box over three groups — Windows (day/event token matching),
+  Regions ("PLAN FROM HERE"), Locations (jump to spot on map / four-day sheet at P8). Keyboard
+  ↑↓/enter/esc. Regions absent from the resting list (the row maps are the region picker), still
+  matched when typed. The prototype's resting-state "Recent locations" group is **not built** —
+  no recency store exists (§9.11); the resting list is windows-only. P7 also wires the beyond
+  line's "search to plan from one →" link (search pre-filled with the first beyond region),
+  deferred from P2. Reuse the dialog/focus machinery (`useDialogFocus`, `BottomSheet` on phone).
+- `setOrigin(region)`: scope becomes that region (pool, `fitOf`, all six thumbnails re-frame — the
+  design's headline state), lens relabels `Drive from <base>` and drive figures switch to the
+  shared `region_drive_time` map, reach default drops to the 90 tier, leave-by recomputes from the
+  same figures. The region rail drops away (single-region scope). The reach *lens* stays personal;
+  the *field* never filters by it, home or away.
+- The two clash states (nothing within reach of the base / rating floor set at home empties an
+  away region) get the design's explicit explain-and-offer treatment — these are lens-empty
+  states, and v2 already has the lens-empty card pattern to extend.
+
+---
+
+## 5. Performance invariants (port these, do not rediscover them)
+
+1. **Cull + bucketing stay exactly as written.** 204 locations stalled a pan without bucketing
+   (~4.5M inner-loop iterations/frame); coverage is growing. Any "simplification" that touches the
+   3×3 bucket walk needs the brute-force equivalence test (§7.1) green and a measured pan.
+2. **Throttle, never debounce, map moves** — one rAF-guarded `render()` for `move`/`zoom`,
+   un-throttled `renderNow()` on `moveend`/`zoomend`.
+3. **No heavy synchronous paint in the same tick as an animated `fitBounds`** — area/catalogue
+   switches use `{animate: false}`.
+4. **Memoise derived scope** — `heatSpots`, per-window point arrays, `areaRegions`, `fitOf` aspect:
+   `useMemo` on their real inputs; nothing derived inside a render loop. (The prototype's
+   unmemoised `areaRids` cost seconds per repaint.)
+5. **Grid dials**: 4 thumbnails, 6 big map + tiles; blur hides the step; never below 3 without
+   measuring. DPR capped at 2.
+6. **Zero-measure guard**: `drawGeo` declines when the box is < 20px (a zero canvas throws); the
+   strip retries via rAF exactly as the prototype's `drawThumbs(tries)` does — the shell's panes
+   mount hidden (`display: none`), so first-draw-on-reveal must be handled (the `resizeNonce` /
+   ResizeObserver precedent in `WindowFirstMapPane`).
+
+---
+
+## 6. Phases
+
+Each phase: own branch, conventional commits, CHANGELOG entry, full frontend gate (`npm run lint
+&& npm test && npm audit --audit-level=high && npm run build`), adversarial review of the diff
+**before** commit, browser verification where the phase is previewable. Backend phases add the
+Maven ladder (`compile → single-class test → checkstyle:check → full verify`), exit-code-gated.
+
+| Phase | Contents | New/changed files (indicative) | Exit criteria |
+|---|---|---|---|
+| **P0 — foundations** | Vendor bundle to `docs/design/heat-map/` verbatim (all 7 files + `screens/`); add `d3-geo` + `topojson-client`; `scripts/generate-uk-land.mjs` + committed `frontend/src/assets/uk-land-50m.json`; port kernel + `scoreRamp.js`; kernel unit tests | `docs/design/heat-map/*`, `frontend/src/utils/heatField.js`, `utils/scoreRamp.js`, `frontend/scripts/generate-uk-land.mjs`, `src/assets/uk-land-50m.json`, `src/test/heatField.test.js`, `scoreRamp.test.js` | Kernel tests green incl. bucket≡brute-force; bundle diffable against the zip; no CDN reference anywhere; build size delta noted |
+| **P1 — data plumbing** | Provider retains raw score rows (incl. `locationId`) + receives `locations`; `heatSpots` join; `planningArea`; conf tier→scalar helper; **backend `BriefingRegion.bestRating`** | `context/WindowFirstBriefingContext.jsx`, `App.jsx` (pass `locations` to the provider), `utils/heatSpots.js`, `utils/planningArea.js`, backend `BriefingRegion.java` + `BriefingService.enrichWithCachedScores` + tests | Join tests (id-first/name-fallback, null-score windows, unregioned drop); planning-area boundaries 179/180/181 + no-home degrade; `bestRating` non-canopy rule pinned both sides; scores payload size measured and recorded |
+| **P2 — the strip** | `WindowFirstHeatStrip` replacing the day rail (D1, after owner confirms — including retiring the above-tabs pinned test with the recorded rationale); Order control on the lens bar; beyond line (names only) | `components/WindowFirstHeatStrip.jsx`, `WindowFirstShell.jsx`, `WindowFirstLensBar.jsx`, `utils/windowFirstOrder.js`, `index.css` (`wf-heat-*`, tokens in `@theme static`), `src/test/WindowFirstShellTabs.test.jsx` (update the rail pin), `WindowFirstDayRail.test.jsx`/`windowFirstRail.test.js` (retire or quarantine with the component), tests | Six buttons with correct accessible names; `BEST BET` flag passive (no nested interactive); click opens+scrolls its row; strip order immune to Order·Best; verdict words from payload only; no database-count copy anywhere on the strip; 3×2 at 639px asserted as class/attribute; browser screenshots desktop+390px |
+| **P3 — the open row** | Row field map + centroid labels + click-to-region; region rail; region band; focus + card-pool region filter; footer filter naming | `WindowFirstWindowCard.jsx`, `components/WindowRowFieldMap.jsx`, `WindowRegionRail.jsx`, `WindowRegionBand.jsx`, shell state, tests | Rail ranked by `meanRating`, star figures from served `bestRating` only; nothing-in-reach cell shows distance; band narrative = `region.summary` verbatim **and the null-summary fallback renders the design's line**; same-region click clears; six-dot jumps windows; tide row + spot strip unmoved (their tests pass unedited) |
+| **P4 — map heat** | `MapHeatLayer` + pane; `heat` opt-in prop (canvas + marker-pane zoom fade + `scoreRamp` marker colours, per D8/D2); toolbar (view/area/window); legend | `MapView.jsx` (opt-in), `components/MapHeatLayer.jsx`, `WindowFirstMapPane.jsx`, `markerUtils.js` or a v2 ramp shim (opt-in-gated), tests | v1 map + overlay byte-identical without the prop (pinned); marker fade + pointer-events gate asserted; area toggle **absent when no home** (D6 — two identical states is a dead control); throttle/renderNow wiring asserted; `{animate:false}` pinned; browser: pan a ~200-spot fixture (seed script dense mode) without stall, before/after screenshots |
+| **P5 — leave-by** | `leaveBy` util + spot card/sheet/peek line; spot-badge ramp swap (D2) | `utils/leaveBy.js`, `utils/windowFirstSpots.js`, `WindowSpotCard.jsx`, `WindowSpotSheet.jsx`, `WindowSpotPeek.jsx`, tests | Null drive → no line; a genuinely wrapping midnight fixture (§4.6); London formatting under the TZ-pinned suite + an abroad-zone test file |
+| **P6 — movement** | `briefing_region_snapshot` migration + writer + pruning; `meanRatingDelta` + `previousGeneratedAt` serve fields; strip chips + change line + band chip | backend migration/service/model + `WindowFirstHeatStrip.jsx`, tests both sides | Delta uses votingSlots mean both sides; null delta renders nothing; measured-zero renders `—`; JaCoCo 80% per class on new records (cover null guards with real assertions); snapshot pruning tested |
+| **P7 — origin + search** | Region bases + ORS matrix + endpoint (backend); origin chip, search (windows/regions/locations, windows-only resting list), `setOrigin`, away lens relabel, clash states, beyond-line search link | backend migration/entity/admin UI/job/endpoint; `components/PlanSearch.jsx`, shell/masthead, `planningArea` origin variant, `WindowFirstHeatStrip.jsx` (beyond link), tests | Origin move re-frames all six thumbnails (browser-verified); shared matrix never mixes with per-user reach; baseless region cannot be an origin; `⌂` restores home + 150 tier |
+| **P8 — four-day location sheet** (optional) | Per-location six-window timeline (ratings + `summary` why from the scores rows, leave-by), location-card entry (+ search entry if P7 landed) | `components/LocationFourDaySheet.jsx`, tests | Owner accepts click-behaviour change; peek/map-open behaviours preserved where kept |
+
+Sequencing notes: P0→P3 are strictly ordered; P4 needs only P0+P1; P5 is independent after P1;
+P6 backend can start any time, its frontend needs P2; P7 needs P2+P3; **P8 needs P1 + P5 (its
+timeline rows render leave-by), plus P7 only if the search entry point is chosen**. Suggested
+landing order: P0, P1, P2, P3, P4, P5, P6, P7, P8 — with P4 swappable earlier if the Map tab is
+wanted sooner.
+
+---
+
+## 7. Test strategy
+
+### 7.1 Kernel (jsdom has no canvas)
+
+jsdom's `getContext('2d')` returns null. Do **not** add a global canvas polyfill to
+`src/test/setup.js` — stub per test file: a minimal fake context (`createImageData` returning
+`{data: Uint8ClampedArray, width, height}`, `putImageData`, `clearRect`, `fillRect`,
+`save/restore`, `drawImage`, `beginPath/fill/stroke/clip`, **the path methods d3's
+`geoPath(proj, ctx)` drives — `moveTo`, `lineTo`, `closePath`, `arc`** (without these the drawGeo
+smoke tests throw on the coastline), settable `filter`/`globalAlpha`, `setTransform`) patched
+onto `HTMLCanvasElement.prototype` in `beforeEach`. The kernel's returned `img` (§4.1) makes cell
+assertions direct. Required tests, each mutation-resistant per `frontend-test-standards.md`:
+
+- **Bucket ≡ brute force**: seeded random point sets (~40 points, mixed in/out of frame) — the
+  bucketed field's RGBA equals a test-local brute-force accumulator's. The term *sets* are
+  identical (`d2 > 6R²` matches both ways) but FP summation order differs, so a value on a
+  rounding boundary can differ by 1 — assert equality **within ±1 per channel** (or pin an exact
+  seed known to pass and say so in a comment), so a boundary failure is not misread as a port
+  bug. This is the test that guards the performance structure against "simplification".
+- Cull: a point beyond `2.45R + grid` of the frame influences nothing; one just inside does.
+- Coverage clamp: `Σw < 0.02` → alpha 0; empty input → `field()` null.
+- Focus: non-focused region's contribution ×1e-4 (assert a cell flips colour).
+- Confidence: conf 0.5 desaturates toward grey and thins alpha by the stated factors; conf 1
+  identity.
+- Ramp: exact at the five stops, interpolated at 1.5/2.5/3.5/4.5, clamped at 0/6.
+- Geometry: `bbox` padding (×1.7 lng), `latLngBounds` orientation, `aspect` cos-lat correction,
+  `radiusFor` clamps at both ends. (The aspect clamps 0.85/1.22 and 0.36/0.62|0.5/0.95 are **not**
+  kernel behaviour — `aspect()` has no clamps; they are strip/row-map constants and their boundary
+  tests belong to P2/P3.)
+
+`drawGeo`/`drawTiles` get smoke coverage through the stub (paints without throwing, declines
+under 20px, sea/plate/clip call order) — their visual truth is browser-verified (§7.3).
+
+### 7.2 Components
+
+House rules apply in full (`docs/engineering/frontend-test-standards.md`): mock at the API-module
+boundary, `fireEvent`, `findBy*`, roles + accessible names for every interactive element,
+test-ids for containers (`wf-heat-strip`, `wf-heat-card`, `wf-row-map`, `wf-region-rail`,
+`wf-region-cell`, `wf-region-band`, `wf-map-toolbar`… following the arm's naming), boundary
+fixtures (zero/one/six windows; a window with no scored locations; AWAITING windows under
+Order·Best), degrade paths as named tests (scores fetch fails → strip absent, rows intact; no
+reach → beyond line absent and counts absent, field unaffected; legacy payload without
+`renderedEvents` → strip falls back with the same walk the cards use). The strip's chronology
+invariant gets its own test: with Order·Best active, thumbnail order still equals
+`renderedEvents` order while cards are ranked.
+
+### 7.3 Browser verification (the cadence's second half)
+
+Local path: backend `./mvnw -Plocal-dev spring-boot:run -Dspring-boot.run.profiles=local` (port
+**8083**), `npm run dev`, sign in `admin`/`golden2026`. The local H2 starts empty (§2.11), so each
+verifying session seeds once:
+
+1. **Regions first** — `POST /api/regions` and capture the ids (`POST /api/locations` takes
+   `regionId`, and the heatSpots join **drops unregioned locations**, so skipping this yields an
+   empty field). Then ~20 locations across 3+ regions via `POST /api/locations` (curl script
+   committed as `scripts/dev-seed-locations.sh`; include coastal + inland + a couple with
+   `bortleClass ≤ 4`), plus a `--dense` mode that scatters ~200 around the anchors — the P4 pan
+   test needs a 200-spot fixture and 20 will not exercise the bucketing.
+2. Ratings without an API spend: insert `cached_evaluation` rows in the H2 console
+   (`results_json` is a JSON list of `BriefingEvaluationResult`; use **today/future dates** —
+   rehydration ignores the past), then ⚠️ **restart the backend** — the briefing enrichment reads
+   the in-memory `ConcurrentHashMap`, which is populated from the DB only by
+   `rehydrateCacheOnStartup` (`@EventListener(ApplicationReadyEvent)`); rows inserted after
+   startup are invisible to `POST /api/briefing/run` until a restart (confusingly,
+   `GET /api/briefing/evaluate/scores` *does* see them via its own DB fallback, so a half-lit
+   screen here means you skipped the restart, not that the join is broken). Then
+   `POST /api/briefing/run`. Document the exact SQL beside the seed script.
+
+Verify with screenshots at desktop and 390px: strip default, a thumbnail click, an open row with
+a region selected, Map tab heat vs medallions, area toggle, dark-sky repaint, and (P4) a pan on a
+dense fixture. State plainly which claims were seen versus asserted. Review agents are read-only;
+anything mutating gets its own worktree; commit or stash before any review that runs mutations.
+
+---
+
+## 8. Risks and traps
+
+- **Tailwind v4 prunes plain-`@theme` tokens** — new heat tokens go in `@theme static`
+  (`index.css:61-93` records the incident). JS-side hexes live in `scoreRamp.js`, not CSS vars, so
+  canvas and CSS cannot desynchronise silently — the ramp module is the single source and the
+  tokens reference the same literals with a comment pointing both ways.
+- **Shared-component blast radius**: `MapView` is mounted three times (v1 tab, v2 pane, overlay).
+  Only the v2 pane passes `heat`. The opt-in default-off test is not optional. Same for any
+  touch on `WindowSpotCard` (shared strip/sheet) — v2-only, but peek/sheet snapshots of behaviour
+  should pass unedited where unaffected.
+- **Hidden-pane first paint**: shell panes mount `display: none`; canvases measure 0 there. The
+  rAF-retry + ResizeObserver patterns already exist (`drawThumbs(tries)` in the prototype,
+  `resizeNonce` in `WindowFirstMapPane`) — use them, don't invent a third.
+- **Inline-style shorthand trap**: dynamic canvas sizing uses the sanctioned inline pattern
+  (runtime-computed values only); never inline `border`/`padding`/`display` shorthands — they have
+  repeatedly zeroed phone media queries (`index.css:796-801` etc.).
+- **PWA/nginx**: no new external origins (D9), so no CSP edit; keep new chunks out of the precache
+  shell globs; the topojson asset rides the runtime `CacheFirst` `/assets/` route with the
+  existing 80-entry cap — check the cap still holds with the new chunks.
+- **Payload growth**: eager `evaluate/scores` for every v2 session (measure at P1) and the
+  briefing payload is already ~1.3MB raw/133KB gzipped — P6 adds one nullable field per region,
+  fine; nothing else rides it.
+- **Migration numbering rots** — read `ls .../db/migration | sort -V | tail -1` on **main** at P6
+  and P7 time (two V136s collided once).
+- **CHANGELOG conflicts are guaranteed** across eight PRs — check `git rev-list --count
+  HEAD..origin/main` before each merge, not which files changed.
+- **The two arms' SWR briefing cache is shared** (`briefing:${role}`) — the strip must tolerate a
+  cached payload from before any new field existed (null-safe reads everywhere; the
+  `renderedEvents` null-vs-empty contract is already in the provider).
+- **evaluate/scores date-keying**: rows are keyed by (locationId, date, targetType); renderedEvents
+  supplies exactly those pairs — do not re-derive dates from times (instants-vs-London-dates
+  rules; the suite's TZ pin will catch it, an abroad-zone test file must too).
+
+---
+
+## 9. Open questions for the owner
+
+Carried from the bundle, plus new ones this plan surfaced. None block P0/P1.
+
+1. **D1 confirm**: strip replaces the day rail? (Recommended yes; blocks P2. The full
+   comparison, job relocation table and rejected alternatives are §1.1.)
+2. **Plan/Map division of labour** (bundle Q1): time-first/space-first as built, or Map as the
+   forecast-agnostic catalogue? Decide before building more onto either tab; does not change P0–P6.
+3. **Density on a Plan row** (bundle Q2): quality is stated four times before the rail (thumbnail
+   verdict, `best N★`, confidence mark, verdict badge). Bundle recommends cutting two.
+   Recommendation here: drop the open row's duplicate `best N★` (the rail cells carry it) and let
+   the confidence mark live only on the verdict badge as today — decide at P3 review with the real
+   screen in front of you.
+4. **Should the field respect drive time?** (bundle Q3) Currently no, deliberately, stated in the
+   strip footer. Revisit only with evidence.
+5. **`GLANCE` as a user setting** (bundle Q5), defaulting to the widest configured drive-time
+   habit; hard-coded 180 for the first cut. Same for `SETUP = 20`.
+6. **LITE gating**: the strip and heat render from the same scores payload LITE already receives,
+   and per the standing note the LITE score split is one open pricing decision, not a rendering
+   bug. Proposal: ship heat ungated for the pilot (parity with the rest of v2), revisit with the
+   pricing decision. Confirm.
+7. **Away-day windows on the strip**: the design doesn't address travel days. Proposal: thumbnails
+   render normally with a small `✈` in the top row; away rows keep their place in the list.
+8. **"Somewhere is good, just not near you"** (bundle Q4): real feature, deliberately not built.
+9. **P8 scope**: does the four-day location sheet replace card-click→map, or hang off the search
+   only?
+10. **Region lead narrative** (the away-origin editorial paragraph): no content source exists.
+    Options: reuse `glossHeadline`/`glossDetail`, generate at briefing build for regions with
+    bases, or omit at P7. Recommendation: omit first, decide with real away usage.
+11. **Search "Recent locations" resting group**: the prototype shows recently-opened locations at
+    rest; no recency store exists and none is planned. Shipped as windows-only resting list
+    (§4.8) — build a recency store only if the owner wants the group.
+
+---
+
+## 10. For the implementing session — first hour checklist
+
+1. `git pull && git branch --show-current` (never build on main; a review agent has switched
+   branches mid-session before). ⚠️ **NEVER push to remote, and never create or delete tags —
+   always wait to be explicitly asked** (CLAUDE.md Git Conventions; this applies to every phase).
+2. Read: CLAUDE.md (§ UI Work — Review Cadence, § Speeding Up the Dev Build Cycle),
+   `docs/engineering/frontend-test-standards.md`, `docs/engineering/plan-panel-data-contracts.md`,
+   `docs/design/window-first/Adversarial Review.html` (the §6 ongoing rule: new Plan-tab elements
+   earn their place against that list — this is the largest Plan-tab addition since the redesign),
+   this plan, then the vendored bundle (`docs/design/heat-map/README.md` + both HTML files in a
+   browser).
+3. Verify §2's corrections still hold (`markerUtils.js`, `nginx.conf:78`, `RegionEntity`,
+   `reachLens.js`) — this project has had citations rot within a single commit.
+4. Start at P0. The bundle's `heat-field.js` is the spec for the port; §4.1 lists the only
+   permitted deviations.
+5. Update this doc's **Status** line and the per-phase table in the same commit as each phase —
+   a status block updated separately lies.

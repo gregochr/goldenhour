@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — heat-field implementation plan + vendored design bundle
+
+`docs/engineering/heat-field-plan.md`: the phased (P0–P8) plan for the heat-map feature — six
+static-canvas window thumbnails under the v2 lens bar, a field map + region rail + drill-down
+band inside each open window row, and the same field over the Leaflet tiles as the Map tab's
+default view, all behind the v2 Plan-layout flag. The design handoff is vendored verbatim at
+`docs/design/heat-map/` (spec HTML ×2, the load-bearing `heat-field.js` kernel, mock data,
+reference screenshots). The plan was adversarially reviewed before landing (4 lenses, ~25
+upheld findings applied); its §2 records where the bundle's README is stale against this repo
+and wins over it, and §1.1 details the one owner decision that blocks P2 — the strip replacing
+the day rail. Documentation only; no behaviour change.
+
 ## [v2.18.11] - 2026-08-18
 
 ### Fixed — CLAUDE.md understated the `[BUILDING]` penalty the prompt actually asks for
