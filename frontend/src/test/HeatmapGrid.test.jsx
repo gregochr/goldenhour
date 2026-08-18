@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
 import HeatmapGrid from '../components/HeatmapGrid.jsx';
 
 vi.mock('../hooks/useConfirmDialog.js', () => ({
@@ -50,7 +50,10 @@ function buildBriefingDays(dates, regionName, locationNames) {
   }));
 }
 
-function renderGrid({ events, briefingDays, showAllLocations, travelDayDates, scrollable } = {}) {
+function renderGrid({
+  events, briefingDays, showAllLocations, travelDayDates, scrollable, serverCellRating,
+  evaluationScores,
+} = {}) {
   const regionName = 'North East';
   const locNames = ['Bamburgh', 'Kielder'];
   const days = briefingDays || buildBriefingDays([DATE_1, DATE_2], regionName, locNames);
@@ -75,6 +78,8 @@ function renderGrid({ events, briefingDays, showAllLocations, travelDayDates, sc
       showAllLocations={showAllLocations || false}
       travelDayDates={travelDayDates || new Set()}
       scrollable={scrollable || false}
+      serverCellRating={serverCellRating || false}
+      evaluationScores={evaluationScores || new Map()}
     />,
   );
 }
@@ -1250,6 +1255,233 @@ describe('HeatmapGrid — day header solar times', () => {
 });
 
 // ── Backend-cached Claude scores on slots ────────────────────────────────────
+
+/**
+ * The per-cell star has two derivations and the CALLER chooses, because `HeatmapGrid` has two call
+ * sites in two flag arms and one of them is the frozen pilot control. These pin both sides of that
+ * prop, and that the same payload gives different numbers under each — which is what makes the
+ * default load-bearing rather than cosmetic.
+ */
+describe('HeatmapGrid — where a cell\'s star comes from (serverCellRating)', () => {
+  /**
+   * One region carrying BOTH sources, deliberately disagreeing: the backend's own mean says 2, the
+   * slot tree averages 5. Neither path can be mistaken for the other, and a fallback that silently
+   * fired would print the wrong one rather than nothing.
+   */
+  function days(meanRating) {
+    return [{
+      date: DATE_1,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          displayVerdict: 'WORTH_IT',
+          summary: 'Clear skies',
+          meanRating,
+          slots: [{
+            locationName: 'Bamburgh', verdict: 'GO',
+            solarEventTime: `${DATE_1}T19:30:00`, claudeRating: 5,
+          }],
+        }],
+      }],
+    }];
+  }
+
+  const render1 = (props) => renderGrid({
+    events: [{ date: DATE_1, targetType: 'SUNSET' }],
+    briefingDays: days(2),
+    ...props,
+  });
+
+  it('reads the backend mean when the caller opts in', () => {
+    render1({ serverCellRating: true });
+    expect(screen.getByTestId('mean-score-badge').textContent).toContain('2');
+  });
+
+  it('keeps the client-side derivation when the caller does not — the frozen v1 arm', () => {
+    // `DailyBriefing` passes nothing. Both numbers are on this payload, so if the default ever
+    // flipped, this cell would silently start printing 2 in the arm the pilot is comparing against.
+    render1({});
+    expect(screen.getByTestId('mean-score-badge').textContent).toContain('5');
+  });
+
+  it('prints no star at all when the backend reports no mean', () => {
+    // Null is "nothing here is rated", which is a different statement from a low mean. The opted-in
+    // path must NOT fall through to the slot tree — that fallback is what let a cell's star and its
+    // verdict word come from two computations, and its silence is the point of the opt-in.
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days(null),
+      serverCellRating: true,
+    });
+    expect(screen.queryByTestId('mean-score-badge')).toBeNull();
+  });
+});
+
+/**
+ * The v1 arm's own cell star, and the canopy rule it now applies by hand.
+ *
+ * <p>The region verdict is a payload field both arms render, so the backend's canopy fix moved the
+ * WORD in v1 as well as v2. The star is derived here, so it had to be moved to match or the cell
+ * would contradict itself — and the v1 star has two lookup paths, the score-map join and the slot
+ * fallback, so both are exercised.
+ */
+describe('HeatmapGrid — the v1 cell star excludes woods, like its verdict word', () => {
+  // SUNRISE throughout: `BriefingService` briefs a woodland-only location at dawn only, so a canopy
+  // slot at a sunset is a payload production cannot emit. The filter is event-agnostic and would
+  // pass either way — the event is chosen so a reader checking these fixtures against the product
+  // is not told something false about where woods appear.
+  const KEY = (loc) => `North East|${DATE_1}|SUNRISE|${loc}`;
+
+  /** A region whose slots carry ratings, with the named ones marked canopy. */
+  function daysWith(entries) {
+    return [{
+      date: DATE_1,
+      eventSummaries: [{
+        targetType: 'SUNRISE',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          displayVerdict: 'WORTH_IT',
+          summary: 'Clear skies',
+          slots: entries.map(([locationName, claudeRating, canopy]) => ({
+            locationName, claudeRating, canopy, verdict: 'GO',
+            solarEventTime: `${DATE_1}T05:30:00`,
+          })),
+        }],
+      }],
+    }];
+  }
+
+  const renderCell = (briefingDays, evaluationScores) => renderGrid({
+    events: [{ date: DATE_1, targetType: 'SUNRISE' }],
+    briefingDays,
+    evaluationScores,
+  });
+
+  it('drops the wood from the score-map join — the path production takes', () => {
+    // Sky 4 and 4, wood 1. Counting the wood gives 3.0 and an amber pill; the sky alone gives 4.0
+    // and a green one, which is the band the backend put in the word beside it.
+    renderCell(
+      daysWith([['Bamburgh', 4, false], ['Alnmouth', 4, false], ['Bluebell Wood', 1, true]]),
+      new Map([
+        [KEY('Bamburgh'), { locationName: 'Bamburgh', rating: 4 }],
+        [KEY('Alnmouth'), { locationName: 'Alnmouth', rating: 4 }],
+        [KEY('Bluebell Wood'), { locationName: 'Bluebell Wood', rating: 1 }],
+      ]),
+    );
+
+    // Exact, not a substring: the badge's whole content is the number and a star, so a
+    // `toContain('4')` would also pass on "4.5★" or "14★" and a `not.toContain('3')` is a weaker
+    // statement than the one this test is making.
+    expect(screen.getByTestId('mean-score-badge')).toHaveTextContent(/^4★$/);
+  });
+
+  it('drops it from the slot fallback too, when the score map has nothing for this cell', () => {
+    // The fallback fires whenever the name-keyed join finds no row — a different cache lifetime,
+    // an empty /evaluate/scores, a region rename. It must apply the same rule or the star changes
+    // meaning depending on which lookup answered.
+    renderCell(
+      daysWith([['Bamburgh', 4, false], ['Alnmouth', 4, false], ['Bluebell Wood', 1, true]]),
+      new Map(),
+    );
+
+    expect(screen.getByTestId('mean-score-badge')).toHaveTextContent(/^4★$/);
+  });
+
+  // The all-canopy fallback is TWO expressions — the name set the join filters on, and the slot
+  // list the fallback iterates — and one test that feeds BOTH lookups pins neither: whichever
+  // expression keeps its guard rescues the answer, so mutating either alone stays green. Each of
+  // the next two starves one lookup so only the other can answer.
+
+  it('keeps its woods when nothing else votes — via the JOIN, the slot list being unrated', () => {
+    // Only the score map can answer: the slots carry no ratings, so the fallback has nothing to
+    // give. Build the canopy name set unconditionally and the join filters both woods out, leaving
+    // a woodland-only region with a verdict word and no star at all.
+    renderCell(
+      daysWith([['Bluebell Wood', null, true], ['Hollow Copse', null, true]]),
+      new Map([
+        [KEY('Bluebell Wood'), { locationName: 'Bluebell Wood', rating: 3 }],
+        [KEY('Hollow Copse'), { locationName: 'Hollow Copse', rating: 3 }],
+      ]),
+    );
+
+    expect(screen.getByTestId('mean-score-badge')).toHaveTextContent(/^3★$/);
+  });
+
+  it('keeps its woods when nothing else votes — via the SLOT FALLBACK, the map being empty', () => {
+    // The mirror: only the slot tree can answer. Filter the slot list unconditionally and the same
+    // region loses its star from the other direction.
+    renderCell(
+      daysWith([['Bluebell Wood', 3, true], ['Hollow Copse', 3, true]]),
+      new Map(),
+    );
+
+    expect(screen.getByTestId('mean-score-badge')).toHaveTextContent(/^3★$/);
+  });
+
+  it('falls back to the slots when the join found only a wood', () => {
+    // The two-lookup structure changed meaning here and it is worth pinning. The fallback fires on
+    // "the join yielded nothing", and since the filter the join can now yield nothing BECAUSE the
+    // only scored row it matched was a wood. Falling through to the slot tree is right — that is
+    // the documented degrade, and the slots are enriched from the same store — but it means a
+    // region whose only FRESH score is a wood is now answered by its sky slots rather than by the
+    // wood. Without the fallback firing, this cell would lose its star while keeping its word.
+    renderCell(
+      daysWith([['Bamburgh', 4, false], ['Bluebell Wood', 1, true]]),
+      new Map([[KEY('Bluebell Wood'), { locationName: 'Bluebell Wood', rating: 1 }]]),
+    );
+
+    expect(screen.getByTestId('mean-score-badge')).toHaveTextContent(/^4★$/);
+  });
+
+  it('shows no star when the only rated location in the region is a wood', () => {
+    // The boundary of the line above. Nothing that votes is rated anywhere — join filtered, slots
+    // unrated — so the honest answer is no badge at all, not the wood's own 1★ and not a 0.
+    renderCell(
+      daysWith([['Bamburgh', null, false], ['Bluebell Wood', 1, true]]),
+      new Map([[KEY('Bluebell Wood'), { locationName: 'Bluebell Wood', rating: 1 }]]),
+    );
+
+    expect(screen.queryByTestId('mean-score-badge')).toBeNull();
+  });
+
+  it('keeps a scored location the slot list does not mention', () => {
+    // The exclusion can only skip what the payload calls a wood. A name it has never heard of is
+    // included, exactly as before — guessing at canopy for an unknown name would be a worse error
+    // than the mismatch the filter exists to remove.
+    renderCell(
+      daysWith([['Bamburgh', 2, false]]),
+      new Map([
+        [KEY('Bamburgh'), { locationName: 'Bamburgh', rating: 2 }],
+        [KEY('Newcomer'), { locationName: 'Newcomer', rating: 4 }],
+      ]),
+    );
+
+    expect(screen.getByTestId('mean-score-badge')).toHaveTextContent(/^3★$/);
+  });
+
+  it('still shows the wood its own row in the drill-down', () => {
+    // The filter is an AGGREGATE rule. A wood keeps its slot, its verdict and its own rating one
+    // keypress away — that is the whole reason excluding it from the average is honest rather than
+    // a deletion.
+    renderCell(
+      daysWith([['Bamburgh', 4, false], ['Bluebell Wood', 1, true]]),
+      new Map([
+        [KEY('Bamburgh'), { locationName: 'Bamburgh', rating: 4 }],
+        [KEY('Bluebell Wood'), { locationName: 'Bluebell Wood', rating: 1 }],
+      ]),
+    );
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+
+    // The NAME alone would pass on a row that had lost its score, which is exactly the claim under
+    // test. The panel is what must still carry the wood's own 1★.
+    const panel = screen.getByTestId('drill-down-panel');
+    expect(within(panel).getByText('Bluebell Wood')).toBeInTheDocument();
+    expect(within(panel).getByText(/1★/)).toBeInTheDocument();
+  });
+});
 
 describe('HeatmapGrid — backend-cached Claude scores', () => {
   function buildDaysWithCachedScores(claudeRating, fierySky, goldenHour, summary) {

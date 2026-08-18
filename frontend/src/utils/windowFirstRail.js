@@ -1,5 +1,4 @@
 import { formatTime, getEventTime, weatherCodeToIcon, msToMph } from './briefingDisplay.js';
-import { resolveRegionDisplay } from './tierUtils.js';
 import { daysOut, resolveConfidence } from './confidenceUtils.js';
 
 /**
@@ -11,8 +10,14 @@ import { daysOut, resolveConfidence } from './confidenceUtils.js';
  * <p>Plan §5 (P4c/P6): rewiring {@code DailyBriefing} to consume a shared module would break the
  * one thing the flag rests on — the v1 arm staying byte-identical while both layouts are judged
  * against the same night's data. Every helper here is pure and reachable through no module state,
- * so the copy is exact rather than approximate. Reconverge the two only after the flag default
+ * so the copy was exact rather than approximate. Reconverge the two only after the flag default
  * flips.
+ *
+ * <p><b>It is no longer an exact copy, and the divergence is the point.</b> Phase 3 of
+ * {@code plan-verdict-consolidation-plan.md} moved the day roll-up to the backend: this module
+ * renders {@code BriefingDay.peak}, while {@code buildSummaryPills} still rolls its own up from the
+ * region list. That is deliberate — moving v1 would move the control the pilot is measured against —
+ * so the two now answer the same question by different routes, and only v2's route is authoritative.
  *
  * <p>The one import that would have been legal is {@code bestConfidence}, which {@code DailyBriefing}
  * exports — and taking it would drag that entire module graph ({@code HeatmapGrid},
@@ -141,10 +146,18 @@ const pickOrder = (kind) => (kind === 'best' ? 0 : kind === 'also' ? 1 : 2);
 /**
  * Builds the day rail's tile descriptors — one per upcoming day, capped at {@link RAIL_MAX_DAYS}.
  *
- * <p>Each tile rolls up **exactly the days the briefing covers**, using the same
- * {@code resolveRegionDisplay} derivation the heatmap's cells use rather than the raw
- * {@code region.verdict}, which serve-time re-derivation can diverge from. Travel days render as
- * "Away", never as "All poor" — an absent forecast is not a poor one.
+ * <p><b>The verdict line is rendered, not rolled up.</b> Each tile's peak band, the events it was
+ * reached on and the regions that reached it arrive on {@code BriefingDay.peak}, computed by
+ * {@code PlanWindowProjector} over the same rendered-event list the picks are scoped to. The
+ * roll-up that used to live here was a third aggregator over one payload and could disagree with
+ * both the window badge and the grid cell.
+ *
+ * <p>Two things are still decided here, and neither is that aggregation. The peak's regions are
+ * <b>filtered</b> to the events this tile draws, and the band is then read off what survives — both
+ * only ever remove, and both exist for the stale payload the provider's own guard exists for.
+ * Travel days render as "Away", never as "All poor", because an absent forecast is not a poor one;
+ * that judgement stays client-side because travel days are per-user and never ride the shared
+ * briefing. And a day carrying no peak <em>field</em> reads "Awaiting" rather than either.
  *
  * @param {Array}  upcomingEvents [{date, targetType}], already ordered
  * @param {Array}  briefingDays   briefing.days
@@ -197,33 +210,66 @@ export function buildRailTiles(upcomingEvents, briefingDays, todayStr, tomorrowS
       };
     }
 
-    // Roll up only this day's own event columns. Each rated region keeps its own cell (verdict, wx,
-    // gloss, event) so the tile can offer a per-region gloss without a second pass over the payload.
-    const byRegion = new Map(); // regionName -> { rank, display, event, targetType, region }
-    for (const tt of targetsByDate.get(date)) {
-      const es = esFor(tt);
-      if (!es) continue;
-      for (const region of es.regions || []) {
-        const dv = resolveRegionDisplay(region);
-        if (dv !== 'WORTH_IT' && dv !== 'MAYBE') continue;
-        const rank = dv === 'WORTH_IT' ? 0 : 1; // a WORTH_IT cell wins over a MAYBE one
-        const existing = byRegion.get(region.regionName);
-        if (!existing || rank < existing.rank) {
-          byRegion.set(region.regionName, {
-            rank, display: dv, event: eventWord(tt), targetType: tt, region,
-          });
-        }
-      }
-    }
-
-    const entries = [...byRegion.values()];
-    const anyGo = entries.some((e) => e.display === 'WORTH_IT');
-    const peak = entries.length === 0 ? 'poor' : anyGo ? 'go' : 'maybe';
-    const peakDisplay = peak === 'go' ? 'WORTH_IT' : 'MAYBE';
-    const rated = entries.filter((e) => e.display === peakDisplay);
-    const ratedEvents = new Set(rated.map((e) => e.event));
-    const evTxt = ratedEvents.size === 1 ? [...ratedEvents][0] : ratedEvents.size > 1 ? 'both' : '';
-    const peakBase = peak === 'go' ? 'Worth it' : peak === 'maybe' ? 'Maybe' : 'All poor';
+    // The day's peak band, its events and the regions that reached it are the BACKEND's answer
+    // (`BriefingDay.peak`, published by PlanWindowProjector over the same rendered-event list the
+    // picks are scoped to). This used to be a roll-up right here — a third aggregator over one
+    // payload, alongside the window verdict and the grid cell, with nothing keeping the three in
+    // step. See docs/engineering/plan-verdict-consolidation-plan.md §1 D1 and §4 Phase 3.
+    //
+    // The named regions are resolved back to their own objects in the SAME response, because the
+    // chips render weather and gloss and the peak carries identity only — copying that prose into
+    // the peak would make two sources of truth for one region inside one payload. A name that
+    // resolves to nothing is dropped rather than rendered blank.
+    //
+    // Scoped to the events this tile actually draws. Against a fresh payload that is a no-op — the
+    // backend computed the peak over the same rendered list — but an SWR-cached payload can sit for
+    // up to 12h, and the provider's stale-cache guard then withdraws an event whose peak region the
+    // cached payload still names. Without this a chip would name a window with no card, and the
+    // verdict line above it would describe an event the tile is not showing.
+    //
+    // The band is then taken from what SURVIVES rather than from `peak.verdict`, so a peak whose
+    // only region was on a withdrawn event reads "All poor" rather than "Worth it" over no chips.
+    // The one thing that costs: `peak.regions` lists only the regions at the peak band, so a
+    // withdrawn Worth-it region cannot demote the tile to a Maybe one that was never published —
+    // it goes to Poor. Under-reporting a stale payload is the safe direction, and the next poll
+    // (ten minutes) re-derives the whole thing server-side.
+    //
+    // A day carrying NO peak field at all is a different statement from a day whose peak reached
+    // nothing, and the tile must not collapse them. The payload that produces it is the same one
+    // the provider's degrade walk exists for — an SWR entry written before this deploy, which has
+    // windows but no projection — and reading its absence as "All poor" put a rail saying All poor
+    // above cards saying Worth it and Maybe, on one screen. That is the exact contradiction this
+    // whole plan removes, so the honest answer is the word the product already speaks for a signal
+    // it does not have: "Awaiting". Verified in the browser against such a payload before this
+    // guard existed.
+    const unknownPeak = day?.peak == null;
+    const covered = new Set(targetsByDate.get(date));
+    const rated = (day?.peak?.regions || [])
+      .filter((r) => covered.has(r.targetType))
+      .map((r) => {
+        const region = (esFor(r.targetType)?.regions || [])
+          .find((candidate) => candidate.regionName === r.regionName);
+        return region
+          ? { display: r.displayVerdict, event: eventWord(r.targetType), targetType: r.targetType, region }
+          : null;
+      })
+      .filter(Boolean);
+    // Three answers, not two. A peak that NAMED regions and had every one of them withdrawn by the
+    // filter above described events this tile no longer draws, so it has nothing to say about the
+    // ones it does — and the surviving event's card still reads its own window verdict, so "All
+    // poor" here would contradict a "Maybe" one element away. The backend publishes only the
+    // regions at the TOP band, so it cannot hand down the surviving band either. "Awaiting" is the
+    // same word the no-peak case uses, for the same reason: no answer, rather than a wrong one.
+    const withdrawnWhole = !unknownPeak && rated.length === 0
+      && (day.peak.regions || []).length > 0;
+    const peak = unknownPeak || withdrawnWhole ? 'awaiting'
+      : rated.length === 0 ? 'poor'
+        : rated.some((e) => e.display === 'WORTH_IT') ? 'go' : 'maybe';
+    const evTxt = rated.length === 0 ? ''
+      : new Set(rated.map((e) => e.event)).size > 1 ? 'both' : rated[0].event;
+    const peakBase = peak === 'go' ? 'Worth it'
+      : peak === 'maybe' ? 'Maybe'
+        : peak === 'awaiting' ? 'Awaiting' : 'All poor';
 
     const regions = rated
       .map((e) => ({
@@ -242,14 +288,9 @@ export function buildRailTiles(upcomingEvents, briefingDays, todayStr, tomorrowS
     // The flag names one window, so of the two picks the BEST one wins the tile when both land on
     // the same day — a second chip would double the rail's densest element for a runner-up.
     //
-    // Filtered to the events this tile actually rolled up, which is not the same set the backend
-    // ranked over. The projector's pick pool is "both events of the first four dates carrying a
-    // live draft"; the rail's is "the first six non-past events, capped at four dates". Those
-    // disagree in the ordinary case: for the whole stretch between a sunset and the next sunrise
-    // the six events span only three dates, and either engine can also drop a past event the other
-    // kept. Without this the tile could flag "◎ BEST sunrise" for a sunrise it never rolled up and
-    // whose verdict line it is not describing.
-    const covered = new Set(targetsByDate.get(date));
+    // Filtered to the events this tile actually drew — the same `covered` set, and the same stale
+    // payload reason, as the peak regions above. Without it the tile would flag "◎ BEST sunrise"
+    // for a sunrise it no longer draws and whose verdict line it is not describing.
     const dayPicks = (picksByDate.get(date) || []).filter((p) => covered.has(p.targetType));
     const flagged = dayPicks.find((p) => p.kind === 'best') || dayPicks[0] || null;
 

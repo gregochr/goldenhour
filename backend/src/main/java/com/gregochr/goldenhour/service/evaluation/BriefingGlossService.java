@@ -354,21 +354,34 @@ public class BriefingGlossService {
         // Route through the shared aggregator rather than recomputing: this was the last of four
         // copies of the "high >= 4, medium == 3, mean to 1dp" rule, and the only one that skipped
         // RatingValidator — so an out-of-range rating would have inflated the counts and the mean
-        // fed to Haiku as prompt input. It is also the same call enrichWithCachedScores makes over
-        // the same slots, so the paragraph and the region's own scoredLocationCount agree.
+        // fed to Haiku as prompt input.
+        //
+        // TWO rollups, mirroring enrichWithCachedScores, because the prompt asks two questions of
+        // one slot list. The COUNTS are coverage — how many locations here were evaluated — so they
+        // count a rated wood, and stay equal to the region's own scoredLocationCount. The AVERAGE
+        // is the sky's, over voting slots, because it is the figure the prose reasons from and the
+        // cell beneath that prose now prints the voting mean: a wood-inflated average here would
+        // have Claude writing "the region averages 3.5" above a cell reading 2.0.
+        List<BriefingRatingStats.Entry> allEntries = region.slots().stream()
+                .map(s -> new BriefingRatingStats.Entry(s.locationName(), s.claudeRating()))
+                .toList();
         BriefingRatingStats.Stats stats = BriefingRatingStats.compute(
-                region.slots().stream()
-                        .map(s -> new BriefingRatingStats.Entry(s.locationName(), s.claudeRating()))
-                        .toList(),
-                region.regionName(), date, targetType);
+                allEntries, region.regionName(), date, targetType);
         if (stats.isEmpty()) {
             return;
         }
+        BriefingRatingStats.Stats votingStats = BriefingRatingStats.compute(
+                BriefingSlot.votingSlots(region.slots()).stream()
+                        .map(s -> new BriefingRatingStats.Entry(s.locationName(), s.claudeRating()))
+                        .toList(),
+                region.regionName(), date, targetType);
 
         node.put("claudeRatedCount", stats.count());
         node.put("claudeHighRatedCount", stats.highRated());
         node.put("claudeMediumRatedCount", stats.mediumRated());
-        node.put("claudeAverageRating", stats.averageRating());
+        if (!votingStats.isEmpty()) {
+            node.put("claudeAverageRating", votingStats.averageRating());
+        }
 
         if (totalLocations > 0) {
             double coverage = (double) stats.count() / totalLocations;

@@ -444,7 +444,11 @@ WindowFirstDayRail.propTypes = {
       dayLabel: PropTypes.string.isRequired,
       sunriseTime: PropTypes.string,
       sunsetTime: PropTypes.string,
-      peak: PropTypes.oneOf(['go', 'maybe', 'poor', 'away']).isRequired,
+      // 'awaiting' is a payload with no projection on it at all — an SWR entry written before the
+      // backend published the day peak. It takes the muted colour by falling through the same
+      // ternary 'poor' does, and deliberately does NOT take its italic: the italic is the visual
+      // for a forecast that looked and found nothing, and this one has not looked.
+      peak: PropTypes.oneOf(['go', 'maybe', 'poor', 'away', 'awaiting']).isRequired,
       peakLabel: PropTypes.string.isRequired,
       countLabel: PropTypes.string,
       pick: PropTypes.shape({

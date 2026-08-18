@@ -5,6 +5,132 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — a woodland score could set the band for the sky locations it shares a region with
+
+*(Both arms. The backend rollup and the v1 arm's own client-side cell star moved together — see the
+v1 paragraph below.)*
+
+A woodland verdict runs on inverted polarity: a canopy GO means heavy cloud and mist, the opposite
+of what it means for a sky window. Every surface that rolls up a region already knew that — the
+triage verdict, the region summary and the confidence roster all exclude canopy slots — except the
+one that computes the region's **Claude rating average**. So a 5★ wood averaged in with a 2★ coast
+produced a mean of 3.5 and a "Worth it" cell for a region whose sky was Poor.
+
+Region-led verdicts (below) made that reach further: the same average now sets the window badge, so
+a card could read `◎ Worth it` above `best spot 3★` and a spot strip topping out at 3★ — with the
+slot responsible rendered nowhere, because the strip drops canopy slots too.
+
+`BriefingSlot.votingSlots` is now the single owner of the rule — non-canopy slots, falling back to
+all of them for an all-canopy region, which keeps a woodland-only region's own forecast. Its four
+callers are the hierarchy builder, the confidence roster, the enrichment pass's rating rollup and
+the Plan projector's region ranking (which also publishes the pick's average, the number the grid
+cell prints). Woods are not lost anywhere: they keep their slot, verdict and flags in the
+drill-down, and they still count as evaluated — `scoredLocationCount` deliberately stays
+canopy-inclusive, or a region whose only scored location is a wood would be blanked outright.
+
+Affects the grid cell, the day card and the v2 window badge together, which is the point: they read
+one number.
+
+**This is not v2-only, and the v1 arm moved with it.** The verdict is a payload field both arms
+render, so the v1 grid cell's word changed too — and its star is derived client-side, so it had to
+be changed to match. `HeatmapCell`'s non-opted-in path now applies the same rule by hand, in both
+its lookups: the name-keyed join over `/api/briefing/evaluate/scores` and the slot fallback beneath
+it, with the same all-canopy fallback so a woodland-only region keeps its star. Briefly, between
+this change and that one, a v1 cell could read "Maybe sunrise" over a 3.7★ pill.
+
+That **moves the frozen pilot control**, which is a real cost and a deliberate one: a control that
+contradicts itself inside a single cell is not measuring the thing the comparison is for. The v2
+cell reads both figures from one payload and needs no hand-applied rule.
+
+**Two averages are knowingly left canopy-inclusive**, and for different reasons.
+`PipelineRunPickService.lookupAverageRating` reads a name-keyed score cache with no canopy flag, so
+it has nothing to filter on. `BriefingRollupBuilder.computeRegionStats` reads the same cache but its
+caller *does* hold the enriched region — a canopy-name set is one line away — so that one is simply
+not done yet, and it is the more worthwhile of the two: it feeds the best-bet advisor's prompt,
+which is a decision input rather than a display. Neither is a regression; both are bit-identical
+before and after.
+
+One transient: the enrichment pass drops a region's gloss whenever the fresh verdict differs from
+the stored one, so on the first serves after deploy every wood-bearing region loses its Claude prose
+— and with it its candidacy for the window pick — until the next scheduled build regenerates it.
+That is the gloss rule working as designed rather than a new fault, and it clears within one build
+cycle.
+
+
+### Changed — the Plan tab's three derivations now have one owner each, on the backend
+
+Three surfaces reduced one `/api/briefing` payload three different ways, and nothing kept them in
+step: the window row took a max, the grid cell a region mean, the day card an any-of over region
+verdicts — with the client also keeping its own copy of the six-event render cap while the backend
+scoped the Best/Also picks to a set it derived separately.
+
+`PlanWindowProjector` now resolves the render horizon **once** and publishes it, and three things
+read that one answer instead of deriving their own:
+
+- **`renderedEvents`** — the ordered, capped list of solar events the Plan tab draws, elapsed events
+  already dropped against a UTC instant. `WindowFirstBriefingContext` renders it; its own
+  `MAX_VISIBLE_EVENTS` and the capping and ordering in `selectUpcomingEvents` are gone. What remains
+  there is a stale-cache guard — an SWR payload paints from up to 12h old — plus a walk of `days`
+  for a payload served before the field existed.
+- **`BriefingDay.peak`** — the day card's band, the events it was reached on and the regions that
+  reached it, rolled up over the same rendered events. The `windowFirstRail.js` roll-up is deleted.
+- **`BriefingRegion.meanRating`** — each grid cell's star, from the same statistics as that cell's
+  verdict word, so the two can no longer come from two fetches with two cache lifetimes.
+
+`HeatmapGrid` is shared with the frozen v1 arm, so the cell star is behind a caller opt-in
+(`serverCellRating`, default off): the v2 regional panel passes it, `DailyBriefing` does not and
+keeps its own derivation exactly as it shipped. The `/api/briefing/evaluate/scores` fetch stays —
+the drill-down reads it for per-location detail.
+
+No migration: all three are payload fields on a JSON column. The two projector-derived ones
+(`renderedEvents`, `BriefingDay.peak`) are serve-time only and omitted when absent, so they never
+reach the stored briefing. `meanRating` is derived on the enrichment path, which also runs at build
+time, so it **is** written into `daily_briefing_cache` — an additive field a stored payload gains,
+and one a payload stored before this change simply lacks (it deserialises to null, and the serve
+path re-derives it on every request).
+
+Two smaller behaviour changes ride with it. A window whose slots the honesty filter withdrew now
+takes its time from the enclosing summary's own `solarEventTime` instead of reading as timeless —
+a timeless window counts as current, so it used to spend one of the six rendered slots on an event
+that could be hours past. And a day carrying no peak at all — an SWR payload cached before this
+change — reads "Awaiting" on the rail rather than "All poor", because such a payload still carries
+its windows, and a rail saying "All poor" over cards saying "Worth it" is the very contradiction
+this work removes.
+
+One deliberate cost: with the cap now the backend's alone, a stale payload whose listed event has
+since elapsed shows one day fewer on the rail rather than reaching further down `days` to refill —
+refilling means re-implementing the cap this change deletes. It under-reports rather than
+over-reports and self-heals at the next poll.
+
+Phase 3 of `docs/engineering/plan-verdict-consolidation-plan.md`.
+
+### Changed — the Plan tab's window verdict is now region-led, and the best spot says it is a spot
+
+The window-first Plan tab's window rows took their verdict word from the **highest-rated single
+location** anywhere in the roster, while the regional grid beneath them took theirs from each
+region's **average**. One 4★ spot promoted a whole window's badge to "Worth it" over a grid of
+"Poor" cells — observed in production on 2026-08-16 — and nothing on screen said the two surfaces
+were answering different questions.
+
+`PlanWindowProjector` now publishes each window's verdict as its **top region's own
+`displayVerdict`** (`BriefingRatingStats`: mean ≥ 3.5 Worth it, ≥ 2.5 Maybe, else Poor, with that
+region's triage fallback when nothing is rated), so the row and the cells beneath it can no longer
+disagree. The single-best-spot signal is not lost: `bestRating` stays on the payload and
+`WindowFirstWindowCard` renders it as an explicitly labelled `best spot 4★` — quiet mono type in
+the header's meta clause, deliberately not a pill, so it never enters the badge row where the
+verdict vocabulary lives. A header now reads `Tomorrow sunrise · 05:35 · best spot 4★ ——— Poor`:
+one location's score on the left, one region's average in the badge on the right, two labelled
+facts rather than a contradiction.
+
+One consequence is known and left open: a region's average counts woodland slots while the
+best-spot star and the spot strip do not, so a rated wood can lift a badge a band above every
+rating that card shows. That is a widening of a pre-existing asymmetry rather than a new one — it
+is recorded in `BriefingWindow`'s contract and pinned by a test, and the fix belongs upstream in
+the rating rollup, where it would move the grid cell and the day card too.
+
+v2-only. The v1 arm reads neither field and is untouched.
+Phase 2 of `docs/engineering/plan-verdict-consolidation-plan.md`.
+
 ### Fixed — a picked region chip named the same day identically on every day it repeated
 
 `pickKind` is assigned by region NAME across the whole forecast window (`indexPicks` for the v2

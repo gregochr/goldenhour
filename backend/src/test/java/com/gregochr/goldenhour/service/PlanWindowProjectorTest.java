@@ -1,10 +1,12 @@
 package com.gregochr.goldenhour.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.BriefingDayPeak;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
@@ -15,6 +17,7 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
+import com.gregochr.goldenhour.model.PlanRenderedEvent;
 import com.gregochr.goldenhour.model.Verdict;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -123,26 +126,46 @@ class PlanWindowProjectorTest {
     class RatingAndVerdict {
 
         @Test
+        @DisplayName("the best rating is still a max across every region — and no longer decides "
+                + "the badge")
         void bestRatingIsTheMaximumAcrossEveryRegion() {
             BriefingWindow w = projectOne(region("Dales", 2, 4), region("Coast", 3));
 
             assertThat(w.bestRating()).isEqualTo(4);
-            assertThat(w.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            // The top region is Dales (mean 3.0, two scored locations beating Coast's one on the
+            // coverage tie-break), and Dales reads MAYBE. The 4★ inside it no longer promotes the
+            // window. Restore the max rule and this reads WORTH_IT above a grid of MAYBE cells —
+            // exactly the disagreement this phase removes.
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.MAYBE);
+        }
+
+        // Each of the three below takes at least two slots, so the region's mean and the window's
+        // best rating land in DIFFERENT bands. A single-slot fixture makes mean == max, at which
+        // point the deleted rating-led rule and the region-led one agree at every integer — the
+        // test would pass under either and advertise a protection it does not have.
+
+        @Test
+        @DisplayName("a region averaging four is Worth it")
+        void regionMeanOfFourIsWorthIt() {
+            // 5 and 3 → mean 4.0. Both rules say WORTH_IT here, and no fixture can separate them
+            // in this band: mean ≥ 3.5 forces some slot ≥ 4, so a max-led rule reaches WORTH_IT
+            // too. Stated rather than papered over — the discrimination lives in the two below and
+            // in the band-edge quartet.
+            assertThat(projectOne(region("R", 5, 3)).verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
         }
 
         @Test
-        void ratingOfFourIsWorthIt() {
-            assertThat(projectOne(region("R", 4)).verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+        @DisplayName("a region averaging three is Maybe")
+        void regionMeanOfThreeIsMaybe() {
+            // 4 and 2 → mean 3.0, max 4. The deleted rule reads the 4 and says WORTH_IT.
+            assertThat(projectOne(region("R", 4, 2)).verdict()).isEqualTo(DisplayVerdict.MAYBE);
         }
 
         @Test
-        void ratingOfThreeIsMaybe() {
-            assertThat(projectOne(region("R", 3)).verdict()).isEqualTo(DisplayVerdict.MAYBE);
-        }
-
-        @Test
-        void ratingOfTwoIsStandDown() {
-            assertThat(projectOne(region("R", 2)).verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        @DisplayName("a region averaging two is Poor")
+        void regionMeanOfTwoIsStandDown() {
+            // 3 and 1 → mean 2.0, max 3. The deleted rule reads the 3 and says MAYBE.
+            assertThat(projectOne(region("R", 3, 1)).verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
         }
 
         @Test
@@ -157,7 +180,86 @@ class PlanWindowProjectorTest {
             BriefingWindow w = projectOne(mixed);
 
             assertThat(w.bestRating()).isEqualTo(3);
+            // And the BADGE agrees with it, which it did not until the canopy fix. The region's
+            // rating rollup is now taken over its voting slots (BriefingSlot.votingSlots), so this
+            // window reads Maybe from the 3★ beach alone — not Worth it from a canopy-inclusive
+            // mean of 4.0 that no surface on the card could account for. The 5★ wood is excluded
+            // from the star here and from the spot strip by `windowFirstSpots.js`, so a badge
+            // reading Worth it was a band above every rating the card could render.
+            //
+            // The two assertions are one claim: whatever the badge says, the card can show a slot
+            // that justifies it.
             assertThat(w.verdict()).isEqualTo(DisplayVerdict.MAYBE);
+        }
+
+        @Test
+        @DisplayName("a wood cannot lift a window's badge past the sky it shares a region with")
+        void aCanopySlotCannotLiftTheBadgeAboveTheSky() {
+            // The defect this closes, at its widest. Under the canopy-inclusive rollup the mean of
+            // {5 wood, 2, 2} is 3.0 → MAYBE, while the sky alone is 2.0 → Poor: a whole band, on
+            // the badge, the grid cell and the day card, from a slot whose GO means heavy cloud and
+            // mist. bestRating is held at 2 to show the badge is not merely tracking the star —
+            // both now describe the sky, and the wood keeps its slot in the drill-down regardless.
+            BriefingRegion mixed = regionWithSlots("Mixed", List.of(
+                    ratedSlot("Wood", 5, true),
+                    ratedSlot("Beach", 2, false),
+                    ratedSlot("Bay", 2, false)));
+
+            BriefingWindow w = projectOne(mixed);
+
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+            assertThat(w.bestRating()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("the ranking and the published average read the same voting slots as the "
+                + "region's own band")
+        void rankingAndPickAverageReadTheVotingSlots() {
+            // The projector recomputes a region's statistics to rank regions and to publish
+            // Pick.averageRating. If that recompute counts canopy slots while the region's own
+            // displayVerdict does not, two things break at once, and this fixture is built so a
+            // single revert shows both.
+            //
+            // "A woods and sky" is one 5★ wood and one 2★ sky slot: voting mean 2.0, but 3.5 if the
+            // wood is counted. "B sky only" is a flat 3.0 either way. So the wood decides WHICH
+            // REGION IS TOP — and therefore which verdict the window shows and which region the
+            // Best Bet names — and it decides what number the pick publishes, which is the same
+            // number the grid cell prints as its star.
+            BriefingRegion woodsAndSky = regionWithSlots("A woods and sky", List.of(
+                    ratedSlot("Wood", 5, true),
+                    ratedSlot("Beach", 2, false)));
+            BriefingRegion skyOnly = regionWithSlots("B sky only", List.of(
+                    ratedSlot("Fell", 3, false),
+                    ratedSlot("Tarn", 3, false)));
+
+            BriefingWindow w = projectOne(woodsAndSky, skyOnly);
+
+            assertThat(w.pick().regionName()).isEqualTo("B sky only");
+            assertThat(w.pick().averageRating()).isEqualTo(3.0);
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.MAYBE);
+        }
+
+        @Test
+        @DisplayName("an all-canopy region still votes, rather than losing its verdict")
+        void anAllCanopyRegionFallsBackToItsWoods() {
+            // The fallback half of the rule, and the reason it is not a plain filter. A region with
+            // nothing but woods genuinely has a forecast; silence there would be a worse answer
+            // than an inverted-polarity one, so the woods vote for want of anyone else.
+            //
+            // The woods are rated 2, and that is the whole test. At 5 this passed with the fallback
+            // DELETED: empty voting stats fall through to the fixture's triage Verdict.GO, which
+            // resolves to the same WORTH_IT the woods give, and bestRating is carried by the
+            // projector's own canopyCounts fallback pinned elsewhere. Two mechanisms agreeing by
+            // accident is not a test. At 2 they disagree — fallback present STAND_DOWN, absent
+            // WORTH_IT from the triage — so only the rule under test can produce this answer.
+            BriefingRegion woods = regionWithSlots("Woods", List.of(
+                    ratedSlot("Wood", 2, true),
+                    ratedSlot("Copse", 2, true)));
+
+            BriefingWindow w = projectOne(woods);
+
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+            assertThat(w.bestRating()).isEqualTo(2);
         }
 
         @Test
@@ -175,9 +277,8 @@ class PlanWindowProjectorTest {
             BriefingWindow w = projectOne(mixed);
 
             // Unfixed, the wood's 5 became the header star and resolved the badge to WORTH_IT.
-            // The badge now follows the region card instead — which is canopy-INCLUSIVE upstream,
-            // so a wood can still influence it. That is deliberate and out of P1's scope: see
-            // BriefingWindow's contract. What P1 guarantees is the star.
+            // The star refuses it, and the badge is now the region card's own verdict in every
+            // case — rated or not — so this fixture's explicit MAYBE is what the window reads.
             assertThat(w.bestRating()).isNull();
             assertThat(w.verdict()).isEqualTo(DisplayVerdict.MAYBE);
         }
@@ -236,6 +337,112 @@ class PlanWindowProjectorTest {
             assertThat(w.pick()).isNull();
             assertThat(w.badges()).isEmpty();
             assertThat(w.topRarityRank()).isNull();
+        }
+    }
+
+    // ── Region-led verdict (plan §2, invariants §7.1 and §7.5) ───────────────
+
+    /**
+     * The decided semantics: a window's verdict word IS its top region's, and the best-spot rating
+     * is a separate, labelled channel that moves it not at all.
+     *
+     * <p>The <b>four band-edge fixtures hold the best rating constant at 5</b> and move only the
+     * region mean, so within that quartet nothing but the mean can explain a change of band. The
+     * other three vary a different thing on purpose — the identity test moves which region is top
+     * (its window-wide max is 4), the five-star test reproduces the observed screenshot, and the
+     * legacy test nulls the {@code displayVerdict} component rather than any rating.
+     *
+     * <p><b>Measured, not asserted:</b> restoring the deleted
+     * {@code DisplayVerdict.resolve(bestRating, null)} branch turns <b>six of these seven</b> red.
+     * The survivor is {@code meanOnTheWorthItEdgeIsWorthIt}, and it cannot be otherwise: a mean
+     * ≥ 3.5 forces some slot ≥ 4, so the rating-led rule reaches WORTH_IT there too. That fixture
+     * pins the band constant (loosening {@code >= 3.5} to {@code > 3.5} kills it), not the rule.
+     */
+    @Nested
+    @DisplayName("the verdict is the top region's own")
+    class RegionLedVerdict {
+
+        @Test
+        @DisplayName("§7.1 — the window verdict equals the top region's displayVerdict")
+        void windowVerdictEqualsTopRegionDisplayVerdict() {
+            // Two things this fixture has to do at once. The top region is deliberately NOT first
+            // in payload order — nothing upstream orders regions, so a projection reading
+            // regions[0] would pass a single-region fixture. And the top region's own band
+            // (mean 3.0 → MAYBE) is one the window's best rating cannot produce (max 4 → WORTH_IT),
+            // so the equality below is broken by the deleted max rule rather than satisfied by it.
+            BriefingRegion weaker = region("A poor coast", 1, 1);
+            BriefingRegion top = region("B better dales", 2, 4);
+
+            BriefingWindow w = projectOne(weaker, top);
+
+            assertThat(w.verdict()).isEqualTo(top.displayVerdict());
+            assertThat(w.verdict()).isNotEqualTo(weaker.displayVerdict());
+        }
+
+        @Test
+        @DisplayName("a mean of exactly 3.5 is Worth it, with a 5★ spot in the window")
+        void meanOnTheWorthItEdgeIsWorthIt() {
+            BriefingWindow w = projectOne(region("R", 5, 5, 5, 4, 4, 3, 3, 2, 2, 2));
+
+            assertThat(w.bestRating()).isEqualTo(5);
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+        }
+
+        @Test
+        @DisplayName("one tenth below that edge is Maybe — same 5★ spot, same spread")
+        void meanOneStepBelowTheWorthItEdgeIsMaybe() {
+            // 3.4. Identical max (5), identical min (2), identical roster size — only the mean
+            // moves, so a failure here can only be the band or the rule that reads it.
+            BriefingWindow w = projectOne(region("R", 5, 5, 5, 4, 4, 3, 2, 2, 2, 2));
+
+            assertThat(w.bestRating()).isEqualTo(5);
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.MAYBE);
+        }
+
+        @Test
+        @DisplayName("a mean of exactly 2.5 is Maybe, with a 5★ spot in the window")
+        void meanOnTheMaybeEdgeIsMaybe() {
+            BriefingWindow w = projectOne(region("R", 5, 4, 3, 3, 2, 2, 2, 2, 1, 1));
+
+            assertThat(w.bestRating()).isEqualTo(5);
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.MAYBE);
+        }
+
+        @Test
+        @DisplayName("one tenth below that edge is Poor — same 5★ spot, same spread")
+        void meanOneStepBelowTheMaybeEdgeIsStandDown() {
+            // 2.4, with the same max (5) and min (1) as the 2.5 fixture above it.
+            BriefingWindow w = projectOne(region("R", 5, 4, 3, 2, 2, 2, 2, 2, 1, 1));
+
+            assertThat(w.bestRating()).isEqualTo(5);
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        }
+
+        @Test
+        @DisplayName("§7.5 — the best spot is published, and says nothing about the verdict")
+        void aFiveStarSpotIsPublishedWithoutPromotingAPoorRegion() {
+            // The 2026-08-16 screenshot in one fixture: the row read "Worth it · best 4★" over a
+            // grid of Poor cells. It now reads Poor, and the 5 is still on the payload for the
+            // card's labelled `best spot 5★` chip to render.
+            BriefingWindow w = projectOne(region("R", 5, 1, 1, 1));
+
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+            assertThat(w.bestRating()).isEqualTo(5);
+        }
+
+        @Test
+        @DisplayName("a region carrying no verdict at all is AWAITING, not its ratings' verdict")
+        void aRegionWithNoDisplayVerdictIsAwaiting() {
+            // Only a payload cached before the field existed can produce this. AWAITING is the
+            // honest answer; falling back to the ratings would resurrect the rating-led rule for
+            // exactly the payloads least able to justify it.
+            BriefingRegion legacy = regionWithSlots("R", ratedSlots(5, 5),
+                    null, Confidence.HIGH, HEADLINE);
+
+            BriefingWindow w = projectOne(legacy);
+
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.AWAITING);
+            assertThat(w.bestRating()).isEqualTo(5);
         }
     }
 
@@ -843,6 +1050,259 @@ class PlanWindowProjectorTest {
         }
     }
 
+    // ── The rendered list and the day peak (Phase 3: one owner per derivation) ──
+
+    /**
+     * The two derivations Phase 3 moved off the client, and the invariant that binds them.
+     *
+     * <p>The client used to keep its own six-event cap, its own pastness rule and its own day-card
+     * roll-up, while the backend scoped the picks to a set derived separately. Two answers to
+     * "which events exist" is how a BEST pick came to name a window with no card, so these tests
+     * assert the three consumers of the horizon — the published list, the pick scope and the day
+     * peak — against <em>one</em> fixture rather than each against its own.
+     */
+    @Nested
+    @DisplayName("the rendered event list and the day peak")
+    class RenderedListAndDayPeak {
+
+        @Test
+        @DisplayName("it publishes the leading six events, in payload order")
+        void publishesTheLeadingSixEventsInOrder() {
+            // Four two-event days is eight events. The 7th and 8th must not appear, and the six
+            // that do must be in the order the payload carries them, not any ranking order — the
+            // highest-rated window here is deliberately the last one published.
+            DailyBriefingResponse out = projectDays(
+                    twoEventDayOf(TODAY, region("D0am", 3, 3), region("D0pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(1), region("D1am", 3, 3), region("D1pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(2), region("D2am", 3, 3), region("D2pm", 5, 5)),
+                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 5, 5), region("D3pm", 3, 3)));
+
+            assertThat(out.renderedEvents()).containsExactly(
+                    new PlanRenderedEvent(TODAY, TargetType.SUNRISE),
+                    new PlanRenderedEvent(TODAY, TargetType.SUNSET),
+                    new PlanRenderedEvent(TODAY.plusDays(1), TargetType.SUNRISE),
+                    new PlanRenderedEvent(TODAY.plusDays(1), TargetType.SUNSET),
+                    new PlanRenderedEvent(TODAY.plusDays(2), TargetType.SUNRISE),
+                    new PlanRenderedEvent(TODAY.plusDays(2), TargetType.SUNSET));
+        }
+
+        @Test
+        @DisplayName("one elapsed event spends no slot, so the horizon reaches one event further")
+        void anElapsedEventDoesNotSpendASlot() {
+            // Eight events, served at 12:00 — after the 05:00 sunrise plus its 30-minute afterglow
+            // and well before the 21:11 sunset. EXACTLY ONE event is past, which is what makes the
+            // far end move by exactly one: without the pastness filter the list would end at D2pm.
+            // The mixed-time fixture is load-bearing here; twoEventDayOf puts both events at 21:11,
+            // so any clock past one is past both and the assertion would hold for the wrong reason.
+            DailyBriefingResponse out = projectAt(List.of(
+                    dawnAndDuskDayOf(TODAY, region("D0am", 3, 3), region("D0pm", 3, 3)),
+                    dawnAndDuskDayOf(TODAY.plusDays(1), region("D1am", 3, 3), region("D1pm", 3, 3)),
+                    dawnAndDuskDayOf(TODAY.plusDays(2), region("D2am", 3, 3), region("D2pm", 3, 3)),
+                    dawnAndDuskDayOf(TODAY.plusDays(3), region("D3am", 3, 3), region("D3pm", 3, 3))),
+                    List.of(), LocalDateTime.of(TODAY, LocalTime.NOON));
+
+            assertThat(out.renderedEvents())
+                    .doesNotContain(new PlanRenderedEvent(TODAY, TargetType.SUNRISE))
+                    .startsWith(new PlanRenderedEvent(TODAY, TargetType.SUNSET))
+                    .endsWith(new PlanRenderedEvent(TODAY.plusDays(3), TargetType.SUNRISE))
+                    .hasSize(6);
+        }
+
+        @Test
+        @DisplayName("§7.3 — no pick names a window outside the published list")
+        void everyPickLandsOnAPublishedEvent() {
+            // One fixture, both consumers. The projector could satisfy either alone by deriving the
+            // horizon twice; asserting them against each other is what makes that impossible.
+            DailyBriefingResponse out = projectDays(
+                    twoEventDayOf(TODAY, region("D0am", 3, 3), region("D0pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(1), region("D1am", 4, 4), region("D1pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(2), region("D2am", 3, 3), region("D2pm", 4, 3)),
+                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 5, 5), region("D3pm", 5, 5)));
+
+            List<PlanRenderedEvent> pickedAt = out.days().stream()
+                    .flatMap(d -> d.eventSummaries().stream()
+                            .filter(es -> es.window().pick() != null)
+                            .map(es -> new PlanRenderedEvent(d.date(), es.targetType())))
+                    .toList();
+
+            assertThat(pickedAt).isNotEmpty();
+            assertThat(out.renderedEvents()).containsAll(pickedAt);
+        }
+
+        @Test
+        @DisplayName("a window whose slots were withdrawn is still timed, from the summary's own clock")
+        void aSlotlessWindowUsesTheSummarysOwnEventTime() {
+            // The honesty filter empties a zero-coverage region's slot list while leaving the
+            // summary's solarEventTime intact. A scan of slots alone then reads that window as
+            // timeless — and a timeless window counts as CURRENT, so it spends one of the six
+            // rendered slots on an event that may be hours past, and the far end of the horizon
+            // loses a day. Delete the fallback and this event is rendered.
+            BriefingEventSummary blanked = new BriefingEventSummary(
+                    TargetType.SUNRISE, List.of(regionWithSlots("Blanked", List.of())), List.of(),
+                    LocalDateTime.of(TODAY, LocalTime.of(5, 0)), null);
+            BriefingDay day = new BriefingDay(TODAY, List.of(
+                    blanked,
+                    new BriefingEventSummary(TargetType.SUNSET,
+                            shiftRegions(TODAY, region("Dusk", 4, 4)), List.of())));
+
+            DailyBriefingResponse out = projectAt(List.of(day), List.of(),
+                    LocalDateTime.of(TODAY, LocalTime.NOON));
+
+            assertThat(out.renderedEvents())
+                    .containsExactly(new PlanRenderedEvent(TODAY, TargetType.SUNSET));
+        }
+
+        @Test
+        @DisplayName("with every event elapsed the list is empty, never absent")
+        void anAllPastForecastPublishesAnEmptyList() {
+            // Empty and absent mean different things to the client — absent is "nothing projected"
+            // and degrades to its own walk of the days, empty is "no live window" and draws
+            // nothing. A forecast that has entirely passed must say the second.
+            DailyBriefingResponse out = projectAt(
+                    List.of(dayOf(TODAY, region("Gone", 4, 4))), List.of(),
+                    LocalDateTime.of(TODAY, LocalTime.of(23, 59)));
+
+            assertThat(out.renderedEvents()).isNotNull().isEmpty();
+        }
+
+        @Test
+        @DisplayName("the day peak is Worth it when any rendered region reaches it")
+        void dayPeakTakesTheBestBandAnyRegionReaches() {
+            BriefingDay day = new BriefingDay(TODAY, List.of(new BriefingEventSummary(
+                    TargetType.SUNSET,
+                    List.of(region("Poor coast", 1, 1), region("Good dales", 4, 4)),
+                    List.of())));
+
+            BriefingDayPeak peak = projectDays(day).days().get(0).peak();
+
+            assertThat(peak.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(peak.regions()).extracting(BriefingDayPeak.PeakRegion::regionName)
+                    .containsExactly("Good dales");
+            assertThat(peak.events()).containsExactly(TargetType.SUNSET);
+        }
+
+        @Test
+        @DisplayName("a day whose best region is only Maybe reads Maybe, not Worth it")
+        void dayPeakFallsToMaybe() {
+            BriefingDayPeak peak = projectDays(dayOf(TODAY, region("Middling", 3, 3)))
+                    .days().get(0).peak();
+
+            assertThat(peak.verdict()).isEqualTo(DisplayVerdict.MAYBE);
+            assertThat(peak.regions()).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("a day with nothing at either band is Poor and names no region")
+        void dayPeakWithNothingRatedIsStandDown() {
+            // The tile's "All poor". Empty regions rather than a STAND_DOWN entry: the chips render
+            // what reached the peak, and on a poor day nothing did.
+            BriefingDayPeak peak = projectDays(dayOf(TODAY, region("Dismal", 1, 1)))
+                    .days().get(0).peak();
+
+            assertThat(peak.verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+            assertThat(peak.regions()).isEmpty();
+            assertThat(peak.events()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("it names both events only when the peak was reached on both")
+        void dayPeakNamesTheEventsItsRegionsReachedItOn() {
+            // Same band on both halves of the day → "both". The sunrise region is deliberately a
+            // DIFFERENT region, so this cannot pass by one region being counted twice.
+            BriefingDay bothWorthIt = twoEventDayOf(TODAY,
+                    region("Dawn dales", 4, 4), region("Dusk coast", 4, 4));
+            // And one half only → that event alone. The other half is present and Poor, so the
+            // event set is doing the discriminating rather than the day simply having one event.
+            BriefingDay sunsetOnly = twoEventDayOf(TODAY.plusDays(1),
+                    region("Dawn dales", 1, 1), region("Dusk coast", 4, 4));
+
+            DailyBriefingResponse out = projectDays(bothWorthIt, sunsetOnly);
+
+            assertThat(out.days().get(0).peak().events())
+                    .containsExactlyInAnyOrder(TargetType.SUNRISE, TargetType.SUNSET);
+            assertThat(out.days().get(1).peak().events()).containsExactly(TargetType.SUNSET);
+        }
+
+        @Test
+        @DisplayName("a region at both bands appears once, at its better one — either way round")
+        void aRegionAtBothBandsAppearsOnceAtItsBetter() {
+            // The tile names a region's best showing that day; listing it twice would put two chips
+            // for one place on one tile, and taking whichever event came second would decide it on
+            // payload order.
+            //
+            // BOTH orders, and the second is the one that does the work. A served payload always
+            // carries sunrise first (BriefingHierarchyBuilder iterates SUNRISE then SUNSET), so a
+            // "keep the first one seen" simplification passes the better-at-sunrise case for the
+            // wrong reason — the outranking clause is only visible when the better band arrives
+            // second. Everything else is held constant across the pair: same region name, same two
+            // bands, same day shape.
+            BriefingDayPeak betterFirst = projectDays(twoEventDayOf(TODAY,
+                    region("Coast", 4, 4), region("Coast", 3, 3))).days().get(0).peak();
+            BriefingDayPeak betterSecond = projectDays(twoEventDayOf(TODAY,
+                    region("Coast", 3, 3), region("Coast", 4, 4))).days().get(0).peak();
+
+            assertThat(betterFirst.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(betterFirst.regions()).extracting(
+                            BriefingDayPeak.PeakRegion::regionName,
+                            BriefingDayPeak.PeakRegion::targetType)
+                    .containsExactly(tuple("Coast", TargetType.SUNRISE));
+
+            assertThat(betterSecond.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(betterSecond.regions()).extracting(
+                            BriefingDayPeak.PeakRegion::regionName,
+                            BriefingDayPeak.PeakRegion::targetType)
+                    .containsExactly(tuple("Coast", TargetType.SUNSET));
+        }
+
+        @Test
+        @DisplayName("one region at the peak on both events names ONE of them — the known "
+                + "under-report, pinned so it is not silently 'fixed'")
+        void aSingleRegionAtBothEventsNamesOnlyTheFirst() {
+            // A documented deliberate cost with no test is a cost the next reader corrects. The
+            // day's only peak-band region is Worth it at BOTH events, so "· both" is arguably the
+            // truer word — but a region appears once (the tile names its best showing, not one chip
+            // per event), and the client roll-up this replaced behaved identically. The day card is
+            // specified as an ownership move with no semantic change, so moving it here would move
+            // v2 away from the v1 control mid-pilot. See BriefingDayPeak's Javadoc.
+            BriefingDayPeak peak = projectDays(twoEventDayOf(TODAY,
+                    region("Coast", 4, 4), region("Coast", 4, 4))).days().get(0).peak();
+
+            assertThat(peak.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(peak.regions()).hasSize(1);
+            assertThat(peak.events()).containsExactly(TargetType.SUNRISE);
+        }
+
+        @Test
+        @DisplayName("it rolls up only the events the same response says are rendered")
+        void dayPeakIgnoresAnEventTheHorizonDropped() {
+            // The elapsed sunrise is the day's only good window. A roll-up over the DAY reads
+            // "Worth it" for a window that has no card; over the RENDERED events it reads Poor,
+            // which is what the reader can still act on. Same clock as the horizon test above.
+            DailyBriefingResponse out = projectAt(List.of(dawnAndDuskDayOf(TODAY,
+                    region("Brilliant dawn", 5, 5), region("Dismal dusk", 1, 1))),
+                    List.of(), LocalDateTime.of(TODAY, LocalTime.NOON));
+
+            assertThat(out.renderedEvents())
+                    .containsExactly(new PlanRenderedEvent(TODAY, TargetType.SUNSET));
+            assertThat(out.days().get(0).peak().verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        }
+
+        @Test
+        @DisplayName("a day outside the horizon carries no peak at all")
+        void anUnrenderedDayHasNoPeak() {
+            // Null, not STAND_DOWN. The tile is not drawn for this day, and a Poor roll-up for a
+            // day nothing renders is a claim about weather where the honest answer is "not shown".
+            DailyBriefingResponse out = projectDays(
+                    twoEventDayOf(TODAY, region("D0am", 4, 4), region("D0pm", 4, 4)),
+                    twoEventDayOf(TODAY.plusDays(1), region("D1am", 4, 4), region("D1pm", 4, 4)),
+                    twoEventDayOf(TODAY.plusDays(2), region("D2am", 4, 4), region("D2pm", 4, 4)),
+                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 4, 4), region("D3pm", 4, 4)));
+
+            assertThat(out.days().get(2).peak()).isNotNull();
+            assertThat(out.days().get(3).peak()).isNull();
+        }
+    }
+
     // ── Carriage ─────────────────────────────────────────────────────────────
 
     @Test
@@ -1035,6 +1495,44 @@ class PlanWindowProjectorTest {
                 new BriefingEventSummary(TargetType.SUNSET, shiftRegions(date, sunset), List.of())));
     }
 
+    /**
+     * One day carrying a <b>05:00 sunrise and a 21:11 sunset</b>, each built from its own regions.
+     *
+     * <p>{@link #twoEventDayOf} stamps every slot at 21:11 — its fixtures only ever needed the two
+     * events ordered, never separable in time — so no clock can put one of them in the past and
+     * leave the other live. Anything asserting that exactly ONE event elapsed needs this instead,
+     * or it passes while dropping both and says nothing about the rule under test.
+     */
+    private static BriefingDay dawnAndDuskDayOf(LocalDate date, BriefingRegion sunrise,
+            BriefingRegion sunset) {
+        return new BriefingDay(date, List.of(
+                new BriefingEventSummary(TargetType.SUNRISE,
+                        retimed(shiftRegions(date, sunrise), LocalDateTime.of(date, LocalTime.of(5, 0))),
+                        List.of()),
+                new BriefingEventSummary(TargetType.SUNSET, shiftRegions(date, sunset), List.of())));
+    }
+
+    /** Puts every slot in the given regions at one instant, so an event has a single clock time. */
+    private static List<BriefingRegion> retimed(List<BriefingRegion> regions, LocalDateTime when) {
+        return regions.stream()
+                .map(r -> new BriefingRegion(r.regionName(), r.verdict(), r.summary(),
+                        r.tideHighlights(),
+                        r.slots().stream().map(sl -> {
+                            BriefingSlot moved = new BriefingSlot(sl.locationId(), sl.locationName(),
+                                    when, sl.verdict(), sl.weather(), sl.tide(), sl.flags(),
+                                    sl.standdownReason());
+                            return sl.claudeRating() == null ? moved
+                                    : moved.withClaudeScores(sl.claudeRating(),
+                                            sl.fierySkyPotential(), sl.goldenHourPotential(),
+                                            sl.claudeSummary());
+                        }).toList(),
+                        r.regionTemperatureCelsius(), r.regionApparentTemperatureCelsius(),
+                        r.regionWindSpeedMs(), r.regionWeatherCode(), r.glossHeadline(),
+                        r.glossDetail(), r.displayVerdict(), r.scoredLocationCount(),
+                        r.verdictLabel(), r.lightlyEvaluated(), r.confidence(), r.meanRating()))
+                .toList();
+    }
+
     /** Re-stamps every slot in the given regions onto the given date, keeping clock times. */
     private static List<BriefingRegion> shiftRegions(LocalDate date, BriefingRegion... regions) {
         return java.util.Arrays.stream(regions)
@@ -1044,7 +1542,7 @@ class PlanWindowProjectorTest {
                         r.regionTemperatureCelsius(), r.regionApparentTemperatureCelsius(),
                         r.regionWindSpeedMs(), r.regionWeatherCode(), r.glossHeadline(),
                         r.glossDetail(), r.displayVerdict(), r.scoredLocationCount(),
-                        r.verdictLabel(), r.lightlyEvaluated(), r.confidence()))
+                        r.verdictLabel(), r.lightlyEvaluated(), r.confidence(), r.meanRating()))
                 .toList();
     }
 
@@ -1084,8 +1582,30 @@ class PlanWindowProjectorTest {
         return regionWithSlots(name, ratedSlots(ratings));
     }
 
+    /**
+     * A region whose {@code displayVerdict} is derived from its own slots by the production rule,
+     * exactly as {@code BriefingService.enrichWithCachedScores} derives it.
+     *
+     * <p>It used to default to a flat {@code WORTH_IT}. That was harmless while the window verdict
+     * came from the best rating and ignored this field; since the verdict became the top region's
+     * own, a fixture pairing a 2★ slot with a WORTH_IT region is a payload production cannot
+     * produce, and every window built from one would carry an incoherent badge. Derived here so a
+     * fixture cannot state a verdict its own ratings contradict.
+     *
+     * <p>Over the region's <b>voting</b> slots, which is the population the enrichment path
+     * averages. It was canopy-inclusive until the canopy fix; leaving it there would have kept
+     * every mixed-region fixture asserting the old band while production produced the new one —
+     * a fixture staying green being precisely how the defect survived in the first place.
+     */
     private static BriefingRegion regionWithSlots(String name, List<BriefingSlot> slots) {
-        return regionWithSlots(name, slots, DisplayVerdict.WORTH_IT, Confidence.HIGH, HEADLINE);
+        BriefingRatingStats.Stats stats = BriefingRatingStats.compute(
+                BriefingSlot.votingSlots(slots).stream()
+                        .map(s -> new BriefingRatingStats.Entry(s.locationName(), s.claudeRating()))
+                        .toList(),
+                name, TODAY, TargetType.SUNSET);
+        return regionWithSlots(name, slots,
+                BriefingRatingStats.resolveRegionDisplayVerdict(stats, Verdict.GO),
+                Confidence.HIGH, HEADLINE);
     }
 
     private static BriefingRegion regionWithSlots(String name, List<BriefingSlot> slots,

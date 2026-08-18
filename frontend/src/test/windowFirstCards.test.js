@@ -215,7 +215,7 @@ describe('buildWindowCards', () => {
     });
 
     it('never carries averageRating, which is a different statistic from the header star', () => {
-      // averageRating is the region average, canopy-INCLUSIVE; bestRating is a max over non-canopy
+      // averageRating is the region's MEAN over its voting slots; bestRating is a MAX over non-canopy
       // slots. Showing both under one glyph puts two different numbers one row apart.
       const [card] = build(oneWindow({
         bestRating: 5,

@@ -71,8 +71,32 @@ function payloadFor(dateStr, { generatedAt = null } = {}) {
         unregioned: [],
         window: { verdict: 'WORTH_IT', badges: [], eventTime: `${dateStr}T20:11:00` },
       }],
+      peak: {
+        verdict: 'WORTH_IT',
+        events: ['SUNSET'],
+        regions: [{
+          regionName: 'Northumberland & Tyneside',
+          targetType: 'SUNSET',
+          displayVerdict: 'WORTH_IT',
+        }],
+      },
     }],
+    renderedEvents: [{ date: dateStr, targetType: 'SUNSET' }],
   };
+}
+
+/**
+ * Re-serves the payload with the region's verdict moved — BOTH where the region states it and where
+ * the day's peak does, because a real serve re-derives them together from one set of statistics.
+ * Moving only the region would model a payload the backend cannot produce, and the rail (which now
+ * renders the peak rather than rolling one up) would rightly ignore it.
+ */
+function reserved(dateStr, generatedAt, displayVerdict) {
+  const payload = payloadFor(dateStr, { generatedAt });
+  payload.days[0].eventSummaries[0].regions[0].displayVerdict = displayVerdict;
+  payload.days[0].peak.verdict = displayVerdict;
+  payload.days[0].peak.regions[0].displayVerdict = displayVerdict;
+  return payload;
 }
 
 /**
@@ -146,7 +170,7 @@ function Consumer() {
  * single event cannot: with one event on one day neither the past filter nor the six-event cap is
  * discriminating, so both were deletable with the suite green.
  */
-function multiDayPayload(startDate, dayCount) {
+function multiDayPayload(startDate, dayCount, servedAt = NOON_ISH.toISOString()) {
   const days = [];
   for (let i = 0; i < dayCount; i += 1) {
     const d = new Date(`${startDate}T12:00:00Z`);
@@ -164,9 +188,42 @@ function multiDayPayload(startDate, dayCount) {
       unregioned: [],
       window: { verdict: 'WORTH_IT', badges: [], eventTime: `${date}T${time}` },
     });
-    days.push({ date, eventSummaries: [evt('SUNRISE', '04:15:00'), evt('SUNSET', '20:11:00')] });
+    days.push({
+      date,
+      eventSummaries: [evt('SUNRISE', '04:15:00'), evt('SUNSET', '20:11:00')],
+      peak: {
+        verdict: 'WORTH_IT',
+        events: ['SUNRISE', 'SUNSET'],
+        regions: [
+          { regionName: 'N', targetType: 'SUNRISE', displayVerdict: 'WORTH_IT' },
+          { regionName: 'N', targetType: 'SUNSET', displayVerdict: 'WORTH_IT' },
+        ],
+      },
+    });
   }
-  return { generatedAt: `${startDate}T06:00:00`, days };
+  return {
+    generatedAt: `${startDate}T06:00:00`,
+    days,
+    renderedEvents: renderedEventsAt(days, servedAt),
+  };
+}
+
+/**
+ * The list the backend would publish for these days if it served them at {@code servedAt}: the
+ * leading six events whose time has not passed (plus the 30-minute afterglow), in payload order.
+ *
+ * <p>Every test that moves the clock has to say which instant the PAYLOAD was served at, because
+ * the two are now different questions. The backend's list is fixed when the response is built; the
+ * client's own guard runs later, against the browser's clock, and only ever removes. Passing one
+ * instant for both is how a stale-payload test would silently become a fresh-payload one.
+ */
+function renderedEventsAt(days, servedAt) {
+  const now = new Date(servedAt).getTime();
+  return days
+    .flatMap((d) => d.eventSummaries.map((es) => ({ date: d.date, targetType: es.targetType, es })))
+    .filter(({ es }) => new Date(`${es.window.eventTime}Z`).getTime() + 30 * 60 * 1000 >= now)
+    .slice(0, 6)
+    .map(({ date, targetType }) => ({ date, targetType }));
 }
 
 const renderProvider = () => render(
@@ -329,9 +386,8 @@ describe('WindowFirstBriefingProvider', () => {
     await act(async () => {});
     expect(screen.getByTestId('labels')).toHaveTextContent('Worth it · sunset');
 
-    const reserved = payloadFor(TODAY, { generatedAt: `${TODAY}T12:00:00` }); // SAME build
-    reserved.days[0].eventSummaries[0].regions[0].displayVerdict = 'MAYBE';
-    getDailyBriefing.mockResolvedValue(reserved);
+    // SAME build, re-derived content.
+    getDailyBriefing.mockResolvedValue(reserved(TODAY, `${TODAY}T12:00:00`, 'MAYBE'));
 
     await act(async () => { window.dispatchEvent(new Event('focus')); });
     expect(screen.getByTestId('labels')).toHaveTextContent('Maybe · sunset');
@@ -342,21 +398,43 @@ describe('WindowFirstBriefingProvider', () => {
     renderProvider();
     await act(async () => {});
 
-    const newer = payloadFor(TODAY, { generatedAt: `${TODAY}T18:00:00` });
-    newer.days[0].eventSummaries[0].regions[0].displayVerdict = 'MAYBE';
-    getDailyBriefing.mockResolvedValue(newer);
+    getDailyBriefing.mockResolvedValue(reserved(TODAY, `${TODAY}T18:00:00`, 'MAYBE'));
 
     await act(async () => { window.dispatchEvent(new Event('focus')); });
     expect(screen.getByTestId('labels')).toHaveTextContent('Maybe · sunset');
   });
 
   describe('which events reach the rail', () => {
-    it('drops a solar event that has already happened', async () => {
-      // Frozen at 09:00Z the 04:15Z sunrise is past (plus its 30-minute afterglow) and the 20:11Z
-      // sunset is not, so the day rolls up from the sunset alone and reads "· sunset". Delete the
-      // past filter and both events are rated, so it reads "· both" — which is what makes this
-      // assertion discriminating rather than decorative.
-      getDailyBriefing.mockResolvedValue(multiDayPayload('2026-08-04', 1));
+    // The ORDER and the six-event CAP are the backend's since Phase 3 — the projector publishes
+    // `renderedEvents` and scopes the BEST/ALSO picks to exactly that list, so a pick can no longer
+    // name a window with no card. What remains here is the stale-cache defence and the degrade, and
+    // that is what these assert. The cap itself is pinned in PlanWindowProjectorTest.
+
+    it('renders the backend list, in the order the backend gave it', async () => {
+      // The pass-through. The payload deliberately lists its events in an order the client would
+      // not choose — the second day before the first — so anything re-sorting or re-capping here
+      // shows up rather than agreeing by luck.
+      const payload = multiDayPayload('2026-08-04', 3);
+      payload.renderedEvents = [
+        { date: '2026-08-05', targetType: 'SUNSET' },
+        { date: '2026-08-04', targetType: 'SUNSET' },
+      ];
+      getDailyBriefing.mockResolvedValue(payload);
+      renderProvider();
+      await act(async () => {});
+
+      expect(screen.getByTestId('dates')).toHaveTextContent('2026-08-05|2026-08-04');
+    });
+
+    it('drops an event that has passed since the payload was built', async () => {
+      // The stale-cache guard, and the only aggregation-adjacent thing left in the provider. The
+      // payload was served at 02:00Z when both events were live; the browser is now at 09:00Z, past
+      // the 04:15Z sunrise and its 30-minute afterglow. So the day rolls up from the sunset alone
+      // and reads "· sunset". Delete the guard and both are rated, so it reads "· both" — which is
+      // what makes this assertion discriminating rather than decorative.
+      getDailyBriefing.mockResolvedValue(
+        multiDayPayload('2026-08-04', 1, '2026-08-04T02:00:00Z'),
+      );
       renderProvider();
       await act(async () => {});
 
@@ -364,13 +442,14 @@ describe('WindowFirstBriefingProvider', () => {
     });
 
     it('spans four days when the first live event is a sunset, three when it is a sunrise', async () => {
-      // The six-event cap sits on a parity boundary, because every day always carries exactly two
-      // events. Before the day's sunrise the six events cover three dates; after it, four. Both are
-      // correct — the rail draws the days that have windows — but the count is not fixed at four,
-      // and nothing pinned either side of the boundary.
-      getDailyBriefing.mockResolvedValue(multiDayPayload('2026-08-04', 5));
-
+      // The six-event horizon sits on a parity boundary, because every day always carries exactly
+      // two events. Before the day's sunrise the six span three dates; after it, four. Both are
+      // correct — the rail draws the days that have windows — and the count is not fixed at four.
+      // The backend decides this now, so each arm serves a payload built at its own instant.
       vi.setSystemTime(new Date('2026-08-04T09:00:00Z')); // after sunrise: SS,SR,SS,SR,SS,SR
+      getDailyBriefing.mockResolvedValue(
+        multiDayPayload('2026-08-04', 5, '2026-08-04T09:00:00Z'),
+      );
       const first = renderProvider();
       await act(async () => {});
       expect(screen.getByTestId('dates')).toHaveTextContent(
@@ -379,37 +458,101 @@ describe('WindowFirstBriefingProvider', () => {
       first.unmount();
 
       vi.setSystemTime(new Date('2026-08-04T02:00:00Z')); // before sunrise: SR,SS,SR,SS,SR,SS
+      getDailyBriefing.mockResolvedValue(
+        multiDayPayload('2026-08-04', 5, '2026-08-04T02:00:00Z'),
+      );
       renderProvider();
       await act(async () => {});
       expect(screen.getByTestId('dates')).toHaveTextContent('2026-08-04|2026-08-05|2026-08-06');
     });
 
-    it('does not spend an event slot on an elapsed event whose slots were withdrawn', async () => {
-      // v1's defect, in v2's copy of the same selector. BriefingHonestyFilter empties the slot
-      // list of a zero-coverage region, and the slots carried the event's time — so an elapsed
-      // sunrise read as upcoming, took one of the six slots, and the window lost a day off its
-      // far end. This fixture is the harder half of it: a payload cached before the backend
-      // carried solarEventTime, where the date is the only evidence the event has happened.
-      const payload = multiDayPayload('2026-08-04', 5);
-      payload.days[0].eventSummaries = payload.days[0].eventSummaries.map((es) => ({
-        ...es,
-        regions: [{ ...es.regions[0], displayVerdict: 'STAND_DOWN', scoredLocationCount: 0, slots: [] }],
-      }));
-
-      getDailyBriefing.mockResolvedValue(payload);
-      // 14:00 London. Past noon, which is all the floor has to go on — with no time in the
-      // payload it cannot know the sunrise was at 04:15, so it uses the same noon boundary
-      // BriefingHierarchyBuilder uses to tell a sunrise from a sunset. Deliberately coarse: at
-      // 10:00 this same fixture still counts the sunrise as current, and that is the safe
-      // direction to be wrong in.
+    it('gives back the far day when the payload already excluded the elapsed event', async () => {
+      // The healthy path, and the counterpart to the degrade below. A payload SERVED at 13:00 has
+      // already dropped that morning's sunrise, so its six events reach a fourth date and the
+      // client's guard removes nothing.
+      getDailyBriefing.mockResolvedValue(
+        multiDayPayload('2026-08-04', 5, '2026-08-04T13:00:00Z'),
+      );
       vi.setSystemTime(new Date('2026-08-04T13:00:00Z'));
       renderProvider();
       await act(async () => {});
 
-      // Drop the date argument in selectUpcomingEvents and this stops at 2026-08-06.
       expect(screen.getByTestId('dates')).toHaveTextContent(
         '2026-08-04|2026-08-05|2026-08-06|2026-08-07',
       );
+    });
+
+    it('shows one day fewer, rather than refilling, when a listed event has since elapsed', async () => {
+      // The deliberate cost of moving the cap to the backend, on the hardest payload there is:
+      // BriefingHonestyFilter empties a zero-coverage region's slot list, and this fixture is one
+      // cached before the summary carried its own solarEventTime — so the date is the only evidence
+      // the sunrise has happened, and only the CLIENT has it. The provider drops that event; it
+      // does NOT reach further down `days` to replace it, because refilling means re-implementing
+      // the cap this phase deleted. Three dates rather than four, on a stale payload, self-healing
+      // at the next poll. Under-showing is the safe direction.
+      const payload = multiDayPayload('2026-08-04', 5, '2026-08-04T00:00:00Z');
+      payload.days[0].eventSummaries = payload.days[0].eventSummaries.map((es) => ({
+        ...es,
+        window: { ...es.window, eventTime: undefined },
+        regions: [{ ...es.regions[0], displayVerdict: 'STAND_DOWN', scoredLocationCount: 0, slots: [] }],
+      }));
+
+      getDailyBriefing.mockResolvedValue(payload);
+      // 14:00 London. Past noon, which is all the floor has to go on — with no time in the payload
+      // it cannot know the sunrise was at 04:15, so it uses the same noon boundary
+      // BriefingHierarchyBuilder uses to tell a sunrise from a sunset.
+      vi.setSystemTime(new Date('2026-08-04T13:00:00Z'));
+      renderProvider();
+      await act(async () => {});
+
+      // The DATE span alone cannot see this — six events from 00:00 cover three dates whether or
+      // not the sunrise is dropped, so a test asserting only dates passes with the guard deleted.
+      // The card keys are what discriminate: five, starting at the sunset, not six starting at the
+      // sunrise. And they are what says the far end did NOT move: no 2026-08-07.
+      expect(screen.getByTestId('card-keys')).toHaveTextContent(
+        '2026-08-04:SUNSET|2026-08-05:SUNRISE|2026-08-05:SUNSET|2026-08-06:SUNRISE|2026-08-06:SUNSET',
+      );
+      expect(screen.getByTestId('cards')).toHaveTextContent(/^5$/);
+      expect(screen.getByTestId('dates')).toHaveTextContent('2026-08-04|2026-08-05|2026-08-06');
+    });
+
+    it('falls back to walking the days when the payload names no rendered events', async () => {
+      // The deploy-window degrade: a payload cached before the field existed, or served by an older
+      // backend. Returning nothing would blank the pane. Uncapped on purpose — the cap belongs to
+      // the backend, and a client-side copy for the degrade is the constant this phase deleted.
+      //
+      // The day peak is deleted TOO, because that is the only payload production can actually
+      // produce: both fields come from the same projector call, so one cannot be absent while the
+      // other is present. Deleting only `renderedEvents` builds a shape the backend cannot emit and
+      // hides what such a payload does to the rail — which is the whole of its user-visible effect.
+      const payload = multiDayPayload('2026-08-04', 3);
+      delete payload.renderedEvents;
+      payload.days.forEach((d) => { delete d.peak; });
+      getDailyBriefing.mockResolvedValue(payload);
+      renderProvider();
+      await act(async () => {});
+
+      // Six events would stop at the 6th; the walk keeps going, so the third day survives.
+      expect(screen.getByTestId('dates')).toHaveTextContent(
+        '2026-08-04|2026-08-05|2026-08-06',
+      );
+      // And the tiles say they have no answer rather than asserting a stand-down. Such a payload
+      // still carries its windows, so the CARDS read Worth it — "All poor" beside them would be
+      // the exact contradiction this phase exists to remove.
+      expect(screen.getByTestId('labels')).toHaveTextContent('Awaiting|Awaiting|Awaiting');
+      expect(screen.getByTestId('labels').textContent).not.toMatch(/poor/i);
+    });
+
+    it('draws nothing when the backend published an empty list', async () => {
+      // Empty is not absent. An entirely elapsed forecast says so, and must not be read as "the
+      // projector did not run" and degrade into drawing every past window.
+      const payload = multiDayPayload('2026-08-04', 3);
+      payload.renderedEvents = [];
+      getDailyBriefing.mockResolvedValue(payload);
+      renderProvider();
+      await act(async () => {});
+
+      expect(screen.getByTestId('tiles')).toHaveTextContent('0');
     });
 
     it('never draws more than four days however many the briefing carries', async () => {

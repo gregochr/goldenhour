@@ -141,6 +141,38 @@ public record BriefingSlot(
     }
 
     /**
+     * The slots that vote on a region's verdict: its non-canopy slots, or all of them when the
+     * region has nothing else.
+     *
+     * <p><b>Why a wood does not vote.</b> A woodland verdict is computed on inverted polarity — a
+     * canopy GO means heavy cloud and mist, which is the opposite of what GO means for a sky slot —
+     * so averaging the two averages two opposite meanings of the same word. A single overcast wood
+     * could otherwise carry a region to "Worth it" while the summary beneath it read "Clear at N of
+     * M locations" and counted it.
+     *
+     * <p><b>Why the fallback.</b> A region with nothing but canopy slots falls back to them rather
+     * than having no verdict at all — silence there would be a worse answer than an inverted-polarity
+     * one, because the region genuinely has a forecast.
+     *
+     * <p><b>Why it lives here.</b> The rule had four independent copies — the hierarchy builder's
+     * {@code votingSlots}, the confidence roster's {@code voting} count, the enrichment pass's
+     * rating rollup and the Plan projector's region ranking — and one of them was missing, which is
+     * how a rated wood came to lift a window's badge a band above every rating its card rendered.
+     * Woods are not lost by any of them: they keep their own slot, verdict and flags in the
+     * drill-down. They simply do not vote on a question they are not answering.
+     *
+     * @param slots a region's slots for one date and event; null or empty yields an empty list
+     * @return the voting slots, never null
+     */
+    public static List<BriefingSlot> votingSlots(List<BriefingSlot> slots) {
+        if (slots == null || slots.isEmpty()) {
+            return List.of();
+        }
+        List<BriefingSlot> sky = slots.stream().filter(slot -> !slot.canopy()).toList();
+        return sky.isEmpty() ? List.copyOf(slots) : sky;
+    }
+
+    /**
      * Builds a canopy slot carrying the location id — the form production should use.
      *
      * @param locationId      database id of the location

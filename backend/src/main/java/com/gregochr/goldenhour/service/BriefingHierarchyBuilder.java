@@ -132,10 +132,7 @@ public class BriefingHierarchyBuilder {
         // Woods are not lost: they keep their own slot, verdict and flags in the drill-down. They
         // simply do not vote on a question they are not answering. A region with nothing BUT
         // canopy slots falls back to them rather than having no verdict at all.
-        List<BriefingSlot> skySlots = slots.stream()
-                .filter(s -> !s.canopy())
-                .toList();
-        List<BriefingSlot> votingSlots = skySlots.isEmpty() ? slots : skySlots;
+        List<BriefingSlot> votingSlots = BriefingSlot.votingSlots(slots);
 
         Verdict verdict = verdictEvaluator.rollUpVerdict(votingSlots);
         List<String> tideHighlights = verdictEvaluator.buildTideHighlights(slots);

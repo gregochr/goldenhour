@@ -71,10 +71,15 @@ public final class ConfidenceDeriver {
      * distinction is the whole reason this is a record rather than two int parameters that could
      * be transposed without a compiler complaint.
      *
-     * @param scoreable locations that could carry a Claude rating — the coverage denominator.
-     *                  Excludes a canopy slot only while it holds no rating, since an in-season
-     *                  bluebell wood is scored by the bluebell prompt and belongs in both
-     *                  numerator and denominator.
+     * @param scoreable locations that could carry a Claude rating — the coverage DENOMINATOR only.
+     *                  Excludes a canopy slot while it holds no rating, since a wood is out of the
+     *                  sky batch and counting it unconditionally would report a permanent,
+     *                  unfixable shortfall. It no longer matches the numerator: since the canopy
+     *                  fix the caller passes stats over the region's VOTING slots, so a rated wood
+     *                  sits in this denominator and not in the count above it. That makes the ratio
+     *                  slightly pessimistic for a wood-bearing region — it can only downgrade, the
+     *                  safe direction — and is preferred to measuring coverage of a population the
+     *                  verdict does not use
      * @param voting    locations that vote on the region verdict — non-canopy slots, or all slots
      *                  for an all-canopy region, mirroring
      *                  {@code BriefingHierarchyBuilder.buildRegion}. A non-positive value disables

@@ -1,10 +1,29 @@
 # Plan-tab verdict consolidation — one source, one vocabulary
 
-**Status:** proposed (2026-08-16). Decision taken: **region-led verdicts** (owner's call, 2026-08-16).
-**Phase 0 + Phase 1 shipped 2026-08-16** on branch `fix/plan-verdict-consolidation` (4 commits,
-unmerged, unpushed). Phase 0's prod diagnostic found BEST on an unrendered window (2026-08-19
-sunset, the 7th non-past event), confirming D3 for the observed instance. Phases 2–4 not started;
-wait for the v2 flag flip and a fresh go-ahead per §6.
+**Status:** in progress. Decision taken: **region-led verdicts** (owner's call, 2026-08-16).
+**Phase 0 + Phase 1 shipped 2026-08-16** on branch `fix/plan-verdict-consolidation`, merged to
+`main` as #523 (squash — the branch's original hashes are not ancestors of main). Phase 0's prod
+diagnostic found BEST on an unrendered window (2026-08-19 sunset, the 7th non-past event),
+confirming D3 for the observed instance.
+**Phases 2 and 3 shipped 2026-08-17/18** on branch `fix/plan-verdict-phases-2-3`, on the owner's
+explicit instruction to proceed — so they land **before** the v2 flag flip, not after it, and §6's
+"gate behind a caller opt-in" clause is what carries the Phase 3 work that touches `HeatmapGrid`
+(`serverCellRating`, defaulting off, so v1 keeps its own cell star). ⚠️ **That opt-in does not make
+v1 untouched, and the canopy fix below is where it stops being true**: `displayVerdict` is a payload
+field, not a prop, so v1's grid cell word moved with v2's — and v1's own star derivation was then
+moved by hand to match it, which is the one deliberate change to the frozen control.
+`usePlanLayout.js` still defaults to `PLAN_V1`. Phase 4 not started.
+
+**Phase 3's one deliberate behavioural cost.** The six-event cap is now the backend's alone, so when
+the client's stale-cache guard withdraws an event the payload still lists, the rail shows one day
+fewer rather than reaching further down `days` to refill. Refilling means re-implementing the cap
+this phase deleted. It is reachable only from an SWR payload that has aged past one of its own
+events, under-reports rather than over-reports, and self-heals at the next poll. Pinned by
+`WindowFirstBriefingContext.test.jsx` "shows one day fewer, rather than refilling".
+
+**§5's one open question is resolved:** `DisplayVerdict.resolve(Integer, Verdict)` **stays**. The
+window verdict was not its last single-rating caller — `BriefingSlot` (3 sites) and
+`EvaluationViewService` (2 sites) still pass a rating. Only the projector's call was deleted.
 **Goal:** every surface on the Plan tab renders the same backend-computed answer, so the class of
 disagreement observed on 2026-08-16 becomes structurally impossible rather than individually patched.
 This is a stability investment: the app should be usable for years without these surfaces drifting
@@ -81,8 +100,55 @@ screenshot's rows would have read `Poor · best spot 4★` — provisional-looki
 
 This retires the `PlanWindowProjector.java:52-57` rationale ("a MAYBE badge above a strip whose
 lead card reads Worth it"): with the spot channel explicitly labelled, a `Maybe · best spot 4★`
-header above a 4★ lead card is two labelled facts, not a contradiction. Update that comment when
-the rule changes — it currently documents the rejected alternative as rejected.
+header above a 4★ lead card is two labelled facts, not a contradiction. **Done in Phase 2** — that
+comment now records this decision and its date, and cites this section back. (Grep for the symbol;
+the `:52-57` anchors above are from 2026-08-16 and the block has since been rewritten.)
+
+**One consequence the decision did not foresee, found by the Phase 2 adversarial review — now
+FIXED (2026-08-18, before the flip, on the owner's instruction).** A region's average was
+canopy-**inclusive** while `bestRating` and the card's spot strip both **exclude** canopy slots, so
+region-led verdicts let a rated wood lift a badge a band *above every rating the card renders* —
+`◎ Worth it` over `best spot 3★`, with the wood shown nowhere. A widening rather than a new class:
+the pre-existing unrated-window fallback already read that average.
+
+The rule now has **one owner**: `BriefingSlot.votingSlots` — non-canopy slots, falling back to all
+of them for an all-canopy region — replacing four independent copies, one of which was simply
+missing. Its callers are `BriefingHierarchyBuilder.buildRegion` (the triage verdict),
+`BriefingService.rosterOf` (the confidence roster), `BriefingService.enrichWithCachedScores` (the
+region's `displayVerdict` and `meanRating`) and `PlanWindowProjector.rank` (region ranking and the
+published `Pick.averageRating`). The projector had to move with the rest or its ranking would order
+regions by a mean no surface displays.
+
+**It reaches the frozen v1 arm, and the arm was moved to match.** `displayVerdict` is a payload
+field both arms render — there is no prop to gate it — so v1's grid cell word moved with v2's. Its
+star is derived client-side, so it was moved too: `HeatmapCell`'s non-opted-in path applies the same
+rule by hand across both of its lookups (the name-keyed `/evaluate/scores` join and the slot
+fallback), with the all-canopy fallback preserved. **This is the one place the pilot control was
+deliberately unfrozen**, on the owner's instruction, because a control whose cell contradicts itself
+measures nothing. v2's cell reads both figures from one payload.
+
+**Two averages stay canopy-inclusive, for different reasons.**
+`PipelineRunPickService.lookupAverageRating` reads a name-keyed score cache with no canopy flag and
+has nothing to filter on. `BriefingRollupBuilder.computeRegionStats` reads the same cache, but its
+caller holds the enriched region already — a canopy-name set is one line away — so it is undone
+rather than blocked, and it is the one worth doing: it feeds the best-bet advisor's prompt, a
+decision input. Neither renders as a verdict and neither is a regression.
+
+**Two things deliberately did NOT move.** `scoredLocationCount` stays canopy-inclusive — the
+honesty filter tests it against its own canopy-inclusive `scoreable` count, and both arms render
+"N of M evaluated" against the whole slot list, so a voting count there would under-report a scored
+wood and could blank a region whose only evaluated location is one. And `ConfidenceDeriver`'s
+coverage denominator stays `scoreable` while its numerator is now the voting count, which for a
+wood-bearing region is marginally pessimistic — it can only make the channel *more* provisional,
+the safe direction.
+
+⚠️ **A region whose only rated slot is a wood is floored at `LOW` explicitly, not left null.** The
+first cut of this returned null there and called it honest. It is not: `confidenceUtils
+.resolveConfidence` is fail-soft and turns an absent field into a horizon tier capped at *medium*,
+so the channel would have read **less** provisional at exactly the point it knows least — nothing
+that votes is scored and the band came from the triage fallback. Null still means nothing scored at
+all, which is the documented zero-coverage case. Found by the adversarial review, pinned by two
+tests on either side of that boundary.
 
 ---
 

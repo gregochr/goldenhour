@@ -11,9 +11,21 @@ import java.util.List;
 /**
  * Computes Claude rating statistics across a set of locations in a briefing region.
  *
- * <p>Unifies the averaging logic used by {@code BriefingService.enrichWithCachedScores()}
- * (for region-level {@code displayVerdict} + {@code scoredLocationCount}) and
- * {@code BriefingBestBetAdvisor.appendClaudeScores()} (for the Best Bet prompt).
+ * <p>Unifies the averaging logic across every caller that reduces a region's ratings to one
+ * figure: {@code BriefingService.enrichWithCachedScores}, {@code BriefingGlossService}'s prompt
+ * builder, {@code PlanWindowProjector}'s region ranking, {@code BriefingRollupBuilder} and
+ * {@code PipelineRunPickService}.
+ *
+ * <p><b>It does not decide WHICH slots go in, and that is deliberate.</b> Two different questions
+ * are asked of one slot list and they take different populations: coverage ("how many locations
+ * here were evaluated") counts every slot, while the verdict, the mean and the ranking count only
+ * {@link com.gregochr.goldenhour.model.BriefingSlot#votingSlots} — a woodland verdict runs on
+ * inverted polarity, so a rated wood must not set a sky band. Callers that hold slots pass the
+ * right population in. Two callers still average everything, for different reasons:
+ * {@code PipelineRunPickService} reads a name-keyed score cache with no canopy flag and has nothing
+ * to filter on, while {@code BriefingRollupBuilder}'s caller does hold the enriched region and
+ * simply has not been moved yet. Neither figure is rendered as a verdict; the second feeds the
+ * best-bet advisor's prompt, which makes it the one worth moving.
  *
  * <p>Defensively skips null or out-of-range ratings by delegating to
  * {@link RatingValidator} — which is the single source of truth for the

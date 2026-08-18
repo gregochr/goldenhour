@@ -19,8 +19,13 @@ import { badgeKey, buildWindowRows } from './windowFirstRows.js';
  * <h2>What the header may claim</h2>
  *
  * <p>The design's meta reads {@code best 4.0★ · 23 within reach}. Neither half survives here.
- * The star is {@code best 4★}, not {@code 4.0★}: {@code bestRating} is an {@code Integer} in 1–5,
- * and a decimal asserts a precision the field does not carry.
+ * The star is {@code best spot 4★}: {@code bestRating} is an {@code Integer} in 1–5, so {@code 4.0★}
+ * asserts a precision the field does not carry — and the word <em>spot</em> is load-bearing rather
+ * than decorative. Since the verdict badge became the top region's AVERAGE (plan §2), this number
+ * describes one location while the badge beside it describes a whole region, so the two can read
+ * {@code Poor · best spot 4★} and both be true. The label is what makes that two facts instead of a
+ * contradiction, which is the entire condition on which {@code bestRating} was allowed to stay on
+ * the payload at all.
  *
  * <p><b>The header's count arrives at P8, and only when the word it uses is true.</b> P5 and P6 both
  * withheld it because the design's word is <em>reach</em> and nothing was gated: "23 within reach"
@@ -34,7 +39,7 @@ import { badgeKey, buildWindowRows } from './windowFirstRows.js';
  * gated, two complementary ones when something was.
  *
  * <p><b>And {@code bestRating} is deliberately NOT re-derived from the gated set</b>, which is
- * visible the moment the lens bites: a header can read {@code best 5★ · 7 within reach} over a
+ * visible the moment the lens bites: a header can read {@code best spot 5★ · 7 within reach} over a
  * strip topping out at 4★, because the 5★ is beyond the tier. That is two true claims about two
  * different things — the star is the <em>window's</em> best, the count is what <em>this user</em>
  * can drive to — and it is useful in that state, since it says a better spot exists further out.

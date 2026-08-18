@@ -234,13 +234,25 @@ export default function WindowFirstWindowCard({
             empty flex item would spend a gap on nothing. */}
         {(card.bestRating != null || card.withinReachCount != null) && (
         <span data-testid="window-card-meta" className="wf-wh-meta">
+        {/* `best spot N★`, not the mock's `best N★`. The window's badge is now its top region's
+            AVERAGE verdict, so this number and that word answer different questions and can
+            legitimately disagree — `Poor · best spot 4★` is one region's mean beside one location's
+            score. The word "spot" is what says which of the two this is; without it a reader has a
+            bare star next to a verdict and no way to tell that only one of them describes the whole
+            window. Plan §2 fixes the wording.
+
+            Deliberately NOT a pill. The badge row to the right is the verdict vocabulary's own
+            visual channel, and putting a bordered chip in the same family is exactly what "never
+            borrows verdict vocabulary" forbids — a third pill beside "Poor" reads as a competing
+            verdict rather than as a labelled fact about one location. Quiet mono type in the meta
+            clause is the distinctness the rule actually asks for. */}
         {card.bestRating != null && (
           <span
             data-testid="window-card-best"
             className="font-mono text-plex-text-secondary"
             style={{ fontSize: '11px' }}
           >
-            {`best ${card.bestRating}★`}
+            {`best spot ${card.bestRating}★`}
           </span>
         )}
         {/* The design's second meta clause, earned at P8 and not before. Null whenever the word

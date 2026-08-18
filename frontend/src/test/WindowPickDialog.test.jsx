@@ -102,7 +102,7 @@ describe('WindowPickDialog', () => {
   });
 
   it('states no rating, because the card header already states a different one', () => {
-    // Pick.averageRating is the region average, canopy-inclusive; the header's star is bestRating,
+    // Pick.averageRating is the region's mean over its voting slots; the header's star is bestRating,
     // a max over non-canopy slots. Two different statistics under one glyph, one row apart.
     renderDialog();
     expect(screen.getByTestId('window-pick-dialog').textContent).not.toMatch(/★|\/5/);
