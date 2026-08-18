@@ -193,6 +193,31 @@ and worth doing before this question is asked again — but it is a *future* ena
 and the pre-registered rule that gated the cap-2 proposal fired its no-data arm on exactly this
 finding.
 
+⚠️ **`golden_hour` was a silent omission in the plan, closed 2026-08-18.** The plan specified a
+replacement for `fiery_sky` and the rating and said **nothing** about `golden_hour`, so the old
+rule's `golden_hour <= 20` ceiling was *dropped* rather than demoted. That was an oversight, not a
+measured decision: the veto constrained both scores for the same reason — both are unreliable under
+a confirmed approach — and on the recorded 11 Mar washout `golden_hour` was still scoring **75**, a
+real miss that the rating cap masked. It now carries the same treatment as `fiery_sky`: **20-30
+points lower than the conditions alone would give** while both signals stand. A penalty, never the
+ceiling back.
+
+⚠️ **Prose was not enough, and the measurement says so precisely — do not delete either placement.**
+Measured on the 11 Mar regression input, 12 Haiku runs per arm:
+
+| `golden_hour` | mean | max |
+|---|---|---|
+| shipped demotion (no clause) | 71.4 | 75 |
+| + the clause in **rules prose only** | 67.0 | 72 |
+| + restated on the **output field** and in the schema description | **51.9** | **65** |
+
+Prose alone moved it **4.4 points** against the 20-30 it asks for; the field-adjacent restatement
+moved it **19.5**. This is the *second* rule in this document to behave that way — the rating cap
+was ignored by Haiku on 7 of 8 runs until it was restated on the field. **Treat "constraint stated
+in rules prose" as advisory and "constraint stated on the output field" as binding**, and give any
+new numeric constraint both placements from the start. The next prompt author should not have to
+rediscover this a third time.
+
 ⚠️ **The demotion that shipped is not F2.** F2 keyed its exemption on the coned solar-horizon reading — the exact reading Copt Hill proved misleading — and that rejection stands untouched. What shipped applies *whenever both approach signals stand*, conditioned on nothing, and it caps rather than exempts: rating ≤3 with a −20..−30 `fiery_sky` penalty, where F2 would have lifted a clear-horizon case out of the rule altogether. Copt Hill still lands one band above its recorded outcome under the demotion, which is the price the change states rather than hides.
 
 ### ~~F2 (original proposal)~~

@@ -242,8 +242,9 @@ public class PromptBuilder {
             + "separated by a semicolon, dash, or conjunction.\n\n"
             + "Output your evaluation as JSON with these fields: "
             + "rating (1-5; MAXIMUM 3 when the CLOUD APPROACH RISK block shows BOTH a [BUILDING] "
-            + "trend AND upwind current ≥60%), fiery_sky (0-100), golden_hour (0-100), "
-            + "summary (1 sentence).\n\n"
+            + "trend AND upwind current ≥60%), fiery_sky (0-100), golden_hour (0-100; 20-30 "
+            + "points LOWER than the conditions alone would give when that same combined approach "
+            + "signal is present), summary (1 sentence).\n\n"
             + "fiery_sky: dramatic colour potential. Requires clouds (mid/high) to catch light. "
             + "Clear sky = 20-40. Ideal cloud canvas with clear horizon = 70-90. Total overcast = 5-15.\n"
             + "golden_hour: overall light quality. Clear sky with good visibility scores well. "
@@ -264,9 +265,10 @@ public class PromptBuilder {
             + "- Combined signal: when BOTH [BUILDING] trend AND upwind current ≥60% are present, "
             + "cloud was moving toward the solar horizon at the time this data was captured, so "
             + "the event-time snapshot may be understated. This is a significant reliability "
-            + "risk, not a veto. While both signals stand, two constraints hold on the output: "
-            + "fiery_sky is 20-30 points lower than the conditions alone would give, and rating "
-            + "is the LOWER of what the sky earns and 3. The rating constraint binds against "
+            + "risk, not a veto. While both signals stand, three constraints hold on the output: "
+            + "fiery_sky is 20-30 points lower than the conditions alone would give, golden_hour "
+            + "is likewise 20-30 points lower, and rating is the LOWER of what the sky earns and "
+            + "3. The rating constraint binds against "
             + "every rule that authorises 4 or 5, including the IDEAL scenario and the "
             + "thick-mid-cloud rate-4 floor: those state what the sky is worth if the event-time "
             + "snapshot can be trusted, and both approach signals say it may not be. It "
@@ -681,7 +683,12 @@ public class PromptBuilder {
                                                 "description", "0-100 inclusive.")),
                                         Map.entry("golden_hour", Map.of(
                                                 "type", "integer",
-                                                "description", "0-100 inclusive.")),
+                                                "description",
+                                                "0-100 inclusive. 20-30 points LOWER than the "
+                                                        + "conditions alone would give when the "
+                                                        + "CLOUD APPROACH RISK block shows BOTH a "
+                                                        + "[BUILDING] trend AND upwind current "
+                                                        + ">= 60%.")),
                                         Map.entry("summary", Map.of(
                                                 "type", "string",
                                                 "description",
