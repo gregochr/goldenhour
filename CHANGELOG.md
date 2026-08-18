@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — CLAUDE.md understated the `[BUILDING]` penalty the prompt actually asks for
+
+The "Cloud approach risk" bullet said a `[BUILDING]` solar trend "tells Claude to penalise
+fiery_sky by 10–25 points". `PromptBuilder`'s `SYSTEM_PROMPT` asks for **15–30**. The prompt is
+the source of truth and is untouched — only the doc moved.
+
+Drift, not a behaviour change: nothing reads the doc, so no forecast was ever scored against the
+wrong figure. It matters because that bullet is what a reader consults before touching the
+approach-risk thresholds, and a range five points low at both ends misrepresents how hard the rule
+already bites.
+
+Found by the adversarial review of the 2026-08-18 veto-demotion change set and deliberately held
+back from it to keep that diff scoped.
+
+The figure had only one home. Sweeping `10–25`/`10-25` across `CLAUDE.md` and `docs/` leaves two
+hits, neither about this rule (an SSE latency of `~10–25 s` in `evaluation-service-design.md`, and
+the date `2026-10-25` in `aurora-night-selection.md`); widening past the literal number —
+`penalise fiery_sky`, then every `[BUILDING]` mention across `docs/engineering/` — finds the four
+investigation docs referring to "the `[BUILDING]` penalty" abstractly, with no magnitude attached.
+
 ## [v2.18.10] - 2026-08-18
 
 ### Fixed — a woodland score could set the band for the sky locations it shares a region with
