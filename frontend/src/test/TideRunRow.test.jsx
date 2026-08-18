@@ -203,4 +203,127 @@ describe('TideRunRow', () => {
     renderRow(day({ seas: null }));
     expect(screen.getByTestId('tide-run-row')).not.toHaveTextContent('seas');
   });
+
+  describe('a day with an extreme missing from the store', () => {
+    /**
+     * The curve maps high water to y=7 and low water to y=25, so this midline separates "drawn as
+     * high water" from "drawn as low water" without restating either baseline as a threshold.
+     */
+    const MIDLINE = 16;
+
+    /**
+     * The sampled y at a local clock time, read off the path.
+     *
+     * Deliberately a second copy of the helper inside 'draws a curve that peaks at high water' —
+     * that test is the proof this fill is inert on healthy data, so it is left exactly as it was
+     * before the fill existed rather than refactored through here.
+     */
+    const yAt = (pathD, clock) => {
+      const points = pathD.split(/[ML]/).filter(Boolean)
+        .map((p) => p.trim().split(' ').map(Number));
+      const minutes = Number(clock.slice(0, 2)) * 60 + Number(clock.slice(3));
+      const x = (minutes / 1440) * 1000;
+      return points.reduce((best, p) => (
+        Math.abs(p[0] - x) < Math.abs(best[0] - x) ? p : best), points[0])[1];
+    };
+
+    const curve = () => screen.getByTestId('tide-run-curve').getAttribute('d');
+
+    it('descends between two consecutive high waters instead of running flat across the gap', () => {
+      // Tides alternate, so HW then HW means a stored extreme is missing — the weekly refresh
+      // destroyed one in production and this chart's sibling drew seven hours of dead-flat trace at
+      // high-water level, which a reader cannot tell from a real stand of tide.
+      renderRow(day({
+        tides: [
+          { type: 'L', time: '02:20' },
+          { type: 'H', time: '08:30' },
+          { type: 'H', time: '20:30' },
+        ],
+      }));
+
+      const path = curve();
+      expect(yAt(path, '14:30')).toBeGreaterThan(MIDLINE);
+      expect(yAt(path, '08:30')).toBeLessThan(MIDLINE);
+      expect(yAt(path, '20:30')).toBeLessThan(MIDLINE);
+    });
+
+    it('rises between two consecutive low waters', () => {
+      // The mirror case is not symmetric by construction: the fill has to take the opposite kind of
+      // the pair it found, so a rule hard-coded to insert a low would pass the test above and fail
+      // this one.
+      renderRow(day({
+        tides: [
+          { type: 'H', time: '02:20' },
+          { type: 'L', time: '08:30' },
+          { type: 'L', time: '20:30' },
+        ],
+      }));
+
+      const path = curve();
+      expect(yAt(path, '14:30')).toBeLessThan(MIDLINE);
+      expect(yAt(path, '08:30')).toBeGreaterThan(MIDLINE);
+      expect(yAt(path, '20:30')).toBeGreaterThan(MIDLINE);
+    });
+
+    it('leaves a long gap between alternating extremes alone', () => {
+      // The trigger is same-kind adjacency, never elapsed time: eighteen hours from low water to
+      // high water is legal, and inserting anything into it would draw a tide that does not exist.
+      // So the limb has to climb the whole way without a dip.
+      renderRow(day({
+        tides: [
+          { type: 'L', time: '02:20' },
+          { type: 'H', time: '20:30' },
+        ],
+      }));
+
+      const path = curve();
+      // Falling on the chart means a smaller y at each later hour, all the way up the limb.
+      expect(yAt(path, '08:00')).toBeLessThan(yAt(path, '04:00'));
+      expect(yAt(path, '14:00')).toBeLessThan(yAt(path, '08:00'));
+      expect(yAt(path, '20:00')).toBeLessThan(yAt(path, '14:00'));
+    });
+
+    it('adds no label and changes no wording for the water it drew', () => {
+      // Shape only is the entire licence. The synthetic extremum sits at 14:30, so a fill that
+      // reached the label rail or the verdict would put "LW 14:30" on screen as a measurement.
+      renderRow(day({
+        tides: [
+          { type: 'L', time: '02:20' },
+          { type: 'H', time: '08:30' },
+          { type: 'H', time: '20:30' },
+        ],
+        verdict: 'HW 08:30 · 3h20 after sunrise',
+      }));
+
+      const row = screen.getByTestId('tide-run-row');
+      expect(row).not.toHaveTextContent('14:30');
+      // The two real times that appear nowhere but the label rail, so this cannot pass by the
+      // labels having vanished altogether.
+      expect(row).toHaveTextContent('02:20');
+      expect(row).toHaveTextContent('20:30');
+      expect(screen.getByTestId('tide-run-verdict'))
+        .toHaveTextContent('HW 08:30 · 3h20 after sunrise');
+    });
+
+    it('stays at high water when the implied extremum lands on its own neighbour', () => {
+      // Two highs a minute apart put the midpoint on the second of them, so the fill creates a
+      // zero-length span the stored data never had — two ways to go wrong, both checked here. One
+      // NaN in the `d` attribute drops the whole trace rather than the segment that produced it;
+      // and a zero-width trough drawn rather than stepped over would punch a spike to low water at
+      // the exact minute the water is highest.
+      renderRow(day({
+        tides: [
+          { type: 'L', time: '02:20' },
+          { type: 'H', time: '08:35' },
+          { type: 'H', time: '08:36' },
+          { type: 'L', time: '14:45' },
+        ],
+      }));
+
+      const path = curve();
+      expect(path).not.toContain('NaN');
+      expect(yAt(path, '08:32')).toBeLessThan(MIDLINE);
+      expect(yAt(path, '08:40')).toBeLessThan(MIDLINE);
+    });
+  });
 });

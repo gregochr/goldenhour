@@ -26,6 +26,43 @@ const HIGH_Y = 7;
 const LOW_Y = 25;
 
 /**
+ * Inserts the opposite extremum a lost row implies, midway between any two consecutive same-kind
+ * extrema.
+ *
+ * <p>Tides alternate, so HW followed by HW is physically impossible: a stored extreme is missing.
+ * The weekly refresh destroyed one in production, and the Plan tab's tide sparkline drew seven
+ * hours of dead-flat trace at high-water level across the hole — indistinguishable, to a reader,
+ * from a real stand of tide. `TideService` now scans for the same shape at merge time and
+ * `WindowTideRollupBuilder` draws the same defence on that sparkline; see
+ * `docs/engineering/tide-frontier-extreme-loss-plan.md`.
+ *
+ * <p>That particular hole would not have fired this rule here — it straddled midnight, and
+ * `day.tides` is one London day, so each day's list still alternated (the bookend below happened
+ * to draw the lost low almost exactly where it belonged). This surface's exposure is an extreme
+ * lost *inside* a day, which the same weekly seam can produce; the defence is the same one either
+ * way, and it must be here so the two charts cannot disagree about the same water.
+ *
+ * <p>Shape only, which is the same licence the bookend extension below already takes: the curve is
+ * `aria-hidden` and every worded fact on the row — the verdict, the range, the labels — is the
+ * backend's, derived from the real extrema and untouched by this. Same-kind adjacency only; a long
+ * gap between alternating kinds is a neap tide, not a hole.
+ *
+ * @param {Array<{high: boolean, m: number}>} extrema the day's extrema, chronological
+ * @returns {Array<{high: boolean, m: number}>} the same extrema, gaps closed
+ */
+function fillInteriorGaps(extrema) {
+  const filled = [];
+  extrema.forEach((point, i) => {
+    filled.push(point);
+    const next = extrema[i + 1];
+    if (next && next.high === point.high) {
+      filled.push({ high: !point.high, m: Math.round((point.m + next.m) / 2) });
+    }
+  });
+  return filled;
+}
+
+/**
  * Builds the SVG path for a day's tide curve.
  *
  * <p>Cosine interpolation between extrema — a real tide is very close to sinusoidal between high
@@ -37,7 +74,11 @@ const LOW_Y = 25;
  * @returns {string} an SVG path `d` attribute
  */
 function curvePath(tides) {
-  const extrema = tides.map((t) => ({ high: t.type === 'H', m: toMinutes(t.time) }));
+  // Gaps are closed before the ends are extended, because the extension reads the first and last
+  // points and a synthetic point must never be what it reads.
+  const extrema = fillInteriorGaps(
+    tides.map((t) => ({ high: t.type === 'H', m: toMinutes(t.time) })),
+  );
   const first = extrema[0];
   const last = extrema[extrema.length - 1];
   const series = [
@@ -89,6 +130,7 @@ function TideChart({ day }) {
           fill="rgba(0,0,0,0.28)"
         />
         <path
+          data-testid="tide-run-curve"
           d={curvePath(day.tides)}
           fill="none"
           stroke="var(--tr-accent)"

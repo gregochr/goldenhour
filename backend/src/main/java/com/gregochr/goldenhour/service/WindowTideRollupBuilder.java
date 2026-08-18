@@ -69,6 +69,11 @@ import java.util.OptionalDouble;
  * single date with no day carrying both a high and a low water loses its own windows and no others.
  * A missing sea state is <em>not</em> such a case: waves reach only T+4 while tides now reach months
  * ahead, so that field degrades on its own and the rest of the rollup stands.
+ *
+ * <p>The trace is the one place with a narrower rule, and it has always had one: {@link #bracket}
+ * extends the series past both ends of the day and {@link #fillInteriorGaps} closes a gap left by a
+ * lost extreme, because a curve drawn flat across water it cannot see makes a claim of its own. Both
+ * are shape and only shape — no stated number in the rollup reads the extended series.
  */
 @Component
 public class WindowTideRollupBuilder {
@@ -440,6 +445,9 @@ public class WindowTideRollupBuilder {
      *
      * <p>Wider than {@link #pointsOn} because the shape needs something to interpolate towards
      * before the day's first extreme and after its last.
+     *
+     * <p>Interior gaps are filled before the ends are bracketed, because {@link #bracket} reads the
+     * first and last points and the fill must not be what it reads.
      */
     private static List<Point> seriesAround(List<TideExtremeEntity> extremes, LocalDate date) {
         List<Point> points = new ArrayList<>();
@@ -452,7 +460,51 @@ public class WindowTideRollupBuilder {
             points.add(point(extreme, date));
         }
         points.sort(Comparator.comparingInt(Point::minutes));
-        return bracket(points);
+        return bracket(fillInteriorGaps(points));
+    }
+
+    /**
+     * Inserts the opposite extreme a lost row implies, midway between any two consecutive
+     * same-kind extremes.
+     *
+     * <p>Tides alternate, so HIGH followed by HIGH is physically impossible: it means a stored
+     * extreme is missing. That is not hypothetical — the weekly refresh destroyed a frontier
+     * extreme in production, and {@code TideService.sameKindAdjacencies} now scans for this exact
+     * shape at merge time (see {@code docs/engineering/tide-frontier-extreme-loss-plan.md}).
+     * Cosine-interpolating straight across such a gap draws hours of confident slack water pinned
+     * at high-water level, which is worse than drawing nothing: the reader cannot tell it from a
+     * real stand of tide.
+     *
+     * <p><b>Shape only.</b> The licence is {@link #bracket}'s bookends' — it affects the trace and
+     * no figure a reader is given. Every stated figure is derived elsewhere and cannot inherit a
+     * synthesised point: the range and its anomaly from {@link #pointsOn} (the day's real rows),
+     * the nearest extreme and its offset from {@link #nearestExtreme}, the state from
+     * {@code TideService.classifyTideState} — all three read the raw stored extremes. The one
+     * reader beyond the trace is {@link #directionAt}, whose answer <em>is</em> rendered as a word,
+     * and inside a gap the synthetic point makes it <em>more</em> correct: production's hole
+     * reported RISING mid-ebb only because the next real extreme it could see was the following
+     * high water.
+     *
+     * <p>Same-kind adjacency only, with no time-gap heuristic — a long gap between alternating
+     * kinds is a neap tide or a shallow-water coast, not a hole. Heights come from
+     * {@link #counterpartHeight} against the real points, so the fill copies a measured
+     * opposite-kind height rather than inventing one; a bookend that later sees a synthetic point
+     * as its nearest counterpart therefore still reads a measured height, just a nearer copy of it.
+     *
+     * @param points this day's window of real extremes, ascending
+     * @return the same points with an implied extreme between every same-kind pair
+     */
+    private static List<Point> fillInteriorGaps(List<Point> points) {
+        List<Point> filled = new ArrayList<>();
+        for (int i = 0; i < points.size(); i++) {
+            Point current = points.get(i);
+            filled.add(current);
+            if (i + 1 < points.size() && points.get(i + 1).high() == current.high()) {
+                int midpoint = (current.minutes() + points.get(i + 1).minutes()) / 2;
+                filled.add(new Point(!current.high(), midpoint, counterpartHeight(points, current)));
+            }
+        }
+        return filled;
     }
 
     /**

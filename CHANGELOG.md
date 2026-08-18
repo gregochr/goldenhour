@@ -46,6 +46,42 @@ Second instance of the same defect — `HotTopicStrip.test.jsx` was bitten from 
 on 2026-08-13, when a fixture date that had been "today" when written stopped being so the next
 morning. Test file only; no production code touched.
 
+### Fixed — a missing tide extreme no longer draws hours of confident slack water
+
+Tides alternate, so two high waters in a row means a stored extreme is missing. That is not
+hypothetical: the weekly refresh destroyed a frontier extreme in production (fixed at source last
+week), and the hole it left drew a dead-flat trace at high-water level from midnight to about 07:00
+on the Plan tab's tide sparkline — the cosine interpolation running straight from HIGH to HIGH
+across the gap. A reader cannot tell that from a real stand of tide, which makes it the one
+rendering worse than drawing nothing.
+
+Both tide-curve surfaces now detect a same-kind adjacency and draw the extreme it implies, at the
+midpoint of the pair: `WindowTideRollupBuilder.seriesAround` (the Plan tab's window sparkline) and
+`TideRunRow.curvePath` (the Hot Topics tide-run chart). The trigger is same-kind adjacency alone,
+never elapsed time — eighteen hours from low water to high water is legal on a shallow coast, and
+inserting anything into that gap would draw a tide that does not exist.
+
+**Shape only**, which is the licence the existing bookend extension already documents. No stated
+figure can inherit a synthesised point: the range and its anomaly read the day's real rows, the
+nearest extreme and its offset read the raw stored extremes, and the chart's labels and the tide
+run's verdict are untouched. Heights come from the same nearest-opposite-kind rule the bookends
+use, so the fill copies a measured height rather than inventing one. The one claim beyond the trace
+that does move is the row's rising/falling reading, and it moves toward correct: production's hole
+reported RISING mid-ebb, because the next extreme the series could see was the high water on the
+far side of the missing low.
+
+The existing curve tests on both sides pass unedited, which is the proof the fill is inert on
+healthy data.
+
+### Fixed — a failed tide integrity read-back could misreport a successful WorldTides call
+
+The post-merge integrity check added last week ran inside the fetch's own try/catch, and that block
+does more than swallow: it logs a *failed* WorldTides API call to `job_run` metrics and skips the
+successful one. A read-back that threw would therefore report a call that had been made, billed and
+merged as an API failure, losing its credit count with it. The check now catches its own
+`RuntimeException` and warns, naming itself as the thing that did not run — a diagnostic must not be
+able to misreport the operation it is diagnosing.
+
 ## [v2.18.9] - 2026-08-17
 
 ### Fixed — the Plan tab's Best bet / Also good chips were invisible to screen readers
