@@ -878,6 +878,132 @@ public class PromptBuilderTest {
     }
 
     @Test
+    @DisplayName("combined approach signal is a bounded penalty, not an absolute 1-2 ceiling")
+    void getSystemPrompt_combinedApproachSignal_isBoundedNotAbsolute() {
+        // The demotion (docs/engineering/veto-demotion-plan.md): over the 545 promptable firings in
+        // six months the combined signal separates by only +3.4pp of observed horizon cloud, on
+        // skies averaging 36% cloud — an absolute ceiling on that is indefensible. The bounded form
+        // must survive later edits, so pin the three clauses that carry it.
+        String prompt = promptBuilder.getSystemPrompt();
+
+        assertThat(prompt)
+                .contains("fiery_sky is 20-30 points lower than the conditions alone would give")
+                // Round 2 (2026-08-18): with no precedence at all the cap lost outright to the
+                // IDEAL-scenario and rate-4-floor imperatives — copt-hill-11mar rated 4 on 8/8
+                // eval runs. Precedence is what makes the cap bind, so it is pinned separately.
+                .contains("rating is the LOWER of what the sky earns and 3")
+                .contains("binds against every rule that authorises 4 or 5")
+                // Round 3: precedence stated as a PROCEDURE ("apply the cap last", "score then
+                // bring it down") gave the model a narrative to verbalise, and degenerate output
+                // — reasoning inside the JSON summary, once running away into an unparseable
+                // response — appeared on 14% of veto-firing runs against 0/120 in the control.
+                // The constraint is now declarative, so these two clauses must stay absent.
+                .doesNotContain("Apply that cap LAST")
+                .doesNotContain("then bring the rating down")
+                // ...and constraining the output is not nullifying the evidence, which stays gone.
+                .contains("It constrains the output only; it discards no evidence")
+                // Round 6: the rules-prose constraint binds on Sonnet (7/7 well-formed at the cap)
+                // and NOT on Haiku — the far-term batch tier — which rated 4 on 7 of 8 runs while
+                // the pristine prompt held it at <=3 on 8/8. Smaller models follow constraints
+                // attached to the output FIELD better than constraints stated in rules prose, so
+                // the cap is restated where the field itself is declared.
+                .contains("rating (1-5; MAXIMUM 3 when the CLOUD APPROACH RISK block shows BOTH a "
+                        + "[BUILDING] trend AND upwind current ≥60%)")
+                // The evidence-nullification clauses and the summary gag are what made this a veto.
+                .doesNotContain("the forecast is UNRELIABLE")
+                .doesNotContain("output rating 1 or 2")
+                .doesNotContain("upwind CURRENT value matters")
+                .doesNotContain("write only about the approach risk");
+    }
+
+    @Test
+    @DisplayName("the no-reasoning-in-JSON rule is restated beside the approach-risk block")
+    void getSystemPrompt_approachBlock_restatesTheNoReasoningRule() {
+        // The approach rules are the one place the prompt asks Claude to weigh signals that
+        // disagree, and that is exactly where it began deliberating inside the JSON summary once
+        // the veto stopped resolving the conflict by fiat. The global output-format rule sits far
+        // below, so it is restated adjacent to the conflict that provokes the deliberation.
+        String prompt = promptBuilder.getSystemPrompt();
+
+        int approachBlock = prompt.indexOf("CLOUD APPROACH RISK:");
+        int restatement = prompt.indexOf("no reasoning, deliberation or working");
+        int globalRule = prompt.indexOf("Do NOT write reasoning, thinking, or commentary");
+
+        assertThat(restatement)
+                .as("the restatement must exist")
+                .isGreaterThan(-1);
+        assertThat(restatement)
+                .as("...and sit inside the approach block, not merely somewhere in the prompt")
+                .isGreaterThan(approachBlock)
+                .isLessThan(globalRule);
+        assertThat(prompt)
+                .contains("The summary is a finished one-sentence verdict, not a train of thought")
+                // The global rule is the one this restates — it must not have been moved instead.
+                .contains("Do NOT write reasoning, thinking, or commentary inside the JSON values");
+    }
+
+    @Test
+    @DisplayName("a cloudy far corridor corroborates the near gate rather than confirming a blanket")
+    void getSystemPrompt_farCorridorRule_corroboratesRatherThanConfirms() {
+        // docs/engineering/blanket-confirmation-plan.md: the far reading is accurate when it shows
+        // a drop (+2.9pp mean error) and wrong by ~68pp when it claims cover over a clear corridor,
+        // so it may soften but must never escalate. Prose and label share the rule's name.
+        String prompt = promptBuilder.getSystemPrompt();
+
+        assertThat(prompt)
+                .contains("FAR CORRIDOR ALSO CLOUDY")
+                .contains("it does NOT confirm a blanket")
+                .contains("carries no penalty of its own AND grants no relief of its own")
+                .doesNotContain("EXTENSIVE BLANKET")
+                .doesNotContain("Full blocking penalty applies");
+
+        // Round 2: the relief must not leak past the band the near gate actually leaves open. The
+        // first cut said only "the rating may reach 3", and copt-hill-5mar-washout — 67% solar low,
+        // NO far reading, NO approach block, so neither reworded rule even has data — lifted from
+        // 2 to 3 on 8/8 runs. The >60% ceiling is hard out of scope; these two clauses fence it.
+        assertThat(prompt)
+                .contains("Above 60% the blocked ceiling stands unchanged, canvas or no canvas")
+                .contains("A missing far reading is not evidence of a strip, of a blanket, or of "
+                        + "anything else");
+    }
+
+    @Test
+    @DisplayName("THIN STRIP prose states the same test isThinStrip applies")
+    void getSystemPrompt_thinStripProse_matchesIsThinStrip() {
+        // isThinStrip tests near ≥ 50 and a ≥ 30pp drop — there is no absolute far ceiling, so the
+        // prose must not claim one. Proven against the code below, not merely asserted in prose:
+        // 90/55 satisfies the drop while breaking the retired "far ≤ 30%" clause.
+        String prompt = promptBuilder.getSystemPrompt();
+
+        assertThat(prompt)
+                .contains("THIN STRIP: solar horizon low cloud ≥50% and the beyond-horizon "
+                        + "reading drops by ≥30pp")
+                .doesNotContain("beyond-horizon low cloud ≤30%");
+
+        assertThat(PromptBuilder.isThinStrip(new DirectionalCloudData(90, 0, 0, 0, 0, 0, 55)))
+                .as("prose and isThinStrip must agree: a 90-to-55 pair is a strip on the drop rule")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("THIN STRIP wins the label when both structure rules match the same pair")
+    void buildUserMessage_thinStripAndFarCorridorBothMatch_labelsThinStrip() {
+        // 90/55: drop 35pp (strip) and both arms ≥ 50 (far corridor). The prose now says THIN STRIP
+        // wins; this pins the code to the same precedence, so the two cannot drift apart again.
+        AtmosphericData data = TestAtmosphericData.builder()
+                .directionalCloud(new DirectionalCloudData(90, 20, 10, 5, 45, 30, 55))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("[THIN STRIP — soften low-cloud penalty]")
+                .doesNotContain("[FAR CORRIDOR");
+        assertThat(promptBuilder.getSystemPrompt())
+                .contains("both THIN STRIP and FAR CORRIDOR ALSO CLOUDY below, THIN STRIP wins");
+    }
+
+    @Test
     @DisplayName("buildUserMessage with dew point includes dew point and gap in weather block")
     void buildUserMessage_withDewPoint_includesDewPointAndGap() {
         AtmosphericData data = TestAtmosphericData.builder()
@@ -1042,9 +1168,9 @@ public class PromptBuilderTest {
     }
 
     @Test
-    @DisplayName("buildUserMessage with extensive blanket includes BLANKET annotation")
-    void buildUserMessage_extensiveBlanket_includesAnnotation() {
-        // Solar low cloud 70%, far solar 65% → both ≥ 50 → extensive blanket
+    @DisplayName("buildUserMessage with a cloudy far corridor annotates corroboration, not a blanket")
+    void buildUserMessage_farCorridorAlsoCloudy_includesAnnotation() {
+        // Solar low cloud 70%, far solar 65% → both ≥ 50, drop 5pp → far corridor also cloudy
         AtmosphericData data = TestAtmosphericData.builder()
                 .directionalCloud(new DirectionalCloudData(70, 20, 10, 5, 45, 30, 65))
                 .build();
@@ -1053,7 +1179,11 @@ public class PromptBuilderTest {
 
         assertThat(message)
                 .contains("Beyond horizon (226km, solar azimuth): Low 65%")
-                .contains("[EXTENSIVE BLANKET — full penalty applies]");
+                .contains("[FAR CORRIDOR ALSO CLOUDY — corroboration, not confirmation]")
+                // The label must not re-acquire escalatory force: the far reading corroborates the
+                // near gate, it never confirms a blanket (53.6% of promptable blanket calls sat
+                // over an observed-open corridor — cloud-approach-veto-fix.md §9).
+                .doesNotContain("full penalty");
     }
 
     @Test
@@ -1069,7 +1199,7 @@ public class PromptBuilderTest {
         assertThat(message)
                 .contains("Beyond horizon (226km, solar azimuth): Low 10%")
                 .doesNotContain("[THIN STRIP")
-                .doesNotContain("[EXTENSIVE BLANKET");
+                .doesNotContain("[FAR CORRIDOR");
     }
 
     @Test

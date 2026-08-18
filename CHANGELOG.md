@@ -54,6 +54,94 @@ and pinned by a test of its own, as the older roster-hygiene bug it is.
 
 `BriefingRollupBuilder` had no tests of its own; it has nine now, each clause mutation-proved.
 
+### Changed — the cloud-approach veto becomes a bounded penalty, and a far reading may no longer confirm a blanket
+
+Two `PromptBuilder` rules, both retired as *absolutes* on the evidence of the ERA5 verification
+programme (`docs/engineering/cloud-approach-veto-fix.md` §9, 29,016 evaluations over
+2026-02-01 → 2026-08-06). Neither the sampling geometry, the persisted columns, nor any
+verification-side code moves — deliberately, because those populations are the before/after
+instrument for this change.
+
+**The combined approach signal no longer vetoes.** When a `[BUILDING]` trend and an upwind current
+of ≥60% both stood, the prompt declared the forecast UNRELIABLE and forced rating 1–2 with
+`fiery_sky` ≤20 — *and* told Claude to disregard a clear solar horizon, a present canvas and
+favourable aerosol, to ignore the at-event upwind value, and to write the summary about nothing but
+the approach risk. That is an absolute ceiling resting on a signal that barely discriminates: over
+the 545 firings a prompt was actually built for in six months, observed horizon cloud was 36.3%
+where it fired against 32.9% where it did not — **+3.4pp** — on skies averaging 36% cloud, i.e.
+predominantly open. It is now a bounded penalty: `fiery_sky` −20 to −30 and a rating cap of 3, with
+the coned solar-horizon reading weighed normally and the risk named in the summary *alongside* the
+other factors rather than instead of them.
+
+The price is stated rather than hidden: Copt Hill, 11 March 2026 is a real recorded wasted trip
+(predicted 4★, observed ~2★) that these two signals caught, and under the demotion that sky can
+reach 3★ — one band above what was seen. What it buys is the other ~90 firings a month, on mostly
+open skies, being scored on their evidence with a one-band safety margin. An absolute ceiling can
+only ever manufacture missed opportunities.
+
+**A cloudy far corridor corroborates the near gate; it cannot confirm a blanket.** The
+`[EXTENSIVE BLANKET — full penalty applies]` label is now
+`[FAR CORRIDOR ALSO CLOUDY — corroboration, not confirmation]`, and the rule behind it carries no
+penalty of its own: the solar-horizon rules already set the ceiling from the near reading alone, and
+a substantial mid/high canvas may now reach 3 rather than being pinned to 1–2 by the label. Of the
+532 blanket calls a prompt could have been built for, **285 (53.6%)** sat over a corridor ERA5 read
+as open. The error is bimodal, which is the load-bearing fact: where the forecast far reading shows
+a drop it is nearly exact (mean error +2.9pp), and where it claims cover over a clear corridor it is
+wrong by ~68pp. So the reading earns trust when it *softens* and not when it *hardens* — no
+threshold retune reaches a 3pp forecast drop and no constant correction fits a two-mode error.
+
+Two clauses in this wording are load-bearing and were added only after the eval harness caught
+their absence, so do not trim them as verbiage. The cap says explicitly that it is applied **last
+and on top** of whatever the sky earns and **overrides** every rule authorising 4 or 5: without
+that, `cap the rating at 3` lost outright to the IDEAL-scenario and rate-4-floor rules — which are
+phrased as imperatives — and the recorded Copt Hill wasted trip came back 4★ on eight runs out of
+eight. Ordering the rules is not the same as nullifying evidence, and the deleted clauses stay
+deleted: the readings still set `fiery_sky`, `golden_hour` and the summary. Symmetrically, the
+far-corridor relief is fenced to the band the near gate actually leaves open (50–60%), and the
+prompt now states that a **missing** far reading is evidence of nothing at all — the first cut said
+only "the rating may reach 3", and a 67%-blocked sky carrying no far reading and no approach block
+at all lifted from 2★ to 3★ on eight runs out of eight, which is the untouched near-gate ceiling
+moving underneath a change that was never supposed to reach it.
+
+**Prose and code now state the same THIN STRIP test.** The rules text defined a strip as horizon low
+cloud ≥50% *and* a far reading ≤30%, while `isThinStrip` has only ever tested the ≥30pp drop — so a
+90/55 pair was labelled a strip by the code and a blanket by the prose. The prose now states the
+drop rule the code applies (changing the code would move the strip override's thresholds, which this
+change deliberately does not touch), and because the two structure rules now overlap, the prompt
+says which wins: THIN STRIP, matching the label precedence the code has always had.
+
+**The price is measured, and the eval harness now records it as the specification.** Paired against
+a pristine control, `copt-hill-11mar-false-positive` and `copt-hill-15mar-overcast` — both real
+days, both observed 1–2★, one of them stood in — rate a steady **3**, the cap exactly. Their bands
+move to {1,3} to pin that *specified* behaviour, and the observed outcome is preserved in each
+fixture's own description rather than overwritten: the ground truth still says washout. The band's
+**upper edge is now the live guard** — a 4 means the cap stopped binding, which is precisely what
+the first cut of this wording did before the precedence clause was added. The tempting refinement,
+capping at 2 when the trend *peaked* high, cannot be sized on the verified window: the peak is
+computed by `isBuilding()` and discarded, and `(earliest, event)` does not recover it when the peak
+sits mid-series, which is 15 March's exact shape. Recorded as F6 in the veto doc with both routes
+back — persist it forward, or reconstruct it from the archive. A new eval fixture,
+`far-corridor-blanket-canvas`, covers the far-corridor rule's own firing case, which nothing in
+the suite reached before: the old label pinned it to 1★ on every run, and the reworded one
+produces 1–2★ without ever relieving past the near gate.
+
+**Found while measuring this, and tracked separately: Claude sometimes writes its thinking into the
+JSON.** On slots where the approach signals conflict with a clear horizon, the `summary` field
+occasionally comes back as `...`, `test`, or `Let me think through this carefully.` — and once ran
+away into JSON that would not parse. A parse failure is a *failed evaluation*, not a cosmetic
+defect: it happens after a successful API call, so `AnthropicApiClient`'s `@Retryable` predicates do
+not cover it. ⚠️ **This is not caused by the change** — it was first reported as absent from the
+control arms, and that was a too-narrow detector; re-measured properly it runs at **~10% on the
+pristine prompt** and ~18% here, on the same two fixtures, with the difference unestablished at these
+counts. Retry-hardening for both production and the eval harness is recorded as F7 in the veto doc.
+
+Neither rating claim here is validated against a recorded outcome — `actual_outcome` is still empty,
+and ERA5 is a reanalysis, so a disagreement means the forecast differs from a better-informed model,
+not that a sunset was or was not beautiful. The pre-registered post-deploy instrument is the
+*rating distribution* inside the unchanged `vetoFired` and `stripMissed` populations: the 1–2★ share
+should fall toward the new caps, and anything above 3★ in the veto population means the wording
+failed to hold.
+
 ## [v2.18.10] - 2026-08-18
 
 ### Fixed — a woodland score could set the band for the sky locations it shares a region with
