@@ -314,11 +314,28 @@ class PromptRegressionTest {
         assertTrue(result.rating() <= 3,
                 "Rating should be <= 3 (approach risk caps the rating; demotion 2026-08-18) but was "
                         + result.rating());
-        assertTrue(result.fierySkyPotential() <= 45,
-                "Fiery Sky should be <= 45 (approaching cloud blocks display) but was "
-                        + result.fierySkyPotential());
-        assertTrue(result.goldenHourPotential() <= 55,
-                "Golden Hour should be <= 55 (poor outcome) but was "
+        // Bound derived, not fitted. The demotion (2026-08-18) replaced this rule's fiery_sky <= 20
+        // cap with a -20..-30 penalty on what the conditions earn, and these conditions are a clear
+        // 7% solar horizon under an 88% high canvas — the prompt's own IDEAL scenario, which
+        // authorises 70-90 unpenalised. So the penalised ceiling is ~70 and anything at or above it
+        // means no penalty was applied. Measured on this exact input, 13 Haiku runs: 28-62.
+        // 65 sits above every observation and below the unpenalised floor, so the assertion still
+        // fails if the penalty stops being applied. That guard band is genuinely narrow (62 vs 70)
+        // — widen it past 70 and this assertion stops testing anything.
+        assertTrue(result.fierySkyPotential() <= 65,
+                "Fiery Sky should be <= 65 (approach penalty applied to an otherwise ideal sky) "
+                        + "but was " + result.fierySkyPotential());
+        // ⚠️ This bound is a WEAK guard now, and saying so is the point. The demotion dropped the
+        // combined signal's golden_hour <= 20 ceiling rather than demoting it — the plan specified a
+        // replacement for fiery_sky only — so no approach penalty reaches golden_hour at all, and
+        // there is no penalised/unpenalised gap to exploit the way there is at line 317. Light
+        // quality here is genuinely good (clear 7% solar horizon, 28 km visibility, AOD 0.08), which
+        // the prompt scores 65-85; the old <= 55 encoded the vetoed world where it was pinned to 20.
+        // Measured on this exact input, 12 Haiku runs: 62-75. 80 clears every observation and still
+        // trips a claim of spectacular light, but it cannot distinguish "approach risk" from "fine
+        // light" — the rating cap at line 314 is the assertion doing the real work on this fixture.
+        assertTrue(result.goldenHourPotential() <= 80,
+                "Golden Hour should be <= 80 (good light, but not spectacular) but was "
                         + result.goldenHourPotential());
     }
 

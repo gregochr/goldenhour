@@ -888,6 +888,19 @@ public class PromptBuilderTest {
 
         assertThat(prompt)
                 .contains("fiery_sky is 20-30 points lower than the conditions alone would give")
+                // Added 2026-08-18, closing a silent omission in the demotion plan: it specified a
+                // replacement for fiery_sky and the rating and said nothing about golden_hour, so
+                // the old rule's golden_hour <= 20 ceiling was dropped rather than demoted. The
+                // veto constrained both scores for the same reason — both are unreliable under a
+                // confirmed approach — and on the recorded 11 Mar washout golden_hour was scoring
+                // 75, a real miss the rating cap masked. Penalty treatment, NOT the ceiling back.
+                .contains("golden_hour is likewise 20-30 points lower")
+                // ...and field-adjacently, because prose alone under-delivered: the clause on its
+                // own moved golden_hour by 4.4 points against the 20-30 it asks for (mean 71.4 ->
+                // 67.0 over 12 Haiku runs), the same way the rating cap was ignored until it was
+                // restated on the field. Keep BOTH placements; see the schema description too.
+                .contains("golden_hour (0-100; 20-30 points LOWER than the conditions alone would "
+                        + "give when that same combined approach signal is present)")
                 // Round 2 (2026-08-18): with no precedence at all the cap lost outright to the
                 // IDEAL-scenario and rate-4-floor imperatives — copt-hill-11mar rated 4 on 8/8
                 // eval runs. Precedence is what makes the cap bind, so it is pinned separately.

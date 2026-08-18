@@ -135,6 +135,16 @@ control arms, and that was a too-narrow detector; re-measured properly it runs a
 pristine prompt** and ~18% here, on the same two fixtures, with the difference unestablished at these
 counts. Retry-hardening for both production and the eval harness is recorded as F7 in the veto doc.
 
+**`golden_hour` carries the same penalty, added after the fact.** The plan specified a replacement
+for `fiery_sky` and the rating and was silent on `golden_hour`, so its old ≤20 ceiling was dropped
+rather than demoted — an omission, not a decision. On the recorded 11 March washout `golden_hour`
+was still scoring 75, a real miss the rating cap hid. It is now 20–30 points lower while both
+signals stand. ⚠️ **The constraint is stated twice on purpose** — in the rules prose *and* on the
+output field plus its schema description — because prose alone moved the number by 4.4 points
+against the 20–30 it asks for, and the field-adjacent restatement moved it by 19.5. That is the
+second rule here to need both placements; treat a numeric constraint in prose as advisory and on
+the field as binding.
+
 Neither rating claim here is validated against a recorded outcome — `actual_outcome` is still empty,
 and ERA5 is a reanalysis, so a disagreement means the forecast differs from a better-informed model,
 not that a sunset was or was not beautiful. The pre-registered post-deploy instrument is the
