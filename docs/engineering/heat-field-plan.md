@@ -43,7 +43,11 @@ swap onto `scoreRamp`; adversarially reviewed (six lenses plus two refutation pa
 surviving findings applied, and verified in the running app at 1200 and 375. Its row records the
 one defect only the browser could catch (the peek's chip row overflowing its own panel), the two
 design-level charges that were **refuted** on evidence, and what it leaves for P7.
-**P6 is BUILT** (`feature/heat-p6-movement`, 2026-08-19, unpushed) — the `briefing_region_snapshot`
+**P6 is MERGED** (#570, `6fa78e26`, 2026-08-19; CI ran V144 against real Postgres, which the
+Docker-less dev machine could not; its merge reconciled the saturday-sunrise hotfix pair #568/#569
+as a union — both new strip props, both accessible-name clauses, both test suites; the two §4.7
+deviations are **settled**: one-previous-build basis, and "Moved at the last forecast run" over
+"Since", which would have attributed a previous-build→now delta to the last build's age) — the `briefing_region_snapshot`
 sink, the serve-time `meanRatingDelta` + `previousGeneratedAt`, and the strip chips, change line and
 band figure; adversarially reviewed (six lenses) with the surviving findings applied, and verified
 in the running app at 1280 and 375 against two real briefing builds. Its row records what it
