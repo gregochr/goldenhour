@@ -5,6 +5,67 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — heat field P1: the catalogue join, the planning area, and a served `best N★`
+
+The data layer the heat map draws from (`docs/engineering/heat-field-plan.md` P1). Still no UI —
+nothing imports the kernel yet, so `d3-geo`, `topojson-client` and `heatField.js` are all still
+tree-shaken and `dist` is unchanged at 2,652 KB / 38 assets; the precache grows 1.90 KiB to
+920.82 KiB, which is `heatSpots.js` alone.
+
+`frontend/src/utils/heatSpots.js` joins the roster to the batch scores — **by `locationId` first
+and location name second**, which is the whole reason the provider now keeps the raw
+`evaluate/scores` rows: its existing index is keyed
+`regionName|date|targetType|locationName` and throws the id away, so a location renamed since it
+was scored could never be matched. `frontend/src/utils/planningArea.js` is D6's GLANCE rule, and
+the backend gains a nullable `BriefingRegion.bestRating` — the non-canopy max, taken from the same
+`BriefingRatingStats.Stats` that already produces `meanRating` and `displayVerdict`, so the best
+can never print below the mean beside it. No migration.
+
+**Every filter in the join is load-bearing, because the ported kernel is unforgiving in one
+specific way: it reads a null score as *zero*.** It does not skip the point — it drags the local
+blend toward the bottom of the ramp and still spends the point's weight on the coverage clamp. So
+an unscored location left in a window's point set paints a confident cold patch where the truth is
+"not evaluated". The same applies to a non-finite coordinate, which is the only route by which
+`centroid()` can be handed a NaN and lose a whole region's label.
+
+**A rating that does not mean sky colour never reaches the field.** This was the adversarial
+review's one real defect, and it was not obvious: woodland and bluebell sites are scored by their
+own prompts on inverted polarity — a canopy GO means heavy cloud and mist — and those ratings are
+written into the very cache `evaluate/scores` serves. A wood rated 5 on a flat misty dawn would
+have bloomed gold over sky locations rated 1, on precisely the morning the sky is at its worst,
+while every number on the card said Poor. The predicate is the existing `isSkyPromptCandidate`,
+chosen over the map's cluster rule because it keeps waterfalls — the same population
+`BriefingRegion.bestRating` votes over, so the field agrees with the figure printed beside it
+instead of being a third answer to one question.
+
+**The per-window point sets are keyed by `date:targetType`, never positional.** The card list is
+not the event list — travel days are dropped from one and not the other, away runs fold together,
+and the whole array re-indexes when a window passes mid-session. A positional array would also
+hand every caller an integer that looks exactly like the window argument the kernel takes, and
+passing it reads past a one-element score array: `undefined`, then NaN, then P0's deliberate
+"non-finite resolves to the bottom of the ramp" rule paints a full-strength dark red field with
+the coverage clamp untouched. Keyed, that integer does not exist at the call site.
+
+Region names are joined **byte-identically and never normalised**. Nothing normalises
+`BriefingRegion.regionName`, which is where the focus key and the region labels come from, so a
+trim here made `" North East"` miss `"North East"` on every point — and the kernel answers a focus
+that matches nothing by multiplying every weight by 1e-4, fading the whole canvas to transparent
+with nothing in the console.
+
+`planningArea` treats an **unmeasured** region as inside your area and never names it as beyond.
+The no-home degrade — "show the whole roster" — falls out of that single rule rather than being a
+special case bolted beside it, and the asymmetry is in where the doubt goes, not in the
+arithmetic: the two lists are exact complements.
+
+Adversarially reviewed before landing (seven prosecutor lenses, per CLAUDE.md § *UI Work — Review
+Cadence*), and the tests were where most of the value was: four assertions that survived their own
+mutations are now fixed, including a `windowPoints` test that passed with the coordinates deleted
+from every point, an id-first test whose fixture could not distinguish the fall-through it forbade,
+and two substring matches that passed in the exact state they existed to rule out. Six prose claims
+were corrected against the code they described, among them an invented rationale for `GLANCE = 180`
+and a "the two lists are not complements" comment that was simply false.
+
+
 ### Added — heat field P0: the ported kernel, the score ramp and the vendored UK coastline
 
 The foundations for the heat map (`docs/engineering/heat-field-plan.md` P0). **No UI, and no bytes:**

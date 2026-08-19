@@ -78,6 +78,61 @@ import java.util.List;
  *                                     same statistics over the same slots. Nullable, and absent from
  *                                     legacy cached payloads (deserialises to null); the serve path
  *                                     re-enriches, so a served payload always carries a fresh one.
+ * @param bestRating                   the highest Claude rating across this region's
+ *                                     <em>voting</em> slots for this date and event — the
+ *                                     {@code best N★} figure the heat field's region rail prints.
+ *                                     {@code null} when nothing that votes is scored.
+ *
+ *                                     <p><b>A spot signal, never a verdict</b> — the rule
+ *                                     {@link BriefingWindow#bestRating} states one level up. It is
+ *                                     one location's score while {@code meanRating} is the
+ *                                     region's average, so {@code Poor · best 4★} is two true
+ *                                     statements and the client must label it as one. There are
+ *                                     now THREE {@code bestRating} fields on the wire — this one,
+ *                                     {@link BriefingWindow#bestRating} and
+ *                                     {@code CloseToHomeResponse}'s — over three populations at
+ *                                     three nesting levels. They are not interchangeable.
+ *
+ *                                     <p><b>The canopy fallback is per REGION, and in one case
+ *                                     that differs from the window's answer.</b>
+ *                                     {@link BriefingSlot#votingSlots} falls back to canopy slots
+ *                                     when <em>this region</em> has no sky slot, while
+ *                                     {@code PlanWindowProjector.canopyCounts} falls back only
+ *                                     when the <em>whole window</em> is canopy. So an all-woodland
+ *                                     region inside a window that also holds sky regions reports
+ *                                     its wood here (say 5) while the window header reports the
+ *                                     sky's best (say 4) — and {@code PlanWindowProjector.rank}
+ *                                     drops that region from the window's own list entirely. This
+ *                                     is deliberate: the alternative is a {@code bestRating} that
+ *                                     disagrees with the {@code meanRating} and
+ *                                     {@code displayVerdict} printed beside it on this same
+ *                                     record, both of which are already per-region. A surface
+ *                                     showing both levels at once must not present them as one
+ *                                     number.
+ *
+ *                                     <p><b>Served rather than derived in the browser.</b> A
+ *                                     client-side max over {@code slots} would re-create the
+ *                                     aggregation class Phase 3 of the verdict consolidation moved
+ *                                     server-side — and would do it without the canopy rule, so a
+ *                                     rated wood would supply the number for a sky region. Taken
+ *                                     from the same {@code BriefingRatingStats.Stats} as
+ *                                     {@code meanRating} and {@code displayVerdict}, over
+ *                                     {@link BriefingSlot#votingSlots} (non-canopy, with the
+ *                                     all-canopy fallback), so the three cannot disagree about
+ *                                     which population they describe and the best can never sit
+ *                                     below the mean. Nullable, {@code NON_NULL}, no migration —
+ *                                     the {@code confidence} precedent; legacy cached payloads
+ *                                     deserialise to null. ⚠️ That precedent is one-directional.
+ *                                     Rolling BACK past this field makes the Jackson 2 mapper in
+ *                                     {@code AppConfig} (default
+ *                                     {@code FAIL_ON_UNKNOWN_PROPERTIES}) throw on every
+ *                                     {@code daily_briefing_cache} row written since deploy, and
+ *                                     {@code BriefingService.loadPersistedBriefing} swallows the
+ *                                     failure — so the Plan tab stays empty until the next
+ *                                     scheduled refresh. True of every additive field on this
+ *                                     record rather than of this one; the fix is an
+ *                                     {@code ignoreUnknown} setting, which is payload-wide and
+ *                                     not this phase's to make.
  */
 public record BriefingRegion(
         String regionName,
@@ -96,7 +151,8 @@ public record BriefingRegion(
         String verdictLabel,
         boolean lightlyEvaluated,
         Confidence confidence,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Double meanRating) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) Double meanRating,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Integer bestRating) {
 
     public BriefingRegion {
         tideHighlights = List.copyOf(tideHighlights);
@@ -105,10 +161,11 @@ public record BriefingRegion(
 
     /**
      * Backwards-compatible convenience constructor matching the pre-{@code meanRating} canonical
-     * signature. Defaults {@code meanRating} to {@code null} (nothing scored) so every existing
-     * 16-arg call site keeps compiling; the enrichment path attaches a derived value via
-     * {@link #withMeanRating}, and the honesty filter's zero-coverage rewrite deliberately leaves it
-     * null — a blanked region has no mean to report.
+     * signature. Defaults both {@code meanRating} and {@code bestRating} to {@code null} (nothing
+     * scored) so every existing 16-arg call site keeps compiling; the enrichment path attaches
+     * derived values via {@link #withMeanRating} and {@link #withBestRating}, and the honesty
+     * filter's zero-coverage rewrite deliberately leaves both null — a blanked region has no
+     * rating of any kind to report.
      *
      * @param regionName                       display name
      * @param verdict                          triage verdict
@@ -138,7 +195,53 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius,
                 regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
                 displayVerdict, scoredLocationCount, verdictLabel, lightlyEvaluated,
-                confidence, null);
+                confidence, null, null);
+    }
+
+    /**
+     * Backwards-compatible convenience constructor matching the pre-{@code bestRating} canonical
+     * signature. Defaults {@code bestRating} to {@code null} (nothing that votes is scored), the
+     * same shape as the {@code meanRating} and {@code confidence} constructors above and for the
+     * same reason: the enrichment path attaches the derived value via {@link #withBestRating}, and
+     * the other construction sites — the hierarchy builder, and the honesty filter's zero-coverage
+     * rewrite — have no rating rollup to hand and must not invent one. (The gloss pass is NOT one
+     * of them: it goes through {@link #withGloss}, which carries every field.)
+     *
+     * <p>Its real callers are two test helpers that rebuild a whole existing region positionally
+     * — exactly the trap {@link #withBestRating} names — so they append
+     * {@code .withBestRating(r.bestRating())} rather than rely on this default.
+     *
+     * @param regionName                       display name
+     * @param verdict                          triage verdict
+     * @param summary                          one-line summary
+     * @param tideHighlights                   tide summary lines
+     * @param slots                            per-location assessments
+     * @param regionTemperatureCelsius         representative temperature
+     * @param regionApparentTemperatureCelsius feels-like temperature
+     * @param regionWindSpeedMs                representative wind speed
+     * @param regionWeatherCode                WMO weather code
+     * @param glossHeadline                    Claude gloss headline
+     * @param glossDetail                      Claude gloss detail
+     * @param displayVerdict                   unified colour/label signal
+     * @param scoredLocationCount              how many locations contributed a rating
+     * @param verdictLabel                     pill-label override
+     * @param lightlyEvaluated                 thin-coverage flag
+     * @param confidence                       derived confidence, or null
+     * @param meanRating                       the 1dp voting mean, or null
+     */
+    public BriefingRegion(String regionName, Verdict verdict, String summary,
+            List<String> tideHighlights, List<BriefingSlot> slots,
+            Double regionTemperatureCelsius, Double regionApparentTemperatureCelsius,
+            Double regionWindSpeedMs, Integer regionWeatherCode,
+            String glossHeadline, String glossDetail,
+            DisplayVerdict displayVerdict, int scoredLocationCount,
+            String verdictLabel, boolean lightlyEvaluated, Confidence confidence,
+            Double meanRating) {
+        this(regionName, verdict, summary, tideHighlights, slots,
+                regionTemperatureCelsius, regionApparentTemperatureCelsius,
+                regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
+                displayVerdict, scoredLocationCount, verdictLabel, lightlyEvaluated,
+                confidence, meanRating, null);
     }
 
     /**
@@ -155,7 +258,26 @@ public record BriefingRegion(
         return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
-                scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, newMeanRating);
+                scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, newMeanRating,
+                bestRating);
+    }
+
+    /**
+     * Returns a copy of this region carrying the given best rating.
+     *
+     * <p>A wither for the same reason as {@link #withMeanRating}: the enrichment path computes it
+     * from statistics it already holds, and rebuilding the record positionally there is how a
+     * later-added component gets silently defaulted away.
+     *
+     * @param newBestRating the highest rating across the voting slots, or null when none is scored
+     * @return a copy carrying the best rating
+     */
+    public BriefingRegion withBestRating(Integer newBestRating) {
+        return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
+                regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
+                regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
+                scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
+                newBestRating);
     }
 
     /**
@@ -169,7 +291,7 @@ public record BriefingRegion(
         return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
-                scoredLocationCount, verdictLabel, true, confidence, meanRating);
+                scoredLocationCount, verdictLabel, true, confidence, meanRating, bestRating);
     }
 
     /**
@@ -184,7 +306,8 @@ public record BriefingRegion(
         return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
-                scoredLocationCount, verdictLabel, lightlyEvaluated, newConfidence, meanRating);
+                scoredLocationCount, verdictLabel, lightlyEvaluated, newConfidence, meanRating,
+                bestRating);
     }
 
     /**
@@ -201,7 +324,8 @@ public record BriefingRegion(
         return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, newGlossHeadline, newGlossDetail, displayVerdict,
-                scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating);
+                scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
+                bestRating);
     }
 
     /**

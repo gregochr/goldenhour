@@ -4,6 +4,7 @@ import {
   horizonConfidence,
   resolveConfidence,
   confidenceTreatment,
+  confidenceScalar,
   scaleRgbaAlpha,
   CONFIDENCE_TREATMENT,
 } from '../utils/confidenceUtils.js';
@@ -113,5 +114,37 @@ describe('confidenceUtils', () => {
     it('clamps the resulting alpha to [0,1]', () => {
       expect(scaleRgbaAlpha('rgba(0,0,0,0.9)', 0.0)).toBe('rgba(0, 0, 0, 0)');
     });
+  });
+
+  describe('confidenceScalar', () => {
+    it('is the tier scalar the verdict fill already uses, not a second scale', () => {
+      // Plan D3: the heat field's haze and the badge's fill decay are the same statement about
+      // the same window. Two constant tables would let a T+4 field look more certain than its own
+      // badge admits — asserted against CONFIDENCE_TREATMENT rather than against literals so a
+      // future re-tune of the tiers cannot leave the kernel on the old numbers.
+      expect(confidenceScalar('high')).toBe(CONFIDENCE_TREATMENT.high.fillScale);
+      expect(confidenceScalar('medium')).toBe(CONFIDENCE_TREATMENT.medium.fillScale);
+      expect(confidenceScalar('low')).toBe(CONFIDENCE_TREATMENT.low.fillScale);
+    });
+
+    it('is a 0-1 scalar that RISES with certainty', () => {
+      // The kernel clamps `conf` to [0,1] and reads it as `unc = 1 - conf`, blending toward grey
+      // by 0.6·unc and thinning alpha by 0.34·unc — so a low tier above a high one would make
+      // the least certain window the boldest, which is the inversion this channel exists to
+      // prevent. An out-of-range value is clamped, not inverted.
+      expect(confidenceScalar('high')).toBe(1);
+      expect(confidenceScalar('high')).toBeGreaterThan(confidenceScalar('medium'));
+      expect(confidenceScalar('medium')).toBeGreaterThan(confidenceScalar('low'));
+      expect(confidenceScalar('low')).toBeGreaterThan(0);
+    });
+
+    it.each([['an unknown tier', 'HIGH'], ['null', null], ['undefined', undefined]])(
+      'falls back to the neutral middle for %s',
+      (_label, tier) => {
+        // Same fallback as confidenceTreatment, deliberately: the wire value is lowercase, so an
+        // uppercase 'HIGH' is a bug in the caller and must not be honoured as full confidence.
+        expect(confidenceScalar(tier)).toBe(CONFIDENCE_TREATMENT.medium.fillScale);
+      },
+    );
   });
 });

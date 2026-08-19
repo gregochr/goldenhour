@@ -101,6 +101,27 @@ export function confidenceTreatment(tier) {
 }
 
 /**
+ * The heat kernel's {@code conf} scalar for a confidence tier — the same number
+ * {@link confidenceTreatment} scales a verdict fill by.
+ *
+ * <p>One function so the two channels speak one language (plan D3). The kernel reads it as
+ * {@code unc = 1 - conf} and desaturates toward grey and thins alpha as it falls, which is the
+ * same statement the badge's fill decay and the provisional mark make about the same window;
+ * deriving the haze from its own constants would let a later day look hazier than its badge
+ * admits, or the reverse. It is deliberately NOT the design's {@code ◐ 88%} — this project's
+ * confidence is three-tier and a percentage would invent precision the backend never claimed.
+ *
+ * <p>Unknown tiers take the neutral middle, exactly as {@link confidenceTreatment} does; pass a
+ * tier through {@link resolveConfidence} first if the source may be absent.
+ *
+ * @param {string} tier confidence tier
+ * @returns {number} the 0–1 scalar for the kernel's {@code conf} option
+ */
+export function confidenceScalar(tier) {
+  return confidenceTreatment(tier).fillScale;
+}
+
+/**
  * Multiplies the alpha channel of an {@code rgba(r,g,b,a)} string by {@code scale} (clamped to
  * [0,1]). Returns the input unchanged when scale ≥ 1 or the string is not an rgba() literal, so
  * it is safe to apply blindly.

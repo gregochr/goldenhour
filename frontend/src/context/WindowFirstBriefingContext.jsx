@@ -17,6 +17,7 @@ import { buildWindowCards } from '../utils/windowFirstCards.js';
 import { buildPaneItems } from '../utils/windowFirstAway.js';
 import { buildPromotedStrip } from '../utils/windowFirstPromoted.js';
 import { buildBriefingScoreIndex } from '../utils/briefingScoreIndex.js';
+import { buildHeatPointSets, buildHeatSpots } from '../utils/heatSpots.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 
 /** Matched to v1's. The payload regenerates every ~8–10h; polling faster only adds revalidations. */
@@ -31,6 +32,15 @@ const EMPTY_SCORES = new Map();
 /** Same, for reach — an identity-stable empty means the card memo does not re-run on mount. */
 const EMPTY_REACH = new Map();
 
+/**
+ * Same again. It matters for {@code locations}, which is a default PARAMETER and so is
+ * re-evaluated on every render — a literal {@code []} there would hand the heat join a new
+ * identity on every health SSE tick and rebuild the whole catalogue. {@code scoreRows} shares it
+ * for consistency rather than necessity: a {@code useState} initialiser is evaluated once and
+ * its identity is stable either way.
+ */
+const EMPTY_ARRAY = [];
+
 const WindowFirstBriefingContext = createContext({
   briefing: null,
   loading: false,
@@ -41,6 +51,8 @@ const WindowFirstBriefingContext = createContext({
   upcomingEvents: [],
   travelDayDates: new Set(),
   evaluationScores: EMPTY_SCORES,
+  heatSpots: EMPTY_ARRAY,
+  heatPointSets: EMPTY_ARRAY,
   reachById: EMPTY_REACH,
   todayStr: '',
   tomorrowStr: '',
@@ -141,7 +153,9 @@ function selectUpcomingEvents(briefing) {
  *        postcode, a radius or a drive-time recalculation. It is the reach fetch's only
  *        invalidation signal — see the effect below.
  */
-export function WindowFirstBriefingProvider({ children, homeSettingsVersion }) {
+export function WindowFirstBriefingProvider({
+  children, homeSettingsVersion, locations = EMPTY_ARRAY,
+}) {
   const { role } = useAuth();
   const briefingCacheKey = `briefing:${role || 'anon'}`;
 
@@ -157,6 +171,13 @@ export function WindowFirstBriefingProvider({ children, homeSettingsVersion }) {
   const [loading, setLoading] = useState(briefing === null);
   const [travelRanges, setTravelRanges] = useState([]);
   const [evaluationScores, setEvaluationScores] = useState(EMPTY_SCORES);
+  // The same response, kept unreduced. See the fetch effect below for why both shapes exist.
+  // Deliberately NOT on the context value: nothing outside this file needs a row yet. P5's
+  // leave-by and P8's four-day sheet do — their "why" prose is `LocationEvaluationView.summary`
+  // — and they should export THIS rather than read `scoreIndex`, which is name-keyed and drops
+  // every row missing a region or location name, i.e. a different population from the one the
+  // heat join saw.
+  const [scoreRows, setScoreRows] = useState(EMPTY_ARRAY);
   const [reachById, setReachById] = useState(EMPTY_REACH);
   // Three states, not two: `undefined` is "not answered yet or the request failed", and it renders
   // NOTHING. Collapsing it onto null would tell a user who has a home postcode that they have not
@@ -270,11 +291,20 @@ export function WindowFirstBriefingProvider({ children, homeSettingsVersion }) {
    * <p>So this is the one thing the "we only fetch the briefing and the travel days" rule gives up,
    * and it gives it up because this same change created the need. The key format is load-bearing:
    * `buildBriefingScoreIndex` splits on the last three `|` fields.
+   *
+   * <p><b>The raw rows are kept as well, and the two shapes are not redundant.</b> The map above is
+   * keyed by location NAME and drops every row whose region or name is missing — fine for the map
+   * handoff, which looks a marker up by the name it is drawing. The heat join cannot use it: a name
+   * is a display string an admin can edit, so the join is `locationId`-first with the name only as
+   * a fallback (`heatSpots.js`), and the id is exactly what this key format discards. Keeping the
+   * response rather than adding a second id-keyed index means one contract, one fetch, and no
+   * chance of the two indexes disagreeing about which rows the response contained.
    */
   useEffect(() => {
     getAllEvaluationScores()
       .then((views) => {
         if (!views || views.length === 0) return;
+        setScoreRows(views);
         const next = new Map();
         for (const v of views) {
           if (!v.regionName || !v.locationName) continue;
@@ -390,14 +420,42 @@ export function WindowFirstBriefingProvider({ children, homeSettingsVersion }) {
   // `buildBriefingScoreIndex` exists for.
   const scoreIndex = useMemo(() => buildBriefingScoreIndex(evaluationScores), [evaluationScores]);
 
+  /**
+   * The heat field's catalogue: one spot per joinable location, carrying one score per rendered
+   * window. Derived HERE for the same reason the cards are — the strip, the row maps and the Map
+   * tab are three views of one join, and three copies of it are three chances to disagree about
+   * which locations exist.
+   *
+   * <p>Memoised on its real inputs (plan §5.4). The provider re-renders on every health SSE tick,
+   * every poll and every focus event, and this walks the whole roster against the whole score
+   * response; the prototype's unmemoised equivalent cost seconds per repaint.
+   */
+  const heatSpotList = useMemo(
+    () => buildHeatSpots(locations, scoreRows, upcomingEvents),
+    [locations, scoreRows, upcomingEvents],
+  );
+
+  /**
+   * The kernel-ready points, keyed {@code date:targetType} — the same windows, each with its
+   * unscored locations withdrawn. Separate from the catalogue because they are different shapes
+   * for different consumers (P3's labels and P4's dark-sky filter want every spot; only the
+   * kernel wants points), not because they change on different beats — they recompute together.
+   */
+  const heatPointSets = useMemo(
+    () => buildHeatPointSets(heatSpotList, upcomingEvents),
+    [heatSpotList, upcomingEvents],
+  );
+
   const value = useMemo(
     () => ({
       briefing, loading, railTiles, windowCards, paneItems, promotedStrip, upcomingEvents,
-      travelDayDates, evaluationScores, scoreIndex, reachById, todayStr, tomorrowStr, reachLens,
+      travelDayDates, evaluationScores, scoreIndex, heatSpots: heatSpotList, heatPointSets,
+      reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, homePlace, isPro, isLiteUser,
     }),
     [briefing, loading, railTiles, windowCards, paneItems, promotedStrip, upcomingEvents,
-      travelDayDates, evaluationScores, scoreIndex, reachById, todayStr, tomorrowStr, reachLens,
+      travelDayDates, evaluationScores, scoreIndex, heatSpotList, heatPointSets,
+      reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, homePlace, isPro, isLiteUser],
   );
 
@@ -411,6 +469,18 @@ export function WindowFirstBriefingProvider({ children, homeSettingsVersion }) {
 WindowFirstBriefingProvider.propTypes = {
   children: PropTypes.node,
   homeSettingsVersion: PropTypes.number,
+  /**
+   * The enabled roster — the ONLY payload carrying coordinates (plan §3), and the reason this
+   * provider needs a prop at all. Optional: the arm renders without it, minus the heat field.
+   */
+  locations: PropTypes.arrayOf(PropTypes.shape({
+    id: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+    name: PropTypes.string,
+    lat: PropTypes.number,
+    lon: PropTypes.number,
+    regionName: PropTypes.string,
+    bortleClass: PropTypes.number,
+  })),
 };
 
 /**
@@ -419,7 +489,7 @@ WindowFirstBriefingProvider.propTypes = {
  *
  * @returns {{briefing: ?object, loading: boolean, railTiles: Array, windowCards: Array,
  *           paneItems: Array, promotedStrip: ?object, upcomingEvents: Array,
- *           travelDayDates: Set, reachById: Map,
+ *           travelDayDates: Set, heatSpots: Array, heatPointSets: Array, reachById: Map,
  *           reachLens: object, ratingLens: object, homePlace: ?string, todayStr: string,
  *           tomorrowStr: string, isPro: boolean, isLiteUser: boolean}}
  */

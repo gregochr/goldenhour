@@ -889,7 +889,18 @@ public class BriefingService {
                             // than 0.0 when nothing is scored: "not rated" and "rated badly" are
                             // different statements and the cell renders them differently.
                             .withMeanRating(
-                                    votingStats.isEmpty() ? null : votingStats.averageRating()));
+                                    votingStats.isEmpty() ? null : votingStats.averageRating())
+                            // The region rail's `best N★`, from the SAME statistics again — so the
+                            // best, the mean and the verdict word describe one population and the
+                            // best can never sit below the mean it is printed beside. The VOTING
+                            // stats for the reason the mean uses them: a woodland GO means heavy
+                            // cloud and mist, so a rated wood must not supply a sky region's best
+                            // spot any more than it may set its band. Null rather than 0 when
+                            // nothing that votes is scored — "not rated" and "rated badly" are
+                            // different statements, and BriefingRatingStats.Stats.empty() reports
+                            // maxRating 0 for the same reason its averageRating is 0.0.
+                            .withBestRating(
+                                    votingStats.isEmpty() ? null : votingStats.maxRating()));
                 }
                 enrichedEvents.add(es.withRegions(enrichedRegions));
             }

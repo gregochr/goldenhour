@@ -490,7 +490,15 @@ function AppInner() {
               survive the flip and show its fallback over a healthy arm. The current Plan is
               deliberately NOT wrapped: its honest recovery is not "go to the other arm". */}
           <PlanLayoutErrorBoundary onRecover={() => setPlanLayout(PLAN_V1)}>
-            <WindowFirstBriefingProvider homeSettingsVersion={homeSettingsVersion}>
+            {/* `locations` joins `homeSettingsVersion` here because the heat field's catalogue is
+                a join across two contracts and only ONE of them carries geography: the briefing
+                and scores payloads have no lat/lng and are not to be given any (plan §3). The
+                shell already received the same memoised array; the provider needs it to build the
+                join once for the strip, the row maps and the Map tab rather than three times. */}
+            <WindowFirstBriefingProvider
+              homeSettingsVersion={homeSettingsVersion}
+              locations={visibleLocations}
+            >
               <WindowFirstShell
                 onExit={() => setPlanLayout(PLAN_V1)}
                 onOpenSettings={() => setShowSettings(true)}
