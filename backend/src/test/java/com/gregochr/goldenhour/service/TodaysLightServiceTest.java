@@ -218,6 +218,81 @@ class TodaysLightServiceTest {
         }
     }
 
+    @Nested
+    @DisplayName("The far north, where the day does not fit inside the date")
+    class FarNorth {
+
+        /**
+         * Lerwick, Shetland (ZE1) — the northernmost town in the UK, and far enough north that
+         * midsummer civil dusk falls on the following morning. Orkney was tried first and is not
+         * far enough: its dusk lands at 23:5x, in-day, and every assertion below passes without
+         * the fix. The latitude is the fixture here.
+         */
+        private static final double LERWICK_LAT = 60.15;
+        private static final double LERWICK_LON = -1.15;
+
+        /** Unst, Shetland — far enough north that midsummer never reaches civil darkness. */
+        private static final double UNST_LAT = 60.80;
+        private static final double UNST_LON = -0.85;
+
+        @Test
+        @DisplayName("Midsummer dusk past midnight ends the rule, rather than restarting it")
+        void duskAfterMidnightPinsToTheEndOfTheAxis() {
+            // Lerwick's civil dusk on 21 June is 00:27 on the 22nd. As minutes-of-day that reads
+            // 0.2% — the far LEFT of the rule — and `ascending` would then drag it up to sunset's
+            // own position, deleting the evening blue hour from the gradient silently.
+            TodaysLightResponse light = serviceAt("2026-06-21T09:00:00Z")
+                    .buildFor(LERWICK_LAT, LERWICK_LON, POSTCODE, MIDSUMMER);
+
+            assertThat(positionOf(light, "CIVIL_DUSK")).isEqualTo(100);
+            assertThat(positionOf(light, "NAUTICAL_DUSK")).isEqualTo(100);
+            // And the reason it is 100 rather than merely >= sunset: it must be strictly beyond
+            // the sunset stop, which is still an ordinary in-day position.
+            assertThat(positionOf(light, "SUNSET")).isLessThan(100).isGreaterThan(90);
+        }
+
+        @Test
+        @DisplayName("The clock time still names the small hour it really is")
+        void theClockTimeIsNotPinnedWithThePosition() {
+            // Pinning is about the AXIS, not about the fact. A dusk at 00:1x is a true statement
+            // and the row says so; only its place on a one-day rule is forced to the end.
+            TodaysLightResponse light = serviceAt("2026-06-21T09:00:00Z")
+                    .buildFor(LERWICK_LAT, LERWICK_LON, POSTCODE, MIDSUMMER);
+
+            assertThat(light.civilDusk()).startsWith("00:");
+        }
+
+        @Test
+        @DisplayName("A twilight that never happens is not reported as a time")
+        void allNightTwilightFallsBackRatherThanPrintingASentinel() {
+            // At 60.8°N the sun never reaches −6° at the solstice, and solar-utils answers 01:00
+            // for BOTH boundaries. Believed, the row prints that same fabricated minute twice —
+            // once as a blue hour two and a half hours before a 03:32 sunrise, once as one two
+            // hours after a 22:43 sunset.
+            TodaysLightResponse light = serviceAt("2026-06-21T09:00:00Z")
+                    .buildFor(UNST_LAT, UNST_LON, POSTCODE, MIDSUMMER);
+
+            assertThat(light.civilDawn()).isNotEqualTo(light.civilDusk());
+            assertThat(List.of(light.civilDawn(), light.sunrise(), light.sunset(), light.civilDusk()))
+                    .as("the four times must still run in order across the day")
+                    .isSorted();
+        }
+
+        @Test
+        @DisplayName("Midwinter still draws, with the lit band squeezed into the middle")
+        void midwinterFarNorthStillDraws() {
+            TodaysLightResponse light = serviceAt("2026-12-21T09:00:00Z")
+                    .buildFor(LERWICK_LAT, LERWICK_LON, POSTCODE, MIDWINTER);
+
+            double day = positionOf(light, "SUNSET") - positionOf(light, "SUNRISE");
+            // Shetland gets under 6 hours of sun at the solstice — a quarter of the axis, and both
+            // ends of the rule stay dark rather than one of them being pinned flat.
+            assertThat(day).isBetween(20.0, 30.0);
+            assertThat(positionOf(light, "CIVIL_DAWN")).isGreaterThan(0);
+            assertThat(positionOf(light, "CIVIL_DUSK")).isLessThan(100);
+        }
+    }
+
     @Test
     @DisplayName("A day with no sunrise has no rule to draw")
     void polarDayReturnsNull() {

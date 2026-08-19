@@ -33,6 +33,16 @@ while the row names whose light it draws. Four times in a browser (`05:32 blue`,
 the accessible name at every width even where the phone hides the word. Solar noon is never
 labelled — the pale band already says midday.
 
+**Two far-north defects were found by review and fixed before landing, both reachable with real UK
+postcodes.** A stop whose local time falls on a neighbouring day was read as minutes-of-day alone:
+Lerwick's midsummer civil dusk is 00:27 the following morning, which placed the last light of the
+day at 0.2% — the far left of the rule — where the ascending guard then quietly dragged it up to
+sunset's position and deleted the evening blue hour from the gradient. Positions are now date-aware,
+pinning an earlier day to 0 and a later one to 100. Separately, at 60.8°N the sun never reaches −6°
+at the solstice and solar-utils answers `01:00` for *both* civil boundaries; believed, the row
+printed that fabricated minute twice, once as a blue hour two and a half hours before a 03:32
+sunrise. A twilight boundary that does not bracket its own event is now treated as missing.
+
 **No home postcode is a designed state, not an error.** The endpoint answers `204`, the rule goes
 unlit, and a nudge offers to fix it. Three states are kept distinguishable in one value
 (`undefined` unresolved / `null` no home / the day), because collapsing the first two flashes "set

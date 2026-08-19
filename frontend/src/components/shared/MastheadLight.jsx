@@ -118,7 +118,12 @@ export default function MastheadLight({ light, onSetPostcode }) {
         <div
           aria-hidden="true"
           data-testid="masthead-light-pending"
-          className="text-[8px] pt-[5px] pb-2 sm:text-[9px] sm:pt-1.5 sm:pb-[9px]"
+          // The type scale and the padding are what reserve the height, and they are copied from
+          // the time row exactly — measured equal at 28.5px in the browser. `font-mono` is carried
+          // for the same reason but is NOT what makes them match: line-height here is a ratio of
+          // font-size, so Plex Sans and Plex Mono produce the same line box at 9px. Written down
+          // because the opposite is the obvious guess, and it is wrong.
+          className="font-mono text-[8px] pt-[5px] pb-2 sm:text-[9px] sm:pt-1.5 sm:pb-[9px]"
         >
           &nbsp;
         </div>

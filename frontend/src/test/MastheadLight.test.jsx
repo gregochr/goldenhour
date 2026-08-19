@@ -188,6 +188,40 @@ describe('MastheadLight — the labelled row', () => {
     expect(word.className).toContain('sm:not-sr-only');
   });
 
+  it('paints the golden times amber and weights them, so they read before the blues', () => {
+    // The row's only visual hierarchy. Asserted on the resolved colour rather than on a class,
+    // because the amber is an inline style — deliberately, so the gradient and the row cannot
+    // drift onto two different literals for the same accent.
+    renderLight({ light: LIGHT });
+
+    screen.getAllByTestId('masthead-light-golden').forEach((n) => {
+      expect(n).toHaveStyle({ color: 'rgb(224, 165, 66)' });
+      expect(n.className).toContain('font-medium');
+    });
+    screen.getAllByTestId('masthead-light-blue').forEach((n) => {
+      expect(n.style.color).toBe('');
+      expect(n.className).not.toContain('font-medium');
+    });
+  });
+
+  it('reserves the row height on the same type scale the row will use', () => {
+    // The placeholder's only job is that the page does not shift when the answer lands, and the
+    // two type-scale classes are what buy that — they are the time row's own, and the two rows
+    // measure equal at 28.5px in the browser. Asserted against the time row rather than against
+    // literals, so changing one and not the other cannot pass.
+    const { rerender } = render(<MastheadLight light={LIGHT} onSetPostcode={vi.fn()} />);
+    const rowClasses = screen.getByTestId('masthead-light-times').className;
+
+    rerender(<MastheadLight light={undefined} onSetPostcode={vi.fn()} />);
+    const pending = screen.getByTestId('masthead-light-pending').className;
+
+    ['font-mono', 'text-[8px]', 'sm:text-[9px]', 'pt-[5px]', 'pb-2', 'sm:pt-1.5', 'sm:pb-[9px]']
+      .forEach((cls) => {
+        expect(rowClasses, `time row should carry ${cls}`).toContain(cls);
+        expect(pending, `placeholder should carry ${cls}`).toContain(cls);
+      });
+  });
+
   it('never labels solar noon', () => {
     // The pale band in the middle of the gradient already says midday, and the row's one line is
     // not spent on the least useful light of the day. The stop still exists — the label does not.

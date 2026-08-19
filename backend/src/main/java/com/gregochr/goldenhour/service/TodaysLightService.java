@@ -14,6 +14,7 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * Today's light at the caller's home, as the masthead's light rule draws it.
@@ -96,22 +97,30 @@ public class TodaysLightService {
         if (sunrise == null || sunset == null) {
             return null;
         }
-        LocalDateTime civilDawn = orElse(solarService.civilDawnUtc(lat, lon, date), sunrise.minusMinutes(30));
-        LocalDateTime civilDusk = orElse(solarService.civilDuskUtc(lat, lon, date), sunset.plusMinutes(30));
+        // A twilight boundary that does not bracket its own event is not a time. At 60.8°N — Unst,
+        // a real UK postcode — the sun never reaches −6° at the solstice, and solar-utils answers
+        // 01:00 for BOTH civil dawn and civil dusk. Taken at face value the row prints
+        // "01:00 blue · 03:32 golden · 22:43 golden · 01:00 blue": the same fabricated minute
+        // twice, one of them claiming to be a blue hour two and a half hours after it ended. So an
+        // unusable boundary is treated exactly like a missing one.
+        LocalDateTime civilDawn = usableOr(solarService.civilDawnUtc(lat, lon, date),
+                t -> t.isBefore(sunrise), sunrise.minusMinutes(30));
+        LocalDateTime civilDusk = usableOr(solarService.civilDuskUtc(lat, lon, date),
+                t -> t.isAfter(sunset), sunset.plusMinutes(30));
         SolarService.SolarWindow morning = solarService.goldenBlueWindow(lat, lon, date, true);
         SolarService.SolarWindow evening = solarService.goldenBlueWindow(lat, lon, date, false);
 
         List<TodaysLightResponse.Stop> stops = ascending(List.of(
                 new TodaysLightResponse.Stop("NIGHT_START", 0),
-                stop("NAUTICAL_DAWN", civilDawn.minusMinutes(35)),
-                stop("CIVIL_DAWN", civilDawn),
-                stop("SUNRISE", sunrise),
-                stop("GOLDEN_MORNING_END", orElse(morning.goldenHourEnd(), sunrise.plusMinutes(60))),
-                stop("SOLAR_NOON", orElse(solarService.solarNoonUtc(lat, lon, date), midpoint(sunrise, sunset))),
-                stop("GOLDEN_EVENING_START", orElse(evening.goldenHourStart(), sunset.minusMinutes(60))),
-                stop("SUNSET", sunset),
-                stop("CIVIL_DUSK", civilDusk),
-                stop("NAUTICAL_DUSK", civilDusk.plusMinutes(35)),
+                stop("NAUTICAL_DAWN", civilDawn.minusMinutes(35), date),
+                stop("CIVIL_DAWN", civilDawn, date),
+                stop("SUNRISE", sunrise, date),
+                stop("GOLDEN_MORNING_END", orElse(morning.goldenHourEnd(), sunrise.plusMinutes(60)), date),
+                stop("SOLAR_NOON", orElse(solarService.solarNoonUtc(lat, lon, date), midpoint(sunrise, sunset)), date),
+                stop("GOLDEN_EVENING_START", orElse(evening.goldenHourStart(), sunset.minusMinutes(60)), date),
+                stop("SUNSET", sunset, date),
+                stop("CIVIL_DUSK", civilDusk, date),
+                stop("NAUTICAL_DUSK", civilDusk.plusMinutes(35), date),
                 new TodaysLightResponse.Stop("NIGHT_END", 100)));
 
         return new TodaysLightResponse(
@@ -125,17 +134,32 @@ public class TodaysLightService {
     }
 
     /**
-     * A stop at the local-clock position of a UTC instant.
+     * A stop at the local-clock position of a UTC instant, on the axis of one local day.
      *
-     * @param key    the stop's event name
-     * @param utc    the UTC time of that event
+     * <p><b>The date is part of the position, not a formality.</b> The rule's axis is a single
+     * {@code Europe/London} day, and several of these events routinely land on a neighbouring one:
+     * at 59.5°N — Kirkwall, a real UK postcode — midsummer civil dusk is 00:03 the following
+     * morning. Read as minutes-of-day alone that is 0.2%, which puts the last light of the day at
+     * the far LEFT of the rule; {@link #ascending} then quietly drags it back up to sunset's
+     * position and the evening blue hour disappears from the gradient with nothing to show for it.
+     * An event on an earlier day belongs at the start of the axis and one on a later day at the
+     * end, so that is where they go.
+     *
+     * @param key the stop's event name
+     * @param utc the UTC time of that event
+     * @param day the local day the rule draws
      * @return the stop
      */
-    private static TodaysLightResponse.Stop stop(String key, LocalDateTime utc) {
+    private static TodaysLightResponse.Stop stop(String key, LocalDateTime utc, LocalDate day) {
         LocalDateTime local = toLondon(utc);
+        if (local.toLocalDate().isBefore(day)) {
+            return new TodaysLightResponse.Stop(key, 0);
+        }
+        if (local.toLocalDate().isAfter(day)) {
+            return new TodaysLightResponse.Stop(key, 100);
+        }
         double minutes = local.toLocalTime().toSecondOfDay() / 60.0;
-        double position = minutes / MINUTES_PER_DAY * 100;
-        return new TodaysLightResponse.Stop(key, round(clamp(position)));
+        return new TodaysLightResponse.Stop(key, round(clamp(minutes / MINUTES_PER_DAY * 100)));
     }
 
     /**
@@ -201,6 +225,19 @@ public class TodaysLightService {
      */
     private static LocalDateTime orElse(LocalDateTime value, LocalDateTime fallback) {
         return value != null ? value : fallback;
+    }
+
+    /**
+     * The first value when it is both present and sane, or the fallback.
+     *
+     * @param value    the preferred value
+     * @param usable   the test the value must pass to be believed
+     * @param fallback the value to use when {@code value} is null or fails the test
+     * @return whichever is usable
+     */
+    private static LocalDateTime usableOr(LocalDateTime value, Predicate<LocalDateTime> usable,
+            LocalDateTime fallback) {
+        return value != null && usable.test(value) ? value : fallback;
     }
 
     /**
