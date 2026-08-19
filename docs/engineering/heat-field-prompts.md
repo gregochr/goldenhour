@@ -82,9 +82,12 @@ Before starting the next session, expect a `CHANGELOG.md` conflict if anything e
 >
 > Scope is §4.3 plus the P2 row of §6: `WindowFirstHeatStrip` under the lens, above
 > `WindowFirstPromotedStrip` (two different strips — do not conflate); the Order control on the
-> lens bar (`photocast.planOrder`). **Read the P0 row first** — it records the kernel seams P2
-> inherits (`drawGeo`'s three null reasons — the rAF retry must use `land()` to tell "not loaded"
-> from "zero measure"; the null-2d-context guard belongs to the mounting component, i.e. you).
+> lens bar (`photocast.planOrder`). **Read the P0 and P1 rows first** — they record the seams P2
+> inherits: from P0, `drawGeo`'s three null reasons (the rAF retry must use `land()` to tell "not
+> loaded" from "zero measure") and the null-2d-context guard belonging to the mounting component,
+> i.e. you; from P1, that window point sets are keyed `date:targetType` and read at
+> `POINT_SCORE_INDEX` (never hand the kernel a positional index — it paints dark red at full
+> strength), and that the field's population is sky-gated so it matches the `best N★` beside it.
 > **P2 also owns the one-line `vite.config.js` change**: a `manualChunks` rule for `d3-geo`
 > placed **before** the existing `id.includes('d3-')` catch (after it, the rule never fires) —
 > without it your first `drawGeo` import makes the 375.75 KB / 107.46 KB-gzip recharts chunk,
@@ -105,6 +108,13 @@ Before starting the next session, expect a `CHANGELOG.md` conflict if anything e
 
 > You are implementing **Phase P3** of `docs/engineering/heat-field-plan.md`. Run §10 first,
 > confirm P0–P2 are on `main`, create `feature/heat-p3-row`.
+>
+> **Read the P1 row before building the rail or band** — it records that
+> `BriefingRegion.bestRating`'s canopy fallback is per REGION while `BriefingWindow.bestRating`'s
+> is per WINDOW (an all-wood region in a mixed window reports its wood under a header reporting
+> the sky's best; both are true, and no surface may present the two levels as one number), and
+> that region names join **byte-identically** — never trim or normalise, because a focus that
+> matches no point fades the whole canvas to transparent.
 >
 > Scope is §4.4 plus the P3 row of §6: the full-width field map (DOM centroid labels — mind the
 > `.mapbox` `line-height: 0` trap and the label plate's explicit `line-height: 1.35`),
