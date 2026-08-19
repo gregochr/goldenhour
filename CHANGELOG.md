@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.18.12] - 2026-08-19
+
 ### Added — heat field P3: the open row's field map, region rail and region band
 
 Opening a window row on the Plan tab now shows the field at full width, ranked by region, with a
