@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 
@@ -120,5 +120,101 @@ describe('WindowFirstShell — the masthead status pill', () => {
     // And the pane it is NOT part of does take the treatment, so this is a statement about where
     // the boundary is rather than about the treatment having been dropped.
     expect(screen.getByTestId('window-first-pane').className).toContain('pointer-events-none');
+  });
+});
+
+/**
+ * The lit band — the masthead's second job.
+ *
+ * <p>The arm shipped with a slim bar that had brand presence taken out of it: a 20px wordmark, no
+ * kicker, and a spine reduced to a tick. This restores the presence without restoring the height,
+ * and gives the band something to do — the rule under the wordmark draws today's light, so the top
+ * of the screen is the first piece of forecast rather than ornament.
+ *
+ * <p>Everything about how the rule itself is drawn lives in {@code MastheadLight.test.jsx}. What is
+ * pinned here is only what the shell is responsible for: which lockup it asks for, that the band is
+ * part of the masthead, and that the nudge always has somewhere to go.
+ */
+describe('WindowFirstShell — the lit band', () => {
+  const LIGHT = {
+    label: 'Home · NE66 1NG',
+    shortLabel: 'NE66 1NG',
+    civilDawn: '05:32',
+    sunrise: '06:04',
+    sunset: '19:58',
+    civilDusk: '20:31',
+    stops: [{ key: 'SUNRISE', position: 25.28 }, { key: 'SUNSET', position: 74.86 }],
+  };
+
+  it('asks for the masthead lockup, which carries the wordmark and the kicker', () => {
+    // Not `compact`. That variant drops the kicker and takes the wordmark to 20px, which is the
+    // flatness this work exists to fix — and it is still in use elsewhere, so a revert here would
+    // be invisible to every other test.
+    renderShell();
+
+    expect(screen.getByTestId('brand-lockup')).toHaveAttribute('data-variant', 'masthead');
+    expect(screen.getByText('Field guide to light')).toBeInTheDocument();
+  });
+
+  it('puts the light rule inside the band, under the lockup', () => {
+    renderShell({ light: LIGHT });
+    const masthead = screen.getByTestId('window-first-masthead');
+
+    expect(masthead).toContainElement(screen.getByTestId('masthead-light-rule'));
+    expect(masthead).toContainElement(screen.getByTestId('masthead-light-times'));
+    const lockup = screen.getByTestId('brand-lockup');
+    expect(lockup.compareDocumentPosition(screen.getByTestId('masthead-light-rule'))
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('hands the day straight through, rather than deriving one of its own', () => {
+    renderShell({ light: LIGHT });
+    expect(screen.getByTestId('masthead-light-times')).toHaveTextContent('06:04');
+    expect(screen.getByTestId('masthead-light-times')).toHaveTextContent('19:58');
+  });
+
+  it('sends the nudge to the postcode field when one handler is given', () => {
+    const onSetPostcode = vi.fn();
+    renderShell({ light: null, onSetPostcode });
+
+    fireEvent.click(screen.getByTestId('masthead-set-postcode'));
+    expect(onSetPostcode).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to plain Settings rather than leaving the nudge inert', () => {
+    // The nudge's whole job is getting a postcode saved. A caller that forgets the focused handler
+    // should get the general settings screen, not a button that does nothing — a dead end here
+    // leaves the rule permanently dim, which is the state the nudge exists to end.
+    const { onOpenSettings } = renderShell({ light: null });
+
+    fireEvent.click(screen.getByTestId('masthead-set-postcode'));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('adds no control to the masthead once the light resolves', () => {
+    // Two sibling files assert the masthead offers exactly ⚙ and Sign out, and both render with no
+    // light at all. This is the arm of that rule they cannot see: the nudge is a third button, and
+    // it must be present only in the state that needs it.
+    renderShell({ light: LIGHT });
+    const masthead = screen.getByTestId('window-first-masthead');
+
+    expect(within(masthead).getAllByRole('button').map((b) => b.textContent.trim()))
+      .toEqual(['⚙', 'Sign out']);
+    expect(screen.queryByTestId('masthead-set-postcode')).toBeNull();
+  });
+
+  it('shows the nudge, and only then a third button, when no home is saved', () => {
+    renderShell({ light: null });
+    const masthead = screen.getByTestId('window-first-masthead');
+
+    expect(within(masthead).getByTestId('masthead-set-postcode')).toBeInTheDocument();
+    expect(within(masthead).getAllByRole('button')).toHaveLength(3);
+  });
+
+  it('stays out of the greying a DOWN backend applies, like the rest of the band', () => {
+    // The nudge is a route to a setting, and the pane being dead is no reason to close it.
+    renderShell({ light: null, contentDisabled: true });
+
+    expect(screen.getByTestId('masthead-light-nudge').closest('.pointer-events-none')).toBeNull();
   });
 });

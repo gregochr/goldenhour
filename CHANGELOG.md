@@ -5,6 +5,65 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — masthead presence: the lit band and today's light rule
+
+The window-first masthead gets its brand presence back, and a job. Compacting the header to one
+slim bar had taken the wordmark to 20px, dropped the coral kicker, and reduced the film-perforation
+spine to a decorative tick. This restores the presence **without** restoring the height, and gives
+the band something to do: the rule under the wordmark draws today's light as a gradient, so the top
+of the screen is the first piece of forecast rather than ornament.
+
+`BrandLockup` gains a `masthead` variant — wordmark back to 28px (25 on a tablet, 21 on a phone,
+the type floor), the kicker back, the italic tagline deliberately not. The tagline is the line that
+costs a whole row and says least to someone already signed in. Because the lockup is ~50px again
+the spine returns to the header gauge; `compact` keeps its tighter one and stays in use where the
+prose genuinely cannot fit. The `header` and `compact` variants are untouched, so the v1 arm — the
+pilot's frozen comparison control — renders exactly as before.
+
+**The rule's positions are data; only its colours are fixed.** `GET /api/user/settings/light`
+returns eleven named stops whose positions `TodaysLightService` computes from the day's real solar
+times at the caller's home, as a percentage of the local day, so the lit band genuinely narrows in
+winter and widens in summer. Colours never travel over the wire — the client maps stop key → colour
+from a fixed table, and drops a key it has no entry for rather than painting it a default.
+
+**The row that labels it is mandatory.** An unlabelled gradient is a guess wearing data's clothes:
+the UK spread between Cornwall and Northumberland is 20–30 minutes, honest at this precision only
+while the row names whose light it draws. Four times in a browser (`05:32 blue`, `06:04 golden`,
+`19:58 golden`, `20:31 blue`), the two goldens on a tablet and a phone; the kind of light stays in
+the accessible name at every width even where the phone hides the word. Solar noon is never
+labelled — the pale band already says midday.
+
+**No home postcode is a designed state, not an error.** The endpoint answers `204`, the rule goes
+unlit, and a nudge offers to fix it. Three states are kept distinguishable in one value
+(`undefined` unresolved / `null` no home / the day), because collapsing the first two flashes "set
+a postcode" at every reader who already has one.
+
+The endpoint sits under `/api/user/settings` deliberately, next to `/reach` and for the same
+reason: it names the caller's home postcode, and `HttpCachingConfig`'s revalidatable set is an
+exact-match allow-list, so a path here can never pick up the `Cache-Control: private, no-cache`
+that would persist personal data to a browser HTTP cache JavaScript cannot evict on logout. It also
+never geocodes — the label is built from the *stored* postcode, since resolving a place name is an
+uncached third-party call and this runs on the masthead.
+
+### Changed — the home postcode is free; drive times and the local radius stay Pro
+
+The postcode input was Pro-gated on the reasoning that it exists for the drive times it feeds. It
+no longer does: the masthead's light rule is drawn from the same postcode, and its empty state
+sends the reader to that input. A nudge landing on a control the reader cannot operate is a dead
+end, and it would leave the band permanently dim for exactly the accounts the nudge is written for.
+So the split moved one level down — light times free, drive times and the radius they are ranked by
+still Pro — and is now enforced on those two controls individually rather than by a wrapper.
+
+Nothing was unlocked on the backend: `UserSettingsController` has only ever carried
+`@PreAuthorize("isAuthenticated()")`, so `PUT /home` was already open to any account. The gate was
+frontend-only.
+
+### Changed — the auth screens name their audience
+
+The sign-in, register and change-password screens carry `For landscape photographers` in place of
+`Field guide to light`, verbatim the landing page's own eyebrow. A stranger there has no
+landing-page context, so it is the one surface where the kicker says who the app is for. The
+signed-in variants are unchanged.
 ### Added — Penshaw Monument (V143)
 
 A year-round sunrise/sunset viewpoint that is also a bluebell site, in `Northumberland & Tyneside`:

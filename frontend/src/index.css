@@ -972,8 +972,19 @@
      in the same media query that stacks the bar, below. */
   --wf-lens-reserve: 60px;
 }
+/* The lit band. Two things here are not decoration.
+
+   The vertical gradient gives the masthead a surface of its own, so the wordmark, the light rule
+   and the time row read as one object rather than as three things floating above the page. The
+   values are the handoff's, and both sit above `--color-plex-bg` (#181210) — the band lifts off
+   the page rather than cutting into it.
+
+   The bottom padding is ZERO on purpose: the time row inside supplies it (and the nudge, in the
+   empty state, supplies more). Putting it back here double-spaces the band under whichever row is
+   showing, which is the failure mode the design's own `16px 28px 0` is written to avoid. */
 .wf-mast {
-  padding: 16px var(--wf-gutter) 14px;
+  padding: calc(env(safe-area-inset-top, 0px) + 16px) var(--wf-gutter) 0;
+  background: linear-gradient(180deg, #241B16 0%, #1B1411 100%);
 }
 /* The rail's own inset, worn by the empty-state line that stands in for it, so the two agree by
    construction when the gutter changes. */
@@ -1060,7 +1071,12 @@
        reservation exists to prevent. */
     --wf-lens-reserve: 158px;
   }
-  .wf-mast { padding: 13px var(--wf-gutter) 12px; }
+  /* ⚠️ The inset term is INERT TODAY and is here for the day it stops being: `env(safe-area-*)`
+     resolves to 0 unless the document opts in with `viewport-fit=cover`, and `index.html`'s
+     viewport meta does not. Opting in is an app-wide change — every edge-anchored element in both
+     arms would need its own inset — so it is deliberately not made here. Written as the fallback
+     form so it is correct either way rather than needing to be remembered later. */
+  .wf-mast { padding: calc(env(safe-area-inset-top, 0px) + 14px) var(--wf-gutter) 0; }
   .wf-rail-empty { padding: 11px var(--wf-gutter) 0; }
   /* `.rail-scroller`'s own phone padding is NOT here — it sits directly beneath that class below,
      because this block is written above it and the two selectors have equal specificity (0,1,0).

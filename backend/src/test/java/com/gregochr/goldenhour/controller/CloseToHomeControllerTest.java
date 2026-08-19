@@ -37,7 +37,7 @@ class CloseToHomeControllerTest extends AbstractControllerTest {
     private MockMvc mockMvc;
 
     private static UserSettingsService.HomeLocation home(Double lat, Double lon) {
-        return new UserSettingsService.HomeLocation(7L, lat, lon, 30);
+        return new UserSettingsService.HomeLocation(7L, lat, lon, 30, "NE66 1NG");
     }
 
     @Test

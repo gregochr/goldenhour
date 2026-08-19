@@ -234,7 +234,7 @@ class ReachServiceTest {
         // A 30-mile radius must not hide Buttermere at ~85 miles: the lens's widest tier promises
         // everything, and the drill-down's own filters are what narrow it.
         when(userSettingsService.getHomeLocation(auth)).thenReturn(
-                new UserSettingsService.HomeLocation(USER_ID, HOME_LAT, HOME_LON, 30));
+                new UserSettingsService.HomeLocation(USER_ID, HOME_LAT, HOME_LON, 30, "NE66 1NG"));
         stubRoster(bamburgh(), simonside(), buttermere());
         when(driveTimeResolver.getAllMinutes(USER_ID)).thenReturn(Map.of());
 
@@ -260,7 +260,8 @@ class ReachServiceTest {
 
     private void stubHome(Double lat, Double lon) {
         when(userSettingsService.getHomeLocation(auth))
-                .thenReturn(new UserSettingsService.HomeLocation(USER_ID, lat, lon, null));
+                .thenReturn(new UserSettingsService.HomeLocation(
+                        USER_ID, lat, lon, null, lat == null ? null : "NE66 1NG"));
     }
 
     private void stubRoster(LocationEntity... locations) {

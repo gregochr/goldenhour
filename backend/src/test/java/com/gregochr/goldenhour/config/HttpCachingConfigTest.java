@@ -87,6 +87,9 @@ class HttpCachingConfigTest {
         // The window-first reach lens. Home-derived per-user data, and the reason it lives under
         // /api/user/settings rather than beside the briefing it is joined to on the client.
         "/api/user/settings/reach",
+        // Today's light for the masthead. Names the caller's home postcode, so it belongs to this
+        // family and not beside the almanac it superficially resembles.
+        "/api/user/settings/light",
         // Close to home is derived from the caller's home postcode and their own drive times.
         // It sits UNDER /api/briefing, which IS revalidated — so this entry is the one that
         // proves the whitelist's exact-match semantics are doing real work here, not just in
