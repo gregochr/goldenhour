@@ -13,10 +13,14 @@ there are no Isle of Man, Channel Islands or Scilly locations, so the ISO-826 co
 safe. **P1 is MERGED** (#554, `a6341e71`, 2026-08-19) — the join, the planning area, the
 provider plumbing and the served `BriefingRegion.bestRating`, adversarially reviewed (seven
 lenses) with the surviving findings applied; the P1 row records what it decided, including one
-real defect the review caught (the field was blending woodland ratings). **P2 is BUILT**
-(`feature/heat-p2-strip`, 2026-08-19, unpushed) — the strip, the Order control, the day rail
-retired per **D1** (confirmed by the owner 2026-08-18), and the `manualChunks` rule; adversarially
-reviewed (six lenses) with the surviving findings applied and browser-verified at 1280 and 390.
+real defect the review caught (the field was blending woodland ratings). **P2 is MERGED** (#559,
+`caba0b17`, 2026-08-19) — the strip, the Order control, the day rail retired per **D1** (confirmed
+by the owner 2026-08-18), and the `manualChunks` rule; adversarially reviewed (six lenses) with
+the surviving findings applied and browser-verified at 1280 and 390. Its merge reconciled a moved
+main (#556–#558): the lit band and the strip coexist, gate-proven on the merged tree, and #556's
+App tests re-anchored from the rail's retired `window-first-rail-empty` sentinel to
+`window-first-pane-empty` (same fetch-settled gate). **§9.6 is RESOLVED — ungated for the pilot**
+(owner, 2026-08-19). **P3 is next.**
 The P2 row records what it decided, including three defects the review caught that a green suite,
 a clean lint and a successful build had all passed over, and one more the browser caught after
 them. **P3 is next.** The remaining §9 questions are open but none blocks a phase before its own
@@ -619,10 +623,9 @@ Carried from the bundle, plus new ones this plan surfaced. None block P0/P1.
    strip footer. Revisit only with evidence.
 5. **`GLANCE` as a user setting** (bundle Q5), defaulting to the widest configured drive-time
    habit; hard-coded 180 for the first cut. Same for `SETUP = 20`.
-6. **LITE gating**: the strip and heat render from the same scores payload LITE already receives,
-   and per the standing note the LITE score split is one open pricing decision, not a rendering
-   bug. Proposal: ship heat ungated for the pilot (parity with the rest of v2), revisit with the
-   pricing decision. Confirm.
+6. ~~**LITE gating**~~ **RESOLVED — ungated for the pilot (owner, 2026-08-19)**: the strip and
+   heat render from the same scores payload LITE already receives; parity with the rest of v2.
+   Revisit with the LITE pricing decision, which remains open project-wide.
 7. **Away-day windows on the strip**: the design doesn't address travel days. Proposal: thumbnails
    render normally with a small `✈` in the top row; away rows keep their place in the list.
 8. **"Somewhere is good, just not near you"** (bundle Q4): real feature, deliberately not built.
