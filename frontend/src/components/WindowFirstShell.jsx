@@ -244,7 +244,7 @@ export default function WindowFirstShell({
 }) {
   const {
     heatStripCards, heatPointSets, heatSpots, reachById, regionSeries,
-    windowCards, paneItems, promotedStrip, loading, briefing, evaluationScores,
+    windowCards, paneItems, promotedStrip, loading, briefing, evaluationScores, scoresLoaded,
     scoreIndex, todayStr, reachLens, ratingLens, orderLens, homePlace,
   } = useWindowFirstBriefing();
   const [activeTab, setActiveTab] = useState(TABS[0].id);
@@ -938,6 +938,7 @@ export default function WindowFirstShell({
             cards={heatStripCards}
             pointSets={heatPointSets}
             spots={heatSpots}
+            scoresKnown={scoresLoaded}
             reachById={reachById}
             openKeys={openWindowKeys}
             todayStr={todayStr}

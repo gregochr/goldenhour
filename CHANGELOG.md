@@ -5,6 +5,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — an unrated window on the Plan strip no longer reads as a bad forecast
+
+A heat-strip thumbnail with no ratings rendered as bare coastline, which is also what a thumbnail
+whose field happened to paint nothing looks like — and the verdict word beneath it comes from the
+briefing's own weather thresholds, which run the full horizon either way. So a Saturday sunrise at
+T+3, where Gate 4 evaluates SETTLED cells only, printed a confident **Poor** above an empty map
+beside a Thursday whose identical **Poor** was the whole roster actually rated bad. The two states
+were indistinguishable, and only one of them was a forecast.
+
+The unrated plate now takes a 45° hatch (`drawGeo`'s new `hatch` option, defaulted off so no
+existing host changes), the strip's footer names the convention once — `unshaded — not scored` —
+for as long as a hatched plate is on screen, and the thumbnail's accessible sentence carries
+"not scored" straight after the verdict it qualifies. The verdict word itself is untouched: it is
+a true statement about the weather, and it is the vocabulary `UnscoredPill` and the region band's
+swatch already settled — an unscored surface withholds the RATING channel and leaves the rest
+alone. Dimming it was drafted and dropped, because `index.css` measured that 9px `Poor` to AA on
+the assumption it keeps its own colour.
+
+The mark is gated on a new `scoresLoaded` flag from `WindowFirstBriefingProvider`, and the gate is
+load-bearing. An empty point set is also what an *unfetched* ratings response looks like, and the
+locations prop routinely lands first — ungated, every mount painted six hatched plates and a
+footer clause before flipping to the real field. The flag is set on a successful fetch **before**
+the provider's own empty-response early return, because a response carrying no rows is still an
+answer and is the one case where every window genuinely is unrated; a failed or in-flight fetch
+sets nothing, since neither is evidence about the forecast.
+
+The hatch says nothing about WHY. "at this range" was drafted and dropped: the horizon is the
+usual cause and not the only one (a failed batch leaves T+0 unrated), and the client cannot tell
+a stability skip from a triage stand-down from a failed run — all it sees is a window with no
+ratings.
+
 ### Added — heat field P4: the Map tab paints the field
 
 The Map tab's default view is now the same heat field the Plan tab paints, over the basemap
