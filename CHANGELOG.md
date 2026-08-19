@@ -56,6 +56,21 @@ and the test asserts values. Separately, a failed `/light` request no longer res
 value as a 204: "you have no postcode" is a claim about the reader's account that a 502 is no
 evidence for.
 
+**The eleven unverified charges from that review were then triaged: eight real and fixed, three
+declined with reasons.** The two that change behaviour: the time row now announces the solar *event*
+to assistive technology (`06:04 sunrise`) while keeping the *kind* as the visible label — the rule is
+`aria-hidden`, so the row is the whole accessible answer, and "golden" is the same word for sunrise
+and sunset, leaving DOM order as the only thing separating morning from evening. And the light now
+refetches when a tab returns on a later UK day: this is a planning dashboard, a tab left open
+overnight is ordinary, and nothing on the band carries a date, so yesterday's gradient was
+indistinguishable from today's.
+
+The `env(safe-area-inset-top)` term was **removed**, not kept. It was on `.wf-mast`, which is not the
+element that touches the top of the document — `App.jsx` wraps the arm in `<main className="px-4
+py-6">` — so with the `viewport-fit=cover` opt-in it would have pushed the wordmark to 97px and left
+the notch strip painted in page colour. The comment claiming it was "correct either way" was wrong,
+and a stated gap beats a plausible-looking non-fix.
+
 **No home postcode is a designed state, not an error.** The endpoint answers `204`, the rule goes
 unlit, and a nudge offers to fix it. Three states are kept distinguishable in one value
 (`undefined` unresolved / `null` no home / the day), because collapsing the first two flashes "set

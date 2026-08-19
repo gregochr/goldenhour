@@ -75,11 +75,22 @@ const KICKER = {
  * its own tighter one and stays in use where the prose genuinely cannot fit
  * ({@code PlanLayoutErrorBoundary}).
  *
+ * <p>⚠️ <b>`header` is arm-scoped and dies with v1 — but it is also this component's DEFAULT, which
+ * is what will make it look load-bearing.</b> Its only production caller is `App.jsx`'s v1 header,
+ * suppressed on the v2 arm; `masthead` was added alongside rather than replacing it because v1 is
+ * the pilot's frozen comparison control. Once the flag flips and v1 goes, a grep for
+ * `variant="header"` finds only test renders, plus nine bare `render(<BrandLockup />)` calls that
+ * reach the branch through this default — so the branch reads as live when nothing ships it. What
+ * goes with it: `isHeader`, `text-[40px]`, the italic tagline block, and `KICKER.default`'s use in
+ * the shared kicker branch (after v1 that branch can only run for `auth`, which takes `KICKER.auth`,
+ * making the ternary a permanently-constant test). Move the default to `masthead` in the same
+ * commit that deletes v1, or the dead branch keeps its disguise.
+ *
  * @param {object} props
  * @param {'header'|'auth'|'compact'|'masthead'} [props.variant] - `header` (40px wordmark) for the
- *   v1 signed-in app masthead; `auth` (34px) for the sign-in, register and change-password screens;
- *   `compact` (20px, no kicker or tagline) for a lockup with no room for prose; `masthead`
- *   (21/25/28px, kicker, no tagline) for the window-first band.
+ *   v1 signed-in app masthead, and dying with it; `auth` (34px) for the sign-in, register and
+ *   change-password screens; `compact` (20px, no kicker or tagline) for a lockup with no room for
+ *   prose; `masthead` (21/25/28px, kicker, no tagline) for the window-first band.
  */
 export default function BrandLockup({ variant = 'header' }) {
   const isHeader = variant === 'header';

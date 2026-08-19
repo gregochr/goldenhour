@@ -46,6 +46,24 @@ public class TodaysLightService {
     /** Minutes in a day, the denominator every stop position is a fraction of. */
     private static final double MINUTES_PER_DAY = 1440.0;
 
+    /**
+     * Civil (−6°) to nautical (−12°) twilight, in minutes.
+     *
+     * <p>The same approximation, and the same 35, that {@link SolarService#nauticalDawnUtc} uses —
+     * solar-utils exposes no −12° boundary. ⚠️ <b>Those two methods are deliberately NOT called
+     * here</b>, and this duplication is the price: they derive from {@code civilDawnUtc} directly,
+     * which is exactly the value {@link #boundary} exists to reject, so calling them would carry the
+     * midnight sentinel straight back into two more stops. This offsets the <em>sanitised</em> civil
+     * times instead. If solar-utils ever gains real nautical twilight, both places change together.
+     */
+    private static final long NAUTICAL_OFFSET_MINUTES = 35;
+
+    /** Civil twilight's stand-in when the measured boundary is unusable — see {@link #boundary}. */
+    private static final long CIVIL_FALLBACK_MINUTES = 30;
+
+    /** The golden hour's stand-in when the measured boundary is unusable. */
+    private static final long GOLDEN_FALLBACK_MINUTES = 60;
+
     private final SolarService solarService;
     private final UserSettingsService settingsService;
     private final Clock clock;
@@ -105,19 +123,19 @@ public class TodaysLightService {
         // measured at 60.8°N (Unst, a real UK postcode) against solar-utils 2.1.0, the sentinel
         // lands on the CIVIL pair at midsummer and on the GOLDEN pair at midwinter.
         LocalDateTime civilDawn = boundary(solarService.civilDawnUtc(lat, lon, date), date,
-                t -> t.isBefore(sunrise), sunrise.minusMinutes(30));
+                t -> t.isBefore(sunrise), sunrise.minusMinutes(CIVIL_FALLBACK_MINUTES));
         LocalDateTime civilDusk = boundary(solarService.civilDuskUtc(lat, lon, date), date,
-                t -> t.isAfter(sunset), sunset.plusMinutes(30));
+                t -> t.isAfter(sunset), sunset.plusMinutes(CIVIL_FALLBACK_MINUTES));
         LocalDateTime goldenMorningEnd = boundary(morning.goldenHourEnd(), date,
-                t -> t.isAfter(sunrise) && t.isBefore(sunset), sunrise.plusMinutes(60));
+                t -> t.isAfter(sunrise) && t.isBefore(sunset), sunrise.plusMinutes(GOLDEN_FALLBACK_MINUTES));
         LocalDateTime goldenEveningStart = boundary(evening.goldenHourStart(), date,
-                t -> t.isBefore(sunset) && t.isAfter(sunrise), sunset.minusMinutes(60));
+                t -> t.isBefore(sunset) && t.isAfter(sunrise), sunset.minusMinutes(GOLDEN_FALLBACK_MINUTES));
         LocalDateTime solarNoon = boundary(solarService.solarNoonUtc(lat, lon, date), date,
                 t -> t.isAfter(sunrise) && t.isBefore(sunset), midpoint(sunrise, sunset));
 
         List<TodaysLightResponse.Stop> stops = ascending(List.of(
                 new TodaysLightResponse.Stop("NIGHT_START", 0),
-                stop("NAUTICAL_DAWN", civilDawn.minusMinutes(35), date),
+                stop("NAUTICAL_DAWN", civilDawn.minusMinutes(NAUTICAL_OFFSET_MINUTES), date),
                 stop("CIVIL_DAWN", civilDawn, date),
                 stop("SUNRISE", sunrise, date),
                 stop("GOLDEN_MORNING_END", goldenMorningEnd, date),
@@ -125,7 +143,7 @@ public class TodaysLightService {
                 stop("GOLDEN_EVENING_START", goldenEveningStart, date),
                 stop("SUNSET", sunset, date),
                 stop("CIVIL_DUSK", civilDusk, date),
-                stop("NAUTICAL_DUSK", civilDusk.plusMinutes(35), date),
+                stop("NAUTICAL_DUSK", civilDusk.plusMinutes(NAUTICAL_OFFSET_MINUTES), date),
                 new TodaysLightResponse.Stop("NIGHT_END", 100)));
 
         return new TodaysLightResponse(

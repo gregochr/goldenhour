@@ -191,9 +191,9 @@ describe('MastheadLight — the labelled row', () => {
     renderLight({ light: LIGHT });
 
     expect(screen.getAllByTestId('masthead-light-golden').map((n) => n.textContent))
-      .toEqual(['06:04 golden', '19:58 golden']);
+      .toEqual(['06:04 sunrise golden', '19:58 sunset golden']);
     expect(screen.getAllByTestId('masthead-light-blue').map((n) => n.textContent))
-      .toEqual(['05:32 blue', '20:31 blue']);
+      .toEqual(['05:32 dawn blue', '20:31 dusk blue']);
   });
 
   it('drops only the blue pair at narrow widths, keeping the goldens at every size', () => {
@@ -208,15 +208,33 @@ describe('MastheadLight — the labelled row', () => {
       .forEach((n) => expect(n.className).not.toContain('hidden'));
   });
 
-  it('announces the kind of light even where the phone hides the word', () => {
-    // `sr-only` rather than `hidden`: a bare "06:04" in a masthead means nothing to a reader who
-    // cannot see that it is amber. The word stays in the accessible name at every width.
+  it('announces the EVENT, not just the kind — the row is the whole accessible answer', () => {
+    // The rule above is aria-hidden, so this row is all a screen reader gets. The kind alone does
+    // not answer it: "golden" is the same word for sunrise and for sunset, so the announcement was
+    // "05:32 blue, 06:04 golden, 19:58 golden, 20:31 blue" and the only thing separating morning
+    // from evening was DOM order — exactly the positional cue the hidden gradient was carrying.
     renderLight({ light: LIGHT });
 
+    const named = ['dawn', 'sunrise', 'sunset', 'dusk'].map((event) => {
+      const span = screen.getByText(event);
+      expect(span.className, `${event} must reach AT at every width`).toContain('sr-only');
+      expect(span.className, `${event} must not be width-gated`).not.toContain('sm:not-sr-only');
+      return event;
+    });
+    expect(named).toHaveLength(4);
+  });
+
+  it('keeps the visible kind word out of the accessible name, so it cannot double up', () => {
+    // The visible label stays the KIND — on screen the amber and the left-to-right order already
+    // say which is which. It is aria-hidden so a screen reader hears "06:04 sunrise", not
+    // "06:04 sunrise golden".
+    renderLight({ light: LIGHT });
     const [morning] = screen.getAllByTestId('masthead-light-golden');
-    const word = within(morning).getByText('golden');
-    expect(word.className).toContain('sr-only');
-    expect(word.className).toContain('sm:not-sr-only');
+    const kindWord = within(morning).getByText('golden');
+
+    expect(kindWord).toHaveAttribute('aria-hidden', 'true');
+    expect(kindWord.className).toContain('hidden lg:inline'.split(' ')[0]);
+    expect(kindWord.className).toContain('sm:inline');
   });
 
   it('paints the golden times amber and weights them, so they read before the blues', () => {
@@ -235,22 +253,23 @@ describe('MastheadLight — the labelled row', () => {
     });
   });
 
-  it('reserves the row height on the same type scale the row will use', () => {
-    // The placeholder's only job is that the page does not shift when the answer lands, and the
-    // two type-scale classes are what buy that — they are the time row's own, and the two rows
-    // measure equal at 28.5px in the browser. Asserted against the time row rather than against
-    // literals, so changing one and not the other cannot pass.
+  it('reserves the row height from the same constant the row is built from', () => {
+    // The placeholder's only job is that the page does not shift when the answer lands, and the two
+    // rows measure equal at 28.5px in the browser. Asserted as SET CONTAINMENT rather than as a
+    // literal checklist: the earlier version looked for seven named classes in both, which cannot
+    // see a layout-affecting eighth added to one of them — the exact drift its own comment claimed
+    // to prevent. Every class the placeholder carries must also be on the time row, whatever they
+    // are, which is what the shared ROW_METRICS constant guarantees.
     const { rerender } = render(<MastheadLight light={LIGHT} onSetPostcode={vi.fn()} />);
-    const rowClasses = screen.getByTestId('masthead-light-times').className;
+    const rowClasses = new Set(screen.getByTestId('masthead-light-times').className.split(/\s+/));
 
     rerender(<MastheadLight light={undefined} onSetPostcode={vi.fn()} />);
-    const pending = screen.getByTestId('masthead-light-pending').className;
+    const pendingClasses = screen.getByTestId('masthead-light-pending').className.split(/\s+/);
 
-    ['font-mono', 'text-[8px]', 'sm:text-[9px]', 'pt-[5px]', 'pb-2', 'sm:pt-1.5', 'sm:pb-[9px]']
-      .forEach((cls) => {
-        expect(rowClasses, `time row should carry ${cls}`).toContain(cls);
-        expect(pending, `placeholder should carry ${cls}`).toContain(cls);
-      });
+    expect(pendingClasses.length).toBeGreaterThan(4);
+    pendingClasses.forEach((cls) => {
+      expect(rowClasses, `the time row must also carry "${cls}"`).toContain(cls);
+    });
   });
 
   it('never labels solar noon', () => {

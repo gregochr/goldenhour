@@ -6,6 +6,15 @@ import useTodaysLight from '../hooks/useTodaysLight.js';
 vi.mock('../api/lightApi.js', () => ({ getTodaysLight: vi.fn() }));
 import { getTodaysLight } from '../api/lightApi.js';
 
+// Partial mock: the hook reads only `ukDateStr`, and the rest of mapDates must keep working for
+// anything it pulls in transitively. Stubbing the clock rather than the wall time keeps this off
+// fake timers, which `waitFor` does not survive.
+vi.mock('../utils/mapDates.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  ukDateStr: vi.fn(() => '2026-08-19'),
+}));
+import { ukDateStr } from '../utils/mapDates.js';
+
 /**
  * The hook that resolves today's light for the masthead.
  *
@@ -119,6 +128,66 @@ describe('useTodaysLight', () => {
     rerender(<Probe settingsVersion={3} />);
 
     expect(getTodaysLight).toHaveBeenCalledTimes(1);
+  });
+
+  describe('the day turning over', () => {
+    // This is a planning dashboard and a tab left open from one evening to the next morning is an
+    // ordinary way to use it. A mount-only fetch left yesterday's gradient and yesterday's clock
+    // times on screen — and nothing on the band carries a date, so there was no way to tell.
+
+    beforeEach(() => ukDateStr.mockReturnValue('2026-08-19'));
+
+    it('refetches when the tab returns on a later UK day', async () => {
+      getTodaysLight.mockResolvedValue(LIGHT);
+      render(<Probe />);
+      await waitFor(() => expect(getTodaysLight).toHaveBeenCalledTimes(1));
+
+      ukDateStr.mockReturnValue('2026-08-20');
+      await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+
+      await waitFor(() => expect(getTodaysLight).toHaveBeenCalledTimes(2));
+    });
+
+    it('does not refetch when the tab returns on the same day', async () => {
+      // The guard is what keeps this off a poll. Every tab switch would otherwise be a request for
+      // data that changes once a day, which is what the design explicitly ruled out.
+      getTodaysLight.mockResolvedValue(LIGHT);
+      render(<Probe />);
+      await waitFor(() => expect(getTodaysLight).toHaveBeenCalledTimes(1));
+
+      await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+      await act(async () => { window.dispatchEvent(new Event('focus')); });
+
+      expect(getTodaysLight).toHaveBeenCalledTimes(1);
+    });
+
+    it('ignores a day change while the tab is hidden, and acts on it when it is shown', async () => {
+      // `visibilitychange` fires on the way OUT as well as the way in. Refetching then would spend
+      // a request on a tab nobody is looking at, and the answer could be stale again by the time
+      // they return.
+      getTodaysLight.mockResolvedValue(LIGHT);
+      render(<Probe />);
+      await waitFor(() => expect(getTodaysLight).toHaveBeenCalledTimes(1));
+
+      ukDateStr.mockReturnValue('2026-08-20');
+      const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+      await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+      expect(getTodaysLight).toHaveBeenCalledTimes(1);
+
+      visibility.mockReturnValue('visible');
+      await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+      await waitFor(() => expect(getTodaysLight).toHaveBeenCalledTimes(2));
+      visibility.mockRestore();
+    });
+
+    it('listens for nothing on the arm that renders no band', async () => {
+      render(<Probe enabled={false} />);
+
+      ukDateStr.mockReturnValue('2026-08-20');
+      await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+
+      expect(getTodaysLight).not.toHaveBeenCalled();
+    });
   });
 
   it('lets the newest request win when an older one lands late', async () => {
