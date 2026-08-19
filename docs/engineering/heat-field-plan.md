@@ -36,8 +36,9 @@ lenses) with the surviving findings applied, and browser-verified at 1440 and 39
 210-location dense fixture. Its row records what it decided, including the two defects the browser
 caught after a green suite, a clean lint and a successful build had all passed over — one of them a
 CSS specificity tie against Leaflet's own stylesheet, the other a cached cluster icon — and the one
-place the plan overrules its own design prototype. **P5 is BUILT** (`feature/heat-p5-leaveby`,
-2026-08-19 — committed, **not pushed and not merged**) — the leave-by line on the spot card, the sheet and the peek, and the spot badge's
+place the plan overrules its own design prototype. **P5 is MERGED** (#566, `6b513d58`,
+2026-08-19) — **D2 is fully discharged**: all five ramp consumers have shipped in their named
+phases, so one colour language now exists everywhere in v2. P5 delivered the leave-by line on the spot card, the sheet and the peek, and the spot badge's
 swap onto `scoreRamp`; adversarially reviewed (six lenses plus two refutation passes) with the
 surviving findings applied, and verified in the running app at 1200 and 375. Its row records the
 one defect only the browser could catch (the peek's chip row overflowing its own panel), the two
