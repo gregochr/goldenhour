@@ -20,10 +20,15 @@ import PropTypes from 'prop-types';
  *
  * <h2>The second clause is not filler</h2>
  *
- * <p>"Sun times still show in the rail" is the one thing this row can offer a reader who was going
- * to shoot anyway: P4c settled that an away tile <b>keeps</b> its sunrise and sunset, because those
- * are almanac and true whether or not a forecast ran. Without the sentence the row is purely a
- * subtraction, and a reader has no reason to look up at the tile that still has something for them.
+ * <p>It is the one thing this row can offer a reader who was going to shoot anyway: the away
+ * WINDOW <b>keeps</b> its sunrise or sunset, because those are almanac and true whether or not a
+ * forecast ran. Without the sentence the row is purely a subtraction, and a reader has no reason to
+ * look up at the thumbnail that still has something for them.
+ *
+ * <p><b>The word changed at P2 and the fact did not.</b> It read "still show in the rail" from P4c
+ * until the day rail was retired (heat-field plan D1), at which point it pointed at a component
+ * that no longer exists — a reader looking up saw six thumbnails. `windowFirstStrip.js` carries the
+ * same guarantee onto the away thumbnail, so only the noun moved.
  *
  * @param {object}   props
  * @param {string}   props.label       `Mon 3` or `Mon 3 – Tue 4`
@@ -43,7 +48,7 @@ export default function WindowAwayRow({ label, note, windowCount }) {
       {/* Its own span rather than a clause, so the operator's free-text note never has to fit
           someone else's grammar. The sentence beside it is complete without one. */}
       {note && <span data-testid="window-away-note">{note}</span>}
-      <span data-testid="window-away-almanac">Sun times still show in the rail</span>
+      <span data-testid="window-away-almanac">Sun times still show above</span>
     </div>
   );
 }

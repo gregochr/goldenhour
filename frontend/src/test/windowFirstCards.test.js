@@ -671,3 +671,140 @@ describe('badgeChannel', () => {
     expect(badgeChannel('eclipse')).toBe('eclipse');
   });
 });
+
+describe('buildWindowCards — topMeanRating, the Order control\'s ranking key', () => {
+  const withRegions = (regions) => ({
+    events: events([TODAY, 'SUNSET']),
+    days: [day(TODAY, [{ targetType: 'SUNSET', regions, unregioned: [], window: { verdict: 'WORTH_IT', badges: [] } }])],
+  });
+
+  it('takes the BEST of the window\'s region means', () => {
+    const [card] = build(withRegions([
+      { regionName: 'A', meanRating: 2.4 },
+      { regionName: 'B', meanRating: 4.6 },
+      { regionName: 'C', meanRating: 3.1 },
+    ]));
+
+    expect(card.topMeanRating).toBe(4.6);
+  });
+
+  it('is null when no region carries a mean, so an unrated window can rank last', () => {
+    // Deliberately not 0. A zero would sort an unlooked-at window among the poor ones, and
+    // AWAITING is the absence of a forecast rather than a bad one — `windowFirstOrder.js` reads
+    // the null and ranks it last.
+    expect(build(withRegions([{ regionName: 'A' }, { regionName: 'B', meanRating: null }]))[0]
+      .topMeanRating).toBeNull();
+  });
+
+  it('is null for a window with no regions at all', () => {
+    expect(build(withRegions([]))[0].topMeanRating).toBeNull();
+  });
+
+  it('ignores a non-numeric mean rather than propagating NaN into the sort', () => {
+    const [card] = build(withRegions([
+      { regionName: 'A', meanRating: Number.NaN },
+      { regionName: 'B', meanRating: 3 },
+    ]));
+
+    expect(card.topMeanRating).toBe(3);
+  });
+
+  it('EXCLUDES an all-woodland region, which the backend\'s own ranking drops too', () => {
+    // ⚠️ The defect this is here for. `PlanWindowProjector.rank` filters out a region holding no
+    // non-canopy slot before it ranks anything, and `BriefingRegion.meanRating` falls back to canopy
+    // slots PER REGION — so an all-wood region publishes a mean derived from inverted-polarity
+    // scores (a canopy GO means heavy cloud and mist). Reduced over the raw region list, the wood
+    // at 4.8 outranks the sky at 4.2 and takes rank 1 under `Order · Best`, beneath its own header
+    // reading "Poor" and beside a thumbnail that paints no heat there at all — the field is
+    // sky-gated. Precisely the defect P1's review caught in the field, one surface along.
+    const [card] = build({
+      events: events([TODAY, 'SUNSET']),
+      days: [day(TODAY, [{
+        targetType: 'SUNSET',
+        regions: [
+          { regionName: 'Sky', meanRating: 4.2, slots: [{ locationName: 'A', canopy: false }] },
+          { regionName: 'Woods', meanRating: 4.8, slots: [{ locationName: 'B', canopy: true }] },
+        ],
+        unregioned: [],
+        window: { verdict: 'WORTH_IT', badges: [] },
+      }])],
+    });
+
+    expect(card.topMeanRating).toBe(4.2);
+  });
+
+  it('keeps a region that has a sky slot beside its wood', () => {
+    // The gate is the PRESENCE of a sky slot, never whether one is rated — the projector\'s rule.
+    // A rated-keyed test would hand an ordinary misty sunrise to the wood, because the fog that
+    // leaves every sky slot unrated is the same fog that scores the wood well.
+    const [card] = build({
+      events: events([TODAY, 'SUNSET']),
+      days: [day(TODAY, [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'Mixed',
+          meanRating: 4.8,
+          slots: [{ locationName: 'A', canopy: true }, { locationName: 'B', canopy: false }],
+        }],
+        unregioned: [],
+        window: { verdict: 'WORTH_IT', badges: [] },
+      }])],
+    });
+
+    expect(card.topMeanRating).toBe(4.8);
+  });
+
+  it('keeps the woods when the WHOLE window is canopy, rather than ranking on nothing', () => {
+    // The projector\'s `canopyCounts` fallback, mirrored. With no sky answer anywhere in the window
+    // there is nothing to prefer, and dropping every region would leave the window unrankable — it
+    // would sort last as though unforecast, which is a different and false claim.
+    const [card] = build({
+      events: events([TODAY, 'SUNSET']),
+      days: [day(TODAY, [{
+        targetType: 'SUNSET',
+        regions: [{ regionName: 'Woods', meanRating: 4.8, slots: [{ locationName: 'B', canopy: true }] }],
+        unregioned: [],
+        window: { verdict: 'WORTH_IT', badges: [] },
+      }])],
+    });
+
+    expect(card.topMeanRating).toBe(4.8);
+  });
+
+  it('keeps a region carrying no slots at all, as the projector\'s own filter does', () => {
+    // `r.slots().isEmpty() || …anyMatch(s -> !s.canopy())` — an empty region makes no canopy claim
+    // either way, and `BriefingHonestyFilter` empties slot lists on zero-coverage regions.
+    const [card] = build({
+      events: events([TODAY, 'SUNSET']),
+      days: [day(TODAY, [{
+        targetType: 'SUNSET',
+        regions: [
+          { regionName: 'Empty', meanRating: 3.9, slots: [] },
+          { regionName: 'Sky', meanRating: 2.0, slots: [{ locationName: 'A', canopy: false }] },
+        ],
+        unregioned: [],
+        window: { verdict: 'WORTH_IT', badges: [] },
+      }])],
+    });
+
+    expect(card.topMeanRating).toBe(3.9);
+  });
+
+  it('is a DIFFERENT quantity from bestRating, which is one location\'s score', () => {
+    // Ranking six windows by a single best spot would put a window with one exceptional location
+    // above one where a whole region is good — the opposite of "which window is the best bet". The
+    // two are allowed to disagree, and this is where that is stated.
+    const [card] = build({
+      events: events([TODAY, 'SUNSET']),
+      days: [day(TODAY, [{
+        targetType: 'SUNSET',
+        regions: [{ regionName: 'A', meanRating: 2.5 }],
+        unregioned: [],
+        window: { verdict: 'WORTH_IT', badges: [], bestRating: 5 },
+      }])],
+    });
+
+    expect(card.bestRating).toBe(5);
+    expect(card.topMeanRating).toBe(2.5);
+  });
+});

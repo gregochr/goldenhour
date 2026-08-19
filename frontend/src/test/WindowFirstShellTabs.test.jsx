@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, act, cleanup, within } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { getAlmanac } from '../api/almanacApi.js';
@@ -62,7 +62,12 @@ const ctx = (overrides = {}) => {
   return {
     briefing: { generatedAt: `${TODAY}T12:00:00`, hotTopics: [] },
     loading: false,
-    railTiles: [],
+    // The heat strip's thumbnails replaced the day rail's tiles at P2 (plan D1). Empty here, with an
+    // empty catalogue beside it: the strip withdraws entirely without spots to draw, which keeps
+    // these files about the shell's wiring rather than about a canvas.
+    heatStripCards: [],
+    heatSpots: [],
+    heatPointSets: new Map(),
     windowCards: cards,
     paneItems: cards.map((c) => ({ kind: 'card', key: c.key, card: c })),
     upcomingEvents: [],
@@ -93,6 +98,13 @@ const ctx = (overrides = {}) => {
       floorId: 'any',
       minRating: null,
       selectFloor: vi.fn(),
+    },
+    // The third axis. It gates nothing — it re-ranks the pane — so the shell's wiring tests sit on
+    // the chronological default, and `windowFirstOrder.test.js` owns the ranking itself.
+    orderLens: {
+      order: { id: 'when', label: 'When' },
+      orderId: 'when',
+      selectOrder: vi.fn(),
     },
     ...overrides,
   };
@@ -511,12 +523,52 @@ describe('WindowFirstShell — the reach lens across tabs', () => {
 });
 
 describe('WindowFirstShell — what stays put across a tab change', () => {
-  it('keeps the day rail, which is the whole screen’s date context and not one pane’s', async () => {
-    // It sits ABOVE the tab bar for exactly this reason: Coming up asks about the same days.
-    renderShell();
+  it('withdraws the window summary on Coming up, because it is now a Plan-pane element', async () => {
+    // ⚠️ THIS TEST IS A RECORDED REVERSAL, and its previous form is the thing to read before
+    // changing it back. Through P14 it asserted the opposite — "keeps the day rail, which is the
+    // whole screen's date context and not one pane's… It sits ABOVE the tab bar for exactly this
+    // reason: Coming up asks about the same days."
+    //
+    // Decision D1 of `heat-field-plan.md` (owner-confirmed 2026-08-18, reasoning in §1.1) replaces
+    // the rail with `WindowFirstHeatStrip`, INSIDE the Plan tabpanel and under the lens bar. The
+    // rail's cross-tab job is the one thing genuinely lost, and it is acceptable now because each
+    // tab has since grown its own date context: the Map pane renders its own `DateStrip` over the
+    // full forecast horizon, and every Coming-up row carries its dates. Stacking a day summary and
+    // a window summary would be two summaries of one forecast at two grains, roughly two screens of
+    // chrome before the first window row.
+    //
+    // ⚠️ The harness is given strip data on purpose. With the file's default (`heatStripCards: []`,
+    // `heatSpots: []`) the strip withdraws everywhere, so "absent from Coming up" would be true of a
+    // build that rendered it above the tab bar too — the very position this test exists to reverse.
+    // Containment in the PLAN panel is the half that discriminates.
+    renderShell({
+      heatStripCards: [{
+        key: `${TODAY}:SUNSET`,
+        date: TODAY,
+        targetType: 'SUNSET',
+        dow: 'Sat',
+        sunrise: false,
+        label: 'Tonight Sunset',
+        time: '20:41',
+        verdict: 'WORTH_IT',
+        verdictLabel: 'Worth it',
+        bestBet: false,
+        away: false,
+        confidence: 'high',
+      }],
+      heatSpots: [{
+        id: 1, name: 'Bamburgh Beach', lat: 55.61, lng: -1.71, regionName: 'N&T', rid: 'N&T', skySubject: true, bortleClass: 3, scores: [4],
+      }],
+    });
+
+    const strip = await screen.findByTestId('wf-heat-strip');
+    expect(screen.getByTestId('window-first-pane')).toContainElement(strip);
+
     await openComingUp();
 
-    expect(screen.getByTestId('window-first-rail-region')).toBeInTheDocument();
+    expect(screen.getByTestId('window-first-pane')).toHaveAttribute('hidden');
+    expect(within(screen.getByTestId('window-first-coming-up')).queryByTestId('wf-heat-strip'))
+      .toBeNull();
   });
 
   it('keeps the masthead, the rail footer and the way back out', async () => {

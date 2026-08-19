@@ -789,3 +789,41 @@ describe('WindowFirstWindowCard', () => {
     });
   });
 });
+
+describe('WindowFirstWindowCard — the Order control\'s ordinal', () => {
+  it('draws no ordinal by default, which is the pane in date order', () => {
+    // A number beside a card in date order is an ordinal for a ranking nobody asked for. The prop
+    // is optional and the shell only supplies it under `Order · Best`.
+    renderCard();
+    expect(screen.queryByTestId('window-card-rank')).toBeNull();
+  });
+
+  it('draws the rank it is handed', () => {
+    renderCard({}, { rank: 3 });
+    expect(screen.getByTestId('window-card-rank')).toHaveTextContent('3');
+  });
+
+  it('puts the ordinal in the header as real text, never aria-hidden', () => {
+    // It belongs in the header because that is the card's own heading row, read before anything
+    // else in the card — and it is plain text rather than a decorative glyph, so a reader
+    // traversing a ranked list is told which position they are on.
+    //
+    // ⚠️ It does NOT reach the expander's name: that button carries an explicit `aria-label`
+    // ("Open <when>"), which REPLACES name-from-contents. Stated here because the opposite is the
+    // obvious guess and would be a silent way to lose the ordinal for a keyboard reader.
+    renderCard({}, { rank: 2 });
+
+    const rank = screen.getByTestId('window-card-rank');
+    expect(screen.getByTestId('window-card-head')).toContainElement(rank);
+    expect(rank).not.toHaveAttribute('aria-hidden');
+    expect(screen.getByTestId('window-card-expander')).toHaveAccessibleName('Collapse Tomorrow sunset');
+  });
+
+  it('does not derive a rank of its own from anything on the card', () => {
+    // "Which of six is best" is a statement about the LIST, and no card can evaluate it about
+    // itself — the same rule the lead-card default already follows. A card handed a high
+    // `topMeanRating` and no rank must still draw none.
+    renderCard({ topMeanRating: 5 });
+    expect(screen.queryByTestId('window-card-rank')).toBeNull();
+  });
+});

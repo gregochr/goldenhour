@@ -42,8 +42,15 @@ const CHANNEL = {
  * <p>Plan §2.7. The tier scales the badge's fill and border and leaves the word itself unscaled, so
  * a far-horizon "Worth it" reads more provisional than tonight's without ever being harder to read
  * — the same treatment `HeatmapGrid` already applies to its cells. There is <b>no marker glyph</b>:
- * the badge already carries {@code ◎}, and a second hollow circle is noise. There is no second
- * render site either — the rail derives its own confidence and deliberately renders nothing from it.
+ * the badge already carries {@code ◎}, and a second hollow circle is noise.
+ *
+ * <p><b>"The only render site" is now a claim about MARKS, not about the tier.</b> Through P14 the
+ * day rail derived a day-level confidence and deliberately rendered nothing from it, so this badge
+ * was literally the only place the channel reached a pixel. The rail is retired (heat-field plan
+ * D1) and its replacement, {@code WindowFirstHeatStrip}, feeds the SAME per-window tier to the heat
+ * kernel's haze through {@code confidenceScalar} — one number, two renderings, which is what plan
+ * D3 asks for ("the haze and the badge decay speak one language"). What must still not appear
+ * anywhere else is a second confidence MARK: a tier word, a percentage or a glyph beside a verdict.
  *
  * <p>Only a recommendation is qualified. A Poor or an Awaiting badge is not one, so it does not
  * decay — see {@code windowFirstCards.js}, which nulls the field for those verdicts before it ever
@@ -131,7 +138,7 @@ const CHANNEL = {
  *        It carries no role and gates nothing, so P7's pin on this component's props still holds.
  */
 export default function WindowFirstWindowCard({
-  card, todayStr, open = true, onToggle, onOpenPick, onOpenSpot, onSeeAllSpots, onLoosenLens,
+  card, rank, todayStr, open = true, onToggle, onOpenPick, onOpenSpot, onSeeAllSpots, onLoosenLens,
   peeksSuppressed, scoreIndex,
 }) {
   // The colon in `card.key` is a legal HTML5 id character and `aria-controls` is an IDREF, not a
@@ -185,6 +192,13 @@ export default function WindowFirstWindowCard({
         data-open={open ? 'true' : 'false'}
         className="wf-wh flex items-center flex-wrap"
       >
+        {/* The ordinal, and ONLY under `Order · Best` — the shell passes none in date order, where
+            a number would be an ordinal for a ranking nobody asked for. It is plain text inside the
+            header, so it joins the expander's accessible name ("2 Tomorrow sunrise …") rather than
+            needing one of its own. */}
+        {rank != null && (
+          <span data-testid="window-card-rank" className="wf-wh-ord">{rank}</span>
+        )}
         {card.kicker && (
           <span
             data-testid="window-card-kicker"
@@ -481,6 +495,12 @@ export default function WindowFirstWindowCard({
 }
 
 WindowFirstWindowCard.propTypes = {
+  /**
+   * The card's 1-based place in the pane's ranking, or absent in date order. Set by the shell from
+   * {@code orderPaneItems}; the card never derives it, because "which of six is best" is a
+   * statement about the list and no card can evaluate it about itself.
+   */
+  rank: PropTypes.number,
   card: PropTypes.shape({
     key: PropTypes.string.isRequired,
     date: PropTypes.string.isRequired,

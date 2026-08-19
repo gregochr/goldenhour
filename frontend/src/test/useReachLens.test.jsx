@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import WindowFirstLensBar from '../components/WindowFirstLensBar.jsx';
+import usePlanOrder from '../hooks/usePlanOrder.js';
 import useRatingLens from '../hooks/useRatingLens.js';
 import useReachLens from '../hooks/useReachLens.js';
 import { PLAN_REACH_KEY } from '../utils/reachLens.js';
@@ -22,8 +23,15 @@ function Lens({ todayStr, locked = false }) {
   // The bar's other axis, present because the bar requires it and asserted nowhere in this file —
   // its own behaviour lives in `WindowFirstLensBar.test.jsx` and `ratingLens.test.js`.
   const ratingLens = useRatingLens();
+  const orderLens = usePlanOrder();
   return (
-    <WindowFirstLensBar lens={lens} ratingLens={ratingLens} spotCount={0} windowCount={0} />
+    <WindowFirstLensBar
+      lens={lens}
+      ratingLens={ratingLens}
+      orderLens={orderLens}
+      spotCount={0}
+      windowCount={0}
+    />
   );
 }
 

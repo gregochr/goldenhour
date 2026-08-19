@@ -1,8 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import BrandLockup from './shared/BrandLockup.jsx';
 import MastheadLight from './shared/MastheadLight.jsx';
-import WindowFirstDayRail from './WindowFirstDayRail.jsx';
 import WindowFirstLensBar from './WindowFirstLensBar.jsx';
 import WindowFirstWindowCard from './WindowFirstWindowCard.jsx';
 import WindowFirstPromotedStrip from './WindowFirstPromotedStrip.jsx';
@@ -16,9 +15,27 @@ import { formatRelativeAge } from '../utils/relativeTime.js';
 import { buildLocationTypeMap } from '../utils/locationTypes.js';
 import { windowCardDomId } from '../utils/windowFirstCards.js';
 import { ANY_TIER_ID } from '../utils/reachLens.js';
+import { orderPaneItems, PLAN_ORDER_BEST } from '../utils/windowFirstOrder.js';
 import { sheetOffersMore } from '../utils/windowSpotBrowse.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
 import useLensReserve from '../hooks/useLensReserve.js';
+
+/**
+ * The heat strip, behind a lazy boundary — and the boundary is about the OTHER arm.
+ *
+ * <p>{@code App} imports this shell STATICALLY (unlike `MapView`, `WindowFirstMapPane`,
+ * `MapOverlay` and `ManageView`, which are all `lazy()`), and `usePlanLayout` still defaults to
+ * `v1`. So a static import here puts the strip — and through it `heatField.js`'s `d3-geo` and
+ * `topojson-client` — in the entry chunk for <b>every user</b>, including the 100% who are on the
+ * v1 arm and will never see it. Measured: a 24.14 KB / 9.19 KB-gzip `geo` chunk, fetched
+ * render-blocking on first paint, for an arm nobody currently opens. The plan's scope guard says
+ * v2 must not change v1, and a first-paint fetch is a change to v1.
+ *
+ * <p>The fallback is {@code null} rather than a skeleton: the strip's own canvases paint
+ * asynchronously anyway (they wait on the vendored topology), so a placeholder would be a second
+ * loading state for the same wait. The window rows below are unaffected either way.
+ */
+const WindowFirstHeatStrip = lazy(() => import('./WindowFirstHeatStrip.jsx'));
 
 /** The design's frame: 1080px, against the v1 arm's 896px `max-w-4xl`. */
 const WRAP_MAX_WIDTH = '1080px';
@@ -123,18 +140,28 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  * yesterday answers a question they are not asking. It also spends the first paint on a fetch.
  * Plan resets on every visit, and the cost of being wrong is one click.
  *
- * <h2>The day rail sits above the tabs, not inside the Plan pane</h2>
+ * <h2>The day rail is GONE, and its replacement is a Plan-pane element</h2>
  *
- * <p>That is where the design puts it, and the reason is that the rail is the whole screen's date
- * context rather than one pane's content: Coming up and Map answer questions about the same days.
- * Putting it inside the pane would make it disappear on a tab that still needs it, and would
- * re-mount it on every tab change.
+ * <p>Through P14 four day tiles sat above the tab bar, and this file argued at length that they
+ * belonged there: the rail was "the whole screen's date context rather than one pane's content",
+ * since Coming up and Map ask questions about the same days. That decision is <b>reversed</b> at
+ * P2 of the heat-field plan, on the owner's confirmation (2026-08-18), and the reversal is
+ * recorded rather than silently overwritten — see §1.1 of {@code heat-field-plan.md} for the
+ * job-by-job relocation table and the two rejected alternatives.
  *
- * <p>It takes the {@code contentDisabled} greying with the pane, because it is forecast data and
- * data from a DOWN backend is exactly what that treatment exists to mark. The tab bar does not:
- * it is navigation, and so is the masthead.
+ * <p>The reason it is acceptable NOW and was not before: each tab has since grown its own date
+ * context. The Map pane renders its own {@code DateStrip} over the full forecast horizon, and
+ * every Coming-up row carries its dates. What replaces the rail is {@link WindowFirstHeatStrip},
+ * six window thumbnails under the lens bar — the rail's job done at the window list's own grain,
+ * with space shown inside each window instead of named beside it. Stacking both would be two
+ * summaries of one forecast at two grains, costing roughly two screens of chrome before the first
+ * window row.
  *
- * <h2>The rail footer's two halves, both of them now</h2>
+ * <p>The strip takes the {@code contentDisabled} greying because it is forecast data and data from
+ * a DOWN backend is exactly what that treatment exists to mark — it is inside the pane, which
+ * already carries it. The tab bar does not: it is navigation, and so is the masthead.
+ *
+ * <h2>The rail footer's two halves, both of them now — and it OUTLIVED the rail</h2>
  *
  * <p>The left one is the reach lens's prompt, and it lands here rather than on the bar itself for
  * the reason plan §2.5 gives: the bar is {@code position: sticky} and must not be suppressed for a
@@ -210,8 +237,9 @@ export default function WindowFirstShell({
   light, onSetPostcode,
 }) {
   const {
-    railTiles, windowCards, paneItems, promotedStrip, loading, briefing, evaluationScores,
-    scoreIndex, todayStr, reachLens, ratingLens, homePlace,
+    heatStripCards, heatPointSets, heatSpots, reachById,
+    windowCards, paneItems, promotedStrip, loading, briefing, evaluationScores,
+    scoreIndex, todayStr, reachLens, ratingLens, orderLens, homePlace,
   } = useWindowFirstBriefing();
   const [activeTab, setActiveTab] = useState(TABS[0].id);
   /**
@@ -429,6 +457,58 @@ export default function WindowFirstShell({
   const isCardOpen = (card) => cardOverrides.get(card.key) ?? (card.key === defaultOpenKey);
 
   /**
+   * The pane's items in the order the bar asks for.
+   *
+   * <p>Applied HERE rather than in the provider, and the reason is one derivation that must keep
+   * seeing date order: {@code buildPromotedStrip} reads {@code paneItems} to decide whether the
+   * window it promotes is the very next item on the pane — the one case where its "Go to" control
+   * would scroll to the element immediately beneath it and so is withheld. Ranking the list first
+   * would make that test answer a question about a ranking rather than about adjacency.
+   *
+   * <p>Ordering is presentation of a list already built, which is why it is allowed to be a client
+   * rule at all: nothing here derives a forecast quantity, it sorts on {@code topMeanRating}, a
+   * field the backend served.
+   */
+  const orderedPaneItems = useMemo(
+    () => orderPaneItems(paneItems, orderLens?.orderId),
+    [paneItems, orderLens?.orderId],
+  );
+  /**
+   * The promoted strip, with its adjacency answered against the order actually RENDERED.
+   *
+   * <p>{@code buildPromotedStrip} sets {@code adjacent} from the date-ordered list, and the strip
+   * withholds its "Go to" control when it is true — because the control would scroll to the element
+   * directly beneath it, which §6 bans. Under {@code Order · Best} the pane no longer renders that
+   * order, so the flag inverts in both directions: a promoted window that is chronologically first
+   * but ranks sixth loses its only route into the list, and one that is chronologically fourth but
+   * ranks first gets a button that scrolls one element down. Recomputed here rather than in the
+   * provider, because the provider is where the DATE order has to survive — that is what
+   * {@code buildPromotedStrip}'s own rarity tie-break reads.
+   */
+  const renderedStrip = useMemo(() => {
+    if (!promotedStrip) return null;
+    const adjacent = orderedPaneItems[0]?.card?.key === promotedStrip.windowKey;
+    return adjacent === promotedStrip.adjacent ? promotedStrip : { ...promotedStrip, adjacent };
+  }, [promotedStrip, orderedPaneItems]);
+  /** Whether the pane has an away row at all — the note's second clause is about those rows. */
+  const hasAwayRow = orderedPaneItems.some((item) => item.kind === 'away');
+  /**
+   * Which windows have their card open, for the strip's own selected treatment.
+   *
+   * <p>Derived from the SAME predicate the cards are drawn with rather than from
+   * {@code cardOverrides}, which holds only what the reader has changed — a strip keyed on the
+   * overrides alone would leave the lead card's thumbnail unmarked on first paint, which is the
+   * one card that is always open.
+   */
+  const openWindowKeys = useMemo(
+    () => new Set(windowCards.filter((card) => isCardOpen(card)).map((card) => card.key)),
+    // `isCardOpen` is rebuilt every render and closes over both of these; listing it instead would
+    // re-run this on every render with nothing gained.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [windowCards, cardOverrides, defaultOpenKey],
+  );
+
+  /**
    * The promoted strip's route into the list: open the window it names, and put the reader on it.
    *
    * <p>It writes the override to `true` rather than toggling, because the strip's control says "Go
@@ -490,32 +570,10 @@ export default function WindowFirstShell({
   // hour young in BST — parsing bare takes the string as local, so a 34-minute-old forecast said
   // "1h ago". Caught by looking at the running app, not by a test.
   const age = formatRelativeAge(briefing?.generatedAt);
-  // The map handoff's object form, matching the v1 strip's region chips exactly — `onShowOnMap`
-  // reads a positional (date, eventType) or a `{region, …}` object, and a region chip is the
-  // latter. Passing the tile handler for both would open the map on the day, not the region.
-  const handleRegion = (regionName, date, targetType) => (
-    onShowOnMap?.({ region: regionName, date, eventType: targetType })
-  );
-  /**
-   * The rail's pick chip, opening the same dialog the matching window card's badge opens.
-   *
-   * <p>Matched on `date` + `targetType` rather than by rebuilding the card's `key` string. The two
-   * are equivalent today — the key IS `${date}:${targetType}` — but a key that later gained a lens
-   * or a qualifier would leave this silently finding nothing, and a chip that opens nothing is the
-   * one failure mode worse than the read-out it replaced.
-   *
-   * <p>The lookup is total by construction rather than by luck: both builders consume the same
-   * `upcomingEvents`, the rail flags only that date's own covered entries, an away tile carries no
-   * pick at all, and the cards drop only travel days. Every chip that renders has a card. The
-   * `card?.pick` guard is belt and braces, not a real branch.
-   */
-  const handleRailPick = (date, targetType) => {
-    const card = windowCards.find((c) => c.date === date && c.targetType === targetType);
-    if (card?.pick) setOpenPick(card);
-  };
   // The POSITIONAL form, which centres the map on one location — the same call the pick dialog's
-  // "show location" already makes. The object form above opens a whole region, which is a different
-  // destination: a spot card names one place and must land on it.
+  // "show location" already makes. The OBJECT form (`{region, date, eventType}`) opened a whole
+  // region and was the retired rail's region chip; nothing on this pane names a region until P3's
+  // rail lands, so it has no caller here.
   const handleSpot = (card, spot) => (
     onShowOnMap?.(card.date, card.targetType, spot.locationName)
   );
@@ -602,27 +660,9 @@ export default function WindowFirstShell({
         <MastheadLight light={light} onSetPostcode={onSetPostcode ?? onOpenSettings} />
       </div>
 
-      <div data-testid="window-first-rail-region" className={dimmed.trim() || undefined}>
-        <WindowFirstDayRail
-          tiles={railTiles}
-          onTileClick={onShowOnMap}
-          onRegionClick={handleRegion}
-          onOpenPick={handleRailPick}
-          // The rail's gloss panel is `z-index: 60` and `Modal` is `z-50`, so without this a hover
-          // on the way to a dialog paints a tooltip over it. Same signal the cards already take.
-          peeksSuppressed={modalOpen}
-        />
-        {!loading && railTiles.length === 0 && (
-          <p
-            data-testid="window-first-rail-empty"
-            className="wf-rail-empty font-mono text-plex-text-muted"
-          >
-            No forecast days to show yet.
-          </p>
-        )}
-      </div>
-
-      {/* OUTSIDE the greyed rail region, and that is a fix rather than a placement preference.
+      {/* The rail footer, which OUTLIVES the rail (plan §1.1: "the rail *footer* is a separate
+          element and stays — only the tile row goes"). It sits outside any greyed region, and that
+          is a fix rather than a placement preference.
           Everything in this row survives a dead backend: the home is a per-user setting, "Edit
           reach" is the only route to fixing an empty lens — the same trap P4a fixed for the
           masthead and this file fixed again for the exit button — and the forecast's AGE is the
@@ -703,10 +743,11 @@ export default function WindowFirstShell({
           "no control gates on data that does not exist", and its own footer would read "0 spots
           across 5 windows" over a pane containing neither. It is unmounted rather than hidden so
           the sticky bar cannot take a scroll position with it. */}
-      {effectiveTab === 'plan' && reachLens && ratingLens && (
+      {effectiveTab === 'plan' && reachLens && ratingLens && orderLens && (
         <WindowFirstLensBar
           lens={reachLens}
           ratingLens={ratingLens}
+          orderLens={orderLens}
           spotCount={windowCards.reduce((total, card) => total + card.spots.length, 0)}
           // The rating floor's own denominator — what reach left for it to choose from. Summed here
           // rather than derived in the bar for the reason `spotCount` already is: the counts have to
@@ -767,11 +808,27 @@ export default function WindowFirstShell({
             keep. Inside the greyed region — it is forecast content, which is what that treatment
             marks — and inside `.wf-body`, so it takes the arm's gutter and the pane's 10px gap
             without a margin of its own. */}
-        {promotedStrip && (
-          <WindowFirstPromotedStrip strip={promotedStrip} onOpenWindow={revealWindow} />
+        {/* Directly under the lens bar and ABOVE the promoted strip — two different things that
+            both exist (plan §4.3). This one is the index into the window list; the promoted strip
+            names one coincidence and keeps its place at the head of the pane items. Inside the
+            greyed region because it is forecast content, which is what that treatment marks. */}
+        <Suspense fallback={null}>
+          <WindowFirstHeatStrip
+            cards={heatStripCards}
+            pointSets={heatPointSets}
+            spots={heatSpots}
+            reachById={reachById}
+            openKeys={openWindowKeys}
+            todayStr={todayStr}
+            onOpenWindow={revealWindow}
+          />
+        </Suspense>
+
+        {renderedStrip && (
+          <WindowFirstPromotedStrip strip={renderedStrip} onOpenWindow={revealWindow} />
         )}
 
-        {paneItems.map((item) => (item.kind === 'away' ? (
+        {orderedPaneItems.map((item) => (item.kind === 'away' ? (
           <WindowAwayRow
             key={item.key}
             label={item.label}
@@ -782,6 +839,7 @@ export default function WindowFirstShell({
           <WindowFirstWindowCard
             key={item.key}
             card={item.card}
+            rank={item.rank}
             todayStr={todayStr}
             onLoosenLens={handleLoosen}
             open={isCardOpen(item.card)}
@@ -795,6 +853,22 @@ export default function WindowFirstShell({
             scoreIndex={scoreIndex}
           />
         )))}
+        {/* Under `Best` the list is no longer in date order, and the ordinals alone do not say what
+            it IS in — so the note is unconditional under that order rather than tied to the away
+            rows. Its second clause is: an away day has no rank (a day with no forecast has no place
+            in a ranking of forecasts), so those rows sink below the ranked cards, and a silent move
+            reads as a bug. At the foot, which is where §4.3 puts it. */}
+        {orderLens?.orderId === PLAN_ORDER_BEST && orderedPaneItems.length > 0 && (
+          <p
+            data-testid="window-first-order-note"
+            className="wf-order-note font-mono text-plex-text-secondary"
+          >
+            {hasAwayRow
+              ? 'Ranked by the best region in each window · days you are away follow, in date order.'
+              : 'Ranked by the best region in each window.'}
+          </p>
+        )}
+
         {!loading && paneItems.length === 0 && (
           <p
             data-testid="window-first-pane-empty"

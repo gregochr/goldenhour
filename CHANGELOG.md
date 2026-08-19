@@ -5,6 +5,49 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — heat field P2: the window strip, and the day rail retired
+
+The Plan tab's first heat surface (`docs/engineering/heat-field-plan.md` P2). Six solar-window
+thumbnails sit under the lens bar, each painting that window's forecast over the real UK coastline;
+a click opens the window's row. `WindowFirstHeatStrip` replaces `WindowFirstDayRail` outright —
+decision **D1**, confirmed by the owner on 2026-08-18 — including its position above the tab bar,
+which is a reversal of a decision this arm had pinned with a test. The rationale is recorded in
+plan §1.1 and in the replacement test: each tab has since grown its own date context (the Map pane
+renders its own `DateStrip`, every Coming-up row carries its dates), and stacking a day summary
+above a window summary would be two summaries of one forecast at two grains. The rail *footer* —
+home, Edit reach, forecast age — stays. `WindowFirstDayRail.jsx`, `windowFirstRail.js` and their
+two test files (~1,200 lines) go with it rather than being left to guard unmounted code.
+
+The lens bar gains a third control, **Order · When | Best**, persisted as `photocast.planOrder`.
+`Best` ranks the window *rows* by the best region mean the forecast served for each and numbers
+them; away days sink below the ranked cards and the pane says so. **The strip is never reordered** —
+it is built from `renderedEvents` and never sees the setting, because the time axis is the only
+reason the shape of the week is legible at a glance.
+
+Three things the strip deliberately does not do. It prints **no count** — not "204 rated locations"
+and not a count of days drawn either (§2.6 and §4.3 both say kicker + rule, no count). Its
+`BEST BET` flag is a **passive span**, because a nested interactive control inside a button is
+invalid HTML; the pick's prose stays reachable from the window card's badge. And its verdict words
+come from the payload's existing vocabulary only — the design's client-side rating thresholds and
+its `◐ 88%` confidence percentage are not ported, since this project's confidence channel is
+three-tier and a percentage would invent precision the backend never claimed. Confidence instead
+feeds the field's haze through the same scalar the verdict badge decays by, so the picture cannot
+look more certain than the word beside it.
+
+**Bundle: the first paint got smaller, not larger.** The strip is behind a `lazy()` boundary,
+which matters because `App` imports the v2 shell *statically* while the layout flag still defaults
+to v1 — a static import would have put `d3-geo` and the kernel in the entry chunk for every reader
+of an arm they never see. Measured against P1: entry chunk 359.80 KB → **351.00 KB**
+(103.13 → 100.67 KB gzip), precache 22 entries / 920.82 KiB → **21 entries / 913.66 KiB**. The
+strip (11.12 KB / 4.65 gzip), the `geo` chunk (24.14 / 9.19) and the vendored topology (9.07 /
+3.42) are all lazy and outside the precache. A one-line `manualChunks` rule keeps `d3-geo` out of
+`recharts`, placed *before* the existing `d3-` catch because after it the rule never fires:
+without it the strip's chunk statically imports recharts at 396.61 KB / 115.40 KB gzip, so every
+reader opening Plan would fetch the whole charting library for ~20 KB of projection code.
+
+Also: `scripts/dev-seed-locations.sh` seeds a local H2 database with regions, locations and the SQL
+recipe for ratings, because the local database starts empty and the field has nothing to draw
+without it.
 ### Added — masthead presence: the lit band and today's light rule
 
 The window-first masthead gets its brand presence back, and a job. Compacting the header to one

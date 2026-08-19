@@ -178,7 +178,7 @@ describe('App — the Plan-layout flag branch', () => {
     renderApp({ layout: PLAN_V2 });
 
     expect(await screen.findByTestId('window-first-shell')).toBeInTheDocument();
-    await screen.findByTestId('window-first-rail-empty'); // provider's briefing fetch settled
+    await screen.findByTestId('window-first-pane-empty'); // provider's briefing fetch settled
 
     // The v1 chrome must be gone, not merely covered: App suppresses its <header> for this arm
     // because the shell carries its own masthead — both at once stacks two wordmarks.
@@ -208,7 +208,7 @@ describe('App — today\'s light is fetched for one arm only', () => {
     // The other half, and the reason it is here: a gate stuck closed would pass the test above.
     renderApp({ layout: PLAN_V2 });
 
-    await screen.findByTestId('window-first-rail-empty');
+    await screen.findByTestId('window-first-pane-empty');
     await waitFor(() => expect(getTodaysLight).toHaveBeenCalled());
   });
 });
@@ -257,7 +257,7 @@ describe('App — panes handed to WindowFirstShell', () => {
     fetchForecasts.mockResolvedValue([]);
     renderApp({ layout: PLAN_V2 });
 
-    await screen.findByTestId('window-first-rail-empty');
+    await screen.findByTestId('window-first-pane-empty');
     // The forecast chain resolving [] changes no DOM, so there is nothing to findBy for it; one
     // flush drains its remaining microtasks. The mutation this guards against (mapPane passed
     // unconditionally) renders the tab synchronously, so it cannot slip past this assertion on
