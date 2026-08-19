@@ -2,7 +2,9 @@ import React from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
-import { render, screen, act, fireEvent } from '@testing-library/react';
+import {
+  render, screen, act, fireEvent, waitFor,
+} from '@testing-library/react';
 import { WindowFirstBriefingProvider, useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import WindowFirstLensBar from '../components/WindowFirstLensBar.jsx';
 import { getDailyBriefing } from '../api/briefingApi.js';
@@ -115,12 +117,23 @@ function freezeClock(options = { shouldAdvanceTime: true }) {
   vi.setSystemTime(NOON_ISH);
 }
 
+/** Every `heatSpots` array the Consumer has been handed, newest last. Cleared per test. */
+const heatIdentities = [];
+
+/** The same for `heatPointSets` — its memo is a separate one and needs its own pin. */
+const heatPointIdentities = [];
+
 /** A real consumer rather than a bespoke harness: this is what the shell reads. */
 function Consumer() {
   const {
     briefing, loading, railTiles, windowCards, evaluationScores, reachLens: lens, ratingLens,
-    homePlace, promotedStrip,
+    homePlace, promotedStrip, heatSpots, heatPointSets,
   } = useWindowFirstBriefing();
+  // Identity, not content: plan §5.4 requires the join to be memoised on its real inputs, and a
+  // recomputation is invisible in the rendered text. Collected here rather than in a bespoke
+  // harness so the assertion is about what the shell actually receives.
+  heatIdentities.push(heatSpots);
+  heatPointIdentities.push(heatPointSets);
   return (
     <div>
       <span data-testid="loading">{String(loading)}</span>
@@ -152,6 +165,16 @@ function Consumer() {
       <span data-testid="lens-floor">{ratingLens?.floorId ?? 'none'}</span>
       <span data-testid="lens-min">{String(ratingLens?.minRating)}</span>
       <span data-testid="reached-total">{windowCards[0]?.reachedTotal ?? 'none'}</span>
+      <span data-testid="heat-spots">{heatSpots.map((s) => s.name).join('|') || 'none'}</span>
+      <span data-testid="heat-scores">
+        {heatSpots.map((s) => s.scores.join(',')).join('|') || 'none'}
+      </span>
+      <span data-testid="heat-regions">{heatSpots.map((s) => s.regionName).join('|') || 'none'}</span>
+      <span data-testid="heat-points">
+        {[...heatPointSets.entries()]
+          .map(([key, set]) => `${key}=${set.map((p) => p.name).join(',') || '-'}`)
+          .join(' ') || 'none'}
+      </span>
       {lens && ratingLens && (
         <WindowFirstLensBar
           lens={lens}
@@ -230,6 +253,11 @@ const renderProvider = () => render(
   <WindowFirstBriefingProvider><Consumer /></WindowFirstBriefingProvider>,
 );
 
+/** The same, with the roster App now hands the provider — the heat field's only geography. */
+const renderProviderWithLocations = (locations) => render(
+  <WindowFirstBriefingProvider locations={locations}><Consumer /></WindowFirstBriefingProvider>,
+);
+
 describe('WindowFirstBriefingProvider', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -243,6 +271,8 @@ describe('WindowFirstBriefingProvider', () => {
     getReach.mockResolvedValue([]);
     getSettings.mockReset();
     getSettings.mockResolvedValue({ homePostcode: null, homePlaceName: null });
+    heatIdentities.length = 0;
+    heatPointIdentities.length = 0;
     freezeClock();
   });
 
@@ -980,6 +1010,152 @@ describe('WindowFirstBriefingProvider', () => {
       expect(await screen.findByText('Worth it · sunset')).toBeInTheDocument();
       expect(screen.getByTestId('promo')).toHaveTextContent(`${TODAY}:SUNSET`);
       expect(screen.getByTestId('promo-topics')).toHaveTextContent('King tide|Aurora');
+    });
+  });
+
+  /**
+   * The heat field's data plumbing (plan P1). What is under test here is the WIRING — the pure
+   * join has its own file (`heatSpots.test.js`). Three things can only be seen from the provider:
+   * that the roster prop reaches the join at all, that the scores response is retained with its
+   * `locationId` rather than only in the name-keyed map, and that the derivation is memoised.
+   */
+  describe('heat field catalogue', () => {
+    /** The roster App hands in — `useForecasts`' shape, with `lon` rather than `lng`. */
+    const ROSTER = [
+      { id: 7, name: 'Bamburgh', lat: 55.608, lon: -1.709, regionName: 'North East', bortleClass: 3 },
+      { id: 8, name: 'Alnmouth', lat: 55.386, lon: -1.611, regionName: 'North East', bortleClass: 4 },
+    ];
+
+    /** A scores row for the fixture's single rendered window. */
+    const scoreRow = (locationId, locationName, rating) => ({
+      locationId,
+      locationName,
+      regionName: 'Northumberland & Tyneside',
+      date: TODAY,
+      targetType: 'SUNSET',
+      rating,
+      summary: 'Colour building.',
+    });
+
+    it('joins the roster to the scores response, one score per rendered window', async () => {
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+      getAllEvaluationScores.mockResolvedValue([
+        scoreRow(7, 'Bamburgh', 4), scoreRow(8, 'Alnmouth', 2),
+      ]);
+      renderProviderWithLocations(ROSTER);
+
+      // Wait on something the SCORES fetch gates, not the briefing: the spots exist from the
+      // first paint (the roster is a prop) and would read 'Bamburgh|Alnmouth' before any score
+      // arrived, so a wait on the names would be satisfied by an empty join. `waitFor` rather
+      // than `findBy*` because the element is on screen throughout — it is its CONTENT the
+      // fetch gates, which is not a findBy written the long way.
+      await waitFor(() => expect(screen.getByTestId('heat-scores')).toHaveTextContent('4|2'));
+      expect(screen.getByTestId('heat-spots')).toHaveTextContent('Bamburgh|Alnmouth');
+      expect(screen.getByTestId('heat-regions')).toHaveTextContent('North East|North East');
+    });
+
+    it('joins on locationId, which the provider\'s name-keyed score map discards', async () => {
+      // The actual P1 gap (§2.10): `evaluationScores` is keyed
+      // `regionName|date|targetType|locationName` and the id is dropped on the way in. Rename the
+      // location since it was scored and only the retained raw rows can still match it.
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+      getAllEvaluationScores.mockResolvedValue([scoreRow(7, 'Bamburgh', 5)]);
+      renderProviderWithLocations([{ ...ROSTER[0], name: 'Bamburgh Castle' }]);
+
+      await waitFor(() => expect(screen.getByTestId('heat-scores')).toHaveTextContent('5'));
+      expect(screen.getByTestId('heat-spots')).toHaveTextContent('Bamburgh Castle');
+    });
+
+    it('keeps the name-keyed map intact beside the raw rows', async () => {
+      // Retaining the rows must not cost the map-handoff path its own index — the two shapes
+      // answer different questions and both are live.
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+      getAllEvaluationScores.mockResolvedValue([scoreRow(7, 'Bamburgh', 4)]);
+      renderProviderWithLocations(ROSTER);
+
+      expect(await screen.findByText(`Northumberland & Tyneside|${TODAY}|SUNSET|Bamburgh`))
+        .toBeInTheDocument();
+    });
+
+    it('renders the rest of the arm and no spots when App hands it no roster', async () => {
+      // The degrade that matters: `locations` arrives from a second fetch (`useForecasts`), so
+      // there is a real window in which the briefing has painted and the roster has not.
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+      getAllEvaluationScores.mockResolvedValue([scoreRow(7, 'Bamburgh', 4)]);
+      renderProvider();
+
+      expect(await screen.findByText('Worth it · sunset')).toBeInTheDocument();
+      expect(screen.getByTestId('heat-spots')).toHaveTextContent('none');
+      expect(screen.getByTestId('cards')).toHaveTextContent('1');
+    });
+
+    it('keeps the roster and drops the field when the scores fetch fails', async () => {
+      // §7.2's named degrade. The locations are still real places — the rail and the region list
+      // want them — but nothing is scored, so every window's point set is empty and the kernel
+      // is handed nothing rather than a field of zeroes.
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+      getAllEvaluationScores.mockRejectedValue(new Error('502'));
+      renderProviderWithLocations(ROSTER);
+
+      expect(await screen.findByText('Worth it · sunset')).toBeInTheDocument();
+      // The rejection leaves no trace in the rendered output, so waiting on the briefing proves
+      // nothing about it: flush the microtask queue and assert the request was actually made,
+      // or this test passes identically with the whole scores effect deleted.
+      await act(async () => {});
+      expect(getAllEvaluationScores).toHaveBeenCalled();
+      expect(screen.getByTestId('heat-spots')).toHaveTextContent('Bamburgh|Alnmouth');
+      // Exact, not substring: '|' is a substring of '4|2', so the loose form passed in the very
+      // state this test exists to rule out.
+      expect(screen.getByTestId('heat-scores').textContent).toBe('|');
+      expect(screen.getByTestId('heat-points').textContent)
+        .toBe(`${TODAY}:SUNSET=-`);
+    });
+
+    it('builds one point set per rendered window, holding only the spots scored in it', async () => {
+      // A MULTI-window payload, because this file's own `multiDayPayload` comment records why a
+      // single-event fixture is dangerous: with one window, a hard-coded count of 1 — or of 6 —
+      // reads identically, and a substring assertion cannot tell which window a name landed in.
+      // Bamburgh is scored at Thursday's sunrise only; Alnmouth at neither.
+      const payload = multiDayPayload(TODAY, 2);
+      // The SECOND rendered window, so a point landing in the first (or in all of them) fails.
+      const scored = payload.renderedEvents[1];
+      getDailyBriefing.mockResolvedValue(payload);
+      getAllEvaluationScores.mockResolvedValue([{
+        ...scoreRow(7, 'Bamburgh', 4), date: scored.date, targetType: scored.targetType,
+      }]);
+      renderProviderWithLocations(ROSTER);
+
+      // Every rendered window has an entry, in render order; only the scored one carries a
+      // point. Left in, an unscored spot would have its absent score read as ZERO by the kernel
+      // and paint a confident 1★ patch around itself.
+      const expected = payload.renderedEvents
+        .map((e) => `${e.date}:${e.targetType}=${e === scored ? 'Bamburgh' : '-'}`)
+        .join(' ');
+      await waitFor(() => expect(screen.getByTestId('heat-points').textContent).toBe(expected));
+      // The fixture really does have more than one window, or none of the above discriminates.
+      expect(payload.renderedEvents.length).toBeGreaterThan(1);
+    });
+
+    it('does not rebuild the catalogue when an unrelated provider state changes', async () => {
+      // Plan §5.4. The provider re-renders on every health tick, poll and focus event, and this
+      // walks the whole roster against the whole score response. Moving the reach lens is the
+      // cheapest real re-render to trigger — it changes provider state and touches no join input.
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+      getAllEvaluationScores.mockResolvedValue([scoreRow(7, 'Bamburgh', 4)]);
+      renderProviderWithLocations(ROSTER);
+      await waitFor(() => expect(screen.getByTestId('heat-scores')).toHaveTextContent('4'));
+      const settled = heatIdentities[heatIdentities.length - 1];
+      const settledPoints = heatPointIdentities[heatPointIdentities.length - 1];
+
+      fireEvent.click(screen.getByRole('button', { name: 'Any' }));
+
+      expect(screen.getByTestId('lens-tier')).toHaveTextContent('any');
+      // Identity, not deep equality: a recomputation returning an equal array would still
+      // invalidate every downstream memo and repaint six canvases.
+      expect(heatIdentities[heatIdentities.length - 1]).toBe(settled);
+      // BOTH memos, because they are two `useMemo`s and the second was unpinned: removing it
+      // returns a fresh Map per render, which is exactly the repaint this asserts against.
+      expect(heatPointIdentities[heatPointIdentities.length - 1]).toBe(settledPoints);
     });
   });
 });

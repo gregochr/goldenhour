@@ -2513,6 +2513,160 @@ class BriefingServiceTest {
                     .confidence()).isNull();
         }
 
+        @Test
+        @DisplayName("A rated wood does not supply the region's best spot either")
+        void bestRatingIsTheNonCanopyMaxNotTheRegionMax() {
+            // The heat field's region rail prints `best N★` from this field, and the client is
+            // forbidden from deriving it — a browser-side max over `slots` has no canopy flag to
+            // filter on, which is how a wood would come to name the best spot in a sky region.
+            //
+            // The fixture is chosen so an inclusive max and the voting max differ and neither is
+            // the mean: the wood at 5 is the highest rating in the region, so a max over every
+            // slot returns 5, and the sky's own best is 4. Restore the old rollup and this reads 5
+            // while the spot strip — which drops canopy slots — shows nothing above 4.
+            String rn = "North East";
+            stubFullRefresh(List.of(
+                    woodlandIn(1L, "Bluebell Wood", rn),
+                    skyIn(2L, "Bamburgh", rn),
+                    skyIn(3L, "Alnmouth", rn)));
+            when(evaluationViewService.getScoresForEnrichment(
+                    eq(rn), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of(
+                            "Bluebell Wood", new BriefingEvaluationResult(
+                                    "Bluebell Wood", 5, 50, 50, "Carpet in full colour.", null, null),
+                            "Bamburgh", new BriefingEvaluationResult(
+                                    "Bamburgh", 4, 50, 50, "Breaking up.", null, null),
+                            "Alnmouth", new BriefingEvaluationResult(
+                                    "Alnmouth", 2, 50, 50, "Flat.", null, null)));
+
+            briefingService.refreshBriefing();
+            BriefingRegion region = regionAt(
+                    briefingService.getCachedBriefing(), rn, TargetType.SUNRISE);
+
+            // The shape under test really is present — without these the rest passes on a region
+            // that has no wood in it, which is the fixture failure the sibling test above names.
+            assertThat(region.slots()).anyMatch(BriefingSlot::canopy);
+            assertThat(region.slots()).anyMatch(slot -> !slot.canopy());
+
+            assertThat(region.bestRating()).isEqualTo(4);
+            // And it is taken from the same statistics as the mean beside it, so the best can
+            // never print below the average it qualifies.
+            assertThat(region.meanRating()).isEqualTo(3.0);
+        }
+
+        @Test
+        @DisplayName("An all-canopy region reports its wood's rating rather than nothing")
+        void bestRatingFallsBackToCanopyWhenTheRegionIsAllWood() {
+            // The clause an inline copy of the canopy rule tends to drop (BriefingSlot.votingSlots
+            // says so in as many words). A region with nothing but woods genuinely has a forecast,
+            // and silence there is a worse answer than an inverted-polarity one — the same
+            // fallback the region's own verdict and mean already take.
+            String rn = "North East";
+            stubFullRefresh(List.of(
+                    woodlandIn(1L, "Bluebell Wood", rn),
+                    woodlandIn(2L, "Chopwell Wood", rn)));
+            when(evaluationViewService.getScoresForEnrichment(
+                    eq(rn), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of(
+                            "Bluebell Wood", new BriefingEvaluationResult(
+                                    "Bluebell Wood", 4, 50, 50, "Carpet in full colour.", null, null),
+                            "Chopwell Wood", new BriefingEvaluationResult(
+                                    "Chopwell Wood", 2, 50, 50, "Past its best.", null, null)));
+
+            briefingService.refreshBriefing();
+            BriefingRegion region = regionAt(
+                    briefingService.getCachedBriefing(), rn, TargetType.SUNRISE);
+
+            assertThat(region.slots()).allMatch(BriefingSlot::canopy);
+            assertThat(region.bestRating()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("An all-wood region beside a sky region keeps its OWN best, above the window's")
+        void bestRatingDivergesFromTheWindowOnAnAllWoodRegionInAMixedWindow() {
+            // The one case where the region's rule and BriefingWindow.bestRating's disagree, and
+            // it is recorded here rather than left for someone to find on a screen. The region's
+            // fallback (BriefingSlot.votingSlots) fires when THIS REGION has no sky slot; the
+            // window's (PlanWindowProjector.canopyCounts) fires only when the WHOLE window is
+            // canopy. So an all-wood region inside a mixed window reports its wood while the
+            // window header reports the sky's best.
+            //
+            // Deliberate, not a defect: bestRating is taken from the same votingStats as this
+            // region's meanRating and displayVerdict, so making it window-aware would leave one
+            // record printing two populations. The fixture NEEDS a sky region — the sibling test
+            // above has an all-wood window, where the two rules coincide and nothing can be told
+            // apart.
+            String woodRegion = "Durham Woods";
+            String skyRegion = "North East";
+            stubFullRefresh(List.of(
+                    woodlandIn(1L, "Bluebell Wood", woodRegion),
+                    skyIn(2L, "Bamburgh", skyRegion),
+                    skyIn(3L, "Alnmouth", skyRegion)));
+            when(evaluationViewService.getScoresForEnrichment(
+                    eq(woodRegion), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of("Bluebell Wood", new BriefingEvaluationResult(
+                            "Bluebell Wood", 5, 50, 50, "Carpet in full colour.", null, null)));
+            when(evaluationViewService.getScoresForEnrichment(
+                    eq(skyRegion), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of(
+                            "Bamburgh", new BriefingEvaluationResult(
+                                    "Bamburgh", 4, 50, 50, "Breaking up.", null, null),
+                            "Alnmouth", new BriefingEvaluationResult(
+                                    "Alnmouth", 2, 50, 50, "Flat.", null, null)));
+
+            briefingService.refreshBriefing();
+            DailyBriefingResponse cached = briefingService.getCachedBriefing();
+
+            // The shape under test: two regions, one all-canopy and one all-sky.
+            assertThat(regionAt(cached, woodRegion, TargetType.SUNRISE).slots())
+                    .allMatch(BriefingSlot::canopy);
+            assertThat(regionAt(cached, skyRegion, TargetType.SUNRISE).slots())
+                    .noneMatch(BriefingSlot::canopy);
+
+            assertThat(regionAt(cached, woodRegion, TargetType.SUNRISE).bestRating()).isEqualTo(5);
+            assertThat(regionAt(cached, skyRegion, TargetType.SUNRISE).bestRating()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("A region whose only rated slot is a wood publishes no best spot")
+        void bestRatingIsNullWhenNothingThatVotesIsScored() {
+            // Null rather than 0, and for the same reason meanRating is null rather than 0.0:
+            // BriefingRatingStats.Stats.empty() reports maxRating 0, so a missing guard would
+            // publish a 0★ best — a claim that the best spot here was looked at and found
+            // worthless. The sky slots are present and unscored, so this is "nothing that votes
+            // is rated", not "nothing is here".
+            String rn = "North East";
+            stubFullRefresh(List.of(
+                    woodlandIn(1L, "Bluebell Wood", rn),
+                    skyIn(2L, "Bamburgh", rn),
+                    skyIn(3L, "Alnmouth", rn)));
+            when(evaluationViewService.getScoresForEnrichment(
+                    eq(rn), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of("Bluebell Wood", new BriefingEvaluationResult(
+                            "Bluebell Wood", 5, 50, 50, "Carpet in full colour.", null, null)));
+
+            briefingService.refreshBriefing();
+            BriefingRegion region = regionAt(
+                    briefingService.getCachedBriefing(), rn, TargetType.SUNRISE);
+
+            assertThat(region.bestRating()).isNull();
+        }
+
+        @Test
+        @DisplayName("A region with nothing rated at all publishes no best spot")
+        void bestRatingIsNullWhenTheRegionIsUnscored() {
+            String rn = "North East";
+            stubFullRefresh(List.of(skyIn(2L, "Bamburgh", rn), skyIn(3L, "Alnmouth", rn)));
+            when(evaluationViewService.getScoresForEnrichment(
+                    eq(rn), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of());
+
+            briefingService.refreshBriefing();
+
+            assertThat(regionAt(briefingService.getCachedBriefing(), rn, TargetType.SUNRISE)
+                    .bestRating()).isNull();
+        }
+
         private LocationEntity locationWithRegion(String name, String regionName) {
             return LocationEntity.builder()
                     .id(1L).name(name).lat(55.0).lon(-1.5)
@@ -2783,6 +2937,29 @@ class BriefingServiceTest {
 
             assertThat(served.meanRating()).isEqualTo(3.5);
             assertThat(served.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+        }
+
+        @Test
+        @DisplayName("The best spot is re-derived at serve time, not frozen at build")
+        void bestRatingFollowsTheServeTimeScores() {
+            // enrichWithCachedScores runs on BOTH paths, so the field has to be pinned on both:
+            // the build path's tests above would stay green if the serve path dropped it, and the
+            // client only ever reads the served payload. Built at 5 and 2, re-scored at 3 and 2 —
+            // so a field frozen at build time reads 5 and the re-enriched one reads 3.
+            stubFullRefresh(List.of(bamburgh(), seahouses()));
+            when(evaluationViewService.getScoresForEnrichment(
+                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of("Bamburgh", scored("Bamburgh", 5),
+                            "Seahouses", scored("Seahouses", 2)));
+            stubServeIndex(Map.of("Bamburgh", scored("Bamburgh", 3),
+                    "Seahouses", scored("Seahouses", 2)));
+
+            briefingService.refreshBriefing();
+
+            assertThat(findRegion(briefingService.getCachedBriefing(), "North East")
+                    .bestRating()).isEqualTo(5);
+            assertThat(findRegion(briefingService.getCachedBriefingForApi(), "North East")
+                    .bestRating()).isEqualTo(3);
         }
 
         @Test

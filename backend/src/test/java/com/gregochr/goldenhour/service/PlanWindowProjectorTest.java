@@ -1529,7 +1529,8 @@ class PlanWindowProjectorTest {
                         r.regionTemperatureCelsius(), r.regionApparentTemperatureCelsius(),
                         r.regionWindSpeedMs(), r.regionWeatherCode(), r.glossHeadline(),
                         r.glossDetail(), r.displayVerdict(), r.scoredLocationCount(),
-                        r.verdictLabel(), r.lightlyEvaluated(), r.confidence(), r.meanRating()))
+                        r.verdictLabel(), r.lightlyEvaluated(), r.confidence(), r.meanRating())
+                        .withBestRating(r.bestRating()))
                 .toList();
     }
 
@@ -1542,7 +1543,8 @@ class PlanWindowProjectorTest {
                         r.regionTemperatureCelsius(), r.regionApparentTemperatureCelsius(),
                         r.regionWindSpeedMs(), r.regionWeatherCode(), r.glossHeadline(),
                         r.glossDetail(), r.displayVerdict(), r.scoredLocationCount(),
-                        r.verdictLabel(), r.lightlyEvaluated(), r.confidence(), r.meanRating()))
+                        r.verdictLabel(), r.lightlyEvaluated(), r.confidence(), r.meanRating())
+                        .withBestRating(r.bestRating()))
                 .toList();
     }
 
