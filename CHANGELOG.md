@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.18.13] - 2026-08-19
+
 ### Added — heat field P6: which way the forecast moved
 
 The window-first Plan tab now says which way each window has moved since the previous forecast run.
