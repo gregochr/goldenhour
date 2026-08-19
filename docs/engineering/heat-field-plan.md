@@ -10,7 +10,7 @@ kernel, ramp, vendored coastline and §7.1 tests, adversarially reviewed (six le
 surviving findings applied; see the P0 row for what it decided and what it deliberately left to
 later phases. The P0 row's roster question is **answered**: the owner confirmed (2026-08-19)
 there are no Isle of Man, Channel Islands or Scilly locations, so the ISO-826 coastline clip is
-safe. **P1 is BUILT** (`feature/heat-p1-data`, unpushed) — the join, the planning area, the
+safe. **P1 is MERGED** (#554, `a6341e71`, 2026-08-19) — the join, the planning area, the
 provider plumbing and the served `BriefingRegion.bestRating`, adversarially reviewed (seven
 lenses) with the surviving findings applied; the P1 row records what it decided, including one
 real defect the review caught (the field was blending woodland ratings). **P2 is next.** **D1 is CONFIRMED (owner,
@@ -580,6 +580,14 @@ anything mutating gets its own worktree; commit or stash before any review that 
   and P7 time (two V136s collided once).
 - **CHANGELOG conflicts are guaranteed** across eight PRs — check `git rev-list --count
   HEAD..origin/main` before each merge, not which files changed.
+- **Additive payload fields are one-directional across deploys** (established at P1, and true of
+  the whole briefing payload — `confidence` and `meanRating` rode in the same way before this
+  feature): rolling production back past any deploy that added a `BriefingRegion`/payload field
+  makes `AppConfig`'s Jackson 2 mapper throw on every `daily_briefing_cache` row written since;
+  `loadPersistedBriefing` swallows the error and the Plan tab stays empty until the next
+  scheduled refresh. Not a P-phase defect and deliberately not half-fixed on one record — but a
+  rollback that crosses P1 (or later P6) should expect one empty-Plan window and may want a
+  manual `POST /api/briefing/run` behind it.
 - **The two arms' SWR briefing cache is shared** (`briefing:${role}`) — the strip must tolerate a
   cached payload from before any new field existed (null-safe reads everywhere; the
   `renderedEvents` null-vs-empty contract is already in the provider).
