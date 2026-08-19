@@ -102,7 +102,7 @@ export default function WindowFirstMapPane({
   const wrapRef = useRef(null);
   const [resizeNonce, setResizeNonce] = useState(0);
   const {
-    heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr,
+    heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr, scoresLoaded,
   } = useWindowFirstBriefing();
 
   /**
@@ -135,6 +135,10 @@ export default function WindowFirstMapPane({
       spots: heatSpots,
       areaSpots: framed,
       pointsByKey: heatPointSets,
+      // The same flag the Plan tab's strip and row maps read, from the same provider rather than
+      // re-derived here: an empty point set is what an unfetched ratings response looks like as
+      // well as what an unrated window looks like, and only the provider can tell them apart.
+      scoresKnown: scoresLoaded,
       // Every rendered window, away days included, so the selector's six are the strip's six — one
       // shape of the week. An away window simply has no points and paints nothing, which is the
       // same answer the Plan tab's thumbnail gives it.
@@ -154,7 +158,7 @@ export default function WindowFirstMapPane({
       areaBounds: framed.length > 0 ? latLngBounds(framed, FRAME_PAD_DEG) : null,
       catalogueBounds: heatSpots.length > 0 ? latLngBounds(heatSpots, FRAME_PAD_DEG) : null,
     };
-  }, [heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr]);
+  }, [heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr, scoresLoaded]);
 
   useEffect(() => {
     const el = wrapRef.current;
