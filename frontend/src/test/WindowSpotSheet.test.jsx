@@ -327,6 +327,23 @@ describe('WindowSpotSheet', () => {
   });
 
   describe('the list', () => {
+    it('prints each card\'s leave-by line from the SPOT\'s event time, not the header\'s', () => {
+      // The sheet renders `WindowSpotCard` rather than a copy of it, which is the whole reason the
+      // component was extracted (P11) — so the leave-by line arrives here without this file's
+      // subject knowing about it. Pinned anyway: the drill-down is where a reader compares a long
+      // drive against a short one, so it is the surface the line matters most on.
+      //
+      // The card header says `20:41` and this spot's own sunset is 21:41 BST, an hour apart on
+      // purpose: this dialog is the one surface that has a window time in hand and could pass it
+      // down. 21:41 − a 30-minute drive − 20 minutes of setup = 20:51, so a sheet that used its
+      // own header would print 19:51 and fail here.
+      renderSheet({
+        card: { ...CARD, allSpots: [{ ...COAST, solarEventTime: '2026-08-08T20:41:00' }] },
+        barTierId: 'any',
+      });
+      expect(screen.getByTestId('window-spot-leave')).toHaveTextContent('↰ leave 20:51');
+    });
+
     it('ranks by rating then drive, the strip\'s own order', () => {
       renderSheet({ barTierId: 'any' });
       const cards = screen.getAllByTestId('window-spot');

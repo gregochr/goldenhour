@@ -3,6 +3,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import WindowSpotStrip from '../components/WindowSpotStrip.jsx';
 
+/**
+ * 21:11 BST on 9 August 2026, as the payload carries it — a bare UTC instant.
+ *
+ * <p>BST on purpose: the suite runs on UTC, so a winter instant would render the same digits
+ * whether the card read the UK clock or the runner's. `leaveByAbroad.test.js` covers the zone
+ * separation properly; this is the card's own guard against losing it silently.
+ */
+const AUGUST_SUNSET_UTC = '2026-08-09T20:11:00';
+
 function spot(overrides = {}) {
   return {
     key: '1',
@@ -10,6 +19,11 @@ function spot(overrides = {}) {
     locationName: 'Bamburgh Castle',
     regionName: 'Northumberland & Tyneside',
     rating: 4,
+    // Every production slot carries one — `BriefingSlotBuilder` returns null rather than a slot it
+    // could not time — so the default fixture carries one too. A factory without it renders a card
+    // shape the payload never emits, and every assertion in this file about layout, ordering and
+    // the accessible name would be measuring a card missing a line the real one always has.
+    solarEventTime: AUGUST_SUNSET_UTC,
     driveMinutes: 66,
     distanceMiles: 47,
     ...overrides,
@@ -148,6 +162,73 @@ describe('WindowSpotStrip', () => {
       // if the reach line were ever dropped from a far card the mark would become the sole signal.
       renderStrip([spot({ far: true, driveMinutes: 66, distanceMiles: 47 })]);
       expect(screen.getByTestId('window-spot-reach')).toHaveTextContent('1h 6min · 47 mi');
+    });
+
+    it('prints when to leave — the drive and the setup taken off this slot\'s own event time', () => {
+      // Plan §4.6, and the point of the whole phase: a rating is an opinion, a departure time is a
+      // plan. 21:11 BST − 1h6 drive − 20 min setup = 19:45, and the reader does no arithmetic.
+      renderStrip([spot({ driveMinutes: 66 })]);
+      expect(screen.getByTestId('window-spot-leave')).toHaveTextContent('↰ leave 19:45');
+    });
+
+    it('omits the leave-by line when this user has no drive time', () => {
+      // Unknown is never a guess — plan §2.5, the rule the reach line already follows. The
+      // distance survives (the two figures are independently nullable), which is what makes this
+      // the sharp case: a card can print how FAR a spot is and still have nothing to say about
+      // when to leave, because only the drive time answers that.
+      renderStrip([spot({ solarEventTime: AUGUST_SUNSET_UTC, driveMinutes: null })]);
+      expect(screen.queryByTestId('window-spot-leave')).toBeNull();
+      expect(screen.getByTestId('window-spot-reach')).toHaveTextContent('🚗 47 mi');
+    });
+
+    it('omits the leave-by line for a slot cached before the payload carried an event time', () => {
+      // The discriminating degrade: the drive IS known here, so the reach line stays and only the
+      // leave-by goes. A card that fell back to the window's time would be wrong by up to the
+      // width of the country, and one that fell back to midnight would be wrong by hours.
+      renderStrip([spot({ solarEventTime: null, driveMinutes: 66 })]);
+      expect(screen.queryByTestId('window-spot-leave')).toBeNull();
+      expect(screen.getByTestId('window-spot-reach')).toHaveTextContent('1h 6min');
+    });
+
+    it('keeps the departure arrow out of the button\'s accessible name', () => {
+      // U+21B0 is announced by some screen readers as "upwards arrow with tip leftwards" — four
+      // words in front of the one line that says when to go. The words are IN the name and the
+      // glyph is not: the first half is 2.5.3, the second is what fails if the `aria-hidden`
+      // wrapper is ever dropped.
+      renderStrip([spot()]);
+      expect(screen.getByRole('button', { name: /leave 19:45/ })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /↰/ })).toBeNull();
+    });
+
+    it('reads as one whole name, so a fifth line cannot lengthen it unnoticed', () => {
+      // Every other assertion in this file matches a FRAGMENT of the card's name, so the line this
+      // commit added could not have been noticed by any of them. Pinned entire, once, on the
+      // default fixture: a screen reader hears this string for every card in a 3.5-across strip,
+      // and its length is a cost that should be argued rather than accumulated.
+      //
+      // ⚠️ The string below is jsdom's, and it is NOT what a browser announces — the difference is
+      // the P2 lesson from the other direction. `.wf-spot` is `display: flex`, so a browser
+      // blockifies every child (verified on the running app: each is `display: block`) and the
+      // accessible-name algorithm inserts a space between them: "… 47 mi leave 19:45 ◍ Open on map
+      // →". Vitest runs jsdom with `css: false`, so those children compute as `inline` and the name
+      // concatenates with no separators — which is why "47 mileave" appears here. What this pins is
+      // therefore the CONTENT and ORDER of the name, not its spacing; do not "fix" the missing
+      // spaces by editing the markup, and do not read this line as a transcript.
+      renderStrip([spot()]);
+      expect(screen.getByTestId('window-spot')).toHaveAccessibleName(
+        'Bamburgh Castle4★Northumberland & Tyneside🚗 1h 6min · 47 mileave 19:45◍ Open on map →',
+      );
+    });
+
+    it('prints the departure time in the card\'s brightest ink, and the words in the quiet one', () => {
+      // The two-tone is the whole visual argument of this line (the design's `.lv` / `.lv b`), and
+      // `toHaveTextContent` cannot see it: strip either class and every other assertion here still
+      // passes. This project has shipped a token pruned to the empty string and carried an
+      // undefined `--color-marginal` for months, so the ink a rule names is worth pinning.
+      renderStrip([spot()]);
+      const line = screen.getByTestId('window-spot-leave');
+      expect(line).toHaveClass('text-plex-text-secondary');
+      expect(within(line).getByText('19:45')).toHaveClass('text-plex-text');
     });
 
     it('is a real button named for its place, and opens the map on it', () => {
@@ -477,6 +558,44 @@ describe('WindowSpotStrip', () => {
         tick(OPEN_DELAY);
         expect(screen.getByTestId('wf-peek-stars')).toHaveTextContent('★★★★☆');
         expect(screen.getByTestId('wf-peek-golden')).toHaveTextContent('74');
+      });
+
+      it('carries the same departure time the card prints, from the same two fields', () => {
+        // Beside the drive chip, because it is the same statement said in the form a reader can
+        // act on. It cannot disagree with the card by construction — both surfaces call `leaveBy`
+        // on this one descriptor — and the assertion pins the pair rather than the panel alone,
+        // which is what would fail if either side started deriving its own.
+        renderStrip(
+          [spot({ solarEventTime: AUGUST_SUNSET_UTC, driveMinutes: 66 })],
+          peekable(),
+        );
+        fireEvent.mouseEnter(screen.getByTestId('window-spot'));
+        tick(OPEN_DELAY);
+        expect(screen.getByTestId('wf-peek-leave')).toHaveTextContent('↰ leave 19:45');
+        expect(screen.getByTestId('window-spot-leave')).toHaveTextContent('↰ leave 19:45');
+      });
+
+      it('opens without a leave-by chip for a spot with no drive time', () => {
+        // The panel states what it knows. Its gate is unchanged — the scores and the clause are
+        // what earn a peek — so a spot with no reach data still opens one, just without the chip.
+        renderStrip([spot({ solarEventTime: AUGUST_SUNSET_UTC, driveMinutes: null })], peekable());
+        fireEvent.mouseEnter(screen.getByTestId('window-spot'));
+        tick(OPEN_DELAY);
+        expect(screen.getByTestId('wf-peek')).toBeInTheDocument();
+        expect(screen.queryByTestId('wf-peek-leave')).toBeNull();
+      });
+
+      it('stays shut for a spot whose only new fact would be its leave-by time', () => {
+        // Leave-by is NOT a fourth key to the gate: it is printed on the card the pointer is
+        // already resting on, so a panel carrying it alone would restate what the reader can see
+        // and add a prompt — the rule `CloseToHome` set and this panel kept.
+        renderStrip(
+          [spot({ locationName: 'Dunstanburgh', solarEventTime: AUGUST_SUNSET_UTC, driveMinutes: 66 })],
+          peekable(),
+        );
+        fireEvent.mouseEnter(screen.getByTestId('window-spot'));
+        tick(OPEN_DELAY);
+        expect(screen.queryByTestId('wf-peek')).toBeNull();
       });
 
       it('stays shut for a spot the scores have nothing to say about', () => {

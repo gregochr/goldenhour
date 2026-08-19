@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — heat field P5: leave-by, and the spot badge joins the one ramp
+
+Every spot card on the window-first Plan tab now prints **when to leave** — the location's own
+sunrise or sunset, minus this user's drive time, minus twenty minutes to park and set up
+(`docs/engineering/heat-field-plan.md` §4.6). It reads `↰ leave 19:45`, on the UK clock, and it
+turns the drive time already on the card into the one number a reader can act on without doing
+arithmetic. The same line appears in the drill-down sheet (the same card component) and as a chip
+on the hover peek, all three from one pure function on one pair of fields, so they cannot disagree.
+
+**It never guesses.** No drive time (the normal state for anyone who has not saved a home postcode
+or run the drive-time calculation) and no line — even where the card still prints a distance, since
+those two figures are independently nullable. No event time on the slot and no line either. The
+subtraction is done on the instant and formatted on `Europe/London`, so a departure that crosses
+midnight prints the reader's clock rather than UTC's: a 3h45 drive to an 04:40 BST sunrise reads
+`00:35`, not `23:35`.
+
+**The v2 spot-card rating badge moves onto `scoreRamp`** (D2), so a rating means the same colour on
+the badge, the heat field, the region rail and the Map tab's markers. Its label ink had to be
+re-measured with it: against the ramp's 2★ stop the app's own cream measures 3.94:1 and the dark
+ink 3.70:1, so *neither* clears AA at 10px — the light ink is now pure white (4.83:1 there, and
+6.03:1 at 1★), and the ink still flips between 2★ and 3★.
+
 ### Added — heat field P4: the Map tab paints the field
 
 The Map tab's default view is now the same heat field the Plan tab paints, over the basemap

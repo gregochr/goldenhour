@@ -236,6 +236,38 @@ describe('resolveSpotPeek', () => {
     expect(detail).toMatchObject({ rating: null, driveMinutes: null, goldenHour: 55 });
   });
 
+  it('carries the leave-by time, computed from the spot rather than from the index', () => {
+    // The index has no event time at all, so this could only come from the descriptor — which is
+    // also what the card reads, so the two cannot print different times. 21:11 BST − 1h6 − 20 min.
+    const detail = resolveSpotPeek(
+      { ...SPOT, solarEventTime: '2026-08-09T20:11:00', driveMinutes: 66 },
+      DATE,
+      EVENT,
+      scoreIndex([{
+        date: DATE, targetType: EVENT, locationName: 'Bamburgh Castle', fierySkyPotential: 68,
+      }]),
+    );
+    expect(detail.leaveBy).toBe('19:45');
+  });
+
+  it('refuses a peek whose only new fact would be the leave-by time', () => {
+    // Leave-by is not a fourth key to the gate: it is on the card the pointer is resting on. The
+    // slot below has an event time and a drive but nothing the card lacks, so it opens nothing.
+    expect(resolveSpotPeek(
+      { ...SPOT, solarEventTime: '2026-08-09T20:11:00', driveMinutes: 66 },
+      DATE,
+      EVENT,
+      scoreIndex([{ date: DATE, targetType: EVENT, locationName: 'Bamburgh Castle', rating: 4 }]),
+    )).toBeNull();
+  });
+
+  it('carries a null leave-by when the spot has no event time, never a guess', () => {
+    const detail = resolveSpotPeek(SPOT, DATE, EVENT, scoreIndex([{
+      date: DATE, targetType: EVENT, locationName: 'Bamburgh Castle', fierySkyPotential: 68,
+    }]));
+    expect(detail.leaveBy).toBeNull();
+  });
+
   it('keys on the window, so the same location on another evening is a different slot', () => {
     const index = scoreIndex([{
       date: DATE, targetType: 'SUNRISE', locationName: 'Bamburgh Castle', fierySkyPotential: 68,
