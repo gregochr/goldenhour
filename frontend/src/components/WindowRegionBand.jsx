@@ -1,6 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { rampHex } from '../utils/scoreRamp.js';
+import { movementChip } from '../utils/movement.js';
 
 /**
  * The open row's region drill-down band — what one region says about this window.
@@ -26,6 +27,12 @@ import { rampHex } from '../utils/scoreRamp.js';
  * lens output, and each renders only while its axis actually gates something: "at any rating,
  * 12 of 12" is a figure about a control that filtered nothing, which is the class of number §6's
  * sweep removed from four other surfaces on this arm.
+ *
+ * <p>The movement figure joins {@code best in field} on the served side and is unconditional in the
+ * same way — but only where the payload carries one. It is <b>this</b> region's own delta, which is
+ * a different number from the strip's chip for the same window whenever the reader has drilled into
+ * a region that is not the window's leader; that is the point of drilling in, and the two are
+ * labelled at their own grains so neither reads as the other.
  *
  * @param {object}   props
  * @param {object}   props.row        the selected region's rail row
@@ -54,6 +61,8 @@ export default function WindowRegionBand({
     away: Boolean(window.away),
     mean: series?.get?.(window.key) ?? null,
   }));
+  // This region's own movement in the open window, from the served delta on its rail row.
+  const chip = movementChip(row.meanRatingDelta);
   const bestKey = bestWindowKey(dots);
   const bestWindow = bestKey == null ? null : windows.find((w) => w.key === bestKey);
 
@@ -101,6 +110,23 @@ export default function WindowRegionBand({
           <span data-testid="wf-region-band-fig" data-fig="best" className="wf-rband-fig">
             best in field
             <b>{`${row.bestRating}★`}</b>
+          </span>
+        )}
+        {/* Beside `best in field` because both are served facts about this region rather than lens
+            output — and after it, because the star is what the reader came for and the movement
+            qualifies it. Rendered only where a delta exists: a null is silence, never a `—`. */}
+        {chip && (
+          <span data-testid="wf-region-band-fig" data-fig="moved" className="wf-rband-fig">
+            {/* "at last run", never "since": the delta is measured from the build BEFORE the last
+                one, so "since" names the interval in which almost none of the movement happened —
+                the change line's own note carries the full reasoning. */}
+            at last run
+            {/* The glyph is the whole of the visible value, so it is hidden and the word beside it
+                carries the meaning — the same treatment the region dots give their ↑/↓. */}
+            <b data-testid="wf-region-band-mark" data-tone={chip.tone} aria-hidden="true">
+              {chip.mark}
+            </b>
+            <span className="sr-only">{chip.shortSpoken}</span>
           </span>
         )}
         {atFloor && (
@@ -215,6 +241,7 @@ WindowRegionBand.propTypes = {
     verdict: PropTypes.string,
     summary: PropTypes.string,
     bestRating: PropTypes.number,
+    meanRatingDelta: PropTypes.number,
   }).isRequired,
   windowKey: PropTypes.string.isRequired,
   windows: PropTypes.arrayOf(PropTypes.shape({

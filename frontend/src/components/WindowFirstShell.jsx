@@ -947,6 +947,7 @@ export default function WindowFirstShell({
             reachById={reachById}
             openKeys={openWindowKeys}
             todayStr={todayStr}
+            runAge={age}
             onOpenWindow={revealWindow}
           />
         </Suspense>

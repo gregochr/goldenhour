@@ -678,6 +678,90 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
     days: [day(TODAY, [{ targetType: 'SUNSET', regions, unregioned: [], window: { verdict: 'WORTH_IT', badges: [] } }])],
   });
 
+  describe('movement — the leading region\'s change since the previous run', () => {
+    it('reports the delta of the SAME region topMeanRating names, and names it', () => {
+      // The chip sits on a thumbnail whose verdict and star already describe the leading region,
+      // so a delta taken from anywhere else in the window would qualify a claim it is not about.
+      const [card] = build(withRegions([
+        { regionName: 'A', meanRating: 2.4, meanRatingDelta: 1.9 },
+        { regionName: 'B', meanRating: 4.6, meanRatingDelta: -0.3 },
+      ]));
+
+      expect(card.topMeanRating).toBe(4.6);
+      expect(card.movement).toEqual({ regionName: 'B', delta: -0.3 });
+    });
+
+    it('is null when the leading region carries no delta', () => {
+      // Silence, never a zero. `movement.js` renders null as nothing at all and 0 as `—`, and the
+      // two are different claims.
+      expect(build(withRegions([{ regionName: 'A', meanRating: 4.6 }]))[0].movement).toBeNull();
+    });
+
+    it('carries a MEASURED zero through rather than nulling it', () => {
+      expect(build(withRegions([
+        { regionName: 'A', meanRating: 4.6, meanRatingDelta: 0 },
+      ]))[0].movement).toEqual({ regionName: 'A', delta: 0 });
+    });
+
+    it('is null when no region carries a mean, so there is no leader to describe', () => {
+      // A window nobody has scored has no leading region — a delta attached to one of its regions
+      // anyway would be movement in a window with no rating to have moved.
+      expect(build(withRegions([{ regionName: 'A', meanRatingDelta: 0.6 }]))[0].movement).toBeNull();
+    });
+
+    it('ignores a non-numeric delta rather than propagating it to the chip', () => {
+      expect(build(withRegions([
+        { regionName: 'A', meanRating: 4.6, meanRatingDelta: Number.NaN },
+      ]))[0].movement).toBeNull();
+    });
+
+    it('breaks a tie on the NAME, exactly as the region rail does', () => {
+      // ⚠️ A cross-module invariant, and one P6 made observable. `buildRegionRows` ranks the open
+      // row's rail with `a.name.localeCompare(b.name)` on a tie; before P6 this function published
+      // only a NUMBER, so a payload-order tiebreak here was invisible — equal means are equal.
+      // Publishing the region's name and its delta means a divergent tiebreak puts one region on
+      // the thumbnail's chip and a different one at rank 1 of the rail eight pixels below, each
+      // with its own movement figure. Payload order here is Northumberland first; the rail would
+      // pick Cumbria.
+      const [card] = build(withRegions([
+        { regionName: 'Northumberland', meanRating: 3.4, meanRatingDelta: 0.6 },
+        { regionName: 'Cumbria', meanRating: 3.4, meanRatingDelta: -0.2 },
+      ]));
+
+      expect(card.movement).toEqual({ regionName: 'Cumbria', delta: -0.2 });
+      expect(card.topMeanRating).toBe(3.4);
+    });
+
+    it('takes the delta of the sky region, never of an excluded wood', () => {
+      // The same exclusion `topMeanRating` applies. A wood scores on inverted polarity, so its
+      // movement is a claim about mist rather than about the sky the thumbnail is painting.
+      const [card] = build({
+        events: events([TODAY, 'SUNSET']),
+        days: [day(TODAY, [{
+          targetType: 'SUNSET',
+          regions: [
+            {
+              regionName: 'Sky',
+              meanRating: 4.2,
+              meanRatingDelta: 0.2,
+              slots: [{ locationName: 'A', canopy: false }],
+            },
+            {
+              regionName: 'Woods',
+              meanRating: 4.8,
+              meanRatingDelta: -1.5,
+              slots: [{ locationName: 'B', canopy: true }],
+            },
+          ],
+          unregioned: [],
+          window: { verdict: 'WORTH_IT', badges: [] },
+        }])],
+      });
+
+      expect(card.movement).toEqual({ regionName: 'Sky', delta: 0.2 });
+    });
+  });
+
   it('takes the BEST of the window\'s region means', () => {
     const [card] = build(withRegions([
       { regionName: 'A', meanRating: 2.4 },

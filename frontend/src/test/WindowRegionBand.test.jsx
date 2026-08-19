@@ -116,6 +116,35 @@ describe('WindowRegionBand — the figures', () => {
     expect(screen.queryByText('best in field')).toBeNull();
   });
 
+  it('states this region\'s own movement since the last run, with its direction spelled out', () => {
+    // The band's number is THIS region's, which differs from the strip's chip whenever the reader
+    // has drilled into a region that is not the window's leader — the point of drilling in. The
+    // glyph is aria-hidden and the words carry the meaning, as the direction dots below already do.
+    renderBand({ row: row({ meanRatingDelta: 0.6 }) });
+
+    const fig = figure('moved');
+    expect(fig).toHaveTextContent('at last run');
+    expect(fig).toHaveTextContent('▲0.6');
+    expect(screen.getByTestId('wf-region-band-mark')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('wf-region-band-mark')).toHaveAttribute('data-tone', 'up');
+    expect(fig).toHaveTextContent('up 0.6 stars');
+  });
+
+  it('states a MEASURED zero as the flat mark', () => {
+    renderBand({ row: row({ meanRatingDelta: 0 }) });
+
+    expect(figure('moved')).toHaveTextContent('—');
+    expect(figure('moved')).toHaveTextContent('unchanged');
+  });
+
+  it('omits the movement figure entirely when the payload carries no delta', () => {
+    // Silence, not a `—`. The two states mean different things and the first serve after a deploy
+    // is all of the second one.
+    renderBand({ row: row() });
+
+    expect(figure('moved')).toBeUndefined();
+  });
+
   it('states the rating figure as M of N over everything the region holds', () => {
     renderBand({ atFloor: { label: '4★+', count: 2, total: 9 } });
     expect(figure('rating')).toHaveTextContent('at 4★+2 of 9');

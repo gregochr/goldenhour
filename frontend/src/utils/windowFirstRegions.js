@@ -163,6 +163,12 @@ export function buildRegionRows(es, spots, allSpots, lens) {
       // Served, both of them. See the module comment for why neither is re-derived.
       meanRating: finite(region.meanRating),
       bestRating: finite(region.bestRating),
+      // Served too, and for the same reason twice over: the client has no previous build to
+      // subtract from, and could not reconstruct one if it had — the comparand is a mean over the
+      // backend's own voting-slot rule, taken from a payload that has since been overwritten.
+      // Null passes straight through as null: the band renders nothing rather than a `—`, which
+      // would claim a measured stillness where there is simply no basis (see `movement.js`).
+      meanRatingDelta: finite(region.meanRatingDelta),
       summary: region.summary || null,
       drawnCount: drawn.length,
       // The word the cell may use for its count, decided here so the component renders a string

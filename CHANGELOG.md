@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — heat field P6: which way the forecast moved
+
+The window-first Plan tab now says which way each window has moved since the previous forecast run.
+Every thumbnail in the heat strip carries a small chip in its top row — `▲0.6` in the go green,
+`▼0.3` in the poor red — for the leading region of that window, and a line under the strip names the
+two biggest movers, their regions and how long ago the run was:
+`Moved at the last forecast run, 52m ago · Tomorrow sunrise ▲0.6 in Northumberland & Tyneside`. The
+open row's region band carries the same figure for whichever region the reader has drilled into
+(`docs/engineering/heat-field-plan.md` §4.7).
+
+**Three states, and the third is not the absence of the other two.** A number is a measured change;
+a muted `—` is a measured *zero* — this region did not move; and **no basis at all renders nothing**.
+The last is the ordinary state on the first serve after a deploy, and for any region the previous
+build did not hold. A `—` there would claim a measurement nobody made, so the channel simply goes
+silent — the same degrade the confidence channel, the surge chip and the tide badge already follow.
+
+**Behind it is a new `briefing_region_snapshot` table** (V144) written at the end of each briefing
+build: one row per region × date × event, holding the mean that build displayed, the population it
+was taken over, and the build's own stamp. `daily_briefing_cache` keeps a single upserted row, so
+before this the previous build's numbers were gone the moment the next one landed. Pruned to 90 days
+by the writer. The delta is attached at serve time on the Plan tab's payload only, and the response
+gains a nullable `previousGeneratedAt` naming the build it was measured against.
+
+**The verb is "moved at", not "since".** The delta spans *previous build → now*, while the age
+printed is the age of the *last* build — so "since the last forecast run 52m ago" (the plan's own
+sample copy) would attribute a change that took eleven hours to the last fifty-two minutes. It is
+also honest about a second thing: the current side is re-derived on every serve, so the figure
+includes any rating batch that has landed since the build, not only run-to-run change.
 ### Fixed — the Map tab's ramp key no longer explains a field that is not there
 
 The third and last surface to take the unscored channel, and the only one where the mark is not a

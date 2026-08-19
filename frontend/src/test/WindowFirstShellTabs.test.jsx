@@ -571,6 +571,45 @@ describe('WindowFirstShell — what stays put across a tab change', () => {
       .toBeNull();
   });
 
+  it('hands the heat strip the run age, so the change line dates its own movement', async () => {
+    // The wiring tripwire for P6's change line. The age is `briefing.generatedAt` formatted by the
+    // shell — one computation, two renders (the footer's stamp and this line), so the two can never
+    // disagree by a rounding boundary. Drop the prop and the line still renders, silently losing
+    // the only thing that says WHEN the movement happened.
+    //
+    // The stamp is an OFFSET from now, not a literal date. `formatRelativeAge` reads `Date.now()`,
+    // so a hard-coded pair would be a fixture about the day it was written — and faking the timers
+    // instead wedges this file's `findBy*` waits, which poll on real ones. Fifty-two minutes back
+    // rounds to "52m ago" for any wall clock.
+    const generatedAt = new Date(Date.now() - 52 * 60 * 1000).toISOString();
+    {
+      renderShell({
+        briefing: { generatedAt, hotTopics: [] },
+        heatStripCards: [{
+          key: `${TODAY}:SUNSET`,
+          date: TODAY,
+          targetType: 'SUNSET',
+          dow: 'Sat',
+          sunrise: false,
+          label: 'Tonight Sunset',
+          time: '20:41',
+          verdict: 'WORTH_IT',
+          verdictLabel: 'Worth it',
+          bestBet: false,
+          away: false,
+          confidence: 'high',
+          movement: { regionName: 'Northumberland', delta: 0.6 },
+        }],
+        heatSpots: [{
+          id: 1, name: 'Bamburgh Beach', lat: 55.61, lng: -1.71, regionName: 'N&T', rid: 'N&T', skySubject: true, bortleClass: 3, scores: [4],
+        }],
+      });
+
+      const line = await screen.findByTestId('wf-heat-change');
+      expect(line).toHaveTextContent('Moved at the last forecast run, 52m ago');
+    }
+  });
+
   it('keeps the masthead, the rail footer and the way back out', async () => {
     renderShell();
     await openComingUp();

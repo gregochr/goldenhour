@@ -51,6 +51,24 @@ import java.util.List;
  *                           {@code days} itself; empty is "the projector ran and found no live
  *                           window", and the client draws nothing. Collapsing the two would make a
  *                           deploy-window degrade indistinguishable from a genuinely empty forecast.
+ * @param previousGeneratedAt the build stamp every {@code BriefingRegion.meanRatingDelta} on this
+ *                           response was measured against — the newest briefing build strictly
+ *                           before {@link #generatedAt}, from {@code briefing_region_snapshot}.
+ *                           Serve-path only, {@code null} on every internal path, on every stored
+ *                           payload, and whenever no earlier build is on record.
+ *
+ *                           <p><b>One basis for the whole screen.</b> Deltas are taken against
+ *                           this single build rather than against each region's own latest earlier
+ *                           row, so that one "since the last forecast run" line can describe every
+ *                           chip truthfully. A region absent from that build gets no delta at all
+ *                           rather than one reaching further back — silence, which is this
+ *                           channel's documented degrade throughout.
+ *
+ *                           <p>It is not what the strip's age line prints. That reads
+ *                           {@code generatedAt} (how long ago the last run was), which is the age
+ *                           the shell already renders; this field is the delta's basis, published
+ *                           so a client or an operator can tell what the movement was measured
+ *                           from.
  */
 public record DailyBriefingResponse(
         LocalDateTime generatedAt,
@@ -67,7 +85,8 @@ public record DailyBriefingResponse(
         List<String> seasonalFeatures,
         BestBetStatus bestBetStatus,
         @JsonInclude(JsonInclude.Include.NON_NULL) Boolean bestBetsWithdrawn,
-        @JsonInclude(JsonInclude.Include.NON_NULL) List<PlanRenderedEvent> renderedEvents) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) List<PlanRenderedEvent> renderedEvents,
+        @JsonInclude(JsonInclude.Include.NON_NULL) LocalDateTime previousGeneratedAt) {
 
     /**
      * Null-safe compact constructor — defensive copies for list fields only.
@@ -84,6 +103,50 @@ public record DailyBriefingResponse(
         hotTopics = hotTopics == null ? List.of() : List.copyOf(hotTopics);
         seasonalFeatures = seasonalFeatures == null ? List.of() : List.copyOf(seasonalFeatures);
         renderedEvents = renderedEvents == null ? null : List.copyOf(renderedEvents);
+    }
+
+    /**
+     * Fifteen-component form, defaulting {@code previousGeneratedAt} to null.
+     *
+     * <p>The previous canonical signature. Retained for the same reason as the shorter forms: no
+     * producer of a response knows what the movement was measured against — only the serve-time
+     * movement step does, and it publishes through {@link #withMovement}.
+     *
+     * @param generatedAt         UTC generation timestamp
+     * @param headline            one-line summary
+     * @param days                per-day briefing data
+     * @param bestBets            best-bet picks
+     * @param auroraTonight       tonight's aurora summary or null
+     * @param auroraTomorrow      tomorrow's aurora summary or null
+     * @param stale               last-known-good flag
+     * @param partialFailure      partial-failure flag
+     * @param failedLocationCount failed location count
+     * @param bestBetModel        best-bet model display name
+     * @param hotTopics           hot topics
+     * @param seasonalFeatures    active seasonal feature keys
+     * @param bestBetStatus       whether the advisor produced picks, found none, or failed
+     * @param bestBetsWithdrawn   whether the honesty filter withdrew a pick at serve time
+     * @param renderedEvents      the events the Plan tab draws, or null
+     */
+    public DailyBriefingResponse(
+            LocalDateTime generatedAt,
+            String headline,
+            List<BriefingDay> days,
+            List<BestBet> bestBets,
+            AuroraTonightSummary auroraTonight,
+            AuroraTomorrowSummary auroraTomorrow,
+            boolean stale,
+            boolean partialFailure,
+            int failedLocationCount,
+            String bestBetModel,
+            List<HotTopic> hotTopics,
+            List<String> seasonalFeatures,
+            BestBetStatus bestBetStatus,
+            Boolean bestBetsWithdrawn,
+            List<PlanRenderedEvent> renderedEvents) {
+        this(generatedAt, headline, days, bestBets, auroraTonight, auroraTomorrow,
+                stale, partialFailure, failedLocationCount, bestBetModel, hotTopics,
+                seasonalFeatures, bestBetStatus, bestBetsWithdrawn, renderedEvents, null);
     }
 
     /**
@@ -126,7 +189,7 @@ public record DailyBriefingResponse(
             Boolean bestBetsWithdrawn) {
         this(generatedAt, headline, days, bestBets, auroraTonight, auroraTomorrow,
                 stale, partialFailure, failedLocationCount, bestBetModel, hotTopics,
-                seasonalFeatures, bestBetStatus, bestBetsWithdrawn, null);
+                seasonalFeatures, bestBetStatus, bestBetsWithdrawn, null, null);
     }
 
     /**
@@ -222,7 +285,29 @@ public record DailyBriefingResponse(
         return new DailyBriefingResponse(generatedAt, headline, newDays, bestBets,
                 auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
                 bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
-                renderedEvents);
+                renderedEvents, previousGeneratedAt);
+    }
+
+    /**
+     * Returns a copy carrying the movement-enriched day hierarchy and the build its deltas were
+     * measured against.
+     *
+     * <p>One method rather than two withers, for {@link #withPlan}'s reason: the two are one
+     * answer. Every {@code BriefingRegion.meanRatingDelta} in {@code newDays} was subtracted from
+     * the build named by {@code newPreviousGeneratedAt}, and publishing them separately would let
+     * a caller emit deltas over a basis they were not measured from.
+     *
+     * @param newDays                 the day hierarchy with deltas attached
+     * @param newPreviousGeneratedAt  the build stamp they were measured against, or null when
+     *                                there was no earlier build to measure against
+     * @return a copy carrying both
+     */
+    public DailyBriefingResponse withMovement(List<BriefingDay> newDays,
+            LocalDateTime newPreviousGeneratedAt) {
+        return new DailyBriefingResponse(generatedAt, headline, newDays, bestBets,
+                auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
+                bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
+                renderedEvents, newPreviousGeneratedAt);
     }
 
     /**
@@ -242,6 +327,6 @@ public record DailyBriefingResponse(
         return new DailyBriefingResponse(generatedAt, headline, newDays, bestBets,
                 auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
                 bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
-                newRenderedEvents);
+                newRenderedEvents, previousGeneratedAt);
     }
 }

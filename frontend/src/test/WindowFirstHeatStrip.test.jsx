@@ -315,6 +315,145 @@ describe('WindowFirstHeatStrip — the away window', () => {
   });
 });
 
+describe('WindowFirstHeatStrip — the movement channel', () => {
+  const moved = (delta, regionName = 'Northumberland & Tyneside') => stripCard({
+    movement: { regionName, delta },
+  });
+
+  it('marks a rise on the thumbnail with the up glyph and the go tone', async () => {
+    await renderStrip({ cards: [moved(0.6)] });
+
+    const chip = screen.getByTestId('wf-heat-move');
+    expect(chip).toHaveTextContent('▲0.6');
+    expect(chip).toHaveAttribute('data-tone', 'up');
+  });
+
+  it('marks a fall with the down glyph and the poor tone', async () => {
+    await renderStrip({ cards: [moved(-0.3)] });
+
+    const chip = screen.getByTestId('wf-heat-move');
+    expect(chip).toHaveTextContent('▼0.3');
+    expect(chip).toHaveAttribute('data-tone', 'down');
+  });
+
+  it('marks a MEASURED zero with the flat mark', async () => {
+    // The distinguishing test's other half. Delete the flat branch and this fails while the null
+    // test below still passes, which is the pair that keeps the two states apart.
+    await renderStrip({ cards: [moved(0)] });
+
+    const chip = screen.getByTestId('wf-heat-move');
+    expect(chip).toHaveTextContent('—');
+    expect(chip).toHaveAttribute('data-tone', 'flat');
+  });
+
+  it('renders NOTHING at all when the payload carries no delta', async () => {
+    // The ordinary state on the first serve after a deploy, and for any region the previous build
+    // did not hold. A `—` here would claim a measurement nobody made.
+    await renderStrip({ cards: [stripCard()] });
+
+    expect(screen.queryByTestId('wf-heat-move')).toBeNull();
+    expect(screen.queryByTestId('wf-heat-change')).toBeNull();
+  });
+
+  it('puts the movement into the accessible name, spelled out', async () => {
+    // The chip lives inside the `aria-hidden` top row and its mark is a glyph, so without this the
+    // channel would exist for sighted readers only. The name still opens with the visible time and
+    // verdict word (WCAG 2.5.3).
+    //
+    // The REGION is named here and nowhere else on the cell: the chip is the only region-grain
+    // figure on an otherwise window-grain thumbnail, and the change line names only the top two
+    // movers — so for the other four a non-visual reader would otherwise get a number attached to
+    // nothing.
+    await renderStrip({ cards: [moved(0.6)] });
+
+    expect(screen.getByRole('button', {
+      name: 'Tonight Sunset, 21:11, Worth it, '
+        + 'Northumberland & Tyneside up 0.6 stars at the last forecast run',
+    })).toBeInTheDocument();
+  });
+
+  it('names the top two movers, their regions and the run age under the strip', async () => {
+    await renderStrip({
+      runAge: '52m ago',
+      cards: [
+        moved(0.6, 'Northumberland & Tyneside'),
+        stripCard({ key: `${TODAY}:SUNRISE`, targetType: 'SUNRISE', sunrise: true, label: 'Today Sunrise', movement: { regionName: 'Cumbria', delta: -0.9 } }),
+        stripCard({ key: '2026-08-05:SUNSET', date: '2026-08-05', label: 'Tomorrow Sunset', movement: { regionName: 'Yorkshire', delta: 0.2 } }),
+      ],
+    });
+
+    const line = screen.getByTestId('wf-heat-change');
+    expect(line).toHaveTextContent('Moved at the last forecast run, 52m ago');
+    // Two, not three — and biggest first. Asserted per item rather than as one string, because the
+    // visually-hidden spoken form sits between the glyph and the region: a whole-line match would
+    // be pinning the concatenation of the visible and hidden halves, which is a string no reader
+    // ever perceives in either channel.
+    const items = within(line).getAllByTestId('wf-heat-change-item');
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent('Today Sunrise');
+    expect(items[0]).toHaveTextContent('▼0.9');
+    expect(items[0]).toHaveTextContent('in Cumbria');
+    expect(items[1]).toHaveTextContent('Tonight Sunset');
+    expect(items[1]).toHaveTextContent('▲0.6');
+    expect(items[1]).toHaveTextContent('in Northumberland & Tyneside');
+    expect(line).not.toHaveTextContent('Yorkshire');
+  });
+
+  it('tones each mover in the change line by its own direction', async () => {
+    // The chips on the thumbnails pin `data-tone`; the change line's marks did not, so deleting
+    // the attribute here (or hardcoding it) painted a falling window green with a green suite.
+    await renderStrip({
+      runAge: '52m ago',
+      cards: [
+        moved(0.6),
+        stripCard({ key: `${TODAY}:SUNRISE`, targetType: 'SUNRISE', sunrise: true, label: 'Today Sunrise', movement: { regionName: 'Cumbria', delta: -0.9 } }),
+      ],
+    });
+
+    const marks = screen.getAllByTestId('wf-heat-change-mark');
+    expect(marks.map((m) => m.getAttribute('data-tone'))).toEqual(['down', 'up']);
+  });
+
+  it('keeps the separator and the region OUTSIDE the unbreakable atom', async () => {
+    // ⚠️ A reflow regression guard, not a structure preference. With `wf-hstrip-chg` on the whole
+    // item the clause was one unbreakable run — JSX strips the whitespace-only lines between array
+    // elements, so the paragraph's last break opportunity was the space before the run age, and a
+    // 25-character region name put ~328px of text into a 315px column at 375px: a horizontal page
+    // scroller, which `.wf-hstrip`'s own comment says the strip exists not to be. jsdom does no
+    // layout and `css: false` loads no stylesheet, so the WIDTH is unassertable here — what is
+    // assertable is the containment that makes wrapping possible, which is the thing that changed.
+    await renderStrip({ runAge: '52m ago', cards: [moved(0.6)] });
+
+    const item = screen.getByTestId('wf-heat-change-item');
+    const atom = item.querySelector('.wf-hstrip-chg');
+    expect(atom).toContainElement(screen.getByTestId('wf-heat-change-mark'));
+    expect(atom.textContent).not.toContain('·');
+    expect(atom.textContent).not.toContain('Northumberland');
+    expect(item.textContent).toContain('in Northumberland & Tyneside');
+  });
+
+  it('withholds the change line entirely when nothing moved', async () => {
+    // Every thumbnail already carries its own `—`. A line reading only "Moved at the last forecast
+    // run, 52m ago" would restate the age the shell footer already prints, attached to nothing.
+    await renderStrip({ runAge: '52m ago', cards: [moved(0), moved(0)] });
+
+    expect(screen.getAllByTestId('wf-heat-move')).toHaveLength(2);
+    expect(screen.queryByTestId('wf-heat-change')).toBeNull();
+  });
+
+  it('still names its movers when the run age is unknown', async () => {
+    // `formatRelativeAge` answers null for an absent or unparseable stamp. The movers are what the
+    // line is for, so an absent age costs the age and nothing else.
+    await renderStrip({ cards: [moved(0.6)] });
+
+    const line = screen.getByTestId('wf-heat-change');
+    expect(line).toHaveTextContent('Moved at the last forecast run ·');
+    const item = within(line).getByTestId('wf-heat-change-item');
+    expect(item).toHaveTextContent('▲0.6');
+    expect(item).toHaveTextContent('in Northumberland & Tyneside');
+  });
+});
+
 describe('WindowFirstHeatStrip — a window nobody rated', () => {
   /**
    * The defect this block exists for, in one sentence: a window with no ratings and a window whose

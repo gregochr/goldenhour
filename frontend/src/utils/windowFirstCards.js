@@ -170,19 +170,73 @@ export function eligibleRegions(es) {
 }
 
 /**
+ * The best-rated REGION in a window, over the same regions the backend's own ranking votes on.
+ *
+ * <p>One scan, two consumers: {@link topMeanRating} takes its number and {@link topRegionMovement}
+ * takes its name and its delta. They must be the same region — a chip reading "▲0.6 in Cumbria"
+ * beside a rank derived from a different region's mean is two answers to "which region leads this
+ * window" — and one scan is the only way that cannot drift.
+ *
+ * <p><b>Ties break on the NAME, and that is not a local preference — it is
+ * {@code buildRegionRows}' rule, copied.</b> That function ranks the open row's region rail with
+ * {@code mb === ma ? a.name.localeCompare(b.name) : mb - ma}, so a payload-order tiebreak here
+ * would name one region on the thumbnail's chip and put a different one at rank 1 of the rail
+ * eight pixels below, each carrying its own delta. Before P6 the divergence was invisible, because
+ * this function published only a number and equal means are equal; publishing the region's NAME
+ * and its movement is what made the two tiebreaks observable against each other. Keep them
+ * identical, or reconverge both on one helper.
+ *
+ * @param {?object} es the event summary
+ * @returns {?object} the leading eligible region record, or null when none carries a finite mean
+ */
+function topRegion(es) {
+  let best = null;
+  for (const region of eligibleRegions(es)) {
+    const mean = region?.meanRating;
+    if (typeof mean !== 'number' || !Number.isFinite(mean)) continue;
+    if (best === null
+        || mean > best.meanRating
+        || (mean === best.meanRating
+            && String(region.regionName ?? '').localeCompare(String(best.regionName ?? '')) < 0)) {
+      best = region;
+    }
+  }
+  return best;
+}
+
+/**
  * The best REGION mean in a window, over the same regions the backend's own ranking votes on.
  *
  * @param {?object} es the event summary
  * @returns {?number} the best eligible region mean, or null when none carries one
  */
 function topMeanRating(es) {
-  let best = null;
-  for (const region of eligibleRegions(es)) {
-    const mean = region?.meanRating;
-    if (typeof mean !== 'number' || !Number.isFinite(mean)) continue;
-    if (best === null || mean > best) best = mean;
-  }
-  return best;
+  return topRegion(es)?.meanRating ?? null;
+}
+
+/**
+ * The leading region's movement since the previous forecast run — the strip's per-window chip.
+ *
+ * <p><b>The window's TOP region, not its biggest mover.</b> The chip sits on a thumbnail whose
+ * verdict word and star already describe that region, so a delta from somewhere else in the same
+ * window would qualify a claim it is not about. It is one figure about one region, and the region
+ * is named in the change line under the strip.
+ *
+ * <p><b>Null and a measured zero are different answers and stay so.</b> The backend publishes
+ * {@code meanRatingDelta} only where both sides of the subtraction were scored in the same pair of
+ * builds; anything else is absent, and absent renders nothing at all. A real {@code 0.0} — this
+ * region did not move — renders its own mark. Collapsing them would make "did not move"
+ * indistinguishable from "no previous run to compare against", which is precisely the degrade
+ * every other channel on this arm keeps silent.
+ *
+ * @param {?object} es the event summary
+ * @returns {?{regionName: string, delta: number}} the leading region's movement, or null
+ */
+function topRegionMovement(es) {
+  const region = topRegion(es);
+  const delta = region?.meanRatingDelta;
+  if (typeof delta !== 'number' || !Number.isFinite(delta)) return null;
+  return { regionName: region.regionName, delta };
 }
 
 /**
@@ -294,6 +348,10 @@ export function buildWindowCards(
       // "which window is the best bet" means. Null when nothing in the window carries a mean, and
       // `windowFirstOrder.js` ranks those last rather than treating the absence as a zero.
       topMeanRating: topMeanRating(es),
+      // The same region `topMeanRating` names, carrying how far it has moved since the previous
+      // forecast run. Null — never a zero — when there is nothing to compare against; see
+      // `topRegionMovement` for why the two must stay distinguishable.
+      movement: topRegionMovement(es),
       // The TOP REGION's confidence. Through P14 this was "the single render site", because the
       // retired day rail derived a day-level tier and deliberately rendered nothing from it. That is
       // no longer true and the change is deliberate: the heat strip reads this same field per window

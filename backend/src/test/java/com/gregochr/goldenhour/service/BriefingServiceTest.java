@@ -96,6 +96,13 @@ class BriefingServiceTest {
      */
     @Mock
     private WindowTideRollupBuilder windowTideRollupBuilder;
+    /**
+     * The movement sink. Unstubbed it answers {@code Optional.empty()} for the previous build
+     * stamp, which is the no-basis case — no deltas, the response passes through unchanged. That is
+     * what every test here that does not care about movement wants.
+     */
+    @Mock
+    private com.gregochr.goldenhour.repository.BriefingRegionSnapshotRepository snapshotRepository;
     @Mock
     private SolarService solarService;
     @Mock
@@ -169,7 +176,23 @@ class BriefingServiceTest {
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                windowTideRollupBuilder);
+                windowTideRollupBuilder, snapshots());
+    }
+
+    /**
+     * A REAL snapshot service over the mocked repository, not a mock of the service.
+     *
+     * <p>Deliberate: {@code attachMovement} runs on every serve these tests exercise, so a mock
+     * would answer {@code null} from {@code previousBuild} and the serve path would throw — and
+     * stubbing it to a fixed answer would put the delta arithmetic behind a mock in the one place
+     * these tests actually walk it. Unstubbed, the mock repository answers {@code Optional.empty()}
+     * for the previous build stamp, which is the no-basis case: no deltas anywhere, response
+     * unchanged. A test that wants movement stubs {@code snapshotRepository} itself.
+     *
+     * @return a live snapshot service on the test clock
+     */
+    private BriefingRegionSnapshotService snapshots() {
+        return new BriefingRegionSnapshotService(snapshotRepository, CLOCK);
     }
 
     /**
@@ -449,7 +472,7 @@ class BriefingServiceTest {
                     slotBuilder, eventPublisher, hotTopicAggregator,
                     briefingEvaluationService, evaluationViewService, bestBetFallbackService,
                     BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), BST_CLOCK, marineWaveRefreshService,
-                    windowTideRollupBuilder);
+                    windowTideRollupBuilder, snapshots());
             freshService.loadPersistedBriefing();
 
             DailyBriefingResponse api = freshService.getCachedBriefingForApi();
@@ -827,7 +850,7 @@ class BriefingServiceTest {
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                windowTideRollupBuilder);
+                windowTideRollupBuilder, snapshots());
         freshService.loadPersistedBriefing();
 
         DailyBriefingResponse cached = freshService.getCachedBriefing();
@@ -861,7 +884,7 @@ class BriefingServiceTest {
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                windowTideRollupBuilder);
+                windowTideRollupBuilder, snapshots());
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -888,7 +911,7 @@ class BriefingServiceTest {
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 briefingEvaluationService, evaluationViewService, bestBetFallbackService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                windowTideRollupBuilder);
+                windowTideRollupBuilder, snapshots());
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -1429,7 +1452,7 @@ class BriefingServiceTest {
                     slotBuilder, eventPublisher, hotTopicAggregator,
                     briefingEvaluationService, evaluationViewService, bestBetFallbackService,
                     BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                    windowTideRollupBuilder);
+                    windowTideRollupBuilder, snapshots());
             freshService.loadPersistedBriefing();
 
             // Trigger below-threshold refresh: 1 location, batch throws → succeeded=0, failed=1
@@ -3225,6 +3248,356 @@ class BriefingServiceTest {
             assertThat(briefingService.getCachedBriefing().days())
                     .flatMap(com.gregochr.goldenhour.model.BriefingDay::eventSummaries)
                     .allSatisfy(es -> assertThat(es.window()).isNull());
+        }
+    }
+
+    // ── Run-to-run movement (heat-field plan §4.7) ────────────────────────────────
+
+    /**
+     * The wiring between the snapshot sink and the served payload.
+     *
+     * <p>{@code BriefingRegionSnapshotServiceTest} owns the arithmetic and the persistence rules;
+     * these tests own the two places {@code BriefingService} could drop the feature without a
+     * single one of those going red — the writer never being called at the end of a refresh, and
+     * the serve path never attaching what the writer stored.
+     */
+    @Nested
+    @DisplayName("Run-to-run movement")
+    class Movement {
+
+        /** The build that came before this test's own — the basis every delta is measured from. */
+        private static final LocalDateTime PREVIOUS_BUILD = FIXED_NOW.minusHours(8);
+
+        private LocationEntity bamburgh() {
+            return LocationEntity.builder()
+                    .id(1L).name("Bamburgh").lat(55.0).lon(-1.5)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of())
+                    .solarEventType(Set.of(SolarEventType.SUNSET))
+                    .region(RegionEntity.builder().name("North East").build())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+        }
+
+        /** A second location in the same region, so one unscored slot does not zero its coverage. */
+        private LocationEntity seahouses() {
+            return LocationEntity.builder()
+                    .id(2L).name("Seahouses").lat(55.0).lon(-1.5)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of())
+                    .solarEventType(Set.of(SolarEventType.SUNSET))
+                    .region(RegionEntity.builder().name("North East").build())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+        }
+
+        private void stubFullRefresh() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh(), seahouses()));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            // ⚠️ PER DATE, not one fixed instant for every date. The sibling harnesses in this file
+            // return the same LocalDateTime whatever date they are asked about, so every slot lands
+            // on day 0 and the hierarchy has exactly one day — which makes a whole class of
+            // date-keyed defect invisible, and is why the movement tests below need their own
+            // stub. Two days is what the 48-hour forecast fixture supports, and two is enough: the
+            // second is the one with no row in the previous build.
+            org.mockito.Mockito.lenient().when(
+                    solarService.sunsetUtc(org.mockito.ArgumentMatchers.anyDouble(),
+                            org.mockito.ArgumentMatchers.anyDouble(), any(LocalDate.class)))
+                    .thenAnswer(inv -> ((LocalDate) inv.getArgument(2)).atTime(18, 0));
+        }
+
+        private BriefingEvaluationResult scored(String name, int rating) {
+            return new BriefingEvaluationResult(name, rating, 50, 50, "Conditions.", null, null,
+                    "Fiery skies at dusk");
+        }
+
+        /** Stubs the BUILD path only — for tests that never reach the API accessor. */
+        private void stubBuildScores(Map<String, BriefingEvaluationResult> results) {
+            when(evaluationViewService.getScoresForEnrichment(
+                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(results);
+        }
+
+        /** Stubs BOTH enrichment paths with the same ratings, so build and serve agree. */
+        private void stubScores(Map<String, BriefingEvaluationResult> results) {
+            stubBuildScores(results);
+            when(evaluationViewService.getScoresForEnrichmentBulk(
+                    any(LocalDate.class), any(LocalDate.class), any()))
+                    .thenAnswer(inv -> {
+                        LocalDate start = inv.getArgument(0);
+                        LocalDate end = inv.getArgument(1);
+                        Map<String, Map<String, BriefingEvaluationResult>> index =
+                                new java.util.HashMap<>();
+                        for (LocalDate d = start; !d.isAfter(end); d = d.plusDays(1)) {
+                            index.put("North East|" + d + "|SUNSET", results);
+                        }
+                        return index;
+                    });
+        }
+
+        /** Ratings 5 and 2 — a mean of exactly 3.5. */
+        private Map<String, BriefingEvaluationResult> meanOf3point5() {
+            return Map.of("Bamburgh", scored("Bamburgh", 5), "Seahouses", scored("Seahouses", 2));
+        }
+
+        /** Publishes a previous build holding {@code mean} for North East on the first briefed day. */
+        private void stubPreviousBuild(java.math.BigDecimal mean) {
+            when(snapshotRepository.findPreviousBuildStamp(FIXED_NOW))
+                    .thenReturn(java.util.Optional.of(PREVIOUS_BUILD));
+            com.gregochr.goldenhour.entity.BriefingRegionSnapshotEntity row =
+                    new com.gregochr.goldenhour.entity.BriefingRegionSnapshotEntity();
+            row.setRegionName("North East");
+            row.setEvaluationDate(FIXED_TODAY);
+            row.setTargetType("SUNSET");
+            row.setMeanRating(mean);
+            row.setVotingCount(2);
+            row.setDisplayVerdict("WORTH_IT");
+            row.setGeneratedAt(PREVIOUS_BUILD.toInstant(ZoneOffset.UTC));
+            row.setBriefingGeneratedAt(PREVIOUS_BUILD);
+            when(snapshotRepository.findByBriefingGeneratedAt(PREVIOUS_BUILD))
+                    .thenReturn(List.of(row));
+        }
+
+        /** North East on a NAMED day — the four days the previous build has no row for. */
+        private BriefingRegion northEastOn(DailyBriefingResponse response, LocalDate date) {
+            return response.days().stream()
+                    .filter(d -> d.date().equals(date))
+                    .flatMap(d -> d.eventSummaries().stream())
+                    .flatMap(es -> es.regions().stream())
+                    .filter(r -> r.regionName().equals("North East"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("No North East on " + date));
+        }
+
+        private BriefingRegion firstNorthEast(DailyBriefingResponse response) {
+            return response.days().stream()
+                    .flatMap(d -> d.eventSummaries().stream())
+                    .flatMap(es -> es.regions().stream())
+                    .filter(r -> r.regionName().equals("North East"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("No region North East"));
+        }
+
+        @Test
+        @DisplayName("a refresh records the mean the payload publishes, under the build's own stamp")
+        void refreshWritesTheSnapshot() {
+            // The wiring tripwire for the write half. Remove the call from refreshBriefing and
+            // every snapshot-service test stays green while the table never gains a row — so the
+            // chip is permanently absent and nothing anywhere fails.
+            stubFullRefresh();
+            stubBuildScores(meanOf3point5());
+
+            briefingService.refreshBriefing();
+
+            @SuppressWarnings("unchecked")
+            ArgumentCaptor<List<com.gregochr.goldenhour.entity.BriefingRegionSnapshotEntity>> rows =
+                    ArgumentCaptor.forClass(List.class);
+            verify(snapshotRepository).saveAll(rows.capture());
+            // Counted off the built hierarchy rather than against a literal, because the literal
+            // would be a fact about this fixture's solar stubs rather than about the writer: the
+            // claim is "one row per region x date x event", and only the hierarchy knows how many
+            // of those a build produced.
+            long triples = briefingService.getCachedBriefing().days().stream()
+                    .flatMap(d -> d.eventSummaries().stream())
+                    .mapToLong(es -> es.regions().size())
+                    .sum();
+            assertThat(triples).as("the build produced regions to record").isPositive();
+            // The DATES, not just the count: a writer that reused the first day's date for every
+            // row passes a count assertion, writes five rows under one key that the unique
+            // constraint would then reject, and — before that constraint existed — silently
+            // stranded four days' history under a key nothing reads.
+            assertThat(rows.getValue())
+                    .extracting(com.gregochr.goldenhour.entity.BriefingRegionSnapshotEntity
+                            ::getEvaluationDate)
+                    .containsExactlyInAnyOrderElementsOf(
+                            briefingService.getCachedBriefing().days().stream()
+                                    .map(com.gregochr.goldenhour.model.BriefingDay::date).toList());
+            assertThat(rows.getValue())
+                    .as("one row per region x date x event")
+                    .hasSize((int) triples)
+                    .allSatisfy(row -> {
+                        assertThat(row.getRegionName()).isEqualTo("North East");
+                        assertThat(row.getBriefingGeneratedAt())
+                                .as("the build's own stamp, so the next serve can find it")
+                                .isEqualTo(FIXED_NOW);
+                        assertThat(row.getMeanRating())
+                                .as("the mean the payload publishes, not a recomputation")
+                                .isEqualByComparingTo(new java.math.BigDecimal("3.5"));
+                    });
+        }
+
+        @Test
+        @DisplayName("the served region carries its movement, and the response names the basis")
+        void servedRegionCarriesTheDelta() {
+            stubFullRefresh();
+            stubScores(meanOf3point5());
+            stubPreviousBuild(new java.math.BigDecimal("3.1"));
+
+            briefingService.refreshBriefing();
+            DailyBriefingResponse api = briefingService.getCachedBriefingForApi();
+
+            // 3.5 - 3.1, at the 1dp the chip prints. In binary this subtraction is 0.3999999...,
+            // so an assertion of 0.4 also pins the rounding.
+            assertThat(firstNorthEast(api).meanRatingDelta()).isEqualTo(0.4);
+            assertThat(api.previousGeneratedAt())
+                    .as("the build the deltas were measured against")
+                    .isEqualTo(PREVIOUS_BUILD);
+            // ⚠️ The OTHER side of the same serve, and the assertion that stops the null degrade
+            // being quietly turned into a zero. `stubPreviousBuild` writes one row, on the first
+            // briefed day; T+1..T+4 are scored at 3.5 and miss the map entirely. A
+            // `getOrDefault(key, 0.0)` in attachMovement would publish ▲3.5 on four of six
+            // thumbnails — a fabricated measurement, from the exact state that is normal on the
+            // build after a region is added. Without this the whole serve is asserted through
+            // day one and those four regions are never looked at.
+            assertThat(northEastOn(api, FIXED_TODAY.plusDays(1)).meanRating())
+                    .as("scored, so the null below is about the BASIS and not about the rating")
+                    .isEqualTo(3.5);
+            assertThat(northEastOn(api, FIXED_TODAY.plusDays(1)).meanRatingDelta())
+                    .as("no row in the previous build for this date — silence, never a zero")
+                    .isNull();
+        }
+
+        @Test
+        @DisplayName("an unchanged region publishes a measured zero, not silence")
+        void unchangedRegionPublishesZero() {
+            // The third state. The strip draws `—` for this and nothing at all for null, so
+            // collapsing them here would put a claim of stillness on every region on the first
+            // serve after a deploy.
+            stubFullRefresh();
+            stubScores(meanOf3point5());
+            stubPreviousBuild(new java.math.BigDecimal("3.5"));
+
+            briefingService.refreshBriefing();
+
+            assertThat(firstNorthEast(briefingService.getCachedBriefingForApi()).meanRatingDelta())
+                    .isEqualTo(0.0);
+        }
+
+        @Test
+        @DisplayName("with no previous build, neither a delta nor a basis is published")
+        void noPreviousBuildPublishesNothing() {
+            // Not a zero and not a stamp: a `previousGeneratedAt` with no delta behind it names a
+            // comparison the payload does not contain.
+            stubFullRefresh();
+            stubScores(meanOf3point5());
+            when(snapshotRepository.findPreviousBuildStamp(FIXED_NOW))
+                    .thenReturn(java.util.Optional.empty());
+
+            briefingService.refreshBriefing();
+            DailyBriefingResponse api = briefingService.getCachedBriefingForApi();
+
+            assertThat(firstNorthEast(api).meanRatingDelta()).isNull();
+            assertThat(api.previousGeneratedAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("a region the honesty filter blanked carries no movement")
+        void blankedRegionCarriesNoDelta() {
+            // Movement attaches AFTER the filter and reads meanRating, which a blanked region no
+            // longer has — so the chip cannot appear over a region the same response reports as
+            // unevaluable, even though the previous build has a number for it. (The filter's own
+            // rewrite drops the field too; this pins the OUTCOME, which is what a reader sees.)
+            stubFullRefresh();
+            stubScores(Map.of());
+            stubPreviousBuild(new java.math.BigDecimal("3.1"));
+
+            briefingService.refreshBriefing();
+            BriefingRegion served = firstNorthEast(briefingService.getCachedBriefingForApi());
+
+            assertThat(served.meanRating()).as("blanked").isNull();
+            assertThat(served.meanRatingDelta()).as("and so carries no movement").isNull();
+        }
+
+        @Test
+        @DisplayName("the internal path carries no movement, on a serve where the API path does")
+        void internalPathIsNotEnrichedWithMovement() {
+            // ⚠️ BOTH sides asserted in one test, deliberately. Asserting only the internal null —
+            // as an earlier cut did, with no previous build stubbed — is a test that cannot fail:
+            // with no basis, `attachMovement` short-circuits and every path is null. The mutation
+            // it claims to catch (moving the call into `refreshBriefing`, so a delta is persisted
+            // into daily_briefing_cache and re-served for hours as a frozen figure measured against
+            // a build two behind) survives that shape untouched.
+            stubFullRefresh();
+            stubScores(meanOf3point5());
+            stubPreviousBuild(new java.math.BigDecimal("3.1"));
+
+            briefingService.refreshBriefing();
+
+            assertThat(firstNorthEast(briefingService.getCachedBriefingForApi()).meanRatingDelta())
+                    .as("the API path publishes it")
+                    .isEqualTo(0.4);
+            assertThat(firstNorthEast(briefingService.getCachedBriefing()).meanRatingDelta())
+                    .as("and the untransformed cache never sees it")
+                    .isNull();
+        }
+
+        @Test
+        @DisplayName("the panel accessor pays nothing for a field it does not read")
+        void panelAccessorIsNotEnrichedWithMovement() {
+            // CloseToHomeService shares getServedBriefing and reads slots and bestBets only. The
+            // movement step therefore lives on the API accessor, not the shared one — otherwise
+            // /api/user/settings/reach pays two queries and a full rebuild of the day hierarchy per
+            // request for a field it discards, which is the same "paid twice per page, one copy
+            // thrown away" pattern that moved the window projection out here in the first place.
+            stubFullRefresh();
+            stubScores(meanOf3point5());
+
+            briefingService.refreshBriefing();
+            DailyBriefingResponse panel = briefingService.getServedBriefing();
+
+            // No previous build is stubbed on purpose: the claim is that this accessor never ASKS,
+            // so stubbing an answer for it would be a stub the path must not reach. The verify is
+            // the assertion; the two nulls are what a reader of the payload sees.
+            verify(snapshotRepository, never()).findPreviousBuildStamp(any());
+            assertThat(firstNorthEast(panel).meanRatingDelta()).isNull();
+            assertThat(panel.previousGeneratedAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("a stale re-serve records nothing, so the next delta is not a self-comparison")
+        void staleReserveWritesNoSnapshot() {
+            // ⚠️ The rule the writer's own comment states and nothing else pinned. The stale branch
+            // re-serves the last-known-good response under the LKG's OWN stamp — so writing rows
+            // there would record one build twice under two stamps, and the next serve, finding the
+            // newer of the two, would measure every region against itself: six thumbnails showing
+            // the mark that means "measured zero", indefinitely, and no change line at all.
+            //
+            // The mirror mutation is equally silent, so both counts are asserted: once after the
+            // healthy build, still once after the stale one.
+            stubFullRefresh();
+            stubBuildScores(meanOf3point5());
+
+            briefingService.refreshBriefing();
+            verify(snapshotRepository, times(1)).saveAll(anyList());
+
+            when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                    .thenThrow(new RuntimeException("API down"));
+            briefingService.refreshBriefing();
+
+            assertThat(briefingService.getCachedBriefing().stale()).as("the stale branch ran")
+                    .isTrue();
+            verify(snapshotRepository, times(1)).saveAll(anyList());
+        }
+
+        @Test
+        @DisplayName("a movement-lookup failure costs the chips, never the briefing")
+        void aLookupFailureDoesNotTakeTheBriefingDown() {
+            // The reader THROWS by design — a catch inside a @Transactional method cannot work,
+            // because a JPA failure marks the transaction rollback-only and the proxy's commit
+            // rethrows past it. So the isolation is here, outside the bean boundary, and this is
+            // the only test that can prove the request survives: GET /api/briefing and
+            // /api/user/settings/reach both run through this call.
+            stubFullRefresh();
+            stubScores(meanOf3point5());
+            when(snapshotRepository.findPreviousBuildStamp(any()))
+                    .thenThrow(new IllegalStateException("connection reset"));
+
+            briefingService.refreshBriefing();
+            DailyBriefingResponse api = briefingService.getCachedBriefingForApi();
+
+            assertThat(api).isNotNull();
+            assertThat(firstNorthEast(api).meanRating()).as("the forecast is intact").isEqualTo(3.5);
+            assertThat(firstNorthEast(api).meanRatingDelta()).as("only movement is lost").isNull();
+            assertThat(api.previousGeneratedAt()).isNull();
         }
     }
 }

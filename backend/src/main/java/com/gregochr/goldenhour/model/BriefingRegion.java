@@ -133,6 +133,44 @@ import java.util.List;
  *                                     record rather than of this one; the fix is an
  *                                     {@code ignoreUnknown} setting, which is payload-wide and
  *                                     not this phase's to make.
+ * @param meanRatingDelta              how far {@code meanRating} has moved since the previous
+ *                                     briefing build — the Plan strip's movement chip. Positive is
+ *                                     an improvement, 1dp, {@code null} when there is nothing to
+ *                                     compare against (no previous build on record, this region
+ *                                     absent from it, or either side unscored). A measured
+ *                                     {@code 0.0} is a real answer and is NOT nulled: the strip
+ *                                     marks "did not move" differently from "we do not know".
+ *
+ *                                     <p><b>The current side is the SERVE-time mean, so this
+ *                                     includes post-build drift.</b> {@code enrichWithCachedScores}
+ *                                     re-derives {@code meanRating} on every request, while the
+ *                                     comparand was written once at the end of the previous
+ *                                     {@code refreshBriefing}. So a batch that re-scored this
+ *                                     region after that build shows up here. That is the honest
+ *                                     quantity — it is what the reader's screen moved by — but it
+ *                                     is not literally "the change the last build made", and a
+ *                                     surface must not word it as one. The strip says "since the
+ *                                     last forecast run", which is true of both readings.
+ *
+ *                                     <p>⚠️ <b>It is a weather signal that a ROSTER change also
+ *                                     moves.</b> Both sides are means over each build's own voting
+ *                                     population, so adding, disabling (including the automatic
+ *                                     disable after three failures) or retyping a location shifts
+ *                                     the number with no weather behind it — and the partial-failure
+ *                                     branch of {@code refreshBriefing} deliberately snapshots a
+ *                                     degraded roster, so the recovery of those locations reports as
+ *                                     movement on the next build. {@code briefing_region_snapshot
+ *                                     .voting_count} records the population precisely so a later
+ *                                     reader can detect this; nothing consumes it yet, and no
+ *                                     surface qualifies the chip for it. Suppressing on any change
+ *                                     of population was considered and rejected — a batch scoring
+ *                                     one more location changes it too, and that IS the movement.
+ *
+ *                                     <p>Attached at serve time, AFTER {@code BriefingHonestyFilter}
+ *                                     — a blanked region carries a null {@code meanRating} and so
+ *                                     can never acquire a delta. Nullable, {@code NON_NULL}, no
+ *                                     migration: the {@code confidence} precedent, and legacy
+ *                                     cached payloads deserialise to null.
  */
 public record BriefingRegion(
         String regionName,
@@ -152,7 +190,8 @@ public record BriefingRegion(
         boolean lightlyEvaluated,
         Confidence confidence,
         @JsonInclude(JsonInclude.Include.NON_NULL) Double meanRating,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Integer bestRating) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) Integer bestRating,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Double meanRatingDelta) {
 
     public BriefingRegion {
         tideHighlights = List.copyOf(tideHighlights);
@@ -195,7 +234,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius,
                 regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
                 displayVerdict, scoredLocationCount, verdictLabel, lightlyEvaluated,
-                confidence, null, null);
+                confidence, null, null, null);
     }
 
     /**
@@ -241,7 +280,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius,
                 regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
                 displayVerdict, scoredLocationCount, verdictLabel, lightlyEvaluated,
-                confidence, meanRating, null);
+                confidence, meanRating, null, null);
     }
 
     /**
@@ -259,7 +298,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, newMeanRating,
-                bestRating);
+                bestRating, meanRatingDelta);
     }
 
     /**
@@ -277,7 +316,66 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
-                newBestRating);
+                newBestRating, meanRatingDelta);
+    }
+
+    /**
+     * Returns a copy of this region carrying the given movement figure.
+     *
+     * <p>A wither for the same reason as {@link #withMeanRating}, and used from the same place —
+     * except that this one runs at serve time only, and <em>after</em> the honesty filter, so a
+     * blanked region can never acquire one.
+     *
+     * @param newMeanRatingDelta the 1dp change since the previous build, or null when unknown
+     * @return a copy carrying the delta
+     */
+    public BriefingRegion withMeanRatingDelta(Double newMeanRatingDelta) {
+        return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
+                regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
+                regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
+                scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
+                bestRating, newMeanRatingDelta);
+    }
+
+    /**
+     * Backwards-compatible convenience constructor matching the pre-{@code meanRatingDelta}
+     * canonical signature. Defaults {@code meanRatingDelta} to {@code null} (nothing to compare
+     * against), the same shape and the same reason as the three constructors above it: movement is
+     * attached on the serve path via {@link #withMeanRatingDelta}, and no construction site that
+     * predates this field has a previous build to hand.
+     *
+     * @param regionName                       display name
+     * @param verdict                          triage verdict
+     * @param summary                          one-line summary
+     * @param tideHighlights                   tide summary lines
+     * @param slots                            per-location assessments
+     * @param regionTemperatureCelsius         representative temperature
+     * @param regionApparentTemperatureCelsius feels-like temperature
+     * @param regionWindSpeedMs                representative wind speed
+     * @param regionWeatherCode                WMO weather code
+     * @param glossHeadline                    Claude gloss headline
+     * @param glossDetail                      Claude gloss detail
+     * @param displayVerdict                   unified colour/label signal
+     * @param scoredLocationCount              how many locations contributed a rating
+     * @param verdictLabel                     pill-label override
+     * @param lightlyEvaluated                 thin-coverage flag
+     * @param confidence                       derived confidence, or null
+     * @param meanRating                       the 1dp voting mean, or null
+     * @param bestRating                       the voting max, or null
+     */
+    public BriefingRegion(String regionName, Verdict verdict, String summary,
+            List<String> tideHighlights, List<BriefingSlot> slots,
+            Double regionTemperatureCelsius, Double regionApparentTemperatureCelsius,
+            Double regionWindSpeedMs, Integer regionWeatherCode,
+            String glossHeadline, String glossDetail,
+            DisplayVerdict displayVerdict, int scoredLocationCount,
+            String verdictLabel, boolean lightlyEvaluated, Confidence confidence,
+            Double meanRating, Integer bestRating) {
+        this(regionName, verdict, summary, tideHighlights, slots,
+                regionTemperatureCelsius, regionApparentTemperatureCelsius,
+                regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
+                displayVerdict, scoredLocationCount, verdictLabel, lightlyEvaluated,
+                confidence, meanRating, bestRating, null);
     }
 
     /**
@@ -291,7 +389,8 @@ public record BriefingRegion(
         return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
-                scoredLocationCount, verdictLabel, true, confidence, meanRating, bestRating);
+                scoredLocationCount, verdictLabel, true, confidence, meanRating, bestRating,
+                meanRatingDelta);
     }
 
     /**
@@ -307,7 +406,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, lightlyEvaluated, newConfidence, meanRating,
-                bestRating);
+                bestRating, meanRatingDelta);
     }
 
     /**
@@ -325,7 +424,7 @@ public record BriefingRegion(
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, newGlossHeadline, newGlossDetail, displayVerdict,
                 scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
-                bestRating);
+                bestRating, meanRatingDelta);
     }
 
     /**
