@@ -893,6 +893,82 @@ describe('heatField — drawGeo (host A: static canvas, real coastline)', () => 
     expect(stroke.lineWidth).toBe(2.5);
   });
 
+  describe('the unscored hatch', () => {
+    /** The stroke calls that are the hatch, i.e. everything but the coastline's own. */
+    const hatchStrokes = (ctx) => ctx.calls
+      .filter((c) => c.name === 'stroke' && c.strokeStyle !== 'rgba(242,231,211,.30)');
+
+    it('draws nothing extra when the option is absent — every existing host is untouched', () => {
+      const { cv, ctx } = canvasWithContext();
+      drawGeo(cv, 200, 140, SPOTS, 0, { fit: bbox(SPOTS) });
+      expect(hatchStrokes(ctx)).toHaveLength(0);
+    });
+
+    it('rules a clipped 45° hatch over the plate when asked', () => {
+      const { cv, ctx } = canvasWithContext();
+      drawGeo(cv, 200, 140, [], 0, { fit: bbox(SPOTS), hatch: true });
+      const strokes = hatchStrokes(ctx);
+      expect(strokes).toHaveLength(1);
+      expect(strokes[0].strokeStyle).toBe('rgba(242,231,211,.18)');
+      expect(strokes[0].lineWidth).toBe(0.6);
+    });
+
+    it('sweeps from a full height left of the frame, so both corners are covered', () => {
+      // A 45° line starting at (x, h) ends at (x + h, 0). Beginning the sweep at x = 0 leaves the
+      // whole bottom-left triangle bare — which on a coastline reads as a deliberate shape rather
+      // than as a texture, and it is exactly what a `for (let x = 0; ...)` typo produces.
+      const { cv, ctx } = canvasWithContext();
+      drawGeo(cv, 200, 140, [], 0, { fit: bbox(SPOTS), hatch: true });
+      // 45° pairs: every moveTo/lineTo the coastline drew came before the clip; the hatch's own
+      // are the ones whose two points differ by exactly (h, -h).
+      const pairs = [];
+      ctx.calls.forEach((c, i) => {
+        if (c.name !== 'moveTo') return;
+        const next = ctx.calls[i + 1];
+        if (next?.name !== 'lineTo') return;
+        if (next.args[0] - c.args[0] === 140 && c.args[1] - next.args[1] === 140) pairs.push(c);
+      });
+      expect(pairs.length).toBe(Math.ceil((200 + 140) / 7));
+      expect(pairs[0].args).toEqual([-140, 140]);
+      expect(pairs[pairs.length - 1].args[0]).toBeLessThan(200);
+    });
+
+    it('clips to the coastline, inside its own save/restore', () => {
+      // Unclipped it would hatch the sea as well, which says "no data" about water nobody was
+      // ever going to be scored on; unrestored, the clip would swallow the coastline stroke drawn
+      // straight after it.
+      const { cv, ctx } = canvasWithContext();
+      drawGeo(cv, 200, 140, [], 0, { fit: bbox(SPOTS), hatch: true });
+      const names = ctx.calls.map((c) => c.name);
+      const stroke = names.lastIndexOf('stroke');
+      const restore = names.lastIndexOf('restore');
+      expect(names.lastIndexOf('clip')).toBeLessThan(restore);
+      expect(restore).toBeLessThan(stroke); // the coastline is drawn after the hatch is restored
+    });
+
+    it('takes overrides for its own dials without touching the coastline\'s', () => {
+      const { cv, ctx } = canvasWithContext();
+      drawGeo(cv, 200, 140, [], 0, {
+        fit: bbox(SPOTS), hatch: true, hatchInk: '#abcdef', hatchLine: 2, hatchGap: 40,
+      });
+      const strokes = hatchStrokes(ctx);
+      expect(strokes[0].strokeStyle).toBe('#abcdef');
+      expect(strokes[0].lineWidth).toBe(2);
+      expect(ctx.calls.find((c) => c.name === 'stroke' && c.strokeStyle === 'rgba(242,231,211,.30)'))
+        .toBeTruthy();
+    });
+
+    it('marks an EMPTY point set and a painted one alike — it is the caller\'s claim', () => {
+      // Deliberately not inferred from "the field painted nothing": `field()` also returns null
+      // when every point is culled outside the frame, which is a framing answer rather than an
+      // absence of data. The host that knows which windows carry ratings is the one that says so.
+      const { cv, ctx } = canvasWithContext();
+      drawGeo(cv, 200, 140, SPOTS, 0, { fit: bbox(SPOTS), hatch: true });
+      expect(hatchStrokes(ctx)).toHaveLength(1);
+      expect(ctx.calls.some((c) => c.name === 'drawImage')).toBe(true);
+    });
+  });
+
   it('declines a canvas 20px or smaller — a zero measure throws on cv.width', () => {
     const { cv } = canvasWithContext();
     expect(drawGeo(cv, 20, 140, SPOTS, 0)).toBeNull();

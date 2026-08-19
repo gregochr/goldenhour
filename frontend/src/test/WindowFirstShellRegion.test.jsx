@@ -192,6 +192,35 @@ describe('WindowFirstShell — building the region layer', () => {
     expect(screen.getAllByTestId('window-card').length).toBe(2);
   });
 
+  it('marks only the card whose window carries no ratings', async () => {
+    // The join this file exists for: `scoresKnown` comes off the provider and `points` off the
+    // keyed map, and the mark is the two of them together. Neither component can see the pairing —
+    // the map is handed both as props — so a shell that passed the flag and forgot the lookup, or
+    // handed every card the same window's points, would leave both files green.
+    await renderShell({
+      scoresLoaded: true,
+      heatPointSets: new Map([
+        [KEY_A, [{ lat: 6, lng: 4, rid: 'Coast', r: [5] }]],
+        [KEY_B, []],
+      ]),
+    });
+    // The second row is closed on arrival — only the lead opens itself — and the region layer
+    // mounts per OPEN card, so the comparison needs it opened.
+    await act(async () => {
+      fireEvent.click(screen.getAllByTestId('window-card-expander')[1]);
+    });
+    const cards = screen.getAllByTestId('window-card');
+    expect(within(cards[0]).queryByTestId('wf-row-map-unscored')).toBeNull();
+    expect(within(cards[1]).getByTestId('wf-row-map-unscored')).toHaveTextContent('Not scored');
+  });
+
+  it('claims nothing about either card until the ratings response has arrived', async () => {
+    // Every window is pointless on mount, which is why the flag exists rather than a bare
+    // `points.length === 0` inside the map.
+    await renderShell({ heatPointSets: new Map([[KEY_A, []], [KEY_B, []]]) });
+    expect(screen.queryAllByTestId('wf-row-map-unscored')).toHaveLength(0);
+  });
+
   it('words the filters from the live lens, so the footer names what is actually in force', async () => {
     await renderShell();
     fireEvent.click(railCells(0)[1]);

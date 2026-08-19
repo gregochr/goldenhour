@@ -71,6 +71,7 @@ export default function WindowRowRegionLayer({
         confidence={card.confidence}
         spots={field.spots}
         points={field.points}
+        scoresKnown={field.scoresKnown}
         // Rank order, so the labels and the rail name one set — a region on the map that is not on
         // the rail could be selected and then not be clearable from the rail.
         regionNames={regionNames}
@@ -126,6 +127,7 @@ WindowRowRegionLayer.propTypes = {
   field: PropTypes.shape({
     spots: PropTypes.array.isRequired,
     points: PropTypes.array.isRequired,
+    scoresKnown: PropTypes.bool,
     windows: PropTypes.array.isRequired,
     series: PropTypes.instanceOf(Map),
     reachById: PropTypes.instanceOf(Map),
