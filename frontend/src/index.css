@@ -1430,6 +1430,26 @@ button.wf-hc:focus-visible {
   padding: 3px 6px;
   border-radius: 5px;
 }
+/* The unscored chip, bottom-RIGHT so it cannot collide with the hint bottom-left. Same plate and
+   the same 9px mono as `.wf-mhint`, because the two are the same kind of thing — an annotation on
+   the picture — and a second chip style would read as a second kind of statement.
+
+   `pointer-events: none` for the reason recorded on `.wf-mhint`: it is an absolutely-positioned
+   sibling inside the clickable box, so without it the area under the chip is the one place a
+   pointer cannot select a region. */
+.wf-mnote {
+  position: absolute;
+  right: 8px;
+  bottom: 7px;
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1.35;
+  color: var(--color-plex-text-secondary);
+  background: rgba(20, 15, 12, 0.8);
+  padding: 3px 6px;
+  border-radius: 5px;
+}
 
 .wf-rlab {
   font-family: var(--font-mono);

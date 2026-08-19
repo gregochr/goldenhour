@@ -31,6 +31,18 @@ the provider's own empty-response early return, because a response carrying no r
 answer and is the one case where every window genuinely is unrated; a failed or in-flight fetch
 sets nothing, since neither is evidence about the forecast.
 
+**The open row's field map takes the same mark.** It is the same defect one level down — with no
+points the kernel paints nothing, so the map is bare coastline — and quieter only because the
+region labels still sit on the plate, which reads as "these places, nothing doing" rather than as
+"nobody looked". Same hatch, same `scoresKnown` gate (carried on the card's `field` object), and a
+`Not scored` chip bottom-right of the map box, opposite the selection hint. The chip is
+`aria-hidden` with the canvas and the labels it sits among, which is this component's own doctrine
+rather than an omission: the picture does not exist for a screen reader, and the accessible answer
+is the region rail below, which already withholds `best N★` when nothing there is rated. Its
+wording is the strip's vocabulary but not the strip's sentence — there the footer says
+`unshaded — not scored` because it decodes six tiles at once, and here the whole of one plate is
+hatched, so "unshaded" would name nothing.
+
 The hatch says nothing about WHY. "at this range" was drafted and dropped: the horizon is the
 usual cause and not the only one (a failed batch leaves T+0 unrated), and the client cannot tell
 a stability skip from a triage stand-down from a failed run — all it sees is a window with no

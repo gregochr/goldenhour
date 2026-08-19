@@ -340,6 +340,62 @@ describe('WindowRowFieldMap — the click', () => {
   });
 });
 
+describe('WindowRowFieldMap — a window nobody rated', () => {
+  /**
+   * The heat strip's defect, one level down: with no points the kernel paints nothing, so the map
+   * is bare coastline — which is also what a window whose field happened to paint nothing looks
+   * like — while the card above carries a verdict word the weather thresholds produced either way.
+   * Quieter here than on the strip because the region labels still sit on the plate, which makes
+   * it read as "these places, nothing doing" rather than as "nobody looked".
+   */
+  it('hatches the plate for a window with no points once the ratings have arrived', async () => {
+    await withMeasuredMap(600, async () => {
+      await renderMap({ points: [], scoresKnown: true });
+    });
+    expect(drawGeo.mock.calls.at(-1)[5].hatch).toBe(true);
+    expect(screen.getByTestId('wf-row-map-unscored')).toHaveTextContent('Not scored');
+  });
+
+  it('leaves a window that has points alone', async () => {
+    // The pair is the assertion: hatching unconditionally is the same defect with the opposite
+    // sign, and a single-case test cannot tell the two apart.
+    await withMeasuredMap(600, async () => {
+      await renderMap({ scoresKnown: true });
+    });
+    expect(drawGeo.mock.calls.at(-1)[5].hatch).toBe(false);
+    expect(screen.queryByTestId('wf-row-map-unscored')).toBeNull();
+  });
+
+  it('claims nothing until the provider says the ratings arrived', async () => {
+    // An unfetched response is an empty array too, and it is the state this map mounts in.
+    await withMeasuredMap(600, async () => {
+      await renderMap({ points: [] });
+    });
+    expect(drawGeo.mock.calls.at(-1)[5].hatch).toBe(false);
+    expect(screen.queryByTestId('wf-row-map-unscored')).toBeNull();
+  });
+
+  it('keeps the chip out of the accessible tree, with the picture it annotates', async () => {
+    // It decodes a hatch, and the hatch does not exist for a screen reader. The accessible answer
+    // is the rail below, which withholds `best N★` when nothing there is rated rather than
+    // printing a figure — less, not something false.
+    await withMeasuredMap(600, async () => {
+      await renderMap({ points: [], scoresKnown: true });
+    });
+    expect(screen.getByTestId('wf-row-map-unscored')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('sits beside the selection hint rather than replacing it', async () => {
+    // Two different statements — one about what the picture shows, one about what it does — and
+    // an unrated window is still selectable.
+    await withMeasuredMap(600, async () => {
+      await renderMap({ points: [], scoresKnown: true });
+    });
+    expect(screen.getByTestId('wf-row-map-hint')).toHaveTextContent('Select a region');
+    expect(screen.getByTestId('wf-row-map-unscored')).toBeInTheDocument();
+  });
+});
+
 describe('WindowRowFieldMap — the accessibility contract', () => {
   it('hides the canvas and its labels, because the rail names every one of them', async () => {
     await withMeasuredMap(600, async () => {
