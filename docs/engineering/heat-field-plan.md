@@ -29,7 +29,8 @@ card's spot pool; adversarially reviewed (six lenses) with the surviving finding
 browser-verified at 1280 and 390 (via the documented Playwright fallback — the pane wedged). Its
 row records six defects that landed only because the review and the browser ran before the
 commit, two of which no green suite could have caught.
-**P4 is BUILT** (`feature/heat-p4-map`, 2026-08-19) — the Map tab's heat layer, the `MapView`
+**P4 is MERGED** (#564, `f9e1be4f`, 2026-08-19; released base beneath it is v2.18.12, the
+deliberate pre-P4 rollback point) — the Map tab's heat layer, the `MapView`
 opt-in, the widened `useHeatCanvas` and the `scoreRamp` marker swap; adversarially reviewed (six
 lenses) with the surviving findings applied, and browser-verified at 1440 and 390 against a
 210-location dense fixture. Its row records what it decided, including the two defects the browser
