@@ -325,13 +325,17 @@ const HATCH_INK = 'rgba(242,231,211,.18)';
  * @param {CanvasRenderingContext2D} ctx target context
  * @param {number} w surface width in CSS px
  * @param {number} h surface height in CSS px
- * @param {Function} clip lays the land path into {@code ctx} (the caller's bound {@code geoPath})
+ * @param {Function} clip lays the land path into {@code ctx}, taking NO arguments — it is the
+ *        caller's {@code geoPath}, which d3 has already bound to this context. {@code paint}'s
+ *        {@code opts.clip} is handed {@code ctx} for the same job, and that is a public option
+ *        whose arity is the caller's business; this one has a single call site and passing it an
+ *        argument the arrow never declared claimed a contract nothing honours.
  * @param {{hatchGap?: number, hatchInk?: string, hatchLine?: number}} opts the hatch's dials
  */
 function hatchPlate(ctx, w, h, clip, opts) {
   ctx.save();
   ctx.beginPath();
-  clip(ctx);
+  clip();
   ctx.clip();
   // Floored at 1: a zero or negative gap does not draw a denser hatch, it hangs the render
   // thread. The option exists for the tests, and a shared kernel should not carry a loop a
