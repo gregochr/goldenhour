@@ -25,6 +25,16 @@ vi.mock('../utils/heatField.js', () => ({
 
 const KEY = 'a';
 
+/**
+ * A stable function identity for a fixture, standing in for the caller's `useCallback`.
+ *
+ * <p>Both `paint` and `measure` are dependencies of the hook's paint effect, so an inline arrow in
+ * a fixture would repaint on every render and make a call count meaningless.
+ */
+function useCallbackLike(fn) {
+  return fn;
+}
+
 /** Two canvases in one well, which is the shape the strip mounts and the row map degenerates to. */
 function Harness({ paint, aspect = 1, minPx = 21, enabled = true, keys = [KEY] }) {
   const { attachFrame, canvasRef, geoFailed } = useHeatCanvas({
@@ -319,6 +329,154 @@ describe('useHeatCanvas — the frame observer', () => {
       expect(observed[0]).toBe(screen.getByTestId('frame'));
     } finally {
       global.ResizeObserver = RealObserver;
+    }
+  });
+});
+
+describe('useHeatCanvas — the P4 widening', () => {
+  /**
+   * A host that measures itself, as the Leaflet one does. `aspect` is deliberately absent: the
+   * point of `measure` is that both dimensions come from the caller.
+   */
+  function MeasuredHarness({ paint, measure = null, requiresLand = false, onApi = () => {} }) {
+    const {
+      attachFrame, canvasRef, repaint, repaintNow,
+    } = useHeatCanvas({
+      enabled: true, measureKey: KEY, paint, measure, requiresLand,
+    });
+    // Destructured, then handed over — reading `api.attachFrame` off the returned object during
+    // render trips `react-hooks/refs`, which cannot tell a ref callback from a ref.
+    onApi({ repaint, repaintNow });
+    return (
+      <div ref={attachFrame} data-testid="frame">
+        <span><canvas data-testid={`canvas-${KEY}`} ref={canvasRef(KEY)} /></span>
+      </div>
+    );
+  }
+
+  it('takes the caller’s measurement whole, ignoring the well and the aspect entirely', async () => {
+    // A Leaflet pane is absolutely positioned with no intrinsic box, so the canvas's parent measures
+    // 0 wide — the default derivation cannot answer for that host at all.
+    const paint = vi.fn();
+    const measure = useCallbackLike(() => ({ width: 640, height: 480 }));
+    await withMeasured(0, async () => {
+      await act(async () => { render(<MeasuredHarness paint={paint} measure={measure} />); });
+    });
+    expect(paint).toHaveBeenCalledTimes(1);
+    expect(paint.mock.calls[0][0]).toMatchObject({ width: 640, height: 480 });
+  });
+
+  it('never fetches the coastline for a host that does not draw one', async () => {
+    // Not a wait-skip: `load()` is what pulls the topology chunk, and `drawTiles` clips to nothing.
+    const paint = vi.fn();
+    const measure = useCallbackLike(() => ({ width: 640, height: 480 }));
+    await act(async () => { render(<MeasuredHarness paint={paint} measure={measure} />); });
+    expect(load).not.toHaveBeenCalled();
+    expect(paint).toHaveBeenCalledTimes(1);
+  });
+
+  it('still waits for the coastline when the host asks for it', async () => {
+    const paint = vi.fn();
+    const measure = useCallbackLike(() => ({ width: 640, height: 480 }));
+    land.mockImplementation(() => null);
+    await act(async () => {
+      render(<MeasuredHarness paint={paint} measure={measure} requiresLand />);
+    });
+    expect(load).toHaveBeenCalled();
+    expect(paint).not.toHaveBeenCalled();
+  });
+
+  it('declines a config it cannot answer, ONCE, instead of failing as thirty silent frames', async () => {
+    // Neither a measurement nor an aspect: the derived height would be NaN, every comparison against
+    // it false, and the only symptom a permanently blank canvas with nothing in the console.
+    const paint = vi.fn();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await withMeasured(400, async () => {
+      // Neither prop — `MeasuredHarness` forwards `measure` as null and passes no `aspect` at all,
+      // which `Harness` cannot express because it defaults the aspect to 1.
+      await act(async () => { render(<MeasuredHarness paint={paint} />); });
+      await act(async () => { await new Promise((r) => requestAnimationFrame(r)); });
+    });
+    expect(paint).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('repaints imperatively without an event, and coalesces a burst to one frame', async () => {
+    let api = null;
+    const paint = vi.fn();
+    const measure = useCallbackLike(() => ({ width: 640, height: 480 }));
+    await act(async () => {
+      render(<MeasuredHarness paint={paint} measure={measure} onApi={(a) => { api = a; }} />);
+    });
+    expect(paint).toHaveBeenCalledTimes(1);
+
+    await act(async () => { api.repaint(); api.repaint(); api.repaint(); });
+    expect(paint).toHaveBeenCalledTimes(1);
+    await act(async () => { await new Promise((r) => requestAnimationFrame(r)); });
+    expect(paint).toHaveBeenCalledTimes(2);
+  });
+
+  it('paints in the calling tick on repaintNow, and cancels the frame a move had owed', async () => {
+    // ⚠️ It does NOT dedupe. Recognising a duplicate settle needs to know whether the view actually
+    // moved, which only the host knows — a same-tick latch here was measured in a browser and froze
+    // a map driven through several zooms in one task at the first of them.
+    let api = null;
+    const paint = vi.fn();
+    const measure = useCallbackLike(() => ({ width: 640, height: 480 }));
+    await act(async () => {
+      render(<MeasuredHarness paint={paint} measure={measure} onApi={(a) => { api = a; }} />);
+    });
+    paint.mockClear();
+    await act(async () => { api.repaint(); api.repaintNow(); });
+    expect(paint).toHaveBeenCalledTimes(1);
+    // The frame the throttle owed was cancelled, so no second paint arrives behind the settle.
+    await act(async () => { await new Promise((r) => requestAnimationFrame(r)); });
+    expect(paint).toHaveBeenCalledTimes(1);
+  });
+
+  it('watches the frame’s HEIGHT only for a host that measures itself', async () => {
+    // ⚠️ The asymmetry is the finding. A static host's frame height is a CONSEQUENCE of the paint
+    // (the canvas goes from its 300×150 intrinsic ratio to `width × aspect`), so watching it would
+    // repaint every mount a second time — the doubled first paint the `alreadyLoaded` guard exists
+    // to prevent. A map's frame height moves only when something real moved it.
+    const original = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth');
+    const originalH = Object.getOwnPropertyDescriptor(Element.prototype, 'clientHeight');
+    Object.defineProperty(Element.prototype, 'clientWidth', { configurable: true, get: () => 400 });
+    let height = 200;
+    Object.defineProperty(Element.prototype, 'clientHeight', { configurable: true, get: () => height });
+    let fire;
+    const RealObserver = global.ResizeObserver;
+    global.ResizeObserver = class {
+      constructor(cb) { fire = cb; }
+
+      observe() {}
+
+      disconnect() {}
+    };
+    try {
+      const derived = vi.fn();
+      await act(async () => { render(<Harness paint={derived} aspect={0.5} />); });
+      expect(derived).toHaveBeenCalledTimes(1);
+      height = 340;
+      await act(async () => { fire(); });
+      expect(derived, 'a derived-height host must ignore its frame growing').toHaveBeenCalledTimes(1);
+
+      const measured = vi.fn();
+      const measure = useCallbackLike(() => ({ width: 400, height }));
+      await act(async () => {
+        render(<MeasuredHarness paint={measured} measure={measure} />);
+      });
+      expect(measured).toHaveBeenCalledTimes(1);
+      height = 500;
+      await act(async () => { fire(); });
+      expect(measured, 'a self-measuring host must hear a height-only change').toHaveBeenCalledTimes(2);
+    } finally {
+      global.ResizeObserver = RealObserver;
+      if (original) Object.defineProperty(Element.prototype, 'clientWidth', original);
+      else delete Element.prototype.clientWidth;
+      if (originalH) Object.defineProperty(Element.prototype, 'clientHeight', originalH);
+      else delete Element.prototype.clientHeight;
     }
   });
 });

@@ -5,6 +5,70 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — heat field P4: the Map tab paints the field
+
+The Map tab's default view is now the same heat field the Plan tab paints, over the basemap
+instead of a vendored coastline (`docs/engineering/heat-field-plan.md` §4.5, D8). The existing
+cluster map is one press away as **Medallions** and is byte-identical to what it always was, which
+is what makes it a usable "before".
+
+`MapHeatLayer` mounts a canvas in a custom Leaflet pane at **zIndex 350** — above the tiles, under
+the azimuth lines, the aurora viewline, every marker and every popup — and repaints it on
+`move`/`zoom`/`viewreset`/`resize` through an rAF **throttle**, plus an un-throttled settle on
+`moveend`/`zoomend`. A throttle and never a debounce: a debounce pushes the frame back on every
+event, so a drag that never stops paints nothing at all.
+
+**The handover.** Below zoom 10.6 the question is WHERE and the field answers it alone: the marker
+panes are at zero opacity and are not click targets. Across 10.6→12.2 the markers come forward and
+the field settles to a 17% wash, because the question has become WHICH and a smear cannot answer
+which. In heat view the markers and the cluster medallions take the same `scoreRamp` the field
+does, so one colour means one thing everywhere on the tab — including the quality filter's own
+swatches, which would otherwise be a second ramp for the same rating a few hundred pixels away.
+
+**The toolbar** (top-left, clear of Leaflet's zoom control) carries the view segment, the window
+selector and the ramp's key. The window selector sets the map's own date and event rather than
+holding a seventh time control, so the field and the markers can never be on different evenings.
+The `◎ My area | Whole catalogue` segment is **absent entirely when no home is set** — with no
+postcode the planning area is the whole roster and both states would frame the same box.
+
+### Changed — the area segment frames, and never filters
+
+⚠️ The design prototype's version of `My area` filters the field, and this does not. The plan
+forbids it in five places, and P2 chose the strip footer's wording *because* the field is not
+area-filtered — so filtering here would have made a caption false on the tab next door. The
+dark-sky toggle does narrow the field (D7, on the app's real Bortle `<= 4` rather than the bundle's
+inverted mock scale), and the difference is not arbitrary: darkness is a property of the place, and
+how far you would drive is a property of the reader.
+
+### Changed — `useHeatCanvas` widened to a third host rather than copied
+
+The shared canvas host now takes a caller-supplied `measure` (a Leaflet pane has no intrinsic box,
+so the default well-and-aspect derivation cannot answer for it), a `requiresLand` flag (the
+basemap carries the geography, so this host waits for no coastline and fetches no topology), and a
+throttled `repaint`/`repaintNow` pair. `WindowFirstHeatStrip.test.jsx` and
+`WindowRowFieldMap.test.jsx` pass **unedited**, which is the proof the widening preserved
+behaviour — with the height half of its change gate given its own test, because jsdom reports every
+`clientHeight` as 0 and could not have seen it.
+
+`heatGeometry.js` splits the projection-free arithmetic (`bbox`, `latLngBounds`, `aspect`,
+`clamp`) out of the kernel and is re-exported from it, so a caller that wants a bounding box no
+longer pulls a 24 KB `d3-geo` chunk. `heatField.fit` now only reallocates a canvas's backing store
+when the size genuinely changed: the two static hosts call it on a resize, and this one calls it on
+every frame of a pan.
+
+### Fixed — three defects the browser found and a green suite did not
+
+- An invisible cluster medallion still swallowed the tap meant for the map. The pane-level
+  `pointer-events: none` §4.5 specifies is necessary and not sufficient — Leaflet's own
+  `.leaflet-marker-icon.leaflet-interactive { pointer-events: auto }` beats an ancestor — and the
+  first fix lost the specificity tie to it. `markerInertCascade.test.jsx` pins the cascade.
+- Toggling to Medallions left every cluster bubble on the ramp it was built with, because
+  `L.MarkerClusterGroup` caches each bubble's icon and `react-leaflet-cluster` never refreshes it.
+- A same-tick dedupe of the settle froze the marker fade when the map was driven through several
+  zooms in one task. The duplicate is deduped on the view instead, which is the only thing that
+  can tell a repeat from a move.
+
+
 ## [v2.18.12] - 2026-08-19
 
 ### Added — heat field P3: the open row's field map, region rail and region band

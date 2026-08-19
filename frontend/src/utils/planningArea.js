@@ -19,6 +19,14 @@
  * and handing its output to the kernel as the field's point set would quietly turn the framing
  * into the filter §3 forbids.
  *
+ * <p>⚠️ That rule now has THREE consumers and it held for all three, including the one that looked
+ * most like an exception. P4's Map tab is pannable and carries a `My area | Whole catalogue`
+ * segment, and the design prototype's own version of that control filters (`map-tab.js`'s
+ * {@code visible()}) — the first cut followed it and was reverted. On this surface the segment
+ * moves the CAMERA and nothing else. What earns the dark-sky toggle its exemption, and denies the
+ * area one, is whose property the filter is about: darkness belongs to the place, and how far you
+ * would drive belongs to the reader.
+ *
  * <p><b>Memoise the callers.</b> §5.4 records that the prototype's unmemoised equivalent of
  * {@link areaRegions} (its {@code areaRids}) cost seconds per repaint — this module is the one
  * that measurement was about.

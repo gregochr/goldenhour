@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense, lazy } from 'react';
 import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents, useMap } from 'react-leaflet';
@@ -24,6 +24,87 @@ import { resolveStandDown } from '../utils/standDown.js';
 import { resolveAuroraNight, ukDateStr } from '../utils/mapDates.js';
 import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel, SKY_SUBJECT_TYPES } from '../utils/locationTypes.js';
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
+import { rampHex, RAMP_STOPS } from '../utils/scoreRamp.js';
+
+/**
+ * The heat field, behind a `lazy()` boundary — and the boundary is load-bearing, not tidiness.
+ *
+ * <p>`MapHeatLayer` statically imports the kernel, which statically imports `d3-geo`. `MapView` is
+ * mounted three times (the v1 Map tab, the v2 pane, the Plan overlay) and only ONE of them passes
+ * `heat`; a static import here would put the `geo` chunk on the network for the v1 arm, which is
+ * the pilot's frozen comparison control. Nothing is fetched until something renders the layer, and
+ * only the opted-in caller can.
+ */
+const MapHeatLayer = lazy(() => import('./MapHeatLayer.jsx'));
+
+/**
+ * Fits the map to a bounds box, once per nonce, WITHOUT animating.
+ *
+ * <p>⚠️ `{animate: false}` is the bundle's own trap and it is not a preference. A heavy field
+ * paint in the same frame as an animated `fitBounds` forces layout mid-transition and strands
+ * Leaflet at the old view — so the toolbar's labels would change while the map never moved. A jump
+ * is honest; a silent no-op is not.
+ *
+ * <p>Separate from `FitBoundsController` rather than a flag on it: that one answers a Plan-tab
+ * handoff, animates deliberately, and caps the zoom at 12 so a one-location region does not slam to
+ * street level. This one answers a framing control, where an animation is the defect and a cap
+ * would stop "My area" actually showing your area.
+ */
+function HeatBoundsController({ bounds, nonce }) {
+  const map = useMap();
+  /**
+   * The framing already applied, as a value rather than a "have I run yet" boolean.
+   *
+   * <p>Two things follow, and both were review findings. A `useRef(false)` armed flag is NOT
+   * StrictMode-safe — dev double-invokes the effect and the ref survives, so the second run fires
+   * the very camera move the guard exists to skip. And keying on the nonce alone made the opening
+   * framing depend on a race: `heat.areaBounds` is null until the briefing and the reach matrix have
+   * both landed, so a reader who opened the Map tab first got the whole-of-Britain box for the rest
+   * of the session, with the only correction hidden behind a segment that is itself absent without a
+   * home. Comparing the applied VALUE fixes both: the first run records what `MapContainer` already
+   * opened on, and any later change — the area arriving, or a segment press bumping the nonce —
+   * re-frames exactly once.
+   */
+  const applied = useRef(null);
+  const key = `${nonce}|${JSON.stringify(bounds)}`;
+  useEffect(() => {
+    if (applied.current === null) {
+      applied.current = key;
+      return;
+    }
+    if (applied.current === key) return;
+    applied.current = key;
+    if (!bounds || typeof map?.fitBounds !== 'function') return;
+    map.fitBounds(bounds, { padding: [28, 28], animate: false });
+    // Keyed on the composed value, not on the bounds ARRAY identity, which is rebuilt on every poll.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return null;
+}
+
+HeatBoundsController.propTypes = {
+  bounds: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
+  nonce: PropTypes.number,
+};
+
+/**
+ * A spot's identity for the field's own filtering, id-first with a name fallback.
+ *
+ * <p>The same precedence `heatSpots.buildHeatSpots` joins on, for the same reason: ids are stable
+ * and names are what exists when they are not. The sigils keep the two spaces apart — without them
+ * a location whose id is 5 and one whose name is "5" are the same key.
+ */
+function heatSpotKey(spot) {
+  return spot.id != null ? `#${spot.id}` : `@${spot.name}`;
+}
+
+/**
+ * One empty point array, shared.
+ *
+ * <p>A fresh `[]` per render would change `MapHeatLayer`'s `points` identity, which is a dependency
+ * of its paint callback — so an unscored window would repaint the same nothing on every render.
+ */
+const EMPTY_POINTS = [];
 
 // Override Leaflet popup width + scrolling.
 // Max-height must be less than the map container height (500px) so the popup
@@ -359,15 +440,20 @@ const markerIconCache = new Map();
 /** Soft cap so a long-lived tab whose scores change daily can't grow the icon cache without bound. */
 const MARKER_ICON_CACHE_LIMIT = 2000;
 
-function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildlife = false, excludeFromCluster = false, isStandDown = false, emphasis = null) {
+function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildlife = false, excludeFromCluster = false, isStandDown = false, emphasis = null, ramp = false) {
   // `emphasis` is part of the key: a DivIcon is cached by everything that determines it, and
   // the className carries the focus/muted modifier. Omitting it would serve the Map tab's
   // plain icon to the overlay (or worse, leak the overlay's muted icon back to the Map tab).
-  const cacheKey = `${locationName}|${rating}|${fierySky}|${goldenHour}|${isPureWildlife ? 1 : 0}|${excludeFromCluster ? 1 : 0}|${isStandDown ? 1 : 0}|${emphasis ?? '-'}`;
+  //
+  // ⚠️ `ramp` is part of it for the same reason and a sharper one: this cache is MODULE-level and
+  // shared by all three mounts. Leave it out and toggling Heat → Medallions serves back the icons
+  // the ramp built, so the "before" view would silently render the after view's colours — the one
+  // comparison the medallion view exists to make.
+  const cacheKey = `${locationName}|${rating}|${fierySky}|${goldenHour}|${isPureWildlife ? 1 : 0}|${excludeFromCluster ? 1 : 0}|${isStandDown ? 1 : 0}|${emphasis ?? '-'}|${ramp ? 'r' : '-'}`;
   const cached = markerIconCache.get(cacheKey);
   if (cached) return cached;
 
-  const { label, colour } = markerLabelAndColour(rating, fierySky, goldenHour, isPureWildlife);
+  const { label, colour } = markerLabelAndColour(rating, fierySky, goldenHour, isPureWildlife, ramp);
 
   const svg = isStandDown
     ? buildStandDownSvg()
@@ -660,7 +746,7 @@ const OVERLAY_MAP_HEIGHT_PX = 470;
 const OVERLAY_MAP_HEIGHT_FILTERS_OPEN_PX = 300;
 const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
 
-function MapView({ locations, date, onSelectDate = null, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null, resizeNonce = null }) {
+function MapView({ locations, date, onSelectDate = null, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null, resizeNonce = null, heat = null }) {
   const { role } = useAuth();
   const isMobile = useIsMobile();
   const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
@@ -689,6 +775,19 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
   const [travelRanges, setTravelRanges] = useState([]);
   useEffect(() => { fetchTravelDayRanges().then(setTravelRanges).catch(() => {}); }, []);
   const [darkSkyFilter, setDarkSkyFilter] = useState(false);
+  /**
+   * The Map tab's two heat controls, and the nonce that re-frames the camera.
+   *
+   * <p>Both are local to this mount, so the Plan tab's open row and this tab cannot pull each other
+   * around: plan §4.5 keeps the two tabs' questions separate — time there, space here.
+   *
+   * <p>`heat` is the default view in v2 (that is the feature); `medallions` is today's cluster map,
+   * kept as the honest "before". `heatArea` frames and filters to the planning area, which is the
+   * state a reader arrives in — you do not open on the whole of Britain.
+   */
+  const [heatView, setHeatView] = useState('heat');
+  const [heatArea, setHeatArea] = useState(true);
+  const [heatFitNonce, setHeatFitNonce] = useState(0);
   // Filters are collapsed by default (a quiet "tell me more" follow-up to Plan);
   // the open/closed choice persists since users rarely change filters.
   //
@@ -951,6 +1050,88 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
 
   const isAuroraMode = eventType === 'AURORA';
   const isAstroMode = eventType === 'ASTRO';
+
+  /**
+   * The heat field's opt-in, and the one place it is decided.
+   *
+   * <p>`heat` defaults to null and only `WindowFirstMapPane` passes it, so the v1 Map tab and the
+   * Plan overlay render byte-identically without it — the `serverCellRating` shape, and the reason
+   * plan §8 calls this component's blast radius out by name.
+   *
+   * <p>Withheld in aurora and astro modes even when handed: the markers there carry a different
+   * quantity entirely (Kp visibility, observing quality) and a sky-colour field painted under them
+   * would be two scales on one picture with nothing saying so.
+   */
+  const heatOffered = Boolean(heat?.enabled) && !isAuroraMode && !isAstroMode;
+  const heatOn = heatOffered && heatView === 'heat';
+
+  /**
+   * The window the field paints — the map's OWN date and event, never a third time control.
+   *
+   * <p>The tab already has two ways to say when: the date strip above it and the event chips in
+   * the filter drawer. A selector with its own state would make three, and the two that disagreed
+   * would put the field on one evening and the markers on another with the same star beside them.
+   * So the toolbar's selector sets the map's date and event; it does not hold a window of its own.
+   *
+   * <p>Null when the map is on a date the briefing does not cover. `GET /api/forecast` reaches
+   * further than the briefing's six windows, so this is an ordinary state and not an error: the
+   * field is absent, the markers are not, and the selector shows nothing selected.
+   */
+  const heatWindow = useMemo(() => {
+    if (!heatOffered) return null;
+    const key = `${date}:${eventType}`;
+    return (heat.windows || []).find((w) => w.key === key) || null;
+  }, [heatOffered, heat, date, eventType]);
+
+  /**
+   * The places the field is allowed to count.
+   *
+   * <p>⚠️ <b>Deliberately NOT the marker population.</b> The map defaults to 3★-and-above, and a
+   * field filtered by that threshold would paint only the good news — every region green, the
+   * gradient the feature exists to show flattened away. A red area is information.
+   *
+   * <p>⚠️ <b>And deliberately NOT the planning area either.</b> The first cut narrowed the field
+   * with the "My area" segment, following the prototype (`map-tab.js`'s `visible()`), and the plan
+   * overrules the prototype here in five places: §3 quotes the design's own rule that <em>the lens
+   * does not filter the field</em>; §4.5 gives the segment as <em>fitBounds</em> and lists the
+   * opening bounds separately; §9 Q4 keeps "should the field respect drive time" OPEN and says
+   * revisit only with evidence; and both {@code planningArea.js} and {@code WindowFirstHeatStrip}
+   * carry the same warning in as many words — handing {@code areaSpots} to the kernel turns the
+   * framing into a reach filter. P2 chose the strip's footer wording <em>because</em> the field is
+   * not area-filtered, so filtering here would have made one caption false on the tab next door.
+   * The segment moves the camera; it does not decide which forecasts exist.
+   *
+   * <p>The dark-sky toggle is the one control that does narrow the field (§4.5, D7), and the
+   * difference is not arbitrary: darkness is a property of the PLACE, and how far you would drive
+   * is a property of the reader. Bortle 1–9, lower is darker, threshold {@code <= 4} — the bundle's
+   * `>= 3.8` is its own mock scale inverted and must never be ported.
+   */
+  const heatSpotPool = useMemo(() => {
+    if (!heatOffered || !darkSkyFilter) return null;
+    return (heat.spots || []).filter(
+      (s) => s.bortleClass != null && s.bortleClass <= DARK_SKY_THRESHOLD,
+    );
+  }, [heatOffered, heat, darkSkyFilter]);
+
+  /**
+   * This window's kernel points, narrowed to that pool.
+   *
+   * <p>The catalogue carries `bortleClass` and the points do not — `heatSpots.js` says so in as
+   * many words ("P4's dark-sky filter wants the whole catalogue; only the kernel wants points"), so
+   * the filter is decided on spots and applied to points through the join's own id-first key.
+   */
+  const heatPoints = useMemo(() => {
+    if (!heatOn || !heatWindow) return EMPTY_POINTS;
+    const points = heat.pointsByKey?.get(heatWindow.key) || EMPTY_POINTS;
+    if (!heatSpotPool) return points;
+    const allowed = new Set(heatSpotPool.map(heatSpotKey));
+    return points.filter((p) => allowed.has(heatSpotKey(p)));
+  }, [heatOn, heatWindow, heat, heatSpotPool]);
+
+  /** The camera's framing for each segment state — `null` when the roster cannot supply a box. */
+  const heatBounds = (heatArea ? heat?.areaBounds : heat?.catalogueBounds) || null;
+  /** The box the map OPENS on, which is the area one whenever a field exists at all. */
+  const openingBounds = (heat?.enabled ? heat.areaBounds : null) || null;
 
   /**
    * Entering aurora mode lands on the night the results are stored under.
@@ -1367,7 +1548,11 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
                     <span
                       aria-hidden="true"
                       className="inline-block rounded-full"
-                      style={{ width: 8, height: 8, backgroundColor: RATING_COLOURS[star] }}
+                      /* One ramp per surface (D2). In heat view the field, the markers and the
+                         clusters are all on `scoreRamp`, so a swatch left on v1's palette would put
+                         two colour languages for one rating on the same screen — the bundle README's
+                         "do not silently ship both ramps meaning the same thing". */
+                      style={{ width: 8, height: 8, backgroundColor: heatOn ? rampHex(star) : RATING_COLOURS[star] }}
                     />
                     {star}&#9733;{star < 5 ? '+' : ''}
                   </button>
@@ -1560,11 +1745,38 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
         }}
       >
         <MapContainer
-          bounds={bounds}
-          boundsOptions={{ padding: [60, 60] }}
+          /* The heat arm opens on the PLANNING AREA, not on every location the roster holds (§4.5).
+             Framing the whole catalogue would open on a box wide enough to make the field a smudge
+             and every marker a cluster, which is the overload the feature removes.
+
+             Falls back to the v1 framing when no box could be derived at all — no spots, a failed
+             scores fetch, a briefing that has not landed. ⚠️ NOT when there is no home: with no
+             postcode `planningArea` treats every unmeasured region as in-area, so the box is the
+             catalogue's own, padded 0.12° and at 28px rather than v1's 60. That is a deliberate
+             difference from v1, not a fallback, and it is written down because the first cut's
+             comment claimed the opposite.
+
+             Gated on `heat.enabled` rather than on `heatOffered`, which additionally excludes aurora
+             and astro modes: `MapContainer` reads `bounds` once at construction, so a tab that
+             happened to mount in aurora mode would have taken the heat framing and kept it for the
+             session. */
+          bounds={openingBounds || bounds}
+          boundsOptions={openingBounds ? { padding: [28, 28] } : { padding: [60, 60] }}
           style={{ height: '100%', width: '100%' }}
           zoomControl
         >
+          {heatOn && (
+            /* No fallback: the field is a picture, and a spinner where a picture is loading says
+               less than the map already does. */
+            <Suspense fallback={null}>
+              <MapHeatLayer
+                points={heatPoints}
+                conf={heatWindow?.conf ?? null}
+                markersLocked={selectedLocationName != null}
+              />
+            </Suspense>
+          )}
+          {heatOffered && <HeatBoundsController bounds={heatBounds} nonce={heatFitNonce} />}
           <TileLayer
             url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
             attribution='&copy; <a href="https://carto.com/attributions">CARTO</a>'
@@ -1628,8 +1840,19 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
           )}
 
           <MarkerClusterGroup
+            /* ⚠️ Remounted on the view switch, and it is the only thing that makes D8's "medallion
+               view is byte-identical to today" true on screen. `L.MarkerClusterGroup` caches each
+               bubble's `_iconObj` and re-calls `iconCreateFunction` only when the cluster's
+               membership changes (`_iconNeedsUpdate`), and `react-leaflet-cluster` writes the new
+               function into `options` without calling `refreshClusters()`. So a toggle recoloured
+               the individual pins and left every cluster on the palette it was built with — not even
+               healing on zoom. The key is constant for every caller that passes no `heat`, so v1
+               remounts nothing. */
+            key={heatOn ? 'heat-ramp' : 'medallions'}
             chunkedLoading
-            iconCreateFunction={(cluster) => createClusterIcon(cluster, role)}
+            /* The ramp rides the heat VIEW, not merely the opt-in: medallion view is specified as
+               byte-identical to today (D8), which is what makes it a usable "before". */
+            iconCreateFunction={(cluster) => createClusterIcon(cluster, role, heatOn)}
             // Dense corridors (e.g. Hadrian's Wall — 7 spots in a few km) must
             // collapse to one count-only bubble until zoomed in far enough that the
             // discs no longer collide. A wider radius merges co-located spots; a
@@ -1678,6 +1901,7 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
                 excludeFromSkyCluster,
                 isStandDown,
                 emphasis,
+                heatOn,
               );
 
               return (
@@ -1733,6 +1957,125 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
             })}
           </MarkerClusterGroup>
         </MapContainer>
+
+        {/* The heat toolbar: view, framing, window and the ramp's key.
+
+            Top-left at `left: 60px` because Leaflet's own zoom control owns the corner and paints
+            above anything below z-index 1100 — `CentreOnHomeControl` stacks under the zoom buttons
+            in the same stack, and this clears both. It is a SIBLING of the Leaflet container rather
+            than a Leaflet control, so a drag that starts on a button is not also a map pan.
+
+            The buttons take the arm's shared `.wf-seg` / `.wf-seg-btn` classes rather than ad-hoc
+            utilities. The first cut did not, and paid for it three ways at once: its pressed state
+            named `bg-plex-accent`, a token this project has never had, so Tailwind emitted no rule
+            and the selected segment painted nothing; there was no `:focus-visible` ring, and the
+            group's `overflow: hidden` would have clipped the UA's; and at `py-1` the buttons stood
+            21px tall, under SC 2.5.8's 24px target. The shared classes carry all three answers and
+            were written against exactly this markup. */}
+        {heatOffered && (
+          <div data-testid="wf-map-toolbar" className="wf-map-toolbar">
+            <div className="wf-map-toolbar-row">
+              <div className="wf-seg" role="group" aria-label="Map view">
+                <button
+                  type="button"
+                  data-testid="wf-map-view-heat"
+                  aria-pressed={heatView === 'heat'}
+                  onClick={() => setHeatView('heat')}
+                  className={`wf-seg-btn${heatView === 'heat' ? ' on' : ''}`}
+                >
+                  Heat
+                </button>
+                <button
+                  type="button"
+                  data-testid="wf-map-view-medallions"
+                  aria-pressed={heatView === 'medallions'}
+                  onClick={() => setHeatView('medallions')}
+                  className={`wf-seg-btn${heatView === 'medallions' ? ' on' : ''}`}
+                >
+                  <span aria-hidden="true">◍ </span>
+                  Medallions
+                </button>
+              </div>
+
+              {/* Absent entirely without a home, and that is D6 rather than a tidy-up: with no
+                  postcode the planning area IS the whole roster, so the two states frame the same
+                  box over the same spots — a control whose every press does nothing, which §6
+                  bans. `CentreOnHomeControl` already tells a reader without a postcode where to
+                  put one. */}
+              {heat.hasHome && (
+                <div className="wf-seg" role="group" aria-label="Map area">
+                  <button
+                    type="button"
+                    data-testid="wf-map-area-home"
+                    aria-pressed={heatArea}
+                    onClick={() => { setHeatArea(true); setHeatFitNonce((n) => n + 1); }}
+                    className={`wf-seg-btn${heatArea ? ' on' : ''}`}
+                  >
+                    <span aria-hidden="true">◎ </span>
+                    My area
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="wf-map-area-all"
+                    aria-pressed={!heatArea}
+                    onClick={() => { setHeatArea(false); setHeatFitNonce((n) => n + 1); }}
+                    className={`wf-seg-btn${heatArea ? '' : ' on'}`}
+                  >
+                    Whole catalogue
+                  </button>
+                </div>
+              )}
+
+              {/* The selector sets the map's own date and event rather than holding a window of its
+                  own — see `heatWindow`. Its value is empty exactly when the map is on a date the
+                  briefing does not reach, which is a real state and not an error. */}
+              <select
+                data-testid="wf-map-window"
+                aria-label="Forecast window"
+                className="wf-map-window"
+                value={heatWindow?.key ?? ''}
+                onChange={(e) => {
+                  const next = (heat.windows || []).find((w) => w.key === e.target.value);
+                  if (!next) return;
+                  setUserHasOverriddenEvent(true);
+                  setEventType(next.targetType);
+                  if (next.date !== date) onSelectDate?.(next.date);
+                }}
+              >
+                {!heatWindow && <option value="">No forecast window</option>}
+                {(heat.windows || []).map((w) => (
+                  <option key={w.key} value={w.key}>{`${w.label} · ${w.time}`}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* The ramp's key. Only in heat view, because in medallion view it would explain a ramp
+                nothing on screen is painted with.
+
+                `role="img"` with its own name: the gradient is `aria-hidden` and the two words alone
+                ("Poor", "Worth it") would reach a screen reader as a pair of adjectives with nothing
+                saying what they qualify. */}
+            {heatOn && (
+              <div
+                data-testid="wf-map-heat-legend"
+                className="wf-map-key"
+                role="img"
+                aria-label="Colour key: the field runs from Poor to Worth it"
+              >
+                <span aria-hidden="true">Poor</span>
+                <span
+                  aria-hidden="true"
+                  data-testid="wf-map-heat-legend-ramp"
+                  className="wf-map-key-ramp"
+                  style={{
+                    background: `linear-gradient(90deg, ${RAMP_STOPS.map((stop) => stop.hex).join(', ')})`,
+                  }}
+                />
+                <span aria-hidden="true">Worth it</span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Aurora viewline upsell chip for LITE users */}
         {showViewlineUpsell && (
@@ -1863,6 +2206,27 @@ MapView.propTypes = {
    * as it was, so this cannot reach the frozen arm.
    */
   resizeNonce: PropTypes.number,
+  /**
+   * The v2 heat field's opt-in. Default `null` — the v1 Map tab and the Plan overlay pass nothing
+   * and render byte-identically, which `MapViewHeat.test.jsx` pins per surface.
+   */
+  heat: PropTypes.shape({
+    enabled: PropTypes.bool,
+    hasHome: PropTypes.bool,
+    spots: PropTypes.array,
+    areaSpots: PropTypes.array,
+    pointsByKey: PropTypes.instanceOf(Map),
+    windows: PropTypes.arrayOf(PropTypes.shape({
+      key: PropTypes.string,
+      date: PropTypes.string,
+      targetType: PropTypes.string,
+      label: PropTypes.string,
+      time: PropTypes.string,
+      conf: PropTypes.number,
+    })),
+    areaBounds: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
+    catalogueBounds: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
+  }),
   /** `{ lat, lon }` of the user's saved home postcode, or null when none is saved. */
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
   /** The user's Close-to-home radius in miles — frames the "centre on home" camera move. */

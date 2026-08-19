@@ -26,29 +26,17 @@
 import { geoMercator, geoPath } from 'd3-geo';
 import { feature } from 'topojson-client';
 import { rampRgb, rgb } from './scoreRamp.js';
+import {
+  aspect, BBOX, bbox, clamp, latLngBounds, mean,
+} from './heatGeometry.js';
 
-/**
- * Default framing box — northern England and the Scottish border, the app's current coverage.
- * A corner MultiPoint, never a ring: a polygon's winding can be read as the whole globe, which
- * silently fits the projection to the world instead of the area you asked for.
- */
-export const BBOX = {
-  type: 'MultiPoint',
-  coordinates: [
-    [-3.85, 53.8],
-    [-0.28, 53.8],
-    [-0.28, 55.88],
-    [-3.85, 55.88],
-  ],
+// Re-exported so the ported surface is unchanged and every existing caller — the strip, the row
+// map, the tests — imports exactly what it always did. The definitions moved to `heatGeometry.js`
+// only because they need no projection library, and a caller that wants a bounding box should not
+// have to fetch `d3-geo` to get one. See that module's header.
+export {
+  aspect, BBOX, bbox, clamp, latLngBounds,
 };
-
-/** Arithmetic mean of an array, optionally through an accessor. Inlined rather than importing d3-array. */
-function mean(values, accessor) {
-  if (!values.length) return undefined;
-  let total = 0;
-  for (const v of values) total += accessor ? accessor(v) : v;
-  return total / values.length;
-}
 
 /** Cached UK land geometry, populated once by {@link load}. */
 let LAND = null;
@@ -64,19 +52,6 @@ let loading = null;
  */
 export function land() {
   return LAND;
-}
-
-/**
- * Constrains {@code v} to [{@code a}, {@code b}]. Exported because both hosts need it for their
- * own dials (the prototype's `map-tab.js` and `plan-tab.js` both open by aliasing it).
- *
- * @param {number} v value to constrain
- * @param {number} a lower bound
- * @param {number} b upper bound
- * @returns {number} the constrained value
- */
-export function clamp(v, a, b) {
-  return Math.max(a, Math.min(b, v));
 }
 
 // Re-exported so the ported surface still carries everything the prototype's two hosts alias off
@@ -228,8 +203,18 @@ export function paint(ctx, w, h, pts, opts) {
  */
 export function fit(cv, w, h) {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  cv.width = Math.round(w * dpr);
-  cv.height = Math.round(h * dpr);
+  const px = Math.round(w * dpr);
+  const py = Math.round(h * dpr);
+  // ⚠️ Guarded, because assigning `canvas.width` REALLOCATES and zeroes the backing store even when
+  // the value is unchanged. The two static hosts call this on a resize and never noticed; P4's
+  // Leaflet host calls it on every frame of a pan, where an unguarded write is ~19.8 MB of
+  // allocate-and-memset per frame on a full-screen desktop map — about 1.2 GB/s at 60fps, before a
+  // single pixel is drawn. The kernel's arithmetic is untouched: the assignments still happen
+  // whenever the size genuinely changes, and `drawTiles` clears the canvas itself.
+  if (cv.width !== px || cv.height !== py) {
+    cv.width = px;
+    cv.height = py;
+  }
   cv.style.width = `${w}px`;
   cv.style.height = `${h}px`;
   const ctx = cv.getContext('2d');
@@ -292,68 +277,6 @@ export function proj(w, h, fitTo) {
     ],
     fitTo || BBOX,
   );
-}
-
-/**
- * A padded corner MultiPoint around a set of spots, for {@link proj}/{@link aspect}.
- * Longitude padding is 1.7× the latitude padding because at UK latitudes a degree of longitude is
- * roughly 0.6 of a degree of latitude on screen — equal degrees would pad unevenly.
- *
- * @param {Array<{lat: number, lng: number}>} spots
- * @param {number} [padDeg] latitude padding in degrees (default 0.16)
- * @returns {object} a GeoJSON MultiPoint of the four corners
- */
-export function bbox(spots, padDeg) {
-  if (!spots || !spots.length) return BBOX;
-  const p = padDeg == null ? 0.16 : padDeg;
-  const la = spots.map((s) => s.lat);
-  const ln = spots.map((s) => s.lng);
-  const a = Math.min(...la) - p;
-  const b = Math.max(...la) + p;
-  const c = Math.min(...ln) - p * 1.7;
-  const d = Math.max(...ln) + p * 1.7;
-  return {
-    type: 'MultiPoint',
-    coordinates: [
-      [c, a],
-      [d, a],
-      [d, b],
-      [c, b],
-    ],
-  };
-}
-
-/**
- * The same box as `[[south, west], [north, east]]` for Leaflet's `fitBounds`.
- *
- * @param {Array<{lat: number, lng: number}>} spots
- * @param {number} [padDeg] latitude padding in degrees
- * @returns {number[][]} [[south, west], [north, east]]
- */
-export function latLngBounds(spots, padDeg) {
-  const c = bbox(spots, padDeg).coordinates;
-  const la = c.map((x) => x[1]);
-  const ln = c.map((x) => x[0]);
-  return [
-    [Math.min(...la), Math.min(...ln)],
-    [Math.max(...la), Math.max(...ln)],
-  ];
-}
-
-/**
- * Aspect of a frame (height / width) so a surface can size itself to its geography. The longitude
- * span is cos-latitude corrected, which is why a UK frame is taller than its raw degree span.
- *
- * @param {object} [fitTo] a corner MultiPoint (default {@link BBOX})
- * @returns {number} height / width, or 1 for a degenerate frame
- */
-export function aspect(fitTo) {
-  const cs = (fitTo || BBOX).coordinates;
-  const la = cs.map((c) => c[1]);
-  const ln = cs.map((c) => c[0]);
-  const dLat = Math.max(...la) - Math.min(...la);
-  const dLng = (Math.max(...ln) - Math.min(...ln)) * Math.cos((mean(la) * Math.PI) / 180);
-  return dLng > 0 ? dLat / dLng : 1;
 }
 
 /**
