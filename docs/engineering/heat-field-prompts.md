@@ -109,6 +109,15 @@ Before starting the next session, expect a `CHANGELOG.md` conflict if anything e
 > You are implementing **Phase P3** of `docs/engineering/heat-field-plan.md`. Run §10 first,
 > confirm P0–P2 are on `main`, create `feature/heat-p3-row`.
 >
+> **Read the P2 row before writing any canvas code** — P3 needs P2's entire canvas host at
+> different dials (the `load()`/`land()` split, the rAF measure-retry reading `clientWidth` at
+> BOTH ends — never `getBoundingClientRect()`, which answered 0 where `clientWidth` answered 82
+> in the browser — the ResizeObserver + window-resize pair, the null-2d-context guard), and only
+> `thumbAspect` is exported today. **Extract a shared `useHeatCanvas` hook from the strip rather
+> than writing a second copy** — a performance fix landing on one host and not the other is the
+> exact drift the one-kernel architecture exists to prevent. The strip's tests passing unedited
+> is the proof the extraction was behaviour-preserving (the `solarDayGeometry` precedent).
+>
 > **Read the P1 row before building the rail or band** — it records that
 > `BriefingRegion.bestRating`'s canopy fallback is per REGION while `BriefingWindow.bestRating`'s
 > is per WINDOW (an all-wood region in a mixed window reports its wood under a header reporting
