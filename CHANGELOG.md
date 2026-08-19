@@ -5,6 +5,61 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — heat field P0: the ported kernel, the score ramp and the vendored UK coastline
+
+The foundations for the heat map (`docs/engineering/heat-field-plan.md` P0). **No UI, and no bytes:**
+nothing imports any of it yet, so Rolldown tree-shakes the lot and `dist` is unchanged — same 38
+assets, same 22 precache entries, same 918.92 KiB.
+
+`frontend/src/utils/heatField.js` is `docs/design/heat-map/heat-field.js` ported close to verbatim.
+The algorithm is load-bearing and §4.1 enumerates the only permitted deviations; no arithmetic
+moved, which a differential harness confirmed pixel-exact across 55 cases. Both optimisation rounds
+are intact and now pinned: the cull at `2.45R + grid`, and the 3×3 spatial bucketing that turns
+`O(cells × locations)` into `O(cells × local density)` — without it 204 locations already stalled a
+pan.
+
+`frontend/src/utils/scoreRamp.js` is new and owns the v2 colour language (D2): the five
+verdict-anchored stops, linear between them, clamped 1–5. Hex is the single literal per stop and the
+numeric triples the canvas needs are derived from it, so a canvas painted from JS and a pill painted
+from a CSS token cannot drift apart. v1's `markerUtils.RATING_COLOURS` is untouched — it is the
+pilot's frozen comparison control.
+
+**A non-finite score resolves to the bottom of the ramp, never the top.** This is the one place the
+port deliberately does not carry the prototype's behaviour, and it is not cosmetic: a plain clamp
+leaves `NaN` intact, `NaN` then fails every `<=` test, and a segment search falls out of its loop
+returning the *last* stop. An undefined score, a missing key, or a six-window array read at index 6
+would have painted the same 5★ GO green as the best forecast of the week, at full opacity, with no
+mark of doubt — reachable with no bad data at all. Under-reporting is the safe direction.
+
+The coastline is **vendored, never fetched**. The prototype pulled world geometry from a package CDN
+at runtime; production's `connect-src` is `'self'` plus the postcode geocoder, so that fetch cannot
+succeed and widening the CSP to buy one static file is the wrong trade.
+`frontend/scripts/generate-uk-land.mjs` filters `world-atlas@2.0.2`'s `countries-50m` to ISO 826 once
+and the 9 KB result is committed as `frontend/src/assets/uk-land-50m.json`. It keeps the upstream
+`transform` and reuses the arc integers verbatim, so the vendored outline decodes **bit-identically**
+to the one the design was drawn against; only the 24 arcs the UK references are kept, reindexed with
+the one's-complement sign preserved (dropping it reverses a ring's winding, which reads as the whole
+globe). Provenance and licence — world-atlas ISC © Michael Bostock, Natural Earth public domain — are
+in the script header, and the source is an exactly-pinned devDependency so regeneration needs nothing
+but `npm ci`. A test compares the committed blob against the upstream package on every run, because
+it is the one artefact here that nobody will ever diff again; `.prettierignore` holds it out of
+`npm run format`, which would otherwise reflow 9 KB into 1,080 lines that the next generator run
+reverts.
+
+Tests are the plan's §7.1 in full, against a per-file canvas stub — no global polyfill, because one
+file's canvas needs must not change what every other file renders into. The load-bearing one is
+**bucketing ≡ brute force**: a test-local accumulator with no buckets and no cull, compared per
+channel within ±1 (the term sets are identical; only the floating-point summation order differs).
+That is what stops a later "simplification" of the bucket walk from quietly changing the field.
+
+Adversarially reviewed before landing (six prosecutor lenses, one refuter per contested charge, per
+CLAUDE.md § *UI Work — Review Cadence*). Two charges were refuted on evidence and dropped. The rest
+of the value was in the tests: sixteen mutations that the first cut survived now fail, including
+deleting `putImageData` outright (every assertion read the returned `ImageData`, so the app would
+have rendered nothing at all while the suite stayed green), both hosts dropping the options they
+forward, `drawGeo` ignoring its window index and its `fit` box, and the sea and land-plate colours
+swapping to render an inverted map.
+
 ### Added — heat-field implementation plan + vendored design bundle
 
 `docs/engineering/heat-field-plan.md`: the phased (P0–P8) plan for the heat-map feature — six

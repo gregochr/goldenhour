@@ -37,6 +37,17 @@ export default [
     },
   },
   {
+    // Node scripts (the vendored-geometry generator). `npm run lint` only walks `src`, so these
+    // are not gated today — but they are real source, and without a Node globals block every
+    // `process`/`console` reads as no-undef the moment anyone widens that glob.
+    files: ['scripts/**/*.{js,mjs}'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: { ...globals.node },
+    },
+  },
+  {
     files: ['src/test/**/*.{js,jsx}'],
     languageOptions: {
       globals: {
