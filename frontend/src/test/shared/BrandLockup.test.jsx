@@ -83,6 +83,82 @@ describe('BrandLockup', () => {
     expect(screen.getByText('Golden hour, forecast and ranked by AI')).toBeInTheDocument();
   });
 
+  it('names the audience on the auth variant, and only there', () => {
+    // A stranger on the sign-in screen has no landing-page context, so this is the one surface
+    // where the kicker says who the app is for. Verbatim the landing page's own eyebrow. The
+    // signed-in variants keep 'Field guide to light' — the reader there already knows.
+    const { rerender } = render(<BrandLockup variant="auth" />);
+    expect(screen.getByText('For landscape photographers')).toBeInTheDocument();
+    expect(screen.queryByText('Field guide to light')).not.toBeInTheDocument();
+
+    rerender(<BrandLockup variant="header" />);
+    expect(screen.getByText('Field guide to light')).toBeInTheDocument();
+    expect(screen.queryByText('For landscape photographers')).not.toBeInTheDocument();
+  });
+
+  describe('masthead', () => {
+    it('buys back the kicker and the wordmark, but not the tagline', () => {
+      // The whole point of the variant: presence without height. The tagline is the line that
+      // costs a full row and says least to someone already signed in, so it stays gone.
+      render(<BrandLockup variant="masthead" />);
+
+      expect(screen.getByRole('heading', { level: 1, name: 'PhotoCast' })).toBeInTheDocument();
+      expect(screen.getByText('Field guide to light')).toBeInTheDocument();
+      expect(screen.queryByText(/Golden hour, forecast/)).not.toBeInTheDocument();
+    });
+
+    it('carries the kicker on coral, like every other variant that has one', () => {
+      render(<BrandLockup variant="masthead" />);
+      expect(screen.getByText('Field guide to light').className).toContain('text-plex-coral');
+    });
+
+    it('takes the header gauge, not the compact one', () => {
+      // The lockup is ~50px tall again — two lines, not one — so the tight gauge that exists for a
+      // 20px lockup would show four perforations in a space built for six.
+      const { rerender } = render(<BrandLockup variant="masthead" />);
+      const mastheadPitch = pitchOf(screen.getByTestId('brand-lockup-spine'));
+      rerender(<BrandLockup variant="header" />);
+
+      expect(mastheadPitch).toBe(pitchOf(screen.getByTestId('brand-lockup-spine')));
+    });
+
+    it('scales the wordmark across the three widths and never below the 21px floor', () => {
+      // jsdom resolves no media query, so the class list is the only place these three sizes are
+      // observable. Asserted as a set because dropping any one of them silently pins the wordmark
+      // to whichever width happens to remain.
+      render(<BrandLockup variant="masthead" />);
+      const wordmark = screen.getByRole('heading', { level: 1 });
+
+      expect(wordmark.className).toContain('text-[21px]');
+      expect(wordmark.className).toContain('sm:text-[25px]');
+      expect(wordmark.className).toContain('lg:text-[28px]');
+      expect(wordmark.className).not.toContain('text-[20px]');
+
+      const sizes = [...wordmark.className.matchAll(/text-\[(\d+)px\]/g)].map((m) => Number(m[1]));
+      expect(Math.min(...sizes)).toBeGreaterThanOrEqual(21);
+    });
+
+    it('keeps the kicker above the 8.5px floor at phone width', () => {
+      render(<BrandLockup variant="masthead" />);
+      const kicker = screen.getByText('Field guide to light');
+      const sizes = [...kicker.className.matchAll(/text-\[([\d.]+)px\]/g)].map((m) => Number(m[1]));
+
+      expect(sizes.length).toBeGreaterThan(0);
+      expect(Math.min(...sizes)).toBeGreaterThanOrEqual(8.5);
+    });
+
+    it('puts the kicker below the wordmark, not above it', () => {
+      // At the top edge of the screen a 9.5px line above the wordmark reads as a stray label
+      // rather than as part of the lockup — the reason this variant inverts the stack.
+      render(<BrandLockup variant="masthead" />);
+      const wordmark = screen.getByRole('heading', { level: 1 });
+      const kicker = screen.getByText('Field guide to light');
+
+      expect(wordmark.compareDocumentPosition(kicker) & Node.DOCUMENT_POSITION_FOLLOWING)
+        .toBeTruthy();
+    });
+  });
+
   it('drops the logo image — the lockup is type and texture, no bitmap', () => {
     const { container } = render(<BrandLockup />);
     expect(container.querySelector('img')).toBeNull();

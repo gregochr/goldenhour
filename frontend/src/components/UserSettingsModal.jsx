@@ -259,10 +259,22 @@ export default function UserSettingsModal({
             </div>
           </section>
 
-          {/* Home Location */}
+          {/* Home Location — deliberately ungated.
+
+              The postcode used to sit behind the same Pro gate as the drive times it feeds, on the
+              reasoning that it exists FOR those drive times. It no longer does: the masthead's
+              light rule is drawn from this postcode too, and its empty state nudges the reader
+              here to set one. A nudge that lands on a control the reader cannot operate is a dead
+              end, and it would leave the band permanently dim for exactly the accounts the nudge
+              is written for. So the split moved one level down — light times free, drive times and
+              the local radius Pro — and it is enforced on those two controls individually.
+
+              Nothing was unlocked on the backend by this: `UserSettingsController` has only ever
+              carried `@PreAuthorize("isAuthenticated()")`, so `PUT /home` was already open to any
+              account. The gate was frontend-only. */}
           <section>
             <h3 className="text-xs font-medium text-plex-text-muted uppercase tracking-wide mb-2">Home Location</h3>
-            <div className={!isPro ? 'opacity-45 pointer-events-none' : undefined}>
+            <div>
               {hasHome && !lookupResult && (
                 <p className="text-sm text-plex-text mb-2" data-testid="settings-home-current">
                   <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1.5" />
@@ -279,12 +291,11 @@ export default function UserSettingsModal({
                   ref={postcodeRef}
                   className="flex-1 px-3 py-1.5 text-sm bg-plex-bg border border-plex-border rounded-lg text-plex-text placeholder:text-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
                   data-testid="settings-postcode-input"
-                  disabled={!isPro}
                 />
                 <button
                   className="btn-primary text-sm"
                   onClick={handleLookup}
-                  disabled={!isPro || lookingUp || !postcode.trim()}
+                  disabled={lookingUp || !postcode.trim()}
                   data-testid="settings-lookup-btn"
                 >
                   {lookingUp ? 'Looking up...' : 'Look up'}
@@ -307,7 +318,7 @@ export default function UserSettingsModal({
                   <button
                     className="btn-primary text-sm ml-auto"
                     onClick={handleSave}
-                    disabled={!isPro || saving}
+                    disabled={saving}
                     data-testid="settings-save-home-btn"
                   >
                     {saving ? 'Saving...' : 'Save'}
@@ -315,8 +326,13 @@ export default function UserSettingsModal({
                 </div>
               )}
 
-              {/* Local radius — directly beneath the postcode it is measured from. */}
-              <div className="mt-4" data-testid="settings-local-radius">
+              {/* Local radius — directly beneath the postcode it is measured from, and still Pro:
+                  it frames "Close to home", which ranks by drive time. It carries its own greying
+                  now that the section around it is open, per the role-gating pattern. */}
+              <div
+                className={`mt-4${!isPro ? ' opacity-45 pointer-events-none' : ''}`}
+                data-testid="settings-local-radius"
+              >
                 <label
                   htmlFor="local-radius"
                   className="block text-sm text-plex-text mb-1"
@@ -403,7 +419,7 @@ export default function UserSettingsModal({
           </section>
           {!isPro && (
             <p className="text-center text-plex-text-secondary" style={{ fontSize: '13px' }}>
-              Upgrade to Pro for personalised drive times
+              Your postcode sets your light times. Upgrade to Pro for personalised drive times.
             </p>
           )}
         </div>

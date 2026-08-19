@@ -5,6 +5,103 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — masthead presence: the lit band and today's light rule
+
+The window-first masthead gets its brand presence back, and a job. Compacting the header to one
+slim bar had taken the wordmark to 20px, dropped the coral kicker, and reduced the film-perforation
+spine to a decorative tick. This restores the presence **without** restoring the height, and gives
+the band something to do: the rule under the wordmark draws today's light as a gradient, so the top
+of the screen is the first piece of forecast rather than ornament.
+
+`BrandLockup` gains a `masthead` variant — wordmark back to 28px (25 on a tablet, 21 on a phone,
+the type floor), the kicker back, the italic tagline deliberately not. The tagline is the line that
+costs a whole row and says least to someone already signed in. Because the lockup is ~50px again
+the spine returns to the header gauge; `compact` keeps its tighter one and stays in use where the
+prose genuinely cannot fit. The `header` and `compact` variants are untouched, so the v1 arm — the
+pilot's frozen comparison control — renders exactly as before.
+
+**The rule's positions are data; only its colours are fixed.** `GET /api/user/settings/light`
+returns eleven named stops whose positions `TodaysLightService` computes from the day's real solar
+times at the caller's home, as a percentage of the local day, so the lit band genuinely narrows in
+winter and widens in summer. Colours never travel over the wire — the client maps stop key → colour
+from a fixed table, and drops a key it has no entry for rather than painting it a default.
+
+**The row that labels it is mandatory.** An unlabelled gradient is a guess wearing data's clothes:
+the UK spread between Cornwall and Northumberland is 20–30 minutes, honest at this precision only
+while the row names whose light it draws. Four times in a browser (`05:32 blue`, `06:04 golden`,
+`19:58 golden`, `20:31 blue`), the two goldens on a tablet and a phone; the kind of light stays in
+the accessible name at every width even where the phone hides the word. Solar noon is never
+labelled — the pale band already says midday.
+
+**Two far-north defects were found by review and fixed before landing, both reachable with real UK
+postcodes.** A stop whose local time falls on a neighbouring day was read as minutes-of-day alone:
+Lerwick's midsummer civil dusk is 00:27 the following morning, which placed the last light of the
+day at 0.2% — the far left of the rule — where the ascending guard then quietly dragged it up to
+sunset's position and deleted the evening blue hour from the gradient. Positions are now date-aware,
+pinning an earlier day to 0 and a later one to 100. Separately, at 60.8°N the sun never reaches −6°
+at the solstice and solar-utils answers `01:00` for *both* civil boundaries; believed, the row
+printed that fabricated minute twice, once as a blue hour two and a half hours before a 03:32
+sunrise. A twilight boundary that does not bracket its own event is now treated as missing.
+
+**A third far-north defect, and the two frontend gaps, came out of a 15-agent adversarial review.**
+The twilight guard above closed only the dusk half. solar-utils does not answer null when an event
+never occurs — it answers **midnight of the requested date**, and at 60.8°N (Unst, a real UK
+postcode) that sentinel lands on the *civil* pair in midsummer and on the *golden* pair in midwinter.
+Midnight genuinely is before sunrise, so the morning bracket test accepted it and the row printed
+`01:00 blue · 03:29 golden · 22:40 golden · 23:10 blue` — a blue hour claimed two and a half hours
+before sunrise on a day that has none. The first test written for this asserted only that the two
+civil times differed and that the four ran in order, both of which the defective output satisfies;
+it was green with the bug present. Every boundary now passes a sentinel gate *and* a bracket gate,
+and the test asserts values. Separately, a failed `/light` request no longer resolves to the same
+value as a 204: "you have no postcode" is a claim about the reader's account that a 502 is no
+evidence for.
+
+**The eleven unverified charges from that review were then triaged: eight real and fixed, three
+declined with reasons.** The two that change behaviour: the time row now announces the solar *event*
+to assistive technology (`06:04 sunrise`) while keeping the *kind* as the visible label — the rule is
+`aria-hidden`, so the row is the whole accessible answer, and "golden" is the same word for sunrise
+and sunset, leaving DOM order as the only thing separating morning from evening. And the light now
+refetches when a tab returns on a later UK day: this is a planning dashboard, a tab left open
+overnight is ordinary, and nothing on the band carries a date, so yesterday's gradient was
+indistinguishable from today's.
+
+The `env(safe-area-inset-top)` term was **removed**, not kept. It was on `.wf-mast`, which is not the
+element that touches the top of the document — `App.jsx` wraps the arm in `<main className="px-4
+py-6">` — so with the `viewport-fit=cover` opt-in it would have pushed the wordmark to 97px and left
+the notch strip painted in page colour. The comment claiming it was "correct either way" was wrong,
+and a stated gap beats a plausible-looking non-fix.
+
+**No home postcode is a designed state, not an error.** The endpoint answers `204`, the rule goes
+unlit, and a nudge offers to fix it. Three states are kept distinguishable in one value
+(`undefined` unresolved / `null` no home / the day), because collapsing the first two flashes "set
+a postcode" at every reader who already has one.
+
+The endpoint sits under `/api/user/settings` deliberately, next to `/reach` and for the same
+reason: it names the caller's home postcode, and `HttpCachingConfig`'s revalidatable set is an
+exact-match allow-list, so a path here can never pick up the `Cache-Control: private, no-cache`
+that would persist personal data to a browser HTTP cache JavaScript cannot evict on logout. It also
+never geocodes — the label is built from the *stored* postcode, since resolving a place name is an
+uncached third-party call and this runs on the masthead.
+
+### Changed — the home postcode is free; drive times and the local radius stay Pro
+
+The postcode input was Pro-gated on the reasoning that it exists for the drive times it feeds. It
+no longer does: the masthead's light rule is drawn from the same postcode, and its empty state
+sends the reader to that input. A nudge landing on a control the reader cannot operate is a dead
+end, and it would leave the band permanently dim for exactly the accounts the nudge is written for.
+So the split moved one level down — light times free, drive times and the radius they are ranked by
+still Pro — and is now enforced on those two controls individually rather than by a wrapper.
+
+Nothing was unlocked on the backend: `UserSettingsController` has only ever carried
+`@PreAuthorize("isAuthenticated()")`, so `PUT /home` was already open to any account. The gate was
+frontend-only.
+
+### Changed — the auth screens name their audience
+
+The sign-in, register and change-password screens carry `For landscape photographers` in place of
+`Field guide to light`, verbatim the landing page's own eyebrow. A stranger there has no
+landing-page context, so it is the one surface where the kicker says who the app is for. The
+signed-in variants are unchanged.
 ### Added — Penshaw Monument (V143)
 
 A year-round sunrise/sunset viewpoint that is also a bluebell site, in `Northumberland & Tyneside`:

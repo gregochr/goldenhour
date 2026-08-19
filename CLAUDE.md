@@ -344,7 +344,32 @@ ETag-revalidated; safe to share because it carries no per-user data.
 `GET /api/astro/conditions` | `GET /api/astro/conditions/available-dates`
 
 ### User Settings (Bearer)
-`GET|PUT /api/user-settings`
+`GET /api/user/settings` | `POST /api/user/settings/home/lookup` | `PUT /api/user/settings/home` |
+`POST /api/user/settings/drive-times/refresh` | `GET /api/user/settings/drive-times` |
+`GET /api/user/settings/reach` | `GET /api/user/settings/light`
+
+> Previously documented as `GET|PUT /api/user-settings`, a path that has never existed —
+> `UserSettingsController` is mapped at `/api/user/settings` (with a slash). The doc was wrong, not
+> the controller, and the wrong form was never a live route.
+>
+> **Everything under this prefix is home-derived personal data, and that is what the prefix is for.**
+> `HttpCachingConfig`'s revalidatable set is an exact-match allow-list, so a path here can never pick
+> up the `Cache-Control: private, no-cache` that ETag revalidation requires — which would persist the
+> body to a browser HTTP cache JavaScript cannot evict on logout.
+> `HttpCachingConfigTest.personalDataPathsAreNeverFiltered` pins it per path, so a new route here
+> must be added to that list. `/reach` and `/light` both live here for that reason rather than beside
+> the payloads they are joined to on the client.
+>
+> Bearer with **no role gate**, by inheritance from `SecurityConfig`'s `/api/**` → `.authenticated()`.
+> That includes `PUT /home`: saving a home postcode has always been open to any account, and since
+> the masthead's light rule is drawn from it the frontend no longer gates it either — light times
+> free, drive times and the local radius Pro. ⚠️ **Do not re-gate the postcode input.** The band's
+> empty state nudges the reader to that field, so a Pro gate on it makes the nudge a dead end and
+> leaves the rule permanently dim for exactly the accounts it is written for.
+>
+> `GET /light` answers **204** when no postcode is saved. That is the masthead's designed empty
+> state, not an error — and the client must not fold a *failed* request onto the same value, because
+> "you have no postcode" is a claim about the reader's account that a 502 is no evidence for.
 
 ### Scheduler (ADMIN)
 `GET /api/admin/scheduler/jobs` | `PUT /api/admin/scheduler/jobs/{jobKey}/schedule` | `POST /api/admin/scheduler/jobs/{jobKey}/pause` | `POST /api/admin/scheduler/jobs/{jobKey}/resume` | `POST /api/admin/scheduler/jobs/{jobKey}/trigger`

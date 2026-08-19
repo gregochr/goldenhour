@@ -972,8 +972,29 @@
      in the same media query that stacks the bar, below. */
   --wf-lens-reserve: 60px;
 }
+/* ⚠️ SAFE AREAS ARE NOT HANDLED, and a `calc(env(safe-area-inset-top, 0px) + 16px)` here would not
+   handle them — it was written that way first and is wrong twice over. `env(safe-area-*)` resolves
+   to 0 unless the document opts in with `viewport-fit=cover`, which `index.html` does not; and this
+   is not the element that touches the top of the document anyway. `App.jsx` wraps the v2 arm in
+   `<main className="px-4 py-6">`, so the band already starts 24px down. On a notched phone with the
+   opt-in added, an inset term here would push the wordmark to 24 + 59 + 14 = 97px and leave the
+   notch strip painted in page colour rather than in the band. The inset belongs on the outermost
+   element, and the opt-in is an app-wide change every edge-anchored element in both arms would have
+   to answer for — so it is deliberately not made here, and not faked here either.
+
+   The lit band. Two things here are not decoration.
+
+   The vertical gradient gives the masthead a surface of its own, so the wordmark, the light rule
+   and the time row read as one object rather than as three things floating above the page. The
+   values are the handoff's, and both sit above `--color-plex-bg` (#181210) — the band lifts off
+   the page rather than cutting into it.
+
+   The bottom padding is ZERO on purpose: the time row inside supplies it (and the nudge, in the
+   empty state, supplies more). Putting it back here double-spaces the band under whichever row is
+   showing, which is the failure mode the design's own `16px 28px 0` is written to avoid. */
 .wf-mast {
-  padding: 16px var(--wf-gutter) 14px;
+  padding: 16px var(--wf-gutter) 0;
+  background: linear-gradient(180deg, #241B16 0%, #1B1411 100%);
 }
 /* The rail's own inset, worn by the empty-state line that stands in for it, so the two agree by
    construction when the gutter changes. */
@@ -1060,7 +1081,7 @@
        reservation exists to prevent. */
     --wf-lens-reserve: 158px;
   }
-  .wf-mast { padding: 13px var(--wf-gutter) 12px; }
+  .wf-mast { padding: 14px var(--wf-gutter) 0; }
   .wf-rail-empty { padding: 11px var(--wf-gutter) 0; }
   /* `.rail-scroller`'s own phone padding is NOT here — it sits directly beneath that class below,
      because this block is written above it and the two selectors have equal specificity (0,1,0).

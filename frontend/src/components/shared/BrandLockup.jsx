@@ -27,7 +27,19 @@ const SPINE_GAUGE = {
 };
 
 /**
- * The PhotoCast masthead — three stacked lines (kicker, wordmark, tagline) behind a decorative
+ * Kicker copy, by variant — the one line of the lockup that changes with where it is read.
+ *
+ * <p>`auth` names the audience because a stranger on the sign-in screen has no landing-page
+ * context; it is verbatim the landing page's own eyebrow. Everywhere else the reader has already
+ * signed in and knows who the app is for, so the kicker says what the app is instead.
+ */
+const KICKER = {
+  auth: 'For landscape photographers',
+  default: 'Field guide to light',
+};
+
+/**
+ * The PhotoCast masthead — stacked lines (kicker, wordmark, tagline) behind a decorative
  * film-perforation spine. Replaces the former `/logo.png` + extrabold-sans wordmark, which
  * belonged to no part of the Kodachrome Field Guide system the rest of the app uses.
  *
@@ -53,35 +65,76 @@ const SPINE_GAUGE = {
  * {@code getByRole('heading', {name: /PhotoCast/})}, so a variant that demoted it would break that
  * suite the moment the window-first layout became the default.
  *
+ * <p><b>`masthead` is what `compact` became once the slim bar had to carry brand presence again.</b>
+ * Compacting the signed-in header to one line cost the wordmark two thirds of its size, the coral
+ * kicker and the whole spine pattern, and the result read as chrome rather than as a masthead. This
+ * variant buys the presence back without buying back the height: the wordmark returns to 28px (25
+ * on a tablet, 21 on a phone, which is the type floor) and the kicker returns, but the italic
+ * tagline does not — it is the line that costs a whole row and says least to someone already signed
+ * in. Because the lockup is ~50px again, the spine goes back to the header gauge; `compact` keeps
+ * its own tighter one and stays in use where the prose genuinely cannot fit
+ * ({@code PlanLayoutErrorBoundary}).
+ *
+ * <p>⚠️ <b>`header` is arm-scoped and dies with v1 — but it is also this component's DEFAULT, which
+ * is what will make it look load-bearing.</b> Its only production caller is `App.jsx`'s v1 header,
+ * suppressed on the v2 arm; `masthead` was added alongside rather than replacing it because v1 is
+ * the pilot's frozen comparison control. Once the flag flips and v1 goes, a grep for
+ * `variant="header"` finds only test renders, plus nine bare `render(<BrandLockup />)` calls that
+ * reach the branch through this default — so the branch reads as live when nothing ships it. What
+ * goes with it: `isHeader`, `text-[40px]`, the italic tagline block, and `KICKER.default`'s use in
+ * the shared kicker branch (after v1 that branch can only run for `auth`, which takes `KICKER.auth`,
+ * making the ternary a permanently-constant test). Move the default to `masthead` in the same
+ * commit that deletes v1, or the dead branch keeps its disguise.
+ *
  * @param {object} props
- * @param {'header'|'auth'|'compact'} [props.variant] - `header` (40px wordmark) for the signed-in
- *   app masthead; `auth` (34px) for the sign-in, register and change-password screens; `compact`
- *   (20px, no kicker or tagline) for the window-first masthead.
+ * @param {'header'|'auth'|'compact'|'masthead'} [props.variant] - `header` (40px wordmark) for the
+ *   v1 signed-in app masthead, and dying with it; `auth` (34px) for the sign-in, register and
+ *   change-password screens; `compact` (20px, no kicker or tagline) for a lockup with no room for
+ *   prose; `masthead` (21/25/28px, kicker, no tagline) for the window-first band.
  */
 export default function BrandLockup({ variant = 'header' }) {
   const isHeader = variant === 'header';
   const isCompact = variant === 'compact';
+  const isMasthead = variant === 'masthead';
   return (
-    <div data-testid="brand-lockup" data-variant={variant} className="relative pl-[26px]">
+    <div
+      data-testid="brand-lockup"
+      data-variant={variant}
+      className={isMasthead
+        ? 'relative pl-[22px] sm:pl-[25px] flex flex-col items-start'
+        : 'relative pl-[26px]'}
+    >
       <span
         aria-hidden="true"
         data-testid="brand-lockup-spine"
         className="absolute left-0 top-0 bottom-0 w-[11px] border-r border-plex-border"
         style={{ background: isCompact ? SPINE_GAUGE.compact : SPINE_GAUGE.header }}
       />
-      {!isCompact && (
+      {/* Above the wordmark everywhere except the window-first band, where it sits under it: there
+          the wordmark is the top edge of the whole screen, and a 9.5px line above it reads as a
+          stray label rather than as part of the lockup. */}
+      {!isCompact && !isMasthead && (
         <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-plex-coral">
-          Field guide to light
+          {variant === 'auth' ? KICKER.auth : KICKER.default}
         </p>
       )}
       <h1
-        className={`font-serif font-semibold text-plex-text leading-none tracking-[-0.025em] ${
-          isCompact ? 'text-[20px]' : 'mt-[7px]'
-        } ${isHeader ? 'text-[40px]' : ''} ${variant === 'auth' ? 'text-[34px]' : ''}`}
+        className={`font-serif font-semibold text-plex-text leading-none ${
+          isMasthead
+            ? 'tracking-[-0.022em] text-[21px] sm:text-[25px] lg:text-[28px]'
+            : 'tracking-[-0.025em]'
+        } ${isCompact ? 'text-[20px]' : ''} ${!isCompact && !isMasthead ? 'mt-[7px]' : ''} ${
+          isHeader ? 'text-[40px]' : ''
+        } ${variant === 'auth' ? 'text-[34px]' : ''}`}
       >
         PhotoCast
       </h1>
-      {!isCompact && (
+      {isMasthead && (
+        <p className="font-mono uppercase text-plex-coral text-[8.5px] tracking-[0.16em] mt-1 sm:text-[9.5px] sm:tracking-[0.2em] sm:mt-1.5">
+          {KICKER.default}
+        </p>
+      )}
+      {!isCompact && !isMasthead && (
         <p className="font-serif italic text-base text-plex-text-secondary mt-[7px]">
           Golden hour, forecast and ranked by AI
         </p>
@@ -91,5 +144,5 @@ export default function BrandLockup({ variant = 'header' }) {
 }
 
 BrandLockup.propTypes = {
-  variant: PropTypes.oneOf(['header', 'auth', 'compact']),
+  variant: PropTypes.oneOf(['header', 'auth', 'compact', 'masthead']),
 };

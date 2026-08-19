@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import App from '../App.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { PLAN_LAYOUT_KEY, PLAN_V2 } from '../hooks/usePlanLayout.js';
@@ -47,6 +47,7 @@ vi.mock('../api/nlcApi.js', () => ({ getNlcSighting: vi.fn() }));
 vi.mock('../api/astroApi.js', () => ({ getAstroConditions: vi.fn() }));
 vi.mock('../api/almanacApi.js', () => ({ getAlmanac: vi.fn(), ALMANAC_DAYS: 90 }));
 vi.mock('../api/runProgressApi.js', () => ({ subscribeToRunNotifications: vi.fn() }));
+vi.mock('../api/lightApi.js', () => ({ getTodaysLight: vi.fn() }));
 vi.mock('../api/authApi.js', () => ({
   login: vi.fn(),
   logout: vi.fn(),
@@ -69,6 +70,7 @@ import { getNlcSighting } from '../api/nlcApi.js';
 import { getAstroConditions } from '../api/astroApi.js';
 import { getAlmanac } from '../api/almanacApi.js';
 import { subscribeToRunNotifications } from '../api/runProgressApi.js';
+import { getTodaysLight } from '../api/lightApi.js';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -138,6 +140,7 @@ beforeEach(() => {
   getAstroConditions.mockReset().mockResolvedValue(null);
   getAlmanac.mockReset().mockResolvedValue([]);
   subscribeToRunNotifications.mockReset().mockReturnValue(() => {});
+  getTodaysLight.mockReset().mockResolvedValue(null); // 204 — no home postcode saved
   // Hold `useAfterFirstPaint` at false for the whole test: an idle callback that never fires keeps
   // the two long-lived SSE streams (health status, run notifications) off, so no test ever reaches
   // for an EventSource jsdom does not have. The 200ms setTimeout fallback would let a slow test
@@ -181,6 +184,32 @@ describe('App — the Plan-layout flag branch', () => {
     // because the shell carries its own masthead — both at once stacks two wordmarks.
     expect(screen.queryByTestId('view-toggle')).toBeNull();
     expect(screen.queryByTestId('settings-cog-btn')).toBeNull();
+  });
+});
+
+// ── The masthead light rule's arm gate ───────────────────────────────────────
+
+describe('App — today\'s light is fetched for one arm only', () => {
+  // `useTodaysLight`'s own test proves it obeys `enabled=false` when it is given. What it cannot
+  // see is the ARGUMENT App passes, which is the whole gate: change
+  // `useTodaysLight(planLayout === PLAN_V2, …)` to `useTodaysLight(true, …)` and every v1 reader —
+  // the pilot's frozen comparison control — issues a request per load for a band their arm does not
+  // render, with the entire suite still green. An adversarial review filed exactly that; it was
+  // declined at the time for want of a harness, which #556 has since supplied.
+
+  it('asks for no light on the v1 arm, which renders no band', async () => {
+    renderApp();
+
+    await screen.findByTestId('daily-briefing-empty'); // v1 settled, so this is not an early frame
+    expect(getTodaysLight).not.toHaveBeenCalled();
+  });
+
+  it('asks for it on the window-first arm, which does', async () => {
+    // The other half, and the reason it is here: a gate stuck closed would pass the test above.
+    renderApp({ layout: PLAN_V2 });
+
+    await screen.findByTestId('window-first-rail-empty');
+    await waitFor(() => expect(getTodaysLight).toHaveBeenCalled());
   });
 });
 
