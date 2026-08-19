@@ -82,11 +82,18 @@ Before starting the next session, expect a `CHANGELOG.md` conflict if anything e
 >
 > Scope is §4.3 plus the P2 row of §6: `WindowFirstHeatStrip` under the lens, above
 > `WindowFirstPromotedStrip` (two different strips — do not conflate); the Order control on the
-> lens bar (`photocast.planOrder`). Traps the review will check: no database counts anywhere on
-> the strip (§2.6); the `BEST BET` flag is a passive span; the strip is never reordered by
-> Order·Best; verdict words come from the payload only (D3 — never port the bundle's
-> thresholds); new tokens go in `@theme static`; 3×2 at 639px; hidden-pane first paint uses the
-> rAF-retry pattern (§5.6).
+> lens bar (`photocast.planOrder`). **Read the P0 row first** — it records the kernel seams P2
+> inherits (`drawGeo`'s three null reasons — the rAF retry must use `land()` to tell "not loaded"
+> from "zero measure"; the null-2d-context guard belongs to the mounting component, i.e. you).
+> **P2 also owns the one-line `vite.config.js` change**: a `manualChunks` rule for `d3-geo`
+> placed **before** the existing `id.includes('d3-')` catch (after it, the rule never fires) —
+> without it your first `drawGeo` import makes the 375.75 KB / 107.46 KB-gzip recharts chunk,
+> today ADMIN-only behind a lazy boundary, a render-blocking first-paint fetch for every user.
+> Measure the chunk layout before and after and record it in the plan row. Traps the review will
+> check: no database counts anywhere on the strip (§2.6); the `BEST BET` flag is a passive span;
+> the strip is never reordered by Order·Best; verdict words come from the payload only (D3 —
+> never port the bundle's thresholds); new tokens go in `@theme static`; 3×2 at 639px;
+> hidden-pane first paint uses the rAF-retry pattern (§5.6).
 >
 > Gate → adversarial review → fix → re-verify, then **browser verification** per §7.3 (regions
 > before locations; restart the backend after the SQL insert or the briefing will not see it) —
