@@ -134,6 +134,8 @@ const GOLDEN_FILL = 'linear-gradient(90deg, #6B6453, #C88E2E 45%, #F5C518)';
  * @param {object}    props
  * @param {?number}   props.rating       1–5 stars, or null when unrated
  * @param {?number}   props.driveMinutes the caller's drive time, or null
+ * @param {?string}   props.leaveBy      when to leave, `HH:mm` on the UK clock, or null when
+ *        either the drive time or this slot's event time is unknown
  * @param {?number}   props.fierySky     Fiery Sky potential 0–100, or null
  * @param {?number}   props.goldenHour   Golden Hour potential 0–100, or null
  * @param {?string}   props.clause       one clause of Claude's sentence, already truncated —
@@ -148,6 +150,7 @@ const GOLDEN_FILL = 'linear-gradient(90deg, #6B6453, #C88E2E 45%, #F5C518)';
 export default function WindowSpotPeek({
   rating = null,
   driveMinutes = null,
+  leaveBy = null,
   fierySky = null,
   goldenHour = null,
   clause = null,
@@ -181,8 +184,18 @@ export default function WindowSpotPeek({
         '--wf-peek-arrow-left': `${arrowLeft}px`,
       }}
     >
-      {/* 1 · the rating, and what it costs to get there */}
-      <div className="flex items-center" style={{ gap: '8px' }}>
+      {/* 1 · the rating, and what it costs to get there.
+
+          `flex-wrap`, and it is load-bearing rather than defensive. Measured in the browser at
+          1280×900 on a 5★ spot with a 41-minute drive: stars 80px + `5.0/5` 32px + the drive chip
+          71px + the new leave chip 96px + three 8px gaps = 303px of content in this panel's 252px
+          box. Nothing in the row can shrink — `.wf-peek-chip` is `white-space: nowrap` (its own
+          comment records why) and a flex item's automatic minimum size is its min-content width —
+          and `.wf-peek` declares no `overflow`, so before this the leave chip painted ~50px
+          outside the panel's own border, over the page. The row-gap keeps the wrapped line off the
+          score bars; the wrap costs ~24px, which `PEEK_ESTIMATED_HEIGHT`'s 220 already covers (it
+          was measured at 163–202). */}
+      <div className="flex flex-wrap items-center" style={{ gap: '6px 8px' }}>
         {/* Omitted entirely when the spot is unrated, never drawn as an empty scale. `☆☆☆☆☆` is the
             glyph for ZERO, and zero is a claim: the card this panel hangs off refuses to make it —
             `WindowSpotStrip.jsx` omits the badge rather than showing a dash, "an unrated spot is one
@@ -225,6 +238,17 @@ export default function WindowSpotPeek({
         {drive && (
           <span data-testid="wf-peek-drive" className="wf-peek-chip font-mono">
             🚗 {drive}
+          </span>
+        )}
+        {/* The departure time, beside what it is derived from. Conditional on its own value like
+            every other field here: `leaveBy` is null whenever the drive time or the slot's event
+            time is unknown, and this row states what it knows rather than reserving space for what
+            it does not. The chip is the drive chip's own class, so the two read as one pair — this
+            is the "what it costs to get there" row, and a leave time is the same statement said in
+            the form a reader can act on. */}
+        {leaveBy && (
+          <span data-testid="wf-peek-leave" className="wf-peek-chip font-mono">
+            ↰ leave {leaveBy}
           </span>
         )}
       </div>
@@ -293,6 +317,7 @@ export default function WindowSpotPeek({
 WindowSpotPeek.propTypes = {
   rating: PropTypes.number,
   driveMinutes: PropTypes.number,
+  leaveBy: PropTypes.string,
   fierySky: PropTypes.number,
   goldenHour: PropTypes.number,
   clause: PropTypes.string,

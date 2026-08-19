@@ -15,13 +15,18 @@
 //
 // ⚠️ This is a default, not a ceiling. A test file that pins its own zone still wins: setup files
 // run before the test module is evaluated, so a file-scope `process.env.TZ = …` is applied second.
-// Seven files rely on that (`mapDates`, `computeAutoSelection`, `DateStripToday`,
-// `MapViewAuroraNight` pin Europe/London; `mapDatesAbroad`, `instantsAbroad` and
-// `jobRunSlotDatesAbroad` pin America/New_York), and ALL THREE abroad files carry a "the zone
-// fixture itself" test — so if this line ever defeated a per-file pin, those files fail rather than
-// quietly becoming duplicates. ⚠️ A date assertion is not always enough to be that guard: at
-// `jobRunSlotDatesAbroad`'s headline instant New York and UTC are on the SAME date, so that file
-// has to assert `resolvedOptions().timeZone` outright. Check which one a new abroad file needs.
+// Several files rely on that — `mapDates`, `computeAutoSelection`, `DateStripToday` and
+// `MapViewAuroraNight` pin Europe/London; `mapDatesAbroad`, `instantsAbroad`,
+// `jobRunSlotDatesAbroad`, `metricsTodayFilterAbroad`, `solarEventTimes` and `leaveByAbroad` pin
+// America/New_York — and EVERY abroad file carries a "the zone fixture itself" guard, so if this
+// line ever defeated a per-file pin those files fail rather than quietly becoming duplicates.
+// (`grep -l "process.env.TZ" src/test/*` for the current set; the list above is the reason, not the
+// index, and a count written here rots.) ⚠️ A date assertion is not always enough to be that guard.
+// At `jobRunSlotDatesAbroad`'s headline instant New York and UTC are on the SAME date, so that file
+// asserts `resolvedOptions().timeZone` outright; `leaveByAbroad` must do the same for a different
+// reason — the code under test names `Europe/London` itself, so its answer is the same under the
+// pin and under this default, and only the guard can tell the file is still doing its job. Check
+// which form a new abroad file needs rather than copying a sibling's.
 // `testEnvironmentTimezone.test.js` is the other half: it fails if this line stops taking effect at
 // all.
 process.env.TZ = 'UTC';

@@ -3,6 +3,7 @@ import {
   buildWindowSpots, compareSpots, readableInkOn, spotBadgeStyle, spotOrderStatement,
 } from '../utils/windowFirstSpots.js';
 import { RATING_COLOURS } from '../components/markerUtils.js';
+import { RAMP_STOPS, rampHex } from '../utils/scoreRamp.js';
 
 /** A briefing slot as the payload carries one. */
 function slot(overrides = {}) {
@@ -15,9 +16,22 @@ function slot(overrides = {}) {
   };
 }
 
-/** An event summary with one region holding the given slots. */
+/**
+ * An event summary with one region holding the given slots.
+ *
+ * <p>It carries a {@code solarEventTime} of its OWN, and that is not decoration: an event summary
+ * really has one ({@code briefingDisplay.getEventTime} falls back to it), so a fixture without it
+ * could not tell a descriptor reading the slot's time from one reading the window's. The two
+ * differ by an hour here, which is far more than the tens of minutes real geography produces —
+ * a fixture's job is to be unmistakable, not typical.
+ */
 function summary(slots, regionName = 'Northumberland & Tyneside') {
-  return { targetType: 'SUNSET', regions: [{ regionName, slots }], unregioned: [] };
+  return {
+    targetType: 'SUNSET',
+    solarEventTime: '2026-08-14T19:00:00',
+    regions: [{ regionName, slots }],
+    unregioned: [],
+  };
 }
 
 /** WCAG relative luminance of `#RRGGBB`, so the contrast assertions are independent of the source. */
@@ -43,6 +57,23 @@ describe('buildWindowSpots', () => {
       regionName: 'Northumberland & Tyneside',
       rating: 4,
     });
+  });
+
+  it('carries THIS location\'s own event time, never the summary\'s', () => {
+    // Not the window's time. Sunrise spans tens of minutes across the roster and `leaveBy` is
+    // advice to one person driving to one place, so the descriptor has to hold the slot's own
+    // instant rather than let the card reach for the header's. The summary fixture carries
+    // 19:00 and the slot 03:40, so a fallback to `eventSummary.solarEventTime` — the exact
+    // shortcut `getEventTime` already offers — fails here rather than passing unnoticed.
+    const [s] = buildWindowSpots(summary([slot({ solarEventTime: '2026-08-14T03:40:00' })]), new Map());
+    expect(s.solarEventTime).toBe('2026-08-14T03:40:00');
+  });
+
+  it('leaves the event time null rather than falling back to the summary\'s', () => {
+    // The degrade and the anti-fallback in one: the summary HAS a time here, so anything that
+    // reached for it would return 19:00 where the contract is silence. Null rather than
+    // undefined, because a descriptor that omitted the key would make the absence invisible.
+    expect(buildWindowSpots(summary([slot()]), new Map())[0].solarEventTime).toBeNull();
   });
 
   it('joins per-user reach on the location id', () => {
@@ -235,21 +266,40 @@ describe('spotOrderStatement', () => {
 
 describe('the rating badge', () => {
   it.each([1, 2, 3, 4, 5])('prints %s★ readably — at least 4.5:1, the AA floor for 10px type', (rating) => {
-    // The whole reason `readableInkOn` is computed rather than tabulated: RATING_COLOURS peaks in
-    // luminance at 3★ and falls away on both sides, so NO single ink clears AA on all five steps.
-    // Dark ink fails 1★ and 5★; light ink fails 2★, 3★ and 4★.
+    // The whole reason `readableInkOn` is computed rather than tabulated: the score ramp peaks in
+    // luminance at 4★ and falls away on both sides, so NO single ink clears AA on all five steps.
+    // Dark ink fails 1★ and 2★; the light one fails 3★, 4★ and 5★.
     const { background, color } = spotBadgeStyle(rating);
-    expect(background).toBe(RATING_COLOURS[rating]);
+    expect(background).toBe(rampHex(rating));
     expect(contrast(background, color)).toBeGreaterThanOrEqual(4.5);
   });
 
+  it('takes the v2 score ramp and not v1\'s marker palette', () => {
+    // D2, the P5 half: one colour language inside v2, so a badge and the heat field beneath it
+    // mean the same thing by the same colour. The inequality is the load-bearing half — the two
+    // ramps are both red→green, so an assertion against `rampHex` alone would pass on either.
+    expect(spotBadgeStyle(5).background).toBe(RAMP_STOPS[4].hex);
+    expect(spotBadgeStyle(5).background).not.toBe(RATING_COLOURS[5]);
+    expect(spotBadgeStyle(1).background).not.toBe(RATING_COLOURS[1]);
+  });
+
   it('picks the light ink exactly where the dark one would fail', () => {
-    // Pinned as the two ends specifically: they are the dimmest steps, and §2.9 warns they are
-    // also the two that sit under 3:1 against the card surface — so a change that made the badge
-    // a tint rather than a fill would break here first.
-    expect(spotBadgeStyle(1).color).toBe('#F2E7D3');
-    expect(spotBadgeStyle(5).color).toBe('#F2E7D3');
+    // The flip lands between 2★ and 3★ on this ramp. Pinned per step rather than as a rule,
+    // because it is the ends that are dimmest and the ends that a palette edit moves first.
+    expect(spotBadgeStyle(1).color).toBe('#FFFFFF');
+    expect(spotBadgeStyle(2).color).toBe('#FFFFFF');
     expect(spotBadgeStyle(3).color).toBe('#0F172A');
+    expect(spotBadgeStyle(5).color).toBe('#0F172A');
+  });
+
+  it('would fail AA at 2★ on the app\'s own cream, which is why the light ink is white', () => {
+    // The defect the ramp swap would have shipped: against #C8452F, cream (#F2E7D3) measures 3.94
+    // and the dark ink 3.70 — neither reaches 4.5, so a two-ink badge keeping the old pair had no
+    // readable answer at that step. Stated as arithmetic so re-introducing the cream fails here
+    // with its own reason rather than somewhere downstream.
+    expect(contrast(rampHex(2), '#F2E7D3')).toBeLessThan(4.5);
+    expect(contrast(rampHex(2), '#0F172A')).toBeLessThan(4.5);
+    expect(contrast(rampHex(2), '#FFFFFF')).toBeGreaterThanOrEqual(4.5);
   });
 
   it('renders no badge at all for an unrated spot', () => {
@@ -260,10 +310,24 @@ describe('the rating badge', () => {
     expect(spotBadgeStyle(0)).toBeNull();
   });
 
-  it('reads the medallion palette rather than a copy of it', () => {
-    // §2.9 pins RATING_COLOURS as this badge's palette and calls it unchanged. A local copy would
-    // let the map marker and the spot card drift apart on the same number.
+  it('renders no badge outside 1–5, where the ramp itself would clamp', () => {
+    // The gate that had to be written out when the fill moved to the ramp. `RATING_COLOURS` is a
+    // five-key table and answered `undefined` here; `rampHex` clamps, so without this a 6 would
+    // paint the 5★ green and a 0 the 1★ red — both a claim nothing measured.
+    expect(spotBadgeStyle(6)).toBeNull();
+    expect(spotBadgeStyle(-1)).toBeNull();
+  });
+
+  it('renders no badge for a fractional rating the star glyph cannot print', () => {
+    // The card prints `${rating}★`, so a 2.5 would read "2.5★" beside four whole stars. The table
+    // gave the same answer by accident; the ramp interpolates, so it now has to be said.
+    expect(spotBadgeStyle(2.5)).toBeNull();
+  });
+
+  it('derives the ink rather than tabulating five pairs', () => {
+    // A local table would let a ramp edit drop a step below AA in silence. The two extremes prove
+    // the function is doing contrast arithmetic and not a lookup.
     expect(readableInkOn('#FFFFFF')).toBe('#0F172A');
-    expect(readableInkOn('#000000')).toBe('#F2E7D3');
+    expect(readableInkOn('#000000')).toBe('#FFFFFF');
   });
 });
