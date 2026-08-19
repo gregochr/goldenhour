@@ -23,11 +23,12 @@ App tests re-anchored from the rail's retired `window-first-rail-empty` sentinel
 (owner, 2026-08-19).
 The P2 row records what it decided, including three defects the review caught that a green suite,
 a clean lint and a successful build had all passed over, and one more the browser caught after
-them. **P3 is BUILT** (`feature/heat-p3-row`, 2026-08-19, unpushed) — the open row's field map,
-region rail and region band, the shared `useHeatCanvas` extraction, and the region filter composed
-onto the card's spot pool; adversarially reviewed (six lenses) with the surviving findings applied
-and browser-verified at 1280 and 390. Its row records six defects that landed only because the
-review and the browser ran before the commit, two of which no green suite could have caught.
+them. **P3 is MERGED** (#561, `5419f503`, 2026-08-19) — the open row's field map, region rail
+and region band, the shared `useHeatCanvas` extraction, and the region filter composed onto the
+card's spot pool; adversarially reviewed (six lenses) with the surviving findings applied and
+browser-verified at 1280 and 390 (via the documented Playwright fallback — the pane wedged). Its
+row records six defects that landed only because the review and the browser ran before the
+commit, two of which no green suite could have caught.
 **P4 is next.** The remaining §9 questions are open but none blocks a phase before its own
 row says so. Per-phase kickoff prompts for the
 implementing sessions: `docs/engineering/heat-field-prompts.md`. Every phase is bound by
@@ -542,7 +543,10 @@ invariant gets its own test: with Order·Best active, thumbnail order still equa
 ### 7.3 Browser verification (the cadence's second half)
 
 Local path: backend `./mvnw -Plocal-dev spring-boot:run -Dspring-boot.run.profiles=local` (port
-**8083**), `npm run dev`, sign in `admin`/`golden2026`. The local H2 starts empty (§2.11), so each
+**8083**), `npm run dev`, sign in `admin`/`golden2026`. ⚠️ **A fresh worktree needs
+`frontend/.env.local` with `VITE_API_TARGET=http://localhost:8083`** — the file is gitignored so
+it is absent by default, and the dev proxy then falls back to 8082 and every request 502s at the
+login screen (this has now cost two sessions; `vite.config.js`'s own comment records the trap). The local H2 starts empty (§2.11), so each
 verifying session seeds once:
 
 1. **Regions first** — `POST /api/regions` and capture the ids (`POST /api/locations` takes

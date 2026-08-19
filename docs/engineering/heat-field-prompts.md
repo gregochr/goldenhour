@@ -147,6 +147,16 @@ Before starting the next session, expect a `CHANGELOG.md` conflict if anything e
 > confirm P0+P1 are on `main` (P2/P3 are not prerequisites but note in the plan if they landed),
 > create `feature/heat-p4-map`.
 >
+> **Read the P2 and P3 rows before writing the layer** — P3 flagged, measured, that
+> `useHeatCanvas` does NOT yet generalise to the Leaflet host: it gates on `land()` (which
+> `drawTiles` never reads), exposes no throttled imperative `repaint()`, and gates change on
+> width alone. **Widen the hook — never write a third canvas host.** Make the `land()` gate
+> host-optional, add the throttled `repaint()` the move handlers need, gate on both dimensions;
+> the strip's and row-map's tests passing unedited is the proof the widening preserved behaviour.
+> Also from P3: framing is currently derived in two components, and your host adds a third
+> consumer — at minimum, do not make P7's planned lift (framing onto the shell's `field` prop)
+> harder.
+>
 > Scope is §4.5 + D8 + the P4 row of §6. `MapView` gains an opt-in `heat` prop, default
 > undefined — **v1's Map tab and the overlay mount must be byte-identical without it, pinned by
 > its own test** (the `serverCellRating` shape). `MapHeatLayer`: custom pane at zIndex 350,
