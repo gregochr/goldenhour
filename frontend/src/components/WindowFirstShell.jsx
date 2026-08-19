@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import BrandLockup from './shared/BrandLockup.jsx';
 import MastheadLight from './shared/MastheadLight.jsx';
@@ -36,6 +36,12 @@ import useLensReserve from '../hooks/useLensReserve.js';
  * loading state for the same wait. The window rows below are unaffected either way.
  */
 const WindowFirstHeatStrip = lazy(() => import('./WindowFirstHeatStrip.jsx'));
+
+/**
+ * The point set a window with nothing scored gets — one frozen array rather than a fresh literal,
+ * so a card whose window has no points does not get a new prop identity on every shell render.
+ */
+const EMPTY_POINTS = Object.freeze([]);
 
 /** The design's frame: 1080px, against the v1 arm's 896px `max-w-4xl`. */
 const WRAP_MAX_WIDTH = '1080px';
@@ -237,7 +243,7 @@ export default function WindowFirstShell({
   light, onSetPostcode,
 }) {
   const {
-    heatStripCards, heatPointSets, heatSpots, reachById,
+    heatStripCards, heatPointSets, heatSpots, reachById, regionSeries,
     windowCards, paneItems, promotedStrip, loading, briefing, evaluationScores,
     scoreIndex, todayStr, reachLens, ratingLens, orderLens, homePlace,
   } = useWindowFirstBriefing();
@@ -438,11 +444,41 @@ export default function WindowFirstShell({
   // The toggle is written against the EFFECTIVE state, not against the map's own default. Flipping
   // `map.get(key) ?? false` would make the first click on the open lead card set it to open —
   // a control that does nothing the one time it is most likely to be pressed.
-  const toggleCard = (key, currentlyOpen) => setCardOverrides((prev) => {
+  /**
+   * The region each open row is drilled into — the {@code cardOverrides} pattern, one map along.
+   *
+   * <p>Per card rather than page-wide, and that is the design's own call: the lens axes are durable
+   * settings a reader carries between windows, while "show me Northumberland in tomorrow's sunrise"
+   * is a question about one window and answering it for all six would silently narrow five cards a
+   * reader never touched. Cleared on collapse, in {@code toggleCard} below.
+   *
+   * <p><b>Nothing prunes it when the window list changes, and nothing needs to.</b> A poll can add
+   * tomorrow's sunrise or retire a window that has passed, leaving an entry whose card is gone — but
+   * the key is {@code date:targetType} with an absolute date, so it can only ever be read again by
+   * the same window on the same day, which is the row that set it. The map is bounded by the windows
+   * one session renders, which is a handful. A reconciling effect here would be a {@code setState}
+   * inside {@code useEffect} buying nothing but a lint suppression.
+   */
+  const [regionByCard, setRegionByCard] = useState(() => new Map());
+  const selectRegion = useCallback((key, regionName) => setRegionByCard((prev) => {
+    if ((prev.get(key) ?? null) === (regionName ?? null)) return prev;
     const next = new Map(prev);
-    next.set(key, !currentlyOpen);
+    if (regionName) next.set(key, regionName);
+    else next.delete(key);
     return next;
-  });
+  }), []);
+
+  const toggleCard = (key, currentlyOpen) => {
+    setCardOverrides((prev) => {
+      const next = new Map(prev);
+      next.set(key, !currentlyOpen);
+      return next;
+    });
+    // Collapsing takes the drill-down with it: the band and the rail are inside the row, so a
+    // selection surviving a collapse would silently gate the strip of a row the reader reopens
+    // later with no visible cause — the filter's own UI having gone with the collapse.
+    if (currentlyOpen) selectRegion(key, null);
+  };
   /**
    * Lead-open, rest-collapsed — plan §5a, settled there on measured heights rather than taste.
    *
@@ -500,6 +536,27 @@ export default function WindowFirstShell({
    * overrides alone would leave the lead card's thumbnail unmarked on first paint, which is the
    * one card that is always open.
    */
+  /**
+   * Each rendered window's event summary, keyed the way the pane addresses a window.
+   *
+   * <p>The open row's rail and band need the SERVED region records — {@code meanRating},
+   * {@code bestRating}, {@code displayVerdict}, {@code summary} — and {@code buildWindowCards}
+   * deliberately does not copy them onto its descriptor: they are a second population with its own
+   * canopy rule (P1), and flattening them onto a card is how two levels of "best" end up as one
+   * number. So the summaries are looked up here, by key, and read only by the surface that names
+   * regions.
+   */
+  const eventSummariesByKey = useMemo(() => {
+    const byKey = new Map();
+    for (const day of briefing?.days || []) {
+      for (const es of day?.eventSummaries || []) {
+        if (!day.date || !es?.targetType) continue;
+        byKey.set(`${day.date}:${es.targetType}`, es);
+      }
+    }
+    return byKey;
+  }, [briefing?.days]);
+
   const openWindowKeys = useMemo(
     () => new Set(windowCards.filter((card) => isCardOpen(card)).map((card) => card.key)),
     // `isCardOpen` is rebuilt every render and closes over both of these; listing it instead would
@@ -524,7 +581,7 @@ export default function WindowFirstShell({
    * and provides no `scrollIntoView`, and the unguarded form throws on every press while the suite
    * still reports green — the exact trap the tab bar's own arrow handling documents a few lines up.
    */
-  const revealWindow = (key) => {
+  const revealWindow = useCallback((key) => {
     setCardOverrides((prev) => {
       const next = new Map(prev);
       next.set(key, true);
@@ -533,7 +590,71 @@ export default function WindowFirstShell({
     const node = document.getElementById(windowCardDomId(key));
     node?.scrollIntoView?.({ block: 'start' });
     node?.querySelector('[data-testid="window-card-expander"]')?.focus?.();
-  };
+  }, []);
+
+  /**
+   * The two lens axes in the shape the region layer words itself from — its own memo, so a region
+   * selection cannot churn it and the card's row derivation stays stable across a click.
+   */
+  const fieldLens = useMemo(() => ({
+    limitMinutes: reachLens?.tier?.limitMinutes ?? null,
+    tierLabel: reachLens?.tier?.label ?? null,
+    minRating: ratingLens?.minRating ?? null,
+    ratingLabel: ratingLens?.floor?.label ?? null,
+    // Optional all the way down, unlike the conditional reads further below. This memo runs on every
+    // render rather than inside a branch, so it is the first thing in the shell to touch either lens
+    // unconditionally — and a provider-less or partial context (which several shell suites hand over
+    // deliberately, to keep their files about one seam) would otherwise throw here before rendering
+    // anything at all.
+  }), [reachLens?.tier, ratingLens?.minRating, ratingLens?.floor]);
+
+  /**
+   * The region layer's inputs, built once per card and STABLE while nothing they depend on moves.
+   *
+   * <p>⚠️ <b>An inline object literal here repaints every open row's canvas on every shell
+   * render.</b> The chain is five links long and each one is load-bearing: a fresh {@code field}
+   * makes the card's {@code regionRows} memo a no-op, which makes {@code regionNames} a fresh array,
+   * which makes the map's {@code paint} callback a fresh function, which is a dependency of
+   * {@link useHeatCanvas}'s paint effect — so a coastline fill, a kernel field at grid 6, a blurred
+   * composite and a second path stroke all re-run. The shell re-renders on every card toggle, every
+   * region selection, every sheet or dialog open, every lens change and every poll, so <em>opening
+   * one row repainted every other open row's map</em>. §5 invariant 4 is the written rule
+   * ("nothing derived inside a render loop"), and {@link useHeatCanvas}'s own parameter contract
+   * says the callback must be memoised — which it cannot be while its inputs churn.
+   *
+   * <p><b>The invariant is that every value INSIDE the object is referentially stable</b>, not that
+   * the object itself never changes. A region selection does rebuild this map — six small object
+   * literals — but {@code spots}, {@code points} (read straight out of {@code heatPointSets}),
+   * {@code windows}, {@code series}, {@code reachById} and {@link fieldLens} all keep their
+   * identity, and the consumers depend on those rather than on the container: the card's row memo
+   * lists the fields, {@code WindowRowRegionLayer} memoises {@code regionNames}, and the map's
+   * {@code paint} lists {@code points}/{@code fitTo}/{@code focusRegion}. So selecting a region in
+   * one row repaints that row's canvas and leaves the other five alone.
+   */
+  const fieldByKey = useMemo(() => {
+    const byKey = new Map();
+    if (heatSpots.length === 0) return byKey;
+    for (const card of windowCards) {
+      byKey.set(card.key, {
+        eventSummary: eventSummariesByKey.get(card.key) ?? null,
+        spots: heatSpots,
+        points: heatPointSets.get(card.key) || EMPTY_POINTS,
+        // The strip's own descriptors, so the band's six dots and the six thumbnails above name one
+        // set of windows in one order — chronological, under both Order settings.
+        windows: heatStripCards,
+        series: regionSeries,
+        reachById,
+        lens: fieldLens,
+        onSelectRegion: (name) => selectRegion(card.key, name),
+        // The strip's own route into a row, reused verbatim: opening and scrolling is one behaviour
+        // and a second copy of it would drift.
+        onJumpWindow: revealWindow,
+        selectedRegion: regionByCard.get(card.key) ?? null,
+      });
+    }
+    return byKey;
+  }, [windowCards, heatSpots, heatPointSets, heatStripCards, regionSeries, reachById,
+    eventSummariesByKey, fieldLens, regionByCard, selectRegion, revealWindow]);
 
   // Lifted to App for the map overlay, exactly as DailyBriefing does it in the v1 arm. Without this
   // a tile handed to the map opens an overlay with no narrative over a map that has filtered out
@@ -828,6 +949,11 @@ export default function WindowFirstShell({
           <WindowFirstPromotedStrip strip={renderedStrip} onOpenWindow={revealWindow} />
         )}
 
+        {/* The open row's region layer, assembled once and handed to every card — each takes its own
+            window's slice by key. Withheld wholesale when the catalogue is empty (a scores fetch
+            that failed, a session with no roster), for the same reason the strip withdraws: a field
+            map of nothing is a picture claiming there is nothing there. The rows, the tide row and
+            the spot strip are unaffected either way. */}
         {orderedPaneItems.map((item) => (item.kind === 'away' ? (
           <WindowAwayRow
             key={item.key}
@@ -851,6 +977,7 @@ export default function WindowFirstShell({
               : undefined}
             peeksSuppressed={modalOpen}
             scoreIndex={scoreIndex}
+            field={fieldByKey.get(item.card.key)}
           />
         )))}
         {/* Under `Best` the list is no longer in date order, and the ordinals alone do not say what

@@ -5,6 +5,81 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — heat field P3: the open row's field map, region rail and region band
+
+Opening a window row on the Plan tab now shows the field at full width, ranked by region, with a
+drill-down into any one of them (`docs/engineering/heat-field-plan.md` §4.4). The order inside the
+row is **field map → region rail → region band → the existing attribute rows → the existing spot
+strip**: nothing that was already there moved, and their test files pass unedited, which is what
+says so.
+
+The **field map** is the strip's kernel at row dials (grid 6, radius `max(20, bw × 0.072)`, blur
+3.6), framed by the same planning area so the big picture and the six thumbnails above it are one
+picture at two sizes. Region names are DOM labels at projected centroids, taken over the whole
+framed catalogue rather than over this window's scored subset — otherwise a label would drift
+between windows as coverage changed. Clicking within 26% of the frame's width of a centroid selects
+that region; clicking it again, or clicking empty sea, clears. The canvas is `aria-hidden` and takes
+no focus: it is a pointer shortcut, and the rail beneath it does everything the click does with
+named buttons.
+
+The **region rail** puts `All N regions` first as a peer cell, then every region ranked by the
+served `meanRating`. Each cell carries its name, its verdict word and `best N★ · M in reach` — or
+its distance instead, and **only when reach is what emptied it**, because a region emptied by the
+rating floor is one you can drive to and naming a drive there would point at the wrong control.
+The **region band** opens on a selection with that region's served narrative verbatim, the design's
+explicit line where the payload carries none ("No narrative generated for this window", plus a
+pointer to the region's own best window when a different one is better), the figures each active
+control earns, and a six-dot window strip marking the region's best.
+
+Selecting a region feeds the kernel's focus, and composes a third gate onto the card's spot pool
+alongside reach and rating — the strip's footer then names all three filters in force, from the same
+helper the band's header uses, so the two cannot word it differently.
+
+### Changed — one canvas host, shared
+
+`useHeatCanvas` is extracted from `WindowFirstHeatStrip` and now serves both static hosts: the
+geometry lifecycle, the rAF measure-retry, the ResizeObserver/window-resize pair and the null
+2d-context guard. Every one of those rules was paid for once at P2, three of them by an adversarial
+review and one only by a browser; a second copy would have taken the rules and not the reasons. The
+strip's own 41 tests passed **unedited** against the hook, which is the proof the extraction was
+behaviour-preserving (the `solarDayGeometry` precedent). The hook additionally applies `drawGeo`'s
+height test, which each host would otherwise have to re-derive from its own aspect clamps.
+
+The region layer sits behind a `lazy()` boundary for the reason P2 put the strip behind one: `App`
+imports the v2 shell statically while the layout flag still defaults to **v1**, so a static import
+would have put the kernel and `d3-geo` into the entry chunk for every reader of an arm they never
+see. Measured against P2's baseline: **+4.4 KB raw / +1.4 KB gzip** on the entry chunk with the
+boundary, against +21.4 KB / +7.2 KB without it. The layer's own chunk is 10.9 KB / 3.4 KB gzip.
+
+### Fixed — six defects the adversarial review and the browser caught before this landed
+
+- **Selecting a region with nothing scored in it erased the whole field.** The rail's names come
+  from the briefing payload, which keeps a region whose slots are all unrated; the kernel's points
+  drop every unscored spot. A focus matching no point multiplies *every* weight by 1e-4, so the
+  entire canvas paints transparent with nothing in the console. The focus is now withheld unless a
+  point carries it.
+- **Every open row repainted its canvas on any unrelated shell state change** — opening a sheet, a
+  dialog, another card. A per-render object literal broke a five-link memo chain ending at the paint
+  effect. The container's values are now referentially stable and the consumers depend on those
+  rather than on the container (§5 invariant 4).
+- **The band claimed a reach it had not measured.** Seen in the browser: a 45-minute tier with no
+  home postcode made every drive unknown, every spot pass the gate, and the figure read
+  `within 45 min — 6` about six locations nobody had a drive time for.
+- **Region labels were unreadable over a good field** — bone type on a 4★ region measures 1.84:1,
+  so a region's name went least legible exactly when the field was telling you to go there. Every
+  label now carries the plate that only the selected one had.
+- **The band's six dots made travel days into buttons that did nothing**, and could put the peak
+  mark on a night the pipeline deliberately skips. An away dot is now a span, exactly as the strip's
+  away thumbnail is.
+- **The map's hint chip swallowed clicks**, so the one element saying "Select a region" was the one
+  place clicking did not; and clearing from the band dropped focus to `<body>`, since the control
+  unmounted itself. Focus now moves to the rail's All cell, which announces the resulting state.
+
+Also: the peak mark moved out of the dot's label line entirely (both top corners collided with
+30px-wide tracks — seen, not derived), the rail's selected border went to the alpha its sibling
+already used for 3:1, and the three new focusable controls joined the sticky bar's
+`scroll-margin-top` reservation.
+
 ### Added — heat field P2: the window strip, and the day rail retired
 
 The Plan tab's first heat surface (`docs/engineering/heat-field-plan.md` P2). Six solar-window

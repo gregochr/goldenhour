@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { act, render, screen, fireEvent, within } from '@testing-library/react';
+import { act, cleanup, render, screen, fireEvent, within } from '@testing-library/react';
 import WindowFirstHeatStrip, {
   THUMB_ASPECT_MAX, THUMB_ASPECT_MIN, thumbAspect,
 } from '../components/WindowFirstHeatStrip.jsx';
@@ -554,6 +554,14 @@ describe('WindowFirstHeatStrip — what it hands the kernel', () => {
     await withMeasuredThumbs(25, async () => { await renderStrip(); });
     expect(drawGeo).not.toHaveBeenCalled();
 
+    // ⚠️ UNMOUNTED before the second render, and this is the whole reason the assertion below can
+    // count. The 25px strip did not paint — it left a rAF retry pending, and the retry is right to
+    // keep going, because a canvas that was too small and becomes big enough SHOULD paint. Leaving
+    // it mounted while the stub answers 26 lets that retry succeed against the same module-level
+    // `drawGeo` mock the second strip is being counted through, so the count is 2. It reproduced
+    // only under full-suite parallel load, where a frame has time to fire between the two renders —
+    // the exact shape this repo has recorded before ("a green isolated run does not exonerate it").
+    cleanup();
     drawGeo.mockClear();
     await withMeasuredThumbs(26, async () => { await renderStrip(); });
     expect(drawGeo).toHaveBeenCalledTimes(1);
