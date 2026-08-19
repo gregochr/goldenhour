@@ -2606,6 +2606,108 @@ button.wf-hc:focus-visible {
      last button loses its outer stroke to the rounded corner. */
   outline-offset: -2px;
 }
+/* ── The Map tab's heat toolbar (P4) ───────────────────────────────────────────────────────────
+   It reuses `.wf-seg`/`.wf-seg-btn` above rather than growing its own buttons, and that is not
+   only tidiness: the ad-hoc first cut named `bg-plex-accent/25` for its pressed state, a token
+   this project has never had, so Tailwind emitted no rule and the selected segment painted
+   nothing (the same defect `TravelDaysView.jsx:163` and `ModelTestView.jsx:639` already record).
+   The shared classes bring the pressed fill, the `:focus-visible` ring — clipped to the inside,
+   because the group is `overflow: hidden` — and a 25px tall button, which is what clears SC 2.5.8's
+   24px target. Three fixes for one class name.
+
+   `--color-plex-panel` is opaque, which matters here and does not on the Plan bar: this control
+   floats over map tiles, and a translucent ground would put a coastline through the words. */
+.wf-map-toolbar {
+  /* Leaflet's zoom control owns the top-left corner and paints above anything below z-index 1100;
+     `CentreOnHomeControl` stacks under it in the same column. 60px clears both. */
+  position: absolute;
+  top: 8px;
+  left: 60px;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  /* On a phone the three controls wrap, and the right edge is what gives, never the map. */
+  max-width: calc(100% - 68px);
+  /* ⚠️ The container is transparent to the pointer and its CONTROLS are not. A wrapped toolbar's
+     box spans the union of its rows, so on a 390px screen a plain div would swallow every drag that
+     started in the empty half of a short row — a dead strip across the top of a map whose whole job
+     is panning. */
+  pointer-events: none;
+}
+.wf-map-toolbar-row,
+.wf-map-key {
+  pointer-events: auto;
+}
+.wf-map-toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.wf-map-window {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 5px 8px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 8px;
+  background: var(--color-plex-panel);
+  color: var(--color-plex-text-secondary);
+  max-width: 190px;
+  cursor: pointer;
+}
+.wf-map-window:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 1px;
+}
+/* The ramp's key. It lives in the toolbar because every corner of this map is already spoken for —
+   the LITE viewline chip bottom-left, the scored-locations chip bottom-centre, Leaflet's
+   attribution bottom-right — and because a key belongs beside the control that turns on the thing
+   it explains. */
+.wf-map-key {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 999px;
+  background: var(--color-plex-panel);
+  color: var(--color-plex-text-secondary);
+}
+.wf-map-key-ramp {
+  display: inline-block;
+  width: 56px;
+  height: 6px;
+  border-radius: 999px;
+}
+/* ⚠️ The marker handover's pointer gate, and it has to be a STYLESHEET rule rather than an inline
+   `pointer-events: none` on the pane. Leaflet's own stylesheet carries
+   `.leaflet-marker-icon.leaflet-interactive { pointer-events: auto }`, and a child re-enabling the
+   property beats an ancestor disabling it — so the pane rule §4.5 specifies is necessary and not
+   sufficient, and an 8%-opaque medallion would still swallow the tap meant for the map.
+
+   Deliberately NOT `visibility: hidden`, which was the first cut and which does close the pointer
+   hole: it also takes every marker out of the accessibility tree and the tab order, and the markers
+   are the ONLY route to a location's popup. At the zoom this tab opens at that left a screen-reader
+   or keyboard user with nothing on the Map tab but four buttons and an `aria-hidden` canvas — and
+   dropped focus to `<body>` whenever a focused marker faded. Opacity hides the picture; this rule
+   removes the target; neither touches the tree. */
+.wf-markers-inert .leaflet-marker-icon,
+.wf-markers-inert .leaflet-marker-shadow,
+/* ⚠️ The `.leaflet-interactive` pair is not belt-and-braces — it is the rule that works. Leaflet's
+   own `.leaflet-marker-icon.leaflet-interactive { pointer-events: auto }` is TWO classes, exactly
+   the specificity of the two-class selectors above, and it is later in source order, so it wins the
+   tie. Measured in the browser: with the shorter selectors alone, an invisible cluster medallion
+   at zoom 8 still computed `pointer-events: auto` and still swallowed the drag. Three classes beat
+   two. */
+.wf-markers-inert .leaflet-marker-icon.leaflet-interactive,
+.wf-markers-inert .leaflet-marker-shadow.leaflet-interactive {
+  pointer-events: none;
+}
+
 /* The design's `.stick.tmp`. Amber because the state it names is temporary, matching the MAYBE
    verdict's own family — and it never appears beside a verdict, so the two cannot be confused. */
 .wf-lens-stick {

@@ -3,6 +3,7 @@
  * Extracted from MapView for testability.
  */
 import L from 'leaflet';
+import { rampHex } from '../utils/scoreRamp.js';
 
 /** Half-circumference of the arc circle (radius 19). */
 const HALF_CIRC = Math.PI * 19;
@@ -34,18 +35,63 @@ export function standDownColour() {
 }
 
 /**
- * Maps an average 0-100 score to a marker fill colour on the new red→green ramp.
+ * The no-data fill, shared by both ramps. It is not a score, so the ramp has nothing to say about
+ * it and {@code rampRgb} would answer with its bottom stop — which reads as "1 star", the one
+ * claim an unscored marker must not make.
+ */
+const NO_DATA_COLOUR = '#3A3D45';
+
+/**
+ * The 1-5 rating a 0-100 average stands for, which is the only sound way to hand an average to a
+ * ramp defined on stars.
+ *
+ * <p>Exactly the inverse of the one derivation that produces such an average from ratings —
+ * {@code createClusterIcon}'s {@code mean(ratings) * 20} — so a cluster of 4-star spots resolves to
+ * the 4-star colour rather than to a bucket boundary. The other producer,
+ * {@code markerLabelAndColour}'s {@code (fierySky + goldenHour) / 2}, is a genuine 0-100 potential
+ * and maps onto the same line; {@link rampHex} clamps both ends, so a 0 lands on the bottom stop
+ * rather than off the ramp.
+ */
+function starsFromAverage(avg) {
+  return avg / 20;
+}
+
+/**
+ * Maps an average 0-100 score to a marker fill colour.
+ *
+ * <p>⚠️ {@code ramp} is the v2 opt-in (plan D2/D8) and it is not a style preference: v1 is the
+ * pilot's frozen comparison control and must keep rendering {@link RATING_COLOURS} byte-identically
+ * until the flag flips. Only the v2 Map tab's HEAT view passes it, so the medallion view stays the
+ * honest "before" the comparison is made against.
+ *
+ * <p>The two ramps are not interchangeable at the ends: {@code RATING_COLOURS[5]} is a dark bottle
+ * green and the score ramp's 5 is the verdict palette's sage. That is the point of the swap — the
+ * markers and the field beneath them have to mean the same thing by the same colour.
  *
  * @param {number|null} avg - Average score, or null for no data.
+ * @param {boolean} [ramp] - Take the v2 score ramp instead of v1's five buckets.
  * @returns {string} Hex colour string.
  */
-export function scoreColour(avg) {
-  if (avg == null) return '#3A3D45';
+export function scoreColour(avg, ramp = false) {
+  if (avg == null) return NO_DATA_COLOUR;
+  if (ramp) return rampHex(starsFromAverage(avg));
   if (avg > 80) return RATING_COLOURS[5];
   if (avg > 60) return RATING_COLOURS[4];
   if (avg > 40) return RATING_COLOURS[3];
   if (avg > 20) return RATING_COLOURS[2];
   return RATING_COLOURS[1];
+}
+
+/**
+ * One rating's fill on whichever ramp is in force.
+ *
+ * <p>The v1 lookup is a table with five keys and answers {@code undefined} for anything else, which
+ * is why its callers carry a {@code ?? '#6B6B6B'}. The score ramp is defined on the continuum and
+ * clamps, so a rating outside 1-5 resolves rather than falling through — the fallback is kept for
+ * the v1 arm and is unreachable on the v2 one.
+ */
+function ratingColour(rating, ramp) {
+  return ramp ? rampHex(rating) : (RATING_COLOURS[rating] ?? '#6B6B6B');
 }
 
 /**
@@ -57,23 +103,27 @@ export function scoreColour(avg) {
  * @param {number|null} fierySky - Fiery Sky Potential 0-100.
  * @param {number|null} goldenHour - Golden Hour Potential 0-100.
  * @param {boolean} isPureWildlife - True for wildlife-only locations.
+ * @param {boolean} [ramp] - Take the v2 score ramp (see {@link scoreColour}).
  * @returns {{ label: string|number, colour: string }}
  */
-export function markerLabelAndColour(rating, fierySky, goldenHour, isPureWildlife) {
+export function markerLabelAndColour(rating, fierySky, goldenHour, isPureWildlife, ramp = false) {
   if (isPureWildlife) {
+    // The paw is a subject, not a score, and its green says so. Deliberately NOT rebased on the
+    // ramp: a wildlife marker carries no sky rating at all, and giving it a ramp colour would put
+    // it on the same scale as the field it is standing on while meaning something else entirely.
     return { label: '\uD83D\uDC3E', colour: '#16a34a' };
   }
   if (fierySky != null && goldenHour != null) {
     if (rating != null) {
-      return { label: `${rating}\u2605`, colour: RATING_COLOURS[rating] ?? '#6B6B6B' };
+      return { label: `${rating}\u2605`, colour: ratingColour(rating, ramp) };
     }
     const avg = Math.round((fierySky + goldenHour) / 2);
-    return { label: avg, colour: scoreColour(avg) };
+    return { label: avg, colour: scoreColour(avg, ramp) };
   }
   if (rating != null) {
-    return { label: `${rating}\u2605`, colour: RATING_COLOURS[rating] ?? '#6B6B6B' };
+    return { label: `${rating}\u2605`, colour: ratingColour(rating, ramp) };
   }
-  return { label: '—', colour: scoreColour(null) };
+  return { label: '—', colour: scoreColour(null, ramp) };
 }
 
 /**
@@ -157,9 +207,10 @@ export function buildMarkerSvg(label, colour, fierySky, goldenHour, rating, isPu
  *
  * @param {object} cluster - Leaflet MarkerCluster instance.
  * @param {string} [role] - User role (ADMIN/PRO_USER/LITE_USER).
+ * @param {boolean} [ramp] - Take the v2 score ramp (see {@link scoreColour}).
  * @returns {L.DivIcon}
  */
-export function createClusterIcon(cluster, role) {
+export function createClusterIcon(cluster, role, ramp = false) {
   const count = cluster.getChildCount();
   let size = 40;
   if (count >= 20) size = 56;
@@ -176,7 +227,7 @@ export function createClusterIcon(cluster, role) {
   const avgScore = ratings.length > 0
     ? (ratings.reduce((sum, r) => sum + r, 0) / ratings.length) * 20
     : null;
-  const bg = scoreColour(avgScore);
+  const bg = scoreColour(avgScore, ramp);
 
   const fieryScores = scorableMarkers
     .map((m) => m.options.icon?.options?.fierySky)

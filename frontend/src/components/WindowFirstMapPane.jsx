@@ -1,7 +1,21 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import DateStrip from './DateStrip.jsx';
 import MapView from './MapView.jsx';
+import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
+// From `heatGeometry`, NOT `heatField` — this is the whole reason that module exists. `heatField`
+// statically imports `d3-geo`, and this pane is not behind the same `lazy()` boundary the layer is,
+// so importing a bounding-box helper from there fetched a 24 KB projection chunk the moment the Map
+// tab opened, in medallion view, for arithmetic that is four `Math.min` calls.
+import { latLngBounds } from '../utils/heatGeometry.js';
+import { areaSpots } from '../utils/planningArea.js';
+import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
+
+/**
+ * The framing pad, in degrees of latitude — the bundle's own figure (`map-tab.js`), and the same
+ * one the opening `fitBounds` and the area toggle both use so the two cannot drift apart.
+ */
+const FRAME_PAD_DEG = 0.12;
 
 /**
  * The window-first arm's Map tab: the date strip and the full map, in the shell's slotted panel.
@@ -87,6 +101,60 @@ export default function WindowFirstMapPane({
 }) {
   const wrapRef = useRef(null);
   const [resizeNonce, setResizeNonce] = useState(0);
+  const {
+    heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr,
+  } = useWindowFirstBriefing();
+
+  /**
+   * The heat field's opt-in, built here and nowhere else.
+   *
+   * <p><b>Why the pane and not `MapView`.</b> Everything below either reads the window-first
+   * provider or imports the kernel, and `MapView` is shared with the v1 arm — a static
+   * `heatField.js` import there would put `d3-geo` on the network for the pilot's frozen control
+   * (plan §8, blast radius). The pane is v2-only and already behind a `lazy()` boundary, so the
+   * weight lands where the feature does.
+   *
+   * <p><b>The third framing site, and deliberately the cheapest one.</b> P3 recorded that
+   * `areaSpots → bbox → thumbAspect` is derived in two components and that P7 wants it lifted onto
+   * the shell's `field` prop. This host needs the area SPOT SET and a lat/lng box; it needs no
+   * projection and no aspect, because Leaflet owns both. So the lift P7 has to make is still the
+   * same two components' worth of work — this one consumes `areaSpots` and stops.
+   *
+   * <p>Memoised as one object because `MapView` is `React.memo`: a fresh literal every render would
+   * defeat it, and this component re-renders on every provider tick.
+   */
+  const heat = useMemo(() => {
+    const framed = areaSpots(heatSpots, reachById);
+    // `homePlace` is what `planningArea` needs to have measured anything at all: with no postcode
+    // saved, `reachById` is empty, every region is unmeasured-and-therefore-in, and `framed` is the
+    // whole catalogue. The segment is then two identical states, which D6 says must not be drawn.
+    const hasHome = Boolean(homePlace) && framed.length > 0 && framed.length < heatSpots.length;
+    return {
+      enabled: heatSpots.length > 0,
+      hasHome,
+      spots: heatSpots,
+      areaSpots: framed,
+      pointsByKey: heatPointSets,
+      // Every rendered window, away days included, so the selector's six are the strip's six — one
+      // shape of the week. An away window simply has no points and paints nothing, which is the
+      // same answer the Plan tab's thumbnail gives it.
+      windows: heatStripCards.map((card) => ({
+        key: card.key,
+        date: card.date,
+        targetType: card.targetType,
+        label: card.label,
+        time: card.time,
+        // The haze and the card's own badge decay by one number (plan D3). Resolved through the
+        // fail-soft path rather than read raw, so a legacy cached payload with no tier degrades to
+        // the horizon's inferred one instead of painting at full confidence.
+        conf: confidenceScalar(
+          resolveConfidence({ confidence: card.confidence }, daysOut(card.date, todayStr)),
+        ),
+      })),
+      areaBounds: framed.length > 0 ? latLngBounds(framed, FRAME_PAD_DEG) : null,
+      catalogueBounds: heatSpots.length > 0 ? latLngBounds(heatSpots, FRAME_PAD_DEG) : null,
+    };
+  }, [heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr]);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -137,6 +205,7 @@ export default function WindowFirstMapPane({
         homeRadiusMiles={homeRadiusMiles}
         onOpenSettings={onOpenSettings}
         resizeNonce={resizeNonce}
+        heat={heat}
       />
     </div>
   );
