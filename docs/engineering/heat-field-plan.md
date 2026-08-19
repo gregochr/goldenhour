@@ -20,10 +20,15 @@ the surviving findings applied and browser-verified at 1280 and 390. Its merge r
 main (#556–#558): the lit band and the strip coexist, gate-proven on the merged tree, and #556's
 App tests re-anchored from the rail's retired `window-first-rail-empty` sentinel to
 `window-first-pane-empty` (same fetch-settled gate). **§9.6 is RESOLVED — ungated for the pilot**
-(owner, 2026-08-19). **P3 is next.**
+(owner, 2026-08-19).
 The P2 row records what it decided, including three defects the review caught that a green suite,
 a clean lint and a successful build had all passed over, and one more the browser caught after
-them. **P3 is next.** The remaining §9 questions are open but none blocks a phase before its own
+them. **P3 is BUILT** (`feature/heat-p3-row`, 2026-08-19, unpushed) — the open row's field map,
+region rail and region band, the shared `useHeatCanvas` extraction, and the region filter composed
+onto the card's spot pool; adversarially reviewed (six lenses) with the surviving findings applied
+and browser-verified at 1280 and 390. Its row records six defects that landed only because the
+review and the browser ran before the commit, two of which no green suite could have caught.
+**P4 is next.** The remaining §9 questions are open but none blocks a phase before its own
 row says so. Per-phase kickoff prompts for the
 implementing sessions: `docs/engineering/heat-field-prompts.md`. Every phase is bound by
 CLAUDE.md § *UI Work — Review Cadence* (build → tests → adversarial review of the diff → fix →

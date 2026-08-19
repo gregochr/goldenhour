@@ -19,6 +19,7 @@ import { buildPaneItems } from '../utils/windowFirstAway.js';
 import { buildPromotedStrip } from '../utils/windowFirstPromoted.js';
 import { buildBriefingScoreIndex } from '../utils/briefingScoreIndex.js';
 import { buildHeatPointSets, buildHeatSpots } from '../utils/heatSpots.js';
+import { buildRegionSeries } from '../utils/windowFirstRegions.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 
 /** Matched to v1's. The payload regenerates every ~8–10h; polling faster only adds revalidations. */
@@ -50,6 +51,14 @@ const EMPTY_ARRAY = [];
  */
 const EMPTY_POINT_SETS = new Map();
 
+/**
+ * The region series' empty value — its own constant rather than a share of the one above, because
+ * the two are different shapes ({@code Map<string, Array>} against
+ * {@code Map<string, Map<string, ?number>>}) and a shared empty is exactly how two shapes end up
+ * documented as one.
+ */
+const EMPTY_REGION_SERIES = new Map();
+
 const WindowFirstBriefingContext = createContext({
   briefing: null,
   loading: false,
@@ -62,6 +71,7 @@ const WindowFirstBriefingContext = createContext({
   evaluationScores: EMPTY_SCORES,
   heatSpots: EMPTY_ARRAY,
   heatPointSets: EMPTY_POINT_SETS,
+  regionSeries: EMPTY_REGION_SERIES,
   reachById: EMPTY_REACH,
   todayStr: '',
   tomorrowStr: '',
@@ -475,15 +485,32 @@ export function WindowFirstBriefingProvider({
     [heatSpotList, upcomingEvents],
   );
 
+  /**
+   * Each region's served mean across every rendered window, for the open row's six-dot strip.
+   *
+   * <p>Built here rather than per card because it is a CROSS-window quantity: a card holds one
+   * event summary and the band's dots are about all six. Deriving it in the card would mean handing
+   * every card the whole day list so that one open row could walk it — six walks for one answer,
+   * rebuilt on every poll.
+   *
+   * <p>Off {@code briefing.days} and {@code upcomingEvents}, which is exactly the pair the window
+   * cards are built from, so the dots can never name a window the pane does not render.
+   */
+  const regionSeries = useMemo(
+    () => buildRegionSeries(upcomingEvents, briefing?.days),
+    [upcomingEvents, briefing?.days],
+  );
+
   const value = useMemo(
     () => ({
       briefing, loading, heatStripCards, windowCards, paneItems, promotedStrip, upcomingEvents,
       travelDayDates, evaluationScores, scoreIndex, heatSpots: heatSpotList, heatPointSets,
+      regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, orderLens, homePlace, isPro, isLiteUser,
     }),
     [briefing, loading, heatStripCards, windowCards, paneItems, promotedStrip, upcomingEvents,
-      travelDayDates, evaluationScores, scoreIndex, heatSpotList, heatPointSets,
+      travelDayDates, evaluationScores, scoreIndex, heatSpotList, heatPointSets, regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, orderLens, homePlace, isPro, isLiteUser],
   );
@@ -518,7 +545,8 @@ WindowFirstBriefingProvider.propTypes = {
  *
  * @returns {{briefing: ?object, loading: boolean, heatStripCards: Array, windowCards: Array,
  *           paneItems: Array, promotedStrip: ?object, upcomingEvents: Array,
- *           travelDayDates: Set, heatSpots: Array, heatPointSets: Map, reachById: Map,
+ *           travelDayDates: Set, heatSpots: Array, heatPointSets: Map, regionSeries: Map,
+ *           reachById: Map,
  *           reachLens: object, ratingLens: object, orderLens: object, homePlace: ?string,
  *           todayStr: string,
  *           tomorrowStr: string, isPro: boolean, isLiteUser: boolean}}

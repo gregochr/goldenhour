@@ -152,10 +152,12 @@ function useStripEdges(ref, spotCount) {
  * @param {string}   [props.targetType] SUNRISE or SUNSET, for the same
  * @param {?Map}     [props.scoreIndex] briefing-score index. Absent or empty simply means no peek
  *        opens — the scores arrive from a separate request that a first paint has not resolved.
+ * @param {string[]} [props.filters] the filters in force, worded by {@code activeFilterClauses}.
+ *        Absent renders the footer exactly as it was before the open row could gate by region.
  */
 export default function WindowSpotStrip({
   spots, windowLabel, total, lead, onOpenSpot, onSeeAll, peeksSuppressed, date, targetType,
-  scoreIndex,
+  scoreIndex, filters,
 }) {
   const scrollerRef = useRef(null);
   const wrapperRef = useRef(null);
@@ -285,6 +287,15 @@ export default function WindowSpotStrip({
 
       <div data-testid="window-spot-foot" className="wf-wfoot font-mono text-plex-text-secondary">
         <span data-testid="window-spot-order">{spotOrderStatement(spots)}</span>
+        {/* The filters in force, named where the count is. Optional and absent by default, so every
+            caller that does not gate — and every one written before the open row existed — renders
+            the footer it always did. It states ALL of them rather than only the newest, because the
+            count 8px to the right is the product of all three and crediting one would misdirect a
+            reader looking for what to change. `activeFilterClauses` decides which are in force; an
+            empty list renders nothing rather than a bare separator. */}
+        {filters?.length > 0 && (
+          <span data-testid="window-spot-filters">{`· ${filters.join(' · ')}`}</span>
+        )}
         <span className="wf-film">
           {overflows && (
             <>
@@ -368,4 +379,6 @@ WindowSpotStrip.propTypes = {
   date: PropTypes.string,
   targetType: PropTypes.string,
   scoreIndex: PropTypes.instanceOf(Map),
+  /** The filters in force, already worded by {@code activeFilterClauses}. */
+  filters: PropTypes.arrayOf(PropTypes.string),
 };

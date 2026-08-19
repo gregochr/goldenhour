@@ -1344,6 +1344,401 @@ button.wf-hc:focus-visible {
   line-height: 1.5;
   color: var(--color-plex-text-secondary);
 }
+/* ── The open row's field map, region rail and region band (heat-field plan §4.4) ──────────── */
+
+.wf-rowmap {
+  margin: 0 14px 11px;
+}
+/* ⚠️ `line-height: 0` is load-bearing and is the bundle README's own gotcha. A canvas is an inline
+   replaced element, so its line box leaves a 4–5px gap under it that no padding rule explains and
+   that shows as a seam of panel colour inside the border. Killing the line height removes it.
+
+   The cost is that the absolutely-positioned labels inside INHERIT the zero — see `.wf-mlab span`,
+   which puts a real line height back. The two rules are a pair; moving one without the other paints
+   the selected region's plate 6px tall behind 9.5px of text, which reads as a strike-through. */
+.wf-mapbox {
+  position: relative;
+  line-height: 0;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 9px;
+  overflow: hidden;
+}
+.wf-mapbox canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  cursor: pointer;
+  /* The kernel's own sea colour, so an unpainted map is the same ground as a painted one — the
+     thumbnails' rule, and the same token. */
+  background: var(--color-heat-sea);
+}
+.wf-mlab {
+  position: absolute;
+  inset: 0;
+  /* The labels are annotations on a picture, and the picture is what takes the click. Without this
+     a pointer landing on a label would be answered against the label rather than the canvas, so the
+     one place a reader is most likely to aim — the region's own name — would be the one place
+     selecting it did not work. */
+  pointer-events: none;
+}
+/* ⚠️ EVERY label carries the plate, not only the selected one, and that is a contrast fix rather
+   than a styling preference. The backdrop here is the heat field itself, which the kernel composites
+   at alpha 206 (238 focused) over the land plate — so bone type measures 1.84:1 against `#B0BE74`
+   (a 4★ region) and 2.29:1 against `#8AAE72`. Both are under even the 3:1 non-text floor, and the
+   failure is inverted against usefulness: a region's name goes least readable exactly on the nights
+   the field is telling you to go there. A text-shadow is not a contrast remedy — WCAG has no
+   technique for one and the ratio is computed against the backdrop regardless. Over the plate the
+   same type measures 12.2:1 whatever the field is doing beneath it. The shadow stays, for the
+   plate's own edge against a bright field.
+
+   The SELECTED label is then distinguished by its ring rather than by having a background at all,
+   which is the same "state is not a fill" split the rail cells use. */
+.wf-mlab span {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  /* ⚠️ Explicit, against `.wf-mapbox`'s inherited zero — see the note there. */
+  line-height: 1.35;
+  color: var(--color-plex-text);
+  background: rgba(20, 15, 12, 0.85);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.8);
+  white-space: nowrap;
+  padding: 3px 5px;
+  border-radius: 5px;
+}
+.wf-mlab span[data-hot="true"] {
+  box-shadow: inset 0 0 0 1px var(--color-plex-border-light);
+}
+/* Secondary, not the mock's dimmer bone: this is the only sentence saying the picture is
+   interactive, and the strip's beyond line records the same correction for the same reason. */
+.wf-mhint {
+  position: absolute;
+  left: 8px;
+  bottom: 7px;
+  /* Same rule as `.wf-mlab`, and it was missed once: this chip is an absolutely-positioned sibling
+     inside the clickable box, so without it the ~90×15px area that says "Select a region" is the
+     one place clicking does not select one. On the near-square phone frame the bottom-left of the
+     projection is inside the landmass, so a centroid can sit under it and be unreachable. */
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1.35;
+  color: var(--color-plex-text-secondary);
+  background: rgba(20, 15, 12, 0.8);
+  padding: 3px 6px;
+  border-radius: 5px;
+}
+
+.wf-rlab {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+  margin: 0 14px 6px;
+}
+.wf-rrail {
+  display: grid;
+  /* `auto-fit` rather than a fixed count, so the rail survives a region list that grows — which is
+     exactly what P7's origin move and any catalogue expansion will do to it. */
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 6px;
+  margin: 0 14px 11px;
+}
+.wf-rr {
+  border: 1px solid var(--color-plex-border);
+  border-left: 2px solid var(--color-plex-border-light);
+  border-radius: 8px;
+  background: var(--color-plex-panel);
+  padding: 7px 9px 8px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 56px;
+}
+.wf-rr:hover {
+  border-color: var(--color-plex-border-light);
+  background: var(--color-plex-surface);
+}
+/* 3:1 non-text minimum against the panel, which the hover tint alone does not meet — the same rule
+   `index.css` states for every other control on this arm. */
+.wf-rr:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+/* 0.55, not 0.5 — measured 2.80:1 on the panel and 2.56:1 on the lead card's gold wash, both under
+   SC 1.4.11's 3:1, and this border is the ENTIRE visual selection signal for a region cell (its text
+   does not change on selection, unlike the All cell's "Show"/"Showing"). 0.55 clears it at 3.12:1
+   and is the value `.wf-rdot.on` below already uses for the same state. */
+.wf-rr.on {
+  background: rgba(201, 162, 75, 0.1);
+  border-color: rgba(201, 162, 75, 0.55);
+}
+.wf-rr[data-verdict="WORTH_IT"] { border-left-color: var(--color-verdict-go); }
+.wf-rr[data-verdict="MAYBE"] { border-left-color: var(--color-verdict-marginal); }
+.wf-rr[data-verdict="STAND_DOWN"] { border-left-color: var(--color-verdict-standdown); }
+/* Doubled specificity so it beats `.wf-rr:hover` and `.wf-rr.on`, both (0,2,0) and both later in
+   the file. Without it the All cell — which is `on` by DEFAULT — is the one rail cell whose left
+   stripe is a wash rather than its channel, and the only one that turns grey on hover. */
+.wf-rr.wf-rr-all { border-left-color: var(--color-close-to-home); }
+.wf-rr-n {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+/* ⚠️ The lifted `--color-badge-*` variants, never the `--color-verdict-*` fills. At 9.5px the fills
+   put "Poor" below AA on this panel — the identical measurement the heat strip's own verdict word
+   records, and the seventh time this file has made that correction. */
+.wf-rr-v {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--color-plex-text-secondary);
+}
+.wf-rr[data-verdict="WORTH_IT"] .wf-rr-v { color: var(--color-badge-go); }
+.wf-rr[data-verdict="MAYBE"] .wf-rr-v { color: var(--color-badge-maybe); }
+.wf-rr[data-verdict="STAND_DOWN"] .wf-rr-v { color: var(--color-badge-poor); }
+.wf-rr-all .wf-rr-v { color: var(--color-close-to-home); }
+.wf-rr-m {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--color-plex-text-secondary);
+  margin-top: auto;
+}
+
+.wf-rband {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 16px;
+  align-items: start;
+  margin: 0 14px 11px;
+  padding: 9px 12px 10px;
+  border: 1px solid var(--color-plex-border);
+  border-left: 2px solid var(--color-plex-border-light);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.022);
+}
+.wf-rband[data-verdict="WORTH_IT"] { border-left-color: var(--color-verdict-go); }
+.wf-rband[data-verdict="MAYBE"] { border-left-color: var(--color-verdict-marginal); }
+.wf-rband[data-verdict="STAND_DOWN"] { border-left-color: var(--color-verdict-standdown); }
+.wf-rband-hdr {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+.wf-rband-n {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.wf-rband-k {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-rband-x {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-badge-tide);
+  background: none;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  margin-left: auto;
+  border-radius: 4px;
+}
+.wf-rband-x:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+.wf-rband-narr,
+.wf-rband-none {
+  grid-column: 1;
+  grid-row: 2;
+  margin-top: 4px;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+/* Serif, which on this arm means prose written by Claude rather than a figure we derived. The
+   narrative is the one thing on the open row that explains WHY. */
+.wf-rband-narr {
+  font-family: var(--font-serif);
+  font-size: 13px;
+  color: var(--color-plex-text-secondary);
+  max-width: 74ch;
+}
+/* Mono and smaller: this is a statement about the absence of prose, not prose. */
+.wf-rband-none {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-rband-figs {
+  grid-column: 1;
+  grid-row: 3;
+  display: flex;
+  gap: 14px;
+  margin-top: 7px;
+  flex-wrap: wrap;
+}
+.wf-rband-fig {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-secondary);
+  line-height: 1.3;
+}
+.wf-rband-fig b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+}
+.wf-rband-right {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  align-items: flex-end;
+}
+.wf-rband-lab {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+  text-align: right;
+}
+.wf-rdots {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(30px, 1fr));
+  gap: 3px;
+}
+.wf-rdot {
+  border: 1px solid var(--color-plex-border);
+  border-radius: 5px;
+  background: var(--color-plex-panel);
+  padding: 4px 2px 5px;
+  cursor: pointer;
+  text-align: center;
+  font: inherit;
+  position: relative;
+}
+.wf-rdot:hover { border-color: var(--color-plex-border-light); }
+.wf-rdot:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+.wf-rdot.on {
+  border-color: rgba(201, 162, 75, 0.55);
+  background: rgba(201, 162, 75, 0.1);
+}
+.wf-rdot-d {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  color: var(--color-plex-text-secondary);
+  display: block;
+}
+.wf-rdot-sw {
+  display: block;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  margin-top: 3px;
+}
+/* An unscored window gets a hairline rather than a colour — see the component's own note on why a
+   ramp-bottom bar would say "poor" about a night nobody has looked at. */
+.wf-rdot-sw[data-unscored="true"] {
+  height: 2px;
+  margin-top: 4px;
+  background: var(--color-plex-border-light);
+}
+/* ⚠️ ITS OWN ROW, not the design's absolutely-positioned corner, and the desktop track is why.
+   `.wf-rdots` is `repeat(6, minmax(30px, 1fr))` inside the band's `auto` column, so every track
+   resolves to the 30px floor — 24px of content — while `Sat↑` in 8px mono measures ~20.5px. That
+   leaves under 2px of slack a side, and a 7.5px mark in either top corner lands on the label:
+   measured in the browser at 1280, top-right overlapped the ↑/↓ by ~5px (the one glyph
+   distinguishing sunrise from sunset) and top-left then overlapped the weekday's first letter by
+   ~7px. Both were seen, not derived.
+
+   Taking it out of the line removes the class of bug rather than retuning it: no width, no font
+   fallback, no user minimum font size and no future change to the base line-height can make a row
+   of its own overlap the row above. It costs the dot ~9px of height, which the band has. */
+.wf-rdot-pk {
+  display: block;
+  margin-top: 2px;
+  font-size: 7.5px;
+  line-height: 1;
+  color: var(--color-badge-go);
+  pointer-events: none;
+}
+/* Reserved on EVERY dot, so the marked one is not 9px taller than its five siblings — a track of
+   six that changes height when the peak moves reads as the strip jumping rather than as a mark. */
+.wf-rdot::after {
+  content: '';
+  display: block;
+  margin-top: 2px;
+  font-size: 7.5px;
+  line-height: 1;
+  height: 7.5px;
+}
+.wf-rdot:has(.wf-rdot-pk)::after {
+  display: none;
+}
+/* An away day keeps its slot and its swatch and is not a control — the strip's own rule for a
+   travel-day thumbnail, one surface along. */
+.wf-rdot-away {
+  cursor: default;
+  opacity: 0.75;
+}
+
+@media (max-width: 639px) {
+  .wf-rowmap,
+  .wf-rrail,
+  .wf-rband { margin: 0 12px 10px; }
+  .wf-rlab { margin: 0 12px 6px; }
+  /* The instruction goes: it is the widest clause on the label and everything on this surface is
+     self-evidently tappable. */
+  .wf-rlab-tail { display: none; }
+  /* Two up, with the All cell spanning — the design's phone rail. Its meta moves onto the same line
+     so the spanning cell does not cost a whole extra row of height. */
+  .wf-rrail { grid-template-columns: 1fr 1fr; }
+  .wf-rr-all {
+    grid-column: 1 / -1;
+    min-height: 46px;
+    flex-direction: row;
+    align-items: center;
+    gap: 9px;
+    flex-wrap: wrap;
+  }
+  .wf-rr-all .wf-rr-m { margin-top: 0; margin-left: auto; }
+  /* One column, and the dots take the full width rather than being pinned right against nothing. */
+  .wf-rband { grid-template-columns: 1fr; }
+  .wf-rband-hdr,
+  .wf-rband-narr,
+  .wf-rband-none,
+  .wf-rband-figs,
+  .wf-rband-right {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .wf-rband-right { align-items: stretch; }
+  .wf-rband-lab { text-align: left; margin-top: 4px; }
+}
+
 /* The Order control's note, drawn once above the away rows it explains. */
 .wf-order-note {
   font-size: 10px;
@@ -2368,7 +2763,15 @@ button.wf-hc:focus-visible {
 .wf-lens-empty-act,
 .wf-exp,
 .wf-door,
-.wf-promo-go {
+.wf-promo-go,
+/* P3's three: the region rail's cells, the band's clear control and its six window dots. They sit at
+   the TOP of an open card's body, which is the part of the pane a reader is most often scrolled to,
+   and a rail cell is 56px — barely taller than the bar's shortest state and shorter than three of
+   its four. Same reservation, same variable; added here rather than given their own rule because
+   the reason is identical and a second block is how a list like this rots. */
+.wf-rr,
+.wf-rband-x,
+.wf-rdot {
   scroll-margin-top: var(--wf-lens-reserve, 60px);
 }
 /* P7b adds the first thing on this pane that is scrolled to PROGRAMMATICALLY rather than by focus:

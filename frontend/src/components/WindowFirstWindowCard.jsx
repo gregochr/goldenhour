@@ -1,7 +1,27 @@
-import React from 'react';
+import React, { lazy, Suspense, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import WindowSpotStrip from './WindowSpotStrip.jsx';
 import WindowAttributeRow from './WindowAttributeRow.jsx';
+import {
+  activeFilterClauses, buildRegionRows, gateSpotsByRegion,
+} from '../utils/windowFirstRegions.js';
+
+/**
+ * ⚠️ LAZY, and it is not an optimisation — it is the plan's scope guard, measured.
+ *
+ * <p>This card is imported statically by {@code WindowFirstShell}, which {@code App} imports
+ * statically while {@code usePlanLayout} still defaults to <b>v1</b>. So a static import here puts
+ * the whole region layer — the heat kernel, its {@code d3-geo}/topojson dependencies, the rail and
+ * the band — into the entry chunk for every reader of an arm they never see. Measured against P2's
+ * baseline: <b>+21.4 KB raw / +7.2 KB gzip</b> with the kernel, and still +12.1 KB / +3.3 KB with
+ * only the rail and the band left static. P2 put the heat strip behind exactly this boundary for
+ * exactly this reason. See {@link WindowRowRegionLayer} for why all three ride one boundary.
+ *
+ * <p>{@code fallback={null}} rather than a skeleton: the map is a picture and the rail is a filter,
+ * so a frame that has not arrived should occupy nothing rather than reserving space for something a
+ * reader may never need. It is the same state the row is in before the catalogue joins.
+ */
+const WindowRowRegionLayer = lazy(() => import('./WindowRowRegionLayer.jsx'));
 import { badgeChannel, CONFIDENCE_VERDICTS, windowCardDomId } from '../utils/windowFirstCards.js';
 import { confidenceTreatment, daysOut, resolveConfidence, scaleRgbaAlpha } from '../utils/confidenceUtils.js';
 
@@ -139,7 +159,7 @@ const CHANNEL = {
  */
 export default function WindowFirstWindowCard({
   card, rank, todayStr, open = true, onToggle, onOpenPick, onOpenSpot, onSeeAllSpots, onLoosenLens,
-  peeksSuppressed, scoreIndex,
+  peeksSuppressed, scoreIndex, field,
 }) {
   // The colon in `card.key` is a legal HTML5 id character and `aria-controls` is an IDREF, not a
   // selector, so it would work — but it silently breaks `querySelector('#…')` and any CSS id
@@ -158,6 +178,60 @@ export default function WindowFirstWindowCard({
   // past its Poor early-return. The verdict gate leaves Poor and Awaiting undecayed, which is the
   // thing the null was standing in for.
   const scale = CONFIDENCE_VERDICTS.has(card.verdict) ? fillScale : 1;
+
+  /**
+   * The open row's region layer — absent unless the shell handed this card a {@code field}.
+   *
+   * <p>ONE grouped prop rather than nine loose ones, and the grouping is what keeps the card's
+   * default behaviour byte-identical: without it every branch below is false and the card renders
+   * exactly what it rendered at P2, which is what lets this component's existing tests stand
+   * unedited. It is also the shape the shell can withhold wholesale — a scores fetch that failed
+   * leaves no catalogue, and a row with no field map is a row, not a broken one.
+   */
+  // ⚠️ Keyed on the FIELDS, never on `field` itself, and gated on `open`. The shell rebuilds the
+  // container object whenever any card's selection moves — cheap, and its values stay referentially
+  // stable for exactly this reason — so depending on the container would make this memo a no-op and
+  // put a fresh array into `regionNames`, which is a dependency of the map's paint effect. That is
+  // the five-link chain that repainted every open row's canvas on every shell render. The `open`
+  // gate is the same rule one level up: every consumer below is inside the `open` branch, so a
+  // collapsed card was doing five other cards' worth of grouping for nothing.
+  const regionRows = useMemo(
+    () => (field && open
+      ? buildRegionRows(field.eventSummary, card.spots, card.allSpots, field.lens)
+      : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `field` is DELIBERATELY absent; see above
+    [field?.eventSummary, field?.lens, card.spots, card.allSpots, open],
+  );
+  const selectedRow = field?.selectedRegion
+    ? regionRows.find((row) => row.name === field.selectedRegion) || null
+    : null;
+  /**
+   * The strip the reader actually sees, gated a THIRD time.
+   *
+   * <p>Composed onto the lens rather than replacing it (plan §4.4): reach and rating are page-wide
+   * and durable, the region is per-card and dies with the row. Running last means the rail's count
+   * and this array are the same set — {@code buildRegionRows} counts {@code card.spots} by region
+   * and this filters {@code card.spots} to one, so the number on a cell is the number of cards that
+   * appear when it is pressed.
+   *
+   * <p>⚠️ A selection naming a region with nothing drawn is possible — the rail's own cells say so,
+   * and the map can select one too. The strip then renders nothing at all, so the region-emptied
+   * line below is what stops the row going silently blank. It is a different state from the LENS
+   * emptying a window and says so: the lens's own line offers to widen a tier and a floor, which
+   * here would point at two controls that are not what removed the spots.
+   */
+  const shownSpots = field?.selectedRegion
+    ? gateSpotsByRegion(card.spots, field.selectedRegion)
+    : card.spots;
+  const filters = field
+    ? activeFilterClauses({
+      regionName: field.selectedRegion || null,
+      minRating: field.lens?.minRating ?? null,
+      ratingLabel: field.lens?.ratingLabel ?? null,
+      limitMinutes: field.lens?.limitMinutes ?? null,
+      tierLabel: field.lens?.tierLabel ?? null,
+    })
+    : [];
 
   return (
     <div
@@ -413,20 +487,44 @@ export default function WindowFirstWindowCard({
       <div id={bodyId} data-testid="window-card-body">
         {open && (
           <>
+            {/* Field map → rail → band → the existing rows → the existing strip (plan §4.4). The
+                three new pieces sit ABOVE the tide row rather than beside it, because they answer a
+                question about the whole window and the rows answer questions about one attribute of
+                it — and because nothing below them moved, which is the exit criterion this phase is
+                held to. Canvas drawing is lazy by construction: none of this exists while the card
+                is collapsed. */}
+            {field && (
+              <Suspense fallback={null}>
+                <WindowRowRegionLayer
+                  field={field}
+                  card={card}
+                  regionRows={regionRows}
+                  selectedRow={selectedRow}
+                  filters={filters}
+                  todayStr={todayStr}
+                />
+              </Suspense>
+            )}
+
             {card.rows.length > 0 && (
               <div data-testid="window-card-rows" className="wf-rows">
                 {card.rows.map((row) => <WindowAttributeRow key={row.key} row={row} />)}
               </div>
             )}
 
-            {card.spots.length > 0 && (
+            {shownSpots.length > 0 && (
               <WindowSpotStrip
-                spots={card.spots}
+                spots={shownSpots}
                 // The kicker as well, for the reason the sheet's own header carries it: on a lead
                 // card `when` is the bare event word, so "See all spots in Sunset" and "Scroll
                 // Sunset spots left" name no day on the one card most likely to be read.
                 windowLabel={windowLabel}
                 total={card.reachTotal}
+                // The footer's third clause, and it names EVERY filter in force rather than the one
+                // this component just applied — plan §4.4. A footer saying "Northumberland" beside
+                // a count already trimmed by a tier and a floor would credit one control with three
+                // controls' work. Absent when nothing is in force, which is the ordinary case.
+                filters={filters}
                 lead={card.lead}
                 onOpenSpot={(spot) => onOpenSpot?.(card, spot)}
                 onSeeAll={onSeeAllSpots ? () => onSeeAllSpots(card) : undefined}
@@ -442,6 +540,33 @@ export default function WindowFirstWindowCard({
                 statement about the lens on a card the lens never touched. `buildLensEmptyState`
                 returns null in exactly that case, so the condition is the descriptor's existence
                 rather than a second reading of the same facts here. */}
+            {/* The region emptied it, which is a different state from the lens emptying it — and the
+                only one the reader can undo without touching a page-wide control. It carries NO
+                button of its own: the band's `Show all regions ×` and the rail's All cell are both
+                on screen a few pixels above — a third control saying the same words in the same row
+                is the "four affordances for one intention" the pre-pilot sweep convicts, and unlike
+                the lens's empty state the controls here cannot have been scrolled away. What the
+                line does is stop the row going silently blank, which a reader cannot tell apart from
+                a card that never had any spots. */}
+            {card.spots.length > 0 && shownSpots.length === 0 && field?.selectedRegion && (
+              <div data-testid="window-card-region-empty" className="wf-lens-empty">
+                <b data-testid="window-card-region-empty-head">
+                  {`Nothing in ${field.selectedRegion} for this window.`}
+                </b>
+                <span data-testid="window-card-region-empty-body">
+                  {filters.length > 1
+                    ? `${card.spots.length} spots are here under ${filters.slice(1).join(' · ')}, in other regions.`
+                    : `${card.spots.length} spots are here in other regions.`}
+                </span>
+              </div>
+            )}
+
+            {/* Still keyed on `card.spots`, NOT on `shownSpots`: this line names the reach tier and
+                the rating floor and offers buttons that loosen them, and a card the REGION emptied
+                would show it offering to widen two controls that are not what removed the spots.
+                The region's own emptiness is stated by the rail cell that says so and by the
+                footer's "0 of N" — both of which name the control the reader would actually
+                change. */}
             {card.spots.length === 0 && card.lensEmpty && (
               <div data-testid="window-card-lens-empty" className="wf-lens-empty">
                 <b data-testid="window-card-lens-empty-head">{card.lensEmpty.headline}</b>
@@ -525,6 +650,9 @@ WindowFirstWindowCard.propTypes = {
       headline: PropTypes.string.isRequired,
     }),
     spots: PropTypes.arrayOf(PropTypes.object).isRequired,
+    // The set BEFORE either gate — the rail's distance clause and the band's rating denominator are
+    // both measured on it, so a region the lens emptied can still say how far away it is.
+    allSpots: PropTypes.arrayOf(PropTypes.object),
     reachTotal: PropTypes.number,
     reachedTotal: PropTypes.number,
     withinReachCount: PropTypes.number,
@@ -551,4 +679,26 @@ WindowFirstWindowCard.propTypes = {
   onLoosenLens: PropTypes.func,
   peeksSuppressed: PropTypes.bool,
   scoreIndex: PropTypes.instanceOf(Map),
+  /**
+   * The open row's region layer, or absent. Grouped rather than spread across nine props so the
+   * shell can withhold the whole layer in one place and this card's pre-P3 behaviour is exactly
+   * what it renders without it.
+   */
+  field: PropTypes.shape({
+    eventSummary: PropTypes.object,
+    spots: PropTypes.array.isRequired,
+    points: PropTypes.array.isRequired,
+    windows: PropTypes.array.isRequired,
+    series: PropTypes.instanceOf(Map),
+    reachById: PropTypes.instanceOf(Map),
+    selectedRegion: PropTypes.string,
+    lens: PropTypes.shape({
+      limitMinutes: PropTypes.number,
+      tierLabel: PropTypes.string,
+      minRating: PropTypes.number,
+      ratingLabel: PropTypes.string,
+    }),
+    onSelectRegion: PropTypes.func,
+    onJumpWindow: PropTypes.func,
+  }),
 };

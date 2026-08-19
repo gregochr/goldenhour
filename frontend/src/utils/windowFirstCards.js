@@ -84,7 +84,7 @@ function eventTitle(targetType) {
  * product already speaks. {@code HeatmapGrid} and {@code DailyBriefing} both render "Awaiting", so
  * that is the word, on the neutral badge rather than the red one.
  */
-const VERDICT_LABEL = {
+export const VERDICT_LABEL = {
   WORTH_IT: 'Worth it',
   MAYBE: 'Maybe',
   STAND_DOWN: 'Poor',
@@ -131,7 +131,7 @@ function withinReachCount(spots, limitMinutes, minRating) {
 }
 
 /**
- * The best REGION mean in a window, over the same regions the backend's own ranking votes on.
+ * The regions of a window that may be ranked, named or counted — the projector's own filter.
  *
  * <p><b>An all-woodland region is excluded, and that exclusion is the whole of this function.</b>
  * {@code PlanWindowProjector.rank} drops a region holding no non-canopy slot before it ranks
@@ -147,24 +147,37 @@ function withinReachCount(spots, limitMinutes, minRating) {
  * ordinary misty sunrise: the fog that leaves every sky slot unrated is the same fog that scores
  * the wood well.
  *
+ * <p>Exported at P3 because the open row's rail and band rank, name and count the same set. Two
+ * copies of this filter would be two answers to "which regions exist in this window", and the one
+ * that got it wrong would be the surface a reader is looking at.
+ *
  * @param {?object} es the event summary
- * @returns {?number} the best eligible region mean, or null when none carries one
+ * @returns {Array<object>} the rankable regions, in payload order
  */
-function topMeanRating(es) {
+export function eligibleRegions(es) {
   const regions = es?.regions || [];
   const slots = regions.flatMap((region) => region?.slots || []);
   // An all-canopy WINDOW keeps its woods, exactly as the projector does: there is no sky answer to
   // prefer, and dropping every region would leave the window unrankable rather than honestly ranked
   // on what was measured.
-  const canopyCounts = slots.length > 0 && slots.every((slot) => slot.canopy);
-  let best = null;
-  for (const region of regions) {
+  const allCanopy = slots.length > 0 && slots.every((slot) => slot.canopy);
+  return regions.filter((region) => {
     const regionSlots = region?.slots || [];
     // A region with NO slots is kept: it carries no canopy claim either way, and the projector's
     // own filter passes it (`r.slots().isEmpty() || …anyMatch(s -> !s.canopy())`).
-    const eligible = canopyCounts || regionSlots.length === 0
-      || regionSlots.some((slot) => !slot.canopy);
-    if (!eligible) continue;
+    return allCanopy || regionSlots.length === 0 || regionSlots.some((slot) => !slot.canopy);
+  });
+}
+
+/**
+ * The best REGION mean in a window, over the same regions the backend's own ranking votes on.
+ *
+ * @param {?object} es the event summary
+ * @returns {?number} the best eligible region mean, or null when none carries one
+ */
+function topMeanRating(es) {
+  let best = null;
+  for (const region of eligibleRegions(es)) {
     const mean = region?.meanRating;
     if (typeof mean !== 'number' || !Number.isFinite(mean)) continue;
     if (best === null || mean > best) best = mean;

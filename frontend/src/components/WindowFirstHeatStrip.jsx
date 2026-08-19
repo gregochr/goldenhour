@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import {
-  aspect, bbox, clamp, drawGeo, land, load,
+  aspect, bbox, clamp, drawGeo,
 } from '../utils/heatField.js';
+import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { windowCardDomId } from '../utils/windowFirstCards.js';
 import { areaSpots, beyondRegions, GLANCE_MINUTES } from '../utils/planningArea.js';
@@ -29,14 +30,7 @@ const THUMB_BLUR = 2.4;
 const THUMB_LINE = 0.5;
 
 /**
- * The measurement floor and the retry budget.
- *
- * <p>{@code drawGeo} declines below 20px because a zero measure throws on {@code cv.width}, and the
- * arm's panes mount {@code display: none} — so the first measure can legitimately be zero. The
- * retry is the prototype's {@code drawThumbs(tries)}, and its budget covers <b>measurement only</b>:
- * "the geometry has not loaded yet" is the other reason {@code drawGeo} returns null, and polling
- * for it would let a budget sized for a layout tick expire before the topology chunk arrives. That
- * one is handled by {@link load}'s promise instead, which is what {@code land()} is exported for.
+ * The strip's own measurement floor, handed to {@link useHeatCanvas}.
  *
  * <p><b>25, not 21, and the extra four pixels are the height gate.</b> {@code drawGeo} tests BOTH
  * dimensions ({@code !(w > 20) || !(h > 20)}) while this measures width alone, and the height is
@@ -44,10 +38,11 @@ const THUMB_LINE = 0.5;
  * width of 22–24 the measurement passes, the height lands at 19–20, and {@code drawGeo} declines
  * with the retry budget already spent — a permanently blank canvas from a gate the retry cannot
  * see. 25 × 0.85 = 21.25, which clears it. Unreachable at any supported viewport (a 22px cell needs
- * a ~150px container), so this closes a latent mismatch rather than a live defect.
+ * a ~150px container), so this closes a latent mismatch rather than a live defect. The hook now
+ * carries the general form of that rule as well ({@code MIN_CANVAS_PX}); this constant is what
+ * makes it unreachable here, and is the boundary the strip's own tests pin.
  */
 const MIN_THUMB_PX = 25;
-const MAX_MEASURE_TRIES = 30;
 
 /**
  * The footer's ramp bar, built from the ramp module's own stops.
@@ -144,31 +139,6 @@ export function thumbAspect(fitTo) {
 export default function WindowFirstHeatStrip({
   cards, pointSets, spots, reachById, openKeys, todayStr, onOpenWindow,
 }) {
-  /**
-   * The grid, observed through a REF CALLBACK rather than a mount effect.
-   *
-   * <p>A `useEffect(…, [])` reading `gridRef.current` cannot work here, and the failure is total
-   * rather than occasional: on a cold load `cards` and `spots` are both empty, so this component
-   * returns null, the grid does not exist, and an effect with an empty dependency list never runs
-   * again. The observer would then be absent for the whole session — no repaint on a rotate, and
-   * none on the reveal of a pane that first mounted `display: none`, which is the case the
-   * observer exists for. A ref callback fires whenever the node attaches, whenever that is.
-   */
-  const observerRef = useRef(null);
-  const gridNodeRef = useRef(null);
-  const lastWidthRef = useRef(0);
-  const canvasRefs = useRef(new Map());
-  /** Bumped when the vendored geometry resolves, which is what re-runs the paint effect. */
-  const [landNonce, setLandNonce] = useState(0);
-  /** Bumped by the ResizeObserver — a reveal or a window resize, never a paint of its own. */
-  const [resizeNonce, setResizeNonce] = useState(0);
-  /**
-   * True when the topology chunk could not be fetched. The canvases are then not rendered at all
-   * rather than left as six black boxes: an empty frame implies a map that has nothing on it,
-   * which is a different (and false) claim from "the picture is unavailable". The words stay.
-   */
-  const [geoFailed, setGeoFailed] = useState(false);
-
   // Framing is the ONE thing the planning area is allowed to decide about the field (planningArea's
   // own module comment): which regions are in shot. It must never become the point set — handing
   // `areaSpots` to the kernel would turn the framing into the reach filter plan §3 forbids, and the
@@ -178,138 +148,46 @@ export default function WindowFirstHeatStrip({
   const fitTo = useMemo(() => bbox(framed), [framed]);
   const frameAspect = useMemo(() => thumbAspect(fitTo), [fitTo]);
 
-  useEffect(() => {
-    let cancelled = false;
-    // Whether the geometry was ALREADY resolved when this mounted, which decides whether the nonce
-    // is worth moving. `load()` resolves immediately in that case, and bumping would repaint six
-    // canvases the paint effect below has just drawn — a doubled first paint on every mount after
-    // the first. The call itself is still made unconditionally, so a REJECTION is always seen.
-    const alreadyLoaded = land() != null;
-    load()
-      .then(() => { if (!cancelled && !alreadyLoaded) setLandNonce((n) => n + 1); })
-      // Swallowed into a rendering state rather than rethrown: an unhandled rejection here shows
-      // as a permanent loading state with no visible cause, which is exactly what `load`'s own
-      // docs warn callers about.
-      .catch(() => { if (!cancelled) setGeoFailed(true); });
-    return () => { cancelled = true; };
-  }, []);
-
-  const attachGrid = useCallback((node) => {
-    observerRef.current?.disconnect();
-    observerRef.current = null;
-    gridNodeRef.current = node;
-    if (!node || typeof ResizeObserver === 'undefined') return;
-    // Gated on the WIDTH actually changing, not on any observation. A ResizeObserver delivers one
-    // callback immediately on `observe()`, and the first paint itself resizes the grid (a canvas
-    // goes from its 300×150 intrinsic ratio to `width × frameAspect`), so an ungated observer
-    // repaints all six twice more on every mount — which would quietly undo the `alreadyLoaded`
-    // guard below, whose whole purpose is avoiding a doubled first paint.
-    //
-    // The zero box is skipped for the reason `WindowFirstMapPane` records: hiding a pane fires an
-    // observation at 0×0, and repainting against it would spend a frame proving the canvas is too
-    // small. The reveal fires its own observation, which is the one worth acting on.
-    const ro = new ResizeObserver(() => {
-      // ⚠️ `clientWidth`, NOT `getBoundingClientRect()`, and the difference is not stylistic: the
-      // paint measures the canvas well's `clientWidth`, so the observer has to watch the same
-      // quantity or the two can disagree about whether anything moved. Caught in the browser —
-      // in a host where `getBoundingClientRect()` answered 0 while `clientWidth` answered 82, this
-      // callback took the zero-box early return on every observation and the strip never repainted
-      // on a resize: at 360px the canvases were still drawn at the 390px width and clipped by
-      // `.wf-hc`'s own `overflow: hidden`, silently. One measurement API for both ends.
-      const width = node.clientWidth;
-      if (width === 0 || width === lastWidthRef.current) return;
-      lastWidthRef.current = width;
-      setResizeNonce((n) => n + 1);
-    });
-    ro.observe(node);
-    observerRef.current = ro;
-  }, []);
-
-  useEffect(() => () => observerRef.current?.disconnect(), []);
-
   /**
-   * The window's own resize, alongside the observer.
+   * One paint for all six, at one size.
    *
-   * <p>Belt and braces, and the braces are the ones that were measured. The prototype redrew on
-   * {@code window.resize} and this component started with a {@code ResizeObserver} alone, on the
-   * reasoning that an observer catches strictly more (a pane revealed from {@code display: none}
-   * fires no window resize). That is true and the observer stays for exactly that case — but in the
-   * browser it was checked in, the observer did not fire on a viewport change at all: at 360px the
-   * canvases were still drawn at their 390px width and clipped by {@code .wf-hc}'s
-   * {@code overflow: hidden}. Two triggers for one repaint is cheap; the repaint is idempotent
-   * (`lastWidthRef` makes a no-change resize a no-op) and the paint itself is six 4px-grid fields.
+   * <p>The six have to be comparable — that is the whole claim the strip makes — so
+   * {@link useHeatCanvas} takes ONE measurement (from the first thumbnail's well) and this callback
+   * spends it on every canvas. Memoised because the hook makes it a dependency of its paint effect;
+   * an inline arrow would repaint on every render.
    */
-  useEffect(() => {
-    const onResize = () => {
-      const width = gridNodeRef.current?.clientWidth ?? 0;
-      if (width === 0 || width === lastWidthRef.current) return;
-      lastWidthRef.current = width;
-      setResizeNonce((n) => n + 1);
-    };
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
+  const paint = useCallback(({ width, height, canvases }) => {
+    for (const card of cards) {
+      const canvas = canvases.get(card.key);
+      if (!canvas) continue;
+      // The point sets are KEYED, never positional (heatSpots.js): the integer the kernel takes
+      // does not exist at this call site, and every point carries its one score at
+      // POINT_SCORE_INDEX.
+      const points = pointSets?.get?.(card.key) || [];
+      const tier = resolveConfidence(
+        { confidence: card.confidence }, daysOut(card.date, todayStr),
+      );
+      drawGeo(canvas, width, height, points, POINT_SCORE_INDEX, {
+        grid: THUMB_GRID,
+        radius: Math.max(THUMB_RADIUS_MIN, width * THUMB_RADIUS_FACTOR),
+        blur: THUMB_BLUR,
+        line: THUMB_LINE,
+        // One scalar for the haze and the badge decay, so the picture cannot look more certain
+        // than the word beside it (plan D3).
+        conf: confidenceScalar(tier),
+        fit: fitTo,
+      });
+    }
+  }, [cards, pointSets, fitTo, todayStr]);
 
-  useEffect(() => {
-    // `land()` rather than a retry: the paint effect re-runs when `landNonce` moves, so waiting
-    // here costs nothing and cannot consume the measurement budget (see MAX_MEASURE_TRIES).
-    if (geoFailed || !land() || cards.length === 0) return undefined;
-    let raf = 0;
-    let cancelled = false;
-    const attempt = (tries) => {
-      if (cancelled) return;
-      // ONE measurement for all six, taken from the first thumbnail's canvas well. The six have to
-      // be comparable — that is the whole claim the strip makes — and measuring each independently
-      // would let a sub-pixel column difference paint two of them at different scales. The well is
-      // an unpadded wrapper, so its `clientWidth` is the drawable width directly; measuring the
-      // button would need its padding subtracted, which is the prototype's `- 12` and a constant
-      // that silently rots the moment the stylesheet changes.
-      const first = canvasRefs.current.get(cards[0].key);
-      const well = first?.parentElement;
-      const cell = well ? well.clientWidth : 0;
-      if (!(cell > MIN_THUMB_PX)) {
-        if (tries < MAX_MEASURE_TRIES) raf = requestAnimationFrame(() => attempt(tries + 1));
-        return;
-      }
-      // P0 left this guard to whoever mounts a canvas, and this is that caller: `field`/`fit`
-      // DEREFERENCE the 2d context rather than declining, and a real browser can return null for it
-      // under memory pressure. Unguarded, the TypeError is thrown inside an effect and takes the
-      // whole Plan pane to the error boundary — six thumbnails costing the reader every window row.
-      // Checked once on the first canvas rather than per canvas: they are siblings created in one
-      // commit, so the condition is a property of the document rather than of one element.
-      if (!first.getContext('2d')) {
-        setGeoFailed(true);
-        return;
-      }
-      const height = Math.round(cell * frameAspect);
-      for (const card of cards) {
-        const canvas = canvasRefs.current.get(card.key);
-        if (!canvas) continue;
-        // The point sets are KEYED, never positional (heatSpots.js): the integer the kernel takes
-        // does not exist at this call site, and every point carries its one score at
-        // POINT_SCORE_INDEX.
-        const points = pointSets?.get?.(card.key) || [];
-        const tier = resolveConfidence(
-          { confidence: card.confidence }, daysOut(card.date, todayStr),
-        );
-        drawGeo(canvas, cell, height, points, POINT_SCORE_INDEX, {
-          grid: THUMB_GRID,
-          radius: Math.max(THUMB_RADIUS_MIN, cell * THUMB_RADIUS_FACTOR),
-          blur: THUMB_BLUR,
-          line: THUMB_LINE,
-          // One scalar for the haze and the badge decay, so the picture cannot look more certain
-          // than the word beside it (plan D3).
-          conf: confidenceScalar(tier),
-          fit: fitTo,
-        });
-      }
-    };
-    attempt(0);
-    return () => {
-      cancelled = true;
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, [cards, pointSets, fitTo, frameAspect, todayStr, landNonce, resizeNonce, geoFailed]);
+  const { attachFrame, canvasRef, geoFailed } = useHeatCanvas({
+    enabled: cards.length > 0,
+    // The first thumbnail's well is the measured box, and its width sizes all six.
+    measureKey: cards[0]?.key ?? null,
+    aspect: frameAspect,
+    minPx: MIN_THUMB_PX,
+    paint,
+  });
 
   // Nothing to index. The strip is a picture of the field, so with no catalogue joined — a scores
   // fetch that failed, a session with no roster — it withdraws entirely rather than drawing six
@@ -327,7 +205,7 @@ export default function WindowFirstHeatStrip({
         <span className="wf-hstrip-rule" aria-hidden="true" />
       </div>
 
-      <div ref={attachGrid} data-testid="wf-heat-grid" className="wf-hstrip">
+      <div ref={attachFrame} data-testid="wf-heat-grid" className="wf-hstrip">
         {cards.map((card) => {
           // Built once per card so the hidden sentence and the visible words cannot be assembled
           // from different values. The comma-separated form is what a screen reader pauses on.
@@ -364,10 +242,7 @@ export default function WindowFirstHeatStrip({
                   <canvas
                     aria-hidden="true"
                     data-testid="wf-heat-canvas"
-                    ref={(node) => {
-                      if (node) canvasRefs.current.set(card.key, node);
-                      else canvasRefs.current.delete(card.key);
-                    }}
+                    ref={canvasRef(card.key)}
                   />
                 </span>
               )}
